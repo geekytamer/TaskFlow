@@ -16,9 +16,9 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { placeholderTasks } from '@/modules/tasks/data';
-import type { Task } from '@/modules/tasks/types';
-import { taskStatuses } from '@/modules/tasks/types';
+import { placeholderTasks } from '@/modules/projects/data';
+import type { Task } from '@/modules/projects/types';
+import { taskStatuses } from '@/modules/projects/types';
 import TaskNode from './task-node';
 
 const nodeTypes = {

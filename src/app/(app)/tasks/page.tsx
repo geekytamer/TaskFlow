@@ -1,5 +1,5 @@
-import { TasksPage } from '@/modules/tasks/components/tasks-page';
+import { ProjectsPage } from '@/modules/projects/components/projects-page';
 
-export default function TasksRoute() {
-  return <TasksPage />;
+export default function ProjectsRoute() {
+  return <ProjectsPage />;
 }

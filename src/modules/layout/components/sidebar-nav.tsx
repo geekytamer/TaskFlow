@@ -6,11 +6,11 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
-import { LayoutDashboard, ListTodo, Users, Network } from 'lucide-react';
+import { LayoutDashboard, Users, Network, FolderKanban } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/tasks', label: 'Tasks', icon: ListTodo },
+  { href: '/tasks', label: 'Projects', icon: FolderKanban },
   { href: '/diagram', label: 'Diagram', icon: Network },
   { href: '/users', label: 'Users', icon: Users },
 ];
@@ -22,7 +22,7 @@ export function SidebarNav() {
     <SidebarMenu>
       {navItems.map((item) => {
         const Icon = item.icon;
-        const isActive = pathname === item.href;
+        const isActive = pathname === item.href || (item.href === '/tasks' && pathname.startsWith('/projects'));
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
