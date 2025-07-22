@@ -29,4 +29,5 @@ export interface Task {
   companyId: string;
   projectId: string;
   color?: string;
+  dependencies?: string[];
 }

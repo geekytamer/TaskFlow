@@ -48,6 +48,17 @@ const getNodesAndEdges = (companyId: string) => {
     if (task.status in tasksByStatus) {
       tasksByStatus[task.status].push(task);
     }
+    if (task.dependencies) {
+      task.dependencies.forEach(depId => {
+        initialEdges.push({
+          id: `e-${depId}-${task.id}`,
+          source: depId,
+          target: task.id,
+          animated: true,
+          style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
+        });
+      });
+    }
   });
 
   taskStatuses.forEach(status => {
