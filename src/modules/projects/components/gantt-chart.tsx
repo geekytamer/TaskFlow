@@ -75,11 +75,32 @@ export function GanttChart() {
   const [users] = React.useState<User[]>(placeholderUsers);
   const [projects] = React.useState<Project[]>(placeholderProjects);
   const [selectedProject, setSelectedProject] = React.useState('all');
+  
+  // In a real app, this would come from an auth hook
+  const currentUser = placeholderUsers[0]; 
+
+  const visibleProjects = React.useMemo(() => {
+    const userTaskProjectIds = tasks
+      .filter(t => t.assignedUserId === currentUser.id)
+      .map(t => t.projectId);
+
+    return projects.filter(p => 
+      p.companyId === currentUser.companyId && 
+      (p.visibility === 'Public' || userTaskProjectIds.includes(p.id) || currentUser.role === 'Admin')
+    );
+  }, [projects, tasks, currentUser]);
+
 
   const processedTasks = React.useMemo(() => {
     const today = startOfDay(new Date());
+    const visibleProjectIds = visibleProjects.map(p => p.id);
+
     return tasks
-    .filter(task => task.dueDate && (selectedProject === 'all' || task.projectId === selectedProject))
+    .filter(task => 
+        task.dueDate && 
+        visibleProjectIds.includes(task.projectId) &&
+        (selectedProject === 'all' || task.projectId === selectedProject)
+    )
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
         const duration = Math.max(1, Math.ceil(Math.random() * 10)); // Random duration for demo
@@ -101,7 +122,7 @@ export function GanttChart() {
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, users, projects, selectedProject]);
+  }, [tasks, users, projects, selectedProject, visibleProjects]);
   
   const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
   const maxDay = Math.max(10, ...processedTasks.map(t => t.ganttRange[1]));
@@ -118,7 +139,7 @@ export function GanttChart() {
                 </SelectTrigger>
                 <SelectContent>
                     <SelectItem value="all">All Projects</SelectItem>
-                    {projects.map((project) => (
+                    {visibleProjects.map((project) => (
                     <SelectItem key={project.id} value={project.id}>
                          <div className="flex items-center gap-2">
                             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
@@ -163,7 +184,7 @@ export function GanttChart() {
                         />
                     <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <Legend content={(props) => {
-                        const projectColors = projects.filter(p => selectedProject === 'all' || p.id === selectedProject)
+                        const projectColors = visibleProjects.filter(p => selectedProject === 'all' || p.id === selectedProject)
                         .map(p => ({color: p.color, value: p.name}));
                         return (
                             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-4">

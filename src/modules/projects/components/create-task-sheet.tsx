@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { placeholderUsers } from '@/modules/users/data';
-import { placeholderProjects } from '@/modules/projects/data';
+import { placeholderProjects, placeholderTasks } from '@/modules/projects/data';
 import { taskPriorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, X } from 'lucide-react';
@@ -35,13 +35,27 @@ import { useToast } from '@/hooks/use-toast';
 import { suggestTaskTags } from '@/ai/flows/suggest-task-tags';
 
 export function CreateTaskSheet() {
-  const [open, setOpen] = useState(false);
-  const [description, setDescription] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
-  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
-  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [description, setDescription] = React.useState('');
+  const [tags, setTags] = React.useState<string[]>([]);
+  const [tagInput, setTagInput] = React.useState('');
+  const [suggestedTags, setSuggestedTags] = React.useState<string[]>([]);
+  const [isSuggesting, setIsSuggesting] = React.useState(false);
   const { toast } = useToast();
+
+  // In a real app, this would come from an auth hook
+  const currentUser = placeholderUsers[0]; 
+
+  const visibleProjects = React.useMemo(() => {
+    const userTaskProjectIds = placeholderTasks
+      .filter(t => t.assignedUserId === currentUser.id)
+      .map(t => t.projectId);
+
+    return placeholderProjects.filter(p => 
+      p.companyId === currentUser.companyId && 
+      (p.visibility === 'Public' || userTaskProjectIds.includes(p.id) || currentUser.role === 'Admin')
+    );
+  }, [currentUser]);
 
   const handleSuggestTags = async () => {
     if (!description) {
@@ -105,7 +119,7 @@ export function CreateTaskSheet() {
                     <SelectValue placeholder="Select a project" />
                     </SelectTrigger>
                     <SelectContent>
-                    {placeholderProjects.map((project) => (
+                    {visibleProjects.map((project) => (
                         <SelectItem key={project.id} value={project.id}>
                             <div className="flex items-center gap-2">
                                 <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />

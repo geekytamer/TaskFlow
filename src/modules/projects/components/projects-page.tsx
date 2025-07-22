@@ -1,7 +1,6 @@
 import { GanttChart } from '@/modules/projects/components/gantt-chart';
 import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
-import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { CreateProjectSheet } from '@/modules/projects/components/create-project-sheet';
 
 export function ProjectsPage() {
   return (
@@ -14,7 +13,7 @@ export function ProjectsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-            <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" />New Project</Button>
+            <CreateProjectSheet />
             <CreateTaskSheet />
         </div>
       </div>

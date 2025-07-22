@@ -6,11 +6,15 @@ export type TaskPriority = 'Low' | 'Medium' | 'High';
 
 export const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 
+export type ProjectVisibility = 'Public' | 'Private';
+export const projectVisibilities: ProjectVisibility[] = ['Public', 'Private'];
+
 export interface Project {
   id: string;
   name: string;
   color: string;
   companyId: string;
+  visibility: ProjectVisibility;
 }
 
 export interface Task {

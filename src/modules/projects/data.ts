@@ -3,10 +3,10 @@ import type { Task, Project } from './types';
 const today = new Date();
 
 export const placeholderProjects: Project[] = [
-  { id: 'proj-1', name: 'Website Redesign', color: '#4A90E2', companyId: '1'},
-  { id: 'proj-2', name: 'Q3 Marketing', color: '#F5A623', companyId: '1'},
-  { id: 'proj-3', name: 'Mobile App Launch', color: '#7ED321', companyId: '1' },
-  { id: 'proj-4', name: 'Synergy Platform', color: '#B452E5', companyId: '2' },
+  { id: 'proj-1', name: 'Website Redesign', color: '#4A90E2', companyId: '1', visibility: 'Public'},
+  { id: 'proj-2', name: 'Q3 Marketing', color: '#F5A623', companyId: '1', visibility: 'Public'},
+  { id: 'proj-3', name: 'Mobile App Launch', color: '#7ED321', companyId: '1', visibility: 'Private' },
+  { id: 'proj-4', name: 'Synergy Platform', color: '#B452E5', companyId: '2', visibility: 'Public' },
 ]
 
 export const placeholderTasks: Task[] = [
@@ -100,7 +100,7 @@ export const placeholderTasks: Task[] = [
     status: 'To Do',
     priority: 'High',
     dueDate: new Date(today.setDate(today.getDate() + 7)),
-    assignedUserId: '2',
+    assignedUserId: '1', // Alice (admin) can see this private project task
     tags: ['Marketing', 'Mobile'],
     companyId: '1',
     projectId: 'proj-3',
@@ -113,7 +113,7 @@ export const placeholderTasks: Task[] = [
     status: 'In Progress',
     priority: 'Medium',
     dueDate: new Date(today.setDate(today.getDate() + 2)),
-    assignedUserId: '3',
+    assignedUserId: '1', // Alice (admin) can see this private project task
     tags: ['Testing', 'Mobile'],
     companyId: '1',
     projectId: 'proj-3',
