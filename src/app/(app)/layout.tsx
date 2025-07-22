@@ -12,11 +12,10 @@ import {
   SidebarInset,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { UserNav } from '@/components/layout/user-nav';
-import { CompanySwitcher } from '@/components/layout/company-switcher';
-import { SidebarNav } from '@/components/layout/sidebar-nav';
+import { UserNav } from '@/modules/users/components/user-nav';
+import { CompanySwitcher } from '@/modules/companies/components/company-switcher';
+import { SidebarNav } from '@/modules/layout/components/sidebar-nav';
 import { Logo } from '@/components/icons/logo';
-import { Skeleton } from '@/components/ui/skeleton';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
