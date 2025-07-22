@@ -15,10 +15,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  placeholderUsers,
   placeholderProjects,
   placeholderComments,
 } from '@/modules/projects/data';
+import { placeholderUsers } from '@/modules/users/data';
 import type { Task, Comment } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
