@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal } from 'lucide-react';
 import { placeholderUsers } from '@/modules/users/data';
+import { placeholderCompanies, placeholderPositions } from '@/modules/companies/data';
 import type { UserRole } from '@/modules/users/types';
 
 const roleColors: Record<UserRole, string> = {
@@ -27,7 +28,7 @@ const roleColors: Record<UserRole, string> = {
 }
 
 export function UserTable() {
-  const users = placeholderUsers.filter((u) => u.companyId === '1'); // Mock company filter
+  const users = placeholderUsers; // In a real app, this would be filtered by selected company
 
   return (
     <div className="rounded-lg border">
@@ -35,49 +36,57 @@ export function UserTable() {
         <TableHeader>
           <TableRow>
             <TableHead>User</TableHead>
+            <TableHead>Company</TableHead>
+            <TableHead>Position</TableHead>
             <TableHead>Role</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {users.map((user) => (
-            <TableRow key={user.id}>
-              <TableCell>
-                <div className="flex items-center gap-3">
-                  <Avatar>
-                    <AvatarImage src={user.avatar} />
-                    <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium">{user.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {user.email}
-                    </p>
+          {users.map((user) => {
+            const company = placeholderCompanies.find(c => c.id === user.companyId);
+            const position = placeholderPositions.find(p => p.id === user.positionId);
+            return (
+              <TableRow key={user.id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <Avatar>
+                      <AvatarImage src={user.avatar} />
+                      <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">{user.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {user.email}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
-                      <span className="sr-only">Open menu</span>
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                    <DropdownMenuItem>Edit User</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                      Delete User
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
+                </TableCell>
+                <TableCell>{company?.name || 'N/A'}</TableCell>
+                <TableCell>{position?.title || 'N/A'}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
+                </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-8 w-8 p-0">
+                        <span className="sr-only">Open menu</span>
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      <DropdownMenuItem>Edit User</DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                        Delete User
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>

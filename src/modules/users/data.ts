@@ -1,9 +1,9 @@
 import type { User } from './types';
 
 export const placeholderUsers: User[] = [
-  { id: '1', name: 'Alice Admin', email: 'alice@innovate.com', role: 'Admin', companyId: '1', avatar: 'https://i.pravatar.cc/150?u=1' },
-  { id: '2', name: 'Bob Manager', email: 'bob@innovate.com', role: 'Manager', companyId: '1', avatar: 'https://i.pravatar.cc/150?u=2' },
-  { id: '3', name: 'Charlie Employee', email: 'charlie@innovate.com', role: 'Employee', companyId: '1', avatar: 'https://i.pravatar.cc/150?u=3' },
-  { id: '4', name: 'Diana Manager', email: 'diana@synergy.com', role: 'Manager', companyId: '2', avatar: 'https://i.pravatar.cc/150?u=4' },
-  { id: '5', name: 'Ethan Employee', email: 'ethan@synergy.com', role: 'Employee', companyId: '2', avatar: 'https://i.pravatar.cc/150?u=5' },
+  { id: '1', name: 'Alice Admin', email: 'alice@innovate.com', role: 'Admin', companyId: '1', positionId: 'pos-2', avatar: 'https://i.pravatar.cc/150?u=1' },
+  { id: '2', name: 'Bob Manager', email: 'bob@innovate.com', role: 'Manager', companyId: '1', positionId: 'pos-1', avatar: 'https://i.pravatar.cc/150?u=2' },
+  { id: '3', name: 'Charlie Employee', email: 'charlie@innovate.com', role: 'Employee', companyId: '1', positionId: 'pos-3', avatar: 'https://i.pravatar.cc/150?u=3' },
+  { id: '4', name: 'Diana Manager', email: 'diana@synergy.com', role: 'Manager', companyId: '2', positionId: 'pos-4', avatar: 'https://i.pravatar.cc/150?u=4' },
+  { id: '5', name: 'Ethan Employee', email: 'ethan@synergy.com', role: 'Employee', companyId: '2', positionId: 'pos-5', avatar: 'https://i.pravatar.cc/150?u=5' },
 ];

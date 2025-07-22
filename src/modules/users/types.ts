@@ -6,5 +6,6 @@ export interface User {
   email: string;
   role: UserRole;
   companyId: string;
+  positionId?: string;
   avatar: string;
 }
