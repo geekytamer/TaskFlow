@@ -1,4 +1,4 @@
-import { KanbanBoard } from '@/components/tasks/kanban-board';
+import { GanttChart } from '@/components/tasks/gantt-chart';
 import { CreateTaskSheet } from '@/components/tasks/create-task-sheet';
 
 export default function TasksPage() {
@@ -6,14 +6,14 @@ export default function TasksPage() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between pb-4">
         <div>
-          <h1 className="text-3xl font-bold font-headline">Task Board</h1>
+          <h1 className="text-3xl font-bold font-headline">Task Gantt Chart</h1>
           <p className="text-muted-foreground">
-            Manage your team's tasks in one place.
+            View your project timeline and task dependencies.
           </p>
         </div>
         <CreateTaskSheet />
       </div>
-      <KanbanBoard />
+      <GanttChart />
     </div>
   );
 }
