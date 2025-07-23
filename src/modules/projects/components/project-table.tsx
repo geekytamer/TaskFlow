@@ -12,7 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { placeholderTasks, placeholderProjects } from '@/modules/projects/data';
 import { placeholderUsers } from '@/modules/users/data';
-import { taskStatuses, type TaskStatus } from '@/modules/projects/types';
+import { taskStatuses, type Task, type TaskStatus } from '@/modules/projects/types';
 import {
   Select,
   SelectContent,
@@ -23,11 +23,13 @@ import {
 import { format } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { TaskDetailsSheet } from './task-details-sheet';
 
 export function ProjectTable() {
     const [selectedProject, setSelectedProject] = React.useState('all');
     const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
     const [tasks, setTasks] = React.useState(placeholderTasks);
+    const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     
     // In a real app, this would come from an auth hook
     const currentUser = placeholderUsers[0]; 
@@ -51,8 +53,17 @@ export function ProjectTable() {
         );
     }, [tasks, selectedProject, selectedStatus, visibleProjects]);
 
+    const handleTaskClick = (task: Task) => {
+        setSelectedTask(task);
+    }
+
+    const handleSheetClose = () => {
+        setSelectedTask(null);
+    }
+
 
   return (
+    <>
     <div className="flex h-full flex-col gap-4">
         <div className="flex items-center gap-4">
             <Select value={selectedProject} onValueChange={setSelectedProject}>
@@ -103,7 +114,7 @@ export function ProjectTable() {
                     const project = placeholderProjects.find(p => p.id === task.projectId);
                     const user = placeholderUsers.find(u => u.id === task.assignedUserId);
                     return (
-                        <TableRow key={task.id}>
+                        <TableRow key={task.id} onClick={() => handleTaskClick(task)} className="cursor-pointer">
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell>
                             <div className="flex items-center gap-2">
@@ -137,5 +148,15 @@ export function ProjectTable() {
             </div>
         </ScrollArea>
     </div>
+    {selectedTask && (
+        <TaskDetailsSheet 
+            open={!!selectedTask}
+            onOpenChange={(open) => {
+                if (!open) handleSheetClose();
+            }}
+            task={selectedTask}
+        />
+    )}
+    </>
   );
 }
