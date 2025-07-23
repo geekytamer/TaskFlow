@@ -1,20 +1,9 @@
+
 'use server';
 
 import type { Task, Project, Comment } from '@/modules/projects/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, addDoc, updateDoc, query, where, Timestamp, deleteDoc, writeBatch } from 'firebase/firestore';
-
-export async function deleteAllDocumentsInCollection(collectionName: string) {
-    const collectionRef = collection(db, collectionName);
-    const q = query(collectionRef);
-    const querySnapshot = await getDocs(q);
-    const batch = writeBatch(db);
-    querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-    });
-    await batch.commit();
-}
-
+import { collection, getDocs, doc, getDoc, addDoc, updateDoc, query, where, Timestamp } from 'firebase/firestore';
 
 const convertTimestamp = (data: any) => {
     const dataWithDates = { ...data };
@@ -92,7 +81,7 @@ export async function getTaskById(id: string): Promise<Task | undefined> {
 
 export async function createTask(taskData: Omit<Task, 'id' | 'status'>): Promise<Task> {
     try {
-        const newTaskData = { ...taskData, status: 'To Do' };
+        const newTaskData = { ...taskData, status: 'To Do' as const };
         const docRef = await addDoc(collection(db, 'tasks'), newTaskData);
         return { id: docRef.id, status: 'To Do', ...taskData };
     } catch (error) {

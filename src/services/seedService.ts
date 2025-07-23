@@ -1,7 +1,8 @@
+
 'use server';
 
 import { db } from '@/lib/firebase';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, getDocs } from 'firebase/firestore';
 import {
   placeholderCompanies,
   placeholderPositions,
@@ -9,7 +10,17 @@ import {
   placeholderProjects,
   placeholderTasks,
 } from '@/lib/placeholder-data';
-import { deleteAllDocumentsInCollection } from './projectService';
+
+async function deleteAllDocumentsInCollection(collectionName: string) {
+    const collectionRef = collection(db, collectionName);
+    const q = query(collectionRef);
+    const querySnapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    querySnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+    await batch.commit();
+}
 
 export async function seedDatabase() {
   try {
@@ -61,7 +72,12 @@ export async function seedDatabase() {
     console.log('Seeding tasks...');
     placeholderTasks.forEach((task) => {
       const docRef = doc(db, 'tasks', task.id);
-      batch.set(docRef, { ...task, dueDate: task.dueDate ? new Date(task.dueDate) : undefined });
+      const taskForFirestore = {
+        ...task,
+        // Convert string date to Firestore Timestamp object if it exists
+        dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+      };
+      batch.set(docRef, taskForFirestore);
     });
     console.log('Tasks added to batch.');
 
