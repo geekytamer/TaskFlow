@@ -36,7 +36,7 @@ import {
 import { getUsersByCompany, getCurrentUser } from '@/services/userService';
 import { getProjects, createTask } from '@/services/projectService';
 import type { Project, User as UserType } from '@/lib/types';
-import { taskPriorities } from '@/modules/projects/types';
+import { taskPriorities, taskPriorities as priorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -53,7 +53,7 @@ const createTaskSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters.'),
   description: z.string().optional(),
   assignedUserIds: z.array(z.string()).optional(),
-  priority: z.enum(taskPriorities),
+  priority: z.enum(priorities),
   dueDate: z.date().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
@@ -76,8 +76,13 @@ export function CreateTaskSheet() {
   const form = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema),
     defaultValues: {
-      tags: [],
+      projectId: '',
+      title: '',
+      description: '',
       assignedUserIds: [],
+      priority: 'Medium',
+      tags: [],
+      color: '#cccccc'
     }
   });
 
@@ -105,8 +110,10 @@ export function CreateTaskSheet() {
         }));
         setCompanyUsers(userItems);
     }
-    loadData();
-  }, [selectedCompany]);
+    if (open) {
+      loadData();
+    }
+  }, [selectedCompany, open]);
 
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];
@@ -322,14 +329,14 @@ export function CreateTaskSheet() {
                      <FormItem className="grid grid-cols-4 items-center gap-4">
                       <FormLabel className="text-right">Priority</FormLabel>
                        <div className="col-span-3">
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select priority" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {taskPriorities.map((priority) => (
+                              {priorities.map((priority) => (
                                 <SelectItem key={priority} value={priority}>
                                   {priority}
                                 </SelectItem>
@@ -371,12 +378,18 @@ export function CreateTaskSheet() {
                     </FormItem>
                   )}
                 />
-                 <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="color" className="text-right">
-                        Task Color
-                    </Label>
-                    <Input id="color" type="color" className="col-span-3 p-1" defaultValue="#cccccc" />
-                </div>
+                <FormField
+                    control={form.control}
+                    name="color"
+                    render={({ field }) => (
+                        <FormItem className="grid grid-cols-4 items-center gap-4">
+                            <FormLabel className="text-right">Task Color</FormLabel>
+                            <FormControl>
+                                <Input id="color" type="color" className="col-span-3 p-1" {...field} />
+                            </FormControl>
+                        </FormItem>
+                    )}
+                />
               </div>
             </div>
             <SheetFooter>
