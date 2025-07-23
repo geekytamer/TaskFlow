@@ -17,15 +17,16 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
-import { placeholderCompanies } from '@/modules/companies/data';
-import type { Company } from '@/modules/companies/types';
+import { useCompany } from '@/context/company-context';
 
 export function CompanySwitcher() {
   const [open, setOpen] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState<Company>(
-    placeholderCompanies[0]
-  );
+  const { companies, selectedCompany, setSelectedCompany } = useCompany();
 
+  if (!selectedCompany) {
+    return null;
+  }
+  
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -48,7 +49,7 @@ export function CompanySwitcher() {
           <CommandList>
             <CommandEmpty>No company found.</CommandEmpty>
             <CommandGroup>
-              {placeholderCompanies.map((company) => (
+              {companies.map((company) => (
                 <CommandItem
                   key={company.id}
                   value={company.name}

@@ -24,32 +24,31 @@ import { format } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskDetailsSheet } from './task-details-sheet';
+import { useCompany } from '@/context/company-context';
 
 export function ProjectTable() {
     const [selectedProject, setSelectedProject] = React.useState('all');
     const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
     const [tasks, setTasks] = React.useState(placeholderTasks);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
+    const { selectedCompany } = useCompany();
     
     // In a real app, this would come from an auth hook
     const currentUser = placeholderUsers[0]; 
 
     const visibleProjects = React.useMemo(() => {
-        const userTaskProjectIds = tasks
-        .filter(t => t.assignedUserId === currentUser.id)
-        .map(t => t.projectId);
-
         return placeholderProjects.filter(p => 
-        p.companyId === currentUser.companyId && 
-        (p.visibility === 'Public' || userTaskProjectIds.includes(p.id) || currentUser.role === 'Admin')
+            p.companyId === selectedCompany?.id &&
+            (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
         );
-    }, [tasks, currentUser]);
+    }, [currentUser, selectedCompany]);
     
     const filteredTasks = React.useMemo(() => {
+        const visibleProjectIds = visibleProjects.map(p => p.id);
         return tasks.filter(task => 
-        (selectedProject === 'all' || task.projectId === selectedProject) &&
-        (selectedStatus === 'all' || task.status === selectedStatus) &&
-        visibleProjects.some(p => p.id === task.projectId)
+            (selectedProject === 'all' || task.projectId === selectedProject) &&
+            (selectedStatus === 'all' || task.status === selectedStatus) &&
+            visibleProjectIds.includes(task.projectId)
         );
     }, [tasks, selectedProject, selectedStatus, visibleProjects]);
 
@@ -105,14 +104,14 @@ export function ProjectTable() {
                     <TableHead>Project</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Priority</TableHead>
-                    <TableHead>Assignee</TableHead>
+                    <TableHead>Assignees</TableHead>
                     <TableHead>Due Date</TableHead>
                 </TableRow>
                 </TableHeader>
                 <TableBody>
                 {filteredTasks.map((task) => {
                     const project = placeholderProjects.find(p => p.id === task.projectId);
-                    const user = placeholderUsers.find(u => u.id === task.assignedUserId);
+                    const assignees = placeholderUsers.filter(u => task.assignedUserIds?.includes(u.id));
                     return (
                         <TableRow key={task.id} onClick={() => handleTaskClick(task)} className="cursor-pointer">
                         <TableCell className="font-medium">{task.title}</TableCell>
@@ -127,13 +126,14 @@ export function ProjectTable() {
                         </TableCell>
                         <TableCell>{task.priority}</TableCell>
                         <TableCell>
-                            {user && (
-                                <div className="flex items-center gap-2">
-                                <Avatar className="h-6 w-6">
-                                    <AvatarImage src={user.avatar} />
-                                    <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm">{user.name}</span>
+                            {assignees.length > 0 && (
+                                <div className="flex items-center -space-x-2">
+                                {assignees.map(user => (
+                                    <Avatar key={user.id} className="h-6 w-6 border-2 border-background">
+                                        <AvatarImage src={user.avatar} />
+                                        <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                ))}
                                 </div>
                             )}
                         </TableCell>

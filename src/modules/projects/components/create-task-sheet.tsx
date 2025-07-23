@@ -23,16 +23,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { placeholderUsers } from '@/modules/users/data';
-import { placeholderProjects, placeholderTasks } from '@/modules/projects/data';
+import { placeholderProjects } from '@/modules/projects/data';
 import { taskPriorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Sparkles, X } from 'lucide-react';
+import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { suggestTaskTags } from '@/ai/flows/suggest-task-tags';
+import { useCompany } from '@/context/company-context';
+import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 
 export function CreateTaskSheet() {
   const [open, setOpen] = React.useState(false);
@@ -42,20 +44,25 @@ export function CreateTaskSheet() {
   const [suggestedTags, setSuggestedTags] = React.useState<string[]>([]);
   const [isSuggesting, setIsSuggesting] = React.useState(false);
   const { toast } = useToast();
+  const { selectedCompany } = useCompany();
 
   // In a real app, this would come from an auth hook
   const currentUser = placeholderUsers[0]; 
 
   const visibleProjects = React.useMemo(() => {
-    const userTaskProjectIds = placeholderTasks
-      .filter(t => t.assignedUserId === currentUser.id)
-      .map(t => t.projectId);
-
     return placeholderProjects.filter(p => 
-      p.companyId === currentUser.companyId && 
-      (p.visibility === 'Public' || userTaskProjectIds.includes(p.id) || currentUser.role === 'Admin')
+      p.companyId === selectedCompany?.id &&
+      (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
     );
-  }, [currentUser]);
+  }, [currentUser, selectedCompany]);
+
+  const companyUsers: MultiSelectItem[] = placeholderUsers
+    .filter(u => u.companyId === selectedCompany?.id)
+    .map(user => ({
+      value: user.id,
+      label: user.name,
+      icon: User,
+    }));
 
   const handleSuggestTags = async () => {
     if (!description) {
@@ -195,22 +202,18 @@ export function CreateTaskSheet() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="assignee" className="text-right">
-                Assignee
+            <div className="grid grid-cols-4 items-start gap-4">
+              <Label className="text-right pt-2">
+                Assignees
               </Label>
-              <Select>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select a team member" />
-                </SelectTrigger>
-                <SelectContent>
-                  {placeholderUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+               <div className="col-span-3">
+                <MultiSelect
+                    items={companyUsers}
+                    selected={[]}
+                    onChange={() => {}}
+                    placeholder="Select assignees..."
+                />
+              </div>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="priority" className="text-right">

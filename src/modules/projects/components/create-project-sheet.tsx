@@ -22,12 +22,26 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { projectVisibilities, type ProjectVisibility } from '@/modules/projects/types';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, User } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
+import { placeholderUsers } from '@/modules/users/data';
+import { useCompany } from '@/context/company-context';
 
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
   const [color, setColor] = React.useState('#4A90E2');
+  const [visibility, setVisibility] = React.useState<ProjectVisibility>('Public');
+  const [selectedMembers, setSelectedMembers] = React.useState<string[]>([]);
+  const { selectedCompany } = useCompany();
+
+  const companyUsers: MultiSelectItem[] = placeholderUsers
+    .filter(u => u.companyId === selectedCompany?.id)
+    .map(user => ({
+      value: user.id,
+      label: user.name,
+      icon: User,
+    }));
 
   const defaultColors = [
     '#4A90E2', '#F5A623', '#7ED321', '#B452E5',
@@ -60,23 +74,42 @@ export function CreateProjectSheet() {
                 Visibility
               </Label>
                <div className="col-span-3">
-                <Select defaultValue='Public'>
+                <Select value={visibility} onValueChange={(v: ProjectVisibility) => setVisibility(v)}>
                     <SelectTrigger>
-                    <SelectValue placeholder="Select visibility" />
+                      <SelectValue placeholder="Select visibility" />
                     </SelectTrigger>
                     <SelectContent>
-                    {projectVisibilities.map((visibility) => (
-                        <SelectItem key={visibility} value={visibility}>
-                        {visibility}
+                    {projectVisibilities.map((vis) => (
+                        <SelectItem key={vis} value={vis}>
+                          {vis}
                         </SelectItem>
                     ))}
                     </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-2">
-                    Public projects are visible to everyone. Private projects are only visible to assigned members.
+                    Public projects are visible to everyone in the company. Private projects are only visible to selected members.
                 </p>
               </div>
             </div>
+            
+            {visibility === 'Private' && (
+                 <div className="grid grid-cols-4 items-start gap-4">
+                    <Label className="text-right pt-2">
+                        Members
+                    </Label>
+                    <div className="col-span-3">
+                        <MultiSelect
+                            items={companyUsers}
+                            selected={selectedMembers}
+                            onChange={setSelectedMembers}
+                            placeholder="Select members..."
+                        />
+                         <p className="text-xs text-muted-foreground mt-2">
+                            Select which members have access to this private project.
+                        </p>
+                    </div>
+                 </div>
+            )}
 
             <div className="grid grid-cols-4 items-start gap-4">
                 <Label htmlFor="color" className="text-right pt-2">

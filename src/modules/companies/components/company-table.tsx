@@ -16,9 +16,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
-import { placeholderCompanies } from '@/modules/companies/data';
+import { useCompany } from '@/context/company-context';
 
 export function CompanyTable() {
+  const { companies } = useCompany();
   return (
     <div>
         <div className="flex justify-end mb-4">
@@ -38,7 +39,7 @@ export function CompanyTable() {
             </TableRow>
             </TableHeader>
             <TableBody>
-            {placeholderCompanies.map((company) => (
+            {companies.map((company) => (
                 <TableRow key={company.id}>
                 <TableCell className="font-medium">{company.name}</TableCell>
                 <TableCell>

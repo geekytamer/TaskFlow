@@ -36,6 +36,8 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Calendar as CalendarIcon, User, Tag, Paperclip, MessageSquare, GripVertical } from 'lucide-react';
+import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
+import { useCompany } from '@/context/company-context';
 
 interface TaskDetailsSheetProps {
   open: boolean;
@@ -57,6 +59,7 @@ function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, l
 
 export function TaskDetailsSheet({ open, onOpenChange, task }: TaskDetailsSheetProps) {
   const { toast } = useToast();
+  const { selectedCompany } = useCompany();
   // In a real app, you would fetch fresh data or have a more robust state management solution
   const [editableTask, setEditableTask] = React.useState<Task>(task);
   const [comments, setComments] = React.useState<Comment[]>(
@@ -69,9 +72,16 @@ export function TaskDetailsSheet({ open, onOpenChange, task }: TaskDetailsSheetP
     setComments(placeholderComments.filter((c) => c.taskId === task.id));
   }, [task]);
 
-  const assignedUser = placeholderUsers.find((u) => u.id === editableTask.assignedUserId);
   const project = placeholderProjects.find((p) => p.id === editableTask.projectId);
   const currentUser = placeholderUsers[0]; // Mock current user
+
+  const companyUsers: MultiSelectItem[] = placeholderUsers
+    .filter(u => u.companyId === selectedCompany?.id)
+    .map(user => ({
+      value: user.id,
+      label: user.name,
+      icon: User,
+    }));
 
   const handleFieldChange = (field: keyof Task, value: any) => {
     setEditableTask(prev => ({...prev, [field]: value}));
@@ -136,38 +146,14 @@ export function TaskDetailsSheet({ open, onOpenChange, task }: TaskDetailsSheetP
                     </SelectContent>
                 </Select>
                </DetailRow>
-               <DetailRow icon={User} label="Assignee">
-                 <Select
-                    value={editableTask.assignedUserId}
-                    onValueChange={(value) => handleFieldChange('assignedUserId', value)}
-                 >
-                    <SelectTrigger className="w-[180px]">
-                         <SelectValue placeholder="Select Assignee">
-                            {assignedUser ? (
-                                <div className="flex items-center gap-2">
-                                    <Avatar className="h-6 w-6">
-                                        <AvatarImage src={assignedUser.avatar} />
-                                        <AvatarFallback>{assignedUser.name.charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                    <span>{assignedUser.name}</span>
-                                </div>
-                            ) : 'Unassigned'}
-                         </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                        {placeholderUsers.filter(u => u.companyId === task.companyId).map(user => (
-                            <SelectItem key={user.id} value={user.id}>
-                                <div className="flex items-center gap-2">
-                                    <Avatar className="h-6 w-6">
-                                        <AvatarImage src={user.avatar} />
-                                        <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                    <span>{user.name}</span>
-                                </div>
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                 </Select>
+               <DetailRow icon={User} label="Assignees">
+                 <MultiSelect
+                    items={companyUsers}
+                    selected={editableTask.assignedUserIds || []}
+                    onChange={(selected) => handleFieldChange('assignedUserIds', selected)}
+                    placeholder="Select assignees..."
+                    className="max-w-xs"
+                 />
                </DetailRow>
                <DetailRow icon={CalendarIcon} label="Due Date">
                  <Popover>

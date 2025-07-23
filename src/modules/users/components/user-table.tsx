@@ -20,6 +20,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { placeholderUsers } from '@/modules/users/data';
 import { placeholderCompanies, placeholderPositions } from '@/modules/companies/data';
 import type { UserRole } from '@/modules/users/types';
+import { useCompany } from '@/context/company-context';
 
 const roleColors: Record<UserRole, string> = {
     Admin: 'bg-primary text-primary-foreground',
@@ -28,7 +29,8 @@ const roleColors: Record<UserRole, string> = {
 }
 
 export function UserTable() {
-  const users = placeholderUsers; // In a real app, this would be filtered by selected company
+  const { selectedCompany } = useCompany();
+  const users = placeholderUsers.filter(u => u.companyId === selectedCompany?.id);
 
   return (
     <div className="rounded-lg border">

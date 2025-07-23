@@ -29,12 +29,13 @@ import { ChartContainer } from '@/components/ui/chart';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { ProjectLegend } from './project-legend';
+import { useCompany } from '@/context/company-context';
 
 
 const GanttTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
-      const user = placeholderUsers.find(u => u.id === data.assignedUserId);
+      const users = placeholderUsers.filter(u => data.assignedUserIds?.includes(u.id));
       const project = placeholderProjects.find(p => p.id === data.projectId);
       return (
         <Card className="w-60">
@@ -60,13 +61,17 @@ const GanttTooltip = ({ active, payload }: any) => {
                 <span className="text-muted-foreground">Duration:</span>
                 <span>{data.duration} days</span>
             </div>
-            {user && (
-                <div className="flex items-center pt-2 mt-2 border-t">
-                    <Avatar className="h-6 w-6 mr-2">
-                        <AvatarImage src={user.avatar} />
-                        <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-xs">{user.name}</span>
+            {users.length > 0 && (
+                <div className="pt-2 mt-2 border-t">
+                  <p className="text-muted-foreground mb-1">Assignees:</p>
+                  <div className="flex items-center space-x-2">
+                    {users.map(user => (
+                      <Avatar key={user.id} className="h-6 w-6">
+                          <AvatarImage src={user.avatar} />
+                          <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                    ))}
+                  </div>
                 </div>
             )}
           </CardContent>
@@ -78,24 +83,20 @@ const GanttTooltip = ({ active, payload }: any) => {
 
 export function GanttChart() {
   const [tasks] = React.useState<Task[]>(placeholderTasks);
-  const [users] = React.useState<User[]>(placeholderUsers);
   const [projects] = React.useState<Project[]>(placeholderProjects);
   const [selectedProject, setSelectedProject] = React.useState('all');
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
-  
+  const { selectedCompany } = useCompany();
+
   // In a real app, this would come from an auth hook
   const currentUser = placeholderUsers[0]; 
 
   const visibleProjects = React.useMemo(() => {
-    const userTaskProjectIds = tasks
-      .filter(t => t.assignedUserId === currentUser.id)
-      .map(t => t.projectId);
-
     return projects.filter(p => 
-      p.companyId === currentUser.companyId && 
-      (p.visibility === 'Public' || userTaskProjectIds.includes(p.id) || currentUser.role === 'Admin')
+      p.companyId === selectedCompany?.id &&
+      (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
     );
-  }, [projects, tasks, currentUser]);
+  }, [projects, currentUser, selectedCompany]);
 
 
   const processedTasks = React.useMemo(() => {
@@ -121,7 +122,6 @@ export function GanttChart() {
             endDate,
             duration,
             ganttRange: [differenceInDays(startDate, today), differenceInDays(endDate, today)],
-            assigneeName: users.find(u => u.id === task.assignedUserId)?.name || 'Unassigned',
             projectName: project?.name || 'Uncategorized',
             fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
@@ -130,7 +130,7 @@ export function GanttChart() {
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, users, projects, selectedProject, selectedStatus, visibleProjects]);
+  }, [tasks, projects, selectedProject, selectedStatus, visibleProjects]);
   
   const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
   const maxDay = Math.max(10, ...processedTasks.map(t => t.ganttRange[1]));

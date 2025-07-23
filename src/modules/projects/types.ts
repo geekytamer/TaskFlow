@@ -15,6 +15,7 @@ export interface Project {
   color: string;
   companyId: string;
   visibility: ProjectVisibility;
+  memberIds?: string[];
 }
 
 export interface Task {
@@ -24,7 +25,7 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   dueDate?: Date;
-  assignedUserId?: string;
+  assignedUserIds?: string[];
   tags: string[];
   companyId: string;
   projectId: string;

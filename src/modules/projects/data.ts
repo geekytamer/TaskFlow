@@ -5,7 +5,7 @@ const today = new Date();
 export const placeholderProjects: Project[] = [
   { id: 'proj-1', name: 'Website Redesign', color: '#4A90E2', companyId: '1', visibility: 'Public'},
   { id: 'proj-2', name: 'Q3 Marketing', color: '#F5A623', companyId: '1', visibility: 'Public'},
-  { id: 'proj-3', name: 'Mobile App Launch', color: '#7ED321', companyId: '1', visibility: 'Private' },
+  { id: 'proj-3', name: 'Mobile App Launch', color: '#7ED321', companyId: '1', visibility: 'Private', memberIds: ['1'] },
   { id: 'proj-4', name: 'Synergy Platform', color: '#B452E5', companyId: '2', visibility: 'Public' },
 ]
 
@@ -17,7 +17,7 @@ export const placeholderTasks: Task[] = [
     status: 'In Progress',
     priority: 'High',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5),
-    assignedUserId: '2',
+    assignedUserIds: ['2'],
     tags: ['UI/UX', 'Website'],
     companyId: '1',
     projectId: 'proj-1',
@@ -31,7 +31,7 @@ export const placeholderTasks: Task[] = [
     status: 'To Do',
     priority: 'High',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 10),
-    assignedUserId: '1',
+    assignedUserIds: ['1'],
     tags: ['Finance', 'Reporting'],
     companyId: '1',
     projectId: 'proj-2',
@@ -42,7 +42,7 @@ export const placeholderTasks: Task[] = [
     description: 'Update all client contact information and recent interactions in the CRM. Ensure all data is accurate and complete for the sales team.',
     status: 'To Do',
     priority: 'Medium',
-    assignedUserId: '3',
+    assignedUserIds: ['3'],
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 8),
     tags: ['CRM', 'Client Data'],
     companyId: '1',
@@ -55,7 +55,7 @@ export const placeholderTasks: Task[] = [
     status: 'Done',
     priority: 'High',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2),
-    assignedUserId: '2',
+    assignedUserIds: ['2'],
     tags: ['Bug', 'Auth'],
     companyId: '1',
     projectId: 'proj-1',
@@ -70,7 +70,8 @@ export const placeholderTasks: Task[] = [
     tags: ['HR', 'Onboarding'],
     companyId: '1',
     projectId: 'proj-2',
-    color: '#F8C77A'
+    color: '#F8C77A',
+    assignedUserIds: ['1', '3'],
   },
   {
     id: 'task-6',
@@ -79,7 +80,7 @@ export const placeholderTasks: Task[] = [
     status: 'To Do',
     priority: 'High',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 15),
-    assignedUserId: '4',
+    assignedUserIds: ['4'],
     tags: ['Marketing', 'Strategy'],
     companyId: '2',
     projectId: 'proj-4'
@@ -91,7 +92,7 @@ export const placeholderTasks: Task[] = [
     status: 'Done',
     priority: 'Medium',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5),
-    assignedUserId: '5',
+    assignedUserIds: ['5'],
     tags: ['Sales', 'Proposal'],
     companyId: '2',
     projectId: 'proj-4'
@@ -103,7 +104,7 @@ export const placeholderTasks: Task[] = [
     status: 'To Do',
     priority: 'High',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7),
-    assignedUserId: '1', // Alice (admin) can see this private project task
+    assignedUserIds: ['1'], // Alice (admin) can see this private project task
     tags: ['Marketing', 'Mobile'],
     companyId: '1',
     projectId: 'proj-3',
@@ -116,7 +117,7 @@ export const placeholderTasks: Task[] = [
     status: 'In Progress',
     priority: 'Medium',
     dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2),
-    assignedUserId: '1', // Alice (admin) can see this private project task
+    assignedUserIds: ['1'], // Alice (admin) can see this private project task
     tags: ['Testing', 'Mobile'],
     companyId: '1',
     projectId: 'proj-3',

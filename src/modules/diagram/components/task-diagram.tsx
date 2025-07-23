@@ -20,6 +20,7 @@ import { placeholderTasks } from '@/modules/projects/data';
 import type { Task } from '@/modules/projects/types';
 import { taskStatuses } from '@/modules/projects/types';
 import TaskNode from './task-node';
+import { useCompany } from '@/context/company-context';
 
 const nodeTypes = {
   taskNode: TaskNode,
@@ -78,10 +79,17 @@ const getNodesAndEdges = (companyId: string) => {
 
 
 export function TaskDiagram() {
-  // Mocking selected company ID. In a real app, this would come from context or props.
-  const { initialNodes, initialEdges } = useMemo(() => getNodesAndEdges('1'), []);
+  const { selectedCompany } = useCompany();
+  const { initialNodes, initialEdges } = useMemo(() => getNodesAndEdges(selectedCompany?.id || '1'), [selectedCompany]);
+  
   const [nodes, setNodes] = React.useState<Node<Task>[]>(initialNodes);
   const [edges, setEdges] = React.useState<Edge[]>(initialEdges);
+
+   React.useEffect(() => {
+    const { initialNodes, initialEdges } = getNodesAndEdges(selectedCompany?.id || '1');
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+  }, [selectedCompany]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
