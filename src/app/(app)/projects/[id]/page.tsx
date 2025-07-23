@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { notFound, useParams } from 'next/navigation';
+import { notFound, useParams, useRouter } from 'next/navigation';
 import { placeholderProjects } from '@/modules/projects/data';
 import { placeholderUsers } from '@/modules/users/data';
 import { useCompany } from '@/context/company-context';
@@ -9,6 +9,7 @@ import { ProjectTaskViews } from '@/modules/projects/components/project-task-vie
 import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
 
 export default function ProjectDetailsPage() {
+  const router = useRouter();
   const params = useParams();
   const { id } = params;
 
@@ -16,8 +17,9 @@ export default function ProjectDetailsPage() {
   const currentUser = placeholderUsers[0]; // Mock current user
 
   const project = React.useMemo(() => {
+    if (!selectedCompany) return null;
     const p = placeholderProjects.find(
-      (proj) => proj.id === id && proj.companyId === selectedCompany?.id
+      (proj) => proj.id === id && proj.companyId === selectedCompany.id
     );
     if (!p) return null;
 
@@ -27,9 +29,31 @@ export default function ProjectDetailsPage() {
     return p;
   }, [id, selectedCompany, currentUser]);
 
+  React.useEffect(() => {
+    if (selectedCompany && project && project.companyId !== selectedCompany.id) {
+        router.push('/projects');
+    }
+  }, [selectedCompany, project, router]);
+  
+  React.useEffect(() => {
+    // If the project doesn't exist for the current company after the company has been loaded, redirect.
+    if (selectedCompany && !project) {
+       // A small delay to allow context to propagate before checking
+       const timer = setTimeout(() => {
+            const p = placeholderProjects.find(
+                (proj) => proj.id === id && proj.companyId === selectedCompany.id
+            );
+            if (!p) {
+                router.push('/projects');
+            }
+       }, 100);
+       return () => clearTimeout(timer);
+    }
+  }, [id, selectedCompany, project, router]);
+
   if (!project) {
-    // In a real app, you might want a more sophisticated "not found" or "access denied" page
-    notFound();
+    // Render a loading state or null while waiting for context/effects to run
+    // This prevents the notFound() from being called prematurely.
     return null;
   }
 
