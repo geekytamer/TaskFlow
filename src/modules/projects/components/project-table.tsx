@@ -12,6 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { placeholderTasks, placeholderProjects } from '@/modules/projects/data';
 import { placeholderUsers } from '@/modules/users/data';
+import { taskStatuses, type TaskStatus } from '@/modules/projects/types';
 import {
   Select,
   SelectContent,
@@ -25,6 +26,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function ProjectTable() {
     const [selectedProject, setSelectedProject] = React.useState('all');
+    const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
     const [tasks, setTasks] = React.useState(placeholderTasks);
     
     // In a real app, this would come from an auth hook
@@ -44,14 +46,15 @@ export function ProjectTable() {
     const filteredTasks = React.useMemo(() => {
         return tasks.filter(task => 
         (selectedProject === 'all' || task.projectId === selectedProject) &&
+        (selectedStatus === 'all' || task.status === selectedStatus) &&
         visibleProjects.some(p => p.id === task.projectId)
         );
-    }, [tasks, selectedProject, visibleProjects]);
+    }, [tasks, selectedProject, selectedStatus, visibleProjects]);
 
 
   return (
     <div className="flex h-full flex-col gap-4">
-        <div>
+        <div className="flex items-center gap-4">
             <Select value={selectedProject} onValueChange={setSelectedProject}>
             <SelectTrigger className="w-[220px]">
                 <SelectValue placeholder="Filter by project..." />
@@ -67,6 +70,19 @@ export function ProjectTable() {
                 </SelectItem>
                 ))}
             </SelectContent>
+            </Select>
+             <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
+                <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    {taskStatuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                        {status}
+                    </SelectItem>
+                    ))}
+                </SelectContent>
             </Select>
         </div>
         <ScrollArea className="flex-1">
@@ -91,7 +107,7 @@ export function ProjectTable() {
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell>
                             <div className="flex items-center gap-2">
-                                {project && <span className="h-2 w-2 rounded-full" style={{backgroundColor: project.color}} />}
+                                {project && <span className="h-2 w-2 rounded-full" style={{backgroundColor: task.color || project.color}} />}
                                 {project?.name}
                             </div>
                         </TableCell>

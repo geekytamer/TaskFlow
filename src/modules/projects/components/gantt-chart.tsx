@@ -3,7 +3,8 @@
 import * as React from 'react';
 import { placeholderTasks, placeholderProjects } from '@/modules/projects/data';
 import { placeholderUsers } from '@/modules/users/data';
-import type { Task, Project } from '@/modules/projects/types';
+import type { Task, Project, TaskStatus } from '@/modules/projects/types';
+import { taskStatuses } from '@/modules/projects/types';
 import type { User } from '@/modules/users/types';
 import {
   BarChart,
@@ -13,7 +14,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  Legend,
   Cell
 } from 'recharts';
 import {
@@ -27,6 +27,7 @@ import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 
 
 const GanttTooltip = ({ active, payload }: any) => {
@@ -41,6 +42,10 @@ const GanttTooltip = ({ active, payload }: any) => {
                 <h3 className='text-base font-semibold'>{data.title}</h3>
             </CardHeader>
           <CardContent className="p-4 pt-0 text-sm">
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-muted-foreground">Status:</span>
+                <Badge variant="outline">{data.status}</Badge>
+            </div>
             {project && <p className="text-muted-foreground mb-2">Project: {project.name}</p>}
             <div className="flex justify-between">
                 <span className="text-muted-foreground">Start:</span>
@@ -75,6 +80,7 @@ export function GanttChart() {
   const [users] = React.useState<User[]>(placeholderUsers);
   const [projects] = React.useState<Project[]>(placeholderProjects);
   const [selectedProject, setSelectedProject] = React.useState('all');
+  const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   
   // In a real app, this would come from an auth hook
   const currentUser = placeholderUsers[0]; 
@@ -99,17 +105,14 @@ export function GanttChart() {
     .filter(task => 
         task.dueDate && 
         visibleProjectIds.includes(task.projectId) &&
-        (selectedProject === 'all' || task.projectId === selectedProject)
+        (selectedProject === 'all' || task.projectId === selectedProject) &&
+        (selectedStatus === 'all' || task.status === selectedStatus)
     )
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
         const duration = Math.max(1, Math.ceil(Math.random() * 10)); // Random duration for demo
         const startDate = addDays(endDate, -duration);
         const project = projects.find(p => p.id === task.projectId);
-
-        let statusColor = 'hsl(var(--chart-3))'; // To Do
-        if (task.status === 'In Progress') statusColor = 'hsl(var(--chart-2))';
-        if (task.status === 'Done') statusColor = 'hsl(var(--chart-1))';
 
         return {
             ...task,
@@ -119,14 +122,14 @@ export function GanttChart() {
             ganttRange: [differenceInDays(startDate, today), differenceInDays(endDate, today)],
             assigneeName: users.find(u => u.id === task.assignedUserId)?.name || 'Unassigned',
             projectName: project?.name || 'Uncategorized',
-            fill: statusColor
+            fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
     }).sort((a,b) => {
         if (a.projectName < b.projectName) return -1;
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, users, projects, selectedProject, visibleProjects]);
+  }, [tasks, users, projects, selectedProject, selectedStatus, visibleProjects]);
   
   const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
   const maxDay = Math.max(10, ...processedTasks.map(t => t.ganttRange[1]));
@@ -153,6 +156,19 @@ export function GanttChart() {
                     ))}
                 </SelectContent>
                 </Select>
+                 <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
+                    <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        {taskStatuses.map((status) => (
+                        <SelectItem key={status} value={status}>
+                            {status}
+                        </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
         </CardHeader>
         <CardContent className='flex-1 -mt-4'>
@@ -161,7 +177,7 @@ export function GanttChart() {
                     <BarChart
                         layout="vertical"
                         data={processedTasks}
-                        margin={{ top: 5, right: 30, left: 20, bottom: 20 }}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                         barCategoryGap={5}
                     >
                     <XAxis 
@@ -181,7 +197,7 @@ export function GanttChart() {
                                 <g transform={`translate(0,${y})`}>
                                     <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
                                         <div className="flex items-center gap-2" title={task.title}>
-                                            {project && <div className="h-2 w-2 rounded-full flex-shrink-0" style={{backgroundColor: project.color}} />}
+                                            {project && <div className="h-2 w-2 rounded-full flex-shrink-0" style={{backgroundColor: task.fill}} />}
                                             <p className='text-sm truncate font-medium'>{task.title}</p>
                                         </div>
                                     </foreignObject>
@@ -192,23 +208,6 @@ export function GanttChart() {
                         axisLine={false}
                         />
                     <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
-                    <Legend content={() => {
-                        const statuses = [
-                            { value: 'To Do', color: 'hsl(var(--chart-3))' },
-                            { value: 'In Progress', color: 'hsl(var(--chart-2))' },
-                            { value: 'Done', color: 'hsl(var(--chart-1))' },
-                        ]
-                        return (
-                            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-4">
-                                {statuses.map(s => (
-                                    <div key={s.value} className="flex items-center gap-2 text-xs">
-                                        <div className="w-3 h-3 rounded-full" style={{backgroundColor: s.color}}></div>
-                                        <span>{s.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )
-                    }} />
                     <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
                         {processedTasks.map((entry, index) => (
