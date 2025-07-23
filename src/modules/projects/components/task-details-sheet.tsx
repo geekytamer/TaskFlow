@@ -7,7 +7,6 @@ import {
   SheetHeader,
   SheetTitle,
   SheetDescription,
-  SheetClose,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -51,8 +50,39 @@ function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, l
 export function TaskDetailsSheet({ open, onOpenChange, task }: TaskDetailsSheetProps) {
   const assignedUser = placeholderUsers.find((u) => u.id === task.assignedUserId);
   const project = placeholderProjects.find((p) => p.id === task.projectId);
-  const comments = placeholderComments.filter((c) => c.taskId === task.id);
   const currentUser = placeholderUsers[0]; // Mock current user
+
+  const [comments, setComments] = React.useState<Comment[]>(
+    placeholderComments.filter((c) => c.taskId === task.id)
+  );
+  const [newComment, setNewComment] = React.useState('');
+
+  const handlePostComment = () => {
+    if (!newComment.trim()) return;
+
+    // This is where you would later call an API to save the comment.
+    // For now, we'll simulate it by adding to our local state.
+
+    const newCommentObject: Comment = {
+        id: `comment-${Date.now()}`,
+        taskId: task.id,
+        userId: currentUser.id,
+        content: newComment,
+        createdAt: new Date(),
+    };
+    
+    // Add to the placeholder data so it persists across sheet openings for the demo
+    placeholderComments.push(newCommentObject);
+
+    setComments(prevComments => [...prevComments, newCommentObject]);
+    setNewComment('');
+  };
+
+  // Effect to update comments if the task changes while the sheet is open
+  React.useEffect(() => {
+    setComments(placeholderComments.filter((c) => c.taskId === task.id));
+  }, [task.id]);
+
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -113,16 +143,23 @@ export function TaskDetailsSheet({ open, onOpenChange, task }: TaskDetailsSheetP
                             <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 space-y-2">
-                            <Textarea placeholder="Write a comment..." className="text-sm" />
+                            <Textarea 
+                                placeholder="Write a comment..." 
+                                className="text-sm"
+                                value={newComment}
+                                onChange={(e) => setNewComment(e.target.value)}
+                            />
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" size="sm"><Paperclip className="h-4 w-4 mr-2" />Attach</Button>
-                                <Button size="sm">Post Comment</Button>
+                                <Button size="sm" onClick={handlePostComment}>Post Comment</Button>
                             </div>
                         </div>
                     </div>
 
                     {/* Comments List */}
-                    {comments.map(comment => {
+                    {comments
+                        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+                        .map(comment => {
                         const commentUser = placeholderUsers.find(u => u.id === comment.userId);
                         return (
                              <div key={comment.id} className="flex items-start gap-3">
