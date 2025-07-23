@@ -10,9 +10,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { placeholderTasks, placeholderProjects } from '@/modules/projects/data';
-import { placeholderUsers } from '@/modules/users/data';
-import { taskStatuses, type Task, type TaskStatus } from '@/modules/projects/types';
+import { getTasks, getProjects, updateTask } from '@/services/projectService';
+import { getUsers, getCurrentUser } from '@/services/userService';
+import { taskStatuses, type Task, type TaskStatus, type Project, type User } from '@/modules/projects/types';
 import {
   Select,
   SelectContent,
@@ -25,6 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskDetailsSheet } from './task-details-sheet';
 import { useCompany } from '@/context/company-context';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface ProjectTableProps {
     projectId?: string;
@@ -32,31 +33,41 @@ interface ProjectTableProps {
 
 export function ProjectTable({ projectId }: ProjectTableProps) {
     const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
-    const [tasks, setTasks] = React.useState(placeholderTasks);
+    const [tasks, setTasks] = React.useState<Task[]>([]);
+    const [projects, setProjects] = React.useState<Project[]>([]);
+    const [users, setUsers] = React.useState<User[]>([]);
+    const [currentUser, setCurrentUser] = React.useState<User | null>(null);
+    const [loading, setLoading] = React.useState(true);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const { selectedCompany } = useCompany();
 
+    const loadData = React.useCallback(async () => {
+        if (!selectedCompany) return;
+        setLoading(true);
+        const [tasksData, projectsData, usersData, currentUserData] = await Promise.all([
+            getTasks(),
+            getProjects(),
+            getUsers(),
+            getCurrentUser(),
+        ]);
+        setTasks(tasksData);
+        setProjects(projectsData);
+        setUsers(usersData);
+        setCurrentUser(currentUserData);
+        setLoading(false);
+    }, [selectedCompany]);
+
     React.useEffect(() => {
-        // This is a workaround to force re-render when placeholderTasks is mutated.
-        // In a real app with a proper data fetching library, this would be handled automatically.
-        const interval = setInterval(() => {
-            if (tasks.length !== placeholderTasks.length) {
-                setTasks([...placeholderTasks]);
-            }
-        }, 1000);
-        return () => clearInterval(interval);
-    }, [tasks]);
-
+        loadData();
+    }, [loadData]);
     
-    // In a real app, this would come from an auth hook
-    const currentUser = placeholderUsers[0]; 
-
     const visibleProjects = React.useMemo(() => {
-        return placeholderProjects.filter(p => 
+        if (!currentUser) return [];
+        return projects.filter(p => 
             p.companyId === selectedCompany?.id &&
             (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
         );
-    }, [currentUser, selectedCompany]);
+    }, [currentUser, projects, selectedCompany]);
     
     const filteredTasks = React.useMemo(() => {
         const visibleProjectIds = visibleProjects.map(p => p.id);
@@ -71,10 +82,42 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
         setSelectedTask(task);
     }
 
-    const handleSheetClose = () => {
+    const handleSheetClose = (updated?: boolean) => {
         setSelectedTask(null);
-        // Optimistically update the table with the latest data from the placeholders
-        setTasks([...placeholderTasks]);
+        if (updated) {
+            loadData();
+        }
+    }
+    
+    if (loading) {
+        return (
+            <div className="rounded-lg border">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Task</TableHead>
+                            <TableHead>Project</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Priority</TableHead>
+                            <TableHead>Assignees</TableHead>
+                            <TableHead>Due Date</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                         {[...Array(5)].map((_, i) => (
+                             <TableRow key={i}>
+                                <TableCell><Skeleton className="h-5 w-48" /></TableCell>
+                                <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                                <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                                <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                                <TableCell><Skeleton className="h-6 w-12 rounded-full" /></TableCell>
+                                <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                            </TableRow>
+                         ))}
+                    </TableBody>
+                </Table>
+            </div>
+        )
     }
 
 
@@ -111,8 +154,8 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
                 </TableHeader>
                 <TableBody>
                 {filteredTasks.map((task) => {
-                    const project = placeholderProjects.find(p => p.id === task.projectId);
-                    const assignees = placeholderUsers.filter(u => task.assignedUserIds?.includes(u.id));
+                    const project = projects.find(p => p.id === task.projectId);
+                    const assignees = users.filter(u => task.assignedUserIds?.includes(u.id));
                     return (
                         <TableRow key={task.id} onClick={() => handleTaskClick(task)} className="cursor-pointer">
                         <TableCell className="font-medium">{task.title}</TableCell>
@@ -153,8 +196,9 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
         <TaskDetailsSheet 
             open={!!selectedTask}
             onOpenChange={(open) => {
-                if (!open) handleSheetClose();
+                if (!open) handleSheetClose(false);
             }}
+            onTaskUpdate={() => handleSheetClose(true)}
             task={selectedTask}
         />
     )}

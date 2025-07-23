@@ -1,27 +1,55 @@
 'use client';
 
 import * as React from 'react';
-import { placeholderProjects } from '@/modules/projects/data';
-import { placeholderUsers } from '@/modules/users/data';
+import { getProjects } from '@/services/projectService';
+import { getCurrentUser } from '@/services/userService';
 import { useCompany } from '@/context/company-context';
-import type { Project } from '@/modules/projects/types';
+import type { Project, User } from '@/lib/types';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function ProjectList() {
   const { selectedCompany } = useCompany();
-  const currentUser = placeholderUsers[0]; // Mock current user
+  const [projects, setProjects] = React.useState<Project[]>([]);
+  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    async function loadData() {
+      if (!selectedCompany) return;
+      setLoading(true);
+      const [projectsData, currentUserData] = await Promise.all([
+        getProjects(),
+        getCurrentUser()
+      ]);
+      setProjects(projectsData);
+      setCurrentUser(currentUserData);
+      setLoading(false);
+    }
+    loadData();
+  }, [selectedCompany]);
 
   const visibleProjects = React.useMemo(() => {
-    return placeholderProjects.filter(
+    if (!currentUser || !selectedCompany) return [];
+    return projects.filter(
       (p) =>
-        p.companyId === selectedCompany?.id &&
+        p.companyId === selectedCompany.id &&
         (p.visibility === 'Public' ||
           p.memberIds?.includes(currentUser.id) ||
           currentUser.role === 'Admin')
     );
-  }, [currentUser, selectedCompany]);
+  }, [projects, currentUser, selectedCompany]);
+  
+  if (loading) {
+      return (
+           <div className="flex w-max space-x-4 pb-4">
+               {[...Array(3)].map((_, i) => (
+                    <Skeleton key={i} className='w-[280px] h-[120px]' />
+               ))}
+           </div>
+      )
+  }
 
   return (
     <div>

@@ -1,11 +1,12 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import type { Task } from '@/modules/projects/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { placeholderProjects } from '@/modules/projects/data';
+import { getProjectById } from '@/services/projectService';
+import type { Project } from '@/modules/projects/types';
 
 const priorityColors: Record<Task['priority'], string> = {
   High: 'bg-red-500',
@@ -14,7 +15,18 @@ const priorityColors: Record<Task['priority'], string> = {
 };
 
 function TaskNode({ data }: NodeProps<Task>) {
-  const project = placeholderProjects.find(p => p.id === data.projectId);
+  const [project, setProject] = useState<Project | undefined>(undefined);
+  
+  useEffect(() => {
+    async function loadProject() {
+        if(data.projectId) {
+            const p = await getProjectById(data.projectId);
+            setProject(p);
+        }
+    }
+    loadProject();
+  }, [data.projectId]);
+
   const borderColor = data.color || project?.color || 'transparent';
 
   return (

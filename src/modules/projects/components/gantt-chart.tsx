@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { placeholderTasks, placeholderProjects } from '@/modules/projects/data';
-import { placeholderUsers } from '@/modules/users/data';
-import type { Task, Project, TaskStatus } from '@/modules/projects/types';
+import { getTasks, getProjects } from '@/services/projectService';
+import { getUsers, getCurrentUser } from '@/services/userService';
+import type { Task, Project, TaskStatus, User } from '@/modules/projects/types';
 import { taskStatuses } from '@/modules/projects/types';
 import {
   BarChart,
@@ -30,13 +30,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { ProjectLegend } from './project-legend';
 import { useCompany } from '@/context/company-context';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
-const GanttTooltip = ({ active, payload }: any) => {
+const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
-      const users = placeholderUsers.filter(u => data.assignedUserIds?.includes(u.id));
-      const project = placeholderProjects.find(p => p.id === data.projectId);
+      const users = allUsers.filter((u: User) => data.assignedUserIds?.includes(u.id));
+      const project = allProjects.find((p: Project) => p.id === data.projectId);
       return (
         <Card className="w-60">
             <CardHeader className='p-4 pb-2 flex flex-row items-center gap-2'>
@@ -65,7 +66,7 @@ const GanttTooltip = ({ active, payload }: any) => {
                 <div className="pt-2 mt-2 border-t">
                   <p className="text-muted-foreground mb-1">Assignees:</p>
                   <div className="flex items-center space-x-2">
-                    {users.map(user => (
+                    {users.map((user: User) => (
                       <Avatar key={user.id} className="h-6 w-6">
                           <AvatarImage src={user.avatar} />
                           <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
@@ -86,15 +87,35 @@ interface GanttChartProps {
 }
 
 export function GanttChart({ projectId }: GanttChartProps) {
-  const [tasks] = React.useState<Task[]>(placeholderTasks);
-  const [projects] = React.useState<Project[]>(placeholderProjects);
+  const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [projects, setProjects] = React.useState<Project[]>([]);
+  const [users, setUsers] = React.useState<User[]>([]);
+  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
+  const [loading, setLoading] = React.useState(true);
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const { selectedCompany } = useCompany();
 
-  // In a real app, this would come from an auth hook
-  const currentUser = placeholderUsers[0]; 
+  React.useEffect(() => {
+    async function loadData() {
+        if (!selectedCompany) return;
+        setLoading(true);
+        const [tasksData, projectsData, usersData, currentUserData] = await Promise.all([
+            getTasks(),
+            getProjects(),
+            getUsers(),
+            getCurrentUser(),
+        ]);
+        setTasks(tasksData);
+        setProjects(projectsData);
+        setUsers(usersData);
+        setCurrentUser(currentUserData);
+        setLoading(false);
+    }
+    loadData();
+  }, [selectedCompany]);
 
   const visibleProjects = React.useMemo(() => {
+    if (!currentUser) return [];
     return projects.filter(p => 
       p.companyId === selectedCompany?.id &&
       (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
@@ -134,6 +155,19 @@ export function GanttChart({ projectId }: GanttChartProps) {
         return a.startDate.getTime() - b.startDate.getTime()
     });
   }, [tasks, projects, projectId, selectedStatus, visibleProjects]);
+  
+  if (loading) {
+      return (
+          <Card className="h-full">
+              <CardHeader>
+                  <Skeleton className="h-8 w-48" />
+              </CardHeader>
+              <CardContent>
+                  <Skeleton className="h-[400px] w-full" />
+              </CardContent>
+          </Card>
+      )
+  }
   
   const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
   const maxDay = Math.max(10, ...processedTasks.map(t => t.ganttRange[1]));
@@ -197,7 +231,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         tickLine={false}
                         axisLine={false}
                         />
-                    <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
+                    <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
                         <LabelList dataKey="title" position="insideLeft" offset={10} className="fill-white font-semibold" />

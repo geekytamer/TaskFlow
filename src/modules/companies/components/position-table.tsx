@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import {
   Table,
   TableBody,
@@ -16,9 +17,55 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
-import { placeholderPositions, placeholderCompanies } from '@/modules/companies/data';
+import { getPositions, getCompanies } from '@/services/companyService';
+import type { Position, Company } from '@/modules/companies/types';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function PositionTable() {
+  const [positions, setPositions] = React.useState<Position[]>([]);
+  const [companies, setCompanies] = React.useState<Company[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    async function fetchData() {
+        setLoading(true);
+        const [positionsData, companiesData] = await Promise.all([
+            getPositions(),
+            getCompanies(),
+        ]);
+        setPositions(positionsData);
+        setCompanies(companiesData);
+        setLoading(false);
+    }
+    fetchData();
+  }, []);
+
+  if (loading) {
+      return (
+          <div className="rounded-lg border">
+              <Table>
+                  <TableHeader>
+                      <TableRow>
+                          <TableHead>Position Title</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                      {[...Array(5)].map((_, i) => (
+                          <TableRow key={i}>
+                              <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                              <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                              <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                          </TableRow>
+                      ))}
+                  </TableBody>
+              </Table>
+          </div>
+      )
+  }
+
+
   return (
     <div>
         <div className="flex justify-end mb-4">
@@ -37,8 +84,8 @@ export function PositionTable() {
             </TableRow>
             </TableHeader>
             <TableBody>
-            {placeholderPositions.map((position) => {
-              const company = placeholderCompanies.find(c => c.id === position.companyId);
+            {positions.map((position) => {
+              const company = companies.find(c => c.id === position.companyId);
               return (
                 <TableRow key={position.id}>
                   <TableCell className="font-medium">{position.title}</TableCell>

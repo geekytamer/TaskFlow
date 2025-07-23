@@ -33,9 +33,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { placeholderUsers } from '@/modules/users/data';
-import { placeholderProjects, placeholderTasks } from '@/modules/projects/data';
-import { taskPriorities, taskStatuses } from '@/modules/projects/types';
+import { getUsersByCompany, getCurrentUser } from '@/services/userService';
+import { getProjects, createTask } from '@/services/projectService';
+import type { Project, User as UserType } from '@/lib/types';
+import { taskPriorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -68,8 +69,9 @@ export function CreateTaskSheet() {
   const { toast } = useToast();
   const { selectedCompany } = useCompany();
 
-  // In a real app, this would come from an auth hook
-  const currentUser = placeholderUsers[0]; 
+  const [currentUser, setCurrentUser] = React.useState<UserType | null>(null);
+  const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
+  const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
 
   const form = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema),
@@ -79,23 +81,35 @@ export function CreateTaskSheet() {
     }
   });
 
+  React.useEffect(() => {
+    async function loadData() {
+        if (!selectedCompany) return;
+        const [user, projects, users] = await Promise.all([
+            getCurrentUser(),
+            getProjects(),
+            getUsersByCompany(selectedCompany.id),
+        ]);
+        
+        setCurrentUser(user);
+
+        const filteredProjects = projects.filter(p => 
+            p.companyId === selectedCompany?.id &&
+            (p.visibility === 'Public' || p.memberIds?.includes(user.id) || user.role === 'Admin')
+        );
+        setVisibleProjects(filteredProjects);
+        
+        const userItems = users.map(u => ({
+            value: u.id,
+            label: u.name,
+            icon: User,
+        }));
+        setCompanyUsers(userItems);
+    }
+    loadData();
+  }, [selectedCompany]);
+
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];
-
-  const visibleProjects = React.useMemo(() => {
-    return placeholderProjects.filter(p => 
-      p.companyId === selectedCompany?.id &&
-      (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
-    );
-  }, [currentUser, selectedCompany]);
-
-  const companyUsers: MultiSelectItem[] = placeholderUsers
-    .filter(u => u.companyId === selectedCompany?.id)
-    .map(user => ({
-      value: user.id,
-      label: user.name,
-      icon: User,
-    }));
 
   const handleSuggestTags = async () => {
     if (!descriptionValue) {
@@ -137,26 +151,27 @@ export function CreateTaskSheet() {
     form.setValue('tags', currentTags.filter((tag) => tag !== tagToRemove));
   };
   
-  const onSubmit = (data: CreateTaskFormValues) => {
-    const newTaskId = `task-${Date.now()}`;
-    const newTask = {
-        ...data,
-        id: newTaskId,
-        status: 'To Do' as const,
-        companyId: selectedCompany!.id,
-        tags: data.tags || [],
-    };
-    
-    // This is a mock implementation. In a real app, you would send this to your API.
-    placeholderTasks.unshift(newTask as any);
-
-    toast({
-      title: 'Task Created',
-      description: `Task "${data.title}" has been added to the project.`,
-    });
-    
-    form.reset();
-    setOpen(false);
+  const onSubmit = async (data: CreateTaskFormValues) => {
+    if (!selectedCompany) return;
+    try {
+        await createTask({
+            ...data,
+            companyId: selectedCompany.id,
+            tags: data.tags || [],
+        });
+        toast({
+        title: 'Task Created',
+        description: `Task "${data.title}" has been added to the project.`,
+        });
+        form.reset();
+        setOpen(false);
+    } catch (error) {
+         toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Failed to create task.',
+        });
+    }
   }
 
 

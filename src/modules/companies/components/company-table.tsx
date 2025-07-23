@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import {
   Table,
   TableBody,
@@ -17,9 +18,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
+import type { Company } from '@/modules/companies/types';
+import { getCompanies } from '@/services/companyService';
 
 export function CompanyTable() {
   const { companies } = useCompany();
+
   return (
     <div>
         <div className="flex justify-end mb-4">

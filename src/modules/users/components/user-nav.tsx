@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -12,17 +13,30 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { placeholderUsers } from '@/modules/users/data';
+import type { User } from '@/modules/users/types';
+import { getCurrentUser } from '@/services/userService';
 
 export function UserNav() {
   const router = useRouter();
-  const user = placeholderUsers[0]; // Mocking the current user
+  const [user, setUser] = React.useState<User | null>(null);
+
+  React.useEffect(() => {
+    async function loadUser() {
+      const userData = await getCurrentUser();
+      setUser(userData);
+    }
+    loadUser();
+  }, []);
 
   const handleLogout = () => {
     // Mock logout
     localStorage.removeItem('taskflow_user');
     router.push('/login');
   };
+
+  if (!user) {
+    return null; // Or a loading skeleton
+  }
 
   return (
     <DropdownMenu>

@@ -2,58 +2,67 @@
 
 import * as React from 'react';
 import { notFound, useParams, useRouter } from 'next/navigation';
-import { placeholderProjects } from '@/modules/projects/data';
-import { placeholderUsers } from '@/modules/users/data';
+import { getProjectById } from '@/services/projectService';
+import { getCurrentUser } from '@/services/userService';
+import type { Project, User } from '@/lib/types';
 import { useCompany } from '@/context/company-context';
 import { ProjectTaskViews } from '@/modules/projects/components/project-task-views';
 import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { id } = params;
+  const id = params.id as string;
 
   const { selectedCompany } = useCompany();
-  const currentUser = placeholderUsers[0]; // Mock current user
-
-  const project = React.useMemo(() => {
-    if (!selectedCompany) return null;
-    const p = placeholderProjects.find(
-      (proj) => proj.id === id && proj.companyId === selectedCompany.id
-    );
-    if (!p) return null;
-
-    const canView = p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin';
-    if (!canView) return null;
-
-    return p;
-  }, [id, selectedCompany, currentUser]);
+  const [project, setProject] = React.useState<Project | null>(null);
+  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    if (selectedCompany && project && project.companyId !== selectedCompany.id) {
+    async function fetchData() {
+      if (!id || !selectedCompany) return;
+      
+      setLoading(true);
+      const [projectData, userData] = await Promise.all([
+        getProjectById(id),
+        getCurrentUser(),
+      ]);
+      
+      if (!projectData || projectData.companyId !== selectedCompany.id) {
+        // Project doesn't exist or doesn't belong to the selected company
         router.push('/projects');
+        return;
+      }
+
+      const canView = projectData.visibility === 'Public' || projectData.memberIds?.includes(userData.id) || userData.role === 'Admin';
+
+      if (!canView) {
+        // User doesn't have permission to view this private project
+        router.push('/projects');
+        return;
+      }
+      
+      setProject(projectData);
+      setCurrentUser(userData);
+      setLoading(false);
     }
-  }, [selectedCompany, project, router]);
-  
-  React.useEffect(() => {
-    // If the project doesn't exist for the current company after the company has been loaded, redirect.
-    if (selectedCompany && !project) {
-       // A small delay to allow context to propagate before checking
-       const timer = setTimeout(() => {
-            const p = placeholderProjects.find(
-                (proj) => proj.id === id && proj.companyId === selectedCompany.id
-            );
-            if (!p) {
-                router.push('/projects');
-            }
-       }, 100);
-       return () => clearTimeout(timer);
-    }
-  }, [id, selectedCompany, project, router]);
+
+    fetchData();
+  }, [id, selectedCompany, router]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-1/2" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>
+    );
+  }
 
   if (!project) {
-    // Render a loading state or null while waiting for context/effects to run
-    // This prevents the notFound() from being called prematurely.
+    // This case handles when the project is not found or user is redirected.
     return null;
   }
 
