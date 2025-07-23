@@ -15,7 +15,6 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   Cell,
-  LabelList,
 } from 'recharts';
 import {
   Select,
@@ -214,13 +213,6 @@ export function GanttChart() {
                     <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
-                        <LabelList 
-                          dataKey="title" 
-                          position="insideLeft" 
-                          offset={8} 
-                          className="fill-white text-xs font-semibold"
-                          formatter={(label: string) => label.length > 20 ? `${label.substring(0, 20)}...` : label}
-                        />
                         {processedTasks.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.fill} />
                         ))}
