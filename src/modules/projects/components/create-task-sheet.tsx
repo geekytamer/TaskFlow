@@ -24,6 +24,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -147,7 +148,7 @@ export function CreateTaskSheet() {
     };
     
     // This is a mock implementation. In a real app, you would send this to your API.
-    placeholderTasks.unshift(newTask);
+    placeholderTasks.unshift(newTask as any);
 
     toast({
       title: 'Task Created',
