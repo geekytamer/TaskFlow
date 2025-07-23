@@ -3,10 +3,10 @@ import type { Task, Project, Comment } from './types';
 const today = new Date();
 
 export const placeholderProjects: Project[] = [
-  { id: 'proj-1', name: 'Website Redesign', color: '#4A90E2', companyId: '1', visibility: 'Public'},
-  { id: 'proj-2', name: 'Q3 Marketing', color: '#F5A623', companyId: '1', visibility: 'Public'},
-  { id: 'proj-3', name: 'Mobile App Launch', color: '#7ED321', companyId: '1', visibility: 'Private', memberIds: ['1'] },
-  { id: 'proj-4', name: 'Synergy Platform', color: '#B452E5', companyId: '2', visibility: 'Public' },
+  { id: 'proj-1', name: 'Website Redesign', description: 'Modernize our web presence with a new design.', color: '#4A90E2', companyId: '1', visibility: 'Public'},
+  { id: 'proj-2', name: 'Q3 Marketing', description: 'Execute marketing campaigns for the third quarter.', color: '#F5A623', companyId: '1', visibility: 'Public'},
+  { id: 'proj-3', name: 'Mobile App Launch', description: 'Launch our new mobile application on iOS and Android.', color: '#7ED321', companyId: '1', visibility: 'Private', memberIds: ['1'] },
+  { id: 'proj-4', name: 'Synergy Platform', description: 'Develop the next generation of our flagship product.', color: '#B452E5', companyId: '2', visibility: 'Public' },
 ]
 
 export const placeholderTasks: Task[] = [

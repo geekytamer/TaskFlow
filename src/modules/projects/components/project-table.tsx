@@ -26,8 +26,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskDetailsSheet } from './task-details-sheet';
 import { useCompany } from '@/context/company-context';
 
-export function ProjectTable() {
-    const [selectedProject, setSelectedProject] = React.useState('all');
+interface ProjectTableProps {
+    projectId?: string;
+}
+
+export function ProjectTable({ projectId }: ProjectTableProps) {
     const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
     const [tasks, setTasks] = React.useState(placeholderTasks);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
@@ -46,11 +49,11 @@ export function ProjectTable() {
     const filteredTasks = React.useMemo(() => {
         const visibleProjectIds = visibleProjects.map(p => p.id);
         return tasks.filter(task => 
-            (selectedProject === 'all' || task.projectId === selectedProject) &&
+            (!projectId || task.projectId === projectId) &&
             (selectedStatus === 'all' || task.status === selectedStatus) &&
             visibleProjectIds.includes(task.projectId)
         );
-    }, [tasks, selectedProject, selectedStatus, visibleProjects]);
+    }, [tasks, projectId, selectedStatus, visibleProjects]);
 
     const handleTaskClick = (task: Task) => {
         setSelectedTask(task);
@@ -65,22 +68,6 @@ export function ProjectTable() {
     <>
     <div className="flex h-full flex-col gap-4">
         <div className="flex items-center gap-4">
-            <Select value={selectedProject} onValueChange={setSelectedProject}>
-            <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="Filter by project..." />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {visibleProjects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                    <div className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
-                    {project.name}
-                    </div>
-                </SelectItem>
-                ))}
-            </SelectContent>
-            </Select>
              <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
                 <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Filter by status" />

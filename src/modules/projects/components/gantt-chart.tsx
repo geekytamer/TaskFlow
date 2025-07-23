@@ -5,7 +5,6 @@ import { placeholderTasks, placeholderProjects } from '@/modules/projects/data';
 import { placeholderUsers } from '@/modules/users/data';
 import type { Task, Project, TaskStatus } from '@/modules/projects/types';
 import { taskStatuses } from '@/modules/projects/types';
-import type { User } from '@/modules/users/types';
 import {
   BarChart,
   Bar,
@@ -15,6 +14,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   Cell,
+  LabelList,
 } from 'recharts';
 import {
   Select,
@@ -81,10 +81,13 @@ const GanttTooltip = ({ active, payload }: any) => {
     return null;
   };
 
-export function GanttChart() {
+interface GanttChartProps {
+    projectId?: string;
+}
+
+export function GanttChart({ projectId }: GanttChartProps) {
   const [tasks] = React.useState<Task[]>(placeholderTasks);
   const [projects] = React.useState<Project[]>(placeholderProjects);
-  const [selectedProject, setSelectedProject] = React.useState('all');
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const { selectedCompany } = useCompany();
 
@@ -107,7 +110,7 @@ export function GanttChart() {
     .filter(task => 
         task.dueDate && 
         visibleProjectIds.includes(task.projectId) &&
-        (selectedProject === 'all' || task.projectId === selectedProject) &&
+        (!projectId || task.projectId === projectId) &&
         (selectedStatus === 'all' || task.status === selectedStatus)
     )
     .map(task => {
@@ -130,7 +133,7 @@ export function GanttChart() {
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, projects, selectedProject, selectedStatus, visibleProjects]);
+  }, [tasks, projects, projectId, selectedStatus, visibleProjects]);
   
   const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
   const maxDay = Math.max(10, ...processedTasks.map(t => t.ganttRange[1]));
@@ -142,22 +145,6 @@ export function GanttChart() {
         <CardHeader>
             <div className="flex flex-col sm:flex-row gap-4 justify-between">
                 <div className="flex items-center gap-4">
-                    <Select value={selectedProject} onValueChange={setSelectedProject}>
-                    <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Filter by project" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">All Projects</SelectItem>
-                        {visibleProjects.map((project) => (
-                        <SelectItem key={project.id} value={project.id}>
-                            <div className="flex items-center gap-2">
-                                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
-                                {project.name}
-                            </div>
-                        </SelectItem>
-                        ))}
-                    </SelectContent>
-                    </Select>
                     <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
                         <SelectTrigger className="w-[180px]">
                             <SelectValue placeholder="Filter by status" />
@@ -213,6 +200,7 @@ export function GanttChart() {
                     <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
+                        <LabelList dataKey="title" position="insideLeft" offset={10} className="fill-white font-semibold" />
                         {processedTasks.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.fill} />
                         ))}

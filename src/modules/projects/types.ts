@@ -12,6 +12,7 @@ export const projectVisibilities: ProjectVisibility[] = ['Public', 'Private'];
 export interface Project {
   id: string;
   name: string;
+  description: string;
   color: string;
   companyId: string;
   visibility: ProjectVisibility;
