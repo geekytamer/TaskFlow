@@ -22,7 +22,7 @@ export default function ProjectDetailsPage({ params }: { params: { id: string } 
     if (!canView) return null;
 
     return p;
-  }, [params.id, selectedCompany, currentUser]);
+  }, [params, selectedCompany, currentUser]);
 
   if (!project) {
     // In a real app, you might want a more sophisticated "not found" or "access denied" page
