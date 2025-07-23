@@ -1,5 +1,6 @@
 
 import { initializeApp, getApp, getApps } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   projectId: "taskflow-5jocq",
@@ -12,5 +13,6 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const db = getFirestore(app);
 
-export { app };
+export { app, db };
