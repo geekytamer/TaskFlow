@@ -9,12 +9,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { cn } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
-interface ProjectListProps {
-    onProjectSelect: (project: Project | null) => void;
-    selectedProject: Project | null;
-}
-
-export function ProjectList({ onProjectSelect, selectedProject }: ProjectListProps) {
+export function ProjectList() {
   const { selectedCompany } = useCompany();
   const currentUser = placeholderUsers[0]; // Mock current user
 
@@ -32,35 +27,20 @@ export function ProjectList({ onProjectSelect, selectedProject }: ProjectListPro
     <div>
         <ScrollArea className="w-full whitespace-nowrap">
             <div className="flex w-max space-x-4 pb-4">
-                <Card
-                    onClick={() => onProjectSelect(null)}
-                    className={cn(
-                    'w-[250px] cursor-pointer hover:border-primary transition-colors',
-                    !selectedProject ? 'border-primary' : ''
-                    )}
-                >
-                    <CardHeader>
-                        <CardTitle>All Projects</CardTitle>
-                        <CardDescription>View tasks from all projects</CardDescription>
-                    </CardHeader>
-                </Card>
                 {visibleProjects.map((project) => (
-                    <Card
-                    key={project.id}
-                    onClick={() => onProjectSelect(project)}
-                    className={cn(
-                        'w-[250px] cursor-pointer hover:border-primary transition-colors',
-                        selectedProject?.id === project.id ? 'border-primary' : ''
-                    )}
-                    >
-                    <CardHeader>
-                        <div className="flex items-center gap-3">
-                            <div className="w-4 h-4 rounded-full" style={{backgroundColor: project.color}} />
-                            <CardTitle className="truncate">{project.name}</CardTitle>
-                        </div>
-                        <CardDescription className="truncate h-10">{project.description}</CardDescription>
-                    </CardHeader>
-                    </Card>
+                    <a href={`/projects/${project.id}`} key={project.id}>
+                        <Card
+                            className='w-[280px] h-[120px] cursor-pointer hover:border-primary transition-colors'
+                        >
+                            <CardHeader>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-4 h-4 rounded-full" style={{backgroundColor: project.color}} />
+                                    <CardTitle className="truncate">{project.name}</CardTitle>
+                                </div>
+                                <CardDescription className="truncate h-10 whitespace-normal">{project.description}</CardDescription>
+                            </CardHeader>
+                        </Card>
+                    </a>
                 ))}
             </div>
             <ScrollBar orientation="horizontal" />
