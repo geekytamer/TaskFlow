@@ -6,7 +6,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
-import { LayoutDashboard, Users, Network, FolderKanban, Building } from 'lucide-react';
+import { LayoutDashboard, Users, Network, FolderKanban, Building, Settings } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/diagram', label: 'Diagram', icon: Network },
   { href: '/users', label: 'Users', icon: Users },
   { href: '/companies', label: 'Companies', icon: Building },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export function SidebarNav() {
