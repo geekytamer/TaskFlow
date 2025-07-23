@@ -72,11 +72,13 @@ export async function seedDatabase() {
     console.log('Seeding tasks...');
     placeholderTasks.forEach((task) => {
       const docRef = doc(db, 'tasks', task.id);
-      const taskForFirestore = {
-        ...task,
-        // Convert string date to Firestore Timestamp object if it exists
-        dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-      };
+      // Firestore cannot store `undefined`, so we need to construct the object carefully
+      const taskForFirestore: any = { ...task };
+      if (task.dueDate) {
+        taskForFirestore.dueDate = new Date(task.dueDate);
+      } else {
+        delete taskForFirestore.dueDate; // Remove the key if it's not present
+      }
       batch.set(docRef, taskForFirestore);
     });
     console.log('Tasks added to batch.');
