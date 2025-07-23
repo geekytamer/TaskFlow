@@ -14,7 +14,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  Cell
+  Cell,
+  LabelList,
 } from 'recharts';
 import {
   Select,
@@ -28,6 +29,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { ProjectLegend } from './project-legend';
 
 
 const GanttTooltip = ({ active, payload }: any) => {
@@ -139,36 +141,39 @@ export function GanttChart() {
   return (
     <Card className="h-full flex flex-col">
         <CardHeader>
-            <div className="flex items-center gap-4">
-                <Select value={selectedProject} onValueChange={setSelectedProject}>
-                <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by project" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">All Projects</SelectItem>
-                    {visibleProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                         <div className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
-                            {project.name}
-                        </div>
-                    </SelectItem>
-                    ))}
-                </SelectContent>
-                </Select>
-                 <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
+            <div className="flex flex-col sm:flex-row gap-4 justify-between">
+                <div className="flex items-center gap-4">
+                    <Select value={selectedProject} onValueChange={setSelectedProject}>
                     <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Filter by status" />
+                        <SelectValue placeholder="Filter by project" />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        {taskStatuses.map((status) => (
-                        <SelectItem key={status} value={status}>
-                            {status}
+                        <SelectItem value="all">All Projects</SelectItem>
+                        {visibleProjects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                            <div className="flex items-center gap-2">
+                                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
+                                {project.name}
+                            </div>
                         </SelectItem>
                         ))}
                     </SelectContent>
-                </Select>
+                    </Select>
+                    <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Statuses</SelectItem>
+                            {taskStatuses.map((status) => (
+                            <SelectItem key={status} value={status}>
+                                {status}
+                            </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <ProjectLegend projects={visibleProjects} />
             </div>
         </CardHeader>
         <CardContent className='flex-1 -mt-4'>
@@ -192,12 +197,11 @@ export function GanttChart() {
                         tick={({ y, payload }) => {
                             const task = payload.payload;
                             if (!task) return null;
-                            const project = projects.find(p => p.id === task.projectId)
                             return (
                                 <g transform={`translate(0,${y})`}>
                                     <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
                                         <div className="flex items-center gap-2" title={task.title}>
-                                            {project && <div className="h-2 w-2 rounded-full flex-shrink-0" style={{backgroundColor: task.fill}} />}
+                                            <div className="h-2 w-2 rounded-full flex-shrink-0" style={{backgroundColor: task.fill}} />
                                             <p className='text-sm truncate font-medium'>{task.title}</p>
                                         </div>
                                     </foreignObject>
@@ -210,6 +214,13 @@ export function GanttChart() {
                     <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
+                        <LabelList 
+                          dataKey="title" 
+                          position="insideLeft" 
+                          offset={8} 
+                          className="fill-white text-xs font-semibold"
+                          formatter={(label: string) => label.length > 20 ? `${label.substring(0, 20)}...` : label}
+                        />
                         {processedTasks.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.fill} />
                         ))}
