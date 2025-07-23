@@ -175,6 +175,7 @@ export function GanttChart() {
                         width={yAxisWidth} 
                         tick={({ y, payload }) => {
                             const task = payload.payload;
+                            if (!task) return null;
                             const project = projects.find(p => p.id === task.projectId)
                             return (
                                 <g transform={`translate(0,${y})`}>
