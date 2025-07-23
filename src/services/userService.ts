@@ -23,7 +23,7 @@ export async function getUserById(id: string): Promise<User | undefined> {
     try {
         const userDoc = await getDoc(doc(db, 'users', id));
         if (!userDoc.exists()) {
-            console.warn(`User with id ${id} not found.`);
+            console.warn(`User with id ${id} not found in Firestore. A mock user will be used. Please ensure your database is seeded.`);
             return undefined;
         }
         return { id: userDoc.id, ...userDoc.data() } as User;
