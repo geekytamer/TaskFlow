@@ -35,6 +35,18 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
     const [tasks, setTasks] = React.useState(placeholderTasks);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const { selectedCompany } = useCompany();
+
+    React.useEffect(() => {
+        // This is a workaround to force re-render when placeholderTasks is mutated.
+        // In a real app with a proper data fetching library, this would be handled automatically.
+        const interval = setInterval(() => {
+            if (tasks.length !== placeholderTasks.length) {
+                setTasks([...placeholderTasks]);
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [tasks]);
+
     
     // In a real app, this would come from an auth hook
     const currentUser = placeholderUsers[0]; 
@@ -61,6 +73,8 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
 
     const handleSheetClose = () => {
         setSelectedTask(null);
+        // Optimistically update the table with the latest data from the placeholders
+        setTasks([...placeholderTasks]);
     }
 
 
