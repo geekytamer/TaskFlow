@@ -4,38 +4,54 @@ import type { Company, Position } from '@/modules/companies/types';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
 
-// In a real app, this would be your database.
-const placeholderCompanies: Company[] = [
-  { id: '1', name: 'Innovate Corp', website: 'innovatecorp.com', address: '123 Tech Lane, Silicon Valley' },
-  { id: '2', name: 'Synergy Solutions', website: 'synergysolutions.com', address: '456 Business Blvd, Metropolis' },
-  { id: '3', name: 'Quantum Holdings', website: 'quantum.dev', address: '789 Future Way, Genesis City' },
-];
-
-const placeholderPositions: Position[] = [
-    { id: 'pos-1', title: 'Software Engineer', companyId: '1' },
-    { id: 'pos-2', title: 'Product Manager', companyId: '1' },
-    { id: 'pos-3', title: 'UX Designer', companyId: '1' },
-    { id: 'pos-4', title: 'Marketing Lead', companyId: '2' },
-    { id: 'pos-5', title: 'Sales Associate', companyId: '2' },
-    { id: 'pos-6', title: 'CEO', companyId: '3' },
-];
-
-// NOTE: The following functions are still using placeholder data.
-// You will need to replace this with your own database logic.
-
 export async function getCompanies(): Promise<Company[]> {
-    // In a real app, you would fetch this from your database.
-    return Promise.resolve(placeholderCompanies);
+  try {
+    const companiesCol = collection(db, 'companies');
+    const companySnapshot = await getDocs(companiesCol);
+    const companyList = companySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Company));
+    return companyList;
+  } catch (error) {
+    console.error("Error fetching companies: ", error);
+    throw new Error("Could not fetch companies from Firestore.");
+  }
 }
 
 export async function getCompanyById(id: string): Promise<Company | undefined> {
-    return Promise.resolve(placeholderCompanies.find(c => c.id === id));
+   if (!id) return undefined;
+  try {
+    const companyDoc = await getDoc(doc(db, 'companies', id));
+    if (!companyDoc.exists()) {
+      return undefined;
+    }
+    return { id: companyDoc.id, ...companyDoc.data() } as Company;
+  } catch (error) {
+    console.error(`Error fetching company with ID ${id}: `, error);
+    throw new Error("Could not fetch company from Firestore.");
+  }
 }
 
 export async function getPositions(): Promise<Position[]> {
-    return Promise.resolve(placeholderPositions);
+  try {
+    const positionsCol = collection(db, 'positions');
+    const positionSnapshot = await getDocs(positionsCol);
+    const positionList = positionSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Position));
+    return positionList;
+  } catch (error) {
+    console.error("Error fetching positions: ", error);
+    throw new Error("Could not fetch positions from Firestore.");
+  }
 }
 
 export async function getPositionById(id: string): Promise<Position | undefined> {
-    return Promise.resolve(placeholderPositions.find(p => p.id === id));
+    if (!id) return undefined;
+    try {
+        const positionDoc = await getDoc(doc(db, 'positions', id));
+        if (!positionDoc.exists()) {
+            return undefined;
+        }
+        return { id: positionDoc.id, ...positionDoc.data() } as Position;
+    } catch (error) {
+        console.error(`Error fetching position with ID ${id}: `, error);
+        throw new Error("Could not fetch position from Firestore.");
+    }
 }
