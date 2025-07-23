@@ -107,6 +107,10 @@ export function GanttChart() {
         const startDate = addDays(endDate, -duration);
         const project = projects.find(p => p.id === task.projectId);
 
+        let statusColor = 'hsl(var(--chart-3))'; // To Do
+        if (task.status === 'In Progress') statusColor = 'hsl(var(--chart-2))';
+        if (task.status === 'Done') statusColor = 'hsl(var(--chart-1))';
+
         return {
             ...task,
             startDate,
@@ -115,7 +119,7 @@ export function GanttChart() {
             ganttRange: [differenceInDays(startDate, today), differenceInDays(endDate, today)],
             assigneeName: users.find(u => u.id === task.assignedUserId)?.name || 'Unassigned',
             projectName: project?.name || 'Uncategorized',
-            fill: task.color || project?.color || '#cccccc'
+            fill: statusColor
         }
     }).sort((a,b) => {
         if (a.projectName < b.projectName) return -1;
@@ -170,11 +174,15 @@ export function GanttChart() {
                         type="category" 
                         width={yAxisWidth} 
                         tick={({ y, payload }) => {
-                            const project = projects.find(p => p.id === payload.value.projectId)
+                            const task = payload.payload;
+                            const project = projects.find(p => p.id === task.projectId)
                             return (
                                 <g transform={`translate(0,${y})`}>
-                                    <foreignObject x="0" y="-10" width={yAxisWidth -10} height="20">
-                                        <p className='text-sm truncate' title={payload.value}>{payload.value}</p>
+                                    <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
+                                        <div className="flex items-center gap-2" title={task.title}>
+                                            {project && <div className="h-2 w-2 rounded-full flex-shrink-0" style={{backgroundColor: project.color}} />}
+                                            <p className='text-sm truncate font-medium'>{task.title}</p>
+                                        </div>
                                     </foreignObject>
                                 </g>
                             )
@@ -183,15 +191,18 @@ export function GanttChart() {
                         axisLine={false}
                         />
                     <Tooltip content={<GanttTooltip />} cursor={{fill: 'hsl(var(--muted))'}}/>
-                    <Legend content={(props) => {
-                        const projectColors = visibleProjects.filter(p => selectedProject === 'all' || p.id === selectedProject)
-                        .map(p => ({color: p.color, value: p.name}));
+                    <Legend content={() => {
+                        const statuses = [
+                            { value: 'To Do', color: 'hsl(var(--chart-3))' },
+                            { value: 'In Progress', color: 'hsl(var(--chart-2))' },
+                            { value: 'Done', color: 'hsl(var(--chart-1))' },
+                        ]
                         return (
                             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-4">
-                                {projectColors.map(p => (
-                                    <div key={p.value} className="flex items-center gap-2 text-xs">
-                                        <div className="w-3 h-3 rounded-full" style={{backgroundColor: p.color}}></div>
-                                        <span>{p.value}</span>
+                                {statuses.map(s => (
+                                    <div key={s.value} className="flex items-center gap-2 text-xs">
+                                        <div className="w-3 h-3 rounded-full" style={{backgroundColor: s.color}}></div>
+                                        <span>{s.value}</span>
                                     </div>
                                 ))}
                             </div>
