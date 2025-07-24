@@ -65,13 +65,14 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
             {users.length > 0 && (
                 <div className="pt-2 mt-2 border-t">
                   <p className="text-muted-foreground mb-1">Assignees:</p>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center -space-x-2">
                     {users.map((user: User) => (
-                      <Avatar key={user.id} className="h-6 w-6">
+                      <Avatar key={user.id} className="h-6 w-6 border">
                           <AvatarImage src={user.avatar} />
                           <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
                       </Avatar>
                     ))}
+                    <span className="pl-4 text-xs">{users.map((u:User) => u.name).join(', ')}</span>
                   </div>
                 </div>
             )}
@@ -93,6 +94,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
+  const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany } = useCompany();
 
   React.useEffect(() => {
@@ -118,9 +120,15 @@ export function GanttChart({ projectId }: GanttChartProps) {
     if (!currentUser) return [];
     return projects.filter(p => 
       p.companyId === selectedCompany?.id &&
+      (!projectId || p.id === projectId) &&
       (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
     );
-  }, [projects, currentUser, selectedCompany]);
+  }, [projects, currentUser, selectedCompany, projectId]);
+
+  const companyUsers = React.useMemo(() => {
+      if (!selectedCompany) return [];
+      return users.filter(u => u.companyId === selectedCompany.id);
+  }, [users, selectedCompany]);
 
 
   const processedTasks = React.useMemo(() => {
@@ -131,12 +139,12 @@ export function GanttChart({ projectId }: GanttChartProps) {
     .filter(task => 
         task.dueDate && 
         visibleProjectIds.includes(task.projectId) &&
-        (!projectId || task.projectId === projectId) &&
-        (selectedStatus === 'all' || task.status === selectedStatus)
+        (selectedStatus === 'all' || task.status === selectedStatus) &&
+        (selectedAssignee === 'all' || task.assignedUserIds?.includes(selectedAssignee))
     )
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
-        const duration = Math.max(1, Math.ceil(Math.random() * 10)); // Random duration for demo
+        const duration = Math.max(1, Math.ceil(Math.random() * 14) + 1); // Random duration for demo
         const startDate = addDays(endDate, -duration);
         const project = projects.find(p => p.id === task.projectId);
 
@@ -154,7 +162,20 @@ export function GanttChart({ projectId }: GanttChartProps) {
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, projects, projectId, selectedStatus, visibleProjects]);
+  }, [tasks, projects, selectedStatus, selectedAssignee, visibleProjects]);
+
+  const groupedTasks = React.useMemo(() => {
+      const groups = processedTasks.reduce((acc, task) => {
+          (acc[task.projectName] = acc[task.projectName] || []).push(task);
+          return acc;
+      }, {} as Record<string, typeof processedTasks>);
+
+      return Object.entries(groups).flatMap(([projectName, tasks]) => [
+          {isLabel: true, title: projectName, fill: tasks[0]?.fill},
+          ...tasks
+      ]);
+
+  }, [processedTasks]);
   
   if (loading) {
       return (
@@ -192,8 +213,21 @@ export function GanttChart({ projectId }: GanttChartProps) {
                             ))}
                         </SelectContent>
                     </Select>
+                     <Select value={selectedAssignee} onValueChange={(value) => setSelectedAssignee(value as string)}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Filter by assignee" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Assignees</SelectItem>
+                            {companyUsers.map((user) => (
+                            <SelectItem key={user.id} value={user.id}>
+                                {user.name}
+                            </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
-                <ProjectLegend projects={visibleProjects} />
+                {!projectId && <ProjectLegend projects={visibleProjects} />}
             </div>
         </CardHeader>
         <CardContent className='flex-1 -mt-4'>
@@ -201,7 +235,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                 <ResponsiveContainer>
                     <BarChart
                         layout="vertical"
-                        data={processedTasks}
+                        data={groupedTasks}
                         margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                         barCategoryGap={5}
                     >
@@ -215,14 +249,25 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         type="category" 
                         width={yAxisWidth} 
                         tick={({ y, payload }) => {
-                            const task = payload.payload;
-                            if (!task) return null;
+                            const item = payload.payload;
+                            if (!item) return null;
+                            if (item.isLabel) {
+                                 return (
+                                    <g transform={`translate(0,${y})`}>
+                                        <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
+                                            <div className="flex items-center gap-2 font-bold" title={item.title}>
+                                                <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{backgroundColor: item.fill}} />
+                                                <p className='text-sm truncate'>{item.title}</p>
+                                            </div>
+                                        </foreignObject>
+                                    </g>
+                                )
+                            }
                             return (
                                 <g transform={`translate(0,${y})`}>
                                     <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
-                                        <div className="flex items-center gap-2" title={task.title}>
-                                            <div className="h-2 w-2 rounded-full flex-shrink-0" style={{backgroundColor: task.fill}} />
-                                            <p className='text-sm truncate font-medium'>{task.title}</p>
+                                        <div className="flex items-center gap-2 pl-5" title={item.title}>
+                                            <p className='text-xs truncate font-medium text-muted-foreground'>{item.title}</p>
                                         </div>
                                     </foreignObject>
                                 </g>
@@ -234,9 +279,9 @@ export function GanttChart({ projectId }: GanttChartProps) {
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
-                        <LabelList dataKey="title" position="insideLeft" offset={10} className="fill-white font-semibold" />
-                        {processedTasks.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                        <LabelList dataKey="title" position="insideLeft" offset={10} className="fill-primary-foreground font-semibold text-xs" />
+                        {groupedTasks.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.isLabel ? 'transparent' : entry.fill} />
                         ))}
                     </Bar>
                     </BarChart>
