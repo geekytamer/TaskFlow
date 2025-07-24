@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, startOfMonth, endOfMonth, isWithinInterval, max, min } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, startOfMonth, endOfMonth, isWithinInterval, max, min, add, sub } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
@@ -92,13 +92,16 @@ interface GanttChartProps {
     projectId?: string;
 }
 
-type ZoomLevel = 'week' | 'month' | 'quarter';
-
-const zoomLevels: Record<ZoomLevel, number> = {
-    week: 7,
-    month: 30,
-    quarter: 90
-};
+const getZoomInLevel = (days: number): number => {
+    if (days > 180) return 90; // quarter
+    if (days > 60) return 30; // month
+    return 7; // week
+}
+const getZoomOutLevel = (days: number): number => {
+    if (days < 15) return 30; // month
+    if (days < 60) return 90; // quarter
+    return 180; // half-year
+}
 
 
 export function GanttChart({ projectId }: GanttChartProps) {
@@ -111,12 +114,11 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany } = useCompany();
   
-  const [viewDate, setViewDate] = React.useState(new Date());
-  const [zoom, setZoom] = React.useState<ZoomLevel>('month');
-  const [dateRange, setDateRange] = React.useState<DateRange | undefined>({
+  const [viewRange, setViewRange] = React.useState<DateRange>({
       from: startOfMonth(new Date()),
       to: endOfMonth(new Date()),
   });
+  const [filterRange, setFilterRange] = React.useState<DateRange | undefined>(undefined);
 
 
   React.useEffect(() => {
@@ -154,11 +156,10 @@ export function GanttChart({ projectId }: GanttChartProps) {
 
   const baseTasks = React.useMemo(() => {
     return tasks
-    .filter(task => task.dueDate && task.createdAt)
+    .filter(task => task.createdAt && task.dueDate) // Ensure dates are present
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
-        // Ensure start date is not after end date
-        const startDate = min([startOfDay(task.createdAt), endDate]);
+        const startDate = min([startOfDay(task.createdAt!), endDate]);
         const duration = Math.max(1, differenceInCalendarDays(endDate, startDate) + 1);
         const project = projects.find(p => p.id === task.projectId);
 
@@ -167,7 +168,6 @@ export function GanttChart({ projectId }: GanttChartProps) {
             startDate,
             endDate,
             duration,
-            ganttRange: [0,0], // will be recalculated
             projectName: project?.name || 'Uncategorized',
             fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
@@ -175,15 +175,14 @@ export function GanttChart({ projectId }: GanttChartProps) {
   }, [tasks, projects]);
 
 
-  const processedTasks = React.useMemo(() => {
+  const filteredTasks = React.useMemo(() => {
     const visibleProjectIds = visibleProjects.map(p => p.id);
 
-    const checkOverlap = (taskStartDate: Date, taskEndDate: Date, filterRange: DateRange) => {
-        if (!filterRange.from || !filterRange.to) return true;
+    const checkOverlap = (taskStartDate: Date, taskEndDate: Date, range: DateRange | undefined) => {
+        if (!range || !range.from || !range.to) return true;
         const taskInterval = { start: taskStartDate, end: taskEndDate };
-        const filterInterval = { start: filterRange.from, end: filterRange.to };
+        const filterInterval = { start: range.from, end: range.to };
         
-        // Check if intervals overlap
         return max([taskInterval.start, filterInterval.start]) <= min([taskInterval.end, filterInterval.end]);
     }
 
@@ -192,46 +191,55 @@ export function GanttChart({ projectId }: GanttChartProps) {
         visibleProjectIds.includes(task.projectId) &&
         (selectedStatus === 'all' || task.status === selectedStatus) &&
         (selectedAssignee === 'all' || task.assignedUserIds?.includes(selectedAssignee)) &&
-        (!dateRange || checkOverlap(task.startDate, task.endDate, dateRange))
+        checkOverlap(task.startDate, task.endDate, filterRange)
     )
-    .map(task => ({
-        ...task,
-        ganttRange: [differenceInDays(task.startDate, viewDate), differenceInDays(task.endDate, viewDate)],
-    }))
     .sort((a,b) => {
         if (a.projectName < b.projectName) return -1;
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [baseTasks, visibleProjects, selectedStatus, selectedAssignee, dateRange, viewDate]);
+  }, [baseTasks, visibleProjects, selectedStatus, selectedAssignee, filterRange]);
+
+  React.useEffect(() => {
+      if (filteredTasks.length > 0) {
+          const minDate = min(filteredTasks.map(t => t.startDate));
+          const maxDate = max(filteredTasks.map(t => t.endDate));
+          setViewRange({ from: minDate, to: maxDate });
+      } else {
+          setViewRange({ from: startOfMonth(new Date()), to: endOfMonth(new Date())})
+      }
+  }, [filteredTasks]);
 
   const groupedTasks = React.useMemo(() => {
-      const groups = processedTasks.reduce((acc, task) => {
+      const groups = filteredTasks.reduce((acc, task) => {
           (acc[task.projectName] = acc[task.projectName] || []).push(task);
           return acc;
-      }, {} as Record<string, typeof processedTasks>);
+      }, {} as Record<string, typeof filteredTasks>);
 
       return Object.entries(groups).flatMap(([projectName, tasks]) => [
           {isLabel: true, title: projectName, fill: tasks[0]?.fill},
           ...tasks
       ]);
-
-  }, [processedTasks]);
+  }, [filteredTasks]);
+  
+  const viewCenter = viewRange.from && viewRange.to ? new Date((viewRange.from.getTime() + viewRange.to.getTime()) / 2) : new Date();
+  const viewDurationDays = viewRange.from && viewRange.to ? differenceInCalendarDays(viewRange.to, viewRange.from) : 30;
 
   const handleZoom = (direction: 'in' | 'out') => {
-      const levels: ZoomLevel[] = ['week', 'month', 'quarter'];
-      const currentIndex = levels.indexOf(zoom);
-      if (direction === 'in' && currentIndex > 0) {
-          setZoom(levels[currentIndex - 1]);
-      }
-      if (direction === 'out' && currentIndex < levels.length - 1) {
-          setZoom(levels[currentIndex + 1]);
-      }
+      const currentZoom = viewDurationDays;
+      const newZoom = direction === 'in' ? getZoomInLevel(currentZoom) : getZoomOutLevel(currentZoom);
+      const newFrom = sub(viewCenter, { days: Math.floor(newZoom / 2) });
+      const newTo = add(viewCenter, { days: Math.ceil(newZoom / 2) });
+      setViewRange({ from: newFrom, to: newTo });
   }
 
   const handlePan = (direction: 'prev' | 'next') => {
-      const panFn = direction === 'prev' ? subWeeks : addWeeks;
-      setViewDate(panFn(viewDate, 1));
+      const panFn = direction === 'prev' ? sub : add;
+      const panAmount = { weeks: 2 };
+      setViewRange(prev => ({
+          from: panFn(prev.from || new Date(), panAmount),
+          to: panFn(prev.to || new Date(), panAmount)
+      }));
   }
   
   if (loading) {
@@ -247,8 +255,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
       )
   }
   
-  const todayMarker = differenceInCalendarDays(startOfDay(new Date()), viewDate);
-  const timeDomain = [ -Math.floor(zoomLevels[zoom] / 2), Math.ceil(zoomLevels[zoom] / 2)];
+  const todayMarker = differenceInCalendarDays(startOfDay(new Date()), viewRange.from || new Date());
+  const timeDomain = [0, viewDurationDays];
 
 
   const yAxisWidth = 200;
@@ -285,11 +293,11 @@ export function GanttChart({ projectId }: GanttChartProps) {
                                 ))}
                             </SelectContent>
                         </Select>
-                        <DateRangePicker date={dateRange} onDateChange={setDateRange} />
+                        <DateRangePicker date={filterRange} onDateChange={setFilterRange} />
                     </div>
                      <div className="flex items-center gap-2">
                         <Button variant="outline" size="icon" onClick={() => handlePan('prev')}><ChevronLeft className="h-4 w-4" /></Button>
-                        <Button variant="outline" onClick={() => setViewDate(new Date())}>Today</Button>
+                        <Button variant="outline" onClick={() => setViewRange({ from: startOfDay(new Date()), to: endOfDay(new Date()) })}>Today</Button>
                         <Button variant="outline" size="icon" onClick={() => handlePan('next')}><ChevronRight className="h-4 w-4" /></Button>
                         <Button variant="outline" size="icon" onClick={() => handleZoom('in')}><ZoomIn className="h-4 w-4" /></Button>
                         <Button variant="outline" size="icon" onClick={() => handleZoom('out')}><ZoomOut className="h-4 w-4" /></Button>
@@ -303,14 +311,20 @@ export function GanttChart({ projectId }: GanttChartProps) {
                 <ResponsiveContainer>
                     <BarChart
                         layout="vertical"
-                        data={groupedTasks}
+                        data={groupedTasks.map(task => ({
+                            ...task,
+                            ganttRange: task.isLabel ? null : [
+                                differenceInCalendarDays(task.startDate, viewRange.from!),
+                                differenceInCalendarDays(task.endDate, viewRange.from!)
+                            ]
+                        }))}
                         margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                         barCategoryGap={5}
                     >
                     <XAxis 
                         type="number" 
                         domain={timeDomain}
-                        tickFormatter={(value) => format(addDays(viewDate, value), 'MMM d')}
+                        tickFormatter={(value) => format(addDays(viewRange.from || new Date(), value), 'MMM d')}
                         />
                     <YAxis 
                         dataKey="title" 
@@ -345,7 +359,9 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         axisLine={false}
                         />
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
-                    <ReferenceLine x={todayMarker} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
+                    {todayMarker >= timeDomain[0] && todayMarker <= timeDomain[1] && 
+                        <ReferenceLine x={todayMarker} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
+                    }
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
                          <LabelList 
                             dataKey="title" 
