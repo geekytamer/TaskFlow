@@ -20,7 +20,7 @@ export function ProjectTaskViews({ project }: ProjectTaskViewsProps) {
             <TabsContent value="table" className="flex-1 overflow-hidden">
                 <ProjectTable projectId={project.id} />
             </TabsContent>
-            <TabsContent value="gantt" className="flex-1">
+            <TabsContent value="gantt" className="flex-1 -mt-6">
                 <GanttChart projectId={project.id} />
             </TabsContent>
       </Tabs>
