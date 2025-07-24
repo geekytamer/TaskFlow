@@ -79,11 +79,11 @@ export async function getTaskById(id: string): Promise<Task | undefined> {
     }
 }
 
-export async function createTask(taskData: Omit<Task, 'id' | 'status'>): Promise<Task> {
+export async function createTask(taskData: Omit<Task, 'id' | 'status' | 'createdAt'>): Promise<Task> {
     try {
-        const newTaskData = { ...taskData, status: 'To Do' as const };
+        const newTaskData = { ...taskData, status: 'To Do' as const, createdAt: new Date() };
         const docRef = await addDoc(collection(db, 'tasks'), newTaskData);
-        return { id: docRef.id, status: 'To Do', ...taskData };
+        return { id: docRef.id, status: 'To Do', createdAt: new Date(), ...taskData };
     } catch (error) {
         console.error("Error creating task: ", error);
         throw new Error("Could not create task in Firestore.");

@@ -15,6 +15,7 @@ import {
   ReferenceLine,
   Cell,
   LabelList,
+  Label,
 } from 'recharts';
 import {
   Select,
@@ -40,6 +41,7 @@ import { DateRangePicker } from '@/components/ui/date-range-picker';
 const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
+      if (data.isLabel) return null;
       const users = allUsers.filter((u: User) => data.assignedUserIds?.includes(u.id));
       const project = allProjects.find((p: Project) => p.id === data.projectId);
       return (
@@ -153,8 +155,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
     .filter(task => task.dueDate)
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
-        const duration = Math.max(1, Math.ceil(Math.random() * 14) + 1); // Random duration for demo
-        const startDate = addDays(endDate, -duration);
+        const duration = Math.max(1, differenceInCalendarDays(endDate, task.createdAt) + 1);
+        const startDate = task.createdAt;
         const project = projects.find(p => p.id === task.projectId);
 
         return {
@@ -333,7 +335,28 @@ export function GanttChart({ projectId }: GanttChartProps) {
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     <ReferenceLine x={todayMarker} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
-                        <LabelList dataKey="title" position="insideLeft" offset={10} className="fill-primary-foreground font-semibold text-xs" />
+                         <LabelList 
+                            dataKey="title" 
+                            position="insideLeft" 
+                            offset={10} 
+                            className="fill-primary-foreground font-semibold text-xs" 
+                            content={(props) => {
+                                const {x, y, width, height, value, index} = props;
+                                const data = groupedTasks[index as number];
+                                if (data.isLabel) return null;
+                                
+                                const labelWidth = (new TextEncoder().encode(value).length) * 5.5; 
+                                if (width < labelWidth) return null;
+
+                                return (
+                                    <g>
+                                    <text x={Number(x) + 10} y={Number(y) + Number(height) / 2} dy={4} fill="#fff" fontSize="11" fontWeight="bold">
+                                        {value}
+                                    </text>
+                                    </g>
+                                )
+                            }}
+                         />
                         {groupedTasks.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.isLabel ? 'transparent' : entry.fill} />
                         ))}

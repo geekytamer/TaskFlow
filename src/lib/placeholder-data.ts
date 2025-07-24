@@ -96,7 +96,7 @@ export const placeholderProjects: Project[] = [
 ];
 
 
-export const placeholderTasks: Task[] = [
+export const placeholderTasks: Omit<Task, 'createdAt'>[] & { createdAt?: string, dueDate?: string }[] = [
   // Tasks for Project 1
   {
     id: 'task-1',
@@ -104,7 +104,8 @@ export const placeholderTasks: Task[] = [
     description: 'Create the initial brief for the Q3 marketing campaign, outlining goals, target audience, and budget.',
     status: 'Done',
     priority: 'High',
-    dueDate: new Date('2024-07-15'),
+    createdAt: '2024-07-01',
+    dueDate: '2024-07-15',
     assignedUserIds: ['user-1'],
     tags: ['planning', 'writing'],
     companyId: '1',
@@ -116,7 +117,8 @@ export const placeholderTasks: Task[] = [
     description: 'Create visuals for all social media platforms.',
     status: 'In Progress',
     priority: 'Medium',
-    dueDate: new Date('2024-07-20'),
+    createdAt: '2024-07-16',
+    dueDate: '2024-07-20',
     assignedUserIds: ['user-2'],
     tags: ['design', 'social media'],
     companyId: '1',
@@ -129,7 +131,8 @@ export const placeholderTasks: Task[] = [
     description: 'Build and deploy the landing page for the campaign.',
     status: 'To Do',
     priority: 'High',
-    dueDate: new Date('2024-07-25'),
+    createdAt: '2024-07-18',
+    dueDate: '2024-07-25',
     assignedUserIds: ['user-3'],
     tags: ['development', 'web'],
     companyId: '1',
@@ -143,7 +146,8 @@ export const placeholderTasks: Task[] = [
     description: 'Implement login, signup, and password reset functionality.',
     status: 'In Progress',
     priority: 'High',
-    dueDate: new Date('2024-08-01'),
+    createdAt: '2024-07-20',
+    dueDate: '2024-08-01',
     assignedUserIds: ['user-3'],
     tags: ['feature', 'backend'],
     companyId: '1',
@@ -155,7 +159,8 @@ export const placeholderTasks: Task[] = [
     description: 'Develop a reusable component library for the new app.',
     status: 'To Do',
     priority: 'Medium',
-    dueDate: new Date('2024-08-10'),
+    createdAt: '2024-07-25',
+    dueDate: '2024-08-10',
     assignedUserIds: ['user-3'],
     tags: ['design system', 'frontend'],
     companyId: '1',
@@ -168,7 +173,8 @@ export const placeholderTasks: Task[] = [
     description: 'Interview target users to gather feedback on the current website.',
     status: 'Done',
     priority: 'Medium',
-    dueDate: new Date('2024-07-12'),
+    createdAt: '2024-07-05',
+    dueDate: '2024-07-12',
     assignedUserIds: ['user-4'],
     tags: ['research', 'ux'],
     companyId: '2',
@@ -180,7 +186,8 @@ export const placeholderTasks: Task[] = [
     description: 'Develop low-fidelity wireframes for the new website layout.',
     status: 'To Do',
     priority: 'High',
-    dueDate: new Date('2024-07-22'),
+    createdAt: '2024-07-14',
+    dueDate: '2024-07-22',
     assignedUserIds: ['user-5'],
     tags: ['design', 'planning'],
     companyId: '2',

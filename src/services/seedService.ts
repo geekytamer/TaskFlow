@@ -10,6 +10,7 @@ import {
   placeholderProjects,
   placeholderTasks,
 } from '@/lib/placeholder-data';
+import type { Task } from '@/modules/projects/types';
 
 async function deleteAllDocumentsInCollection(collectionName: string) {
     const collectionRef = collection(db, collectionName);
@@ -73,11 +74,16 @@ export async function seedDatabase() {
     placeholderTasks.forEach((task) => {
       const docRef = doc(db, 'tasks', task.id);
       // Firestore cannot store `undefined`, so we need to construct the object carefully
-      const taskForFirestore: any = { ...task };
+      const taskForFirestore: Partial<Task> = { ...task };
       if (task.dueDate) {
         taskForFirestore.dueDate = new Date(task.dueDate);
       } else {
-        delete taskForFirestore.dueDate; // Remove the key if it's not present
+        delete taskForFirestore.dueDate;
+      }
+      if (task.createdAt) {
+          taskForFirestore.createdAt = new Date(task.createdAt);
+      } else {
+          taskForFirestore.createdAt = new Date();
       }
       batch.set(docRef, taskForFirestore);
     });
