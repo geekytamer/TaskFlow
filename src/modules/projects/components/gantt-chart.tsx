@@ -15,7 +15,6 @@ import {
   ReferenceLine,
   Cell,
   LabelList,
-  Label,
 } from 'recharts';
 import {
   Select,
@@ -24,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, addMonths, subMonths, isWithinInterval, startOfMonth, endOfMonth } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, startOfMonth, endOfMonth, isWithinInterval, max, min } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
@@ -158,8 +157,9 @@ export function GanttChart({ projectId }: GanttChartProps) {
     .filter(task => task.dueDate && task.createdAt)
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
-        const duration = Math.max(1, differenceInCalendarDays(endDate, task.createdAt) + 1);
-        const startDate = task.createdAt;
+        // Ensure start date is not after end date
+        const startDate = min([startOfDay(task.createdAt), endDate]);
+        const duration = Math.max(1, differenceInCalendarDays(endDate, startDate) + 1);
         const project = projects.find(p => p.id === task.projectId);
 
         return {
@@ -178,13 +178,21 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const processedTasks = React.useMemo(() => {
     const visibleProjectIds = visibleProjects.map(p => p.id);
 
+    const checkOverlap = (taskStartDate: Date, taskEndDate: Date, filterRange: DateRange) => {
+        if (!filterRange.from || !filterRange.to) return true;
+        const taskInterval = { start: taskStartDate, end: taskEndDate };
+        const filterInterval = { start: filterRange.from, end: filterRange.to };
+        
+        // Check if intervals overlap
+        return max([taskInterval.start, filterInterval.start]) <= min([taskInterval.end, filterInterval.end]);
+    }
+
     return baseTasks
     .filter(task => 
         visibleProjectIds.includes(task.projectId) &&
         (selectedStatus === 'all' || task.status === selectedStatus) &&
         (selectedAssignee === 'all' || task.assignedUserIds?.includes(selectedAssignee)) &&
-        (!dateRange?.from || !dateRange?.to || isWithinInterval(task.startDate, dateRange) || isWithinInterval(task.endDate, dateRange)) &&
-        task.createdAt
+        (!dateRange || checkOverlap(task.startDate, task.endDate, dateRange))
     )
     .map(task => ({
         ...task,
@@ -347,6 +355,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                             content={(props) => {
                                 const {x, y, width, height, value, index} = props;
                                 const data = groupedTasks[index as number];
+                                if (!width || !height || !value || !data) return null
                                 if (data.isLabel) return null;
                                 
                                 const labelWidth = (new TextEncoder().encode(value).length) * 5.5; 
@@ -372,3 +381,5 @@ export function GanttChart({ projectId }: GanttChartProps) {
     </Card>
   );
 }
+
+    
