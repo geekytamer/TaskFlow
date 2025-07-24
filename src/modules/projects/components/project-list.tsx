@@ -36,9 +36,9 @@ export function ProjectList() {
       (p) =>
         p.companyId === selectedCompany.id &&
         (p.visibility === 'Public' ||
-          p.memberIds?.includes(currentUser.id) ||
+          (p.memberIds?.includes(currentUser.id)) ||
           currentUser.role === 'Admin')
-    );
+    ).sort((a,b) => a.name.localeCompare(b.name));
   }, [projects, currentUser, selectedCompany]);
   
   if (loading) {
@@ -65,7 +65,7 @@ export function ProjectList() {
                                     <div className="w-4 h-4 rounded-full" style={{backgroundColor: project.color}} />
                                     <CardTitle className="truncate">{project.name}</CardTitle>
                                 </div>
-                                <CardDescription className="truncate h-10 whitespace-normal">{project.description}</CardDescription>
+                                <CardDescription className="line-clamp-2 h-10 whitespace-normal">{project.description}</CardDescription>
                             </CardHeader>
                         </Card>
                     </a>

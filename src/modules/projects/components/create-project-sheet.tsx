@@ -34,6 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState('');
+  const [description, setDescription] = React.useState('');
   const [color, setColor] = React.useState('#4A90E2');
   const [visibility, setVisibility] = React.useState<ProjectVisibility>('Public');
   const [selectedMembers, setSelectedMembers] = React.useState<string[]>([]);
@@ -53,8 +54,10 @@ export function CreateProjectSheet() {
         setCompanyUsers(userItems);
       }
     }
-    loadUsers();
-  }, [selectedCompany]);
+    if (open) {
+        loadUsers();
+    }
+  }, [selectedCompany, open]);
 
   const defaultColors = [
     '#4A90E2', '#F5A623', '#7ED321', '#B452E5',
@@ -75,7 +78,7 @@ export function CreateProjectSheet() {
     try {
       await createProject({
         name,
-        description: '', // You may want to add a description field
+        description,
         color,
         companyId: selectedCompany.id,
         visibility,
@@ -87,10 +90,14 @@ export function CreateProjectSheet() {
       });
       // Reset form and close sheet
       setName('');
+      setDescription('');
       setColor('#4A90E2');
       setVisibility('Public');
       setSelectedMembers([]);
       setOpen(false);
+      // NOTE: In a real app, we'd trigger a re-fetch of projects here.
+      // For now, a page refresh will show the new project.
+      window.location.reload(); 
     } catch (error) {
        toast({
         variant: 'destructive',
@@ -120,6 +127,13 @@ export function CreateProjectSheet() {
                     Project Name
                 </Label>
                 <Input id="name" placeholder="e.g. Q4 Marketing Campaign" className="col-span-3" value={name} onChange={e => setName(e.target.value)} />
+                </div>
+
+                 <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="description" className="text-right">
+                        Description
+                    </Label>
+                    <Input id="description" placeholder="A brief description of the project." className="col-span-3" value={description} onChange={e => setDescription(e.target.value)} />
                 </div>
                 
                 <div className="grid grid-cols-4 items-start gap-4">

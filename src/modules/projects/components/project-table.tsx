@@ -10,7 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { getTasks, getProjects, updateTask } from '@/services/projectService';
+import { getTasks, getProjects } from '@/services/projectService';
 import { getUsers, getCurrentUser } from '@/services/userService';
 import { taskStatuses, type Task, type TaskStatus, type Project, type User } from '@/modules/projects/types';
 import {
@@ -65,7 +65,7 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
         if (!currentUser) return [];
         return projects.filter(p => 
             p.companyId === selectedCompany?.id &&
-            (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
+            (p.visibility === 'Public' || (p.memberIds?.includes(currentUser.id)) || currentUser.role === 'Admin')
         );
     }, [currentUser, projects, selectedCompany]);
     

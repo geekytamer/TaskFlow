@@ -24,7 +24,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -47,6 +46,7 @@ import { useToast } from '@/hooks/use-toast';
 import { suggestTaskTags } from '@/ai/flows/suggest-task-tags';
 import { useCompany } from '@/context/company-context';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
+import { Label } from '@/components/ui/label';
 
 const createTaskSchema = z.object({
   projectId: z.string({ required_error: 'Please select a project.' }),
@@ -76,14 +76,14 @@ export function CreateTaskSheet() {
   const form = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema),
     defaultValues: {
-      projectId: '',
-      title: '',
-      description: '',
-      assignedUserIds: [],
-      priority: 'Medium',
-      tags: [],
-      color: '#cccccc'
-    }
+        projectId: '',
+        title: '',
+        description: '',
+        assignedUserIds: [],
+        priority: 'Medium',
+        tags: [],
+        color: '#cccccc',
+    },
   });
 
   React.useEffect(() => {
@@ -172,6 +172,9 @@ export function CreateTaskSheet() {
         });
         form.reset();
         setOpen(false);
+        // NOTE: In a real app, we'd use a more sophisticated state management
+        // to re-fetch tasks instead of reloading the page.
+        window.location.reload();
     } catch (error) {
          toast({
             variant: 'destructive',
@@ -374,6 +377,7 @@ export function CreateTaskSheet() {
                             <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
                             </PopoverContent>
                         </Popover>
+                        <FormMessage />
                         </div>
                     </FormItem>
                   )}

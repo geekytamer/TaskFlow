@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -26,13 +25,13 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { getProjectById, getCommentsByTaskId, createComment, updateTask } from '@/services/projectService';
-import { getUsers, getCurrentUser, getUsersByCompany } from '@/services/userService';
+import { getCurrentUser, getUsersByCompany } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project, User } from '@/modules/projects/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, Paperclip, MessageSquare, GripVertical } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical } from 'lucide-react';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -65,6 +64,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [project, setProject] = React.useState<Project | undefined>();
   const [currentUser, setCurrentUser] = React.useState<User | undefined>();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
+  const [allUsers, setAllUsers] = React.useState<User[]>([]);
   const [newComment, setNewComment] = React.useState('');
   const [loading, setLoading] = React.useState(true);
 
@@ -82,11 +82,14 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         setProject(projectData);
         setComments(commentsData);
         setCurrentUser(currentUserData);
+        setAllUsers(companyUsersData);
         setCompanyUsers(companyUsersData.map(u => ({ value: u.id, label: u.name, icon: UserIcon })));
         setLoading(false);
     }
-    loadData();
-  }, [task, selectedCompany]);
+    if (open) {
+      loadData();
+    }
+  }, [task, selectedCompany, open]);
 
   const handleFieldChange = (field: keyof Task, value: any) => {
     setEditableTask(prev => ({...prev, [field]: value}));
@@ -257,7 +260,6 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                     onChange={(e) => setNewComment(e.target.value)}
                                 />
                                 <div className="flex justify-end gap-2">
-                                    <Button variant="outline" size="sm"><Paperclip className="h-4 w-4 mr-2" />Attach</Button>
                                     <Button size="sm" onClick={handlePostComment} disabled={!newComment.trim()}>Post Comment</Button>
                                 </div>
                             </div>
@@ -266,15 +268,22 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                         {comments
                             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
                             .map(comment => {
-                            const commentUser = companyUsers.find(u => u.value === comment.userId);
+                            const commentUser = allUsers.find(u => u.id === comment.userId);
                             return (
                                 <div key={comment.id} className="flex items-start gap-3">
                                     <Avatar className="h-9 w-9">
-                                        <UserIcon className="h-5 w-5 text-muted-foreground" />
+                                       {commentUser ? (
+                                           <>
+                                            <AvatarImage src={commentUser.avatar} />
+                                            <AvatarFallback>{commentUser.name.charAt(0)}</AvatarFallback>
+                                           </>
+                                       ) : (
+                                            <UserIcon className="h-5 w-5 text-muted-foreground" />
+                                       )}
                                     </Avatar>
                                     <div className='flex-1'>
                                         <div className="flex items-baseline gap-2">
-                                            <p className="font-semibold text-sm">{commentUser?.label}</p>
+                                            <p className="font-semibold text-sm">{commentUser?.name || 'Unknown User'}</p>
                                             <p className="text-xs text-muted-foreground">
                                                 {formatDistanceToNow(comment.createdAt, { addSuffix: true })}
                                             </p>
