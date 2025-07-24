@@ -23,7 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, addMonths, subMonths, isWithinInterval } from 'date-fns';
+import type { DateRange } from 'react-day-picker';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -31,6 +32,9 @@ import { Badge } from '@/components/ui/badge';
 import { ProjectLegend } from './project-legend';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 
 
 const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
@@ -87,6 +91,15 @@ interface GanttChartProps {
     projectId?: string;
 }
 
+type ZoomLevel = 'week' | 'month' | 'quarter';
+
+const zoomLevels: Record<ZoomLevel, number> = {
+    week: 7,
+    month: 30,
+    quarter: 90
+};
+
+
 export function GanttChart({ projectId }: GanttChartProps) {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
@@ -96,6 +109,11 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany } = useCompany();
+  
+  const [viewDate, setViewDate] = React.useState(new Date());
+  const [zoom, setZoom] = React.useState<ZoomLevel>('month');
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
+
 
   React.useEffect(() => {
     async function loadData() {
@@ -130,18 +148,9 @@ export function GanttChart({ projectId }: GanttChartProps) {
       return users.filter(u => u.companyId === selectedCompany.id);
   }, [users, selectedCompany]);
 
-
-  const processedTasks = React.useMemo(() => {
-    const today = startOfDay(new Date());
-    const visibleProjectIds = visibleProjects.map(p => p.id);
-
+  const baseTasks = React.useMemo(() => {
     return tasks
-    .filter(task => 
-        task.dueDate && 
-        visibleProjectIds.includes(task.projectId) &&
-        (selectedStatus === 'all' || task.status === selectedStatus) &&
-        (selectedAssignee === 'all' || task.assignedUserIds?.includes(selectedAssignee))
-    )
+    .filter(task => task.dueDate)
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
         const duration = Math.max(1, Math.ceil(Math.random() * 14) + 1); // Random duration for demo
@@ -153,16 +162,34 @@ export function GanttChart({ projectId }: GanttChartProps) {
             startDate,
             endDate,
             duration,
-            ganttRange: [differenceInDays(startDate, today), differenceInDays(endDate, today)],
+            ganttRange: [0,0], // will be recalculated
             projectName: project?.name || 'Uncategorized',
             fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
-    }).sort((a,b) => {
+    })
+  }, [tasks, projects]);
+
+
+  const processedTasks = React.useMemo(() => {
+    const visibleProjectIds = visibleProjects.map(p => p.id);
+
+    return baseTasks
+    .filter(task => 
+        visibleProjectIds.includes(task.projectId) &&
+        (selectedStatus === 'all' || task.status === selectedStatus) &&
+        (selectedAssignee === 'all' || task.assignedUserIds?.includes(selectedAssignee)) &&
+        (!dateRange?.from || !dateRange?.to || isWithinInterval(task.startDate, dateRange) || isWithinInterval(task.endDate, dateRange))
+    )
+    .map(task => ({
+        ...task,
+        ganttRange: [differenceInDays(task.startDate, viewDate), differenceInDays(task.endDate, viewDate)],
+    }))
+    .sort((a,b) => {
         if (a.projectName < b.projectName) return -1;
         if (a.projectName > b.projectName) return 1;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, projects, selectedStatus, selectedAssignee, visibleProjects]);
+  }, [baseTasks, visibleProjects, selectedStatus, selectedAssignee, dateRange, viewDate]);
 
   const groupedTasks = React.useMemo(() => {
       const groups = processedTasks.reduce((acc, task) => {
@@ -176,12 +203,28 @@ export function GanttChart({ projectId }: GanttChartProps) {
       ]);
 
   }, [processedTasks]);
+
+  const handleZoom = (direction: 'in' | 'out') => {
+      const levels: ZoomLevel[] = ['week', 'month', 'quarter'];
+      const currentIndex = levels.indexOf(zoom);
+      if (direction === 'in' && currentIndex > 0) {
+          setZoom(levels[currentIndex - 1]);
+      }
+      if (direction === 'out' && currentIndex < levels.length - 1) {
+          setZoom(levels[currentIndex + 1]);
+      }
+  }
+
+  const handlePan = (direction: 'prev' | 'next') => {
+      const panFn = direction === 'prev' ? subWeeks : addWeeks;
+      setViewDate(panFn(viewDate, 1));
+  }
   
   if (loading) {
       return (
           <Card className="h-full">
               <CardHeader>
-                  <Skeleton className="h-8 w-48" />
+                  <Skeleton className="h-8 w-full" />
               </CardHeader>
               <CardContent>
                   <Skeleton className="h-[400px] w-full" />
@@ -190,42 +233,53 @@ export function GanttChart({ projectId }: GanttChartProps) {
       )
   }
   
-  const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
-  const maxDay = Math.max(10, ...processedTasks.map(t => t.ganttRange[1]));
+  const todayMarker = differenceInCalendarDays(startOfDay(new Date()), viewDate);
+  const timeDomain = [ -Math.floor(zoomLevels[zoom] / 2), Math.ceil(zoomLevels[zoom] / 2)];
+
 
   const yAxisWidth = 200;
   
   return (
     <Card className="h-full flex flex-col">
         <CardHeader>
-            <div className="flex flex-col sm:flex-row gap-4 justify-between">
-                <div className="flex items-center gap-4">
-                    <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Filter by status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Statuses</SelectItem>
-                            {taskStatuses.map((status) => (
-                            <SelectItem key={status} value={status}>
-                                {status}
-                            </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                     <Select value={selectedAssignee} onValueChange={(value) => setSelectedAssignee(value as string)}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Filter by assignee" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Assignees</SelectItem>
-                            {companyUsers.map((user) => (
-                            <SelectItem key={user.id} value={user.id}>
-                                {user.name}
-                            </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+            <div className="flex flex-col gap-4">
+                 <div className="flex flex-col sm:flex-row gap-4 justify-between">
+                    <div className="flex items-center gap-4">
+                        <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
+                            <SelectTrigger className="w-[180px]">
+                                <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Statuses</SelectItem>
+                                {taskStatuses.map((status) => (
+                                <SelectItem key={status} value={status}>
+                                    {status}
+                                </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                         <Select value={selectedAssignee} onValueChange={(value) => setSelectedAssignee(value as string)}>
+                            <SelectTrigger className="w-[180px]">
+                                <SelectValue placeholder="Filter by assignee" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Assignees</SelectItem>
+                                {companyUsers.map((user) => (
+                                <SelectItem key={user.id} value={user.id}>
+                                    {user.name}
+                                </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <DateRangePicker date={dateRange} onDateChange={setDateRange} />
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <Button variant="outline" size="icon" onClick={() => handlePan('prev')}><ChevronLeft className="h-4 w-4" /></Button>
+                        <Button variant="outline" onClick={() => setViewDate(new Date())}>Today</Button>
+                        <Button variant="outline" size="icon" onClick={() => handlePan('next')}><ChevronRight className="h-4 w-4" /></Button>
+                        <Button variant="outline" size="icon" onClick={() => handleZoom('in')}><ZoomIn className="h-4 w-4" /></Button>
+                        <Button variant="outline" size="icon" onClick={() => handleZoom('out')}><ZoomOut className="h-4 w-4" /></Button>
+                    </div>
                 </div>
                 {!projectId && <ProjectLegend projects={visibleProjects} />}
             </div>
@@ -241,8 +295,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
                     >
                     <XAxis 
                         type="number" 
-                        domain={[minDay - 2, maxDay + 2]}
-                        tickFormatter={(value) => format(addDays(new Date(), value), 'MMM d')}
+                        domain={timeDomain}
+                        tickFormatter={(value) => format(addDays(viewDate, value), 'MMM d')}
                         />
                     <YAxis 
                         dataKey="title" 
@@ -277,7 +331,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         axisLine={false}
                         />
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
-                    <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
+                    <ReferenceLine x={todayMarker} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
                         <LabelList dataKey="title" position="insideLeft" offset={10} className="fill-primary-foreground font-semibold text-xs" />
                         {groupedTasks.map((entry, index) => (
