@@ -152,7 +152,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
 
   const baseTasks = React.useMemo(() => {
     return tasks
-    .filter(task => task.dueDate)
+    .filter(task => task.dueDate && task.createdAt)
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
         const duration = Math.max(1, differenceInCalendarDays(endDate, task.createdAt) + 1);
