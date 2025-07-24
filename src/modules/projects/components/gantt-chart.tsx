@@ -53,11 +53,11 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
             {project && <p className="text-muted-foreground mb-2">Project: {project.name}</p>}
             <div className="flex justify-between">
                 <span className="text-muted-foreground">Start:</span>
-                <span>{format(data.startDate, 'MMM d')}</span>
+                <span>{data.startDate ? format(data.startDate, 'MMM d') : 'N/A'}</span>
             </div>
              <div className="flex justify-between">
                 <span className="text-muted-foreground">End:</span>
-                <span>{format(data.endDate, 'MMM d')}</span>
+                <span>{data.endDate ? format(data.endDate, 'MMM d') : 'N/A'}</span>
             </div>
              <div className="flex justify-between">
                 <span className="text-muted-foreground">Duration:</span>
@@ -163,6 +163,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
     .sort((a,b) => {
         if (a.projectName < b.projectName) return -1;
         if (a.projectName > b.projectName) return 1;
+        if (!a.startDate || !b.startDate) return 0;
         return a.startDate.getTime() - b.startDate.getTime()
     });
   }, [tasks, projects, visibleProjects, selectedStatus, selectedAssignee]);
@@ -180,8 +181,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
       ]);
   }, [processedTasks]);
 
-  const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]));
-  const maxDay = Math.max(30, ...processedTasks.map(t => t.ganttRange[1]));
+  const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]).filter(v => !isNaN(v)));
+  const maxDay = Math.max(30, ...processedTasks.map(t => t.ganttRange[1]).filter(v => !isNaN(v)));
   
   if (loading) {
       return (
@@ -255,6 +256,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         width={yAxisWidth} 
                         tick={({ y, payload }) => {
                             const item = payload.payload;
+                            if (!item) return null;
                             if (item.isLabel) {
                                  return (
                                     <g transform={`translate(0,${y})`}>
@@ -292,12 +294,18 @@ export function GanttChart({ projectId }: GanttChartProps) {
                             className="fill-primary-foreground font-semibold text-xs" 
                             content={(props) => {
                                 const {x, y, width, height, value, index} = props;
+                                if (!width || !height || !value || !index) return null;
                                 const data = groupedTasks[index as number];
-                                if (!width || !height || !value || !data) return null;
-                                if (data.isLabel) return null;
+                                if (!data || data.isLabel) return null;
                                 
-                                const labelWidth = (new TextEncoder().encode(value).length) * 5.5; 
-                                if (width < labelWidth) return null;
+                                const canvas = document.createElement("canvas");
+                                const context = canvas.getContext("2d");
+                                if(context) {
+                                    context.font = "11px sans-serif";
+                                    const labelWidth = context.measureText(value).width;
+                                    if (width < labelWidth + 20) return null;
+                                }
+
 
                                 return (
                                     <g>
