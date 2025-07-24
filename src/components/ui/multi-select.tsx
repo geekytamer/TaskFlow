@@ -22,7 +22,7 @@ export interface MultiSelectItem {
 interface MultiSelectProps {
   items: MultiSelectItem[]
   selected: string[]
-  onChange: React.Dispatch<React.SetStateAction<string[]>>
+  onChange: (value: string[]) => void
   placeholder?: string
   className?: string
 }
@@ -39,14 +39,15 @@ export function MultiSelect({
   const [inputValue, setInputValue] = React.useState("")
 
   const handleSelect = (value: string) => {
-    onChange((prev) =>
-      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
-    )
+    const newSelected = selected.includes(value)
+      ? selected.filter((v) => v !== value)
+      : [...selected, value]
+    onChange(newSelected)
     setInputValue("")
   }
 
   const handleRemove = (value: string) => {
-    onChange((prev) => prev.filter((v) => v !== value))
+    onChange(selected.filter((v) => v !== value))
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
