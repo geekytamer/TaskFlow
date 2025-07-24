@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, addMonths, subMonths, isWithinInterval } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, addWeeks, subWeeks, differenceInCalendarDays, addMonths, subMonths, isWithinInterval, startOfMonth, endOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
@@ -114,7 +114,10 @@ export function GanttChart({ projectId }: GanttChartProps) {
   
   const [viewDate, setViewDate] = React.useState(new Date());
   const [zoom, setZoom] = React.useState<ZoomLevel>('month');
-  const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>({
+      from: startOfMonth(new Date()),
+      to: endOfMonth(new Date()),
+  });
 
 
   React.useEffect(() => {
@@ -180,7 +183,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
         visibleProjectIds.includes(task.projectId) &&
         (selectedStatus === 'all' || task.status === selectedStatus) &&
         (selectedAssignee === 'all' || task.assignedUserIds?.includes(selectedAssignee)) &&
-        (!dateRange?.from || !dateRange?.to || isWithinInterval(task.startDate, dateRange) || isWithinInterval(task.endDate, dateRange))
+        (!dateRange?.from || !dateRange?.to || isWithinInterval(task.startDate, dateRange) || isWithinInterval(task.endDate, dateRange)) &&
+        task.createdAt
     )
     .map(task => ({
         ...task,

@@ -13,6 +13,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Separator } from "./separator"
 
 interface DateRangePickerProps extends React.ComponentProps<"div"> {
     date: DateRange | undefined
@@ -49,7 +50,7 @@ export function DateRangePicker({
                 format(date.from, "LLL dd, y")
               )
             ) : (
-              <span>Pick a date range</span>
+              <span>All time</span>
             )}
           </Button>
         </PopoverTrigger>
@@ -60,8 +61,18 @@ export function DateRangePicker({
             defaultMonth={date?.from}
             selected={date}
             onSelect={onDateChange}
-            numberOfMonths={2}
+            numberOfMonths={1}
           />
+           <Separator />
+            <div className="p-2 flex justify-end">
+                 <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDateChange(undefined)}
+                >
+                    Clear
+                </Button>
+            </div>
         </PopoverContent>
       </Popover>
     </div>
