@@ -149,14 +149,13 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         ) : (
         <>
             <SheetHeader>
-              <SheetTitle>
+              <SheetTitle>{editableTask.title}</SheetTitle>
                 <Input 
-                        id="title"
-                        value={editableTask.title}
-                        onChange={(e) => handleFieldChange('title', e.target.value)}
-                        className="text-lg font-semibold h-auto p-0 border-none focus-visible:ring-0 shadow-none"
-                    />
-              </SheetTitle>
+                    id="title"
+                    value={editableTask.title}
+                    onChange={(e) => handleFieldChange('title', e.target.value)}
+                    className="text-lg font-semibold h-auto p-0 border-none focus-visible:ring-0 shadow-none -mt-2"
+                />
             <SheetDescription>
                 In project <span className="font-semibold text-foreground">{project?.name}</span>
             </SheetDescription>
