@@ -20,25 +20,32 @@ import { MoreHorizontal, PlusCircle } from 'lucide-react';
 import { getPositions, getCompanies } from '@/services/companyService';
 import type { Position, Company } from '@/modules/companies/types';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AddPositionDialog } from './add-position-dialog';
 
 export function PositionTable() {
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
+
+  const fetchData = React.useCallback(async () => {
+    setLoading(true);
+    const [positionsData, companiesData] = await Promise.all([
+        getPositions(),
+        getCompanies(),
+    ]);
+    setPositions(positionsData);
+    setCompanies(companiesData);
+    setLoading(false);
+  }, []);
 
   React.useEffect(() => {
-    async function fetchData() {
-        setLoading(true);
-        const [positionsData, companiesData] = await Promise.all([
-            getPositions(),
-            getCompanies(),
-        ]);
-        setPositions(positionsData);
-        setCompanies(companiesData);
-        setLoading(false);
-    }
     fetchData();
-  }, []);
+  }, [fetchData]);
+
+  const onPositionAdded = () => {
+    fetchData();
+  }
 
   if (loading) {
       return (
@@ -69,10 +76,16 @@ export function PositionTable() {
   return (
     <div>
         <div className="flex justify-end mb-4">
-            <Button>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Position
-            </Button>
+            <AddPositionDialog
+              open={isAddDialogOpen}
+              onOpenChange={setIsAddDialogOpen}
+              onPositionAdded={onPositionAdded}
+            >
+              <Button>
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Position
+              </Button>
+            </AddPositionDialog>
         </div>
         <div className="rounded-lg border">
         <Table>

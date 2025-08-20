@@ -2,7 +2,7 @@
 
 import type { Company, Position } from '@/modules/companies/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, addDoc } from 'firebase/firestore';
 
 export async function getCompanies(): Promise<Company[]> {
   try {
@@ -30,6 +30,17 @@ export async function getCompanyById(id: string): Promise<Company | undefined> {
   }
 }
 
+export async function createCompany(companyData: Omit<Company, 'id'>): Promise<Company> {
+    try {
+        const docRef = await addDoc(collection(db, 'companies'), companyData);
+        return { id: docRef.id, ...companyData };
+    } catch (error) {
+        console.error("Error creating company: ", error);
+        throw new Error("Could not create company in Firestore.");
+    }
+}
+
+
 export async function getPositions(): Promise<Position[]> {
   try {
     const positionsCol = collection(db, 'positions');
@@ -53,5 +64,15 @@ export async function getPositionById(id: string): Promise<Position | undefined>
     } catch (error) {
         console.error(`Error fetching position with ID ${id}: `, error);
         throw new Error("Could not fetch position from Firestore.");
+    }
+}
+
+export async function createPosition(positionData: Omit<Position, 'id'>): Promise<Position> {
+    try {
+        const docRef = await addDoc(collection(db, 'positions'), positionData);
+        return { id: docRef.id, ...positionData };
+    } catch (error) {
+        console.error("Error creating position: ", error);
+        throw new Error("Could not create position in Firestore.");
     }
 }

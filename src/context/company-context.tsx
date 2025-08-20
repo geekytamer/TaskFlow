@@ -9,6 +9,7 @@ interface CompanyContextType {
   selectedCompany: Company | null;
   setSelectedCompany: (company: Company | null) => void;
   companies: Company[];
+  refreshCompanies: () => void;
 }
 
 const CompanyContext = React.createContext<CompanyContextType | undefined>(undefined);
@@ -18,22 +19,29 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [selectedCompany, setSelectedCompany] = React.useState<Company | null>(null);
   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => {
-    async function fetchAndSetCompanies() {
+  const fetchAndSetCompanies = React.useCallback(async () => {
+      setLoading(true);
       const companiesData = await getCompanies();
       setCompanies(companiesData);
 
       if (typeof window !== 'undefined') {
         const storedCompanyId = localStorage.getItem('selectedCompanyId');
         const companyToSelect = companiesData.find(c => c.id === storedCompanyId) || companiesData[0] || null;
-        setSelectedCompany(companyToSelect);
+        if (!selectedCompany || !companiesData.some(c => c.id === selectedCompany.id)) {
+            setSelectedCompany(companyToSelect);
+        }
       } else {
-        setSelectedCompany(companiesData[0] || null);
+         if (!selectedCompany || !companiesData.some(c => c.id === selectedCompany.id)) {
+            setSelectedCompany(companiesData[0] || null);
+        }
       }
       setLoading(false);
-    }
+  }, [selectedCompany]);
+
+
+  React.useEffect(() => {
     fetchAndSetCompanies();
-  }, []);
+  }, [fetchAndSetCompanies]);
 
   const handleSetSelectedCompany = (company: Company | null) => {
     setSelectedCompany(company);
@@ -58,7 +66,8 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const value = {
     selectedCompany,
     setSelectedCompany: handleSetSelectedCompany,
-    companies
+    companies,
+    refreshCompanies: fetchAndSetCompanies,
   };
 
   return (

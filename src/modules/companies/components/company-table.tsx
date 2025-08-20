@@ -18,19 +18,29 @@ import {
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
-import type { Company } from '@/modules/companies/types';
-import { getCompanies } from '@/services/companyService';
+import { AddCompanyDialog } from './add-company-dialog';
 
 export function CompanyTable() {
-  const { companies } = useCompany();
+  const { companies, refreshCompanies } = useCompany();
+  const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
+
+  const onCompanyAdded = () => {
+    refreshCompanies();
+  }
 
   return (
     <div>
         <div className="flex justify-end mb-4">
-            <Button>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Company
-            </Button>
+            <AddCompanyDialog 
+              open={isAddDialogOpen}
+              onOpenChange={setIsAddDialogOpen}
+              onCompanyAdded={onCompanyAdded}
+            >
+              <Button>
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Add Company
+              </Button>
+            </AddCompanyDialog>
         </div>
         <div className="rounded-lg border">
         <Table>
