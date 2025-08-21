@@ -36,14 +36,14 @@ import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
 import type { Position, User, UserRole } from '@/lib/types';
 
-const userRoles: UserRole[] = ['Admin', 'Manager', 'Employee'];
+const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee'];
 
 const addUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
   email: z.string().email('Please enter a valid email.'),
   companyId: z.string({ required_error: 'Please select a company.' }),
   positionId: z.string().optional(),
-  role: z.enum(userRoles),
+  role: z.enum(allUserRoles),
 });
 
 type AddUserFormValues = z.infer<typeof addUserSchema>;
@@ -54,6 +54,7 @@ interface AddUserSheetProps {
   onOpenChange: (open: boolean) => void;
   onUserAdded: () => void;
   userToEdit?: User | null;
+  currentUserRole?: UserRole;
 }
 
 export function AddUserSheet({
@@ -62,6 +63,7 @@ export function AddUserSheet({
   onOpenChange,
   onUserAdded,
   userToEdit,
+  currentUserRole,
 }: AddUserSheetProps) {
   const { toast } = useToast();
   const { companies } = useCompany();
@@ -78,6 +80,18 @@ export function AddUserSheet({
   });
 
   const selectedCompanyId = form.watch('companyId');
+
+  const availableRoles = React.useMemo(() => {
+    if (currentUserRole === 'Admin') {
+      return allUserRoles;
+    }
+    if (currentUserRole === 'Manager') {
+      // Managers can only create/edit Employees
+      return ['Employee'];
+    }
+    return [];
+  }, [currentUserRole]);
+
 
   React.useEffect(() => {
     async function loadPositions() {
@@ -242,7 +256,7 @@ export function AddUserSheet({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {userRoles.map((role) => (
+                      {availableRoles.map((role) => (
                         <SelectItem key={role} value={role}>
                           {role}
                         </SelectItem>

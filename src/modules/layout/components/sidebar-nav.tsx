@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { usePathname } from 'next/navigation';
 import {
   SidebarMenu,
@@ -7,18 +8,33 @@ import {
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
 import { LayoutDashboard, Users, Network, FolderKanban, Building, Settings } from 'lucide-react';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
+import { Skeleton } from '@/components/ui/skeleton';
 
-const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/projects', label: 'Projects', icon: FolderKanban },
-  { href: '/diagram', label: 'Diagram', icon: Network },
-  { href: '/users', label: 'Users', icon: Users },
-  { href: '/companies', label: 'Companies', icon: Building },
-  { href: '/settings', label: 'Settings', icon: Settings },
+const allNavItems = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee'] },
+  { href: '/projects', label: 'Projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee'] },
+  { href: '/diagram', label: 'Diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee'] },
+  { href: '/users', label: 'Users', icon: Users, roles: ['Admin', 'Manager'] },
+  { href: '/companies', label: 'Companies', icon: Building, roles: ['Admin'] },
+  { href: '/settings', label: 'Settings', icon: Settings, roles: ['Admin'] },
 ];
 
 export function SidebarNav() {
   const pathname = usePathname();
+  const { user, loading } = useAuthGuard();
+
+  if (loading || !user) {
+    return (
+      <div className="p-4 space-y-2">
+        {[...Array(6)].map((_, i) => (
+          <Skeleton key={i} className="h-8 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  const navItems = allNavItems.filter(item => item.roles.includes(user.role));
 
   return (
     <SidebarMenu>

@@ -5,8 +5,10 @@ import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet
 import { CreateProjectSheet } from '@/modules/projects/components/create-project-sheet';
 import { ProjectTable } from '@/modules/projects/components/project-table';
 import { ProjectList } from '@/modules/projects/components/project-list';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
 
 export function ProjectsPage() {
+  const { user } = useAuthGuard();
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -17,10 +19,12 @@ export function ProjectsPage() {
             Select a project to view its tasks or see all tasks below.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-            <CreateProjectSheet />
-            <CreateTaskSheet />
-        </div>
+        {user && ['Admin', 'Manager'].includes(user.role) && (
+           <div className="flex items-center gap-2">
+              <CreateProjectSheet />
+              <CreateTaskSheet />
+          </div>
+        )}
       </div>
 
       <ProjectList />

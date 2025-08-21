@@ -48,9 +48,10 @@ const roleColors: Record<UserRole, string> = {
 
 interface UserTableProps {
   onUserUpdated: () => void;
+  currentUserRole?: UserRole;
 }
 
-export function UserTable({ onUserUpdated }: UserTableProps) {
+export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
   const { selectedCompany } = useCompany();
   const [users, setUsers] = React.useState<User[]>([]);
   const [companies, setCompanies] = React.useState<Company[]>([]);
@@ -101,6 +102,13 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
         description: 'Failed to delete user.',
       });
     }
+  }
+
+  const canManageUser = (targetUser: User) => {
+    if (!currentUserRole) return false;
+    if (currentUserRole === 'Admin') return true;
+    if (currentUserRole === 'Manager' && targetUser.role === 'Employee') return true;
+    return false;
   }
 
 
@@ -158,6 +166,7 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
             {users.map((user) => {
               const company = companies.find(c => c.id === user.companyId);
               const position = positions.find(p => p.id === user.positionId);
+              const isManageable = canManageUser(user);
               return (
                 <TableRow key={user.id}>
                   <TableCell>
@@ -180,40 +189,42 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
                     <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <AlertDialog>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <span className="sr-only">Open menu</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={() => setEditingUser(user)}>Edit User</DropdownMenuItem>
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
-                              Delete User
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      {userToDelete?.id === user.id && (
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete the
-                              user "{userToDelete.name}".
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setUserToDelete(null)}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      )}
-                    </AlertDialog>
+                    {isManageable && (
+                        <AlertDialog>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                                <span className="sr-only">Open menu</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => setEditingUser(user)}>Edit User</DropdownMenuItem>
+                            <AlertDialogTrigger asChild>
+                                <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
+                                Delete User
+                                </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        {userToDelete?.id === user.id && (
+                            <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete the
+                                user "{userToDelete.name}".
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setUserToDelete(null)}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                            </AlertDialogFooter>
+                            </AlertDialogContent>
+                        )}
+                        </AlertDialog>
+                    )}
                   </TableCell>
                 </TableRow>
               )
@@ -227,6 +238,7 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
           onOpenChange={(isOpen) => !isOpen && setEditingUser(null)}
           onUserAdded={handleUserUpdated}
           userToEdit={editingUser}
+          currentUserRole={currentUserRole}
         />
       )}
     </>

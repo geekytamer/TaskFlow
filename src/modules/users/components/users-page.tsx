@@ -7,11 +7,13 @@ import { PlusCircle } from 'lucide-react';
 import { AddUserSheet } from './add-user-sheet';
 import { getUsers } from '@/services/userService';
 import type { User } from '../types';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
 
 export function UsersPage() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   // We need to re-fetch users here to pass to the table for potential refresh
   const [users, setUsers] = React.useState<User[]>([]);
+  const { user } = useAuthGuard(['Admin', 'Manager']);
 
   const refreshUsers = async () => {
     // In a real app with better state management, this might not be needed,
@@ -39,18 +41,21 @@ export function UsersPage() {
             Add, edit, and manage users for your company.
           </p>
         </div>
-        <AddUserSheet
-          open={isSheetOpen}
-          onOpenChange={setIsSheetOpen}
-          onUserAdded={handleUserAdded}
-        >
-          <Button>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Add User
-          </Button>
-        </AddUserSheet>
+        {user && ['Admin', 'Manager'].includes(user.role) && (
+          <AddUserSheet
+            open={isSheetOpen}
+            onOpenChange={setIsSheetOpen}
+            onUserAdded={handleUserAdded}
+            currentUserRole={user.role}
+          >
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add User
+            </Button>
+          </AddUserSheet>
+        )}
       </div>
-      <UserTable onUserUpdated={refreshUsers} />
+      <UserTable onUserUpdated={refreshUsers} currentUserRole={user?.role} />
     </div>
   );
 }
