@@ -13,41 +13,39 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // User is signed in, now get our app-specific user data
-        const appUser = await getCurrentUser();
+    // In a real app, onAuthStateChanged is the source of truth.
+    // For this dev environment, we'll check local storage first for the mock user.
+    const localUserStr = localStorage.getItem('taskflow_user');
+    if (localUserStr) {
+      getCurrentUser().then(appUser => {
         if (appUser) {
-          setUser(appUser);
-          if (allowedRoles && !allowedRoles.includes(appUser.role)) {
-            // This is a "soft" redirect, the page should handle the denial message.
-            // This prevents layout flashes.
-            console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
-          }
-        } else {
-           // This might happen if Firestore user record doesn't exist for a valid Firebase Auth user
-           router.push('/login');
+           setUser(appUser);
+            if (allowedRoles && !allowedRoles.includes(appUser.role)) {
+                console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+            }
         }
-      } else {
-        // User is signed out
-        localStorage.removeItem('taskflow_user');
-        router.push('/login');
-      }
-      setLoading(false);
-    });
-
-    // Check local storage as a fallback/initial state
-    const localUser = localStorage.getItem('taskflow_user');
-    if (localUser) {
-        // this is a mock of auth state, in real app we rely on onAuthStateChanged
-    } else if (process.env.NODE_ENV === 'development') { // In dev, mock the auth state faster
-       getCurrentUser().then(appUser => {
-           if (appUser) setUser(appUser);
-           setLoading(false);
-       });
+        setLoading(false);
+      });
+    } else {
+       // If no mock user, then rely on Firebase Auth
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (firebaseUser) {
+            const appUser = await getCurrentUser();
+            if (appUser) {
+              setUser(appUser);
+              if (allowedRoles && !allowedRoles.includes(appUser.role)) {
+                console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+              }
+            } else {
+               router.push('/login');
+            }
+          } else {
+            router.push('/login');
+          }
+          setLoading(false);
+        });
+        return () => unsubscribe();
     }
-
-    return () => unsubscribe();
   }, [router, allowedRoles]);
 
   return { user, loading };
