@@ -31,7 +31,7 @@ import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil } from 'lucide-react';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -150,68 +150,70 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         <>
             <SheetHeader>
               <SheetTitle>{editableTask.title}</SheetTitle>
-                <Input 
-                    id="title"
-                    value={editableTask.title}
-                    onChange={(e) => handleFieldChange('title', e.target.value)}
-                    className="text-lg font-semibold h-auto p-0 border-none focus-visible:ring-0 shadow-none -mt-2"
-                />
-            <SheetDescription>
+              <SheetDescription>
                 In project <span className="font-semibold text-foreground">{project?.name}</span>
-            </SheetDescription>
+              </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto pr-6 -mr-6 pl-1 -ml-1">
             <div className="space-y-6 py-4">
                 
                 <dl className="space-y-4">
-                <DetailRow icon={GripVertical} label="Status">
-                    <Select
-                        value={editableTask.status}
-                        onValueChange={(value: TaskStatus) => handleFieldChange('status', value)}
-                    >
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Set status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {taskStatuses.map(status => (
-                                <SelectItem key={status} value={status}>{status}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </DetailRow>
-                <DetailRow icon={UserIcon} label="Assignees">
-                    <MultiSelect
-                        items={companyUsers}
-                        selected={editableTask.assignedUserIds || []}
-                        onChange={(selected) => handleFieldChange('assignedUserIds', selected)}
-                        placeholder="Select assignees..."
-                        className="max-w-xs"
-                    />
-                </DetailRow>
-                <DetailRow icon={CalendarIcon} label="Due Date">
-                    <Popover>
-                        <PopoverTrigger asChild>
-                        <Button
-                            variant={'outline'}
-                            className={cn(
-                            'w-[180px] justify-start text-left font-normal',
-                            !editableTask.dueDate && 'text-muted-foreground'
-                            )}
-                        >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>Pick a date</span>}
-                        </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                        <Calendar
-                            mode="single"
-                            selected={editableTask.dueDate}
-                            onSelect={(date) => handleFieldChange('dueDate', date)}
-                            initialFocus
-                        />
-                        </PopoverContent>
-                    </Popover>
-                </DetailRow>
+                  <DetailRow icon={Pencil} label="Title">
+                      <Input 
+                          id="title"
+                          value={editableTask.title}
+                          onChange={(e) => handleFieldChange('title', e.target.value)}
+                          className="font-medium"
+                      />
+                  </DetailRow>
+                  <DetailRow icon={GripVertical} label="Status">
+                      <Select
+                          value={editableTask.status}
+                          onValueChange={(value: TaskStatus) => handleFieldChange('status', value)}
+                      >
+                          <SelectTrigger className="w-[180px]">
+                              <SelectValue placeholder="Set status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                              {taskStatuses.map(status => (
+                                  <SelectItem key={status} value={status}>{status}</SelectItem>
+                              ))}
+                          </SelectContent>
+                      </Select>
+                  </DetailRow>
+                  <DetailRow icon={UserIcon} label="Assignees">
+                      <MultiSelect
+                          items={companyUsers}
+                          selected={editableTask.assignedUserIds || []}
+                          onChange={(selected) => handleFieldChange('assignedUserIds', selected)}
+                          placeholder="Select assignees..."
+                          className="max-w-xs"
+                      />
+                  </DetailRow>
+                  <DetailRow icon={CalendarIcon} label="Due Date">
+                      <Popover>
+                          <PopoverTrigger asChild>
+                          <Button
+                              variant={'outline'}
+                              className={cn(
+                              'w-[180px] justify-start text-left font-normal',
+                              !editableTask.dueDate && 'text-muted-foreground'
+                              )}
+                          >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>Pick a date</span>}
+                          </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                          <Calendar
+                              mode="single"
+                              selected={editableTask.dueDate}
+                              onSelect={(date) => handleFieldChange('dueDate', date)}
+                              initialFocus
+                          />
+                          </PopoverContent>
+                      </Popover>
+                  </DetailRow>
                     <DetailRow icon={Tag} label="Priority">
                         <Select
                             value={editableTask.priority}
