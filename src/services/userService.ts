@@ -3,7 +3,7 @@
 
 import type { User } from '@/modules/users/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, addDoc, updateDoc, setDoc } from 'firebase/firestore';
 
 
 export async function getUsers(): Promise<User[]> {
@@ -45,6 +45,31 @@ export async function getUsersByCompany(companyId: string): Promise<User[]> {
         throw new Error("Could not fetch users from Firestore.");
     }
 }
+
+
+export async function createUser(userData: Omit<User, 'id'>): Promise<User> {
+    try {
+        const docRef = await addDoc(collection(db, 'users'), userData);
+        return { id: docRef.id, ...userData };
+    } catch (error) {
+        console.error("Error creating user: ", error);
+        throw new Error("Could not create user in Firestore.");
+    }
+}
+
+export async function updateUser(userId: string, userData: Partial<Omit<User, 'id'>>): Promise<User | undefined> {
+    try {
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, userData);
+        const updatedDoc = await getDoc(userRef);
+        if (!updatedDoc.exists()) return undefined;
+        return { id: updatedDoc.id, ...updatedDoc.data() } as User;
+    } catch (error) {
+        console.error(`Error updating user with ID ${userId}: `, error);
+        throw new Error("Could not update user in Firestore.");
+    }
+}
+
 
 // In a real app, you'd have a way to get the current authenticated user from a session.
 // For now, we'll just return a hardcoded user as a mock.

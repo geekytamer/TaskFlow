@@ -26,6 +26,7 @@ import type { User, UserRole } from '@/modules/users/types';
 import type { Company, Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AddUserSheet } from './add-user-sheet';
 
 const roleColors: Record<UserRole, string> = {
     Admin: 'bg-primary text-primary-foreground',
@@ -33,29 +34,41 @@ const roleColors: Record<UserRole, string> = {
     Employee: 'bg-secondary text-secondary-foreground',
 }
 
-export function UserTable() {
+interface UserTableProps {
+  onUserUpdated: () => void;
+}
+
+export function UserTable({ onUserUpdated }: UserTableProps) {
   const { selectedCompany } = useCompany();
   const [users, setUsers] = React.useState<User[]>([]);
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [editingUser, setEditingUser] = React.useState<User | null>(null);
+
+  const fetchData = React.useCallback(async () => {
+     if (!selectedCompany) return;
+      setLoading(true);
+      const [usersData, companiesData, positionsData] = await Promise.all([
+          getUsersByCompany(selectedCompany.id),
+          getCompanies(),
+          getPositions(),
+      ]);
+      setUsers(usersData);
+      setCompanies(companiesData);
+      setPositions(positionsData);
+      setLoading(false);
+  }, [selectedCompany]);
 
   React.useEffect(() => {
-    async function loadData() {
-        if (!selectedCompany) return;
-        setLoading(true);
-        const [usersData, companiesData, positionsData] = await Promise.all([
-            getUsersByCompany(selectedCompany.id),
-            getCompanies(),
-            getPositions(),
-        ]);
-        setUsers(usersData);
-        setCompanies(companiesData);
-        setPositions(positionsData);
-        setLoading(false);
-    }
-    loadData();
-  }, [selectedCompany]);
+    fetchData();
+  }, [fetchData]);
+  
+  const handleUserUpdated = () => {
+    fetchData(); // Re-fetch data for the table
+    onUserUpdated(); // Notify parent page
+    setEditingUser(null);
+  }
 
   if (loading) {
       return (
@@ -95,64 +108,74 @@ export function UserTable() {
   }
 
   return (
-    <div className="rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>User</TableHead>
-            <TableHead>Company</TableHead>
-            <TableHead>Position</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {users.map((user) => {
-            const company = companies.find(c => c.id === user.companyId);
-            const position = positions.find(p => p.id === user.positionId);
-            return (
-              <TableRow key={user.id}>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarImage src={user.avatar} />
-                      <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{user.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {user.email}
-                      </p>
+    <>
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>User</TableHead>
+              <TableHead>Company</TableHead>
+              <TableHead>Position</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {users.map((user) => {
+              const company = companies.find(c => c.id === user.companyId);
+              const position = positions.find(p => p.id === user.positionId);
+              return (
+                <TableRow key={user.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarImage src={user.avatar} />
+                        <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium">{user.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {user.email}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </TableCell>
-                <TableCell>{company?.name || 'N/A'}</TableCell>
-                <TableCell>{position?.title || 'N/A'}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem>Edit User</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                        Delete User
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                  </TableCell>
+                  <TableCell>{company?.name || 'N/A'}</TableCell>
+                  <TableCell>{position?.title || 'N/A'}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => setEditingUser(user)}>Edit User</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                          Delete User
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+       {editingUser && (
+        <AddUserSheet
+          open={!!editingUser}
+          onOpenChange={(isOpen) => !isOpen && setEditingUser(null)}
+          onUserAdded={handleUserUpdated}
+          userToEdit={editingUser}
+        />
+      )}
+    </>
   );
 }
