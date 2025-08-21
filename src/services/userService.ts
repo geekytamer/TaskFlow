@@ -3,7 +3,7 @@
 
 import type { User } from '@/modules/users/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, query, where, addDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, addDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
 
 export async function getUsers(): Promise<User[]> {
@@ -67,6 +67,15 @@ export async function updateUser(userId: string, userData: Partial<Omit<User, 'i
     } catch (error) {
         console.error(`Error updating user with ID ${userId}: `, error);
         throw new Error("Could not update user in Firestore.");
+    }
+}
+
+export async function deleteUser(userId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, 'users', userId));
+    } catch (error) {
+        console.error(`Error deleting user with ID ${userId}: `, error);
+        throw new Error("Could not delete user from Firestore.");
     }
 }
 

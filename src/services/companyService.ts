@@ -2,7 +2,7 @@
 
 import type { Company, Position } from '@/modules/companies/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, query, where, addDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, addDoc, deleteDoc } from 'firebase/firestore';
 
 export async function getCompanies(): Promise<Company[]> {
   try {
@@ -40,6 +40,15 @@ export async function createCompany(companyData: Omit<Company, 'id'>): Promise<C
     }
 }
 
+export async function deleteCompany(companyId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, 'companies', companyId));
+    } catch (error) {
+        console.error(`Error deleting company with ID ${companyId}: `, error);
+        throw new Error("Could not delete company from Firestore.");
+    }
+}
+
 
 export async function getPositions(): Promise<Position[]> {
   try {
@@ -74,5 +83,14 @@ export async function createPosition(positionData: Omit<Position, 'id'>): Promis
     } catch (error) {
         console.error("Error creating position: ", error);
         throw new Error("Could not create position in Firestore.");
+    }
+}
+
+export async function deletePosition(positionId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, 'positions', positionId));
+    } catch (error) {
+        console.error(`Error deleting position with ID ${positionId}: `, error);
+        throw new Error("Could not delete position from Firestore.");
     }
 }

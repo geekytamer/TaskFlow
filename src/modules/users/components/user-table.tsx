@@ -20,13 +20,25 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal } from 'lucide-react';
-import { getUsersByCompany } from '@/services/userService';
+import { getUsersByCompany, deleteUser } from '@/services/userService';
 import { getCompanies, getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Company, Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/hooks/use-toast';
 
 const roleColors: Record<UserRole, string> = {
     Admin: 'bg-primary text-primary-foreground',
@@ -45,6 +57,8 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [editingUser, setEditingUser] = React.useState<User | null>(null);
+  const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
+  const { toast } = useToast();
 
   const fetchData = React.useCallback(async () => {
      if (!selectedCompany) return;
@@ -69,6 +83,26 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
     onUserUpdated(); // Notify parent page
     setEditingUser(null);
   }
+
+  const handleDelete = async () => {
+    if (!userToDelete) return;
+    try {
+      await deleteUser(userToDelete.id);
+      toast({
+        title: 'User Deleted',
+        description: `User "${userToDelete.name}" has been deleted.`,
+      });
+      fetchData();
+      setUserToDelete(null);
+    } catch (error) {
+       toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to delete user.',
+      });
+    }
+  }
+
 
   if (loading) {
       return (
@@ -146,21 +180,40 @@ export function UserTable({ onUserUpdated }: UserTableProps) {
                     <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <span className="sr-only">Open menu</span>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => setEditingUser(user)}>Edit User</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                          Delete User
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <AlertDialog>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <span className="sr-only">Open menu</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => setEditingUser(user)}>Edit User</DropdownMenuItem>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
+                              Delete User
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      {userToDelete?.id === user.id && (
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This action cannot be undone. This will permanently delete the
+                              user "{userToDelete.name}".
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setUserToDelete(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      )}
+                    </AlertDialog>
                   </TableCell>
                 </TableRow>
               )
