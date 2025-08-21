@@ -85,6 +85,23 @@ export async function deleteUser(userId: string): Promise<void> {
 export async function getCurrentUser(): Promise<User> {
     // This is a mock implementation. In a real app, you would get the
     // authenticated user's ID from the session/token.
+
+    // Check for the hardcoded admin user for development purposes
+    const localUserStr = typeof window !== 'undefined' ? localStorage.getItem('taskflow_user') : null;
+    if (localUserStr) {
+        const localUser = JSON.parse(localUserStr);
+        if (localUser.email === 'admin@taskflow.com') {
+            return {
+                id: 'admin-user',
+                name: 'System Admin',
+                email: 'admin@taskflow.com',
+                role: 'Admin',
+                companyId: '1', // Default company, admin has access to all anyway
+                avatar: `https://i.pravatar.cc/150?u=admin@taskflow.com`
+            };
+        }
+    }
+    
     const mockUserId = 'user-1'; 
     const user = await getUserById(mockUserId); 
     if (!user) {
