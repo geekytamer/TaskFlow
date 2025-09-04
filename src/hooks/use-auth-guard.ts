@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -23,6 +24,9 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
             if (allowedRoles && !allowedRoles.includes(appUser.role)) {
                 console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
             }
+        } else {
+            // This can happen if the DB is not seeded or the user is not found
+            router.push('/login');
         }
         setLoading(false);
       });

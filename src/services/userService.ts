@@ -82,7 +82,7 @@ export async function deleteUser(userId: string): Promise<void> {
 
 // In a real app, you'd have a way to get the current authenticated user from a session.
 // For now, we'll just return a hardcoded user as a mock.
-export async function getCurrentUser(): Promise<User> {
+export async function getCurrentUser(): Promise<User | null> {
     // This is a mock implementation. In a real app, you would get the
     // authenticated user's ID from the session/token.
 
@@ -107,14 +107,8 @@ export async function getCurrentUser(): Promise<User> {
     if (!user) {
         // This is a fallback and should not happen if your DB is seeded with 'user-1'.
         console.error("Mock user 'user-1' not found in Firestore. Please seed the database.");
-        return {
-            id: 'user-1',
-            name: 'Default Admin',
-            email: 'admin@taskflow.com',
-            role: 'Admin',
-            companyId: '1', // Ensure a company with this ID exists
-            avatar: `https://i.pravatar.cc/150?u=user-1`
-        };
+        // Return null instead of a hardcoded user to avoid potential downstream issues
+        return null;
     }
     return user;
 }
