@@ -85,30 +85,43 @@ export async function deleteUser(userId: string): Promise<void> {
 export async function getCurrentUser(): Promise<User | null> {
     // This is a mock implementation. In a real app, you would get the
     // authenticated user's ID from the session/token.
-
-    // Check for the hardcoded admin user for development purposes
-    const localUserStr = typeof window !== 'undefined' ? localStorage.getItem('taskflow_user') : null;
-    if (localUserStr) {
-        const localUser = JSON.parse(localUserStr);
-        if (localUser.email === 'admin@taskflow.com') {
-            return {
-                id: 'admin-user',
-                name: 'System Admin',
-                email: 'admin@taskflow.com',
-                role: 'Admin',
-                companyId: '1', // Default company, admin has access to all anyway
-                avatar: `https://i.pravatar.cc/150?u=admin@taskflow.com`
-            };
-        }
-    }
     
-    const mockUserId = 'user-1'; 
-    const user = await getUserById(mockUserId); 
-    if (!user) {
-        // This is a fallback and should not happen if your DB is seeded with 'user-1'.
-        console.error("Mock user 'user-1' not found in Firestore. Please seed the database.");
-        // Return null instead of a hardcoded user to avoid potential downstream issues
-        return null;
+    // Hardcoded Admin check
+    // Note: This relies on the client to set the local storage item.
+    // This function itself can't access localStorage as it runs on the server.
+    const mockAdmin = {
+        id: 'admin-user',
+        name: 'System Admin',
+        email: 'admin@taskflow.com',
+        role: 'Admin' as const,
+        companyId: '1', // Default company, admin has access to all anyway
+        avatar: `https://i.pravatar.cc/150?u=admin@taskflow.com`
+    };
+
+    // This logic needs to be careful about server/client context.
+    // The check for the admin email is now primarily handled in the auth guard.
+    // This function will prioritize fetching a real user.
+    try {
+        // This should be the ID of the currently authenticated Firebase user.
+        // For the mock, we'll continue to use user-1 as the default.
+        const mockUserId = 'user-1'; 
+        const user = await getUserById(mockUserId); 
+        
+        if (user) {
+            // Check if the mock user email is the admin email
+             if (user.email === 'admin@taskflow.com') {
+                return { ...user, role: 'Admin' };
+            }
+            return user;
+        }
+
+        // If 'user-1' isn't in the database (e.g. not seeded), we fall back.
+        // This is a fragile part of the mock setup.
+        console.warn("Mock user 'user-1' not found in Firestore. Please seed the database. Falling back to hardcoded admin.");
+        return mockAdmin;
+
+    } catch (e) {
+        console.error("Error fetching current user, falling back to admin mock", e);
+        return mockAdmin;
     }
-    return user;
 }

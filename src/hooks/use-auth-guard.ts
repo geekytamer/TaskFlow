@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -12,45 +11,49 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
   const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
 
   React.useEffect(() => {
-    // In a real app, onAuthStateChanged is the source of truth.
-    // For this dev environment, we'll check local storage first for the mock user.
-    const localUserStr = localStorage.getItem('taskflow_user');
-    if (localUserStr) {
-      getCurrentUser().then(appUser => {
+    const checkAuth = async () => {
+      // This function now runs only on the client side
+      const localUserStr = localStorage.getItem('taskflow_user');
+      if (localUserStr) {
+        const appUser = await getCurrentUser();
         if (appUser) {
-           setUser(appUser);
-            if (allowedRoles && !allowedRoles.includes(appUser.role)) {
-                console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
-            }
+          setUser(appUser);
+          if (allowedRoles && !allowedRoles.includes(appUser.role)) {
+            console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+          }
+          setIsAuthenticated(true);
         } else {
-            // This can happen if the DB is not seeded or the user is not found
-            router.push('/login');
+          router.push('/login');
         }
-        setLoading(false);
-      });
-    } else {
-       // If no mock user, then rely on Firebase Auth
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      } else {
+        // Fallback to firebase auth if no mock user
+         const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
           if (firebaseUser) {
             const appUser = await getCurrentUser();
             if (appUser) {
               setUser(appUser);
-              if (allowedRoles && !allowedRoles.includes(appUser.role)) {
-                console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+               if (allowedRoles && !allowedRoles.includes(appUser.role)) {
+                 console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
               }
+              setIsAuthenticated(true);
             } else {
                router.push('/login');
             }
           } else {
             router.push('/login');
           }
-          setLoading(false);
         });
-        return () => unsubscribe();
-    }
+        return () => unsub();
+      }
+      setLoading(false);
+    };
+    
+    checkAuth();
+
   }, [router, allowedRoles]);
 
-  return { user, loading };
+  return { user, loading, isAuthenticated };
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import {
   SidebarProvider,
   Sidebar,
@@ -17,24 +16,12 @@ import { CompanySwitcher } from '@/modules/companies/components/company-switcher
 import { SidebarNav } from '@/modules/layout/components/sidebar-nav';
 import { Logo } from '@/components/icons/logo';
 import { CompanyProvider } from '@/context/company-context';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const { isAuthenticated, loading } = useAuthGuard();
 
-  React.useEffect(() => {
-    // Mock auth check
-    const user = localStorage.getItem('taskflow_user');
-    if (user) {
-      setIsAuthenticated(true);
-    } else {
-      router.push('/login');
-    }
-    setIsLoading(false);
-  }, [router]);
-
-  if (isLoading || !isAuthenticated) {
+  if (loading || !isAuthenticated) {
     return (
       <div className="flex h-screen w-screen items-center justify-center">
          <div className="flex flex-col items-center gap-4">
