@@ -34,22 +34,29 @@ export function SidebarNav() {
     );
   }
 
-  const navItems = allNavItems.filter(item => item.roles.includes(user.role));
+  const navItems = allNavItems.filter(item => {
+    // Show settings link to admin even if on the public /settings page
+    if (item.href === '/settings' && user.role === 'Admin') return true;
+    return item.roles.includes(user.role)
+  });
 
   return (
     <SidebarMenu>
       {navItems.map((item) => {
         const Icon = item.icon;
-        const isActive = pathname.startsWith(item.href) && item.href !== '/';
-        const isDashboardActive = pathname === '/';
         
-        const finalIsActive = item.href === '/' ? isDashboardActive : isActive;
+        let isActive = false;
+        if (item.href === '/') {
+            isActive = pathname === '/';
+        } else {
+            isActive = pathname.startsWith(item.href);
+        }
 
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
               asChild
-              isActive={finalIsActive}
+              isActive={isActive}
               tooltip={{ children: item.label, side: 'right' }}
             >
               <a href={item.href}>
