@@ -60,6 +60,17 @@ export async function createUser(userData: Omit<User, 'id'>): Promise<User> {
     }
 }
 
+export async function createUserWithId(userId: string, userData: Omit<User, 'id'>): Promise<User> {
+    try {
+        const userRef = doc(db, 'users', userId);
+        await setDoc(userRef, userData);
+        return { id: userId, ...userData };
+    } catch (error) {
+        console.error("Error creating user with ID: ", error);
+        throw new Error("Could not create user in Firestore.");
+    }
+}
+
 export async function updateUser(userId: string, userData: Partial<Omit<User, 'id'>>): Promise<User | undefined> {
     try {
         const userRef = doc(db, 'users', userId);
@@ -89,14 +100,12 @@ export async function getCurrentUser(): Promise<User | null> {
     // authenticated user's ID from the session/token.
     try {
         // This should be the ID of the currently authenticated Firebase user.
+        // It's a placeholder because this is a server function and doesn't know
+        // the client-side auth state. The real logic is in useAuthGuard.
         const mockUserId = 'user-1'; 
         const user = await getUserById(mockUserId); 
         
         if (user) {
-            // This is a special override for the demo to ensure admin@taskflow.com is always an admin
-             if (user.email === 'admin@taskflow.com') {
-                return { ...user, role: 'Admin' };
-            }
             return user;
         }
         
