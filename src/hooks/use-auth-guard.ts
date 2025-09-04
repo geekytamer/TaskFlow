@@ -20,6 +20,9 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
         // Use the firebase UID to get our application-specific user data.
         const appUser = await getUserById(firebaseUser.uid);
         
+        // Debugging alert
+        alert(`User Fetched from Firestore: ${JSON.stringify(appUser, null, 2)}`);
+
         if (appUser) {
           // The user exists in our database.
           setUser(appUser);
