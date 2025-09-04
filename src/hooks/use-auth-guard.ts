@@ -22,14 +22,8 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
         appUser = await getUserById(firebaseUser.uid);
         if (!appUser) {
             // Fallback to default user if not found in DB
+            // This can happen if the users collection is not in sync with Auth
              appUser = await getCurrentUser();
-        }
-      } else {
-        // Fallback for mock user if Firebase auth is not available
-        const mockUserId = localStorage.getItem('taskflow_user_mock_id');
-        if (mockUserId) {
-            // Fetch the user from the database using the stored mock ID
-            appUser = await getUserById(mockUserId);
         }
       }
 

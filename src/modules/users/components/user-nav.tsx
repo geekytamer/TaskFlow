@@ -27,20 +27,6 @@ export function UserNav() {
       const userData = await getCurrentUser();
        if (userData) {
           setUser(userData);
-      } else {
-         // Fallback for mock user
-        const mockUser = localStorage.getItem('taskflow_user_mock');
-        if (mockUser) {
-            const parsedUser = JSON.parse(mockUser);
-            setUser({
-              id: 'mock-user-id',
-              name: 'Mock Admin',
-              email: parsedUser.email,
-              role: 'Admin',
-              companyId: '1',
-              avatar: `https://i.pravatar.cc/150?u=${parsedUser.email}`
-            });
-        }
       }
     }
     loadUser();
@@ -52,7 +38,6 @@ export function UserNav() {
     } catch (error) {
       console.error("Error signing out from Firebase", error);
     }
-    localStorage.removeItem('taskflow_user_mock');
     router.push('/login');
   };
 

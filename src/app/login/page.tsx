@@ -16,7 +16,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/icons/logo';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { placeholderUsers } from '@/lib/placeholder-data';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,9 +29,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // We always try to sign in with Firebase first.
       await signInWithEmailAndPassword(auth, email, password);
-      // If successful, clear any mock user data.
       localStorage.removeItem('taskflow_user_mock_id');
       toast({
         title: 'Login Successful',
@@ -41,26 +38,11 @@ export default function LoginPage() {
       router.push('/');
     } catch (error) {
       console.error('Firebase Auth Error:', error);
-      // Fallback for demo purposes if the user is not in Firebase Auth
-      if (email === 'admin@taskflow.com' && password === 'password') {
-        // This mock user allows app access without a real Firebase user.
-        // We find the default admin user from placeholder data to ensure the ID is correct.
-        const mockAdmin = placeholderUsers.find(u => u.email === 'admin@taskflow.com');
-        const mockUserId = mockAdmin ? mockAdmin.id : 'user-1'; // Default to user-1 if not found
-        localStorage.setItem('taskflow_user_mock_id', mockUserId);
-        
-        toast({
-          title: 'Login Successful (Mock)',
-          description: 'Welcome back! Note: This is a mock session. Please create this user in Firebase Authentication for full functionality.',
-        });
-        router.push('/');
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Login Failed',
-          description: 'Invalid email or password. Please use the default credentials or create the user in Firebase.',
-        });
-      }
+      toast({
+        variant: 'destructive',
+        title: 'Login Failed',
+        description: 'Invalid email or password. Please use valid credentials or seed the database to create the default admin user in Firebase Authentication.',
+      });
     } finally {
       setIsLoading(false);
     }
