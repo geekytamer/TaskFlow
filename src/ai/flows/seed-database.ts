@@ -72,7 +72,6 @@ export const seedDatabaseFlow = ai.defineFlow(
             await deleteCollection(collectionName);
         }
 
-        // We also need to clear non-admin users from the users collection
         const usersCollectionRef = collection(db, 'users');
         const usersQuery = query(usersCollectionRef);
         const usersSnapshot = await getDocs(usersQuery);
@@ -108,7 +107,6 @@ export const seedDatabaseFlow = ai.defineFlow(
 
         const usersBatch = writeBatch(db);
         placeholderUsers.forEach((user) => {
-            // Do not seed the admin placeholder, as it should be created through the UI.
             if (user.email === 'admin@taskflow.com') return; 
             const docRef = doc(db, 'users', user.id);
             usersBatch.set(docRef, user);
@@ -127,17 +125,13 @@ export const seedDatabaseFlow = ai.defineFlow(
         const tasksBatch = writeBatch(db);
         placeholderTasks.forEach((task) => {
           const docRef = doc(db, 'tasks', task.id);
-          const taskForFirestore: Partial<Task> = { ...task };
-          if (task.dueDate) {
-            taskForFirestore.dueDate = new Date(task.dueDate);
-          } else {
-            delete taskForFirestore.dueDate;
-          }
-          if (task.createdAt) {
-              taskForFirestore.createdAt = new Date(task.createdAt);
-          } else {
-              taskForFirestore.createdAt = new Date();
-          }
+          // Firestore handles Date objects directly, so no conversion is needed.
+          // The issue was trying to convert a string that was already a Date.
+          const taskForFirestore: Omit<Task, 'id' | 'createdAt' | 'dueDate'> & { createdAt: Date, dueDate?: Date } = {
+            ...task,
+            createdAt: new Date(task.createdAt), // This is correct as it's a string from placeholder
+            dueDate: task.dueDate ? new Date(task.dueDate) : undefined, // Also correct
+          };
           tasksBatch.set(docRef, taskForFirestore);
         });
         await tasksBatch.commit();
