@@ -85,24 +85,38 @@ export function SettingsPage() {
     }
   };
 
-  const handleSeedDatabase = async () => {
+  const handleSeedDatabase = () => {
     setIsSeeding(true);
-    try {
-      await seedDatabaseFlow();
-      toast({
+    // Asynchronously trigger the flow without awaiting it
+    seedDatabaseFlow().then(result => {
+        if (result?.success) {
+            toast({
+                title: 'Database Seeding Completed',
+                description: 'Your database has been populated with placeholder data.',
+            });
+        } else {
+             toast({
+                variant: 'destructive',
+                title: 'Seeding Failed',
+                description: result?.message || 'The seeding process failed to complete. Check the console for errors.',
+            });
+        }
+    }).catch(error => {
+        console.error(error);
+        toast({
+            variant: 'destructive',
+            title: 'Seeding Failed to Start',
+            description: 'Could not start the seeding process. Check the console for errors.',
+        });
+    }).finally(() => {
+        setIsSeeding(false);
+    });
+
+    // Provide immediate feedback to the user
+    toast({
         title: 'Database Seeding Started',
-        description: 'Your database is being populated in the background. Check server logs for completion status.',
-      });
-    } catch (error) {
-      console.error(error);
-      toast({
-        variant: 'destructive',
-        title: 'Seeding Failed to Start',
-        description: 'Could not start the seeding process. Check the console for errors.',
-      });
-    } finally {
-      setIsSeeding(false);
-    }
+        description: 'Your database is being populated in the background. This may take a moment.',
+    });
   };
 
   const copyToClipboard = () => {
