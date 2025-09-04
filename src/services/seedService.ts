@@ -60,7 +60,7 @@ export async function seedDatabase() {
     console.log('Seeding non-admin users...');
     placeholderUsers.forEach((user) => {
         // We skip the user that we are using as a template for the admin
-        if (user.email === 'alex.j@innovatecorp.com') return;
+        if (user.email === 'admin@taskflow.com' || user.email === 'alex.j@innovatecorp.com') return;
 
         const docRef = doc(db, 'users', user.id);
         batch.set(docRef, user);
