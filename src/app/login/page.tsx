@@ -14,40 +14,49 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/icons/logo';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('admin@taskflow.com');
+  const [password, setPassword] = useState('password');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    // Mock Firebase Auth
-    // In a real app, you'd use Firebase Auth here.
-    // signInWithEmailAndPassword(auth, email, password)
-    setTimeout(() => {
+    // For the demo, we will hardcode the user but use Firebase to sign in
+    // This makes the session management real, even if the user is fixed.
+     try {
+      await signInWithEmailAndPassword(auth, email, password);
+      toast({
+        title: 'Login Successful',
+        description: "Welcome back!",
+      });
+      router.push('/');
+    } catch (error) {
+      console.error("Firebase Auth Error:", error);
+      // Fallback for demo purposes if the user is not in Firebase Auth
       if (email === 'admin@taskflow.com' && password === 'password') {
-        // Mock successful login
-        // In a real app, a session/cookie would be set by Firebase
         localStorage.setItem('taskflow_user', JSON.stringify({ email, role: 'Admin' }));
         toast({
-          title: 'Login Successful',
-          description: "Welcome back!",
+          title: 'Login Successful (Mock)',
+          description: "Welcome back! Please ensure the user is also created in Firebase Authentication.",
         });
         router.push('/');
       } else {
         toast({
           variant: 'destructive',
           title: 'Login Failed',
-          description: 'Invalid email or password. Use admin@taskflow.com and password.',
+          description: 'Invalid email or password. Please use the credentials provided.',
         });
-        setIsLoading(false);
       }
-    }, 1000);
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   return (

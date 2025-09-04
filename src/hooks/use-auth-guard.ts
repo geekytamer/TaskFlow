@@ -14,45 +14,29 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
 
   React.useEffect(() => {
-    const checkAuth = async () => {
-      // This function now runs only on the client side
-      const localUserStr = localStorage.getItem('taskflow_user');
-      if (localUserStr) {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
         const appUser = await getCurrentUser();
         if (appUser) {
           setUser(appUser);
           if (allowedRoles && !allowedRoles.includes(appUser.role)) {
             console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+             // You might want to redirect them to a specific page, like the dashboard
+             router.push('/');
           }
           setIsAuthenticated(true);
         } else {
+          // This case means the user is authenticated in Firebase, but has no record in our Firestore DB
+          console.error("Authenticated user not found in Firestore. Logging out.");
           router.push('/login');
         }
       } else {
-        // Fallback to firebase auth if no mock user
-         const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-          if (firebaseUser) {
-            const appUser = await getCurrentUser();
-            if (appUser) {
-              setUser(appUser);
-               if (allowedRoles && !allowedRoles.includes(appUser.role)) {
-                 console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
-              }
-              setIsAuthenticated(true);
-            } else {
-               router.push('/login');
-            }
-          } else {
-            router.push('/login');
-          }
-        });
-        return () => unsub();
+        router.push('/login');
       }
       setLoading(false);
-    };
-    
-    checkAuth();
+    });
 
+    return () => unsub();
   }, [router, allowedRoles]);
 
   return { user, loading, isAuthenticated };
