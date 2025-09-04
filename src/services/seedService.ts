@@ -2,7 +2,7 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import { collection, doc, writeBatch, query, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, getDocs, WriteBatch } from 'firebase/firestore';
 import {
   placeholderCompanies,
   placeholderPositions,
@@ -12,74 +12,92 @@ import {
 } from '@/lib/placeholder-data';
 import type { Task } from '@/modules/projects/types';
 
-async function deleteAllDocumentsInCollection(collectionName: string) {
+// Helper function to delete all documents in a collection in batches
+async function deleteCollection(collectionName: string) {
     const collectionRef = collection(db, collectionName);
     const q = query(collectionRef);
     const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+        console.log(`Collection ${collectionName} is already empty.`);
+        return;
+    }
+
     const batch = writeBatch(db);
-    querySnapshot.forEach((doc) => {
+    querySnapshot.docs.forEach(doc => {
         batch.delete(doc.ref);
     });
+    
     await batch.commit();
+    console.log(`Successfully deleted ${querySnapshot.size} documents from ${collectionName}.`);
 }
+
 
 export async function seedDatabase() {
   try {
     console.log('Starting database seed...');
 
-    // Clear existing data from all collections except 'users'
+    // 1. Clear existing data from all relevant collections
     console.log('Clearing existing data...');
     const collectionsToClear = ['companies', 'positions', 'projects', 'tasks', 'comments'];
     for (const collectionName of collectionsToClear) {
-        await deleteAllDocumentsInCollection(collectionName);
-        console.log(`Cleared ${collectionName} collection.`);
+        await deleteCollection(collectionName);
     }
+     // We also need to clear non-admin users from the users collection
+    const usersCollectionRef = collection(db, 'users');
+    const usersQuery = query(usersCollectionRef);
+    const usersSnapshot = await getDocs(usersQuery);
+    const userDeletionBatch = writeBatch(db);
+    usersSnapshot.forEach((doc) => {
+        // This is a safeguard to NOT delete the currently authenticated user, who should be the admin.
+        // In a real scenario, you might have more robust checks, but this prevents wiping the admin.
+        if (doc.data().role !== 'Admin') {
+            userDeletionBatch.delete(doc.ref);
+        }
+    });
+    await userDeletionBatch.commit();
+    console.log('Cleared non-admin users.');
 
-    // We do NOT clear the users collection so we don't delete our admin user.
-    // The following writes will overwrite placeholder users but keep the admin.
-    const batch = writeBatch(db);
 
-    // Seed companies
-    console.log('Seeding companies...');
+    // 2. Seed data in separate batches for each data type
+    const companiesBatch = writeBatch(db);
     placeholderCompanies.forEach((company) => {
       const docRef = doc(db, 'companies', company.id);
-      batch.set(docRef, company);
+      companiesBatch.set(docRef, company);
     });
-    console.log('Companies added to batch.');
+    await companiesBatch.commit();
+    console.log('Seeded companies.');
 
-    // Seed positions
-    console.log('Seeding positions...');
+    const positionsBatch = writeBatch(db);
     placeholderPositions.forEach((position) => {
       const docRef = doc(db, 'positions', position.id);
-      batch.set(docRef, position);
+      positionsBatch.set(docRef, position);
     });
-    console.log('Positions added to batch.');
+    await positionsBatch.commit();
+    console.log('Seeded positions.');
 
     // Seed non-admin users. This will overwrite any existing placeholder users
     // but will not touch the Firebase Auth-created admin user.
-    console.log('Seeding non-admin users...');
+    const usersBatch = writeBatch(db);
     placeholderUsers.forEach((user) => {
-        // We skip the user that we are using as a template for the admin
-        if (user.email === 'admin@taskflow.com' || user.email === 'alex.j@innovatecorp.com') return;
-
+        if (user.email === 'admin@taskflow.com') return;
         const docRef = doc(db, 'users', user.id);
-        batch.set(docRef, user);
+        usersBatch.set(docRef, user);
     });
-    console.log('Users added to batch.');
-
-    // Seed projects
-    console.log('Seeding projects...');
+    await usersBatch.commit();
+    console.log('Seeded non-admin users.');
+    
+    const projectsBatch = writeBatch(db);
     placeholderProjects.forEach((project) => {
       const docRef = doc(db, 'projects', project.id);
-      batch.set(docRef, project);
+      projectsBatch.set(docRef, project);
     });
-    console.log('Projects added to batch.');
+    await projectsBatch.commit();
+    console.log('Seeded projects.');
 
-    // Seed tasks
-    console.log('Seeding tasks...');
+    const tasksBatch = writeBatch(db);
     placeholderTasks.forEach((task) => {
       const docRef = doc(db, 'tasks', task.id);
-      // Firestore cannot store `undefined`, so we need to construct the object carefully
       const taskForFirestore: Partial<Task> = { ...task };
       if (task.dueDate) {
         taskForFirestore.dueDate = new Date(task.dueDate);
@@ -91,13 +109,11 @@ export async function seedDatabase() {
       } else {
           taskForFirestore.createdAt = new Date();
       }
-      batch.set(docRef, taskForFirestore);
+      tasksBatch.set(docRef, taskForFirestore);
     });
-    console.log('Tasks added to batch.');
+    await tasksBatch.commit();
+    console.log('Seeded tasks.');
 
-    // Commit the batch
-    console.log('Committing batch...');
-    await batch.commit();
     console.log('Database seeded successfully!');
 
   } catch (error) {
