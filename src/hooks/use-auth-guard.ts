@@ -13,7 +13,6 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
   const [user, setUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
-  const [authChecked, setAuthChecked] = React.useState(false);
 
   React.useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
@@ -37,26 +36,20 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
           // Firebase user exists but not in our DB
           setUser(null);
           setIsAuthenticated(false);
+          router.push('/login');
         }
       } else {
         // No Firebase user
         setUser(null);
         setIsAuthenticated(false);
+        router.push('/login');
       }
-      setAuthChecked(true); // Mark that the initial auth check has completed.
+       // We are done checking, so we can stop loading.
       setLoading(false);
     });
 
     return () => unsub();
   }, [allowedRoles, router]);
-
-  React.useEffect(() => {
-    // This effect runs after the initial auth check.
-    // If the check is done and the user is not authenticated, then redirect.
-    if (authChecked && !isAuthenticated) {
-      router.push('/login');
-    }
-  }, [authChecked, isAuthenticated, router]);
 
 
   return { user, loading, isAuthenticated };
