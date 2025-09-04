@@ -34,8 +34,12 @@ export function SettingsPage() {
       await seedDatabase();
       toast({
         title: 'Database Seeded',
-        description: 'Your Firestore database has been populated with placeholder data.',
+        description: 'Your Firestore database has been populated with placeholder data. The page will now reload.',
       });
+      // Reload the page to reflect the new data everywhere
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
     } catch (error) {
       console.error(error);
       toast({
@@ -43,7 +47,6 @@ export function SettingsPage() {
         title: 'Seeding Failed',
         description: 'Could not seed the database. Check the console for errors.',
       });
-    } finally {
       setIsSeeding(false);
     }
   };
