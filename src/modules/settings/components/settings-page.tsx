@@ -21,7 +21,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { seedDatabaseFlow } from '@/ai/flows/seed-database';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { createUserWithId } from '@/services/userService';
@@ -29,6 +28,7 @@ import { placeholderUsers } from '@/lib/placeholder-data';
 import { Database, UserPlus, Copy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { runSeedDatabase } from '@/actions/seedActions';
 
 export function SettingsPage() {
   const { toast } = useToast();
@@ -87,36 +87,40 @@ export function SettingsPage() {
 
   const handleSeedDatabase = () => {
     setIsSeeding(true);
-    // Asynchronously trigger the flow without awaiting it
-    seedDatabaseFlow().then(result => {
-        if (result?.success) {
-            toast({
-                title: 'Database Seeding Completed',
-                description: 'Your database has been populated with placeholder data.',
-            });
-        } else {
-             toast({
-                variant: 'destructive',
-                title: 'Seeding Failed',
-                description: result?.message || 'The seeding process failed to complete. Check the console for errors.',
-            });
-        }
-    }).catch(error => {
-        console.error(error);
-        toast({
-            variant: 'destructive',
-            title: 'Seeding Failed to Start',
-            description: 'Could not start the seeding process. Check the console for errors.',
-        });
-    }).finally(() => {
-        setIsSeeding(false);
-    });
-
     // Provide immediate feedback to the user
     toast({
-        title: 'Database Seeding Started',
-        description: 'Your database is being populated in the background. This may take a moment.',
+      title: 'Database Seeding Started',
+      description:
+        'Your database is being populated in the background. This may take a moment. See server logs for progress.',
     });
+
+    // Asynchronously trigger the server action
+    runSeedDatabase()
+      .then(result => {
+        if (result?.success) {
+          toast({
+            title: 'Database Seeding Completed',
+            description: 'Your database has been populated with placeholder data.',
+          });
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Seeding Failed',
+            description: result?.message || 'The seeding process failed to complete. Check the console for errors.',
+          });
+        }
+      })
+      .catch(error => {
+        console.error(error);
+        toast({
+          variant: 'destructive',
+          title: 'Seeding Failed to Start',
+          description: 'Could not start the seeding process. Check the console for errors.',
+        });
+      })
+      .finally(() => {
+        setIsSeeding(false);
+      });
   };
 
   const copyToClipboard = () => {
