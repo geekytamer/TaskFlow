@@ -1,7 +1,8 @@
+
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -19,10 +20,22 @@ import { auth } from '@/lib/firebase';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [email, setEmail] = useState('admin@taskflow.com');
   const [password, setPassword] = useState('password');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const error = searchParams.get('error');
+    if (error === 'no-firestore-user') {
+      toast({
+        variant: 'destructive',
+        title: 'Access Denied',
+        description: "Your account exists but has not been configured by an administrator yet. Please contact your manager.",
+      });
+    }
+  }, [searchParams, toast]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,18 +43,21 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      localStorage.removeItem('taskflow_user_mock_id');
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
       });
       router.push('/');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Firebase Auth Error:', error);
+       let description = 'An unknown error occurred. Please try again.';
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        description = 'Invalid email or password. Please try again.';
+      }
       toast({
         variant: 'destructive',
         title: 'Login Failed',
-        description: 'Invalid email or password. Please use valid credentials or seed the database to create the default admin user in Firebase Authentication.',
+        description,
       });
     } finally {
       setIsLoading(false);

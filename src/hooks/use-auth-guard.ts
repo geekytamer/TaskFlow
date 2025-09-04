@@ -3,14 +3,15 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { getUserById, createUserWithId } from '@/services/userService';
+import { getUserById } from '@/services/userService';
 import type { User, UserRole } from '@/lib/types';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { placeholderUsers } from '@/lib/placeholder-data';
+import { useToast } from './use-toast';
 
 export function useAuthGuard(allowedRoles?: UserRole[]) {
   const router = useRouter();
+  const { toast } = useToast();
   const [user, setUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
@@ -18,41 +19,28 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
   React.useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-        // Use the firebase UID to get our application-specific user data.
-        let appUser = await getUserById(firebaseUser.uid);
+        // User is authenticated with Firebase. Now, check if they exist in our application's database.
+        const appUser = await getUserById(firebaseUser.uid);
 
-        if (!appUser) {
-          // If the user exists in Firebase Auth but not Firestore, create them.
-          // This is common for the first login after seeding auth but not the db.
-          console.warn(`User not found in Firestore, creating new user for UID: ${firebaseUser.uid}`);
+        if (appUser) {
+          // User exists in Firestore, proceed with role checks.
+          setUser(appUser);
+          setIsAuthenticated(true);
           
-          // SECURE FALLBACK: Default to the first 'Employee' user template.
-          const defaultUserData = placeholderUsers.find(u => u.role === 'Employee') || placeholderUsers[0];
-
-          const newUser: User = {
-            id: firebaseUser.uid,
-            name: defaultUserData.name, // Use a generic name or prompt user to set one later.
-            email: firebaseUser.email || defaultUserData.email,
-            role: 'Employee', // Assign the least privileged role.
-            companyId: defaultUserData.companyId,
-            positionId: defaultUserData.positionId,
-            avatar: `https://i.pravatar.cc/150?u=${firebaseUser.uid}`,
-          };
-          
-          await createUserWithId(firebaseUser.uid, newUser);
-          appUser = newUser; // Use the newly created user data.
+          if (allowedRoles && !allowedRoles.includes(appUser.role)) {
+            console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+            router.push('/'); // Redirect to a safe default page.
+          }
+        } else {
+          // User is authenticated with Firebase but has no profile in Firestore.
+          // This is a valid state; they should not be allowed into the app until an admin creates their profile.
+          console.warn(`User with UID ${firebaseUser.uid} authenticated with Firebase but not found in Firestore.`);
+          await auth.signOut(); // Sign them out of Firebase as well.
+          setUser(null);
+          setIsAuthenticated(false);
+          // Use a query parameter to show a specific message on the login page.
+          router.push('/login?error=no-firestore-user');
         }
-
-        setUser(appUser);
-        setIsAuthenticated(true);
-        
-        // Check if the user's role (from the database) is allowed to access the page.
-        if (allowedRoles && !allowedRoles.includes(appUser.role)) {
-          console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
-          // Redirect to home page if not allowed.
-          router.push('/'); 
-        }
-
       } else {
         // No user is signed in with Firebase.
         setUser(null);
@@ -65,7 +53,9 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
 
     // Cleanup subscription on unmount
     return () => unsub();
-  }, [allowedRoles, router]);
+  // The dependency array is intentionally sparse to mimic `onMount`.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   return { user, loading, isAuthenticated };
