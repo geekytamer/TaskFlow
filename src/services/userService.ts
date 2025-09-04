@@ -23,13 +23,15 @@ export async function getUserById(id: string): Promise<User | undefined> {
     try {
         const userDoc = await getDoc(doc(db, 'users', id));
         if (!userDoc.exists()) {
-            console.warn(`User with id ${id} not found in Firestore. A mock user will be used. Please ensure your database is seeded.`);
+            // This is not an error, the user might not exist.
+            console.warn(`User with id ${id} not found in Firestore.`);
             return undefined;
         }
         return { id: userDoc.id, ...userDoc.data() } as User;
     } catch (error) {
         console.error(`Error fetching user with ID ${id}: `, error);
-        throw new Error("Could not fetch user from Firestore.");
+        // Instead of throwing, we return undefined to prevent app crash
+        return undefined;
     }
 }
 
@@ -87,7 +89,6 @@ export async function getCurrentUser(): Promise<User | null> {
     // authenticated user's ID from the session/token.
     try {
         // This should be the ID of the currently authenticated Firebase user.
-        // For the mock, we'll continue to use user-1 as the default.
         const mockUserId = 'user-1'; 
         const user = await getUserById(mockUserId); 
         

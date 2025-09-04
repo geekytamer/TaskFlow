@@ -1,8 +1,9 @@
+
 'use client';
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentUser, getUserById } from '@/services/userService';
+import { getUserById } from '@/services/userService';
 import type { User, UserRole } from '@/lib/types';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -15,32 +16,36 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
 
   React.useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      let appUser: User | null | undefined = null;
+      let appUser: User | null = null;
 
       if (firebaseUser) {
         // If there's a real Firebase session, get the user from our DB
-        appUser = await getUserById(firebaseUser.uid);
-        if (!appUser) {
-            // Fallback to default user if not found in DB
-            // This can happen if the users collection is not in sync with Auth
-             appUser = await getCurrentUser();
+        const fetchedUser = await getUserById(firebaseUser.uid);
+        if (fetchedUser) {
+          appUser = fetchedUser;
+           // This is a special override for the demo to ensure admin@taskflow.com is always an admin
+          if (appUser.email === 'admin@taskflow.com') {
+            appUser.role = 'Admin';
+          }
         }
       }
 
       if (appUser) {
         setUser(appUser);
+        setIsAuthenticated(true);
         if (allowedRoles && !allowedRoles.includes(appUser.role)) {
           console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
           router.push('/');
         }
-        setIsAuthenticated(true);
       } else {
+        setIsAuthenticated(false);
         router.push('/login');
       }
 
       setLoading(false);
     });
 
+    // Cleanup subscription on unmount
     return () => unsub();
   }, [router, allowedRoles]);
 
