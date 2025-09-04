@@ -16,6 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/icons/logo';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { placeholderUsers } from '@/lib/placeholder-data';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export default function LoginPage() {
       // We always try to sign in with Firebase first.
       await signInWithEmailAndPassword(auth, email, password);
       // If successful, clear any mock user data.
-      localStorage.removeItem('taskflow_user_mock');
+      localStorage.removeItem('taskflow_user_mock_id');
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
@@ -43,7 +44,11 @@ export default function LoginPage() {
       // Fallback for demo purposes if the user is not in Firebase Auth
       if (email === 'admin@taskflow.com' && password === 'password') {
         // This mock user allows app access without a real Firebase user.
-        localStorage.setItem('taskflow_user_mock', JSON.stringify({ email, role: 'Admin' }));
+        // We find the default admin user from placeholder data to ensure the ID is correct.
+        const mockAdmin = placeholderUsers.find(u => u.email === 'admin@taskflow.com');
+        const mockUserId = mockAdmin ? mockAdmin.id : 'user-1'; // Default to user-1 if not found
+        localStorage.setItem('taskflow_user_mock_id', mockUserId);
+        
         toast({
           title: 'Login Successful (Mock)',
           description: 'Welcome back! Note: This is a mock session. Please create this user in Firebase Authentication for full functionality.',
