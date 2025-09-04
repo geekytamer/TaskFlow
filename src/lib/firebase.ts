@@ -2,6 +2,9 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import * as dotenv from 'dotenv';
+
+dotenv.config({ path: '.env.local' });
 
 const firebaseConfig = {
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
