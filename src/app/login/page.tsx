@@ -28,36 +28,36 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
 
-    // For the demo, we will try to sign in with Firebase, but if it fails,
-    // we will fall back to a mock login to ensure the app is usable
-    // without pre-configuring users in the Firebase console.
-     try {
+    try {
+      // We always try to sign in with Firebase first.
       await signInWithEmailAndPassword(auth, email, password);
+      // If successful, clear any mock user data.
+      localStorage.removeItem('taskflow_user_mock');
       toast({
         title: 'Login Successful',
-        description: "Welcome back!",
+        description: 'Welcome back!',
       });
       router.push('/');
     } catch (error) {
-      console.error("Firebase Auth Error:", error);
+      console.error('Firebase Auth Error:', error);
       // Fallback for demo purposes if the user is not in Firebase Auth
       if (email === 'admin@taskflow.com' && password === 'password') {
         // This mock user allows app access without a real Firebase user.
         localStorage.setItem('taskflow_user_mock', JSON.stringify({ email, role: 'Admin' }));
         toast({
           title: 'Login Successful (Mock)',
-          description: "Welcome back! Please ensure the user is also created in Firebase Authentication.",
+          description: 'Welcome back! Note: This is a mock session. Please create this user in Firebase Authentication for full functionality.',
         });
         router.push('/');
       } else {
         toast({
           variant: 'destructive',
           title: 'Login Failed',
-          description: 'Invalid email or password. Please use the default credentials.',
+          description: 'Invalid email or password. Please use the default credentials or create the user in Firebase.',
         });
       }
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
