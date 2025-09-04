@@ -27,14 +27,16 @@ export async function seedDatabase() {
   try {
     console.log('Starting database seed...');
 
-    // Clear existing data
+    // Clear existing data from all collections except 'users'
     console.log('Clearing existing data...');
-    const collectionsToClear = ['companies', 'positions', 'users', 'projects', 'tasks', 'comments'];
+    const collectionsToClear = ['companies', 'positions', 'projects', 'tasks', 'comments'];
     for (const collectionName of collectionsToClear) {
         await deleteAllDocumentsInCollection(collectionName);
         console.log(`Cleared ${collectionName} collection.`);
     }
 
+    // We do NOT clear the users collection so we don't delete our admin user.
+    // The following writes will overwrite placeholder users but keep the admin.
     const batch = writeBatch(db);
 
     // Seed companies
@@ -53,13 +55,17 @@ export async function seedDatabase() {
     });
     console.log('Positions added to batch.');
 
-    // Seed users
-    console.log('Seeding users...');
+    // Seed non-admin users. This will overwrite any existing placeholder users
+    // but will not touch the Firebase Auth-created admin user.
+    console.log('Seeding non-admin users...');
     placeholderUsers.forEach((user) => {
-      const docRef = doc(db, 'users', user.id);
-      batch.set(docRef, user);
+        // We skip the user that we are using as a template for the admin
+        if (user.email === 'alex.j@innovatecorp.com') return;
+
+        const docRef = doc(db, 'users', user.id);
+        batch.set(docRef, user);
     });
-     console.log('Users added to batch.');
+    console.log('Users added to batch.');
 
     // Seed projects
     console.log('Seeding projects...');
