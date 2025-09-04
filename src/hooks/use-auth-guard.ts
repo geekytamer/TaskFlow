@@ -21,17 +21,32 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
           setUser(appUser);
           if (allowedRoles && !allowedRoles.includes(appUser.role)) {
             console.warn(`User with role ${appUser.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
-             // You might want to redirect them to a specific page, like the dashboard
              router.push('/');
           }
           setIsAuthenticated(true);
         } else {
-          // This case means the user is authenticated in Firebase, but has no record in our Firestore DB
           console.error("Authenticated user not found in Firestore. Logging out.");
           router.push('/login');
         }
       } else {
-        router.push('/login');
+        // Fallback for mock user if Firebase auth is not available
+        const mockUser = localStorage.getItem('taskflow_user_mock');
+        if (mockUser) {
+            const parsedUser = JSON.parse(mockUser);
+             // For the demo, we can assume the mock user is the admin
+            const fullUser: User = {
+              id: 'mock-user-id',
+              name: 'Mock Admin',
+              email: parsedUser.email,
+              role: 'Admin',
+              companyId: '1',
+              avatar: `https://i.pravatar.cc/150?u=${parsedUser.email}`
+            };
+            setUser(fullUser);
+            setIsAuthenticated(true);
+        } else {
+            router.push('/login');
+        }
       }
       setLoading(false);
     });

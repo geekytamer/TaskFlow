@@ -28,8 +28,9 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
 
-    // For the demo, we will hardcode the user but use Firebase to sign in
-    // This makes the session management real, even if the user is fixed.
+    // For the demo, we will try to sign in with Firebase, but if it fails,
+    // we will fall back to a mock login to ensure the app is usable
+    // without pre-configuring users in the Firebase console.
      try {
       await signInWithEmailAndPassword(auth, email, password);
       toast({
@@ -41,7 +42,8 @@ export default function LoginPage() {
       console.error("Firebase Auth Error:", error);
       // Fallback for demo purposes if the user is not in Firebase Auth
       if (email === 'admin@taskflow.com' && password === 'password') {
-        localStorage.setItem('taskflow_user', JSON.stringify({ email, role: 'Admin' }));
+        // This mock user allows app access without a real Firebase user.
+        localStorage.setItem('taskflow_user_mock', JSON.stringify({ email, role: 'Admin' }));
         toast({
           title: 'Login Successful (Mock)',
           description: "Welcome back! Please ensure the user is also created in Firebase Authentication.",
@@ -51,7 +53,7 @@ export default function LoginPage() {
         toast({
           variant: 'destructive',
           title: 'Login Failed',
-          description: 'Invalid email or password. Please use the credentials provided.',
+          description: 'Invalid email or password. Please use the default credentials.',
         });
       }
     } finally {

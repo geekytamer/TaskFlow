@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { User } from '@/modules/users/types';
 import { getCurrentUser } from '@/services/userService';
+import { signOut } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 export function UserNav() {
   const router = useRouter();
@@ -23,19 +25,39 @@ export function UserNav() {
   React.useEffect(() => {
     async function loadUser() {
       const userData = await getCurrentUser();
-      setUser(userData);
+       if (userData) {
+          setUser(userData);
+      } else {
+         // Fallback for mock user
+        const mockUser = localStorage.getItem('taskflow_user_mock');
+        if (mockUser) {
+            const parsedUser = JSON.parse(mockUser);
+            setUser({
+              id: 'mock-user-id',
+              name: 'Mock Admin',
+              email: parsedUser.email,
+              role: 'Admin',
+              companyId: '1',
+              avatar: `https://i.pravatar.cc/150?u=${parsedUser.email}`
+            });
+        }
+      }
     }
     loadUser();
   }, []);
 
-  const handleLogout = () => {
-    // Mock logout
-    localStorage.removeItem('taskflow_user');
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Error signing out from Firebase", error);
+    }
+    localStorage.removeItem('taskflow_user_mock');
     router.push('/login');
   };
 
   if (!user) {
-    return null; // Or a loading skeleton
+    return null;
   }
 
   return (
