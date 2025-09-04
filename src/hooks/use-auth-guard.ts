@@ -26,18 +26,17 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
           // This is common for the first login after seeding auth but not the db.
           console.warn(`User not found in Firestore, creating new user for UID: ${firebaseUser.uid}`);
           
-          // For this demo, we'll create the user based on the first placeholder user's data
-          // but with the actual Firebase Auth email and UID.
-          const defaultUserData = placeholderUsers.find(u => u.email === firebaseUser.email) || placeholderUsers[0];
+          // SECURE FALLBACK: Default to the first 'Employee' user template.
+          const defaultUserData = placeholderUsers.find(u => u.role === 'Employee') || placeholderUsers[0];
 
           const newUser: User = {
             id: firebaseUser.uid,
-            name: defaultUserData.name,
+            name: defaultUserData.name, // Use a generic name or prompt user to set one later.
             email: firebaseUser.email || defaultUserData.email,
-            role: defaultUserData.role,
+            role: 'Employee', // Assign the least privileged role.
             companyId: defaultUserData.companyId,
             positionId: defaultUserData.positionId,
-            avatar: defaultUserData.avatar,
+            avatar: `https://i.pravatar.cc/150?u=${firebaseUser.uid}`,
           };
           
           await createUserWithId(firebaseUser.uid, newUser);
