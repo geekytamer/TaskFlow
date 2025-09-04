@@ -7,7 +7,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +21,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { seedDatabase } from '@/services/seedService';
+import { seedDatabaseFlow } from '@/ai/flows/seed-database';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { createUserWithId } from '@/services/userService';
@@ -89,21 +88,19 @@ export function SettingsPage() {
   const handleSeedDatabase = async () => {
     setIsSeeding(true);
     try {
-      await seedDatabase();
+      await seedDatabaseFlow();
       toast({
-        title: 'Database Seeded',
-        description: 'Your Firestore database has been populated with placeholder data. The page will now reload.',
+        title: 'Database Seeding Started',
+        description: 'Your database is being populated in the background. Check server logs for completion status.',
       });
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
     } catch (error) {
       console.error(error);
       toast({
         variant: 'destructive',
-        title: 'Seeding Failed',
-        description: 'Could not seed the database. Check the console for errors.',
+        title: 'Seeding Failed to Start',
+        description: 'Could not start the seeding process. Check the console for errors.',
       });
+    } finally {
       setIsSeeding(false);
     }
   };
