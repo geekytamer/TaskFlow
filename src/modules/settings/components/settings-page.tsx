@@ -46,18 +46,17 @@ export function SettingsPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, adminEmail, password);
       const adminUid = userCredential.user.uid;
 
-      // 2. Prepare user data for Firestore, using the new UID
-      const adminData = placeholderUsers.find(u => u.email === 'alex.j@innovatecorp.com');
-      if (!adminData) {
-          throw new Error("Default admin user data not found in placeholders.");
+      // 2. Prepare user data for Firestore, using the placeholder as a template
+      const adminTemplate = placeholderUsers.find(u => u.id === 'admin-placeholder-id');
+      if (!adminTemplate) {
+          throw new Error("Default admin user template not found in placeholders.");
       }
       
       const firestoreUserData = {
-          name: 'Admin User',
+          ...adminTemplate,
+          id: adminUid, // Use the real UID from Auth
           email: adminEmail,
-          role: 'Admin' as const,
-          companyId: adminData.companyId,
-          positionId: adminData.positionId,
+          name: 'Admin User',
           avatar: `https://i.pravatar.cc/150?u=${adminEmail}`
       };
 

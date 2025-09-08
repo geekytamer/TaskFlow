@@ -19,9 +19,9 @@ export const placeholderPositions: Position[] = [
 
 export const placeholderUsers: User[] = [
   {
-    id: 'user-1',
+    id: 'admin-placeholder-id', // This ID is special for the admin user
     name: 'Alex Johnson',
-    email: 'alex.j@innovatecorp.com',
+    email: 'alex.j@innovatecorp.com', // This email will be replaced by admin@taskflow.com during seeding
     role: 'Admin',
     companyId: '1',
     positionId: 'pos-2',
@@ -106,7 +106,7 @@ export const placeholderTasks: Omit<Task, 'createdAt' | 'dueDate'> & { createdAt
     priority: 'High',
     createdAt: '2024-07-01',
     dueDate: '2024-07-15',
-    assignedUserIds: ['user-1'],
+    assignedUserIds: ['admin-placeholder-id'],
     tags: ['planning', 'writing'],
     companyId: '1',
     projectId: 'proj-1'

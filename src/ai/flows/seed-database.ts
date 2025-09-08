@@ -62,32 +62,11 @@ export const seedDatabaseFlow = ai.defineFlow(
 
       // 1. Clear existing data
       console.log('[SEED] Clearing existing data...');
-      const collectionsToClear = ['companies', 'positions', 'projects', 'tasks', 'comments'];
+      const collectionsToClear = ['companies', 'positions', 'projects', 'tasks', 'comments', 'users'];
       for (const col of collectionsToClear) {
         await deleteCollection(col);
       }
       
-      // Special handling for users to keep the admin
-      console.log('[SEED] Clearing non-admin users...');
-      const usersCollectionRef = collection(db, 'users');
-      const usersSnapshot = await getDocs(usersCollectionRef);
-      if (!usersSnapshot.empty) {
-        const batch = writeBatch(db);
-        let deletedCount = 0;
-        usersSnapshot.forEach((docSnap) => {
-          if (docSnap.data().email !== 'admin@taskflow.com') {
-            batch.delete(docSnap.ref);
-            deletedCount++;
-          }
-        });
-        if (deletedCount > 0) {
-          await batch.commit();
-          console.log(`[SEED] Deleted ${deletedCount} non-admin users.`);
-        } else {
-           console.log('[SEED] No non-admin users to delete.');
-        }
-      }
-
       // 2. Seed new data
       const masterBatch = writeBatch(db);
 
@@ -103,9 +82,10 @@ export const seedDatabaseFlow = ai.defineFlow(
         masterBatch.set(docRef, position);
       });
 
-      console.log(`[SEED] Seeding ${placeholderUsers.length} non-admin users...`);
+      console.log(`[SEED] Seeding ${placeholderUsers.length} users...`);
       placeholderUsers.forEach((user) => {
-         if (user.email === 'admin@taskflow.com') {
+         // The admin user is created on the settings page, so we don't seed it here.
+         if (user.id === 'admin-placeholder-id') {
              console.log(`[SEED] Skipping placeholder admin user to prevent overwrite.`);
              return;
          }

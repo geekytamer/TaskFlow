@@ -2,7 +2,7 @@
 'use server';
 
 import type { User } from '@/modules/users/types';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc, query, where, addDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
 
@@ -93,42 +93,15 @@ export async function deleteUser(userId: string): Promise<void> {
     }
 }
 
-// In a real app, you'd have a way to get the current authenticated user from a session.
-// For now, we'll just return a hardcoded user as a mock.
+// This function is intended to be called from a client component that has access
+// to the Firebase auth state. It is not a reliable way to get the "current" user
+// on the server, as the server is stateless. The useAuthGuard hook is the
+// correct way to manage user sessions on the client.
 export async function getCurrentUser(): Promise<User | null> {
-    // This is a mock implementation. In a real app, you would get the
-    // authenticated user's ID from the session/token.
-    try {
-        // This should be the ID of the currently authenticated Firebase user.
-        // It's a placeholder because this is a server function and doesn't know
-        // the client-side auth state. The real logic is in useAuthGuard.
-        const mockUserId = 'user-1'; 
-        const user = await getUserById(mockUserId); 
-        
-        if (user) {
-            return user;
-        }
-        
-        // This is a fallback to prevent app crashes if the database is not seeded.
-        console.warn("Mock user 'user-1' not found in Firestore. Please seed the database. Falling back to a hardcoded admin user.");
-        return {
-            id: 'admin-user',
-            name: 'System Admin',
-            email: 'admin@taskflow.com',
-            role: 'Admin' as const,
-            companyId: '1', // Default company, admin has access to all anyway
-            avatar: `https://i.pravatar.cc/150?u=admin@taskflow.com`
-        };
-
-    } catch (e) {
-        console.error("Error fetching current user, falling back to admin mock", e);
-         return {
-            id: 'admin-user',
-            name: 'System Admin',
-            email: 'admin@taskflow.com',
-            role: 'Admin' as const,
-            companyId: '1', 
-            avatar: `https://i.pravatar.cc/150?u=admin@taskflow.com`
-        };
+    const firebaseUser = auth.currentUser;
+    if (firebaseUser) {
+        const user = await getUserById(firebaseUser.uid);
+        return user || null;
     }
+    return null;
 }
