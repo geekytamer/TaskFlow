@@ -21,22 +21,23 @@ export function Dashboard() {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
+  
+  const loadDashboardData = React.useCallback(async () => {
+    if (!selectedCompany) return;
+    setLoading(true);
+    const [allTasks, companyUsers] = await Promise.all([
+      getTasks(),
+      getUsersByCompany(selectedCompany.id)
+    ]);
+    const companyTasks = allTasks.filter(t => t.companyId === selectedCompany.id);
+    setTasks(companyTasks);
+    setUsers(companyUsers);
+    setLoading(false);
+  }, [selectedCompany]);
 
   React.useEffect(() => {
-    async function loadDashboardData() {
-      if (!selectedCompany) return;
-      setLoading(true);
-      const [allTasks, companyUsers] = await Promise.all([
-        getTasks(),
-        getUsersByCompany(selectedCompany.id)
-      ]);
-      const companyTasks = allTasks.filter(t => t.companyId === selectedCompany.id);
-      setTasks(companyTasks);
-      setUsers(companyUsers);
-      setLoading(false);
-    }
     loadDashboardData();
-  }, [selectedCompany]);
+  }, [loadDashboardData]);
 
   const stats = React.useMemo(() => {
     return {
