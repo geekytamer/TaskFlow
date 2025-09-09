@@ -20,23 +20,30 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = React.useState(true);
 
   const fetchAndSetCompanies = React.useCallback(async () => {
-      setLoading(true);
+    setLoading(true);
+    try {
       const companiesData = await getCompanies();
       setCompanies(companiesData);
 
-      if (typeof window !== 'undefined') {
+      if (companiesData.length > 0) {
         const storedCompanyId = localStorage.getItem('selectedCompanyId');
-        const companyToSelect = companiesData.find(c => c.id === storedCompanyId) || companiesData[0] || null;
-        if (!selectedCompany || !companiesData.some(c => c.id === selectedCompany.id)) {
-            setSelectedCompany(companyToSelect);
+        const companyToSelect = companiesData.find(c => c.id === storedCompanyId) || companiesData[0];
+        
+        // Only update selectedCompany if it's not already correctly set
+        if (!selectedCompany || selectedCompany.id !== companyToSelect.id) {
+          setSelectedCompany(companyToSelect);
         }
       } else {
-         if (!selectedCompany || !companiesData.some(c => c.id === selectedCompany.id)) {
-            setSelectedCompany(companiesData[0] || null);
-        }
+        setSelectedCompany(null);
       }
+    } catch (error) {
+      console.error("Failed to fetch companies:", error);
+      // Handle error state if necessary
+    } finally {
       setLoading(false);
-  }, [selectedCompany]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   React.useEffect(() => {
