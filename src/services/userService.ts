@@ -67,7 +67,7 @@ export async function createUserWithId(userId: string, userData: Omit<User, 'id'
         return { id: userId, ...userData };
     } catch (error) {
         console.error("Error creating user with ID: ", error);
-        throw new Error("Could not create user in Firestore.");
+        throw error;
     }
 }
 

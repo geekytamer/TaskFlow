@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -33,6 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
+  const router = useRouter();
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [color, setColor] = React.useState('#4A90E2');
@@ -95,9 +97,7 @@ export function CreateProjectSheet() {
       setVisibility('Public');
       setSelectedMembers([]);
       setOpen(false);
-      // NOTE: In a real app, we'd trigger a re-fetch of projects here.
-      // For now, a page refresh will show the new project.
-      window.location.reload(); 
+      router.refresh(); 
     } catch (error) {
        toast({
         variant: 'destructive',
