@@ -245,7 +245,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
             </div>
         </CardHeader>
         <CardContent className='flex-1 -mt-4 overflow-auto'>
-            <ChartContainer config={{}} style={{ height: `${chartHeight}px` }} className="w-full">
+            <ChartContainer config={{}} style={{ height: `${chartHeight}px` }}>
                 <ResponsiveContainer>
                     <BarChart
                     layout="vertical"
