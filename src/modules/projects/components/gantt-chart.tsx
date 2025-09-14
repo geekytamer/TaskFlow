@@ -99,6 +99,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany, projects, currentUser } = useCompany();
+  const chartRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     async function loadData() {
@@ -178,24 +179,33 @@ export function GanttChart({ projectId }: GanttChartProps) {
           ...tasks
       ]);
   }, [processedTasks]);
-
-  const { minDay, maxDay, chartWidth } = React.useMemo(() => {
+  
+  const { minDay, maxDay } = React.useMemo(() => {
     if (processedTasks.length === 0) {
-      return { minDay: -15, maxDay: 15, chartWidth: 1200 };
+      return { minDay: -15, maxDay: 15 };
     }
+    const chartWidth = chartRef.current?.clientWidth ?? 800;
+    const pixelsPerDay = 20;
+    const daysToShow = Math.floor((chartWidth - Y_AXIS_WIDTH) / pixelsPerDay);
+
     const allDays = processedTasks.flatMap(t => t.ganttRange);
     const min = Math.min(...allDays);
     const max = Math.max(...allDays);
-    const dateRange = max - min;
-    const padding = Math.max(15, Math.ceil(dateRange * 0.1)); // Add 10% padding or at least 15 days
-    const totalDays = dateRange + 2 * padding;
-    const calculatedWidth = totalDays * 20; // 20px per day
-    return {
-      minDay: min - padding,
-      maxDay: max + padding,
-      chartWidth: Math.max(1200, calculatedWidth), // Minimum width of 1200px
-    };
-  }, [processedTasks]);
+    
+    // If the actual range is smaller than what we can show, use the actual range with padding
+    if (max - min < daysToShow) {
+        const padding = Math.floor((daysToShow - (max-min)) / 2);
+        return { minDay: min - padding, maxDay: max + padding };
+    }
+    
+    // Otherwise, center the view on today if possible
+    const todayRange = 0;
+    const startDay = todayRange - Math.floor(daysToShow / 2);
+    
+    return { minDay: startDay, maxDay: startDay + daysToShow };
+
+  }, [processedTasks, chartRef.current?.clientWidth]);
+
   
   if (loading) {
       return (
@@ -213,7 +223,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const chartHeight = (groupedTasks.length * BAR_HEIGHT) + CHART_PADDING_TOP + 40; // 40 for X-axis
   
   return (
-    <Card className="min-w-fit">
+    <Card ref={chartRef}>
         <CardHeader>
             <div className="flex flex-col gap-4">
                  <div className="flex items-center gap-4">
@@ -248,7 +258,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
             </div>
         </CardHeader>
         <CardContent>
-            <ChartContainer config={{}} style={{ height: `${chartHeight}px`, width: `${chartWidth}px` }}>
+            <ChartContainer config={{}} className="w-full" style={{ height: `${chartHeight}px` }}>
                 <ResponsiveContainer>
                     <BarChart
                     layout="vertical"

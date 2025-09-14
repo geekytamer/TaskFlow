@@ -27,10 +27,7 @@ export function ProjectTaskViews({ project }: ProjectTaskViewsProps) {
                 <KanbanBoard projectId={project.id} />
             </TabsContent>
             <TabsContent value="gantt" className="w-full">
-               <ScrollArea className="w-full whitespace-nowrap">
-                    <GanttChart projectId={project.id} />
-                    <ScrollBar orientation="horizontal" />
-                </ScrollArea>
+                <GanttChart projectId={project.id} />
             </TabsContent>
       </Tabs>
     )
