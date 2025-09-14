@@ -1,29 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { getCurrentUser } from '@/services/userService';
 import { useCompany } from '@/context/company-context';
-import type { User } from '@/lib/types';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useRouter } from 'next/navigation';
 
 export function ProjectList() {
-  const { selectedCompany, projects } = useCompany();
-  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const router = useRouter();
-
-  React.useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      const currentUserData = await getCurrentUser();
-      setCurrentUser(currentUserData);
-      setLoading(false);
-    }
-    loadData();
-  }, []);
+  const { selectedCompany, projects, currentUser, loading } = useCompany();
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];

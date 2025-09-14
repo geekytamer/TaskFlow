@@ -25,7 +25,7 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { getProjectById, getCommentsByTaskId, createComment, updateTask } from '@/services/projectService';
-import { getCurrentUser, getUsersByCompany } from '@/services/userService';
+import { getUsersByCompany } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project, User } from '@/modules/projects/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
@@ -57,12 +57,11 @@ function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, l
 
 export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: TaskDetailsSheetProps) {
   const { toast } = useToast();
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
 
   const [editableTask, setEditableTask] = React.useState<Task>(task);
   const [comments, setComments] = React.useState<Comment[]>([]);
   const [project, setProject] = React.useState<Project | undefined>();
-  const [currentUser, setCurrentUser] = React.useState<User | undefined>();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
   const [allUsers, setAllUsers] = React.useState<User[]>([]);
   const [newComment, setNewComment] = React.useState('');
@@ -73,15 +72,13 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         if (!task || !selectedCompany) return;
         setLoading(true);
         setEditableTask(task);
-        const [projectData, commentsData, currentUserData, companyUsersData] = await Promise.all([
+        const [projectData, commentsData, companyUsersData] = await Promise.all([
             getProjectById(task.projectId),
             getCommentsByTaskId(task.id),
-            getCurrentUser(),
             getUsersByCompany(selectedCompany.id),
         ]);
         setProject(projectData);
         setComments(commentsData);
-        setCurrentUser(currentUserData);
         setAllUsers(companyUsersData);
         setCompanyUsers(companyUsersData.map(u => ({ value: u.id, label: u.name, icon: UserIcon })));
         setLoading(false);

@@ -3,8 +3,7 @@
 import * as React from 'react';
 import { notFound, useParams, useRouter } from 'next/navigation';
 import { getProjectById } from '@/services/projectService';
-import { getCurrentUser } from '@/services/userService';
-import type { Project, User } from '@/lib/types';
+import type { Project } from '@/lib/types';
 import { useCompany } from '@/context/company-context';
 import { ProjectTaskViews } from '@/modules/projects/components/project-task-views';
 import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
@@ -15,20 +14,16 @@ export default function ProjectDetailsPage() {
   const params = useParams();
   const id = params.id as string;
 
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const [project, setProject] = React.useState<Project | null>(null);
-  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     async function fetchData() {
-      if (!id || !selectedCompany) return;
+      if (!id || !selectedCompany || !currentUser) return;
       
       setLoading(true);
-      const [projectData, userData] = await Promise.all([
-        getProjectById(id),
-        getCurrentUser(),
-      ]);
+      const projectData = await getProjectById(id);
       
       if (!projectData || projectData.companyId !== selectedCompany.id) {
         // Project doesn't exist or doesn't belong to the selected company
@@ -36,7 +31,7 @@ export default function ProjectDetailsPage() {
         return;
       }
 
-      const canView = projectData.visibility === 'Public' || projectData.memberIds?.includes(userData.id) || userData.role === 'Admin';
+      const canView = projectData.visibility === 'Public' || projectData.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin';
 
       if (!canView) {
         // User doesn't have permission to view this private project
@@ -45,12 +40,11 @@ export default function ProjectDetailsPage() {
       }
       
       setProject(projectData);
-      setCurrentUser(userData);
       setLoading(false);
     }
 
     fetchData();
-  }, [id, selectedCompany, router]);
+  }, [id, selectedCompany, router, currentUser]);
 
   if (loading) {
     return (

@@ -10,9 +10,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { getTasks, getProjects } from '@/services/projectService';
-import { getUsers, getCurrentUser } from '@/services/userService';
-import { taskStatuses, type Task, type TaskStatus, type Project, type User } from '@/modules/projects/types';
+import { getTasks } from '@/services/projectService';
+import { getUsers } from '@/services/userService';
+import { taskStatuses, type Task, type TaskStatus } from '@/modules/projects/types';
 import {
   Select,
   SelectContent,
@@ -34,26 +34,20 @@ interface ProjectTableProps {
 export function ProjectTable({ projectId }: ProjectTableProps) {
     const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
     const [tasks, setTasks] = React.useState<Task[]>([]);
-    const [projects, setProjects] = React.useState<Project[]>([]);
     const [users, setUsers] = React.useState<User[]>([]);
-    const [currentUser, setCurrentUser] = React.useState<User | null>(null);
     const [loading, setLoading] = React.useState(true);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
-    const { selectedCompany } = useCompany();
+    const { selectedCompany, projects, currentUser } = useCompany();
 
     const loadData = React.useCallback(async () => {
         if (!selectedCompany) return;
         setLoading(true);
-        const [tasksData, projectsData, usersData, currentUserData] = await Promise.all([
+        const [tasksData, usersData] = await Promise.all([
             getTasks(),
-            getProjects(),
             getUsers(),
-            getCurrentUser(),
         ]);
         setTasks(tasksData);
-        setProjects(projectsData);
         setUsers(usersData);
-        setCurrentUser(currentUserData);
         setLoading(false);
     }, [selectedCompany]);
 

@@ -1,8 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { getTasks, getProjects } from '@/services/projectService';
-import { getUsers, getCurrentUser } from '@/services/userService';
+import { getTasks } from '@/services/projectService';
+import { getUsers } from '@/services/userService';
 import type { Task, Project, TaskStatus, User } from '@/modules/projects/types';
 import { taskStatuses } from '@/modules/projects/types';
 import {
@@ -90,28 +90,22 @@ interface GanttChartProps {
 
 export function GanttChart({ projectId }: GanttChartProps) {
   const [tasks, setTasks] = React.useState<Task[]>([]);
-  const [projects, setProjects] = React.useState<Project[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
-  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, projects, currentUser } = useCompany();
 
   React.useEffect(() => {
     async function loadData() {
         if (!selectedCompany) return;
         setLoading(true);
-        const [tasksData, projectsData, usersData, currentUserData] = await Promise.all([
+        const [tasksData, usersData] = await Promise.all([
             getTasks(),
-            getProjects(),
             getUsers(),
-            getCurrentUser(),
         ]);
         setTasks(tasksData);
-        setProjects(projectsData);
         setUsers(usersData);
-        setCurrentUser(currentUserData);
         setLoading(false);
     }
     loadData();

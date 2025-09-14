@@ -13,24 +13,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { User } from '@/modules/users/types';
-import { getCurrentUser } from '@/services/userService';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { useCompany } from '@/context/company-context';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function UserNav() {
   const router = useRouter();
-  const [user, setUser] = React.useState<User | null>(null);
-
-  React.useEffect(() => {
-    async function loadUser() {
-      const userData = await getCurrentUser();
-       if (userData) {
-          setUser(userData);
-      }
-    }
-    loadUser();
-  }, []);
+  const { currentUser: user, loading } = useCompany();
 
   const handleLogout = async () => {
     try {
@@ -40,6 +30,10 @@ export function UserNav() {
     }
     router.push('/login');
   };
+  
+  if (loading) {
+     return <Skeleton className="h-10 w-full" />
+  }
 
   if (!user) {
     return null;

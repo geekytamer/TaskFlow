@@ -15,11 +15,15 @@ import { CompanySwitcher } from '@/modules/companies/components/company-switcher
 import { SidebarNav } from '@/modules/layout/components/sidebar-nav';
 import { Logo } from '@/components/icons/logo';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
+import { useCompany } from '@/context/company-context';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuthGuard();
+  const { loading: authLoading } = useAuthGuard();
+  const { loading: companyLoading } = useCompany();
 
-  if (loading || !isAuthenticated) {
+  const loading = authLoading || companyLoading;
+
+  if (loading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center">
          <div className="flex flex-col items-center gap-4">

@@ -32,9 +32,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getUsersByCompany, getCurrentUser } from '@/services/userService';
-import { getProjects, createTask } from '@/services/projectService';
-import type { Project, User as UserType } from '@/lib/types';
+import { getUsersByCompany } from '@/services/userService';
+import { createTask } from '@/services/projectService';
+import type { Project } from '@/lib/types';
 import { taskPriorities, taskPriorities as priorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
@@ -69,9 +69,8 @@ export function CreateTaskSheet() {
   const [suggestedTags, setSuggestedTags] = React.useState<string[]>([]);
   const [isSuggesting, setIsSuggesting] = React.useState(false);
   const { toast } = useToast();
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser, projects } = useCompany();
 
-  const [currentUser, setCurrentUser] = React.useState<UserType | null>(null);
   const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
 
@@ -90,18 +89,13 @@ export function CreateTaskSheet() {
 
   React.useEffect(() => {
     async function loadData() {
-        if (!selectedCompany) return;
-        const [user, projects, users] = await Promise.all([
-            getCurrentUser(),
-            getProjects(),
-            getUsersByCompany(selectedCompany.id),
-        ]);
+        if (!selectedCompany || !currentUser) return;
         
-        setCurrentUser(user);
-
+        const users = await getUsersByCompany(selectedCompany.id);
+        
         const filteredProjects = projects.filter(p => 
             p.companyId === selectedCompany?.id &&
-            (p.visibility === 'Public' || p.memberIds?.includes(user.id) || user.role === 'Admin')
+            (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
         );
         setVisibleProjects(filteredProjects);
         
@@ -115,7 +109,7 @@ export function CreateTaskSheet() {
     if (open) {
       loadData();
     }
-  }, [selectedCompany, open]);
+  }, [selectedCompany, open, currentUser, projects]);
 
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];

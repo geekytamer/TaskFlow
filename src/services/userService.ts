@@ -23,14 +23,12 @@ export async function getUserById(id: string): Promise<User | undefined> {
     try {
         const userDoc = await getDoc(doc(db, 'users', id));
         if (!userDoc.exists()) {
-            // This is not an error, the user might not exist.
             console.warn(`User with id ${id} not found in Firestore.`);
             return undefined;
         }
         return { id: userDoc.id, ...userDoc.data() } as User;
     } catch (error) {
         console.error(`Error fetching user with ID ${id}: `, error);
-        // Instead of throwing, we return undefined to prevent app crash
         return undefined;
     }
 }
@@ -91,17 +89,4 @@ export async function deleteUser(userId: string): Promise<void> {
         console.error(`Error deleting user with ID ${userId}: `, error);
         throw new Error("Could not delete user from Firestore.");
     }
-}
-
-// This function is intended to be called from a client component that has access
-// to the Firebase auth state. It is not a reliable way to get the "current" user
-// on the server, as the server is stateless. The useAuthGuard hook is the
-// correct way to manage user sessions on the client.
-export async function getCurrentUser(): Promise<User | null> {
-    const firebaseUser = auth.currentUser;
-    if (firebaseUser) {
-        const user = await getUserById(firebaseUser.uid);
-        return user || null;
-    }
-    return null;
 }
