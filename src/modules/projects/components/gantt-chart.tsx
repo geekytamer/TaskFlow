@@ -88,6 +88,10 @@ interface GanttChartProps {
     projectId?: string;
 }
 
+const Y_AXIS_WIDTH = 200;
+const BAR_HEIGHT = 28;
+const CHART_PADDING_TOP = 20;
+
 export function GanttChart({ projectId }: GanttChartProps) {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
@@ -175,8 +179,19 @@ export function GanttChart({ projectId }: GanttChartProps) {
       ]);
   }, [processedTasks]);
 
-  const minDay = Math.min(0, ...processedTasks.map(t => t.ganttRange[0]).filter(v => !isNaN(v)));
-  const maxDay = Math.max(30, ...processedTasks.map(t => t.ganttRange[1]).filter(v => !isNaN(v)));
+  const { minDay, maxDay } = React.useMemo(() => {
+    if (processedTasks.length === 0) {
+      return { minDay: -15, maxDay: 15 };
+    }
+    const allDays = processedTasks.flatMap(t => t.ganttRange);
+    const min = Math.min(...allDays);
+    const max = Math.max(...allDays);
+    const padding = Math.ceil((max - min) * 0.1); // Add 10% padding on each side
+    return {
+      minDay: min - padding,
+      maxDay: max + padding,
+    };
+  }, [processedTasks]);
   
   if (loading) {
       return (
@@ -192,8 +207,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
   }
   
   const todayMarker = differenceInDays(startOfDay(new Date()), addDays(startOfDay(new Date()), minDay));
-
-  const yAxisWidth = 200;
+  const chartHeight = (groupedTasks.length * BAR_HEIGHT) + CHART_PADDING_TOP + 40; // 40 for X-axis
   
   return (
     <Card className="h-full flex flex-col">
@@ -230,31 +244,32 @@ export function GanttChart({ projectId }: GanttChartProps) {
                 {!projectId && <ProjectLegend projects={visibleProjects} />}
             </div>
         </CardHeader>
-        <CardContent className='flex-1 -mt-4'>
-            <ChartContainer config={{}} className='h-full w-full'>
+        <CardContent className='flex-1 -mt-4 overflow-auto'>
+            <ChartContainer config={{}} style={{ height: `${chartHeight}px` }} className="w-full">
                 <ResponsiveContainer>
                     <BarChart
                     layout="vertical"
                     data={groupedTasks}
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    barCategoryGap={5}
+                    margin={{ top: CHART_PADDING_TOP, right: 30, left: 20, bottom: 5 }}
+                    barCategoryGap="35%"
                     >
                     <XAxis 
                         type="number" 
-                        domain={[minDay - 2, maxDay + 2]}
+                        domain={[minDay, maxDay]}
                         tickFormatter={(value) => format(addDays(new Date(), value), 'MMM d')}
                         />
                     <YAxis 
                         dataKey="title" 
                         type="category" 
-                        width={yAxisWidth} 
+                        width={Y_AXIS_WIDTH} 
                         tick={({ y, payload }) => {
                             const item = payload.payload;
                             if (!item) return null;
+                            const yPos = y + (BAR_HEIGHT / 2) - 10;
                             if (item.isLabel) {
                                  return (
-                                    <g transform={`translate(0,${y})`}>
-                                        <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
+                                    <g transform={`translate(0,${yPos})`}>
+                                        <foreignObject x="0" y="0" width={Y_AXIS_WIDTH -10} height="24">
                                             <div className="flex items-center gap-2 font-bold" title={item.title}>
                                                 <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{backgroundColor: item.fill}} />
                                                 <p className='text-sm truncate'>{item.title}</p>
@@ -264,8 +279,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
                                 )
                             }
                             return (
-                                <g transform={`translate(0,${y})`}>
-                                    <foreignObject x="0" y="-10" width={yAxisWidth -10} height="24">
+                                <g transform={`translate(0,${yPos})`}>
+                                    <foreignObject x="0" y="0" width={Y_AXIS_WIDTH -10} height="24">
                                         <div className="flex items-center gap-2 pl-5" title={item.title}>
                                             <p className='text-xs truncate font-medium text-muted-foreground'>{item.title}</p>
                                         </div>
@@ -275,12 +290,13 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         }}
                         tickLine={false}
                         axisLine={false}
+                        interval={0}
                         />
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
                     {todayMarker >= minDay && todayMarker <= maxDay && 
                         <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     }
-                    <Bar dataKey="ganttRange" barSize={20} radius={[4, 4, 4, 4]}>
+                    <Bar dataKey="ganttRange" barSize={BAR_HEIGHT * 0.6} radius={[4, 4, 4, 4]}>
                          <LabelList 
                             dataKey="title" 
                             position="insideLeft" 
