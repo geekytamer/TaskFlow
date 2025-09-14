@@ -179,23 +179,27 @@ export function GanttChart({ projectId }: GanttChartProps) {
       ]);
   }, [processedTasks]);
 
-  const { minDay, maxDay } = React.useMemo(() => {
+  const { minDay, maxDay, chartWidth } = React.useMemo(() => {
     if (processedTasks.length === 0) {
-      return { minDay: -15, maxDay: 15 };
+      return { minDay: -15, maxDay: 15, chartWidth: 1200 };
     }
     const allDays = processedTasks.flatMap(t => t.ganttRange);
     const min = Math.min(...allDays);
     const max = Math.max(...allDays);
-    const padding = Math.ceil((max - min) * 0.1); // Add 10% padding on each side
+    const dateRange = max - min;
+    const padding = Math.max(15, Math.ceil(dateRange * 0.1)); // Add 10% padding or at least 15 days
+    const totalDays = dateRange + 2 * padding;
+    const calculatedWidth = totalDays * 20; // 20px per day
     return {
       minDay: min - padding,
       maxDay: max + padding,
+      chartWidth: Math.max(1200, calculatedWidth), // Minimum width of 1200px
     };
   }, [processedTasks]);
   
   if (loading) {
       return (
-          <Card className="h-full">
+          <Card>
               <CardHeader>
                   <Skeleton className="h-8 w-full" />
               </CardHeader>
@@ -206,11 +210,10 @@ export function GanttChart({ projectId }: GanttChartProps) {
       )
   }
   
-  const todayMarker = differenceInDays(startOfDay(new Date()), addDays(startOfDay(new Date()), minDay));
   const chartHeight = (groupedTasks.length * BAR_HEIGHT) + CHART_PADDING_TOP + 40; // 40 for X-axis
   
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="min-w-fit">
         <CardHeader>
             <div className="flex flex-col gap-4">
                  <div className="flex items-center gap-4">
@@ -244,8 +247,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
                 {!projectId && <ProjectLegend projects={visibleProjects} />}
             </div>
         </CardHeader>
-        <CardContent className='flex-1 -mt-4'>
-            <ChartContainer config={{}} style={{ height: `${chartHeight}px` }}>
+        <CardContent>
+            <ChartContainer config={{}} style={{ height: `${chartHeight}px`, width: `${chartWidth}px` }}>
                 <ResponsiveContainer>
                     <BarChart
                     layout="vertical"
@@ -257,6 +260,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         type="number" 
                         domain={[minDay, maxDay]}
                         tickFormatter={(value) => format(addDays(new Date(), value), 'MMM d')}
+                        interval="preserveStartEnd"
                         />
                     <YAxis 
                         dataKey="title" 
@@ -293,9 +297,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         interval={0}
                         />
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
-                    {todayMarker >= minDay && todayMarker <= maxDay && 
-                        <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
-                    }
+                    <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={BAR_HEIGHT * 0.6} radius={[4, 4, 4, 4]}>
                          <LabelList 
                             dataKey="title" 

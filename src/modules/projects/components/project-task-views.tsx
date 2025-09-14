@@ -6,6 +6,7 @@ import { ProjectTable } from './project-table';
 import { GanttChart } from './gantt-chart';
 import type { Project } from '../types';
 import { KanbanBoard } from './kanban-board';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 interface ProjectTaskViewsProps {
     project: Project;
@@ -25,8 +26,11 @@ export function ProjectTaskViews({ project }: ProjectTaskViewsProps) {
              <TabsContent value="kanban" className="flex-1 overflow-x-auto">
                 <KanbanBoard projectId={project.id} />
             </TabsContent>
-            <TabsContent value="gantt" className="flex-1 -mt-6">
-                <GanttChart projectId={project.id} />
+            <TabsContent value="gantt" className="w-full">
+               <ScrollArea className="w-full whitespace-nowrap">
+                    <GanttChart projectId={project.id} />
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
             </TabsContent>
       </Tabs>
     )
