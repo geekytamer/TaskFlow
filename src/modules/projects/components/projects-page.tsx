@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
 import { CreateProjectSheet } from '@/modules/projects/components/create-project-sheet';
 import { ProjectTable } from '@/modules/projects/components/project-table';
 import { ProjectList } from '@/modules/projects/components/project-list';
@@ -22,7 +21,6 @@ export function ProjectsPage() {
         {user && ['Admin', 'Manager'].includes(user.role) && (
            <div className="flex items-center gap-2">
               <CreateProjectSheet />
-              <CreateTaskSheet />
           </div>
         )}
       </div>

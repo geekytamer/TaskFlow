@@ -40,7 +40,7 @@ export function CreateProjectSheet() {
   const [color, setColor] = React.useState('#4A90E2');
   const [visibility, setVisibility] = React.useState<ProjectVisibility>('Public');
   const [selectedMembers, setSelectedMembers] = React.useState<string[]>([]);
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, refreshCompanies } = useCompany();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
   const { toast } = useToast();
 
@@ -97,7 +97,7 @@ export function CreateProjectSheet() {
       setVisibility('Public');
       setSelectedMembers([]);
       setOpen(false);
-      router.refresh(); 
+      refreshCompanies(); // This will trigger a refresh in components using the context
     } catch (error) {
        toast({
         variant: 'destructive',
