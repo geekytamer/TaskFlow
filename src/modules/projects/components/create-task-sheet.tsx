@@ -47,6 +47,7 @@ import { suggestTaskTags } from '@/ai/flows/suggest-task-tags';
 import { useCompany } from '@/context/company-context';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Label } from '@/components/ui/label';
+import { useRouter } from 'next/navigation';
 
 const createTaskSchema = z.object({
   projectId: z.string({ required_error: 'Please select a project.' }),
@@ -62,6 +63,7 @@ const createTaskSchema = z.object({
 type CreateTaskFormValues = z.infer<typeof createTaskSchema>;
 
 export function CreateTaskSheet() {
+  const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [tagInput, setTagInput] = React.useState('');
   const [suggestedTags, setSuggestedTags] = React.useState<string[]>([]);
@@ -172,9 +174,7 @@ export function CreateTaskSheet() {
         });
         form.reset();
         setOpen(false);
-        // NOTE: In a real app, we'd use a more sophisticated state management
-        // to re-fetch tasks instead of reloading the page.
-        window.location.reload();
+        router.refresh();
     } catch (error) {
          toast({
             variant: 'destructive',

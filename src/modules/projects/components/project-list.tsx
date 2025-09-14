@@ -8,12 +8,14 @@ import type { Project, User } from '@/lib/types';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useRouter } from 'next/navigation';
 
 export function ProjectList() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, companies } = useCompany(); // Use companies from context to trigger re-render
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const router = useRouter();
 
   React.useEffect(() => {
     async function loadData() {
@@ -28,7 +30,7 @@ export function ProjectList() {
       setLoading(false);
     }
     loadData();
-  }, [selectedCompany]);
+  }, [selectedCompany, companies]); // Depend on companies to re-fetch when it changes
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];
