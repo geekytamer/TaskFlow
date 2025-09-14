@@ -1,36 +1,29 @@
 'use client';
 
 import * as React from 'react';
-import { getProjects } from '@/services/projectService';
 import { getCurrentUser } from '@/services/userService';
 import { useCompany } from '@/context/company-context';
-import type { Project, User } from '@/lib/types';
+import type { User } from '@/lib/types';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
 
 export function ProjectList() {
-  const { selectedCompany, companies } = useCompany(); // Use companies from context to trigger re-render
-  const [projects, setProjects] = React.useState<Project[]>([]);
+  const { selectedCompany, projects } = useCompany();
   const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [loading, setLoading] = React.useState(true);
   const router = useRouter();
 
   React.useEffect(() => {
     async function loadData() {
-      if (!selectedCompany) return;
       setLoading(true);
-      const [projectsData, currentUserData] = await Promise.all([
-        getProjects(),
-        getCurrentUser()
-      ]);
-      setProjects(projectsData);
+      const currentUserData = await getCurrentUser();
       setCurrentUser(currentUserData);
       setLoading(false);
     }
     loadData();
-  }, [selectedCompany, companies]); // Depend on companies to re-fetch when it changes
+  }, []);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];

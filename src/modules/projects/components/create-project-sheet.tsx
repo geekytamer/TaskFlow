@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -28,19 +27,17 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { getUsersByCompany } from '@/services/userService';
 import { useCompany } from '@/context/company-context';
-import type { User as UserType } from '@/lib/types';
 import { createProject } from '@/services/projectService';
 import { useToast } from '@/hooks/use-toast';
 
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
-  const router = useRouter();
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [color, setColor] = React.useState('#4A90E2');
   const [visibility, setVisibility] = React.useState<ProjectVisibility>('Public');
   const [selectedMembers, setSelectedMembers] = React.useState<string[]>([]);
-  const { selectedCompany, refreshCompanies } = useCompany();
+  const { selectedCompany, refreshProjects } = useCompany();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
   const { toast } = useToast();
 
@@ -90,6 +87,7 @@ export function CreateProjectSheet() {
         title: 'Project Created',
         description: `Project "${name}" has been successfully created.`,
       });
+      refreshProjects(); // Refresh the centralized project list
       // Reset form and close sheet
       setName('');
       setDescription('');
@@ -97,7 +95,6 @@ export function CreateProjectSheet() {
       setVisibility('Public');
       setSelectedMembers([]);
       setOpen(false);
-      refreshCompanies(); // This will trigger a refresh in components using the context
     } catch (error) {
        toast({
         variant: 'destructive',

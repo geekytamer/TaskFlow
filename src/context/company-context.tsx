@@ -2,24 +2,29 @@
 
 import * as React from 'react';
 import type { Company } from '@/modules/companies/types';
+import type { Project } from '@/modules/projects/types';
 import { getCompanies } from '@/services/companyService';
+import { getProjects } from '@/services/projectService';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface CompanyContextType {
   selectedCompany: Company | null;
   setSelectedCompany: (company: Company | null) => void;
   companies: Company[];
+  projects: Project[];
   refreshCompanies: () => void;
+  refreshProjects: () => void;
 }
 
 const CompanyContext = React.createContext<CompanyContextType | undefined>(undefined);
 
 export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [companies, setCompanies] = React.useState<Company[]>([]);
+  const [projects, setProjects] = React.useState<Project[]>([]);
   const [selectedCompany, setSelectedCompany] = React.useState<Company | null>(null);
   const [loading, setLoading] = React.useState(true);
 
-  const fetchAndSetCompanies = React.useCallback(async () => {
+  const fetchCompanies = React.useCallback(async () => {
     setLoading(true);
     try {
       const companiesData = await getCompanies();
@@ -29,7 +34,6 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         const storedCompanyId = localStorage.getItem('selectedCompanyId');
         const companyToSelect = companiesData.find(c => c.id === storedCompanyId) || companiesData[0];
         
-        // Only update selectedCompany if it's not already correctly set
         if (!selectedCompany || selectedCompany.id !== companyToSelect.id) {
           setSelectedCompany(companyToSelect);
         }
@@ -38,17 +42,25 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error("Failed to fetch companies:", error);
-      // Handle error state if necessary
     } finally {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const fetchProjects = React.useCallback(async () => {
+    try {
+      const projectData = await getProjects();
+      setProjects(projectData);
+    } catch (error) {
+      console.error("Failed to fetch projects:", error);
+    }
+  }, []);
 
   React.useEffect(() => {
-    fetchAndSetCompanies();
-  }, [fetchAndSetCompanies]);
+    fetchCompanies();
+    fetchProjects();
+  }, [fetchCompanies, fetchProjects]);
 
   const handleSetSelectedCompany = (company: Company | null) => {
     setSelectedCompany(company);
@@ -74,7 +86,9 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     selectedCompany,
     setSelectedCompany: handleSetSelectedCompany,
     companies,
-    refreshCompanies: fetchAndSetCompanies,
+    projects,
+    refreshCompanies: fetchCompanies,
+    refreshProjects: fetchProjects,
   };
 
   return (
