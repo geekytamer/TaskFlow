@@ -244,7 +244,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                 {!projectId && <ProjectLegend projects={visibleProjects} />}
             </div>
         </CardHeader>
-        <CardContent className='flex-1 -mt-4 overflow-auto'>
+        <CardContent className='flex-1 -mt-4'>
             <ChartContainer config={{}} style={{ height: `${chartHeight}px` }}>
                 <ResponsiveContainer>
                     <BarChart
