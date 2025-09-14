@@ -4,6 +4,8 @@
 import type { Task, Project, Comment } from '@/modules/projects/types';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc, addDoc, updateDoc, query, where, Timestamp } from 'firebase/firestore';
+import { notifyOnTaskAssignment } from '@/ai/flows/notify-on-task-assignment';
+import { getUserById } from './userService';
 
 const convertTimestamp = (data: any) => {
     const dataWithDates = { ...data };
@@ -83,7 +85,16 @@ export async function createTask(taskData: Omit<Task, 'id' | 'status' | 'created
     try {
         const newTaskData = { ...taskData, status: 'To Do' as const, createdAt: new Date() };
         const docRef = await addDoc(collection(db, 'tasks'), newTaskData);
-        return { id: docRef.id, status: 'To Do', createdAt: new Date(), ...taskData };
+        
+        const createdTask = { id: docRef.id, ...newTaskData };
+
+        if (createdTask.assignedUserIds && createdTask.assignedUserIds.length > 0) {
+            console.log(`[projectService] Triggering notification for new task ${createdTask.id}`);
+            notifyOnTaskAssignment({ taskId: createdTask.id, userIds: createdTask.assignedUserIds })
+                .catch(err => console.error(`[projectService] Failed to send notification for new task: ${err}`));
+        }
+
+        return createdTask;
     } catch (error) {
         console.error("Error creating task: ", error);
         throw new Error("Could not create task in Firestore.");
@@ -93,10 +104,26 @@ export async function createTask(taskData: Omit<Task, 'id' | 'status' | 'created
 export async function updateTask(taskId: string, taskData: Partial<Task>): Promise<Task | undefined> {
     try {
         const taskRef = doc(db, 'tasks', taskId);
+        const originalTask = await getTaskById(taskId);
+
         await updateDoc(taskRef, taskData);
+        
         const updatedDoc = await getDoc(taskRef);
         if (!updatedDoc.exists()) return undefined;
-        return { id: updatedDoc.id, ...convertTimestamp(updatedDoc.data()) } as Task;
+        const updatedTask = { id: updatedDoc.id, ...convertTimestamp(updatedDoc.data()) } as Task;
+
+        // Check if assignees have changed
+        const originalAssignees = new Set(originalTask?.assignedUserIds || []);
+        const newAssignees = new Set(updatedTask.assignedUserIds || []);
+        const newlyAssignedUserIds = [...newAssignees].filter(id => !originalAssignees.has(id));
+
+        if (newlyAssignedUserIds.length > 0) {
+            console.log(`[projectService] Triggering notification for updated task ${updatedTask.id}`);
+            notifyOnTaskAssignment({ taskId: updatedTask.id, userIds: newlyAssignedUserIds })
+                 .catch(err => console.error(`[projectService] Failed to send notification for updated task: ${err}`));
+        }
+
+        return updatedTask;
     } catch (error) {
         console.error(`Error updating task with ID ${taskId}: `, error);
         throw new Error("Could not update task in Firestore.");
