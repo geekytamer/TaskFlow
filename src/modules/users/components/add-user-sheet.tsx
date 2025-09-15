@@ -162,127 +162,123 @@ export function AddUserSheet({
   const sheetTitle = isEditMode ? 'Edit User' : 'Add New User';
   const sheetDescription = isEditMode ? "Update the user's details below." : "Fill in the details for the new user. A welcome email with a random password will be sent to them.";
 
-  const content = (
-    <SheetContent className="sm:max-w-lg">
-      <SheetHeader>
-        <SheetTitle>{sheetTitle}</SheetTitle>
-        <SheetDescription>{sheetDescription}</SheetDescription>
-      </SheetHeader>
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-           <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Full Name</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g. Alex Johnson" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-           <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
-                <FormControl>
-                  <Input type="email" placeholder="e.g. alex.j@innovatecorp.com" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="companyId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Company</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a company" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {companies.map((company) => (
-                        <SelectItem key={company.id} value={company.id}>
-                          {company.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-           <FormField
-            control={form.control}
-            name="positionId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Position</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyId}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a position" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {positions.map((position) => (
-                        <SelectItem key={position.id} value={position.id}>
-                          {position.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-           <FormField
-            control={form.control}
-            name="role"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Role</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a role" />
-                      </Trigger>
-                    </FormControl>
-                    <SelectContent>
-                      {availableRoles.map((role) => (
-                        <SelectItem key={role} value={role}>
-                          {role}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-           <SheetFooter className="pt-6">
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-                  Cancel
-              </Button>
-              <Button type="submit">Save User</Button>
-          </SheetFooter>
-        </form>
-      </Form>
-    </SheetContent>
-  );
-
   return (
-     <Sheet open={open} onOpenChange={handleOpenChange}>
-        {children && <SheetTrigger asChild>{children}</SheetTrigger>}
-        {content}
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      {children && <SheetTrigger asChild>{children}</SheetTrigger>}
+      <SheetContent className="sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>{sheetTitle}</SheetTitle>
+          <SheetDescription>{sheetDescription}</SheetDescription>
+        </SheetHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Full Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. Alex Johnson" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input type="email" placeholder="e.g. alex.j@innovatecorp.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="companyId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Company</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a company" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {companies.map((company) => (
+                          <SelectItem key={company.id} value={company.id}>
+                            {company.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="positionId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Position</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyId}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a position" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {positions.map((position) => (
+                          <SelectItem key={position.id} value={position.id}>
+                            {position.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Role</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a role" />
+                        </Trigger>
+                      </FormControl>
+                      <SelectContent>
+                        {availableRoles.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {role}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <SheetFooter className="pt-6">
+                <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+                    Cancel
+                </Button>
+                <Button type="submit">Save User</Button>
+            </SheetFooter>
+          </form>
+        </Form>
+      </SheetContent>
     </Sheet>
   );
 }
