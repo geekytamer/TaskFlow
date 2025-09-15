@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -144,22 +145,22 @@ export function AddUserSheet({
         await createUser({ ...data, avatar: `https://i.pravatar.cc/150?u=${data.email}` });
         toast({
           title: 'User Created',
-          description: `User "${data.name}" has been successfully created.`,
+          description: `User "${data.name}" has been created. A welcome email with their password has been sent.`,
         });
       }
       onUserAdded();
       handleOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to save user.',
+        description: error.message || 'Failed to save user.',
       });
     }
   };
   
   const sheetTitle = isEditMode ? 'Edit User' : 'Add New User';
-  const sheetDescription = isEditMode ? "Update the user's details below." : "Fill in the details for the new user.";
+  const sheetDescription = isEditMode ? "Update the user's details below." : "Fill in the details for the new user. A welcome email with a random password will be sent to them.";
 
   const content = (
     <SheetContent className="sm:max-w-lg">
@@ -189,7 +190,7 @@ export function AddUserSheet({
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g. alex.j@innovatecorp.com" {...field} />
+                  <Input type="email" placeholder="e.g. alex.j@innovatecorp.com" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -253,7 +254,7 @@ export function AddUserSheet({
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
+                      </Trigger>
                     </FormControl>
                     <SelectContent>
                       {availableRoles.map((role) => (

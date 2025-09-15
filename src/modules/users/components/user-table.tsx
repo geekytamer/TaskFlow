@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -64,16 +65,26 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
   const fetchData = React.useCallback(async () => {
      if (!selectedCompany) return;
       setLoading(true);
-      const [usersData, companiesData, positionsData] = await Promise.all([
-          getUsersByCompany(selectedCompany.id),
-          getCompanies(),
-          getPositions(),
-      ]);
-      setUsers(usersData);
-      setCompanies(companiesData);
-      setPositions(positionsData);
-      setLoading(false);
-  }, [selectedCompany]);
+      try {
+        const [usersData, companiesData, positionsData] = await Promise.all([
+            getUsersByCompany(selectedCompany.id),
+            getCompanies(),
+            getPositions(),
+        ]);
+        setUsers(usersData);
+        setCompanies(companiesData);
+        setPositions(positionsData);
+      } catch (error) {
+        console.error("Failed to fetch user table data:", error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Could not load user data.',
+        });
+      } finally {
+        setLoading(false);
+      }
+  }, [selectedCompany, toast]);
 
   React.useEffect(() => {
     fetchData();
@@ -91,7 +102,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
       await deleteUser(userToDelete.id);
       toast({
         title: 'User Deleted',
-        description: `User "${userToDelete.name}" has been deleted.`,
+        description: `User "${userToDelete.name}" has been deleted from Firestore. The Auth user must be deleted manually.`,
       });
       fetchData();
       setUserToDelete(null);
@@ -214,7 +225,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                                 <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                                 <AlertDialogDescription>
                                 This action cannot be undone. This will permanently delete the
-                                user "{userToDelete.name}".
+                                user "{userToDelete.name}" from Firestore. Note: this does not delete the user from Firebase Authentication.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
