@@ -16,6 +16,7 @@ import { getUsersByCompany } from '@/services/userService';
 import type { Task, User } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { differenceInDays, startOfToday } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 export function Dashboard() {
   const { selectedCompany, currentUser } = useCompany();
