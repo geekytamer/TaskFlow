@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -37,7 +38,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         setCompanies(allCompanies);
         return allCompanies;
       } else {
-        const accessibleCompanies = allCompanies.filter(c => currentUser.companyIds.includes(c.id));
+        const accessibleCompanies = allCompanies.filter(c => currentUser.companyIds?.includes(c.id));
         setCompanies(accessibleCompanies);
         return accessibleCompanies;
       }
