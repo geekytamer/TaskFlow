@@ -23,7 +23,7 @@ export const placeholderUsers: User[] = [
     name: 'Alex Johnson',
     email: 'alex.j@innovatecorp.com', // This email will be replaced by admin@taskflow.com during seeding
     role: 'Admin',
-    companyId: '1',
+    companyIds: ['1', '2', '3'], // Admins have access to all companies
     positionId: 'pos-2',
     avatar: 'https://i.pravatar.cc/150?u=user-1',
   },
@@ -32,8 +32,8 @@ export const placeholderUsers: User[] = [
     name: 'Samantha Bee',
     email: 'samantha.b@innovatecorp.com',
     role: 'Manager',
-    companyId: '1',
-     positionId: 'pos-1',
+    companyIds: ['1'],
+    positionId: 'pos-1',
     avatar: 'https://i.pravatar.cc/150?u=user-2',
   },
   {
@@ -41,7 +41,7 @@ export const placeholderUsers: User[] = [
     name: 'Charlie Davis',
     email: 'charlie.d@innovatecorp.com',
     role: 'Employee',
-    companyId: '1',
+    companyIds: ['1'],
     positionId: 'pos-3',
     avatar: 'https://i.pravatar.cc/150?u=user-3',
   },
@@ -50,7 +50,7 @@ export const placeholderUsers: User[] = [
     name: 'Dana Scully',
     email: 'dana.s@synergysolutions.com',
     role: 'Manager',
-    companyId: '2',
+    companyIds: ['2'],
     positionId: 'pos-4',
     avatar: 'https://i.pravatar.cc/150?u=user-4',
   },
@@ -59,7 +59,7 @@ export const placeholderUsers: User[] = [
     name: 'Fox Mulder',
     email: 'fox.m@synergysolutions.com',
     role: 'Employee',
-    companyId: '2',
+    companyIds: ['1', '2'], // This user has access to two companies
     positionId: 'pos-5',
     avatar: 'https://i.pravatar.cc/150?u=user-5',
   },

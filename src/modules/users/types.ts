@@ -5,7 +5,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  companyId: string;
+  companyIds: string[];
   positionId?: string;
   avatar: string;
 }

@@ -30,15 +30,23 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = React.useState(true);
 
   const fetchCompanies = React.useCallback(async () => {
+    if (!currentUser) return [];
     try {
-      const companiesData = await getCompanies();
-      setCompanies(companiesData);
-      return companiesData;
+      const allCompanies = await getCompanies();
+      if (currentUser.role === 'Admin') {
+        setCompanies(allCompanies);
+        return allCompanies;
+      } else {
+        const accessibleCompanies = allCompanies.filter(c => currentUser.companyIds.includes(c.id));
+        setCompanies(accessibleCompanies);
+        return accessibleCompanies;
+      }
     } catch (error) {
       console.error("Failed to fetch companies:", error);
+      setCompanies([]);
       return [];
     }
-  }, []);
+  }, [currentUser]);
 
   const fetchProjects = React.useCallback(async () => {
     try {
@@ -51,15 +59,17 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   
   const initialize = React.useCallback(async () => {
     setLoading(true);
-    const companiesData = await fetchCompanies();
+    const accessibleCompanies = await fetchCompanies();
     await fetchProjects();
 
-    if (companiesData.length > 0) {
+    if (accessibleCompanies.length > 0) {
       const storedCompanyId = localStorage.getItem('selectedCompanyId');
-      const companyToSelect = companiesData.find(c => c.id === storedCompanyId) || companiesData[0];
+      // Ensure the stored company is one the user can actually access
+      const companyToSelect = accessibleCompanies.find(c => c.id === storedCompanyId) || accessibleCompanies[0];
       
       if (!selectedCompany || selectedCompany.id !== companyToSelect.id) {
         setSelectedCompany(companyToSelect);
+        localStorage.setItem('selectedCompanyId', companyToSelect.id);
       }
     } else {
       setSelectedCompany(null);
@@ -75,7 +85,8 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     if (!userLoading && !currentUser) {
       setLoading(false);
     }
-  }, [currentUser, userLoading, initialize]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, userLoading]);
 
 
   const handleSetSelectedCompany = (company: Company | null) => {
@@ -88,17 +99,6 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   };
 
   const isLoading = userLoading || loading;
-
-  if (isLoading) {
-    return (
-       <div className="flex h-screen w-screen items-center justify-center">
-         <div className="flex flex-col items-center gap-4">
-          <Skeleton className="h-12 w-12 rounded-full" />
-          <Skeleton className="h-6 w-48" />
-        </div>
-      </div>
-    )
-  }
 
   const value = {
     selectedCompany,

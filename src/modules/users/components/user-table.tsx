@@ -21,10 +21,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal } from 'lucide-react';
-import { getUsersByCompany, deleteUser } from '@/services/userService';
-import { getCompanies, getPositions } from '@/services/companyService';
+import { getUsers, deleteUser } from '@/services/userService';
+import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
-import type { Company, Position } from '@/modules/companies/types';
+import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
@@ -53,9 +53,8 @@ interface UserTableProps {
 }
 
 export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, companies } = useCompany();
   const [users, setUsers] = React.useState<User[]>([]);
-  const [companies, setCompanies] = React.useState<Company[]>([]);
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [editingUser, setEditingUser] = React.useState<User | null>(null);
@@ -63,17 +62,21 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
   const { toast } = useToast();
 
   const fetchData = React.useCallback(async () => {
-     if (!selectedCompany) return;
       setLoading(true);
       try {
-        const [usersData, companiesData, positionsData] = await Promise.all([
-            getUsersByCompany(selectedCompany.id),
-            getCompanies(),
+        // Fetch all users and all positions, then filter client-side
+        const [allUsers, allPositions] = await Promise.all([
+            getUsers(),
             getPositions(),
         ]);
-        setUsers(usersData);
-        setCompanies(companiesData);
-        setPositions(positionsData);
+        
+        let displayUsers = allUsers;
+        if (selectedCompany && currentUserRole !== 'Admin') {
+             displayUsers = allUsers.filter(u => u.companyIds.includes(selectedCompany.id));
+        }
+
+        setUsers(displayUsers);
+        setPositions(allPositions);
       } catch (error) {
         console.error("Failed to fetch user table data:", error);
         toast({
@@ -84,7 +87,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
       } finally {
         setLoading(false);
       }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, currentUserRole, toast]);
 
   React.useEffect(() => {
     fetchData();
@@ -122,6 +125,10 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
     return false;
   }
 
+  const getUserCompanies = (companyIds: string[]) => {
+      return companies.filter(c => companyIds.includes(c.id)).map(c => c.name).join(', ');
+  }
+
 
   if (loading) {
       return (
@@ -130,7 +137,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                 <TableHeader>
                     <TableRow>
                         <TableHead>User</TableHead>
-                        <TableHead>Company</TableHead>
+                        <TableHead>Companies</TableHead>
                         <TableHead>Position</TableHead>
                         <TableHead>Role</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
@@ -167,7 +174,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
           <TableHeader>
             <TableRow>
               <TableHead>User</TableHead>
-              <TableHead>Company</TableHead>
+              <TableHead>Companies</TableHead>
               <TableHead>Position</TableHead>
               <TableHead>Role</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -175,7 +182,6 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
           </TableHeader>
           <TableBody>
             {users.map((user) => {
-              const company = companies.find(c => c.id === user.companyId);
               const position = positions.find(p => p.id === user.positionId);
               const isManageable = canManageUser(user);
               return (
@@ -194,7 +200,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>{company?.name || 'N/A'}</TableCell>
+                  <TableCell className="max-w-xs truncate">{getUserCompanies(user.companyIds)}</TableCell>
                   <TableCell>{position?.title || 'N/A'}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>

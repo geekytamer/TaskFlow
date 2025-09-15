@@ -37,7 +37,7 @@ export async function getUserById(id: string): Promise<User | undefined> {
 export async function getUsersByCompany(companyId: string): Promise<User[]> {
      if (!companyId) return [];
     try {
-        const q = query(collection(db, 'users'), where('companyId', '==', companyId));
+        const q = query(collection(db, 'users'), where('companyIds', 'array-contains', companyId));
         const querySnapshot = await getDocs(q);
         const userList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
         return userList;
@@ -52,28 +52,9 @@ export async function createUser(userData: Omit<User, 'id'>): Promise<User> {
     const password = Math.random().toString(36).slice(-8);
 
     try {
-        // Step 1: Create user in Firebase Auth. This is temporary for getting a UID.
-        // We can't use the Admin SDK in this environment securely.
-        // This is a workaround: we will create a temporary user, get the UID,
-        // then the real user creation will happen on the client side during first login,
-        // or this would be replaced with a proper Admin SDK-backed flow.
-        // For this demo, we assume we need to create the user in Auth first.
-        // This approach has limitations as it requires a temporary client-side-style auth instance.
-        // A robust solution uses Firebase Admin SDK on a secure backend.
+        // This flow creates an Auth user, then creates a matching Firestore user document,
+        // and finally sends a welcome email with the generated password.
         
-        // This will fail on the server. We need to handle user creation differently.
-        // The most secure way is to create the user in Firestore, then have an admin function
-        // or manual process to create the Auth user.
-        // Let's create an auth user from the server using a service account (best practice).
-        // Since we don't have Admin SDK set up, we'll simulate the UID creation locally
-        // and focus on the Firestore/email part.
-
-        // The correct flow without Admin SDK is challenging.
-        // We will create the user in Firestore and then send them an invite email.
-        // The user would then click a link to set their password.
-        // For simplicity now, let's create the auth user AND the firestore user.
-        // This requires auth to be available on the server, which it is.
-
         const userCredential = await createUserWithEmailAndPassword(auth, userData.email, password);
         const userId = userCredential.user.uid;
 
@@ -82,17 +63,15 @@ export async function createUser(userData: Omit<User, 'id'>): Promise<User> {
             ...userData,
         };
 
-        // Step 2: Create user in Firestore
         await setDoc(doc(db, 'users', userId), {
             name: newUser.name,
             email: newUser.email,
             role: newUser.role,
-            companyId: newUser.companyId,
+            companyIds: newUser.companyIds,
             positionId: newUser.positionId,
             avatar: newUser.avatar,
         });
 
-        // Step 3: Send welcome email
         await sendWelcomeEmail({
             name: newUser.name,
             email: newUser.email,

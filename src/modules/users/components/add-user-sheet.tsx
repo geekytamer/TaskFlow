@@ -36,13 +36,15 @@ import { useCompany } from '@/context/company-context';
 import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
 import type { Position, User, UserRole } from '@/lib/types';
+import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
+import { Building } from 'lucide-react';
 
 const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee'];
 
 const addUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
   email: z.string().email('Please enter a valid email.'),
-  companyId: z.string({ required_error: 'Please select a company.' }),
+  companyIds: z.array(z.string()).min(1, 'Please select at least one company.'),
   positionId: z.string().optional(),
   role: z.enum(allUserRoles),
 });
@@ -77,10 +79,11 @@ export function AddUserSheet({
       name: '',
       email: '',
       role: 'Employee',
+      companyIds: [],
     },
   });
 
-  const selectedCompanyId = form.watch('companyId');
+  const selectedCompanyIds = form.watch('companyIds');
 
   const availableRoles = React.useMemo(() => {
     if (currentUserRole === 'Admin') {
@@ -93,25 +96,28 @@ export function AddUserSheet({
     return [];
   }, [currentUserRole]);
 
+  const companyItems: MultiSelectItem[] = React.useMemo(() => 
+    companies.map(c => ({ value: c.id, label: c.name, icon: Building })),
+  [companies]);
 
   React.useEffect(() => {
     async function loadPositions() {
-      if (selectedCompanyId) {
+      if (selectedCompanyIds && selectedCompanyIds.length > 0) {
         const allPositions = await getPositions();
-        setPositions(allPositions.filter(p => p.companyId === selectedCompanyId));
+        setPositions(allPositions.filter(p => selectedCompanyIds.includes(p.companyId)));
       } else {
         setPositions([]);
       }
     }
     loadPositions();
-  }, [selectedCompanyId]);
+  }, [selectedCompanyIds]);
 
   React.useEffect(() => {
     if (userToEdit) {
       form.reset({
         name: userToEdit.name,
         email: userToEdit.email,
-        companyId: userToEdit.companyId,
+        companyIds: userToEdit.companyIds,
         positionId: userToEdit.positionId,
         role: userToEdit.role,
       });
@@ -120,7 +126,7 @@ export function AddUserSheet({
         name: '',
         email: '',
         role: 'Employee',
-        companyId: '',
+        companyIds: [],
         positionId: ''
       });
     }
@@ -135,7 +141,7 @@ export function AddUserSheet({
 
   const onSubmit = async (data: AddUserFormValues) => {
     try {
-      if (isEditMode) {
+      if (isEditMode && userToEdit) {
         await updateUser(userToEdit.id, data);
         toast({
           title: 'User Updated',
@@ -192,7 +198,7 @@ export function AddUserSheet({
                 <FormItem>
                   <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="e.g. alex.j@innovatecorp.com" {...field} />
+                    <Input type="email" placeholder="e.g. alex.j@innovatecorp.com" {...field} disabled={isEditMode} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -200,24 +206,18 @@ export function AddUserSheet({
             />
             <FormField
               control={form.control}
-              name="companyId"
+              name="companyIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Company</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a company" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {companies.map((company) => (
-                          <SelectItem key={company.id} value={company.id}>
-                            {company.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <FormLabel>Companies</FormLabel>
+                  <FormControl>
+                    <MultiSelect
+                        items={companyItems}
+                        selected={field.value}
+                        onChange={field.onChange}
+                        placeholder="Select companies..."
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -228,7 +228,7 @@ export function AddUserSheet({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Position</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyId}>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyIds || selectedCompanyIds.length === 0}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a position" />
@@ -256,7 +256,7 @@ export function AddUserSheet({
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a role" />
-                        </Trigger>
+                        </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         {availableRoles.map((role) => (
