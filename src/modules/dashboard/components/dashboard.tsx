@@ -8,16 +8,17 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { ListTodo, Loader, CheckCircle, Users } from 'lucide-react';
+import { ListTodo, CheckCircle, Users, Clock, AlertTriangle, PieChart, Briefcase, UserCheck } from 'lucide-react';
 import { OverviewChart } from '@/modules/dashboard/components/overview-chart';
 import { useCompany } from '@/context/company-context';
 import { getTasks } from '@/services/projectService';
 import { getUsersByCompany } from '@/services/userService';
 import type { Task, User } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
+import { differenceInDays, startOfToday } from 'date-fns';
 
 export function Dashboard() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -36,23 +37,40 @@ export function Dashboard() {
   }, [selectedCompany]);
 
   React.useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+    if(currentUser) {
+        loadDashboardData();
+    }
+  }, [loadDashboardData, currentUser]);
 
-  const stats = React.useMemo(() => {
+  const employeeStats = React.useMemo(() => {
+    if (!currentUser) return {};
+    const myTasks = tasks.filter(t => t.assignedUserIds?.includes(currentUser.id));
+    const today = startOfToday();
     return {
-      totalTasks: tasks.length,
-      inProgress: tasks.filter(t => t.status === 'In Progress').length,
-      done: tasks.filter(t => t.status === 'Done').length,
-      activeUsers: users.length,
+      myOpenTasks: myTasks.filter(t => t.status === 'To Do' || t.status === 'In Progress').length,
+      myTasksDueSoon: myTasks.filter(t => t.status !== 'Done' && t.dueDate && differenceInDays(t.dueDate, today) >= 0 && differenceInDays(t.dueDate, today) <= 7).length,
+      myCompletedTasks: myTasks.filter(t => t.status === 'Done').length, // Simplified for now
+      myOverdueTasks: myTasks.filter(t => t.status !== 'Done' && t.dueDate && differenceInDays(t.dueDate, today) < 0).length,
+    }
+  }, [tasks, currentUser]);
+
+  const managerStats = React.useMemo(() => {
+    const openTasks = tasks.filter(t => t.status === 'To Do' || t.status === 'In Progress');
+    const workload = users.length > 0 ? (openTasks.length / users.length).toFixed(1) : 0;
+    const today = startOfToday();
+    return {
+      totalActiveTasks: openTasks.length,
+      teamWorkload: workload,
+      companyOverdueTasks: tasks.filter(t => t.status !== 'Done' && t.dueDate && differenceInDays(t.dueDate, today) < 0).length,
+      activeProjects: [...new Set(tasks.filter(t => t.status !== 'Done').map(t => t.projectId))].length
     }
   }, [tasks, users]);
   
-  const StatCard = ({ title, value, icon: Icon, description, isLoading }: {title: string, value: string | number, icon: React.ElementType, description: string, isLoading: boolean}) => (
+  const StatCard = ({ title, value, icon: Icon, description, isLoading, color }: {title: string, value: string | number, icon: React.ElementType, description?: string, isLoading: boolean, color?: string}) => (
       <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{title}</CardTitle>
-            <Icon className="h-4 w-4 text-muted-foreground" />
+            <Icon className={cn('h-4 w-4 text-muted-foreground', color)} />
           </CardHeader>
           <CardContent>
             {isLoading ? <Skeleton className="h-7 w-12 mt-1" /> : <div className="text-2xl font-bold">{value}</div>}
@@ -60,15 +78,44 @@ export function Dashboard() {
           </CardContent>
         </Card>
   )
+  
+  const renderDashboardContent = () => {
+    if (loading || !currentUser) {
+        return (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <StatCard title="..." value="" icon={ListTodo} description="..." isLoading={true} />
+                <StatCard title="..." value="" icon={Clock} description="..." isLoading={true} />
+                <StatCard title="..." value="" icon={CheckCircle} description="..." isLoading={true} />
+                <StatCard title="..." value="" icon={AlertTriangle} description="..." isLoading={true} />
+            </div>
+        );
+    }
+
+    if (currentUser.role === 'Employee') {
+        return (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <StatCard title="My Open Tasks" value={employeeStats.myOpenTasks || 0} icon={ListTodo} description="Tasks 'To Do' or 'In Progress'" isLoading={loading} />
+                <StatCard title="My Tasks Due Soon" value={employeeStats.myTasksDueSoon || 0} icon={Clock} description="Tasks due in the next 7 days" isLoading={loading} />
+                <StatCard title="My Completed Tasks" value={employeeStats.myCompletedTasks || 0} icon={CheckCircle} description="All your completed tasks" isLoading={loading} />
+                <StatCard title="My Overdue Tasks" value={employeeStats.myOverdueTasks || 0} icon={AlertTriangle} description="Tasks past their due date" isLoading={loading} color="text-destructive" />
+            </div>
+        )
+    }
+
+    // Manager and Admin View
+    return (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <StatCard title="Total Active Tasks" value={managerStats.totalActiveTasks || 0} icon={Briefcase} description={`Across ${selectedCompany?.name}`} isLoading={loading} />
+            <StatCard title="Team's Workload" value={managerStats.teamWorkload || 0} icon={UserCheck} description="Avg. open tasks per user" isLoading={loading} />
+            <StatCard title="Company Overdue Tasks" value={managerStats.companyOverdueTasks || 0} icon={AlertTriangle} description="Tasks past their due date" isLoading={loading} color="text-destructive" />
+            <StatCard title="Active Projects" value={managerStats.activeProjects || 0} icon={PieChart} description="Projects with unfinished tasks" isLoading={loading} />
+        </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Tasks" value={stats.totalTasks} icon={ListTodo} description="" isLoading={loading} />
-        <StatCard title="In Progress" value={stats.inProgress} icon={Loader} description="" isLoading={loading} />
-        <StatCard title="Tasks Done" value={stats.done} icon={CheckCircle} description="" isLoading={loading} />
-        <StatCard title="Active Users" value={stats.activeUsers} icon={Users} description={`in ${selectedCompany?.name}`} isLoading={loading} />
-      </div>
+        {renderDashboardContent()}
       <div>
         <Card>
           <CardHeader>
