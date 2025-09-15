@@ -28,18 +28,30 @@ const chartConfig = {
 };
 
 export function OverviewChart() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const [data, setData] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     async function loadTaskData() {
-      if (!selectedCompany) return;
+      if (!selectedCompany || !currentUser) return;
       setLoading(true);
       const allTasks = await getTasks();
-      const companyTasks = allTasks.filter(t => t.companyId === selectedCompany.id);
       
-      const taskCounts = companyTasks.reduce((acc, task) => {
+      let tasksToDisplay: Task[];
+
+      if (currentUser.role === 'Employee') {
+        // For employees, show only their tasks within the selected company
+        tasksToDisplay = allTasks.filter(t => 
+            t.companyId === selectedCompany.id &&
+            t.assignedUserIds?.includes(currentUser.id)
+        );
+      } else {
+        // For Admins and Managers, show all tasks for the company
+        tasksToDisplay = allTasks.filter(t => t.companyId === selectedCompany.id);
+      }
+      
+      const taskCounts = tasksToDisplay.reduce((acc, task) => {
         acc[task.status] = (acc[task.status] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
@@ -53,7 +65,7 @@ export function OverviewChart() {
       setLoading(false);
     }
     loadTaskData();
-  }, [selectedCompany]);
+  }, [selectedCompany, currentUser]);
 
   if (loading) {
       return <Skeleton className="h-[300px] w-full" />
