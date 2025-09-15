@@ -146,7 +146,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         ) : (
         <>
             <SheetHeader>
-              <SheetTitle>{editableTask.title}</SheetTitle>
+              <SheetTitle>{editableTask?.title || "Task Details"}</SheetTitle>
               <SheetDescription>
                 In project <span className="font-semibold text-foreground">{project?.name}</span>
               </SheetDescription>

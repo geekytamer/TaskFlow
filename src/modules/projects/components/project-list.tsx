@@ -5,6 +5,8 @@ import { useCompany } from '@/context/company-context';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { Globe, Lock } from 'lucide-react';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, loading } = useCompany();
@@ -24,7 +26,7 @@ export function ProjectList() {
       return (
            <div className="flex w-max space-x-4 pb-4">
                {[...Array(3)].map((_, i) => (
-                    <Skeleton key={i} className='w-[280px] h-[120px]' />
+                    <Skeleton key={i} className='w-[280px] h-[130px]' />
                ))}
            </div>
       )
@@ -37,15 +39,21 @@ export function ProjectList() {
                 {visibleProjects.map((project) => (
                     <a href={`/projects/${project.id}`} key={project.id}>
                         <Card
-                            className='w-[280px] h-[120px] cursor-pointer hover:border-primary transition-colors'
+                            className='w-[280px] h-[130px] cursor-pointer hover:border-primary transition-colors flex flex-col'
                         >
-                            <CardHeader>
+                            <CardHeader className="flex-1">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-4 h-4 rounded-full" style={{backgroundColor: project.color}} />
-                                    <CardTitle className="truncate">{project.name}</CardTitle>
+                                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{backgroundColor: project.color}} />
+                                    <CardTitle className="truncate text-lg">{project.name}</CardTitle>
                                 </div>
                                 <CardDescription className="line-clamp-2 h-10 whitespace-normal">{project.description}</CardDescription>
                             </CardHeader>
+                            <div className="px-6 pb-4">
+                                <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
+                                {project.visibility === 'Private' ? <Lock className="mr-1 h-3 w-3" /> : <Globe className="mr-1 h-3 w-3" />}
+                                {project.visibility}
+                                </Badge>
+                            </div>
                         </Card>
                     </a>
                 ))}

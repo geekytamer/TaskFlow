@@ -8,6 +8,8 @@ import { useCompany } from '@/context/company-context';
 import { ProjectTaskViews } from '@/modules/projects/components/project-task-views';
 import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { Globe, Lock } from 'lucide-react';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -64,7 +66,13 @@ export default function ProjectDetailsPage() {
     <div className="flex h-full flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+            <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
+              {project.visibility === 'Private' ? <Lock className="mr-1 h-3 w-3" /> : <Globe className="mr-1 h-3 w-3" />}
+              {project.visibility}
+            </Badge>
+          </div>
           <p className="text-muted-foreground">{project.description}</p>
         </div>
         <CreateTaskSheet />
