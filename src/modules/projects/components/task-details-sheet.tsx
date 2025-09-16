@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Image from 'next/image';
 import {
   Sheet,
   SheetContent,
@@ -31,10 +32,11 @@ import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info } from 'lucide-react';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Label } from '@/components/ui/label';
 
 interface TaskDetailsSheetProps {
   open: boolean;
@@ -45,7 +47,7 @@ interface TaskDetailsSheetProps {
 
 function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, label: string, children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] items-start gap-4">
+    <div className="grid grid-cols-[120px_1fr] items-start gap-4">
       <dt className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
@@ -66,12 +68,15 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [allUsers, setAllUsers] = React.useState<User[]>([]);
   const [newComment, setNewComment] = React.useState('');
   const [loading, setLoading] = React.useState(true);
+  const [invoicePreview, setInvoicePreview] = React.useState<string | null>(task.invoiceImage || null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     async function loadData() {
         if (!task || !selectedCompany) return;
         setLoading(true);
         setEditableTask(task);
+        setInvoicePreview(task.invoiceImage || null);
         const [projectData, commentsData, companyUsersData] = await Promise.all([
             getProjectById(task.projectId),
             getCommentsByTaskId(task.id),
@@ -91,6 +96,19 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const handleFieldChange = (field: keyof Task, value: any) => {
     setEditableTask(prev => ({...prev, [field]: value}));
   }
+
+  const handleInvoiceImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUri = reader.result as string;
+        setInvoicePreview(dataUri);
+        handleFieldChange('invoiceImage', dataUri);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleSaveChanges = async () => {
     try {
@@ -135,8 +153,10 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
       <SheetContent className="w-full max-w-3xl sm:max-w-3xl flex flex-col">
         {loading ? (
              <div className="space-y-4 py-4">
-                <Skeleton className="h-8 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
+                <SheetHeader>
+                    <SheetTitle><Skeleton className="h-8 w-3/4" /></SheetTitle>
+                    <SheetDescription><Skeleton className="h-4 w-1/2" /></SheetDescription>
+                </SheetHeader>
                 <div className="py-6 space-y-6">
                     <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-24 w-full" />
@@ -237,6 +257,90 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                     </DetailRow>
                 </dl>
                 
+                <Separator />
+
+                <div>
+                    <h4 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                       <FileImage className="h-5 w-5" />
+                        Invoice Details
+                    </h4>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-[120px_1fr] items-start gap-4">
+                        <Label className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
+                            <span>Invoice Image</span>
+                        </Label>
+                        <div className="flex flex-col gap-2">
+                           <Input
+                                id="invoiceImage"
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleInvoiceImageUpload}
+                                accept="image/*"
+                                className="hidden"
+                            />
+                            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                                Upload Image
+                            </Button>
+                            {invoicePreview && (
+                                <Image
+                                    src={invoicePreview}
+                                    alt="Invoice preview"
+                                    width={200}
+                                    height={200}
+                                    className="rounded-md border object-cover aspect-square"
+                                />
+                            )}
+                        </div>
+                      </div>
+                      <DetailRow icon={Info} label="Vendor">
+                         <Input 
+                            value={editableTask.invoiceVendor || ''}
+                            onChange={(e) => handleFieldChange('invoiceVendor', e.target.value)}
+                            placeholder="e.g. Acme Inc."
+                         />
+                      </DetailRow>
+                      <DetailRow icon={Info} label="Invoice Number">
+                         <Input 
+                             value={editableTask.invoiceNumber || ''}
+                             onChange={(e) => handleFieldChange('invoiceNumber', e.target.value)}
+                             placeholder="e.g. INV-12345"
+                         />
+                      </DetailRow>
+                      <DetailRow icon={Info} label="Invoice Amount">
+                         <Input 
+                             type="number"
+                             value={editableTask.invoiceAmount || ''}
+                             onChange={(e) => handleFieldChange('invoiceAmount', parseFloat(e.target.value))}
+                             placeholder="e.g. 199.99"
+                         />
+                      </DetailRow>
+                      <DetailRow icon={CalendarIcon} label="Invoice Date">
+                         <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant={'outline'}
+                                    className={cn(
+                                    'w-[180px] justify-start text-left font-normal',
+                                    !editableTask.invoiceDate && 'text-muted-foreground'
+                                    )}
+                                >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {editableTask.invoiceDate ? format(editableTask.invoiceDate, 'PPP') : <span>Pick a date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <Calendar
+                                    mode="single"
+                                    selected={editableTask.invoiceDate}
+                                    onSelect={(date) => handleFieldChange('invoiceDate', date)}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                      </DetailRow>
+                    </div>
+                </div>
+
                 <Separator />
 
                 <div>

@@ -33,6 +33,12 @@ export interface Task {
   projectId: string;
   color?: string;
   dependencies?: string[];
+  // Invoice related fields
+  invoiceImage?: string;
+  invoiceVendor?: string;
+  invoiceNumber?: string;
+  invoiceAmount?: number;
+  invoiceDate?: Date;
 }
 
 export interface Comment {
