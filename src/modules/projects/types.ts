@@ -17,6 +17,7 @@ export interface Project {
   companyId: string;
   visibility: ProjectVisibility;
   memberIds?: string[];
+  clientId?: string;
 }
 
 export interface Task {
@@ -39,6 +40,7 @@ export interface Task {
   invoiceNumber?: string;
   invoiceAmount?: number;
   invoiceDate?: Date;
+  generatedInvoiceId?: string; // To track if this task-invoice is already on a system invoice
 }
 
 export interface Comment {

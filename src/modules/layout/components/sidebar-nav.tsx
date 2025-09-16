@@ -7,14 +7,15 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
-import { LayoutDashboard, Users, Network, FolderKanban, Building, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, Network, FolderKanban, Building, Settings, Banknote } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const allNavItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee'] },
-  { href: '/projects', label: 'Projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee'] },
-  { href: '/diagram', label: 'Diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee'] },
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
+  { href: '/projects', label: 'Projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
+  { href: '/diagram', label: 'Diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
+  { href: '/finance', label: 'Finance', icon: Banknote, roles: ['Admin', 'Accountant'] },
   { href: '/users', label: 'Users', icon: Users, roles: ['Admin', 'Manager'] },
   { href: '/companies', label: 'Companies', icon: Building, roles: ['Admin'] },
   { href: '/settings', label: 'Settings', icon: Settings, roles: ['Admin'] },

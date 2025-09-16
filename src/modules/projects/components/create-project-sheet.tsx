@@ -21,11 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { projectVisibilities, type ProjectVisibility } from '@/modules/projects/types';
-import { PlusCircle, User } from 'lucide-react';
+import { projectVisibilities, type ProjectVisibility, type Client } from '@/lib/types';
+import { PlusCircle, User, Briefcase } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { getUsersByCompany } from '@/services/userService';
+import { getClients } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
 import { createProject } from '@/services/projectService';
 import { useToast } from '@/hooks/use-toast';
@@ -39,22 +40,29 @@ export function CreateProjectSheet() {
   const [selectedMembers, setSelectedMembers] = React.useState<string[]>([]);
   const { selectedCompany, refreshProjects } = useCompany();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
+  const [clients, setClients] = React.useState<Client[]>([]);
+  const [selectedClient, setSelectedClient] = React.useState<string | undefined>();
   const { toast } = useToast();
 
   React.useEffect(() => {
-    async function loadUsers() {
+    async function loadData() {
       if (selectedCompany) {
-        const users = await getUsersByCompany(selectedCompany.id);
+        const [users, clientData] = await Promise.all([
+          getUsersByCompany(selectedCompany.id),
+          getClients(selectedCompany.id)
+        ]);
+
         const userItems = users.map(user => ({
           value: user.id,
           label: user.name,
           icon: User,
         }));
         setCompanyUsers(userItems);
+        setClients(clientData);
       }
     }
     if (open) {
-        loadUsers();
+        loadData();
     }
   }, [selectedCompany, open]);
 
@@ -82,6 +90,7 @@ export function CreateProjectSheet() {
         companyId: selectedCompany.id,
         visibility,
         memberIds: visibility === 'Private' ? selectedMembers : [],
+        clientId: selectedClient,
       });
       toast({
         title: 'Project Created',
@@ -94,6 +103,7 @@ export function CreateProjectSheet() {
       setColor('#4A90E2');
       setVisibility('Public');
       setSelectedMembers([]);
+      setSelectedClient(undefined);
       setOpen(false);
     } catch (error) {
        toast({
@@ -133,6 +143,29 @@ export function CreateProjectSheet() {
                     <Input id="description" placeholder="A brief description of the project." className="col-span-3" value={description} onChange={e => setDescription(e.target.value)} />
                 </div>
                 
+                 <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">
+                        Client
+                    </Label>
+                    <div className="col-span-3">
+                        <Select value={selectedClient} onValueChange={setSelectedClient}>
+                            <SelectTrigger>
+                                <div className="flex items-center gap-2">
+                                    <Briefcase className="h-4 w-4 text-muted-foreground" />
+                                    <SelectValue placeholder="Link to a client (optional)" />
+                                </div>
+                            </SelectTrigger>
+                            <SelectContent>
+                                {clients.map((client) => (
+                                    <SelectItem key={client.id} value={client.id}>
+                                        {client.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-4 items-start gap-4">
                 <Label className="text-right pt-2">
                     Visibility

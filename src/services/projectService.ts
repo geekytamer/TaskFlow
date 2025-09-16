@@ -3,7 +3,7 @@
 
 import type { Task, Project, Comment } from '@/modules/projects/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, addDoc, updateDoc, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, addDoc, updateDoc, query, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { notifyOnTaskAssignment } from '@/ai/flows/notify-on-task-assignment';
 import { getUserById } from './userService';
 
@@ -67,6 +67,27 @@ export async function getTasks(): Promise<Task[]> {
     }
 }
 
+export async function getTasksByClient(companyId: string, clientId: string): Promise<Task[]> {
+  try {
+    const projectsQuery = query(collection(db, 'projects'), where('companyId', '==', companyId), where('clientId', '==', clientId));
+    const projectsSnapshot = await getDocs(projectsQuery);
+    if (projectsSnapshot.empty) {
+      return [];
+    }
+    const projectIds = projectsSnapshot.docs.map(doc => doc.id);
+    
+    const tasksQuery = query(collection(db, 'tasks'), where('projectId', 'in', projectIds));
+    const tasksSnapshot = await getDocs(tasksQuery);
+
+    const taskList = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamp(doc.data()) } as Task));
+    return taskList;
+  } catch (error) {
+    console.error("Error fetching tasks by client: ", error);
+    throw new Error("Could not fetch tasks for the specified client.");
+  }
+}
+
+
 export async function getTaskById(id: string): Promise<Task | undefined> {
     if (!id) return undefined;
     try {
@@ -128,6 +149,21 @@ export async function updateTask(taskId: string, taskData: Partial<Task>): Promi
         console.error(`Error updating task with ID ${taskId}: `, error);
         throw new Error("Could not update task in Firestore.");
     }
+}
+
+export async function markTasksAsInvoiced(taskIds: string[], invoiceId: string): Promise<void> {
+  if (taskIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    taskIds.forEach(taskId => {
+      const taskRef = doc(db, 'tasks', taskId);
+      batch.update(taskRef, { generatedInvoiceId: invoiceId });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error(`Error marking tasks as invoiced: `, error);
+    throw new Error("Could not update tasks in Firestore.");
+  }
 }
 
 // COMMENTS

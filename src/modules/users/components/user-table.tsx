@@ -45,6 +45,7 @@ const roleColors: Record<UserRole, string> = {
     Admin: 'bg-primary text-primary-foreground',
     Manager: 'bg-accent text-accent-foreground',
     Employee: 'bg-secondary text-secondary-foreground',
+    Accountant: 'bg-emerald-500 text-white',
 }
 
 interface UserTableProps {

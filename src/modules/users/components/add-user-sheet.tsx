@@ -39,7 +39,7 @@ import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Building } from 'lucide-react';
 
-const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee'];
+const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
 const addUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
