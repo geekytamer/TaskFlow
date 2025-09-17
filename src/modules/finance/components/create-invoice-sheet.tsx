@@ -29,7 +29,8 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { getClients, createInvoice } from '@/services/financeService';
 import { getTasksByClient, markTasksAsInvoiced } from '@/services/projectService';
-import type { Client, Task, InvoiceLineItem } from '@/lib/types';
+import type { Client, InvoiceLineItem } from '@/modules/finance/types';
+import type { Task } from '@/modules/projects/types';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { add, format } from 'date-fns';
