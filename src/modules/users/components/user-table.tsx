@@ -73,7 +73,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
         
         let displayUsers = allUsers;
         if (selectedCompany && currentUserRole !== 'Admin') {
-             displayUsers = allUsers.filter(u => u.companyIds.includes(selectedCompany.id));
+             displayUsers = allUsers.filter(u => u.companyIds && u.companyIds.includes(selectedCompany.id));
         }
 
         setUsers(displayUsers);
