@@ -127,6 +127,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
   }
 
   const getUserCompanies = (companyIds: string[]) => {
+      if (!companyIds) return '';
       return companies.filter(c => companyIds.includes(c.id)).map(c => c.name).join(', ');
   }
 
