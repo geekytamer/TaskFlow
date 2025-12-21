@@ -19,6 +19,7 @@ export function useCurrentUser() {
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+      setLoading(true); // Keep loading until Firestore data is fetched
       if (firebaseUser) {
         try {
           const appUser = await getUserById(firebaseUser.uid);
@@ -30,7 +31,7 @@ export function useCurrentUser() {
       } else {
         setUser(null);
       }
-      setLoading(false);
+      setLoading(false); // Done loading
     });
 
     // Cleanup subscription on unmount
