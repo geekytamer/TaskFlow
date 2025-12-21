@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -19,11 +20,13 @@ import { useCompany } from '@/context/company-context';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading: authLoading } = useAuthGuard();
-  const { loading: companyLoading } = useCompany();
+  const { currentUser, loading: companyLoading } = useCompany();
 
-  const loading = authLoading || companyLoading;
+  // The main loading condition. We wait for auth to resolve AND the company context to load.
+  // We also explicitly check if currentUser exists before showing the app.
+  const isLoading = authLoading || companyLoading || !currentUser;
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center">
          <div className="flex flex-col items-center gap-4">

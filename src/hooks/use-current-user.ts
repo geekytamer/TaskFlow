@@ -15,23 +15,28 @@ import { auth } from '@/lib/firebase';
  */
 export function useCurrentUser() {
   const [user, setUser] = React.useState<User | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(true); // Start as true
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
-      setLoading(true); // Keep loading until Firestore data is fetched
       if (firebaseUser) {
+        // If there's a Firebase user, we are still loading until we get the Firestore document.
+        setLoading(true);
         try {
           const appUser = await getUserById(firebaseUser.uid);
           setUser(appUser || null);
         } catch (error) {
           console.error("Failed to fetch user profile:", error);
           setUser(null);
+        } finally {
+          // Finished loading Firestore data
+          setLoading(false);
         }
       } else {
+        // No Firebase user, so we're not loading and there's no user.
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false); // Done loading
     });
 
     // Cleanup subscription on unmount
