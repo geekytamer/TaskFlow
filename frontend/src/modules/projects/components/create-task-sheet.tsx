@@ -43,7 +43,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { suggestTaskTags } from '@/ai/flows/suggest-task-tags';
+// AI tag suggestion removed; fallback heuristic in component
 import { useCompany } from '@/context/company-context';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Label } from '@/components/ui/label';
@@ -122,7 +122,7 @@ export function CreateTaskSheet() {
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];
 
-  const handleSuggestTags = async () => {
+  const handleSuggestTags = () => {
     if (!descriptionValue) {
       toast({
         variant: 'destructive',
@@ -132,19 +132,14 @@ export function CreateTaskSheet() {
       return;
     }
     setIsSuggesting(true);
-    try {
-      const result = await suggestTaskTags({ taskDescription: descriptionValue });
-      setSuggestedTags(result.tags.filter(t => !tagsValue.includes(t)));
-    } catch (error) {
-      console.error('Failed to suggest tags:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Suggestion Failed',
-        description: 'Could not get AI-powered tag suggestions.',
-      });
-    } finally {
-      setIsSuggesting(false);
-    }
+    // Simple heuristic: split words, filter short/common tokens
+    const words = descriptionValue
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 3 && !['task', 'project', 'user', 'with', 'that', 'this', 'have'].includes(w));
+    const uniq = Array.from(new Set(words)).slice(0, 5);
+    setSuggestedTags(uniq.filter((t) => !tagsValue.includes(t)));
+    setIsSuggesting(false);
   };
 
   const addTag = (tag: string) => {

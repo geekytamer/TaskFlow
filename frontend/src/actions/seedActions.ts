@@ -1,16 +1,17 @@
 'use server';
 
 /**
- * @fileOverview Server actions for database seeding.
+ * @fileOverview Server action for database seeding.
+ * Calls the backend /seed endpoint directly (no Genkit).
  */
 
-import { seedDatabaseFlow } from '@/ai/flows/seed-database';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 
-/**
- * Runs the Genkit flow to seed the database with placeholder data.
- * This server action is called from the client-side Settings page.
- * @returns {Promise<{success: boolean, message: string}>} - The result of the seeding operation.
- */
 export async function runSeedDatabase() {
-  return await seedDatabaseFlow();
+  const res = await fetch(`${API_BASE_URL}/seed`, { method: 'POST' });
+  if (!res.ok) {
+    const msg = await res.text();
+    return { success: false, message: msg || 'Seeding failed' };
+  }
+  return { success: true, message: 'Database seeded successfully!' };
 }

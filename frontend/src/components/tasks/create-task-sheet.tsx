@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Badge } from '../ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { suggestTaskTags } from '@/ai/flows/suggest-task-tags';
+// AI tag suggestion removed; using simple heuristic in component
 
 export function CreateTaskSheet() {
   const [open, setOpen] = useState(false);
@@ -44,7 +44,7 @@ export function CreateTaskSheet() {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const { toast } = useToast();
 
-  const handleSuggestTags = async () => {
+  const handleSuggestTags = () => {
     if (!description) {
       toast({
         variant: 'destructive',
@@ -54,19 +54,13 @@ export function CreateTaskSheet() {
       return;
     }
     setIsSuggesting(true);
-    try {
-      const result = await suggestTaskTags({ taskDescription: description });
-      setSuggestedTags(result.tags.filter(t => !tags.includes(t)));
-    } catch (error) {
-      console.error('Failed to suggest tags:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Suggestion Failed',
-        description: 'Could not get AI-powered tag suggestions.',
-      });
-    } finally {
-      setIsSuggesting(false);
-    }
+    const words = description
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 3 && !['task', 'project', 'user', 'with', 'that', 'this', 'have'].includes(w));
+    const uniq = Array.from(new Set(words)).slice(0, 5);
+    setSuggestedTags(uniq.filter((t) => !tags.includes(t)));
+    setIsSuggesting(false);
   };
 
   const addTag = (tag: string) => {
