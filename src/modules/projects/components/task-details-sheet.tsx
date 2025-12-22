@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { getProjectById, getCommentsByTaskId, createComment, updateTask } from '@/services/projectService';
+import { getProjectById, getCommentsByTaskId, createComment, updateTask, getTasks } from '@/services/projectService';
 import { getUsersByCompany } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project, User } from '@/modules/projects/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
@@ -66,6 +66,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [project, setProject] = React.useState<Project | undefined>();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
   const [allUsers, setAllUsers] = React.useState<User[]>([]);
+  const [allTasks, setAllTasks] = React.useState<Task[]>([]);
   const [newComment, setNewComment] = React.useState('');
   const [loading, setLoading] = React.useState(true);
   const [invoicePreview, setInvoicePreview] = React.useState<string | null>(task.invoiceImage || null);
@@ -77,15 +78,17 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         setLoading(true);
         setEditableTask(task);
         setInvoicePreview(task.invoiceImage || null);
-        const [projectData, commentsData, companyUsersData] = await Promise.all([
+        const [projectData, commentsData, companyUsersData, tasksData] = await Promise.all([
             getProjectById(task.projectId),
             getCommentsByTaskId(task.id),
             getUsersByCompany(selectedCompany.id),
+            getTasks(),
         ]);
         setProject(projectData);
         setComments(commentsData);
         setAllUsers(companyUsersData);
         setCompanyUsers(companyUsersData.map(u => ({ value: u.id, label: u.name, icon: UserIcon })));
+        setAllTasks(tasksData.filter(t => t.companyId === selectedCompany.id && t.id !== task.id));
         setLoading(false);
     }
     if (open) {
@@ -150,7 +153,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full max-w-3xl sm:max-w-3xl flex flex-col">
+      <SheetContent className="w-full max-w-2xl sm:max-w-2xl flex flex-col">
         {loading ? (
              <div className="space-y-4 py-4">
                 <SheetHeader>
@@ -206,6 +209,26 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           placeholder="Select assignees..."
                           className="max-w-xs"
                       />
+                  </DetailRow>
+                  <DetailRow icon={UserIcon} label="Parent Task">
+                    <Select
+                      value={editableTask.parentTaskId || 'none'}
+                      onValueChange={(value) => handleFieldChange('parentTaskId', value === 'none' ? undefined : value)}
+                    >
+                      <SelectTrigger className="w-[240px]">
+                        <SelectValue placeholder="No parent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No parent</SelectItem>
+                        {allTasks
+                          .filter((t) => t.projectId === editableTask.projectId)
+                          .map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.title}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
                   </DetailRow>
                   <DetailRow icon={CalendarIcon} label="Due Date">
                       <Popover>

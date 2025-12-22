@@ -21,8 +21,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import { createUserWithId } from '@/services/userService';
 import { placeholderUsers } from '@/lib/placeholder-data';
 import { Database, UserPlus, Copy } from 'lucide-react';
@@ -40,13 +38,9 @@ export function SettingsPage() {
     setIsCreatingAdmin(true);
     const adminEmail = 'admin@taskflow.com';
     const password = Math.random().toString(36).slice(-8);
+    const adminId = 'admin-placeholder-id';
 
     try {
-      // 1. Create user in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, adminEmail, password);
-      const adminUid = userCredential.user.uid;
-
-      // 2. Prepare user data for Firestore, using the placeholder as a template
       const adminTemplate = placeholderUsers.find(u => u.id === 'admin-placeholder-id');
       if (!adminTemplate) {
           throw new Error("Default admin user template not found in placeholders.");
@@ -54,26 +48,22 @@ export function SettingsPage() {
       
       const firestoreUserData = {
           ...adminTemplate,
-          id: adminUid, // Use the real UID from Auth
+          id: adminId,
           email: adminEmail,
           name: 'Admin User',
           avatar: `https://i.pravatar.cc/150?u=${adminEmail}`
       };
 
-      // 3. Create user document in Firestore with the correct UID
-      await createUserWithId(adminUid, firestoreUserData);
+      await createUserWithId(adminId, { ...firestoreUserData, password });
       
       setAdminPassword(password);
       toast({
         title: 'Admin User Created',
-        description: 'The admin user has been created in Firebase Authentication and Firestore.',
+        description: 'The admin user has been created in the backend. Save the password shown below.',
       });
     } catch (error: any) {
       console.error(error);
-      let description = 'Could not create admin user. Check the console for errors.';
-      if (error.code === 'auth/email-already-in-use') {
-          description = 'The email admin@taskflow.com already exists. You can proceed to seed the database.'
-      }
+      let description = error?.message || 'Could not create admin user. Check the console for errors.';
       toast({
         variant: 'destructive',
         title: 'Admin Creation Failed',
@@ -179,7 +169,7 @@ export function SettingsPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will wipe all current data in your Firestore collections
+                    This will wipe all current data in your backend datastore
                     (companies, positions, users, projects, tasks, comments) and
                     replace it with the default placeholder data. This action cannot
                     be undone.

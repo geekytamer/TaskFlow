@@ -26,9 +26,12 @@ const nodeTypes = {
   taskNode: TaskNode,
 };
 
+type TaskNodeData = Task & { parentTitle?: string };
+
 const getNodesAndEdges = (companyTasks: Task[]) => {
   const initialNodes: Node<Task>[] = [];
   const initialEdges: Edge[] = [];
+  const taskMap = new Map(companyTasks.map((t) => [t.id, t]));
 
   const statusColumns: Record<string, number> = {
     'To Do': 0,
@@ -49,23 +52,35 @@ const getNodesAndEdges = (companyTasks: Task[]) => {
     if (task.dependencies) {
       task.dependencies.forEach(depId => {
         initialEdges.push({
-          id: `e-${depId}-${task.id}`,
+          id: `dep-${depId}-${task.id}`,
           source: depId,
           target: task.id,
           animated: true,
+          type: 'smoothstep',
           style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
         });
+      });
+    }
+    if (task.parentTaskId) {
+      initialEdges.push({
+        id: `parent-${task.parentTaskId}-${task.id}`,
+        source: task.parentTaskId,
+        target: task.id,
+        animated: false,
+        type: 'smoothstep',
+        style: { stroke: 'hsl(var(--muted-foreground))', strokeWidth: 2, strokeDasharray: '4 2' },
       });
     }
   });
 
   taskStatuses.forEach(status => {
     tasksByStatus[status].forEach((task, index) => {
+      const parentTitle = task.parentTaskId ? taskMap.get(task.parentTaskId)?.title : undefined;
       initialNodes.push({
         id: task.id,
         type: 'taskNode',
         position: { x: statusColumns[status] * 350, y: index * 150 + 50 },
-        data: task,
+        data: { ...task, parentTitle } as TaskNodeData,
         draggable: true,
       });
     });

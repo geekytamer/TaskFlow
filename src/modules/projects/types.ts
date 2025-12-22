@@ -34,6 +34,7 @@ export interface Task {
   projectId: string;
   color?: string;
   dependencies?: string[];
+  parentTaskId?: string;
   // Invoice related fields
   invoiceImage?: string;
   invoiceVendor?: string;

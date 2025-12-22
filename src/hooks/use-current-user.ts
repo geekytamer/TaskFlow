@@ -1,46 +1,51 @@
-
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
-import { getUserById } from '@/services/userService';
 import type { User } from '@/lib/types';
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { fetchCurrentUser } from '@/services/authService';
+import { getStoredToken, TOKEN_KEY } from '@/lib/api-client';
 
-/**
- * Hook to get the current authenticated user's profile from Firestore.
- * This is the single source of truth for the current user's data on the client-side.
- * It handles loading state and ensures the user object is fetched after authentication is confirmed.
- */
 export function useCurrentUser() {
   const [user, setUser] = React.useState<User | null>(null);
-  const [loading, setLoading] = React.useState(true); // Start as true
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
-      if (firebaseUser) {
-        // If there's a Firebase user, we are still loading until we get the Firestore document.
-        setLoading(true);
-        try {
-          const appUser = await getUserById(firebaseUser.uid);
-          setUser(appUser || null);
-        } catch (error) {
-          console.error("Failed to fetch user profile:", error);
-          setUser(null);
-        } finally {
-          // Finished loading Firestore data
-          setLoading(false);
-        }
-      } else {
-        // No Firebase user, so we're not loading and there's no user.
+    let active = true;
+
+    const loadUser = async () => {
+      setLoading(true);
+      const token = getStoredToken();
+      if (!token) {
+        if (!active) return;
         setUser(null);
         setLoading(false);
+        return;
       }
-    });
+      const current = await fetchCurrentUser();
+      if (!active) return;
+      setUser(current);
+      setLoading(false);
+    };
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
+    loadUser();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === TOKEN_KEY && event.newValue === null) {
+        setUser(null);
+      }
+    };
+
+    const handleTokenChange = () => {
+      loadUser();
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('taskflow-token-changed', handleTokenChange);
+    return () => {
+      active = false;
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('taskflow-token-changed', handleTokenChange);
+    };
   }, []);
 
   return { user, loading };

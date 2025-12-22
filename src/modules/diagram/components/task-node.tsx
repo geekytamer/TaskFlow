@@ -14,7 +14,9 @@ const priorityColors: Record<Task['priority'], string> = {
   Low: 'bg-green-500',
 };
 
-function TaskNode({ data }: NodeProps<Task>) {
+type TaskNodeData = Task & { parentTitle?: string };
+
+function TaskNode({ data }: NodeProps<TaskNodeData>) {
   const [project, setProject] = useState<Project | undefined>(undefined);
   
   useEffect(() => {
@@ -44,15 +46,22 @@ function TaskNode({ data }: NodeProps<Task>) {
                     <CardTitle className="text-base truncate">{data.title}</CardTitle>
                 </div>
             </CardHeader>
-            <CardContent className="p-4 pt-0 flex items-center gap-2">
-              <div
-                  className={cn(
-                    'h-3 w-3 rounded-full',
-                    priorityColors[data.priority]
-                  )}
-                />
-              <Badge variant="secondary">{data.status}</Badge>
-              {data.tags.slice(0, 2).map(tag => <Badge key={tag} variant="outline">{tag}</Badge>)}
+            <CardContent className="p-4 pt-0 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <div
+                    className={cn(
+                      'h-3 w-3 rounded-full',
+                      priorityColors[data.priority]
+                    )}
+                  />
+                <Badge variant="secondary">{data.status}</Badge>
+                {data.tags.slice(0, 2).map(tag => <Badge key={tag} variant="outline">{tag}</Badge>)}
+              </div>
+              {data.parentTitle && (
+                <p className="text-xs text-muted-foreground">
+                  Child of <span className="font-medium text-foreground">{data.parentTitle}</span>
+                </p>
+              )}
             </CardContent>
             <Handle type="source" position={Position.Right} className="!bg-primary" />
           </Card>

@@ -13,8 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { logout } from '@/services/authService';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -23,11 +22,7 @@ export function UserNav() {
   const { currentUser: user, loading } = useCompany();
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Error signing out from Firebase", error);
-    }
+    await logout();
     router.push('/login');
   };
   

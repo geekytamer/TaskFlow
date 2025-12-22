@@ -34,6 +34,9 @@ import type { Task } from '@/modules/projects/types';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { add, format } from 'date-fns';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 
 interface CreateInvoiceSheetProps {
     children: React.ReactNode;
@@ -51,6 +54,10 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [selectedTaskIds, setSelectedTaskIds] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [loadingTasks, setLoadingTasks] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const [minAmount, setMinAmount] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState<'Done' | 'In Progress' | 'To Do' | 'all'>('Done');
+  const [sortBy, setSortBy] = React.useState<'date' | 'amount'>('date');
 
   React.useEffect(() => {
     async function loadClients() {
@@ -71,8 +78,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         if (selectedClient && selectedCompany) {
             setLoadingTasks(true);
             const tasks = await getTasksByClient(selectedCompany.id, selectedClient);
-            const unbilledTasks = tasks.filter(t => t.invoiceAmount && t.status === 'Done' && !t.generatedInvoiceId);
-            setBillableTasks(unbilledTasks);
+            const candidates = tasks.filter(t => t.invoiceAmount && !t.generatedInvoiceId);
+            setBillableTasks(candidates);
             setSelectedTaskIds([]);
             setLoadingTasks(false);
         } else {
@@ -102,6 +109,33 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const invoiceTotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
+
+  const filteredTasks = React.useMemo(() => {
+    return billableTasks
+      .filter((t) => statusFilter === 'all' ? true : t.status === statusFilter)
+      .filter((t) => {
+        const q = search.toLowerCase().trim();
+        if (!q) return true;
+        return (
+          t.title.toLowerCase().includes(q) ||
+          (t.invoiceVendor || '').toLowerCase().includes(q) ||
+          (t.invoiceNumber || '').toLowerCase().includes(q)
+        );
+      })
+      .filter((t) => {
+        const min = parseFloat(minAmount);
+        if (Number.isNaN(min)) return true;
+        return (t.invoiceAmount || 0) >= min;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'amount') {
+          return (b.invoiceAmount || 0) - (a.invoiceAmount || 0);
+        }
+        const dateA = a.invoiceDate ? new Date(a.invoiceDate).getTime() : 0;
+        const dateB = b.invoiceDate ? new Date(b.invoiceDate).getTime() : 0;
+        return dateB - dateA;
+      });
+  }, [billableTasks, statusFilter, search, minAmount, sortBy]);
 
   const handleCreateInvoice = async () => {
     if (!selectedCompany || !selectedClient || selectedLineItems.length === 0) {
@@ -183,6 +217,52 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     </SelectContent>
                 </Select>
             </div>
+
+            <div className="grid gap-3 pr-6 md:grid-cols-4">
+              <div className="md:col-span-2 space-y-1">
+                <Label>Search</Label>
+                <Input
+                  placeholder="Search title, vendor, invoice #"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Min Amount</Label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={minAmount}
+                  onChange={(e) => setMinAmount(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Status</Label>
+                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="Done">Done</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="To Do">To Do</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Sort By</Label>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="date">Date</SelectItem>
+                    <SelectItem value="amount">Amount</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             
             <div className="flex-1 rounded-lg border overflow-y-auto pr-1">
                  <Table>
@@ -206,8 +286,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     <TableBody>
                         {loadingTasks ? (
                              <TableRow><TableCell colSpan={4} className="text-center">Loading tasks...</TableCell></TableRow>
-                        ) : billableTasks.length > 0 ? (
-                            billableTasks.map(task => (
+                        ) : filteredTasks.length > 0 ? (
+                            filteredTasks.map(task => (
                                 <TableRow key={task.id} onClick={() => handleSelectTask(task.id)} className="cursor-pointer">
                                     <TableCell><Checkbox checked={selectedTaskIds.includes(task.id)} /></TableCell>
                                     <TableCell>

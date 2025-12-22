@@ -148,10 +148,13 @@ export function AddUserSheet({
           description: `User "${data.name}" has been successfully updated.`,
         });
       } else {
-        await createUser({ ...data, avatar: `https://i.pravatar.cc/150?u=${data.email}` });
+        const result = await createUser({
+          ...data,
+          avatar: `https://i.pravatar.cc/150?u=${data.email}`,
+        });
         toast({
           title: 'User Created',
-          description: `User "${data.name}" has been created. A welcome email with their password has been sent.`,
+          description: `User "${data.name}" has been created. Temporary password: ${result.password}`,
         });
       }
       onUserAdded();
@@ -166,7 +169,9 @@ export function AddUserSheet({
   };
   
   const sheetTitle = isEditMode ? 'Edit User' : 'Add New User';
-  const sheetDescription = isEditMode ? "Update the user's details below." : "Fill in the details for the new user. A welcome email with a random password will be sent to them.";
+  const sheetDescription = isEditMode
+    ? "Update the user's details below."
+    : "Fill in the details for the new user. A temporary password will be generated for them.";
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>

@@ -26,4 +26,9 @@ export interface Invoice {
     lineItems: InvoiceLineItem[];
     total: number;
     status: InvoiceStatus;
+    notes?: string;
+    currency?: string;
+    taxRate?: number;
+    sentAt?: Date;
+    paidAt?: Date;
 }

@@ -1,96 +1,52 @@
-'use server';
-
+import { apiFetch } from '@/lib/api-client';
 import type { Company, Position } from '@/modules/companies/types';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, query, where, addDoc, deleteDoc } from 'firebase/firestore';
 
 export async function getCompanies(): Promise<Company[]> {
-  try {
-    const companiesCol = collection(db, 'companies');
-    const companySnapshot = await getDocs(companiesCol);
-    const companyList = companySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Company));
-    return companyList;
-  } catch (error) {
-    console.error("Error fetching companies: ", error);
-    throw new Error("Could not fetch companies from Firestore.");
-  }
+  return apiFetch<Company[]>('/companies');
 }
 
 export async function getCompanyById(id: string): Promise<Company | undefined> {
-   if (!id) return undefined;
+  if (!id) return undefined;
   try {
-    const companyDoc = await getDoc(doc(db, 'companies', id));
-    if (!companyDoc.exists()) {
-      return undefined;
-    }
-    return { id: companyDoc.id, ...companyDoc.data() } as Company;
+    return await apiFetch<Company>(`/companies/${id}`);
   } catch (error) {
-    console.error(`Error fetching company with ID ${id}: `, error);
-    throw new Error("Could not fetch company from Firestore.");
+    console.error(`Error fetching company ${id}`, error);
+    return undefined;
   }
 }
 
 export async function createCompany(companyData: Omit<Company, 'id'>): Promise<Company> {
-    try {
-        const docRef = await addDoc(collection(db, 'companies'), companyData);
-        return { id: docRef.id, ...companyData };
-    } catch (error) {
-        console.error("Error creating company: ", error);
-        throw new Error("Could not create company in Firestore.");
-    }
+  return apiFetch<Company>('/companies', {
+    method: 'POST',
+    body: JSON.stringify(companyData),
+  });
 }
 
 export async function deleteCompany(companyId: string): Promise<void> {
-    try {
-        await deleteDoc(doc(db, 'companies', companyId));
-    } catch (error) {
-        console.error(`Error deleting company with ID ${companyId}: `, error);
-        throw new Error("Could not delete company from Firestore.");
-    }
+  await apiFetch(`/companies/${companyId}`, { method: 'DELETE' });
 }
 
-
 export async function getPositions(): Promise<Position[]> {
-  try {
-    const positionsCol = collection(db, 'positions');
-    const positionSnapshot = await getDocs(positionsCol);
-    const positionList = positionSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Position));
-    return positionList;
-  } catch (error) {
-    console.error("Error fetching positions: ", error);
-    throw new Error("Could not fetch positions from Firestore.");
-  }
+  return apiFetch<Position[]>('/positions');
 }
 
 export async function getPositionById(id: string): Promise<Position | undefined> {
-    if (!id) return undefined;
-    try {
-        const positionDoc = await getDoc(doc(db, 'positions', id));
-        if (!positionDoc.exists()) {
-            return undefined;
-        }
-        return { id: positionDoc.id, ...positionDoc.data() } as Position;
-    } catch (error) {
-        console.error(`Error fetching position with ID ${id}: `, error);
-        throw new Error("Could not fetch position from Firestore.");
-    }
+  if (!id) return undefined;
+  try {
+    return await apiFetch<Position>(`/positions/${id}`);
+  } catch (error) {
+    console.error(`Error fetching position ${id}`, error);
+    return undefined;
+  }
 }
 
 export async function createPosition(positionData: Omit<Position, 'id'>): Promise<Position> {
-    try {
-        const docRef = await addDoc(collection(db, 'positions'), positionData);
-        return { id: docRef.id, ...positionData };
-    } catch (error) {
-        console.error("Error creating position: ", error);
-        throw new Error("Could not create position in Firestore.");
-    }
+  return apiFetch<Position>('/positions', {
+    method: 'POST',
+    body: JSON.stringify(positionData),
+  });
 }
 
 export async function deletePosition(positionId: string): Promise<void> {
-    try {
-        await deleteDoc(doc(db, 'positions', positionId));
-    } catch (error) {
-        console.error(`Error deleting position with ID ${positionId}: `, error);
-        throw new Error("Could not delete position from Firestore.");
-    }
+  await apiFetch(`/positions/${positionId}`, { method: 'DELETE' });
 }

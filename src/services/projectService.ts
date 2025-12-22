@@ -1,191 +1,132 @@
-
-'use server';
-
+import { apiFetch } from '@/lib/api-client';
 import type { Task, Project, Comment } from '@/modules/projects/types';
-import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, addDoc, updateDoc, query, where, Timestamp, writeBatch } from 'firebase/firestore';
-import { notifyOnTaskAssignment } from '@/ai/flows/notify-on-task-assignment';
-import { getUserById } from './userService';
 
-const convertTimestamp = (data: any) => {
-    const dataWithDates = { ...data };
-    for (const key in dataWithDates) {
-        if (dataWithDates[key] instanceof Timestamp) {
-            dataWithDates[key] = dataWithDates[key].toDate();
-        }
-    }
-    return dataWithDates;
-};
+const toDate = (value: any) => (value ? new Date(value) : undefined);
 
-// PROJECTS
+const mapTask = (task: any): Task => ({
+  ...task,
+  createdAt: toDate(task.createdAt) || new Date(),
+  dueDate: toDate(task.dueDate),
+  invoiceDate: toDate(task.invoiceDate),
+});
+
+const mapComment = (comment: any): Comment => ({
+  ...comment,
+  createdAt: toDate(comment.createdAt) || new Date(),
+});
+
 export async function getProjects(): Promise<Project[]> {
-    try {
-        const projectsCol = collection(db, 'projects');
-        const projectSnapshot = await getDocs(projectsCol);
-        const projectList = projectSnapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamp(doc.data()) } as Project));
-        return projectList;
-    } catch (error) {
-        console.error("Error fetching projects: ", error);
-        throw new Error("Could not fetch projects from Firestore.");
-    }
+  return apiFetch<Project[]>('/projects');
 }
 
 export async function getProjectById(id: string): Promise<Project | undefined> {
-    if (!id) return undefined;
-    try {
-        const projectDoc = await getDoc(doc(db, 'projects', id));
-        if (!projectDoc.exists()) {
-            return undefined;
-        }
-        return { id: projectDoc.id, ...convertTimestamp(projectDoc.data()) } as Project;
-    } catch (error) {
-        console.error(`Error fetching project with ID ${id}: `, error);
-        throw new Error("Could not fetch project from Firestore.");
-    }
-}
-
-export async function createProject(projectData: Omit<Project, 'id'>): Promise<Project> {
-    try {
-        const docRef = await addDoc(collection(db, 'projects'), projectData);
-        return { id: docRef.id, ...projectData };
-    } catch (error) {
-        console.error("Error creating project: ", error);
-        throw new Error("Could not create project in Firestore.");
-    }
-}
-
-// TASKS
-export async function getTasks(): Promise<Task[]> {
-     try {
-        const tasksCol = collection(db, 'tasks');
-        const taskSnapshot = await getDocs(tasksCol);
-        const taskList = taskSnapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamp(doc.data()) } as Task));
-        return taskList;
-    } catch (error) {
-        console.error("Error fetching tasks: ", error);
-        throw new Error("Could not fetch tasks from Firestore.");
-    }
-}
-
-export async function getTasksByClient(companyId: string, clientId: string): Promise<Task[]> {
+  if (!id) return undefined;
   try {
-    const projectsQuery = query(collection(db, 'projects'), where('companyId', '==', companyId), where('clientId', '==', clientId));
-    const projectsSnapshot = await getDocs(projectsQuery);
-    if (projectsSnapshot.empty) {
-      return [];
-    }
-    const projectIds = projectsSnapshot.docs.map(doc => doc.id);
-    
-    const tasksQuery = query(collection(db, 'tasks'), where('projectId', 'in', projectIds));
-    const tasksSnapshot = await getDocs(tasksQuery);
-
-    const taskList = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamp(doc.data()) } as Task));
-    return taskList;
+    return await apiFetch<Project>(`/projects/${id}`);
   } catch (error) {
-    console.error("Error fetching tasks by client: ", error);
-    throw new Error("Could not fetch tasks for the specified client.");
+    console.error(`Error fetching project ${id}`, error);
+    return undefined;
   }
 }
 
-
-export async function getTaskById(id: string): Promise<Task | undefined> {
-    if (!id) return undefined;
-    try {
-        const taskDoc = await getDoc(doc(db, 'tasks', id));
-        if (!taskDoc.exists()) {
-            return undefined;
-        }
-        return { id: taskDoc.id, ...convertTimestamp(taskDoc.data()) } as Task;
-    } catch (error) {
-        console.error(`Error fetching task with ID ${id}: `, error);
-        throw new Error("Could not fetch task from Firestore.");
-    }
+export async function createProject(projectData: Omit<Project, 'id'>): Promise<Project> {
+  return apiFetch<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(projectData),
+  });
 }
 
-export async function createTask(taskData: Omit<Task, 'id' | 'status' | 'createdAt'>): Promise<Task> {
-    try {
-        const newTaskData = { ...taskData, status: 'To Do' as const, createdAt: new Date() };
-        const docRef = await addDoc(collection(db, 'tasks'), newTaskData);
-        
-        const createdTask = { id: docRef.id, ...newTaskData };
+export async function updateProject(
+  projectId: string,
+  projectData: Partial<Project>,
+): Promise<Project> {
+  return apiFetch<Project>(`/projects/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify(projectData),
+  });
+}
 
-        if (createdTask.assignedUserIds && createdTask.assignedUserIds.length > 0) {
-            console.log(`[projectService] Triggering notification for new task ${createdTask.id}`);
-            notifyOnTaskAssignment({ taskId: createdTask.id, userIds: createdTask.assignedUserIds })
-                .catch(err => console.error(`[projectService] Failed to send notification for new task: ${err}`));
-        }
+export async function deleteProject(projectId: string): Promise<void> {
+  await apiFetch(`/projects/${projectId}`, { method: 'DELETE' });
+}
 
-        return createdTask;
-    } catch (error) {
-        console.error("Error creating task: ", error);
-        throw new Error("Could not create task in Firestore.");
-    }
+export async function addProjectMember(projectId: string, userId: string): Promise<Project> {
+  return apiFetch<Project>(`/projects/${projectId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export async function removeProjectMember(projectId: string, userId: string): Promise<Project> {
+  return apiFetch<Project>(`/projects/${projectId}/members/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getTasks(): Promise<Task[]> {
+  const tasks = await apiFetch<Task[]>('/tasks');
+  return tasks.map(mapTask);
+}
+
+export async function getTasksByClient(companyId: string, clientId: string): Promise<Task[]> {
+  const tasks = await apiFetch<Task[]>(`/companies/${companyId}/clients/${clientId}/tasks`);
+  return tasks.map(mapTask);
+}
+
+export async function getTaskById(id: string): Promise<Task | undefined> {
+  if (!id) return undefined;
+  try {
+    const task = await apiFetch<Task>(`/tasks/${id}`);
+    return mapTask(task);
+  } catch (error) {
+    console.error(`Error fetching task ${id}`, error);
+    return undefined;
+  }
+}
+
+export async function createTask(
+  taskData: Omit<Task, 'id' | 'status' | 'createdAt'>,
+): Promise<Task> {
+  const payload = { ...taskData, status: 'To Do', createdAt: new Date() };
+  const task = await apiFetch<Task>('/tasks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return mapTask(task);
 }
 
 export async function updateTask(taskId: string, taskData: Partial<Task>): Promise<Task | undefined> {
-    try {
-        const taskRef = doc(db, 'tasks', taskId);
-        const originalTask = await getTaskById(taskId);
-
-        await updateDoc(taskRef, taskData);
-        
-        const updatedDoc = await getDoc(taskRef);
-        if (!updatedDoc.exists()) return undefined;
-        const updatedTask = { id: updatedDoc.id, ...convertTimestamp(updatedDoc.data()) } as Task;
-
-        // Check if assignees have changed
-        const originalAssignees = new Set(originalTask?.assignedUserIds || []);
-        const newAssignees = new Set(updatedTask.assignedUserIds || []);
-        const newlyAssignedUserIds = [...newAssignees].filter(id => !originalAssignees.has(id));
-
-        if (newlyAssignedUserIds.length > 0) {
-            console.log(`[projectService] Triggering notification for updated task ${updatedTask.id}`);
-            notifyOnTaskAssignment({ taskId: updatedTask.id, userIds: newlyAssignedUserIds })
-                 .catch(err => console.error(`[projectService] Failed to send notification for updated task: ${err}`));
-        }
-
-        return updatedTask;
-    } catch (error) {
-        console.error(`Error updating task with ID ${taskId}: `, error);
-        throw new Error("Could not update task in Firestore.");
-    }
+  try {
+    const task = await apiFetch<Task>(`/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(taskData),
+    });
+    return mapTask(task);
+  } catch (error) {
+    console.error(`Error updating task ${taskId}`, error);
+    return undefined;
+  }
 }
 
 export async function markTasksAsInvoiced(taskIds: string[], invoiceId: string): Promise<void> {
   if (taskIds.length === 0) return;
-  try {
-    const batch = writeBatch(db);
-    taskIds.forEach(taskId => {
-      const taskRef = doc(db, 'tasks', taskId);
-      batch.update(taskRef, { generatedInvoiceId: invoiceId });
-    });
-    await batch.commit();
-  } catch (error) {
-    console.error(`Error marking tasks as invoiced: `, error);
-    throw new Error("Could not update tasks in Firestore.");
-  }
+  await apiFetch('/tasks/mark-invoiced', {
+    method: 'POST',
+    body: JSON.stringify({ taskIds, invoiceId }),
+  });
 }
 
-// COMMENTS
 export async function getCommentsByTaskId(taskId: string): Promise<Comment[]> {
-    try {
-        const commentsQuery = query(collection(db, 'comments'), where('taskId', '==', taskId));
-        const commentSnapshot = await getDocs(commentsQuery);
-        const commentList = commentSnapshot.docs.map(doc => ({ id: doc.id, ...convertTimestamp(doc.data()) } as Comment));
-        return commentList;
-    } catch (error) {
-        console.error(`Error fetching comments for task ID ${taskId}: `, error);
-        throw new Error("Could not fetch comments from Firestore.");
-    }
+  const comments = await apiFetch<Comment[]>(`/tasks/${taskId}/comments`);
+  return comments.map(mapComment);
 }
 
-export async function createComment(commentData: Omit<Comment, 'id' | 'createdAt'>): Promise<Comment> {
-    try {
-        const newCommentData = { ...commentData, createdAt: new Date() };
-        const docRef = await addDoc(collection(db, 'comments'), newCommentData);
-        return { id: docRef.id, ...newCommentData };
-    } catch (error) {
-        console.error("Error creating comment: ", error);
-        throw new Error("Could not create comment in Firestore.");
-    }
+export async function createComment(
+  commentData: Omit<Comment, 'id' | 'createdAt'>,
+): Promise<Comment> {
+  const comment = await apiFetch<Comment>(`/tasks/${commentData.taskId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(commentData),
+  });
+  return mapComment(comment);
 }

@@ -15,8 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/icons/logo';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { login } from '@/services/authService';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -42,18 +41,15 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await login(email, password);
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
       });
       router.push('/');
     } catch (error: any) {
-      console.error('Firebase Auth Error:', error);
-       let description = 'An unknown error occurred. Please try again.';
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        description = 'Invalid email or password. Please try again.';
-      }
+      console.error('Auth Error:', error);
+      const description = error?.message || 'Invalid email or password. Please try again.';
       toast({
         variant: 'destructive',
         title: 'Login Failed',

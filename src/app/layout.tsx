@@ -5,7 +5,7 @@ import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'TaskFlow',
-  description: 'Employee Task Management System by Firebase Studio',
+  description: 'Employee Task Management System with a custom backend',
 };
 
 export default function RootLayout({

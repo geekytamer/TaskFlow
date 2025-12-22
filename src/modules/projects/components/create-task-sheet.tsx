@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { getUsersByCompany } from '@/services/userService';
-import { createTask } from '@/services/projectService';
+import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
 import { taskPriorities, taskPriorities as priorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -48,6 +48,7 @@ import { useCompany } from '@/context/company-context';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Label } from '@/components/ui/label';
 import { useRouter } from 'next/navigation';
+import type { Task } from '@/modules/projects/types';
 
 const createTaskSchema = z.object({
   projectId: z.string({ required_error: 'Please select a project.' }),
@@ -58,6 +59,7 @@ const createTaskSchema = z.object({
   dueDate: z.date().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
+  parentTaskId: z.string().optional(),
 });
 
 type CreateTaskFormValues = z.infer<typeof createTaskSchema>;
@@ -73,6 +75,7 @@ export function CreateTaskSheet() {
 
   const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
+  const [companyTasks, setCompanyTasks] = React.useState<Task[]>([]);
 
   const form = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema),
@@ -84,6 +87,7 @@ export function CreateTaskSheet() {
         priority: 'Medium',
         tags: [],
         color: '#cccccc',
+        parentTaskId: 'none',
     },
   });
 
@@ -91,13 +95,17 @@ export function CreateTaskSheet() {
     async function loadData() {
         if (!selectedCompany || !currentUser) return;
         
-        const users = await getUsersByCompany(selectedCompany.id);
+        const [users, tasks] = await Promise.all([
+          getUsersByCompany(selectedCompany.id),
+          getTasks(),
+        ]);
         
         const filteredProjects = projects.filter(p => 
             p.companyId === selectedCompany?.id &&
             (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
         );
         setVisibleProjects(filteredProjects);
+        setCompanyTasks(tasks.filter(t => t.companyId === selectedCompany.id));
         
         const userItems = users.map(u => ({
             value: u.id,
@@ -161,6 +169,7 @@ export function CreateTaskSheet() {
             ...data,
             companyId: selectedCompany.id,
             tags: data.tags || [],
+            parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
         });
         toast({
         title: 'Task Created',
@@ -256,6 +265,38 @@ export function CreateTaskSheet() {
                       </div>
                     </FormItem>
                   )}
+                />
+                <FormField
+                  control={form.control}
+                  name="parentTaskId"
+                  render={({ field }) => {
+                    const parentOptions = companyTasks.filter(
+                      (t) => t.projectId === form.watch('projectId'),
+                    );
+                    return (
+                      <FormItem className="grid grid-cols-4 items-center gap-4">
+                        <FormLabel className="text-right">Parent Task</FormLabel>
+                        <div className="col-span-3">
+                          <Select onValueChange={field.onChange} value={field.value || 'none'}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="No parent task" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="none">No parent task</SelectItem>
+                              {parentOptions.map((task) => (
+                                <SelectItem key={task.id} value={task.id}>
+                                  {task.title}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </div>
+                      </FormItem>
+                    );
+                  }}
                 />
                 <div className="grid grid-cols-4 items-start gap-4">
                   <Label className="text-right pt-2">Tags</Label>
