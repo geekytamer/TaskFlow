@@ -281,7 +281,7 @@ export class DataStore {
     }
   }
 
-  private sanitizeUser(row: any): SanitizedUser {
+  sanitizeUser(row: any): SanitizedUser {
     return {
       id: row.id,
       name: row.name,
@@ -426,13 +426,14 @@ export class DataStore {
     return rows.map((r) => ({
       ...r,
       memberIds: this.parseJson<string[]>(r.memberIds) || [],
+      clientId: r.clientId || undefined,
     }));
   }
 
   getProjectById(id: string): Project | undefined {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as any;
     if (!row) return undefined;
-    return { ...row, memberIds: this.parseJson<string[]>(row.memberIds) || [] };
+    return { ...row, memberIds: this.parseJson<string[]>(row.memberIds) || [], clientId: row.clientId || undefined };
   }
 
   createProject(project: Omit<Project, 'id'>): Project {
@@ -440,7 +441,7 @@ export class DataStore {
       ...project,
       id: uuid(),
       memberIds: project.memberIds || [],
-      clientId: project.clientId ?? null,
+      clientId: project.clientId ?? undefined,
       description: project.description ?? null,
       color: project.color ?? null,
     };
@@ -470,7 +471,7 @@ export class DataStore {
       ...existing,
       ...updates,
       memberIds: JSON.stringify(updatedMemberIds),
-      clientId: updates.clientId ?? existing.clientId ?? null,
+      clientId: updates.clientId ?? existing.clientId ?? undefined,
       description: updates.description ?? existing.description ?? null,
       color: updates.color ?? existing.color ?? null,
     };
