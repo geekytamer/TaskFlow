@@ -27,6 +27,8 @@ import type { Client, Invoice, InvoiceStatus } from '../types';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { getTasks } from '@/services/projectService';
+import type { Task } from '@/modules/projects/types';
 import { format } from 'date-fns';
 import { getClients } from '@/services/financeService';
 import { CreateInvoiceSheet } from './create-invoice-sheet';
@@ -42,6 +44,7 @@ export function InvoiceTable() {
   const { selectedCompany } = useCompany();
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
+  const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [paymentDialog, setPaymentDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
@@ -54,12 +57,14 @@ export function InvoiceTable() {
     if (!selectedCompany) return;
     setLoading(true);
     try {
-      const [invoiceData, clientData] = await Promise.all([
+      const [invoiceData, clientData, taskData] = await Promise.all([
         getInvoices(selectedCompany.id),
-        getClients(selectedCompany.id)
+        getClients(selectedCompany.id),
+        getTasks(),
       ]);
       setInvoices(invoiceData);
       setClients(clientData);
+      setTasks(taskData.filter((t) => t.companyId === selectedCompany.id));
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -123,6 +128,9 @@ export function InvoiceTable() {
     );
   }
 
+  const getTaskTitle = (taskId: string) =>
+    tasks.find((t) => t.id === taskId)?.title || taskId;
+
   return (
     <>
       <div className="flex justify-end mb-4">
@@ -147,6 +155,7 @@ export function InvoiceTable() {
               <TableHead>Due Date</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Origin Tasks</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -181,6 +190,15 @@ export function InvoiceTable() {
                         Overdue
                       </Badge>
                     )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-2">
+                    {invoice.lineItems.map((item) => (
+                      <Badge key={item.taskId} variant="outline">
+                        {getTaskTitle(item.taskId)}
+                      </Badge>
+                    ))}
                   </div>
                 </TableCell>
                 <TableCell className="text-right">

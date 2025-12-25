@@ -8,5 +8,5 @@ export interface Company {
 export interface Position {
     id: string;
     title: string;
-    companyId: string;
+    companyId?: string;
 }

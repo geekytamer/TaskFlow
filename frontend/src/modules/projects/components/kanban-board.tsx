@@ -105,7 +105,8 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
                                 <div
                                     ref={provided.innerRef}
                                     {...provided.droppableProps}
-                                    className={`space-y-3 min-h-[500px] rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-muted' : ''}`}
+                                    className={`space-y-3 min-h-[200px] rounded-md transition-colors ${snapshot.isDraggingOver ? 'bg-muted' : 'bg-muted/20'}`}
+                                    style={{ paddingBottom: '12px' }}
                                 >
                                     {columns[status].map((task, index) => (
                                         <Draggable key={task.id} draggableId={task.id} index={index}>
@@ -120,6 +121,11 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
                                             )}
                                         </Draggable>
                                     ))}
+                                    {columns[status].length === 0 && (
+                                        <div className="flex items-center justify-center rounded-md border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground">
+                                            Drop here to move a task into "{status}"
+                                        </div>
+                                    )}
                                     {provided.placeholder}
                                 </div>
                             )}

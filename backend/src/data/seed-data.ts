@@ -27,12 +27,12 @@ const companies: Company[] = [
 ];
 
 const positions: Position[] = [
-  { id: 'pos-1', title: 'Software Engineer', companyId: '1' },
-  { id: 'pos-2', title: 'Product Manager', companyId: '1' },
-  { id: 'pos-3', title: 'UX Designer', companyId: '1' },
-  { id: 'pos-4', title: 'Marketing Specialist', companyId: '2' },
-  { id: 'pos-5', title: 'Data Analyst', companyId: '2' },
-  { id: 'pos-6', title: 'AI Researcher', companyId: '3' },
+  { id: 'pos-1', title: 'Software Engineer' },
+  { id: 'pos-2', title: 'Product Manager' },
+  { id: 'pos-3', title: 'UX Designer' },
+  { id: 'pos-4', title: 'Marketing Specialist' },
+  { id: 'pos-5', title: 'Data Analyst' },
+  { id: 'pos-6', title: 'AI Researcher' },
 ];
 
 const users: User[] = [
@@ -42,7 +42,11 @@ const users: User[] = [
     email: 'admin@taskflow.com',
     role: 'Admin',
     companyIds: ['1', '2', '3'],
-    positionId: 'pos-2',
+    companyRoles: [
+      { companyId: '1', role: 'Admin', positionId: 'pos-2' },
+      { companyId: '2', role: 'Admin', positionId: 'pos-4' },
+      { companyId: '3', role: 'Admin', positionId: 'pos-6' },
+    ],
     avatar: 'https://i.pravatar.cc/150?u=admin',
     password: 'password',
   },
@@ -52,7 +56,7 @@ const users: User[] = [
     email: 'samantha.b@innovatecorp.com',
     role: 'Manager',
     companyIds: ['1'],
-    positionId: 'pos-1',
+    companyRoles: [{ companyId: '1', role: 'Manager', positionId: 'pos-1' }],
     avatar: 'https://i.pravatar.cc/150?u=user-2',
     password: 'password',
   },
@@ -62,7 +66,7 @@ const users: User[] = [
     email: 'charlie.d@innovatecorp.com',
     role: 'Employee',
     companyIds: ['1'],
-    positionId: 'pos-3',
+    companyRoles: [{ companyId: '1', role: 'Employee', positionId: 'pos-3' }],
     avatar: 'https://i.pravatar.cc/150?u=user-3',
     password: 'password',
   },
@@ -72,7 +76,7 @@ const users: User[] = [
     email: 'dana.s@synergysolutions.com',
     role: 'Manager',
     companyIds: ['2'],
-    positionId: 'pos-4',
+    companyRoles: [{ companyId: '2', role: 'Manager', positionId: 'pos-4' }],
     avatar: 'https://i.pravatar.cc/150?u=user-4',
     password: 'password',
   },
@@ -82,7 +86,10 @@ const users: User[] = [
     email: 'fox.m@synergysolutions.com',
     role: 'Employee',
     companyIds: ['1', '2'],
-    positionId: 'pos-5',
+    companyRoles: [
+      { companyId: '1', role: 'Employee', positionId: 'pos-3' },
+      { companyId: '2', role: 'Manager', positionId: 'pos-5' },
+    ],
     avatar: 'https://i.pravatar.cc/150?u=user-5',
     password: 'password',
   },

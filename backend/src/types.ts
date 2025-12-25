@@ -10,7 +10,14 @@ export interface Company {
 export interface Position {
   id: string;
   title: string;
+  // Positions are global; companyId is kept only for backward compatibility during migration.
+  companyId?: string;
+}
+
+export interface CompanyRoleAssignment {
   companyId: string;
+  role: UserRole;
+  positionId?: string;
 }
 
 export interface User {
@@ -20,6 +27,7 @@ export interface User {
   role: UserRole;
   companyIds: string[];
   positionId?: string;
+  companyRoles?: CompanyRoleAssignment[];
   avatar: string;
   password: string;
 }

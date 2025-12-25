@@ -25,18 +25,20 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { getProjectById, getCommentsByTaskId, createComment, updateTask, getTasks } from '@/services/projectService';
+import { getProjectById, getCommentsByTaskId, createComment, updateTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
 import { getUsersByCompany } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project, User } from '@/modules/projects/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info } from 'lucide-react';
+import { add, format, formatDistanceToNow } from 'date-fns';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink } from 'lucide-react';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
+import { createInvoice } from '@/services/financeService';
+import { Badge } from '@/components/ui/badge';
 
 interface TaskDetailsSheetProps {
   open: boolean;
@@ -71,6 +73,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [loading, setLoading] = React.useState(true);
   const [invoicePreview, setInvoicePreview] = React.useState<string | null>(task.invoiceImage || null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [creatingInvoice, setCreatingInvoice] = React.useState(false);
 
   React.useEffect(() => {
     async function loadData() {
@@ -110,6 +113,87 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         handleFieldChange('invoiceImage', dataUri);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCreateFinanceInvoice = async () => {
+    if (creatingInvoice) return;
+    if (!selectedCompany) {
+      toast({
+        variant: 'destructive',
+        title: 'Missing company',
+        description: 'Select a company before creating an invoice.',
+      });
+      return;
+    }
+    if (!project?.clientId) {
+      toast({
+        variant: 'destructive',
+        title: 'Missing client',
+        description: 'Assign a client to this project to bill the task.',
+      });
+      return;
+    }
+    if (!editableTask.invoiceAmount || !editableTask.title) {
+      toast({
+        variant: 'destructive',
+        title: 'Add invoice details',
+        description: 'Please add an amount (and optionally number/date) before creating an invoice.',
+      });
+      return;
+    }
+    if (editableTask.generatedInvoiceId) {
+      toast({
+        title: 'Already invoiced',
+        description: 'This task is already linked to a finance invoice.',
+      });
+      return;
+    }
+
+    setCreatingInvoice(true);
+    try {
+      const issueDate = editableTask.invoiceDate || new Date();
+      const dueDate = add(issueDate, { days: 30 });
+      const invoiceNumber =
+        editableTask.invoiceNumber?.trim() || `INV-${Date.now().toString().slice(-6)}`;
+
+      const invoice = await createInvoice({
+        invoiceNumber,
+        companyId: selectedCompany.id,
+        clientId: project.clientId,
+        issueDate,
+        dueDate,
+        lineItems: [
+          {
+            taskId: editableTask.id,
+            description: editableTask.title,
+            amount: editableTask.invoiceAmount || 0,
+          },
+        ],
+        total: editableTask.invoiceAmount || 0,
+        status: 'Draft',
+        notes: editableTask.description || undefined,
+      });
+
+      await markTasksAsInvoiced([editableTask.id], invoice.id);
+      setEditableTask((prev) => ({
+        ...prev,
+        generatedInvoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+      }));
+      onTaskUpdate();
+      toast({
+        title: 'Invoice created',
+        description: `Linked to ${invoice.invoiceNumber}. Visible in Finance for accountants.`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not create invoice',
+        description: error?.message || 'Please try again.',
+      });
+    } finally {
+      setCreatingInvoice(false);
     }
   };
 
@@ -361,6 +445,36 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                             </PopoverContent>
                         </Popover>
                       </DetailRow>
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-sm">Finance invoice</p>
+                          <p className="text-sm text-muted-foreground">
+                            {editableTask.generatedInvoiceId
+                              ? `Linked to invoice ${editableTask.invoiceNumber || editableTask.generatedInvoiceId}`
+                              : 'Create a finance invoice so accountants can track it without opening the task.'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {editableTask.generatedInvoiceId && (
+                            <Badge variant="outline" className="gap-1">
+                              <ExternalLink className="h-3 w-3" />
+                              In Finance
+                            </Badge>
+                          )}
+                          <Button
+                            size="sm"
+                            onClick={handleCreateFinanceInvoice}
+                            disabled={creatingInvoice}
+                            variant={editableTask.generatedInvoiceId ? 'secondary' : 'default'}
+                          >
+                            {creatingInvoice
+                              ? 'Creating...'
+                              : editableTask.generatedInvoiceId
+                                ? 'Refresh link'
+                                : 'Create invoice'}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                 </div>
 

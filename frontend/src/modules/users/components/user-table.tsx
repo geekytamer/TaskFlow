@@ -73,7 +73,12 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
         
         let displayUsers = allUsers;
         if (selectedCompany && currentUserRole !== 'Admin') {
-             displayUsers = allUsers.filter(u => u.companyIds && u.companyIds.includes(selectedCompany.id));
+             displayUsers = allUsers.filter((u) => {
+               if (u.companyRoles && u.companyRoles.length > 0) {
+                 return u.companyRoles.some((cr) => cr.companyId === selectedCompany.id);
+               }
+               return u.companyIds && u.companyIds.includes(selectedCompany.id);
+             });
         }
 
         setUsers(displayUsers);
@@ -119,10 +124,19 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
     }
   }
 
+  const getRoleForCompany = (user: User) => {
+    if (selectedCompany && user.companyRoles && user.companyRoles.length > 0) {
+      const match = user.companyRoles.find((cr) => cr.companyId === selectedCompany.id);
+      if (match) return match.role;
+    }
+    return user.role;
+  };
+
   const canManageUser = (targetUser: User) => {
     if (!currentUserRole) return false;
+    const targetRole = getRoleForCompany(targetUser);
     if (currentUserRole === 'Admin') return true;
-    if (currentUserRole === 'Manager' && targetUser.role === 'Employee') return true;
+    if (currentUserRole === 'Manager' && targetRole === 'Employee') return true;
     return false;
   }
 
@@ -136,15 +150,14 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
       return (
           <div className="rounded-lg border">
               <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>User</TableHead>
-                        <TableHead>Companies</TableHead>
-                        <TableHead>Position</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
+        <TableHeader>
+            <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Assignments</TableHead>
+                <TableHead>Primary Role</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+        </TableHeader>
                 <TableBody>
                      {[...Array(5)].map((_, i) => (
                          <TableRow key={i}>
@@ -155,14 +168,13 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                                         <Skeleton className="h-5 w-24 mb-1" />
                                         <Skeleton className="h-4 w-32" />
                                     </div>
-                                </div>
-                             </TableCell>
-                             <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                             <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                             <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
-                             <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
-                         </TableRow>
-                     ))}
+                         </div>
+                         </TableCell>
+                         <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                         <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                         <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                     </TableRow>
+                 ))}
                 </TableBody>
               </Table>
           </div>
@@ -176,15 +188,25 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
           <TableHeader>
             <TableRow>
               <TableHead>User</TableHead>
-              <TableHead>Companies</TableHead>
-              <TableHead>Position</TableHead>
-              <TableHead>Role</TableHead>
+              <TableHead>Assignments</TableHead>
+              <TableHead>Primary Role</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.map((user) => {
-              const position = positions.find(p => p.id === user.positionId);
+              const primaryAssignment = user.companyRoles?.[0];
+              const primaryPositionId = primaryAssignment?.positionId || user.positionId;
+              const position = positions.find(p => p.id === primaryPositionId);
+              const assignmentsLabel =
+                user.companyRoles && user.companyRoles.length > 0
+                  ? user.companyRoles
+                      .map((cr) => {
+                        const companyName = companies.find((c) => c.id === cr.companyId)?.name || cr.companyId;
+                        return `${companyName}: ${cr.role}`;
+                      })
+                      .join(' • ')
+                  : getUserCompanies(user.companyIds);
               const isManageable = canManageUser(user);
               return (
                 <TableRow key={user.id}>
@@ -202,11 +224,15 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-xs truncate">{getUserCompanies(user.companyIds)}</TableCell>
-                  <TableCell>{position?.title || 'N/A'}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={roleColors[user.role]}>{user.role}</Badge>
+                  <TableCell className="max-w-md truncate">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-sm">{assignmentsLabel}</span>
+                      {position?.title && (
+                        <span className="text-xs text-muted-foreground">Position: {position.title}</span>
+                      )}
+                    </div>
                   </TableCell>
+                  <TableCell><Badge variant="outline" className={roleColors[getRoleForCompany(user)]}>{getRoleForCompany(user)}</Badge></TableCell>
                   <TableCell className="text-right">
                     {isManageable && (
                         <AlertDialog>

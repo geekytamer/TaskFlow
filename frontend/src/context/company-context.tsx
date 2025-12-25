@@ -16,6 +16,7 @@ interface CompanyContextType {
   companies: Company[];
   projects: Project[];
   currentUser: User | null;
+  currentRole: User['role'] | null;
   refreshCompanies: () => void;
   refreshProjects: () => void;
   loading: boolean;
@@ -29,6 +30,15 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [selectedCompany, setSelectedCompany] = React.useState<Company | null>(null);
   const [loading, setLoading] = React.useState(true);
+
+  const currentRole = React.useMemo(() => {
+    if (!currentUser) return null;
+    if (selectedCompany && currentUser.companyRoles && currentUser.companyRoles.length > 0) {
+      const match = currentUser.companyRoles.find((c) => c.companyId === selectedCompany.id);
+      if (match) return match.role;
+    }
+    return currentUser.role;
+  }, [currentUser, selectedCompany]);
 
   const fetchCompanies = React.useCallback(async () => {
     if (!currentUser) return [];
@@ -107,6 +117,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     companies,
     projects,
     currentUser,
+    currentRole,
     refreshCompanies: fetchCompanies,
     refreshProjects: fetchProjects,
     loading: isLoading,

@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import type { UserRole } from '@/lib/types';
 import { useToast } from './use-toast';
 import { useCurrentUser } from './use-current-user';
+import { useCompany } from '@/context/company-context';
 
 export function useAuthGuard(allowedRoles?: UserRole[]) {
   const router = useRouter();
   const { toast } = useToast();
   const { user, loading } = useCurrentUser();
+  const { selectedCompany } = useCompany();
   
   React.useEffect(() => {
     if (loading) {
@@ -23,9 +25,16 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
       return;
     }
 
+    const effectiveRole =
+      (selectedCompany &&
+        user.companyRoles?.find((c) => c.companyId === selectedCompany.id)?.role) ||
+      user.role;
+
     // User is logged in, check roles
-    if (allowedRoles && !allowedRoles.includes(user.role)) {
-      console.warn(`User with role ${user.role} tried to access a page restricted to ${allowedRoles.join(', ')}`);
+    if (allowedRoles && !allowedRoles.includes(effectiveRole)) {
+      console.warn(
+        `User with role ${effectiveRole} tried to access a page restricted to ${allowedRoles.join(', ')}`,
+      );
       toast({
         variant: 'destructive',
         title: 'Access Denied',

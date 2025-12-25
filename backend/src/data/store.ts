@@ -6,6 +6,7 @@ import {
   Company,
   Position,
   User,
+  CompanyRoleAssignment,
   Project,
   Task,
   Comment,
@@ -44,7 +45,7 @@ export class DataStore {
       CREATE TABLE IF NOT EXISTS positions (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
-        companyId TEXT NOT NULL
+        companyId TEXT
       );
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -53,6 +54,7 @@ export class DataStore {
         role TEXT NOT NULL,
         companyIds TEXT NOT NULL,
         positionId TEXT,
+        companyRoles TEXT,
         avatar TEXT,
         password TEXT NOT NULL
       );
@@ -141,6 +143,16 @@ export class DataStore {
         // ignore if already exists
       }
     }
+
+    const userColumns = this.db.prepare(`PRAGMA table_info('users')`).all() as any[];
+    const hasCompanyRoles = userColumns.some((c) => c.name === 'companyRoles');
+    if (!hasCompanyRoles) {
+      try {
+        this.db.exec(`ALTER TABLE users ADD COLUMN companyRoles TEXT;`);
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private seedIfEmpty() {
@@ -172,7 +184,7 @@ export class DataStore {
         'INSERT INTO positions (id, title, companyId) VALUES (@id, @title, @companyId)',
       );
       const insertUser = this.db.prepare(
-        'INSERT INTO users (id, name, email, role, companyIds, positionId, avatar, password) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @avatar, @password)',
+        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password)',
       );
       const insertProject = this.db.prepare(
         'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId)',
@@ -191,11 +203,15 @@ export class DataStore {
       );
 
       seedData.companies.forEach((c) => insertCompany.run(c));
-      seedData.positions.forEach((p) => insertPosition.run(p));
+      seedData.positions.forEach((p) =>
+        insertPosition.run({ ...p, companyId: p.companyId ?? null }),
+      );
       seedData.users.forEach((u) =>
         insertUser.run({
           ...u,
           companyIds: JSON.stringify(u.companyIds),
+          companyRoles: JSON.stringify(u.companyRoles || []),
+          positionId: u.positionId ?? null,
         }),
       );
       seedData.projects.forEach((p) =>
@@ -282,13 +298,20 @@ export class DataStore {
   }
 
   sanitizeUser(row: any): SanitizedUser {
+    const companyRoles = this.parseJson<CompanyRoleAssignment[]>(row.companyRoles) || [];
+    const companyIds =
+      companyRoles.length > 0
+        ? Array.from(new Set(companyRoles.map((c) => c.companyId)))
+        : this.parseJson<string[]>(row.companyIds) || [];
+
     return {
       id: row.id,
       name: row.name,
       email: row.email,
       role: row.role as UserRole,
-      companyIds: this.parseJson<string[]>(row.companyIds) || [],
+      companyIds,
       positionId: row.positionId || undefined,
+      companyRoles,
       avatar: row.avatar,
     };
   }
@@ -322,10 +345,10 @@ export class DataStore {
   }
 
   createPosition(position: Omit<Position, 'id'>): Position {
-    const newPosition = { ...position, id: uuid() };
+    const newPosition = { ...position, id: uuid(), companyId: position.companyId };
     this.db
       .prepare('INSERT INTO positions (id, title, companyId) VALUES (@id, @title, @companyId)')
-      .run(newPosition);
+      .run({ ...newPosition, companyId: newPosition.companyId ?? null });
     return newPosition;
   }
 
@@ -358,6 +381,10 @@ export class DataStore {
     const rows = this.db.prepare('SELECT * FROM users').all();
     return rows
       .filter((r: any) => {
+        const roles = this.parseJson<CompanyRoleAssignment[]>(r.companyRoles);
+        if (roles && roles.length > 0) {
+          return roles.some((c) => c.companyId === companyId);
+        }
         const ids = this.parseJson<string[]>(r.companyIds) || [];
         return ids.includes(companyId);
       })
@@ -382,19 +409,33 @@ export class DataStore {
       throw new Error('Email already exists');
     }
 
+    const normalizedCompanyRoles: CompanyRoleAssignment[] =
+      user.companyRoles && user.companyRoles.length > 0
+        ? user.companyRoles
+        : (user.companyIds || []).map((cid) => ({
+            companyId: cid,
+            role: (user.role as UserRole) || 'Employee',
+            positionId: user.positionId,
+          }));
+
     const newUser: User = {
       ...user,
       id: user.id ?? uuid(),
       password: user.password,
+      companyIds: normalizedCompanyRoles.map((c) => c.companyId),
+      companyRoles: normalizedCompanyRoles,
+      role: user.role || normalizedCompanyRoles[0]?.role || 'Employee',
+      positionId: user.positionId,
     };
 
     this.db
       .prepare(
-        'INSERT INTO users (id, name, email, role, companyIds, positionId, avatar, password) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @avatar, @password)',
+        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password)',
       )
       .run({
         ...newUser,
         companyIds: JSON.stringify(newUser.companyIds || []),
+        companyRoles: JSON.stringify(newUser.companyRoles || []),
       });
     return this.sanitizeUser(newUser);
   }
@@ -402,16 +443,32 @@ export class DataStore {
   updateUser(userId: string, updates: Partial<Omit<User, 'id'>>) {
     const existing = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
     if (!existing) return undefined;
-    const updatedCompanyIds =
-      updates.companyIds ?? (this.parseJson<string[]>(existing.companyIds) || []);
+    const existingCompanyRoles =
+      this.parseJson<CompanyRoleAssignment[]>(existing.companyRoles) ||
+      (this.parseJson<string[]>(existing.companyIds) || []).map((cid: string) => ({
+        companyId: cid,
+        role: existing.role as UserRole,
+        positionId: existing.positionId || undefined,
+      }));
+
+    const nextCompanyRoles: CompanyRoleAssignment[] =
+      updates.companyRoles && updates.companyRoles.length > 0
+        ? updates.companyRoles
+        : existingCompanyRoles;
+
+    const updatedCompanyIds = updates.companyIds ?? nextCompanyRoles.map((c) => c.companyId);
+
     const updated = {
       ...existing,
       ...updates,
+      role: updates.role || existing.role,
+      positionId: updates.positionId ?? existing.positionId,
       companyIds: JSON.stringify(updatedCompanyIds),
+      companyRoles: JSON.stringify(nextCompanyRoles),
     };
     this.db
       .prepare(
-        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, avatar=@avatar, password=@password WHERE id=@id',
+        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password WHERE id=@id',
       )
       .run(updated);
     return this.sanitizeUser({ ...existing, ...updates });

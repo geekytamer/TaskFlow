@@ -45,8 +45,6 @@ const addUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
   email: z.string().email('Please enter a valid email.'),
   companyIds: z.array(z.string()).min(1, 'Please select at least one company.'),
-  positionId: z.string().optional(),
-  role: z.enum(allUserRoles),
 });
 
 type AddUserFormValues = z.infer<typeof addUserSchema>;
@@ -71,6 +69,9 @@ export function AddUserSheet({
   const { toast } = useToast();
   const { companies } = useCompany();
   const [positions, setPositions] = React.useState<Position[]>([]);
+  const [companyAssignments, setCompanyAssignments] = React.useState<
+    Record<string, { role: UserRole; positionId?: string }>
+  >({});
   const isEditMode = !!userToEdit;
 
   const form = useForm<AddUserFormValues>({
@@ -78,7 +79,6 @@ export function AddUserSheet({
     defaultValues: {
       name: '',
       email: '',
-      role: 'Employee',
       companyIds: [],
     },
   });
@@ -86,7 +86,7 @@ export function AddUserSheet({
   const selectedCompanyIds = form.watch('companyIds');
 
   const availableRoles = React.useMemo(() => {
-    if (currentUserRole === 'Admin') {
+    if (!currentUserRole || currentUserRole === 'Admin') {
       return allUserRoles;
     }
     if (currentUserRole === 'Manager') {
@@ -102,33 +102,56 @@ export function AddUserSheet({
 
   React.useEffect(() => {
     async function loadPositions() {
-      if (selectedCompanyIds && selectedCompanyIds.length > 0) {
-        const allPositions = await getPositions();
-        setPositions(allPositions.filter(p => selectedCompanyIds.includes(p.companyId)));
-      } else {
-        setPositions([]);
-      }
+      const allPositions = await getPositions();
+      setPositions(allPositions);
     }
     loadPositions();
+  }, []);
+
+  // Ensure every selected company has an assignment entry
+  React.useEffect(() => {
+    setCompanyAssignments((prev) => {
+      const next = { ...prev };
+      (selectedCompanyIds || []).forEach((cid) => {
+        if (!next[cid]) {
+          next[cid] = { role: 'Employee', positionId: undefined };
+        }
+      });
+      // Remove entries for deselected companies
+      Object.keys(next).forEach((cid) => {
+        if (!selectedCompanyIds?.includes(cid)) {
+          delete next[cid];
+        }
+      });
+      return next;
+    });
   }, [selectedCompanyIds]);
 
   React.useEffect(() => {
     if (userToEdit) {
+      const existingAssignments: Record<string, { role: UserRole; positionId?: string }> = {};
+      if (userToEdit.companyRoles && userToEdit.companyRoles.length > 0) {
+        userToEdit.companyRoles.forEach((c) => {
+          existingAssignments[c.companyId] = { role: c.role, positionId: c.positionId };
+        });
+      } else {
+        (userToEdit.companyIds || []).forEach((cid) => {
+          existingAssignments[cid] = { role: userToEdit.role, positionId: userToEdit.positionId };
+        });
+      }
       form.reset({
         name: userToEdit.name,
         email: userToEdit.email,
         companyIds: userToEdit.companyIds,
-        positionId: userToEdit.positionId,
-        role: userToEdit.role,
       });
+      setCompanyAssignments(existingAssignments);
     } else {
       form.reset({
         name: '',
         email: '',
-        role: 'Employee',
         companyIds: [],
-        positionId: ''
       });
+      setCompanyAssignments({});
     }
   }, [userToEdit, form]);
 
@@ -141,8 +164,19 @@ export function AddUserSheet({
 
   const onSubmit = async (data: AddUserFormValues) => {
     try {
+      const companyRoles = (data.companyIds || []).map((cid) => ({
+        companyId: cid,
+        role: companyAssignments[cid]?.role || 'Employee',
+        positionId: companyAssignments[cid]?.positionId || undefined,
+      }));
+
       if (isEditMode && userToEdit) {
-        await updateUser(userToEdit.id, data);
+        await updateUser(userToEdit.id, {
+          ...data,
+          companyRoles,
+          role: companyRoles[0]?.role || 'Employee',
+          positionId: undefined,
+        });
         toast({
           title: 'User Updated',
           description: `User "${data.name}" has been successfully updated.`,
@@ -150,6 +184,9 @@ export function AddUserSheet({
       } else {
         const result = await createUser({
           ...data,
+          companyRoles,
+          role: companyRoles[0]?.role || 'Employee',
+          positionId: undefined,
           avatar: `https://i.pravatar.cc/150?u=${data.email}`,
         });
         toast({
@@ -227,54 +264,72 @@ export function AddUserSheet({
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="positionId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Position</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyIds || selectedCompanyIds.length === 0}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a position" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {positions.map((position) => (
-                          <SelectItem key={position.id} value={position.id}>
-                            {position.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="role"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Role</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a role" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {availableRoles.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {role}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {selectedCompanyIds && selectedCompanyIds.length > 0 && (
+              <div className="space-y-3">
+                <FormLabel>Role & Position per company</FormLabel>
+                {selectedCompanyIds.map((cid) => {
+                  const company = companies.find((c) => c.id === cid);
+                  const assignment = companyAssignments[cid] || { role: 'Employee', positionId: undefined };
+                  return (
+                    <div
+                      key={cid}
+                      className="grid grid-cols-1 gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr]"
+                    >
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{company?.name || cid}</p>
+                        <Select
+                          value={assignment.role}
+                          onValueChange={(value: UserRole) =>
+                            setCompanyAssignments((prev) => ({
+                              ...prev,
+                              [cid]: { ...assignment, role: value },
+                            }))
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a role" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {availableRoles.map((role) => (
+                              <SelectItem key={role} value={role}>
+                                {role}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Position (optional)</p>
+                        <Select
+                          value={assignment.positionId}
+                          onValueChange={(value) =>
+                            setCompanyAssignments((prev) => ({
+                              ...prev,
+                              [cid]: { ...assignment, positionId: value },
+                            }))
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a position" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {positions.map((position) => (
+                              <SelectItem key={position.id} value={position.id}>
+                                {position.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <SheetFooter className="pt-6">
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                     Cancel
