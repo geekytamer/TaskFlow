@@ -289,20 +289,24 @@ export class DataStore {
   }
 
   private parseJson<T>(value: any): T | undefined {
-    if (!value) return undefined;
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value !== 'string') return value as T;
     try {
-      return JSON.parse(value);
+      return JSON.parse(value) as T;
     } catch {
       return undefined;
     }
   }
 
   sanitizeUser(row: any): SanitizedUser {
-    const companyRoles = this.parseJson<CompanyRoleAssignment[]>(row.companyRoles) || [];
+    const parsedCompanyRoles = this.parseJson<CompanyRoleAssignment[]>(row.companyRoles);
+    const companyRoles = Array.isArray(parsedCompanyRoles) ? parsedCompanyRoles : [];
+    const parsedCompanyIds = this.parseJson<string[]>(row.companyIds);
+    const companyIdsFromRow = Array.isArray(parsedCompanyIds) ? parsedCompanyIds : [];
     const companyIds =
       companyRoles.length > 0
         ? Array.from(new Set(companyRoles.map((c) => c.companyId)))
-        : this.parseJson<string[]>(row.companyIds) || [];
+        : companyIdsFromRow;
 
     return {
       id: row.id,
@@ -312,7 +316,7 @@ export class DataStore {
       companyIds,
       positionId: row.positionId || undefined,
       companyRoles,
-      avatar: row.avatar,
+      avatar: row.avatar || `https://i.pravatar.cc/150?u=${row.email}`,
     };
   }
 
@@ -392,23 +396,6 @@ export class DataStore {
   }
 
   createUser(user: CreateUserInput): SanitizedUser {
-    const existingByEmail = this.findUserByEmail(user.email);
-    if (existingByEmail) {
-      if (user.id && existingByEmail.id === user.id) {
-        const updatedUser: User = { ...existingByEmail, ...user, password: user.password };
-        this.db
-          .prepare(
-            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, avatar=@avatar, password=@password WHERE id=@id',
-          )
-          .run({
-            ...updatedUser,
-            companyIds: JSON.stringify(updatedUser.companyIds),
-          });
-        return this.sanitizeUser(updatedUser);
-      }
-      throw new Error('Email already exists');
-    }
-
     const normalizedCompanyRoles: CompanyRoleAssignment[] =
       user.companyRoles && user.companyRoles.length > 0
         ? user.companyRoles
@@ -418,14 +405,50 @@ export class DataStore {
             positionId: user.positionId,
           }));
 
+    const normalizedCompanyIds = normalizedCompanyRoles.map((c) => c.companyId);
+
+    const existingByEmail = this.findUserByEmail(user.email);
+    if (existingByEmail) {
+      if (user.id && existingByEmail.id === user.id) {
+        const updatedUser: User = {
+          ...existingByEmail,
+          ...user,
+          password: user.password,
+          companyIds: normalizedCompanyIds.length > 0 ? normalizedCompanyIds : existingByEmail.companyIds,
+          companyRoles: normalizedCompanyRoles.length > 0 ? normalizedCompanyRoles : existingByEmail.companyRoles,
+          role: user.role || normalizedCompanyRoles[0]?.role || existingByEmail.role || 'Employee',
+          positionId: user.positionId ?? existingByEmail.positionId,
+          avatar: user.avatar || existingByEmail.avatar || `https://i.pravatar.cc/150?u=${user.email}`,
+        };
+        this.db
+          .prepare(
+            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password WHERE id=@id',
+          )
+          .run({
+            ...updatedUser,
+            companyIds: JSON.stringify(updatedUser.companyIds || []),
+            positionId: updatedUser.positionId ?? null,
+            companyRoles: JSON.stringify(updatedUser.companyRoles || []),
+            avatar: updatedUser.avatar || `https://i.pravatar.cc/150?u=${updatedUser.email}`,
+          });
+        const persisted = this.getUserById(updatedUser.id);
+        if (!persisted) {
+          throw new Error('Unable to update existing user.');
+        }
+        return persisted;
+      }
+      throw new Error('Email already exists');
+    }
+
     const newUser: User = {
       ...user,
       id: user.id ?? uuid(),
       password: user.password,
-      companyIds: normalizedCompanyRoles.map((c) => c.companyId),
+      companyIds: normalizedCompanyIds,
       companyRoles: normalizedCompanyRoles,
       role: user.role || normalizedCompanyRoles[0]?.role || 'Employee',
       positionId: user.positionId,
+      avatar: user.avatar || `https://i.pravatar.cc/150?u=${user.email}`,
     };
 
     this.db
@@ -435,9 +458,15 @@ export class DataStore {
       .run({
         ...newUser,
         companyIds: JSON.stringify(newUser.companyIds || []),
+        positionId: newUser.positionId ?? null,
         companyRoles: JSON.stringify(newUser.companyRoles || []),
+        avatar: newUser.avatar || `https://i.pravatar.cc/150?u=${newUser.email}`,
       });
-    return this.sanitizeUser(newUser);
+    const persisted = this.getUserById(newUser.id);
+    if (!persisted) {
+      throw new Error('Unable to create user.');
+    }
+    return persisted;
   }
 
   updateUser(userId: string, updates: Partial<Omit<User, 'id'>>) {
@@ -462,16 +491,17 @@ export class DataStore {
       ...existing,
       ...updates,
       role: updates.role || existing.role,
-      positionId: updates.positionId ?? existing.positionId,
+      positionId: updates.positionId ?? existing.positionId ?? null,
       companyIds: JSON.stringify(updatedCompanyIds),
       companyRoles: JSON.stringify(nextCompanyRoles),
+      avatar: updates.avatar ?? existing.avatar ?? `https://i.pravatar.cc/150?u=${existing.email}`,
     };
     this.db
       .prepare(
         'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password WHERE id=@id',
       )
       .run(updated);
-    return this.sanitizeUser({ ...existing, ...updates });
+    return this.getUserById(userId);
   }
 
   deleteUser(userId: string) {
