@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, isApiError } from '@/lib/api-client';
 import type { Company, Position } from '@/modules/companies/types';
 
 export async function getCompanies(): Promise<Company[]> {
@@ -10,8 +10,11 @@ export async function getCompanyById(id: string): Promise<Company | undefined> {
   try {
     return await apiFetch<Company>(`/companies/${id}`);
   } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return undefined;
+    }
     console.error(`Error fetching company ${id}`, error);
-    return undefined;
+    throw error;
   }
 }
 
@@ -35,8 +38,11 @@ export async function getPositionById(id: string): Promise<Position | undefined>
   try {
     return await apiFetch<Position>(`/positions/${id}`);
   } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return undefined;
+    }
     console.error(`Error fetching position ${id}`, error);
-    return undefined;
+    throw error;
   }
 }
 

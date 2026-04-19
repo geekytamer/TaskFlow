@@ -1,301 +1,2787 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
-import { DataStore } from './data/store';
-import { InvoiceStatus, SanitizedUser } from './types';
+import { DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail } from './email';
-
-const store = new DataStore();
-
-const app = express();
-app.use(
-  cors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-    credentials: true,
-  }),
-);
-app.use(express.json());
+import {
+  type CompanyRoleAssignment,
+  type Invoice,
+  type InvoiceTemplate,
+  type InvoiceTemplateLayout,
+  type InvoiceLineItem,
+  type JournalEntryLine,
+  type Project,
+  type PurchaseOrderLineItem,
+  type SanitizedUser,
+  type UserRole,
+  type VendorBillStatus,
+  type InvoiceStatus,
+  type LedgerAccountType,
+  type PurchaseOrderStatus,
+  type NumberingEntityType,
+  type RecordEntityType,
+} from './types';
+import {
+  HttpError,
+  canAccessCompany,
+  getAccessibleCompanyIds,
+  getEffectiveRole,
+  requireCompanyRole,
+} from './http';
+import {
+  asRecord,
+  enumValue,
+  optionalDateInput,
+  optionalBoolean,
+  optionalNumber,
+  optionalString,
+  requiredArray,
+  requiredDateInput,
+  requiredNumber,
+  requiredString,
+  stringArray,
+} from './validation';
 
 type AuthedRequest = Request & { user?: SanitizedUser };
 
-const authMiddleware = (req: AuthedRequest, res: Response, next: NextFunction) => {
-  const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ message: 'Unauthorized' });
-  const token = header.replace('Bearer ', '').trim();
-  const user = store.getUserByToken(token);
-  if (!user) return res.status(401).json({ message: 'Unauthorized' });
-  req.user = user;
-  next();
-};
-
-// Auth
-app.post('/auth/login', (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Email and password are required.' });
-  }
-  const user = store.findUserByEmail(email);
-  if (!user || user.password !== password) {
-    return res.status(401).json({ message: 'Invalid credentials.' });
-  }
-  const token = store.issueToken(user.id);
-  res.json({ token, user: store.sanitizeUser(user) });
-});
-
-app.post('/auth/logout', (req, res) => {
-  const header = req.headers.authorization;
-  if (header) {
-    const token = header.replace('Bearer ', '').trim();
-    store.revokeToken(token);
-  }
-  res.json({ success: true });
-});
-
-app.get('/auth/me', authMiddleware, (req: AuthedRequest, res) => {
-  res.json({ user: req.user });
-});
-
-// Companies
-app.get('/companies', (_req, res) => {
-  res.json(store.listCompanies());
-});
-
-app.get('/companies/:id', (req, res) => {
-  const company = store.getCompanyById(req.params.id);
-  if (!company) return res.status(404).json({ message: 'Company not found.' });
-  res.json(company);
-});
-
-app.post('/companies', (req, res) => {
-  const company = store.createCompany(req.body);
-  res.status(201).json(company);
-});
-
-app.delete('/companies/:id', (req, res) => {
-  store.deleteCompany(req.params.id);
-  res.json({ success: true });
-});
-
-// Positions
-app.get('/positions', (_req, res) => {
-  res.json(store.listPositions());
-});
-
-app.get('/positions/:id', (req, res) => {
-  const position = store.getPositionById(req.params.id);
-  if (!position) return res.status(404).json({ message: 'Position not found.' });
-  res.json(position);
-});
-
-app.post('/positions', (req, res) => {
-  const position = store.createPosition(req.body);
-  res.status(201).json(position);
-});
-
-app.delete('/positions/:id', (req, res) => {
-  store.deletePosition(req.params.id);
-  res.json({ success: true });
-});
-
-// Users
-app.get('/users', (_req, res) => {
-  res.json(store.listUsers());
-});
-
-app.get('/users/:id', (req, res) => {
-  const user = store.getUserById(req.params.id);
-  if (!user) return res.status(404).json({ message: 'User not found.' });
-  res.json(user);
-});
-
-app.get('/companies/:companyId/users', (req, res) => {
-  const users = store.getUsersByCompany(req.params.companyId);
-  res.json(users);
-});
-
-app.post('/users', (req, res) => {
-  try {
-    if (!req.body?.password) {
-      return res.status(400).json({ message: 'Password is required.' });
-    }
-    const user = store.createUser(req.body);
-    sendWelcomeEmail({
-      to: user.email,
-      name: user.name,
-      password: req.body.password,
-    }).catch((err) => console.error('Failed to send welcome email', err));
-    res.status(201).json({ user });
-  } catch (error: any) {
-    res.status(400).json({ message: error?.message || 'Unable to create user.' });
-  }
-});
-
-app.put('/users/:id', (req, res) => {
-  const user = store.updateUser(req.params.id, req.body);
-  if (!user) return res.status(404).json({ message: 'User not found.' });
-  res.json(user);
-});
-
-app.delete('/users/:id', (req, res) => {
-  store.deleteUser(req.params.id);
-  res.json({ success: true });
-});
-
-// Projects
-app.get('/projects', (_req, res) => {
-  res.json(store.listProjects());
-});
-
-app.get('/projects/:id', (req, res) => {
-  const project = store.getProjectById(req.params.id);
-  if (!project) return res.status(404).json({ message: 'Project not found.' });
-  res.json(project);
-});
-
-app.post('/projects', (req, res) => {
-  const project = store.createProject(req.body);
-  res.status(201).json(project);
-});
-
-app.put('/projects/:id', (req, res) => {
-  const project = store.updateProject(req.params.id, req.body);
-  if (!project) return res.status(404).json({ message: 'Project not found.' });
-  res.json(project);
-});
-
-app.delete('/projects/:id', (req, res) => {
-  const existing = store.getProjectById(req.params.id);
-  if (!existing) return res.status(404).json({ message: 'Project not found.' });
-  store.deleteProject(req.params.id);
-  res.json({ success: true });
-});
-
-app.post('/projects/:id/members', (req, res) => {
-  const { userId } = req.body || {};
-  if (!userId) return res.status(400).json({ message: 'userId is required.' });
-  const project = store.addProjectMember(req.params.id, userId);
-  if (!project) return res.status(404).json({ message: 'Project not found.' });
-  res.json(project);
-});
-
-app.delete('/projects/:id/members/:userId', (req, res) => {
-  const project = store.removeProjectMember(req.params.id, req.params.userId);
-  if (!project) return res.status(404).json({ message: 'Project not found.' });
-  res.json(project);
-});
-
-// Tasks
-app.get('/tasks', (_req, res) => {
-  res.json(store.listTasks());
-});
-
-app.get('/tasks/:id', (req, res) => {
-  const task = store.getTaskById(req.params.id);
-  if (!task) return res.status(404).json({ message: 'Task not found.' });
-  res.json(task);
-});
-
-app.get('/companies/:companyId/clients/:clientId/tasks', (req, res) => {
-  const tasks = store.getTasksByClient(req.params.companyId, req.params.clientId);
-  res.json(tasks);
-});
-
-app.post('/tasks', (req, res) => {
-  const task = store.createTask(req.body);
-  res.status(201).json(task);
-});
-
-app.put('/tasks/:id', (req, res) => {
-  const task = store.updateTask(req.params.id, req.body);
-  if (!task) return res.status(404).json({ message: 'Task not found.' });
-  res.json(task);
-});
-
-app.post('/tasks/mark-invoiced', (req, res) => {
-  const { taskIds, invoiceId } = req.body || {};
-  if (!Array.isArray(taskIds) || !invoiceId) {
-    return res.status(400).json({ message: 'taskIds and invoiceId are required.' });
-  }
-  store.markTasksAsInvoiced(taskIds, invoiceId);
-  res.json({ success: true });
-});
-
-// Comments
-app.get('/tasks/:taskId/comments', (req, res) => {
-  const comments = store.listCommentsByTask(req.params.taskId);
-  res.json(comments);
-});
-
-app.post('/tasks/:taskId/comments', (req, res) => {
-  const comment = store.createComment({ ...req.body, taskId: req.params.taskId });
-  res.status(201).json(comment);
-});
-
-// Clients
-app.get('/companies/:companyId/clients', (req, res) => {
-  const clients = store.listClients(req.params.companyId);
-  res.json(clients);
-});
-
-app.post('/clients', (req, res) => {
-  const client = store.createClient(req.body);
-  res.status(201).json(client);
-});
-
-// Invoices
-app.get('/companies/:companyId/invoices', (req, res) => {
-  const invoices = store.listInvoices(req.params.companyId);
-  res.json(invoices);
-});
-
-app.post('/invoices', (req, res) => {
-  const invoice = store.createInvoice(req.body);
-  res.status(201).json(invoice);
-});
-
-app.patch('/invoices/:id/status', (req, res) => {
-  const { status } = req.body || {};
-  if (!status) return res.status(400).json({ message: 'Status is required.' });
-  const updated = store.updateInvoiceStatus(req.params.id, status as InvoiceStatus);
-  if (!updated) return res.status(404).json({ message: 'Invoice not found.' });
-  res.json(updated);
-});
-
-app.put('/invoices/:id', (req, res) => {
-  const updated = store.updateInvoice(req.params.id, req.body);
-  if (!updated) return res.status(404).json({ message: 'Invoice not found.' });
-  res.json(updated);
-});
-
-app.get('/invoices/:id/payments', (req, res) => {
-  const payments = store.listPayments(req.params.id);
-  res.json(payments);
-});
-
-app.post('/invoices/:id/payments', (req, res) => {
-  const { amount, method, note, paidAt } = req.body || {};
-  if (amount === undefined || amount === null) {
-    return res.status(400).json({ message: 'amount is required.' });
-  }
-  const payment = store.createPayment({
-    invoiceId: req.params.id,
-    amount: Number(amount),
-    method,
-    note,
-    paidAt,
-  });
-  res.status(201).json(payment);
-});
-
-// Seed / reset
-app.post('/seed', (_req, res) => {
-  store.reset();
-  res.json({ success: true });
-});
-
-export function createServer() {
-  return app;
+export interface CreateServerOptions extends DataStoreOptions {
+  allowSeedReset?: boolean;
+  logger?: Pick<Console, 'info' | 'warn' | 'error'>;
 }
 
-export function getStore() {
-  return store;
+const invoiceStatuses: InvoiceStatus[] = ['Draft', 'Sent', 'Paid', 'Overdue'];
+const invoiceTemplateLayouts: InvoiceTemplateLayout[] = ['classic', 'modern', 'compact', 'letterhead'];
+const vendorBillStatuses: VendorBillStatus[] = ['Draft', 'Approved', 'Paid', 'Overdue'];
+const purchaseOrderStatuses: PurchaseOrderStatus[] = [
+  'Draft',
+  'Ordered',
+  'Partially Received',
+  'Received',
+  'Cancelled',
+];
+const ledgerAccountTypes: LedgerAccountType[] = [
+  'Asset',
+  'Liability',
+  'Equity',
+  'Revenue',
+  'Expense',
+];
+const userRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
+const companyManagementRoles: UserRole[] = ['Admin', 'Manager', 'Accountant'];
+const clientStatuses = ['Lead', 'Active', 'At Risk', 'Inactive'] as const;
+const activityEntityTypes = [
+  'client',
+  'project',
+  'task',
+  'supplier',
+  'inventory_item',
+  'purchase_order',
+  'invoice',
+  'vendor_bill',
+] as const;
+const recordEntityTypes = [
+  ...activityEntityTypes,
+  'company',
+  'ledger_account',
+  'journal_entry',
+  'payment',
+  'vendor_payment',
+  'purchase_receipt',
+  'stock_movement',
+] as const;
+const numberingEntityTypes = [
+  'client',
+  'supplier',
+  'inventory_item',
+  'purchase_order',
+  'sales_invoice',
+  'vendor_invoice',
+] as const;
+
+const parseAllowedOrigins = () =>
+  (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+const defaultAllowedOrigins = new Set([
+  'http://localhost:9002',
+  'http://127.0.0.1:9002',
+  'http://localhost:9003',
+  'http://127.0.0.1:9003',
+]);
+
+const isLoopbackDevOrigin = (origin: string) => {
+  if (process.env.NODE_ENV === 'production') return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+      && /^https?:$/.test(parsed.protocol)
+    );
+  } catch {
+    return false;
+  }
+};
+
+const isAllowedOrigin = (origin?: string) => {
+  if (!origin) return true;
+
+  const configuredOrigins = parseAllowedOrigins();
+  if (configuredOrigins.includes('*')) {
+    return true;
+  }
+  if (configuredOrigins.includes(origin) || defaultAllowedOrigins.has(origin)) {
+    return true;
+  }
+  if (isLoopbackDevOrigin(origin)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    if (
+      parsed.protocol === 'https:'
+      && parsed.hostname.endsWith('.devtunnels.ms')
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+};
+
+const csvEscape = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  const raw = String(value);
+  if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+};
+
+const toCsv = (headers: string[], rows: Array<Array<unknown>>): string => {
+  const headerRow = headers.map(csvEscape).join(',');
+  const body = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+  return body ? `${headerRow}\n${body}` : `${headerRow}\n`;
+};
+
+const handler =
+  (
+    fn: (req: AuthedRequest, res: Response, next: NextFunction) => unknown | Promise<unknown>,
+  ) =>
+  (req: AuthedRequest, res: Response, next: NextFunction) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
+
+const parseCompanyRoles = (value: unknown, fieldName = 'companyRoles'): CompanyRoleAssignment[] => {
+  const rows = requiredArray<unknown>(value, fieldName);
+  if (rows.length === 0) {
+    throw new HttpError(400, `${fieldName} must contain at least one assignment.`);
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `${fieldName}[${index}]`);
+    return {
+      companyId: requiredString(record.companyId, `${fieldName}[${index}].companyId`),
+      role: enumValue(record.role, `${fieldName}[${index}].role`, userRoles),
+      positionId: optionalString(record.positionId),
+    };
+  });
+};
+
+const parseInvoiceLineItems = (value: unknown): InvoiceLineItem[] => {
+  const rows = requiredArray<unknown>(value, 'lineItems');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'lineItems must contain at least one item.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `lineItems[${index}]`);
+    const quantity = requiredNumber(record.quantity ?? 1, `lineItems[${index}].quantity`);
+    const unitPrice = requiredNumber(record.unitPrice ?? record.amount ?? 0, `lineItems[${index}].unitPrice`);
+    return {
+      taskId: optionalString(record.taskId),
+      itemType: enumValue(
+        record.itemType ?? (record.taskId ? 'Task' : 'Manual'),
+        `lineItems[${index}].itemType`,
+        ['Task', 'Manual'],
+      ),
+      sku: optionalString(record.sku),
+      description: requiredString(record.description, `lineItems[${index}].description`, {
+        min: 2,
+      }),
+      quantity,
+      unitPrice,
+      amount: requiredNumber(
+        record.amount ?? quantity * unitPrice,
+        `lineItems[${index}].amount`,
+      ),
+    };
+  });
+};
+
+const parsePurchaseOrderItems = (value: unknown): PurchaseOrderLineItem[] => {
+  const rows = requiredArray<unknown>(value, 'items');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'items must contain at least one line item.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    const quantity = requiredNumber(record.quantity, `items[${index}].quantity`);
+    const unitCost = requiredNumber(record.unitCost, `items[${index}].unitCost`);
+    return {
+      inventoryItemId: optionalString(record.inventoryItemId),
+      sku: optionalString(record.sku),
+      description: requiredString(record.description, `items[${index}].description`, { min: 2 }),
+      quantity,
+      unitCost,
+      lineTotal: requiredNumber(
+        record.lineTotal ?? quantity * unitCost,
+        `items[${index}].lineTotal`,
+      ),
+    };
+  });
+};
+
+const parsePurchaseReceiptItems = (
+  value: unknown,
+): Array<{ lineIndex: number; quantity: number }> => {
+  const rows = requiredArray<unknown>(value, 'items');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'items must contain at least one receipt line.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    const lineIndex = requiredNumber(record.lineIndex, `items[${index}].lineIndex`);
+    const quantity = requiredNumber(record.quantity, `items[${index}].quantity`);
+    if (!Number.isInteger(lineIndex) || lineIndex < 0) {
+      throw new HttpError(400, `items[${index}].lineIndex must be a non-negative integer.`);
+    }
+    if (quantity <= 0) {
+      throw new HttpError(400, `items[${index}].quantity must be greater than zero.`);
+    }
+    return { lineIndex, quantity };
+  });
+};
+
+const parseJournalLines = (value: unknown): JournalEntryLine[] => {
+  const rows = requiredArray<unknown>(value, 'lines');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'lines must contain at least one row.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `lines[${index}]`);
+    return {
+      id: optionalString(record.id) || '',
+      accountId: requiredString(record.accountId, `lines[${index}].accountId`),
+      description: optionalString(record.description),
+      debit: requiredNumber(record.debit ?? 0, `lines[${index}].debit`),
+      credit: requiredNumber(record.credit ?? 0, `lines[${index}].credit`),
+    };
+  });
+};
+
+const defaultPassword = () => Math.random().toString(36).slice(-8);
+
+export function createServer(options: CreateServerOptions = {}) {
+  const logger = options.logger ?? console;
+  const allowSeedReset =
+    options.allowSeedReset ?? process.env.ALLOW_SEED_RESET === 'true';
+  const store = new DataStore({
+    dbPath: options.dbPath,
+    seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
+  });
+
+  const app = express();
+  app.use(
+    cors({
+      origin(origin, callback) {
+        callback(null, isAllowedOrigin(origin));
+      },
+      credentials: true,
+    }),
+  );
+  app.use(express.json());
+
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      logger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`);
+    });
+    next();
+  });
+
+  const authMiddleware = (req: AuthedRequest, _res: Response, next: NextFunction) => {
+    const header = req.headers.authorization;
+    if (!header) return next(new HttpError(401, 'Unauthorized'));
+    const token = header.replace('Bearer ', '').trim();
+    const user = store.getUserByToken(token);
+    if (!user) return next(new HttpError(401, 'Unauthorized'));
+    req.user = user;
+    next();
+  };
+
+  const withActor = <T>(req: AuthedRequest, fn: () => T): T =>
+    store.runAsActor(
+      req.user ? { userId: req.user.id, name: req.user.name } : undefined,
+      fn,
+    );
+
+  const requireAdmin = (req: AuthedRequest) => {
+    if (!req.user || req.user.role !== 'Admin') {
+      throw new HttpError(403, 'Admin access required.');
+    }
+  };
+
+  const requireCompanyAccess = (req: AuthedRequest, companyId: string) => {
+    if (!req.user || !canAccessCompany(req.user, companyId)) {
+      throw new HttpError(403, 'You do not have access to this company.');
+    }
+  };
+
+  const requireCompanyRoles = (
+    req: AuthedRequest,
+    companyId: string,
+    roles: UserRole[],
+  ) => {
+    requireCompanyAccess(req, companyId);
+    if (!requireCompanyRole(req.user!, companyId, roles)) {
+      throw new HttpError(403, 'You do not have permission to perform this action.');
+    }
+  };
+
+  const canViewProject = (user: SanitizedUser, project: Project): boolean => {
+    const role = getEffectiveRole(user, project.companyId);
+    if (!role) return false;
+    if (role !== 'Employee') return true;
+    return project.visibility === 'Public' || Boolean(project.memberIds?.includes(user.id));
+  };
+
+  const requireProjectViewAccess = (req: AuthedRequest, project: Project) => {
+    requireCompanyAccess(req, project.companyId);
+    if (!canViewProject(req.user!, project)) {
+      throw new HttpError(403, 'You do not have access to this project.');
+    }
+  };
+
+  const requireTaskViewAccess = (
+    req: AuthedRequest,
+    task: { companyId: string; projectId: string },
+  ) => {
+    requireCompanyAccess(req, task.companyId);
+    const project = store.getProjectById(task.projectId);
+    if (!project || !canViewProject(req.user!, project)) {
+      throw new HttpError(403, 'You do not have access to this task.');
+    }
+  };
+
+  const requireRecordSupportAccess = (
+    req: AuthedRequest,
+    companyId: string,
+    entityType: RecordEntityType,
+    entityId: string,
+  ) => {
+    if (entityType === 'project') {
+      const project = store.getProjectById(entityId);
+      if (!project || project.companyId !== companyId) {
+        throw new HttpError(404, 'Project not found.');
+      }
+      requireProjectViewAccess(req, project);
+      return;
+    }
+    if (entityType === 'task') {
+      const task = store.getTaskById(entityId);
+      if (!task || task.companyId !== companyId) {
+        throw new HttpError(404, 'Task not found.');
+      }
+      requireTaskViewAccess(req, task);
+      return;
+    }
+    requireCompanyRoles(req, companyId, companyManagementRoles);
+  };
+
+  const ensureUsersBelongToCompany = (userIds: string[], companyId: string, fieldName: string) => {
+    if (!userIds.length) return;
+    const allowed = new Set(store.getUsersByCompany(companyId).map((user) => user.id));
+    const invalidUserId = userIds.find((userId) => !allowed.has(userId));
+    if (invalidUserId) {
+      throw new HttpError(
+        400,
+        `${fieldName} contains user ${invalidUserId}, which does not belong to company ${companyId}.`,
+      );
+    }
+  };
+
+  const ensureClientBelongsToCompany = (clientId: string | undefined, companyId: string) => {
+    if (!clientId) return;
+    const client = store.getClientById(clientId);
+    if (!client || client.companyId !== companyId) {
+      throw new HttpError(400, `Client ${clientId} does not belong to company ${companyId}.`);
+    }
+  };
+
+  const ensureProjectBelongsToCompany = (projectId: string, companyId: string) => {
+    const project = store.getProjectById(projectId);
+    if (!project || project.companyId !== companyId) {
+      throw new HttpError(400, `Project ${projectId} does not belong to company ${companyId}.`);
+    }
+    return project;
+  };
+
+  const ensureTaskIdsBelongToCompany = (taskIds: string[], companyId: string) => {
+    taskIds.forEach((taskId) => {
+      const task = store.getTaskById(taskId);
+      if (!task || task.companyId !== companyId) {
+        throw new HttpError(400, `Task ${taskId} does not belong to company ${companyId}.`);
+      }
+    });
+  };
+
+  const ensureLedgerAccountBelongsToCompany = (
+    accountId: string | undefined,
+    companyId: string,
+  ) => {
+    if (!accountId) return;
+    const account = store.getLedgerAccountById(accountId);
+    if (!account || account.companyId !== companyId) {
+      throw new HttpError(
+        400,
+        `Ledger account ${accountId} does not belong to company ${companyId}.`,
+      );
+    }
+  };
+
+  const ensureSupplierBelongsToCompany = (
+    supplierId: string | undefined,
+    companyId: string,
+  ) => {
+    if (!supplierId) return undefined;
+    const supplier = store.getSupplierById(supplierId);
+    if (!supplier || supplier.companyId !== companyId) {
+      throw new HttpError(400, `Supplier ${supplierId} does not belong to company ${companyId}.`);
+    }
+    return supplier;
+  };
+
+  const ensurePurchaseItemsBelongToCompany = (
+    items: PurchaseOrderLineItem[],
+    companyId: string,
+  ) => {
+    items.forEach((item, index) => {
+      if (item.inventoryItemId) {
+        const inventoryItem = store.getInventoryItemById(item.inventoryItemId);
+        if (!inventoryItem || inventoryItem.companyId !== companyId) {
+          throw new HttpError(
+            400,
+            `items[${index}].inventoryItemId does not belong to company ${companyId}.`,
+          );
+        }
+      }
+      if (item.sku) {
+        const inventoryItem = store.getInventoryItemBySku(companyId, item.sku);
+        if (!inventoryItem) {
+          throw new HttpError(
+            400,
+            `items[${index}].sku does not exist in company ${companyId} inventory.`,
+          );
+        }
+      }
+    });
+  };
+
+  const ensurePurchaseOrderBelongsToCompany = (purchaseOrderId: string | undefined, companyId: string) => {
+    if (!purchaseOrderId) return undefined;
+    const order = store.getPurchaseOrderById(purchaseOrderId);
+    if (!order || order.companyId !== companyId) {
+      throw new HttpError(
+        400,
+        `Purchase order ${purchaseOrderId} does not belong to company ${companyId}.`,
+      );
+    }
+    return order;
+  };
+
+  const ensureJournalLinesBelongToCompany = (
+    lines: JournalEntryLine[],
+    companyId: string,
+  ) => {
+    lines.forEach((line, index) => {
+      ensureLedgerAccountBelongsToCompany(line.accountId, companyId);
+      if (line.debit < 0 || line.credit < 0) {
+        throw new HttpError(
+          400,
+          `lines[${index}] must not contain negative debit or credit values.`,
+        );
+      }
+    });
+
+    const nonZeroLines = lines.filter((line) => line.debit > 0 || line.credit > 0);
+    if (!nonZeroLines.length) {
+      throw new HttpError(400, 'lines must contain at least one non-zero row.');
+    }
+
+    const totals = nonZeroLines.reduce(
+      (acc, line) => ({
+        debit: acc.debit + line.debit,
+        credit: acc.credit + line.credit,
+      }),
+      { debit: 0, credit: 0 },
+    );
+
+    if (Math.abs(totals.debit - totals.credit) > 0.005) {
+      throw new HttpError(400, 'Journal entry is unbalanced. Debits must equal credits.');
+    }
+  };
+
+  const assertUserManagementPermission = (
+    actor: SanitizedUser,
+    assignments: CompanyRoleAssignment[],
+  ) => {
+    if (actor.role === 'Admin') return;
+    const invalidCompany = assignments.find(
+      (assignment) => !requireCompanyRole(actor, assignment.companyId, ['Admin', 'Manager']),
+    );
+    if (invalidCompany) {
+      throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
+    }
+    const elevatedAssignment = assignments.find(
+      (assignment) =>
+        assignment.role !== 'Employee'
+        && !requireCompanyRole(actor, assignment.companyId, ['Admin']),
+    );
+    if (elevatedAssignment) {
+      throw new HttpError(
+        403,
+        'Only company admins can assign Admin, Manager, or Accountant roles in that company.',
+      );
+    }
+  };
+
+  const parseUserPayload = (
+    body: unknown,
+    options: { partial?: boolean } = {},
+  ): Partial<{
+    name: string;
+    email: string;
+    role: UserRole;
+    companyIds: string[];
+    companyRoles: CompanyRoleAssignment[];
+    positionId?: string;
+    avatar?: string;
+    password: string;
+  }> => {
+    const record = asRecord(body, 'body');
+    const partial = Boolean(options.partial);
+    const companyRoles = record.companyRoles
+      ? parseCompanyRoles(record.companyRoles)
+      : undefined;
+    const companyIds = record.companyIds
+      ? stringArray(record.companyIds, 'companyIds')
+      : companyRoles?.map((assignment) => assignment.companyId);
+    const payload = {
+      name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
+      email: record.email !== undefined ? requiredString(record.email, 'email', { min: 3 }) : undefined,
+      role: record.role !== undefined ? enumValue(record.role, 'role', userRoles) : undefined,
+      companyIds,
+      companyRoles,
+      positionId: optionalString(record.positionId),
+      avatar: optionalString(record.avatar),
+      password:
+        record.password !== undefined
+          ? requiredString(record.password, 'password', { min: 6 })
+          : partial
+            ? undefined
+            : defaultPassword(),
+    };
+
+    if (!partial) {
+      if (!payload.name || !payload.email || !payload.companyRoles?.length) {
+        throw new HttpError(400, 'name, email, and companyRoles are required.');
+      }
+    }
+    return payload;
+  };
+
+  const parseProjectPayload = (body: unknown, options: { partial?: boolean } = {}) => {
+    const record = asRecord(body, 'body');
+    const partial = Boolean(options.partial);
+    const payload = {
+      name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
+      description: record.description !== undefined ? optionalString(record.description) : undefined,
+      color: record.color !== undefined ? optionalString(record.color) : undefined,
+      companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
+      visibility:
+        record.visibility !== undefined
+          ? enumValue(record.visibility, 'visibility', ['Public', 'Private'])
+          : undefined,
+      memberIds: record.memberIds !== undefined ? stringArray(record.memberIds, 'memberIds') : undefined,
+      clientId: record.clientId !== undefined ? optionalString(record.clientId) : undefined,
+    };
+    if (!partial && (!payload.name || !payload.companyId || !payload.visibility)) {
+      throw new HttpError(400, 'name, companyId, and visibility are required.');
+    }
+    return payload;
+  };
+
+  const parseTaskPayload = (body: unknown, options: { partial?: boolean } = {}) => {
+    const record = asRecord(body, 'body');
+    const partial = Boolean(options.partial);
+    const payload = {
+      title: record.title !== undefined ? requiredString(record.title, 'title', { min: 2 }) : undefined,
+      description: record.description !== undefined ? optionalString(record.description) : undefined,
+      status:
+        record.status !== undefined
+          ? enumValue(record.status, 'status', ['To Do', 'In Progress', 'Done'])
+          : undefined,
+      priority:
+        record.priority !== undefined
+          ? enumValue(record.priority, 'priority', ['Low', 'Medium', 'High'])
+          : undefined,
+      createdAt: record.createdAt !== undefined ? requiredDateInput(record.createdAt, 'createdAt') : undefined,
+      dueDate: record.dueDate !== undefined ? optionalDateInput(record.dueDate) : undefined,
+      assignedUserIds:
+        record.assignedUserIds !== undefined
+          ? stringArray(record.assignedUserIds, 'assignedUserIds')
+          : undefined,
+      tags: record.tags !== undefined ? stringArray(record.tags, 'tags') : undefined,
+      companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
+      projectId: record.projectId !== undefined ? requiredString(record.projectId, 'projectId') : undefined,
+      color: record.color !== undefined ? optionalString(record.color) : undefined,
+      dependencies:
+        record.dependencies !== undefined ? stringArray(record.dependencies, 'dependencies') : undefined,
+      parentTaskId: record.parentTaskId !== undefined ? optionalString(record.parentTaskId) : undefined,
+      invoiceImage: record.invoiceImage !== undefined ? optionalString(record.invoiceImage) : undefined,
+      invoiceVendor: record.invoiceVendor !== undefined ? optionalString(record.invoiceVendor) : undefined,
+      invoiceNumber: record.invoiceNumber !== undefined ? optionalString(record.invoiceNumber) : undefined,
+      invoiceAmount:
+        record.invoiceAmount !== undefined ? optionalNumber(record.invoiceAmount) : undefined,
+      invoiceDate: record.invoiceDate !== undefined ? optionalDateInput(record.invoiceDate) : undefined,
+      generatedInvoiceId:
+        record.generatedInvoiceId !== undefined ? optionalString(record.generatedInvoiceId) : undefined,
+    };
+    if (!partial && (!payload.title || !payload.priority || !payload.companyId || !payload.projectId)) {
+      throw new HttpError(400, 'title, priority, companyId, and projectId are required.');
+    }
+    return payload;
+  };
+
+  const parseInvoicePayload = (body: unknown, options: { partial?: boolean } = {}) => {
+    const record = asRecord(body, 'body');
+    const partial = Boolean(options.partial);
+    const payload = {
+      invoiceNumber:
+        record.invoiceNumber !== undefined
+          ? requiredString(record.invoiceNumber, 'invoiceNumber')
+          : undefined,
+      companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
+      clientId: record.clientId !== undefined ? requiredString(record.clientId, 'clientId') : undefined,
+      templateId: record.templateId !== undefined ? optionalString(record.templateId) : undefined,
+      issueDate: record.issueDate !== undefined ? requiredDateInput(record.issueDate, 'issueDate') : undefined,
+      dueDate: record.dueDate !== undefined ? requiredDateInput(record.dueDate, 'dueDate') : undefined,
+      lineItems: record.lineItems !== undefined ? parseInvoiceLineItems(record.lineItems) : undefined,
+      status:
+        record.status !== undefined
+          ? enumValue(record.status, 'status', invoiceStatuses)
+          : undefined,
+      notes: record.notes !== undefined ? optionalString(record.notes) : undefined,
+      currency: record.currency !== undefined ? optionalString(record.currency) : undefined,
+      taxRate: record.taxRate !== undefined ? optionalNumber(record.taxRate) : undefined,
+      sentAt: record.sentAt !== undefined ? optionalDateInput(record.sentAt) : undefined,
+      paidAt: record.paidAt !== undefined ? optionalDateInput(record.paidAt) : undefined,
+    };
+    if (
+      !partial
+      && (!payload.companyId || !payload.clientId || !payload.issueDate || !payload.dueDate || !payload.lineItems)
+    ) {
+      throw new HttpError(
+        400,
+        'companyId, clientId, issueDate, dueDate, and lineItems are required.',
+      );
+    }
+    return payload;
+  };
+
+  const parseInvoiceTemplatePayload = (body: unknown, options: { partial?: boolean } = {}) => {
+    const record = asRecord(body, 'body');
+    const partial = Boolean(options.partial);
+    const payload = {
+      name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
+      layout:
+        record.layout !== undefined
+          ? enumValue(record.layout, 'layout', invoiceTemplateLayouts)
+          : undefined,
+      isDefault: record.isDefault !== undefined ? optionalBoolean(record.isDefault) : undefined,
+      primaryColor: record.primaryColor !== undefined ? requiredString(record.primaryColor, 'primaryColor') : undefined,
+      accentColor: record.accentColor !== undefined ? requiredString(record.accentColor, 'accentColor') : undefined,
+      logoUrl: record.logoUrl !== undefined ? optionalString(record.logoUrl) : undefined,
+      headerImageUrl: record.headerImageUrl !== undefined ? optionalString(record.headerImageUrl) : undefined,
+      footerImageUrl: record.footerImageUrl !== undefined ? optionalString(record.footerImageUrl) : undefined,
+      letterheadPdfUrl:
+        record.letterheadPdfUrl !== undefined ? optionalString(record.letterheadPdfUrl) : undefined,
+      paymentInstructions:
+        record.paymentInstructions !== undefined ? optionalString(record.paymentInstructions) : undefined,
+      terms: record.terms !== undefined ? optionalString(record.terms) : undefined,
+      footerNote: record.footerNote !== undefined ? optionalString(record.footerNote) : undefined,
+      showCompanyAddress:
+        record.showCompanyAddress !== undefined ? optionalBoolean(record.showCompanyAddress) : undefined,
+      showTaxId: record.showTaxId !== undefined ? optionalBoolean(record.showTaxId) : undefined,
+    };
+    if (
+      !partial
+      && (!payload.name || !payload.layout || !payload.primaryColor || !payload.accentColor)
+    ) {
+      throw new HttpError(400, 'name, layout, primaryColor, and accentColor are required.');
+    }
+    return payload;
+  };
+
+  app.get(
+    '/health',
+    handler((_req, res) => {
+      res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
+        allowSeedReset,
+        migrations: store.getAppliedMigrationIds(),
+      });
+    }),
+  );
+
+  app.post(
+    '/auth/login',
+    handler((req, res) => {
+      const body = asRecord(req.body, 'body');
+      const email = requiredString(body.email, 'email', { min: 3 });
+      const password = requiredString(body.password, 'password', { min: 1 });
+      const user = store.findUserByEmail(email);
+      if (!user || user.password !== password) {
+        throw new HttpError(401, 'Invalid credentials.');
+      }
+      const token = store.issueToken(user.id);
+      res.json({ token, user: store.sanitizeUser(user) });
+    }),
+  );
+
+  app.post('/auth/logout', (req, res) => {
+    const header = req.headers.authorization;
+    if (header) {
+      const token = header.replace('Bearer ', '').trim();
+      store.revokeToken(token);
+    }
+    res.json({ success: true });
+  });
+
+  app.get(
+    '/auth/me',
+    authMiddleware,
+    handler((req, res) => {
+      res.json({ user: req.user });
+    }),
+  );
+
+  app.get(
+    '/companies',
+    authMiddleware,
+    handler((req, res) => {
+      const companies = store.listCompanies();
+      if (req.user!.role === 'Admin') {
+        return res.json(companies);
+      }
+      const accessible = new Set(getAccessibleCompanyIds(req.user!));
+      res.json(companies.filter((company) => accessible.has(company.id)));
+    }),
+  );
+
+  app.get(
+    '/companies/:id',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyAccess(req, req.params.id);
+      const company = store.getCompanyById(req.params.id);
+      if (!company) throw new HttpError(404, 'Company not found.');
+      res.json(company);
+    }),
+  );
+
+  app.post(
+    '/companies',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      const body = asRecord(req.body, 'body');
+      const company = store.createCompany({
+        name: requiredString(body.name, 'name', { min: 2 }),
+        website: optionalString(body.website),
+        address: optionalString(body.address),
+      });
+      res.status(201).json(company);
+    }),
+  );
+
+  app.delete(
+    '/companies/:id',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      store.deleteCompany(req.params.id);
+      res.json({ success: true });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/numbering-settings',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      res.json(store.listCompanyNumberingSettings(req.params.companyId));
+    }),
+  );
+
+  app.put(
+    '/companies/:companyId/numbering-settings/:entityType',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      const entityType = enumValue(
+        req.params.entityType,
+        'entityType',
+        numberingEntityTypes,
+      ) as NumberingEntityType;
+      const body = asRecord(req.body, 'body');
+      try {
+        const setting = store.updateCompanyNumberingSetting(req.params.companyId, entityType, {
+          prefix: body.prefix !== undefined ? requiredString(body.prefix, 'prefix') : undefined,
+          padLength: body.padLength !== undefined ? requiredNumber(body.padLength, 'padLength') : undefined,
+          nextNumber: body.nextNumber !== undefined ? requiredNumber(body.nextNumber, 'nextNumber') : undefined,
+        });
+        res.json(setting);
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not update numbering setting.');
+      }
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/settings',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.getCompanyFinanceSettings(req.params.companyId));
+    }),
+  );
+
+  app.put(
+    '/companies/:companyId/finance/settings',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      const lockedThroughDate =
+        body.lockedThroughDate === null
+          ? null
+          : body.lockedThroughDate !== undefined
+            ? new Date(requiredDateInput(body.lockedThroughDate, 'lockedThroughDate'))
+            : undefined;
+      try {
+        res.json(
+          store.updateCompanyFinanceSettings(req.params.companyId, {
+            fiscalYearStartMonth:
+              body.fiscalYearStartMonth !== undefined
+                ? requiredNumber(body.fiscalYearStartMonth, 'fiscalYearStartMonth')
+                : undefined,
+            lockedThroughDate,
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not update finance settings.');
+      }
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/invoice-templates',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listInvoiceTemplates(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/invoice-templates',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const payload = parseInvoiceTemplatePayload(req.body);
+      try {
+        res.status(201).json(
+          store.createInvoiceTemplate({
+            companyId: req.params.companyId,
+            name: payload.name!,
+            layout: payload.layout!,
+            isDefault: payload.isDefault ?? false,
+            primaryColor: payload.primaryColor!,
+            accentColor: payload.accentColor!,
+            logoUrl: payload.logoUrl,
+            headerImageUrl: payload.headerImageUrl,
+            footerImageUrl: payload.footerImageUrl,
+            letterheadPdfUrl: payload.letterheadPdfUrl,
+            paymentInstructions: payload.paymentInstructions,
+            terms: payload.terms,
+            footerNote: payload.footerNote,
+            showCompanyAddress: payload.showCompanyAddress ?? true,
+            showTaxId: payload.showTaxId ?? true,
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not create invoice template.');
+      }
+    }),
+  );
+
+  app.put(
+    '/invoice-templates/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInvoiceTemplateById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Invoice template not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const payload = parseInvoiceTemplatePayload(req.body, { partial: true });
+      try {
+        const updated = store.updateInvoiceTemplate(req.params.id, payload);
+        if (!updated) throw new HttpError(404, 'Invoice template not found.');
+        res.json(updated);
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not update invoice template.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/invoice-templates/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInvoiceTemplateById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Invoice template not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      try {
+        store.deleteInvoiceTemplate(req.params.id);
+        res.json({ success: true });
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not delete invoice template.');
+      }
+    }),
+  );
+
+  app.get(
+    '/positions',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      res.json(store.listPositions());
+    }),
+  );
+
+  app.get(
+    '/positions/:id',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      const position = store.getPositionById(req.params.id);
+      if (!position) throw new HttpError(404, 'Position not found.');
+      res.json(position);
+    }),
+  );
+
+  app.post(
+    '/positions',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      const body = asRecord(req.body, 'body');
+      const position = store.createPosition({
+        title: requiredString(body.title, 'title', { min: 2 }),
+        companyId: optionalString(body.companyId),
+      });
+      res.status(201).json(position);
+    }),
+  );
+
+  app.delete(
+    '/positions/:id',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      store.deletePosition(req.params.id);
+      res.json({ success: true });
+    }),
+  );
+
+  app.get(
+    '/users',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      res.json(store.listUsers());
+    }),
+  );
+
+  app.get(
+    '/users/:id',
+    authMiddleware,
+    handler((req, res) => {
+      if (req.user!.role !== 'Admin' && req.user!.id !== req.params.id) {
+        throw new HttpError(403, 'You do not have permission to view this user.');
+      }
+      const user = store.getUserById(req.params.id);
+      if (!user) throw new HttpError(404, 'User not found.');
+      res.json(user);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/users',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      res.json(store.getUsersByCompany(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/users',
+    authMiddleware,
+    handler(async (req, res) => {
+      const payload = parseUserPayload(req.body);
+      assertUserManagementPermission(req.user!, payload.companyRoles!);
+      const user = store.createUser({
+        id: optionalString(asRecord(req.body, 'body').id),
+        name: payload.name!,
+        email: payload.email!,
+        password: payload.password!,
+        companyIds: payload.companyIds!,
+        companyRoles: payload.companyRoles!,
+        role: payload.role || payload.companyRoles![0].role,
+        positionId: payload.positionId,
+        avatar: payload.avatar || `https://i.pravatar.cc/150?u=${payload.email!}`,
+      });
+      sendWelcomeEmail({
+        to: user.email,
+        name: user.name,
+        password: payload.password!,
+      }).catch((error) => logger.error('Failed to send welcome email', error));
+      res.status(201).json({ user });
+    }),
+  );
+
+  app.put(
+    '/users/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getUserById(req.params.id);
+      if (!existing) throw new HttpError(404, 'User not found.');
+      const payload = parseUserPayload(req.body, { partial: true });
+      const targetAssignments =
+        payload.companyRoles
+        || existing.companyRoles
+        || existing.companyIds.map((companyId) => ({
+          companyId,
+          role: existing.role,
+          positionId: existing.positionId,
+        }));
+      assertUserManagementPermission(req.user!, targetAssignments);
+      const updated = store.updateUser(req.params.id, {
+        ...payload,
+        companyIds: payload.companyIds || targetAssignments.map((assignment) => assignment.companyId),
+        companyRoles: targetAssignments,
+        role: payload.role || targetAssignments[0]?.role || existing.role,
+      });
+      if (!updated) throw new HttpError(404, 'User not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.delete(
+    '/users/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getUserById(req.params.id);
+      if (!existing) throw new HttpError(404, 'User not found.');
+      const targetAssignments =
+        existing.companyRoles
+        || existing.companyIds.map((companyId) => ({
+          companyId,
+          role: existing.role,
+          positionId: existing.positionId,
+        }));
+      assertUserManagementPermission(req.user!, targetAssignments);
+      store.deleteUser(req.params.id);
+      res.json({ success: true });
+    }),
+  );
+
+  app.get(
+    '/projects',
+    authMiddleware,
+    handler((req, res) => {
+      const accessible = new Set(getAccessibleCompanyIds(req.user!));
+      res.json(
+        store
+          .listProjects()
+          .filter(
+            (project) =>
+              accessible.has(project.companyId) && canViewProject(req.user!, project),
+          ),
+      );
+    }),
+  );
+
+  app.get(
+    '/projects/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const project = store.getProjectById(req.params.id);
+      if (!project) throw new HttpError(404, 'Project not found.');
+      requireProjectViewAccess(req, project);
+      res.json(project);
+    }),
+  );
+
+  app.post(
+    '/projects',
+    authMiddleware,
+    handler((req, res) => {
+      const payload = parseProjectPayload(req.body);
+      requireCompanyRoles(req, payload.companyId!, ['Admin', 'Manager']);
+      ensureUsersBelongToCompany(payload.memberIds || [], payload.companyId!, 'memberIds');
+      ensureClientBelongsToCompany(payload.clientId, payload.companyId!);
+      const project = withActor(req, () =>
+        store.createProject({
+          name: payload.name!,
+          description: payload.description || '',
+          color: payload.color || '',
+          companyId: payload.companyId!,
+          visibility: payload.visibility!,
+          memberIds: payload.memberIds || [],
+          clientId: payload.clientId,
+        }),
+      );
+      res.status(201).json(project);
+    }),
+  );
+
+  app.put(
+    '/projects/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getProjectById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Project not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      const payload = parseProjectPayload(req.body, { partial: true });
+      if (payload.companyId && payload.companyId !== existing.companyId) {
+        requireCompanyRoles(req, payload.companyId, ['Admin', 'Manager']);
+      }
+      const targetCompanyId = payload.companyId || existing.companyId;
+      const targetMemberIds = payload.memberIds ?? existing.memberIds ?? [];
+      const targetClientId = payload.clientId !== undefined ? payload.clientId : existing.clientId;
+      ensureUsersBelongToCompany(targetMemberIds, targetCompanyId, 'memberIds');
+      ensureClientBelongsToCompany(targetClientId, targetCompanyId);
+      const project = withActor(req, () => store.updateProject(req.params.id, payload));
+      if (!project) throw new HttpError(404, 'Project not found.');
+      res.json(project);
+    }),
+  );
+
+  app.delete(
+    '/projects/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getProjectById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Project not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      store.deleteProject(req.params.id);
+      res.json({ success: true });
+    }),
+  );
+
+  app.post(
+    '/projects/:id/members',
+    authMiddleware,
+    handler((req, res) => {
+      const project = store.getProjectById(req.params.id);
+      if (!project) throw new HttpError(404, 'Project not found.');
+      requireCompanyRoles(req, project.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      const userId = requiredString(body.userId, 'userId');
+      ensureUsersBelongToCompany([userId], project.companyId, 'userId');
+      const updated = withActor(req, () => store.addProjectMember(req.params.id, userId));
+      if (!updated) throw new HttpError(404, 'Project not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.delete(
+    '/projects/:id/members/:userId',
+    authMiddleware,
+    handler((req, res) => {
+      const project = store.getProjectById(req.params.id);
+      if (!project) throw new HttpError(404, 'Project not found.');
+      requireCompanyRoles(req, project.companyId, ['Admin', 'Manager']);
+      ensureUsersBelongToCompany([req.params.userId], project.companyId, 'userId');
+      const updated = withActor(req, () => store.removeProjectMember(req.params.id, req.params.userId));
+      if (!updated) throw new HttpError(404, 'Project not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.get(
+    '/tasks',
+    authMiddleware,
+    handler((req, res) => {
+      const accessible = new Set(getAccessibleCompanyIds(req.user!));
+      res.json(
+        store
+          .listTasks()
+          .filter((task) => accessible.has(task.companyId))
+          .filter((task) => {
+            const project = store.getProjectById(task.projectId);
+            return Boolean(project && canViewProject(req.user!, project));
+          }),
+      );
+    }),
+  );
+
+  app.get(
+    '/tasks/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const task = store.getTaskById(req.params.id);
+      if (!task) throw new HttpError(404, 'Task not found.');
+      requireTaskViewAccess(req, task);
+      res.json(task);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/clients/:clientId/tasks',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyAccess(req, req.params.companyId);
+      res.json(
+        store
+          .getTasksByClient(req.params.companyId, req.params.clientId)
+          .filter((task) => {
+            const project = store.getProjectById(task.projectId);
+            return Boolean(project && canViewProject(req.user!, project));
+          }),
+      );
+    }),
+  );
+
+  app.post(
+    '/tasks',
+    authMiddleware,
+    handler((req, res) => {
+      const payload = parseTaskPayload(req.body);
+      requireCompanyAccess(req, payload.companyId!);
+      ensureProjectBelongsToCompany(payload.projectId!, payload.companyId!);
+      ensureUsersBelongToCompany(payload.assignedUserIds || [], payload.companyId!, 'assignedUserIds');
+      ensureTaskIdsBelongToCompany(payload.dependencies || [], payload.companyId!);
+      const task = withActor(req, () =>
+        store.createTask({
+          title: payload.title!,
+          description: payload.description || '',
+          status: payload.status || 'To Do',
+          priority: payload.priority!,
+          createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date(),
+          dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+          assignedUserIds: payload.assignedUserIds || [],
+          tags: payload.tags || [],
+          companyId: payload.companyId!,
+          projectId: payload.projectId!,
+          color: payload.color,
+          dependencies: payload.dependencies || [],
+          parentTaskId: payload.parentTaskId,
+          invoiceImage: payload.invoiceImage,
+          invoiceVendor: payload.invoiceVendor,
+          invoiceNumber: payload.invoiceNumber,
+          invoiceAmount: payload.invoiceAmount,
+          invoiceDate: payload.invoiceDate ? new Date(payload.invoiceDate) : undefined,
+          generatedInvoiceId: payload.generatedInvoiceId,
+        }),
+      );
+      res.status(201).json(task);
+    }),
+  );
+
+  app.put(
+    '/tasks/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getTaskById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Task not found.');
+      requireCompanyAccess(req, existing.companyId);
+      const payload = parseTaskPayload(req.body, { partial: true });
+      const targetCompanyId = payload.companyId || existing.companyId;
+      const targetProjectId = payload.projectId || existing.projectId;
+      if (targetCompanyId !== existing.companyId) {
+        requireCompanyAccess(req, targetCompanyId);
+      }
+      const targetAssignedUserIds = payload.assignedUserIds ?? existing.assignedUserIds ?? [];
+      const targetDependencies = payload.dependencies ?? existing.dependencies ?? [];
+      ensureProjectBelongsToCompany(targetProjectId, targetCompanyId);
+      ensureUsersBelongToCompany(
+        targetAssignedUserIds,
+        targetCompanyId,
+        'assignedUserIds',
+      );
+      ensureTaskIdsBelongToCompany(targetDependencies, targetCompanyId);
+      const task = withActor(req, () =>
+        store.updateTask(req.params.id, {
+          ...payload,
+          createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
+          dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+          invoiceDate: payload.invoiceDate ? new Date(payload.invoiceDate) : undefined,
+        }),
+      );
+      if (!task) throw new HttpError(404, 'Task not found.');
+      res.json(task);
+    }),
+  );
+
+  app.post(
+    '/tasks/mark-invoiced',
+    authMiddleware,
+    handler((req, res) => {
+      const body = asRecord(req.body, 'body');
+      const taskIds = stringArray(body.taskIds, 'taskIds');
+      const invoiceId = requiredString(body.invoiceId, 'invoiceId');
+      const tasks = taskIds.map((taskId) => {
+        const task = store.getTaskById(taskId);
+        if (!task) throw new HttpError(404, `Task ${taskId} not found.`);
+        requireCompanyAccess(req, task.companyId);
+        return task;
+      });
+      const companyIds = new Set(tasks.map((task) => task.companyId));
+      if (companyIds.size > 1) {
+        throw new HttpError(400, 'All tasks must belong to the same company.');
+      }
+      const companyId = tasks[0]?.companyId;
+      const invoice = store.getInvoiceById(invoiceId);
+      if (!invoice || !companyId || invoice.companyId !== companyId) {
+        throw new HttpError(400, 'Invoice must exist and belong to the same company as the tasks.');
+      }
+      withActor(req, () => store.markTasksAsInvoiced(taskIds, invoiceId));
+      res.json({ success: true });
+    }),
+  );
+
+  app.get(
+    '/tasks/:taskId/comments',
+    authMiddleware,
+    handler((req, res) => {
+      const task = store.getTaskById(req.params.taskId);
+      if (!task) throw new HttpError(404, 'Task not found.');
+      requireTaskViewAccess(req, task);
+      res.json(store.listCommentsByTask(req.params.taskId));
+    }),
+  );
+
+  app.post(
+    '/tasks/:taskId/comments',
+    authMiddleware,
+    handler((req, res) => {
+      const task = store.getTaskById(req.params.taskId);
+      if (!task) throw new HttpError(404, 'Task not found.');
+      requireCompanyAccess(req, task.companyId);
+      const body = asRecord(req.body, 'body');
+      const comment = store.createComment({
+        taskId: req.params.taskId,
+        userId: req.user!.id,
+        content: requiredString(body.content, 'content', { min: 1 }),
+      });
+      res.status(201).json(comment);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/clients',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listClients(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/clients',
+    authMiddleware,
+    handler((req, res) => {
+      const body = asRecord(req.body, 'body');
+      const companyId = requiredString(body.companyId, 'companyId');
+      requireCompanyRoles(req, companyId, companyManagementRoles);
+      const client = withActor(req, () =>
+        store.createClient({
+          companyId,
+          name: requiredString(body.name, 'name', { min: 2 }),
+          email: requiredString(body.email, 'email', { min: 3 }),
+          address: requiredString(body.address, 'address', { min: 5 }),
+          contactName: optionalString(body.contactName),
+          phone: optionalString(body.phone),
+          vatNumber: optionalString(body.vatNumber),
+          creditLimit: optionalNumber(body.creditLimit),
+          creditNumber: optionalString(body.creditNumber),
+          paymentMethod: optionalString(body.paymentMethod),
+          status: body.status !== undefined ? enumValue(body.status, 'status', clientStatuses) : 'Active',
+          notes: optionalString(body.notes),
+        }),
+      );
+      res.status(201).json(client);
+    }),
+  );
+
+  app.put(
+    '/clients/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getClientById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Client not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const updated = withActor(req, () =>
+        store.updateClient(req.params.id, {
+          name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+          email: body.email !== undefined ? requiredString(body.email, 'email', { min: 3 }) : undefined,
+          address: body.address !== undefined ? requiredString(body.address, 'address', { min: 5 }) : undefined,
+          contactName: body.contactName !== undefined ? optionalString(body.contactName) : undefined,
+          phone: body.phone !== undefined ? optionalString(body.phone) : undefined,
+          vatNumber: body.vatNumber !== undefined ? optionalString(body.vatNumber) : undefined,
+          creditLimit: body.creditLimit !== undefined ? optionalNumber(body.creditLimit) : undefined,
+          creditNumber: body.creditNumber !== undefined ? optionalString(body.creditNumber) : undefined,
+          paymentMethod: body.paymentMethod !== undefined ? optionalString(body.paymentMethod) : undefined,
+          status: body.status !== undefined ? enumValue(body.status, 'status', clientStatuses) : undefined,
+          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+        }),
+      );
+      if (!updated) throw new HttpError(404, 'Client not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/activity-events',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const entityType = req.query.entityType
+        ? enumValue(req.query.entityType, 'entityType', activityEntityTypes)
+        : undefined;
+      const entityId = optionalString(req.query.entityId);
+      const actorUserId = optionalString(req.query.actorUserId);
+      const limit = req.query.limit ? Number(req.query.limit) : 25;
+      if (!Number.isFinite(limit) || limit <= 0) {
+        throw new HttpError(400, 'limit must be a positive number.');
+      }
+      res.json(
+        store.listActivityEvents(req.params.companyId, {
+          entityType,
+          entityId,
+          actorUserId,
+          limit,
+        }),
+      );
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/records/:entityType/:entityId/attachments',
+    authMiddleware,
+    handler((req, res) => {
+      const entityType = enumValue(
+        req.params.entityType,
+        'entityType',
+        recordEntityTypes,
+      ) as RecordEntityType;
+      requireRecordSupportAccess(req, req.params.companyId, entityType, req.params.entityId);
+      res.json(store.listRecordAttachments(req.params.companyId, entityType, req.params.entityId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/records/:entityType/:entityId/attachments',
+    authMiddleware,
+    handler((req, res) => {
+      const entityType = enumValue(
+        req.params.entityType,
+        'entityType',
+        recordEntityTypes,
+      ) as RecordEntityType;
+      requireRecordSupportAccess(req, req.params.companyId, entityType, req.params.entityId);
+      const body = asRecord(req.body, 'body');
+      const sizeBytes = optionalNumber(body.sizeBytes);
+      if (sizeBytes !== undefined && sizeBytes < 0) {
+        throw new HttpError(400, 'sizeBytes must not be negative.');
+      }
+      const attachment = withActor(req, () =>
+        store.createRecordAttachment({
+          companyId: req.params.companyId,
+          entityType,
+          entityId: req.params.entityId,
+          fileName: requiredString(body.fileName, 'fileName', { min: 1 }),
+          url: optionalString(body.url),
+          mimeType: optionalString(body.mimeType),
+          sizeBytes,
+          note: optionalString(body.note),
+        }),
+      );
+      res.status(201).json(attachment);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/records/:entityType/:entityId/timeline',
+    authMiddleware,
+    handler((req, res) => {
+      const entityType = enumValue(
+        req.params.entityType,
+        'entityType',
+        recordEntityTypes,
+      ) as RecordEntityType;
+      requireRecordSupportAccess(req, req.params.companyId, entityType, req.params.entityId);
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      if (!Number.isFinite(limit) || limit <= 0) {
+        throw new HttpError(400, 'limit must be a positive number.');
+      }
+      res.json(store.getRecordTimeline(req.params.companyId, entityType, req.params.entityId, limit));
+    }),
+  );
+
+  app.delete(
+    '/record-attachments/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const attachment = store.getRecordAttachmentById(req.params.id);
+      if (!attachment) throw new HttpError(404, 'Attachment not found.');
+      requireCompanyRoles(req, attachment.companyId, companyManagementRoles);
+      store.deleteRecordAttachment(req.params.id);
+      res.status(204).end();
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/suppliers',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listSuppliers(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/suppliers',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const supplier = withActor(req, () =>
+        store.createSupplier({
+          companyId: req.params.companyId,
+          name: requiredString(body.name, 'name', { min: 2 }),
+          contactName: optionalString(body.contactName),
+          email: optionalString(body.email),
+          phone: optionalString(body.phone),
+          paymentTermsDays: optionalNumber(body.paymentTermsDays),
+          notes: optionalString(body.notes),
+          isActive: optionalBoolean(body.isActive) ?? true,
+        }),
+      );
+      res.status(201).json(supplier);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/inventory-items',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      res.json(store.listInventoryItems(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const body = asRecord(req.body, 'body');
+      const preferredSupplierId = optionalString(body.preferredSupplierId);
+      ensureSupplierBelongsToCompany(preferredSupplierId, req.params.companyId);
+      const item = withActor(req, () =>
+        store.createInventoryItem({
+          companyId: req.params.companyId,
+          name: requiredString(body.name, 'name', { min: 2 }),
+          category: requiredString(body.category, 'category', { min: 2 }),
+          unit: requiredString(body.unit, 'unit', { min: 1 }),
+          barcode: optionalString(body.barcode),
+          vatApplicable: optionalBoolean(body.vatApplicable) ?? true,
+          tracksInventory: optionalBoolean(body.tracksInventory) ?? true,
+          onHand: requiredNumber(body.onHand ?? 0, 'onHand'),
+          reorderPoint: requiredNumber(body.reorderPoint ?? 0, 'reorderPoint'),
+          unitCost: requiredNumber(body.unitCost ?? 0, 'unitCost'),
+          salePrice: optionalNumber(body.salePrice),
+          preferredVendor: optionalString(body.preferredVendor),
+          preferredSupplierId,
+          location: optionalString(body.location),
+        }),
+      );
+      res.status(201).json(item);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/stock-movements',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const inventoryItemId =
+        req.query.inventoryItemId !== undefined
+          ? requiredString(req.query.inventoryItemId, 'inventoryItemId')
+          : undefined;
+      if (inventoryItemId) {
+        const item = store.getInventoryItemById(inventoryItemId);
+        if (!item || item.companyId !== req.params.companyId) {
+          throw new HttpError(404, 'Inventory item not found.');
+        }
+      }
+      res.json(store.listStockMovements(req.params.companyId, inventoryItemId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/inventory-location-balances',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const inventoryItemId =
+        req.query.inventoryItemId !== undefined
+          ? requiredString(req.query.inventoryItemId, 'inventoryItemId')
+          : undefined;
+      if (inventoryItemId) {
+        const item = store.getInventoryItemById(inventoryItemId);
+        if (!item || item.companyId !== req.params.companyId) {
+          throw new HttpError(404, 'Inventory item not found.');
+        }
+      }
+      res.json(store.listInventoryLocationBalances(req.params.companyId, inventoryItemId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items/:itemId/adjustments',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const item = store.getInventoryItemById(req.params.itemId);
+      if (!item || item.companyId !== req.params.companyId) {
+        throw new HttpError(404, 'Inventory item not found.');
+      }
+      if (!item.tracksInventory) {
+        throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      const body = asRecord(req.body, 'body');
+      const quantityChange = requiredNumber(body.quantityChange, 'quantityChange');
+      if (quantityChange === 0) {
+        throw new HttpError(400, 'quantityChange must be non-zero.');
+      }
+      let movement;
+      try {
+        movement = withActor(req, () =>
+          store.createInventoryAdjustment(
+            req.params.companyId,
+            req.params.itemId,
+            quantityChange,
+            optionalString(body.note),
+            optionalString(body.location),
+          ),
+        );
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not adjust inventory.');
+      }
+      res.status(201).json({
+        movement,
+        item: store.getInventoryItemById(req.params.itemId),
+      });
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items/:itemId/issues',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const item = store.getInventoryItemById(req.params.itemId);
+      if (!item || item.companyId !== req.params.companyId) {
+        throw new HttpError(404, 'Inventory item not found.');
+      }
+      if (!item.tracksInventory) {
+        throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      const body = asRecord(req.body, 'body');
+      try {
+        const issue = withActor(req, () =>
+          store.createInventoryIssue({
+            companyId: req.params.companyId,
+            inventoryItemId: req.params.itemId,
+            quantity: requiredNumber(body.quantity, 'quantity'),
+            location: optionalString(body.location) || item.location || 'Unassigned',
+            issuedAt: optionalDateInput(body.issuedAt),
+            issuedTo: optionalString(body.issuedTo),
+            note: optionalString(body.note),
+            projectId: optionalString(body.projectId),
+            taskId: optionalString(body.taskId),
+          }),
+        );
+        res.status(201).json({
+          issue,
+          item: store.getInventoryItemById(req.params.itemId),
+          balances: store.listInventoryLocationBalances(req.params.companyId, req.params.itemId),
+        });
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not issue inventory.');
+      }
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items/:itemId/transfers',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const item = store.getInventoryItemById(req.params.itemId);
+      if (!item || item.companyId !== req.params.companyId) {
+        throw new HttpError(404, 'Inventory item not found.');
+      }
+      if (!item.tracksInventory) {
+        throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      const body = asRecord(req.body, 'body');
+      try {
+        const transfer = withActor(req, () =>
+          store.createInventoryTransfer({
+            companyId: req.params.companyId,
+            inventoryItemId: req.params.itemId,
+            quantity: requiredNumber(body.quantity, 'quantity'),
+            fromLocation: optionalString(body.fromLocation) || item.location || 'Unassigned',
+            toLocation: requiredString(body.toLocation, 'toLocation', { min: 2 }),
+            transferredAt: optionalDateInput(body.transferredAt),
+            note: optionalString(body.note),
+          }),
+        );
+        res.status(201).json({
+          transfer,
+          item: store.getInventoryItemById(req.params.itemId),
+          balances: store.listInventoryLocationBalances(req.params.companyId, req.params.itemId),
+        });
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not transfer inventory.');
+      }
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/purchase-orders',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listPurchaseOrders(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/purchase-order-payables',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listPurchaseOrderPayables(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/purchase-orders',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const expectedDate = optionalDateInput(body.expectedDate);
+      const items = parsePurchaseOrderItems(body.items);
+      const supplierId = requiredString(body.supplierId, 'supplierId');
+      const supplier = ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
+      ensurePurchaseItemsBelongToCompany(items, req.params.companyId);
+      const supplierName = supplier?.name;
+      if (!supplierName) {
+        throw new HttpError(400, 'supplierId must reference a supplier in the same company.');
+      }
+      const status = enumValue(body.status ?? 'Draft', 'status', purchaseOrderStatuses);
+      if (status === 'Partially Received') {
+        throw new HttpError(400, 'Purchase orders cannot be created as Partially Received.');
+      }
+      const order = withActor(req, () =>
+        store.createPurchaseOrder({
+          companyId: req.params.companyId,
+          supplierName,
+          supplierId,
+          orderDate: new Date(requiredDateInput(body.orderDate, 'orderDate')),
+          expectedDate: expectedDate ? new Date(expectedDate) : undefined,
+          status,
+          items,
+          notes: optionalString(body.notes),
+        }),
+      );
+      res.status(201).json(order);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/purchase-receipts',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const purchaseOrderId = optionalString(req.query.purchaseOrderId);
+      if (purchaseOrderId) {
+        ensurePurchaseOrderBelongsToCompany(purchaseOrderId, req.params.companyId);
+      }
+      res.json(store.listPurchaseReceipts(req.params.companyId, purchaseOrderId));
+    }),
+  );
+
+  app.patch(
+    '/purchase-orders/:id/status',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getPurchaseOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Purchase order not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const nextStatus = enumValue(body.status, 'status', purchaseOrderStatuses);
+      if (nextStatus === 'Partially Received') {
+        throw new HttpError(400, 'Use purchase receipts to mark an order as partially received.');
+      }
+      const order = withActor(req, () =>
+        store.updatePurchaseOrderStatus(
+          req.params.id,
+          nextStatus,
+        ),
+      );
+      if (!order) throw new HttpError(404, 'Purchase order not found.');
+      res.json(order);
+    }),
+  );
+
+  app.post(
+    '/purchase-orders/:id/receipts',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getPurchaseOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Purchase order not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const receipt = withActor(req, () =>
+        store.receivePurchaseOrder(req.params.id, {
+          receivedAt: optionalDateInput(body.receivedAt),
+          notes: optionalString(body.notes),
+          items: parsePurchaseReceiptItems(body.items),
+        }),
+      );
+      res.status(201).json(receipt);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/invoices',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listInvoices(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/invoices',
+    authMiddleware,
+    handler((req, res) => {
+      const payload = parseInvoicePayload(req.body);
+      requireCompanyRoles(req, payload.companyId!, companyManagementRoles);
+      ensureClientBelongsToCompany(payload.clientId!, payload.companyId!);
+      if (payload.templateId) {
+        const template = store.getInvoiceTemplateById(payload.templateId);
+        if (!template || template.companyId !== payload.companyId) {
+          throw new HttpError(400, 'Invoice template does not belong to this company.');
+        }
+      }
+      ensureTaskIdsBelongToCompany(
+        (payload.lineItems || []).flatMap((item) => (item.taskId ? [item.taskId] : [])),
+        payload.companyId!,
+      );
+      let invoice;
+      try {
+        invoice = withActor(req, () =>
+          store.createInvoice({
+            invoiceNumber: payload.invoiceNumber,
+            companyId: payload.companyId!,
+            clientId: payload.clientId!,
+            templateId: payload.templateId,
+            issueDate: new Date(payload.issueDate!),
+            dueDate: new Date(payload.dueDate!),
+            lineItems: payload.lineItems!,
+            total: 0,
+            status: payload.status || 'Draft',
+            notes: payload.notes,
+            currency: payload.currency,
+            taxRate: payload.taxRate,
+            sentAt: payload.sentAt ? new Date(payload.sentAt) : undefined,
+            paidAt: payload.paidAt ? new Date(payload.paidAt) : undefined,
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not create invoice.');
+      }
+      res.status(201).json(invoice);
+    }),
+  );
+
+  app.get(
+    '/invoices/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInvoiceById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      res.json(existing);
+    }),
+  );
+
+  app.patch(
+    '/invoices/:id/status',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInvoiceById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      let updated;
+      try {
+        updated = withActor(req, () =>
+          store.updateInvoiceStatus(
+            req.params.id,
+            enumValue(body.status, 'status', invoiceStatuses),
+          ),
+        );
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update invoice status.');
+      }
+      if (!updated) throw new HttpError(404, 'Invoice not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.put(
+    '/invoices/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInvoiceById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const payload = parseInvoicePayload(req.body, { partial: true });
+      const targetCompanyId = payload.companyId || existing.companyId;
+      if (targetCompanyId !== existing.companyId) {
+        requireCompanyRoles(req, targetCompanyId, companyManagementRoles);
+      }
+      const targetClientId = payload.clientId !== undefined ? payload.clientId : existing.clientId;
+      const targetTemplateId = payload.templateId !== undefined ? payload.templateId : existing.templateId;
+      const targetLineItems = payload.lineItems ?? existing.lineItems;
+      ensureClientBelongsToCompany(targetClientId, targetCompanyId);
+      if (targetTemplateId) {
+        const template = store.getInvoiceTemplateById(targetTemplateId);
+        if (!template || template.companyId !== targetCompanyId) {
+          throw new HttpError(400, 'Invoice template does not belong to this company.');
+        }
+      }
+      ensureTaskIdsBelongToCompany(
+        targetLineItems.flatMap((item) => (item.taskId ? [item.taskId] : [])),
+        targetCompanyId,
+      );
+      let updated;
+      try {
+        updated = withActor(req, () =>
+          store.updateInvoice(req.params.id, {
+            ...payload,
+            issueDate: payload.issueDate ? new Date(payload.issueDate) : undefined,
+            dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+            sentAt: payload.sentAt ? new Date(payload.sentAt) : undefined,
+            paidAt: payload.paidAt ? new Date(payload.paidAt) : undefined,
+          }),
+        );
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update invoice.');
+      }
+      if (!updated) throw new HttpError(404, 'Invoice not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.get(
+    '/invoices/:id/payments',
+    authMiddleware,
+    handler((req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
+      res.json(store.listPayments(req.params.id));
+    }),
+  );
+
+  app.post(
+    '/invoices/:id/payments',
+    authMiddleware,
+    handler((req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const amount = requiredNumber(body.amount, 'amount');
+      if (amount <= 0) {
+        throw new HttpError(400, 'amount must be greater than zero.');
+      }
+      const paidAt = optionalDateInput(body.paidAt);
+      let payment;
+      try {
+        payment = withActor(req, () =>
+          store.createPayment({
+            invoiceId: req.params.id,
+            amount,
+            method: optionalString(body.method),
+            note: optionalString(body.note),
+            paidAt: paidAt ? new Date(paidAt) : new Date(),
+          }),
+        );
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not create payment.');
+      }
+      res.status(201).json(payment);
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/invoices/bulk-status',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const targetStatus = enumValue(body.targetStatus, 'targetStatus', invoiceStatuses);
+      const invoiceIds = body.invoiceIds ? stringArray(body.invoiceIds, 'invoiceIds') : undefined;
+      const currentStatus =
+        body.currentStatus !== undefined
+          ? enumValue(body.currentStatus, 'currentStatus', invoiceStatuses)
+          : undefined;
+      let invoices = store.listInvoices(req.params.companyId);
+      if (invoiceIds?.length) {
+        const allowedIds = new Set(invoiceIds);
+        invoices = invoices.filter((invoice) => allowedIds.has(invoice.id));
+      } else if (currentStatus) {
+        invoices = invoices.filter((invoice) => invoice.status === currentStatus);
+      }
+      let updated;
+      try {
+        updated = invoices
+          .map((invoice) => withActor(req, () => store.updateInvoiceStatus(invoice.id, targetStatus)))
+          .filter(Boolean);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update invoice statuses.');
+      }
+      res.json({ updatedCount: updated.length, items: updated });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/accounts',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listLedgerAccounts(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/finance/accounts',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      let account;
+      try {
+        account = store.createLedgerAccount({
+          companyId: req.params.companyId,
+          name: requiredString(body.name, 'name', { min: 2 }),
+          type: enumValue(body.type, 'type', ledgerAccountTypes),
+          detailType: optionalString(body.detailType),
+          description: optionalString(body.description),
+          isActive: optionalBoolean(body.isActive) ?? true,
+          isSystem: Boolean(body.isSystem),
+        });
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not create ledger account.');
+      }
+      res.status(201).json(account);
+    }),
+  );
+
+  app.put(
+    '/finance/accounts/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getLedgerAccountById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Ledger account not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      let account;
+      try {
+        account = store.updateLedgerAccount(req.params.id, {
+          name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+          type: body.type !== undefined ? enumValue(body.type, 'type', ledgerAccountTypes) : undefined,
+          detailType: body.detailType !== undefined ? optionalString(body.detailType) : undefined,
+          description: body.description !== undefined ? optionalString(body.description) : undefined,
+          isActive: body.isActive !== undefined ? optionalBoolean(body.isActive) ?? false : undefined,
+        });
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not update ledger account.');
+      }
+      if (!account) throw new HttpError(404, 'Ledger account not found.');
+      res.json(account);
+    }),
+  );
+
+  app.delete(
+    '/finance/accounts/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getLedgerAccountById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Ledger account not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      try {
+        const deleted = store.deleteLedgerAccount(req.params.id);
+        if (!deleted) throw new HttpError(404, 'Ledger account not found.');
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not delete ledger account.');
+      }
+      res.status(204).end();
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/journal',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const limit = req.query.limit ? Number(req.query.limit) : 100;
+      res.json(store.listJournalEntries(req.params.companyId, limit));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/finance/journal',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const lines = parseJournalLines(body.lines);
+      ensureJournalLinesBelongToCompany(lines, req.params.companyId);
+      let entry;
+      try {
+        entry = withActor(req, () =>
+          store.createJournalEntry({
+            companyId: req.params.companyId,
+            memo: optionalString(body.memo),
+            entryDate: new Date(requiredDateInput(body.entryDate, 'entryDate')),
+            sourceType: enumValue(
+              body.sourceType ?? 'manual',
+              'sourceType',
+              ['manual', 'invoice', 'invoice_payment', 'vendor_bill', 'vendor_bill_payment'],
+            ),
+            sourceId: optionalString(body.sourceId),
+            lines,
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not post journal entry.');
+      }
+      res.status(201).json(entry);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/vendor-bills',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listVendorBills(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/supplier-payables',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listSupplierPayables(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/finance/vendor-bills',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const paidAt = optionalDateInput(body.paidAt);
+      const expenseAccountId = optionalString(body.expenseAccountId);
+      ensureLedgerAccountBelongsToCompany(expenseAccountId, req.params.companyId);
+      const supplierId = optionalString(body.supplierId);
+      const supplier = ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
+      const purchaseOrderId = optionalString(body.purchaseOrderId);
+      const purchaseOrder = ensurePurchaseOrderBelongsToCompany(purchaseOrderId, req.params.companyId);
+      if (purchaseOrder && supplier && purchaseOrder.supplierId && purchaseOrder.supplierId !== supplier.id) {
+        throw new HttpError(400, 'purchaseOrderId does not match the selected supplier.');
+      }
+      const issueDate = new Date(requiredDateInput(body.issueDate, 'issueDate'));
+      const derivedSupplier = supplier || ensureSupplierBelongsToCompany(purchaseOrder?.supplierId, req.params.companyId);
+      const dueDateInput = optionalDateInput(body.dueDate);
+      const dueDate = dueDateInput
+        ? new Date(dueDateInput)
+        : new Date(
+            issueDate.getTime() +
+              ((derivedSupplier?.paymentTermsDays ?? 0) * 24 * 60 * 60 * 1000),
+          );
+      const amount =
+        optionalNumber(body.amount) ??
+        (purchaseOrder ? purchaseOrder.totalAmount : undefined);
+      if (amount === undefined || amount <= 0) {
+        throw new HttpError(400, 'amount must be greater than zero.');
+      }
+      if (purchaseOrder) {
+        const payableSummary = store
+          .listPurchaseOrderPayables(req.params.companyId)
+          .find((summary) => summary.purchaseOrderId === purchaseOrder.id);
+        if (payableSummary && amount > payableSummary.remainingToBill + 0.0001) {
+          throw new HttpError(
+            400,
+            `amount exceeds the remaining purchase order amount (${payableSummary.remainingToBill.toFixed(2)}).`,
+          );
+        }
+      }
+      let bill;
+      try {
+        bill = withActor(req, () =>
+          store.createVendorBill({
+            companyId: req.params.companyId,
+            vendorName:
+              derivedSupplier?.name ||
+              purchaseOrder?.supplierName ||
+              requiredString(body.vendorName, 'vendorName', { min: 2 }),
+            supplierId: derivedSupplier?.id,
+            purchaseOrderId: purchaseOrder?.id,
+            referenceInvoiceNumber: optionalString(body.referenceInvoiceNumber),
+            issueDate,
+            dueDate,
+            amount,
+            status: enumValue(body.status ?? 'Draft', 'status', vendorBillStatuses),
+            notes: optionalString(body.notes),
+            expenseAccountId,
+            paidAt: paidAt ? new Date(paidAt) : undefined,
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not create vendor bill.');
+      }
+      res.status(201).json(bill);
+    }),
+  );
+
+  app.patch(
+    '/vendor-bills/:id/status',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getVendorBillById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      let updated;
+      try {
+        updated = withActor(req, () =>
+          store.updateVendorBillStatus(
+            req.params.id,
+            enumValue(body.status, 'status', vendorBillStatuses),
+          ),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not update vendor bill status.');
+      }
+      if (!updated) throw new HttpError(404, 'Vendor bill not found.');
+      res.json(updated);
+    }),
+  );
+
+  app.get(
+    '/vendor-bills/:id/payments',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      res.json(store.listVendorBillPayments(req.params.id));
+    }),
+  );
+
+  app.post(
+    '/vendor-bills/:id/payments',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const amount = requiredNumber(body.amount, 'amount');
+      if (amount <= 0) {
+        throw new HttpError(400, 'amount must be greater than zero.');
+      }
+      let result;
+      try {
+        result = withActor(req, () =>
+          store.createVendorBillPayment({
+            billId: req.params.id,
+            amount,
+            method: optionalString(body.method),
+            note: optionalString(body.note),
+            paidAt: optionalDateInput(body.paidAt)
+              ? new Date(requiredDateInput(body.paidAt, 'paidAt'))
+              : new Date(),
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not create vendor bill payment.');
+      }
+      res.status(201).json(result);
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/finance/vendor-bills/bulk-status',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const targetStatus = enumValue(body.targetStatus, 'targetStatus', vendorBillStatuses);
+      const billIds = body.billIds ? stringArray(body.billIds, 'billIds') : undefined;
+      const currentStatus =
+        body.currentStatus !== undefined
+          ? enumValue(body.currentStatus, 'currentStatus', vendorBillStatuses)
+          : undefined;
+      let bills = store.listVendorBills(req.params.companyId);
+      if (billIds?.length) {
+        const idSet = new Set(billIds);
+        bills = bills.filter((bill) => idSet.has(bill.id));
+      } else if (currentStatus) {
+        bills = bills.filter((bill) => bill.status === currentStatus);
+      }
+      let updated;
+      try {
+        updated = bills
+          .map((bill) => withActor(req, () => store.updateVendorBillStatus(bill.id, targetStatus)))
+          .filter(Boolean);
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not apply bulk status update.');
+      }
+      res.json({ updatedCount: updated.length, items: updated });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/overview',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.getFinanceOverview(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/aging',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : new Date();
+      if (Number.isNaN(asOf.getTime())) {
+        throw new HttpError(400, 'asOf must be a valid date.');
+      }
+      res.json({
+        asOf,
+        receivables: store.getReceivablesAging(req.params.companyId, asOf),
+        payables: store.getPayablesAging(req.params.companyId, asOf),
+      });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/accounts/:accountId/activity',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+      const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+      if (from && Number.isNaN(from.getTime())) {
+        throw new HttpError(400, 'from must be a valid date.');
+      }
+      if (to && Number.isNaN(to.getTime())) {
+        throw new HttpError(400, 'to must be a valid date.');
+      }
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      try {
+        res.json(
+          store.getAccountActivity(req.params.companyId, req.params.accountId, {
+            from,
+            to,
+            limit,
+          }),
+        );
+      } catch (error: any) {
+        throw new HttpError(404, error?.message || 'Account activity not found.');
+      }
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/trial-balance',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : new Date();
+      if (Number.isNaN(asOf.getTime())) {
+        throw new HttpError(400, 'asOf must be a valid date.');
+      }
+      res.json(store.getTrialBalance(req.params.companyId, asOf));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/profit-and-loss',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+      const to = req.query.to ? new Date(String(req.query.to)) : new Date();
+      if (from && Number.isNaN(from.getTime())) {
+        throw new HttpError(400, 'from must be a valid date.');
+      }
+      if (Number.isNaN(to.getTime())) {
+        throw new HttpError(400, 'to must be a valid date.');
+      }
+      res.json(store.getProfitAndLoss(req.params.companyId, from, to));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/dashboard',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyAccess(req, req.params.companyId);
+      const role = getEffectiveRole(req.user!, req.params.companyId);
+      if (!role) {
+        throw new HttpError(403, 'You do not have a role in this company.');
+      }
+      res.json(
+        store.getDashboardPayload(req.params.companyId, {
+          userId: req.user!.id,
+          role,
+        }),
+      );
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/reports/management-summary',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      res.json(store.getManagementReportSummary(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/reports/export/:dataset',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const { companyId, dataset } = req.params;
+      const safeDate = new Date().toISOString().slice(0, 10);
+      let filename = `report-${dataset}-${safeDate}.csv`;
+      let csv: string | undefined;
+      const summary = store.getManagementReportSummary(companyId);
+
+      if (dataset === 'management-kpis') {
+        csv = toCsv(
+          ['section', 'metric', 'value'],
+          [
+            ['finance', 'openReceivables', summary.finance.openReceivables],
+            ['finance', 'openPayables', summary.finance.openPayables],
+            ['finance', 'paidThisMonth', summary.finance.paidThisMonth],
+            ['finance', 'billedThisMonth', summary.finance.billedThisMonth],
+            ['inventory', 'totalItems', summary.inventory.totalItems],
+            ['inventory', 'stockValue', summary.inventory.stockValue],
+            ['inventory', 'lowStockCount', summary.inventory.lowStockCount],
+            ['inventory', 'outOfStockCount', summary.inventory.outOfStockCount],
+            ['purchases', 'openOrders', summary.purchases.openOrders],
+            ['purchases', 'orderedSpend', summary.purchases.orderedSpend],
+            ['purchases', 'awaitingReceiptUnits', summary.purchases.awaitingReceiptUnits],
+            ['purchases', 'unbilledValue', summary.purchases.unbilledValue],
+          ],
+        );
+      } else if (dataset === 'clients') {
+        csv = toCsv(
+          ['clientName', 'invoiceCount', 'totalBilled', 'paidAmount', 'outstandingAmount'],
+          summary.topClients.map((client) => [
+            client.clientName,
+            client.invoiceCount,
+            client.totalBilled,
+            client.paidAmount,
+            client.outstandingAmount,
+          ]),
+        );
+      } else if (dataset === 'suppliers') {
+        csv = toCsv(
+          [
+            'supplierName',
+            'purchaseOrderCount',
+            'totalOrderedAmount',
+            'totalBilledAmount',
+            'openPayables',
+            'remainingToBill',
+          ],
+          summary.topSuppliers.map((supplier) => [
+            supplier.supplierName,
+            supplier.purchaseOrderCount,
+            supplier.totalOrderedAmount,
+            supplier.totalBilledAmount,
+            supplier.openPayables,
+            supplier.remainingToBill,
+          ]),
+        );
+      } else if (dataset === 'inventory-alerts') {
+        csv = toCsv(
+          ['sku', 'name', 'category', 'onHand', 'reorderPoint', 'unitCost', 'location'],
+          summary.lowStockItems.map((item) => [
+            item.sku,
+            item.name,
+            item.category,
+            item.onHand,
+            item.reorderPoint,
+            item.unitCost,
+            item.location || '',
+          ]),
+        );
+      } else if (dataset === 'activity-log') {
+        const events = store.listActivityEvents(companyId, { limit: 500 });
+        csv = toCsv(
+          ['createdAt', 'actorName', 'entityType', 'entityId', 'action', 'summary'],
+          events.map((event) => [
+            event.createdAt.toISOString(),
+            event.actorName || '',
+            event.entityType,
+            event.entityId,
+            event.action,
+            event.summary,
+          ]),
+        );
+      }
+
+      if (!csv) throw new HttpError(404, `Unsupported dataset "${dataset}"`);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/finance/export/:dataset',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { companyId, dataset } = req.params;
+      const safeDate = new Date().toISOString().slice(0, 10);
+      let filename = `finance-${dataset}-${safeDate}.csv`;
+      let csv: string | undefined;
+      const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : new Date();
+      const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+      const to = req.query.to ? new Date(String(req.query.to)) : new Date();
+      if (req.query.asOf && Number.isNaN(asOf.getTime())) {
+        throw new HttpError(400, 'asOf must be a valid date.');
+      }
+      if (from && Number.isNaN(from.getTime())) {
+        throw new HttpError(400, 'from must be a valid date.');
+      }
+      if (req.query.to && Number.isNaN(to.getTime())) {
+        throw new HttpError(400, 'to must be a valid date.');
+      }
+
+      if (dataset === 'invoices') {
+        const invoices = store.listInvoices(companyId);
+        csv = toCsv(
+          ['invoiceNumber', 'clientId', 'issueDate', 'dueDate', 'total', 'status', 'currency', 'taxRate'],
+          invoices.map((invoice) => [
+            invoice.invoiceNumber,
+            invoice.clientId,
+            invoice.issueDate.toISOString(),
+            invoice.dueDate.toISOString(),
+            invoice.total,
+            invoice.status,
+            invoice.currency || 'USD',
+            invoice.taxRate ?? 0,
+          ]),
+        );
+      } else if (dataset === 'vendor-bills') {
+        const bills = store.listVendorBills(companyId);
+        csv = toCsv(
+          ['billNumber', 'referenceInvoiceNumber', 'vendorName', 'issueDate', 'dueDate', 'amount', 'status', 'paidAt'],
+          bills.map((bill) => [
+            bill.billNumber,
+            bill.referenceInvoiceNumber || '',
+            bill.vendorName,
+            bill.issueDate.toISOString(),
+            bill.dueDate.toISOString(),
+            bill.amount,
+            bill.status,
+            bill.paidAt ? bill.paidAt.toISOString() : '',
+          ]),
+        );
+      } else if (dataset === 'journal') {
+        const entries = store.listJournalEntries(companyId, 500);
+        csv = toCsv(
+          ['entryId', 'entryDate', 'sourceType', 'sourceId', 'memo', 'lineId', 'accountId', 'description', 'debit', 'credit'],
+          entries.flatMap((entry) =>
+            entry.lines.map((line) => [
+              entry.id,
+              entry.entryDate.toISOString(),
+              entry.sourceType,
+              entry.sourceId || '',
+              entry.memo || '',
+              line.id,
+              line.accountId,
+              line.description || '',
+              line.debit,
+              line.credit,
+            ]),
+          ),
+        );
+      } else if (dataset === 'accounts') {
+        const accounts = store.listLedgerAccounts(companyId);
+        csv = toCsv(
+          ['code', 'name', 'type', 'detailType', 'description', 'isActive', 'isSystem'],
+          accounts.map((account) => [
+            account.code,
+            account.name,
+            account.type,
+            account.detailType || '',
+            account.description || '',
+            account.isActive === false ? 'false' : 'true',
+            account.isSystem ? 'true' : 'false',
+          ]),
+        );
+      } else if (dataset === 'aging') {
+        filename = `finance-aging-${safeDate}.csv`;
+        const receivables = store.getReceivablesAging(companyId, asOf);
+        const payables = store.getPayablesAging(companyId, asOf);
+        csv = toCsv(
+          ['bucket', 'receivables', 'payables'],
+          receivables.map((bucket) => [
+            bucket.bucket,
+            bucket.amount,
+            payables.find((payable) => payable.bucket === bucket.bucket)?.amount || 0,
+          ]),
+        );
+      } else if (dataset === 'trial-balance') {
+        filename = `finance-trial-balance-${safeDate}.csv`;
+        const report = store.getTrialBalance(companyId, asOf);
+        csv = toCsv(
+          ['asOf', 'code', 'name', 'type', 'debitTotal', 'creditTotal', 'debitBalance', 'creditBalance'],
+          report.lines.map((line) => [
+            report.asOf.toISOString(),
+            line.code,
+            line.name,
+            line.type,
+            line.debitTotal,
+            line.creditTotal,
+            line.debitBalance,
+            line.creditBalance,
+          ]),
+        );
+      } else if (dataset === 'profit-and-loss') {
+        filename = `finance-profit-and-loss-${safeDate}.csv`;
+        const report = store.getProfitAndLoss(companyId, from, to);
+        csv = toCsv(
+          ['from', 'to', 'section', 'code', 'name', 'amount'],
+          [
+            ...report.revenue.map((line) => [
+              report.from.toISOString(),
+              report.to.toISOString(),
+              'Revenue',
+              line.code,
+              line.name,
+              line.amount,
+            ]),
+            ...report.expenses.map((line) => [
+              report.from.toISOString(),
+              report.to.toISOString(),
+              'Expense',
+              line.code,
+              line.name,
+              line.amount,
+            ]),
+            [report.from.toISOString(), report.to.toISOString(), 'Total', 'Revenue', 'Total Revenue', report.totalRevenue],
+            [report.from.toISOString(), report.to.toISOString(), 'Total', 'Expenses', 'Total Expenses', report.totalExpenses],
+            [report.from.toISOString(), report.to.toISOString(), 'Total', 'Net', 'Net Income', report.netIncome],
+          ],
+        );
+      }
+
+      if (!csv) throw new HttpError(404, `Unsupported dataset "${dataset}"`);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    }),
+  );
+
+  app.post(
+    '/seed',
+    authMiddleware,
+    handler((req, res) => {
+      requireAdmin(req);
+      if (!allowSeedReset) {
+        throw new HttpError(403, 'Seed reset is disabled in this environment.');
+      }
+      store.reset();
+      res.json({ success: true });
+    }),
+  );
+
+  app.use((_req, _res, next) => {
+    next(new HttpError(404, 'Route not found.'));
+  });
+
+  app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
+    if (error instanceof HttpError) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);
+    res.status(500).json({ message: 'Internal server error.' });
+  });
+
+  return app;
 }

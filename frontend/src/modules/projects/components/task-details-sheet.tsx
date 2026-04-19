@@ -27,7 +27,8 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { getProjectById, getCommentsByTaskId, createComment, updateTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
 import { getUsersByCompany } from '@/services/userService';
-import type { Task, Comment, TaskStatus, TaskPriority, Project, User } from '@/modules/projects/types';
+import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
+import type { User } from '@/modules/users/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -39,6 +40,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { createInvoice } from '@/services/financeService';
 import { Badge } from '@/components/ui/badge';
+import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
 interface TaskDetailsSheetProps {
   open: boolean;
@@ -61,7 +63,8 @@ function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, l
 
 export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: TaskDetailsSheetProps) {
   const { toast } = useToast();
-  const { selectedCompany, currentUser } = useCompany();
+  const { selectedCompany, currentUser, currentRole } = useCompany();
+  const canCreateFinanceInvoice = currentRole && currentRole !== 'Employee';
 
   const [editableTask, setEditableTask] = React.useState<Task>(task);
   const [comments, setComments] = React.useState<Comment[]>([]);
@@ -81,23 +84,30 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         setLoading(true);
         setEditableTask(task);
         setInvoicePreview(task.invoiceImage || null);
+        const canLoadCompanyUsers = currentRole && currentRole !== 'Employee';
         const [projectData, commentsData, companyUsersData, tasksData] = await Promise.all([
             getProjectById(task.projectId),
             getCommentsByTaskId(task.id),
-            getUsersByCompany(selectedCompany.id),
+            canLoadCompanyUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
             getTasks(),
         ]);
+        const visibleUsers =
+          companyUsersData.length > 0
+            ? companyUsersData
+            : currentUser
+              ? [currentUser]
+              : [];
         setProject(projectData);
         setComments(commentsData);
-        setAllUsers(companyUsersData);
-        setCompanyUsers(companyUsersData.map(u => ({ value: u.id, label: u.name, icon: UserIcon })));
+        setAllUsers(visibleUsers);
+        setCompanyUsers(visibleUsers.map(u => ({ value: u.id, label: u.name, icon: UserIcon })));
         setAllTasks(tasksData.filter(t => t.companyId === selectedCompany.id && t.id !== task.id));
         setLoading(false);
     }
     if (open) {
       loadData();
     }
-  }, [task, selectedCompany, open]);
+  }, [task, selectedCompany, open, currentRole, currentUser]);
 
   const handleFieldChange = (field: keyof Task, value: any) => {
     setEditableTask(prev => ({...prev, [field]: value}));
@@ -166,7 +176,10 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         lineItems: [
           {
             taskId: editableTask.id,
+            itemType: 'Task',
             description: editableTask.title,
+            quantity: 1,
+            unitPrice: editableTask.invoiceAmount || 0,
             amount: editableTask.invoiceAmount || 0,
           },
         ],
@@ -242,7 +255,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
              <div className="space-y-4 py-4">
                 <SheetHeader>
                     <SheetTitle><Skeleton className="h-8 w-3/4" /></SheetTitle>
-                    <SheetDescription><Skeleton className="h-4 w-1/2" /></SheetDescription>
+                    <Skeleton className="h-4 w-1/2 mt-2" />
                 </SheetHeader>
                 <div className="py-6 space-y-6">
                     <Skeleton className="h-10 w-full" />
@@ -258,7 +271,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                 In project <span className="font-semibold text-foreground">{project?.name}</span>
               </SheetDescription>
             </SheetHeader>
-            <div className="flex-1 overflow-y-auto pr-6 -mr-6 pl-1 -ml-1">
+            <div className="flex-1 overflow-y-auto pe-6 -me-6 ps-1 -ms-1">
             <div className="space-y-6 py-4">
                 
                 <dl className="space-y-4">
@@ -320,11 +333,11 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           <Button
                               variant={'outline'}
                               className={cn(
-                              'w-[180px] justify-start text-left font-normal',
+                              'w-[180px] justify-start text-start font-normal',
                               !editableTask.dueDate && 'text-muted-foreground'
                               )}
                           >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              <CalendarIcon className="me-2 h-4 w-4" />
                               {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>Pick a date</span>}
                           </Button>
                           </PopoverTrigger>
@@ -365,6 +378,19 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                 </dl>
                 
                 <Separator />
+
+                {selectedCompany && (
+                  <>
+                    <RecordSupportPanel
+                      companyId={selectedCompany.id}
+                      entityType="task"
+                      entityId={editableTask.id}
+                      title="Task Attachments & Timeline"
+                      compact
+                    />
+                    <Separator />
+                  </>
+                )}
 
                 <div>
                     <h4 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -427,11 +453,11 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                 <Button
                                     variant={'outline'}
                                     className={cn(
-                                    'w-[180px] justify-start text-left font-normal',
+                                    'w-[180px] justify-start text-start font-normal',
                                     !editableTask.invoiceDate && 'text-muted-foreground'
                                     )}
                                 >
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    <CalendarIcon className="me-2 h-4 w-4" />
                                     {editableTask.invoiceDate ? format(editableTask.invoiceDate, 'PPP') : <span>Pick a date</span>}
                                 </Button>
                             </PopoverTrigger>
@@ -451,7 +477,9 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           <p className="text-sm text-muted-foreground">
                             {editableTask.generatedInvoiceId
                               ? `Linked to invoice ${editableTask.invoiceNumber || editableTask.generatedInvoiceId}`
-                              : 'Create a finance invoice so accountants can track it without opening the task.'}
+                              : canCreateFinanceInvoice
+                                ? 'Create a finance invoice so accountants can track it without opening the task.'
+                                : 'Invoice creation is available to managers, accountants, and admins.'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -461,18 +489,20 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                               In Finance
                             </Badge>
                           )}
-                          <Button
-                            size="sm"
-                            onClick={handleCreateFinanceInvoice}
-                            disabled={creatingInvoice}
-                            variant={editableTask.generatedInvoiceId ? 'secondary' : 'default'}
-                          >
-                            {creatingInvoice
-                              ? 'Creating...'
-                              : editableTask.generatedInvoiceId
-                                ? 'Refresh link'
-                                : 'Create invoice'}
-                          </Button>
+                          {canCreateFinanceInvoice && (
+                            <Button
+                              size="sm"
+                              onClick={handleCreateFinanceInvoice}
+                              disabled={creatingInvoice}
+                              variant={editableTask.generatedInvoiceId ? 'secondary' : 'default'}
+                            >
+                              {creatingInvoice
+                                ? 'Creating...'
+                                : editableTask.generatedInvoiceId
+                                  ? 'Refresh link'
+                                  : 'Create invoice'}
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>

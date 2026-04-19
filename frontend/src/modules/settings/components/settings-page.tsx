@@ -27,9 +27,12 @@ import { Database, UserPlus, Copy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { runSeedDatabase } from '@/actions/seedActions';
+import { useI18n } from '@/context/i18n-context';
+import { NumberingSettingsPanel } from './numbering-settings-panel';
 
 export function SettingsPage() {
   const { toast } = useToast();
+  const { t } = useI18n();
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
   const [adminPassword, setAdminPassword] = React.useState('');
@@ -123,11 +126,13 @@ export function SettingsPage() {
   return (
     <div className="flex h-full flex-col gap-6">
       <div>
-        <h1 className="text-3xl font-bold font-headline">Settings</h1>
+        <h1 className="text-3xl font-bold font-headline">{t('settings.title')}</h1>
         <p className="text-muted-foreground">
-          Manage your application settings and data.
+          {t('settings.subtitle')}
         </p>
       </div>
+
+      <NumberingSettingsPanel />
 
       <Card>
         <CardHeader>
@@ -139,7 +144,7 @@ export function SettingsPage() {
         <CardContent className="space-y-6">
           <div className="flex items-start gap-4">
             <Button onClick={handleCreateAdmin} variant="outline" disabled={isCreatingAdmin}>
-              <UserPlus className="mr-2 h-4 w-4" />
+              <UserPlus className="me-2 h-4 w-4" />
               {isCreatingAdmin ? 'Creating Admin...' : '1. Create Admin User'}
             </Button>
             <p className="text-sm text-muted-foreground pt-2">
@@ -147,7 +152,7 @@ export function SettingsPage() {
             </p>
           </div>
            {adminPassword && (
-              <div className="flex items-end gap-2 pl-10">
+              <div className="flex items-end gap-2 ps-10">
                 <div className="grid w-full max-w-sm items-center gap-1.5">
                     <Label htmlFor="password">New Admin Password (save this!)</Label>
                     <Input id="password" type="text" readOnly value={adminPassword} />
@@ -161,7 +166,7 @@ export function SettingsPage() {
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" disabled={isSeeding}>
-                  <Database className="mr-2 h-4 w-4" />
+                  <Database className="me-2 h-4 w-4" />
                   {isSeeding ? 'Seeding...' : '2. Seed Database'}
                 </Button>
               </AlertDialogTrigger>

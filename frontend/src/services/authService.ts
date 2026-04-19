@@ -1,6 +1,12 @@
 'use client';
 
-import { apiFetch, clearStoredToken, getStoredToken, setStoredToken } from '@/lib/api-client';
+import {
+  apiFetch,
+  clearStoredToken,
+  getStoredToken,
+  isApiError,
+  setStoredToken,
+} from '@/lib/api-client';
 import type { User } from '@/modules/users/types';
 
 interface AuthResponse {
@@ -50,7 +56,10 @@ export async function fetchCurrentUser(): Promise<User | null> {
     });
     return user;
   } catch (error) {
-    clearStoredToken();
+    if (isApiError(error) && error.status === 401) {
+      clearStoredToken();
+      return null;
+    }
     console.error('Failed to fetch current user', error);
     return null;
   }

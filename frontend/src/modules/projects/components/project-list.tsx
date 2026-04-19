@@ -7,24 +7,50 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Globe, Lock } from 'lucide-react';
+import { getClients } from '@/services/financeService';
+import type { Client } from '@/modules/finance/types';
+import { canViewProject } from '@/modules/projects/lib/access';
 
 export function ProjectList() {
-  const { selectedCompany, projects, currentUser, loading } = useCompany();
+  const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();
+  const [clients, setClients] = React.useState<Client[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadClients = async () => {
+      if (!selectedCompany) {
+        setClients([]);
+        return;
+      }
+      if (currentRole === 'Employee') {
+        setClients([]);
+        return;
+      }
+      try {
+        const data = await getClients(selectedCompany.id);
+        if (!cancelled) setClients(data);
+      } catch {
+        if (!cancelled) setClients([]);
+      }
+    };
+    loadClients();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRole, selectedCompany]);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];
     return projects.filter(
       (p) =>
         p.companyId === selectedCompany.id &&
-        (p.visibility === 'Public' ||
-          (p.memberIds?.includes(currentUser.id)) ||
-          currentUser.role === 'Admin')
+        canViewProject(p, currentUser.id, currentRole)
     ).sort((a,b) => a.name.localeCompare(b.name));
-  }, [projects, currentUser, selectedCompany]);
+  }, [projects, currentUser, currentRole, selectedCompany]);
   
   if (loading) {
       return (
-           <div className="flex w-max space-x-4 pb-4">
+           <div className="flex w-max gap-4 pb-4">
                {[...Array(3)].map((_, i) => (
                     <Skeleton key={i} className='w-[280px] h-[130px]' />
                ))}
@@ -35,9 +61,12 @@ export function ProjectList() {
   return (
     <div>
         <ScrollArea className="w-full whitespace-nowrap">
-            <div className="flex w-max space-x-4 pb-4">
+            <div className="flex w-max gap-4 pb-4">
                 {visibleProjects.map((project) => (
                     <a href={`/projects/${project.id}`} key={project.id}>
+                        {(() => {
+                            const client = clients.find((entry) => entry.id === project.clientId);
+                            return (
                         <Card
                             className='w-[280px] h-[130px] cursor-pointer hover:border-primary transition-colors flex flex-col'
                         >
@@ -49,12 +78,17 @@ export function ProjectList() {
                                 <CardDescription className="line-clamp-2 h-10 whitespace-normal">{project.description}</CardDescription>
                             </CardHeader>
                             <div className="px-6 pb-4">
-                                <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
-                                {project.visibility === 'Private' ? <Lock className="mr-1 h-3 w-3" /> : <Globe className="mr-1 h-3 w-3" />}
-                                {project.visibility}
-                                </Badge>
+                                <div className="flex flex-wrap gap-2">
+                                    <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
+                                    {project.visibility === 'Private' ? <Lock className="me-1 h-3 w-3" /> : <Globe className="me-1 h-3 w-3" />}
+                                    {project.visibility}
+                                    </Badge>
+                                    {client && <Badge variant="outline">{client.name}</Badge>}
+                                </div>
                             </div>
                         </Card>
+                            );
+                        })()}
                     </a>
                 ))}
             </div>

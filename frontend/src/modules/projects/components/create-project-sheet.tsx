@@ -117,7 +117,7 @@ export function CreateProjectSheet() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" />New Project</Button>
+        <Button variant="outline"><PlusCircle className="me-2 h-4 w-4" />New Project</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-lg sm:max-w-lg flex flex-col">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
@@ -127,24 +127,24 @@ export function CreateProjectSheet() {
                 Fill in the details below to create a new project.
             </SheetDescription>
             </SheetHeader>
-            <div className="flex-1 overflow-y-auto pr-6 -mr-6">
+            <div className="flex-1 overflow-y-auto pe-6 -me-6">
             <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">
+                <Label htmlFor="name" className="text-end">
                     Project Name
                 </Label>
                 <Input id="name" placeholder="e.g. Q4 Marketing Campaign" className="col-span-3" value={name} onChange={e => setName(e.target.value)} />
                 </div>
 
                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="description" className="text-right">
+                    <Label htmlFor="description" className="text-end">
                         Description
                     </Label>
                     <Input id="description" placeholder="A brief description of the project." className="col-span-3" value={description} onChange={e => setDescription(e.target.value)} />
                 </div>
                 
                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">
+                    <Label className="text-end">
                         Client
                     </Label>
                     <div className="col-span-3">
@@ -167,7 +167,7 @@ export function CreateProjectSheet() {
                 </div>
 
                 <div className="grid grid-cols-4 items-start gap-4">
-                <Label className="text-right pt-2">
+                <Label className="text-end pt-2">
                     Visibility
                 </Label>
                 <div className="col-span-3">
@@ -191,7 +191,7 @@ export function CreateProjectSheet() {
                 
                 {visibility === 'Private' && (
                     <div className="grid grid-cols-4 items-start gap-4">
-                        <Label className="text-right pt-2">
+                        <Label className="text-end pt-2">
                             Members
                         </Label>
                         <div className="col-span-3">
@@ -209,7 +209,7 @@ export function CreateProjectSheet() {
                 )}
 
                 <div className="grid grid-cols-4 items-start gap-4">
-                    <Label htmlFor="color" className="text-right pt-2">
+                    <Label htmlFor="color" className="text-end pt-2">
                         Project Color
                     </Label>
                     <div className="col-span-3">

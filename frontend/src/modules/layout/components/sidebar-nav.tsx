@@ -7,23 +7,41 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
-import { LayoutDashboard, Users, Network, FolderKanban, Building, Settings, Banknote } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Users,
+  Network,
+  FolderKanban,
+  Building,
+  Settings,
+  Banknote,
+  Package,
+  ShoppingCart,
+  Handshake,
+  Truck,
+} from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useI18n } from '@/context/i18n-context';
 
 const allNavItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/projects', label: 'Projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/diagram', label: 'Diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/finance', label: 'Finance', icon: Banknote, roles: ['Admin', 'Accountant'] },
-  { href: '/users', label: 'Users', icon: Users, roles: ['Admin', 'Manager'] },
-  { href: '/companies', label: 'Companies', icon: Building, roles: ['Admin'] },
-  { href: '/settings', label: 'Settings', icon: Settings, roles: ['Admin'] },
+  { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
+  { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
+  { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
+  { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'] },
+  { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'] },
+  { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'] },
+  { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'] },
+  { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'] },
+  { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'] },
+  { href: '/companies', labelKey: 'nav.companies', icon: Building, roles: ['Admin'] },
+  { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'] },
 ];
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const { user, loading } = useAuthGuard();
+  const { user, loading, effectiveRole } = useAuthGuard();
+  const { t } = useI18n();
 
   if (loading || !user) {
     return (
@@ -36,9 +54,12 @@ export function SidebarNav() {
   }
 
   const navItems = allNavItems.filter(item => {
-    // Show settings link to admin even if on the public /settings page
-    if (item.href === '/settings' && user.role === 'Admin') return true;
-    return item.roles.includes(user.role)
+    if (item.href === '/companies' || item.href === '/settings') {
+      return user.role === 'Admin';
+    }
+
+    if (!effectiveRole) return false;
+    return item.roles.includes(effectiveRole)
   });
 
   return (
@@ -58,11 +79,11 @@ export function SidebarNav() {
             <SidebarMenuButton
               asChild
               isActive={isActive}
-              tooltip={{ children: item.label, side: 'right' }}
+              tooltip={{ children: t(item.labelKey), side: 'right' }}
             >
               <a href={item.href}>
                 <Icon />
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>

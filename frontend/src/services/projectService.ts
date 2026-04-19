@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, isApiError } from '@/lib/api-client';
 import type { Task, Project, Comment } from '@/modules/projects/types';
 
 const toDate = (value: any) => (value ? new Date(value) : undefined);
@@ -24,8 +24,11 @@ export async function getProjectById(id: string): Promise<Project | undefined> {
   try {
     return await apiFetch<Project>(`/projects/${id}`);
   } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return undefined;
+    }
     console.error(`Error fetching project ${id}`, error);
-    return undefined;
+    throw error;
   }
 }
 
@@ -79,8 +82,11 @@ export async function getTaskById(id: string): Promise<Task | undefined> {
     const task = await apiFetch<Task>(`/tasks/${id}`);
     return mapTask(task);
   } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return undefined;
+    }
     console.error(`Error fetching task ${id}`, error);
-    return undefined;
+    throw error;
   }
 }
 
@@ -95,17 +101,12 @@ export async function createTask(
   return mapTask(task);
 }
 
-export async function updateTask(taskId: string, taskData: Partial<Task>): Promise<Task | undefined> {
-  try {
-    const task = await apiFetch<Task>(`/tasks/${taskId}`, {
-      method: 'PUT',
-      body: JSON.stringify(taskData),
-    });
-    return mapTask(task);
-  } catch (error) {
-    console.error(`Error updating task ${taskId}`, error);
-    return undefined;
-  }
+export async function updateTask(taskId: string, taskData: Partial<Task>): Promise<Task> {
+  const task = await apiFetch<Task>(`/tasks/${taskId}`, {
+    method: 'PUT',
+    body: JSON.stringify(taskData),
+  });
+  return mapTask(task);
 }
 
 export async function markTasksAsInvoiced(taskIds: string[], invoiceId: string): Promise<void> {

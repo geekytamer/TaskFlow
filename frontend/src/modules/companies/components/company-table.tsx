@@ -72,7 +72,7 @@ export function CompanyTable() {
               onCompanyAdded={onCompanyAdded}
             >
               <Button>
-                  <PlusCircle className="mr-2 h-4 w-4" />
+                  <PlusCircle className="me-2 h-4 w-4" />
                   Add Company
               </Button>
             </AddCompanyDialog>
@@ -84,7 +84,7 @@ export function CompanyTable() {
                 <TableHead>Company</TableHead>
                 <TableHead>Website</TableHead>
                 <TableHead>Address</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-end">Actions</TableHead>
             </TableRow>
             </TableHeader>
             <TableBody>
@@ -97,7 +97,7 @@ export function CompanyTable() {
                     </a>
                 </TableCell>
                 <TableCell>{company.address}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-end">
                   <AlertDialog>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

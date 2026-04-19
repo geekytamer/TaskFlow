@@ -18,10 +18,12 @@ import {
 } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 
 export function CompanySwitcher() {
   const [open, setOpen] = useState(false);
   const { companies, selectedCompany, setSelectedCompany } = useCompany();
+  const { t } = useI18n();
 
   if (!selectedCompany) {
     return null;
@@ -40,14 +42,14 @@ export function CompanySwitcher() {
             <Building className="h-4 w-4" />
             <span className="truncate">{selectedCompany.name}</span>
           </div>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[250px] p-0">
         <Command>
-          <CommandInput placeholder="Search company..." />
+          <CommandInput placeholder={t('company.search')} />
           <CommandList>
-            <CommandEmpty>No company found.</CommandEmpty>
+            <CommandEmpty>{t('company.none')}</CommandEmpty>
             <CommandGroup>
               {companies.map((company) => (
                 <CommandItem
@@ -60,7 +62,7 @@ export function CompanySwitcher() {
                 >
                   <Check
                     className={cn(
-                      'mr-2 h-4 w-4',
+                      'me-2 h-4 w-4',
                       selectedCompany.id === company.id
                         ? 'opacity-100'
                         : 'opacity-0'

@@ -52,7 +52,7 @@ const GanttTooltip = ({ active, payload }: any) => {
             </div>
             {user && (
                 <div className="flex items-center pt-2 mt-2 border-t">
-                    <Avatar className="h-6 w-6 mr-2">
+                    <Avatar className="h-6 w-6 me-2">
                         <AvatarImage src={user.avatar} />
                         <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
                     </Avatar>

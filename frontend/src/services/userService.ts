@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, isApiError } from '@/lib/api-client';
 import type { User } from '@/modules/users/types';
 
 export async function getUsers(): Promise<User[]> {
@@ -10,8 +10,11 @@ export async function getUserById(id: string): Promise<User | undefined> {
   try {
     return await apiFetch<User>(`/users/${id}`);
   } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return undefined;
+    }
     console.error(`Error fetching user ${id}`, error);
-    return undefined;
+    throw error;
   }
 }
 
@@ -46,16 +49,11 @@ export async function createUserWithId(
 export async function updateUser(
   userId: string,
   userData: Partial<Omit<User, 'id'>>,
-): Promise<User | undefined> {
-  try {
-    return await apiFetch<User>(`/users/${userId}`, {
-      method: 'PUT',
-      body: JSON.stringify(userData),
-    });
-  } catch (error) {
-    console.error(`Error updating user ${userId}`, error);
-    return undefined;
-  }
+): Promise<User> {
+  return await apiFetch<User>(`/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(userData),
+  });
 }
 
 export async function deleteUser(userId: string): Promise<void> {

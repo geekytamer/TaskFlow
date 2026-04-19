@@ -38,6 +38,7 @@ import { createUser, updateUser } from '@/services/userService';
 import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Building } from 'lucide-react';
+import { isApiError } from '@/lib/api-client';
 
 const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
@@ -67,7 +68,7 @@ export function AddUserSheet({
   currentUserRole,
 }: AddUserSheetProps) {
   const { toast } = useToast();
-  const { companies } = useCompany();
+  const { companies, currentUser, selectedCompany } = useCompany();
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [companyAssignments, setCompanyAssignments] = React.useState<
     Record<string, { role: UserRole; positionId?: string }>
@@ -96,17 +97,40 @@ export function AddUserSheet({
     return [];
   }, [currentUserRole]);
 
+  const manageableCompanies = React.useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin') return companies;
+    const managedIds = new Set(
+      (currentUser.companyRoles || [])
+        .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
+        .map((assignment) => assignment.companyId),
+    );
+    return companies.filter((company) => managedIds.has(company.id));
+  }, [companies, currentUser]);
+
   const companyItems: MultiSelectItem[] = React.useMemo(() => 
-    companies.map(c => ({ value: c.id, label: c.name, icon: Building })),
-  [companies]);
+    manageableCompanies.map(c => ({ value: c.id, label: c.name, icon: Building })),
+  [manageableCompanies]);
 
   React.useEffect(() => {
     async function loadPositions() {
-      const allPositions = await getPositions();
-      setPositions(allPositions);
+      if (currentUser?.role !== 'Admin') {
+        setPositions([]);
+        return;
+      }
+      try {
+        const allPositions = await getPositions();
+        setPositions(allPositions);
+      } catch (error) {
+        if (isApiError(error) && (error.status === 401 || error.status === 403)) {
+          setPositions([]);
+          return;
+        }
+        console.error('Failed to load positions', error);
+      }
     }
     loadPositions();
-  }, []);
+  }, [currentUser?.role]);
 
   // Ensure every selected company has an assignment entry
   React.useEffect(() => {
@@ -149,11 +173,16 @@ export function AddUserSheet({
       form.reset({
         name: '',
         email: '',
-        companyIds: [],
+        companyIds:
+          selectedCompany && companyItems.some((company) => company.value === selectedCompany.id)
+            ? [selectedCompany.id]
+            : companyItems.length === 1
+              ? [companyItems[0].value]
+              : [],
       });
       setCompanyAssignments({});
     }
-  }, [userToEdit, form]);
+  }, [companyItems, form, selectedCompany, userToEdit]);
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -304,6 +333,7 @@ export function AddUserSheet({
                         <p className="text-sm font-medium">Position (optional)</p>
                         <Select
                           value={assignment.positionId}
+                          disabled={positions.length === 0}
                           onValueChange={(value) =>
                             setCompanyAssignments((prev) => ({
                               ...prev,
@@ -313,7 +343,13 @@ export function AddUserSheet({
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select a position" />
+                              <SelectValue
+                                placeholder={
+                                  positions.length === 0
+                                    ? 'No positions available for your role'
+                                    : 'Select a position'
+                                }
+                              />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>

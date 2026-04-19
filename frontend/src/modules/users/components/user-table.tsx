@@ -21,7 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal } from 'lucide-react';
-import { getUsers, deleteUser } from '@/services/userService';
+import { getUsers, getUsersByCompany, deleteUser } from '@/services/userService';
 import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
@@ -40,6 +40,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { isApiError } from '@/lib/api-client';
 
 const roleColors: Record<UserRole, string> = {
     Admin: 'bg-primary text-primary-foreground',
@@ -51,10 +52,11 @@ const roleColors: Record<UserRole, string> = {
 interface UserTableProps {
   onUserUpdated: () => void;
   currentUserRole?: UserRole;
+  refreshToken?: number;
 }
 
-export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
-  const { selectedCompany, companies } = useCompany();
+export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: UserTableProps) {
+  const { selectedCompany, companies, currentUser } = useCompany();
   const [users, setUsers] = React.useState<User[]>([]);
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -62,42 +64,65 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
   const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
   const { toast } = useToast();
 
+  const managedCompanyIds = React.useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin') {
+      return companies.map((company) => company.id);
+    }
+    return (currentUser.companyRoles || [])
+      .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
+      .map((assignment) => assignment.companyId);
+  }, [companies, currentUser]);
+
   const fetchData = React.useCallback(async () => {
+      if (!selectedCompany && currentUser?.role !== 'Admin') {
+        setUsers([]);
+        setPositions([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
-        // Fetch all users and all positions, then filter client-side
-        const [allUsers, allPositions] = await Promise.all([
-            getUsers(),
-            getPositions(),
-        ]);
-        
-        let displayUsers = allUsers;
-        if (selectedCompany && currentUserRole !== 'Admin') {
-             displayUsers = allUsers.filter((u) => {
-               if (u.companyRoles && u.companyRoles.length > 0) {
-                 return u.companyRoles.some((cr) => cr.companyId === selectedCompany.id);
-               }
-               return u.companyIds && u.companyIds.includes(selectedCompany.id);
-             });
-        }
+        const usersPromise =
+          selectedCompany
+            ? getUsersByCompany(selectedCompany.id)
+            : currentUser?.role === 'Admin'
+            ? getUsers()
+            : Promise.resolve([]);
+        const positionsPromise =
+          currentUser?.role === 'Admin'
+            ? getPositions().catch((error) => {
+                if (isApiError(error) && (error.status === 401 || error.status === 403)) {
+                  return [];
+                }
+                throw error;
+              })
+            : Promise.resolve([]);
 
-        setUsers(displayUsers);
+        const [scopedUsers, allPositions] = await Promise.all([
+            usersPromise,
+            positionsPromise,
+        ]);
+
+        setUsers(scopedUsers);
         setPositions(allPositions);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to fetch user table data:", error);
         toast({
           variant: 'destructive',
           title: 'Error',
-          description: 'Could not load user data.',
+          description: error?.message || 'Could not load user data.',
         });
+        setUsers([]);
+        setPositions([]);
       } finally {
         setLoading(false);
       }
-  }, [selectedCompany, currentUserRole, toast]);
+  }, [currentUser?.role, selectedCompany, toast]);
 
   React.useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, refreshToken]);
   
   const handleUserUpdated = () => {
     fetchData(); // Re-fetch data for the table
@@ -111,15 +136,15 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
       await deleteUser(userToDelete.id);
       toast({
         title: 'User Deleted',
-        description: `User "${userToDelete.name}" has been deleted from Firestore. The Auth user must be deleted manually.`,
+        description: `User "${userToDelete.name}" has been deleted.`,
       });
       fetchData();
       setUserToDelete(null);
-    } catch (error) {
+    } catch (error: any) {
        toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to delete user.',
+        description: error?.message || 'Failed to delete user.',
       });
     }
   }
@@ -134,7 +159,17 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
 
   const canManageUser = (targetUser: User) => {
     if (!currentUserRole) return false;
+    if (!selectedCompany) return false;
+    const assignmentCompanyIds =
+      targetUser.companyRoles && targetUser.companyRoles.length > 0
+        ? targetUser.companyRoles.map((assignment) => assignment.companyId)
+        : targetUser.companyIds || [];
+    const isWithinManagedScope = assignmentCompanyIds.every((companyId) =>
+      managedCompanyIds.includes(companyId),
+    );
+    if (!isWithinManagedScope) return false;
     const targetRole = getRoleForCompany(targetUser);
+    if (currentUser?.role === 'Admin') return true;
     if (currentUserRole === 'Admin') return true;
     if (currentUserRole === 'Manager' && targetRole === 'Employee') return true;
     return false;
@@ -155,7 +190,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                 <TableHead>User</TableHead>
                 <TableHead>Assignments</TableHead>
                 <TableHead>Primary Role</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-end">Actions</TableHead>
             </TableRow>
         </TableHeader>
                 <TableBody>
@@ -172,7 +207,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                          </TableCell>
                          <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                          <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
-                         <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                         <TableCell className="text-end"><Skeleton className="h-8 w-8 ms-auto" /></TableCell>
                      </TableRow>
                  ))}
                 </TableBody>
@@ -190,7 +225,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
               <TableHead>User</TableHead>
               <TableHead>Assignments</TableHead>
               <TableHead>Primary Role</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-end">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -233,7 +268,7 @@ export function UserTable({ onUserUpdated, currentUserRole }: UserTableProps) {
                     </div>
                   </TableCell>
                   <TableCell><Badge variant="outline" className={roleColors[getRoleForCompany(user)]}>{getRoleForCompany(user)}</Badge></TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     {isManageable && (
                         <AlertDialog>
                         <DropdownMenu>

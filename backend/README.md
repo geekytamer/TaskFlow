@@ -3,8 +3,9 @@
 Lightweight Express + SQLite API that replaces the previous Firebase usage. Data is stored in `taskflow.db` at the project root and seeded from `src/data/seed-data.ts` when empty.
 
 ## Quick start
+
 - Install dependencies: `npm install`
-- Run in dev mode: `npm run dev` (defaults to port `4000`)
+- Run in dev mode: `npm run dev` (defaults to port `4005`)
 - Optional env:
   - `PORT` to change the port
   - `ALLOWED_ORIGINS` as a comma-separated list for CORS (default allows all)
@@ -12,6 +13,7 @@ Lightweight Express + SQLite API that replaces the previous Firebase usage. Data
   - `RESEND_API_KEY` and `RESEND_FROM_EMAIL` for outbound email
 
 ## API overview
+
 - `POST /auth/login` → `{ token, user }`
 - `GET /auth/me` → current user (requires `Authorization: Bearer <token>`)
 - CRUD for companies, positions, users, projects, tasks, comments, clients, invoices

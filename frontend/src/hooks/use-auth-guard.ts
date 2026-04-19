@@ -7,12 +7,18 @@ import type { UserRole } from '@/lib/types';
 import { useToast } from './use-toast';
 import { useCurrentUser } from './use-current-user';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 
 export function useAuthGuard(allowedRoles?: UserRole[]) {
   const router = useRouter();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { user, loading } = useCurrentUser();
   const { selectedCompany } = useCompany();
+  const effectiveRole =
+    (selectedCompany &&
+      user?.companyRoles?.find((c) => c.companyId === selectedCompany.id)?.role) ||
+    user?.role;
   
   React.useEffect(() => {
     if (loading) {
@@ -25,25 +31,20 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
       return;
     }
 
-    const effectiveRole =
-      (selectedCompany &&
-        user.companyRoles?.find((c) => c.companyId === selectedCompany.id)?.role) ||
-      user.role;
-
     // User is logged in, check roles
-    if (allowedRoles && !allowedRoles.includes(effectiveRole)) {
+    if (allowedRoles && (!effectiveRole || !allowedRoles.includes(effectiveRole))) {
       console.warn(
         `User with role ${effectiveRole} tried to access a page restricted to ${allowedRoles.join(', ')}`,
       );
       toast({
         variant: 'destructive',
-        title: 'Access Denied',
-        description: "You don't have permission to view this page.",
+        title: t('common.accessDenied'),
+        description: t('auth.guardDenied'),
       });
       router.push('/'); // Redirect to a safe default page
     }
-  }, [user, loading, allowedRoles, router, toast]);
+  }, [user, loading, allowedRoles, router, toast, t]);
 
 
-  return { user, loading };
+  return { user, loading, effectiveRole };
 }

@@ -27,9 +27,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getClients, createInvoice } from '@/services/financeService';
+import { getClients, createInvoice, getInvoiceTemplates } from '@/services/financeService';
 import { getTasksByClient, markTasksAsInvoiced } from '@/services/projectService';
-import type { Client, InvoiceLineItem } from '@/modules/finance/types';
+import type { Client, InvoiceLineItem, InvoiceTemplate } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +49,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const [clients, setClients] = React.useState<Client[]>([]);
+  const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | undefined>();
   const [selectedClient, setSelectedClient] = React.useState<string | undefined>();
   const [billableTasks, setBillableTasks] = React.useState<Task[]>([]);
   const [selectedTaskIds, setSelectedTaskIds] = React.useState<string[]>([]);
@@ -58,13 +60,39 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [minAmount, setMinAmount] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'Done' | 'In Progress' | 'To Do' | 'all'>('Done');
   const [sortBy, setSortBy] = React.useState<'date' | 'amount'>('date');
+  const [manualDescription, setManualDescription] = React.useState('');
+  const [manualQuantity, setManualQuantity] = React.useState('1');
+  const [manualUnitPrice, setManualUnitPrice] = React.useState('');
+  const [manualSku, setManualSku] = React.useState('');
+  const [manualLines, setManualLines] = React.useState<InvoiceLineItem[]>([]);
 
   React.useEffect(() => {
     async function loadClients() {
-      if (selectedCompany) {
-        setLoading(true);
-        const clientData = await getClients(selectedCompany.id);
+      if (!selectedCompany) {
+        setClients([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const [clientData, templateData] = await Promise.all([
+          getClients(selectedCompany.id),
+          getInvoiceTemplates(selectedCompany.id),
+        ]);
         setClients(clientData);
+        setTemplates(templateData);
+        setSelectedTemplateId((current) =>
+          current || templateData.find((template) => template.isDefault)?.id || templateData[0]?.id,
+        );
+      } catch (error: any) {
+        setClients([]);
+        setTemplates([]);
+        toast({
+          variant: 'destructive',
+          title: 'Clients unavailable',
+          description: error?.message || 'Could not load clients.',
+        });
+      } finally {
         setLoading(false);
       }
     }
@@ -77,13 +105,25 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     async function loadTasks() {
         if (selectedClient && selectedCompany) {
             setLoadingTasks(true);
-            const tasks = await getTasksByClient(selectedCompany.id, selectedClient);
-            const candidates = tasks.filter(t => t.invoiceAmount && !t.generatedInvoiceId);
-            setBillableTasks(candidates);
-            setSelectedTaskIds([]);
-            setLoadingTasks(false);
+            try {
+              const tasks = await getTasksByClient(selectedCompany.id, selectedClient);
+              const candidates = tasks.filter(t => t.invoiceAmount && !t.generatedInvoiceId);
+              setBillableTasks(candidates);
+              setSelectedTaskIds([]);
+            } catch (error: any) {
+              setBillableTasks([]);
+              setSelectedTaskIds([]);
+              toast({
+                variant: 'destructive',
+                title: 'Billable tasks unavailable',
+                description: error?.message || 'Could not load billable tasks.',
+              });
+            } finally {
+              setLoadingTasks(false);
+            }
         } else {
             setBillableTasks([]);
+            setLoadingTasks(false);
         }
     }
     loadTasks();
@@ -95,20 +135,65 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     );
   };
 
-  const selectedLineItems: InvoiceLineItem[] = React.useMemo(() => {
+  const taskLineItems: InvoiceLineItem[] = React.useMemo(() => {
     return selectedTaskIds.map(id => {
       const task = billableTasks.find(t => t.id === id);
+      const amount = task?.invoiceAmount || 0;
       return {
         taskId: id,
+        itemType: 'Task' as const,
+        sku: task?.invoiceNumber || undefined,
         description: `${task?.title} (Vendor: ${task?.invoiceVendor || 'N/A'}, Inv: ${task?.invoiceNumber || 'N/A'})`,
-        amount: task?.invoiceAmount || 0,
+        quantity: 1,
+        unitPrice: amount,
+        amount,
       };
     }).filter(item => item.amount > 0);
   }, [selectedTaskIds, billableTasks]);
 
+  const selectedLineItems = React.useMemo(
+    () => [...taskLineItems, ...manualLines],
+    [taskLineItems, manualLines],
+  );
+
   const invoiceTotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
+
+  const addManualLine = () => {
+    const description = manualDescription.trim();
+    const quantity = Number(manualQuantity || 1);
+    const unitPrice = Number(manualUnitPrice || 0);
+    if (!description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) {
+      toast({
+        variant: 'destructive',
+        title: 'Invalid manual line',
+        description: 'Description, quantity, and unit price are required.',
+      });
+      return;
+    }
+
+    const amount = Number((quantity * unitPrice).toFixed(2));
+    setManualLines((prev) => [
+      ...prev,
+      {
+        itemType: 'Manual' as const,
+        sku: manualSku.trim() || undefined,
+        description,
+        quantity,
+        unitPrice,
+        amount,
+      },
+    ]);
+    setManualDescription('');
+    setManualQuantity('1');
+    setManualUnitPrice('');
+    setManualSku('');
+  };
+
+  const removeManualLine = (index: number) => {
+    setManualLines((prev) => prev.filter((_, idx) => idx !== index));
+  };
 
   const filteredTasks = React.useMemo(() => {
     return billableTasks
@@ -156,6 +241,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         invoiceNumber,
         companyId: selectedCompany.id,
         clientId: selectedClient,
+        templateId: selectedTemplateId,
         issueDate,
         dueDate,
         lineItems: selectedLineItems,
@@ -172,19 +258,25 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       onInvoiceCreated();
       onOpenChange(false);
       resetState();
-    } catch (error) {
+    } catch (error: any) {
        toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to create invoice.',
+        description: error?.message || 'Failed to create invoice.',
       });
     }
   };
 
   const resetState = () => {
     setSelectedClient(undefined);
+    setSelectedTemplateId(undefined);
     setBillableTasks([]);
     setSelectedTaskIds([]);
+    setManualLines([]);
+    setManualDescription('');
+    setManualQuantity('1');
+    setManualUnitPrice('');
+    setManualSku('');
   }
   
   const handleOpenChange = (isOpen: boolean) => {
@@ -203,7 +295,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
           <SheetDescription>Select a client to find billable tasks and generate an invoice.</SheetDescription>
         </SheetHeader>
         <div className="flex-1 flex flex-col gap-4 py-4 overflow-y-auto">
-            <div className="pr-6">
+            <div className="pe-6">
                 <Select onValueChange={setSelectedClient} value={selectedClient} disabled={loading}>
                     <SelectTrigger>
                         <SelectValue placeholder="Select a client..." />
@@ -218,7 +310,27 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 </Select>
             </div>
 
-            <div className="grid gap-3 pr-6 md:grid-cols-4">
+            <div className="pe-6">
+                <Label>Invoice Template</Label>
+                <Select
+                  onValueChange={setSelectedTemplateId}
+                  value={selectedTemplateId}
+                  disabled={loading || templates.length === 0}
+                >
+                    <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select a template..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {templates.map((template) => (
+                            <SelectItem key={template.id} value={template.id}>
+                                {template.name}{template.isDefault ? ' (Default)' : ''}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="grid gap-3 pe-6 md:grid-cols-4">
               <div className="md:col-span-2 space-y-1">
                 <Label>Search</Label>
                 <Input
@@ -263,8 +375,51 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 </Select>
               </div>
             </div>
+
+            <div className="rounded-lg border p-4 pe-6 space-y-3">
+              <p className="text-sm font-semibold">Add Manual Item</p>
+              <div className="grid gap-3 md:grid-cols-5">
+                <div className="md:col-span-2 space-y-1">
+                  <Label>Description</Label>
+                  <Input
+                    placeholder="Service or product description"
+                    value={manualDescription}
+                    onChange={(e) => setManualDescription(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>SKU / Ref</Label>
+                  <Input
+                    placeholder="Optional"
+                    value={manualSku}
+                    onChange={(e) => setManualSku(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Qty</Label>
+                  <Input
+                    type="number"
+                    value={manualQuantity}
+                    onChange={(e) => setManualQuantity(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Unit Price</Label>
+                  <Input
+                    type="number"
+                    value={manualUnitPrice}
+                    onChange={(e) => setManualUnitPrice(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" onClick={addManualLine}>
+                  Add Manual Line
+                </Button>
+              </div>
+            </div>
             
-            <div className="flex-1 rounded-lg border overflow-y-auto pr-1">
+            <div className="flex-1 rounded-lg border overflow-y-auto pe-1">
                  <Table>
                     <TableHeader className="sticky top-0 bg-background">
                         <TableRow>
@@ -280,7 +435,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                             /></TableHead>
                             <TableHead>Task / Vendor Invoice</TableHead>
                             <TableHead>Date</TableHead>
-                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead className="text-end">Amount</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -295,7 +450,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                                         <p className="text-sm text-muted-foreground">{task.invoiceVendor} - #{task.invoiceNumber}</p>
                                     </TableCell>
                                     <TableCell>{task.invoiceDate ? format(task.invoiceDate, 'MMM d, yyyy') : 'N/A'}</TableCell>
-                                    <TableCell className="text-right">${task.invoiceAmount?.toFixed(2)}</TableCell>
+                                    <TableCell className="text-end">${task.invoiceAmount?.toFixed(2)}</TableCell>
                                 </TableRow>
                             ))
                         ) : (
@@ -304,7 +459,44 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     </TableBody>
                 </Table>
             </div>
-            <div className="pr-6">
+            <div className="pe-6">
+                {manualLines.length > 0 && (
+                  <div className="mb-4 rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Manual Item</TableHead>
+                          <TableHead>SKU</TableHead>
+                          <TableHead className="text-end">Qty</TableHead>
+                          <TableHead className="text-end">Unit Price</TableHead>
+                          <TableHead className="text-end">Amount</TableHead>
+                          <TableHead className="text-end">Remove</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {manualLines.map((line, index) => (
+                          <TableRow key={`${line.description}-${index}`}>
+                            <TableCell>{line.description}</TableCell>
+                            <TableCell>{line.sku || '—'}</TableCell>
+                            <TableCell className="text-end">{line.quantity}</TableCell>
+                            <TableCell className="text-end">${line.unitPrice.toFixed(2)}</TableCell>
+                            <TableCell className="text-end">${line.amount.toFixed(2)}</TableCell>
+                            <TableCell className="text-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeManualLine(index)}
+                              >
+                                Remove
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
                 <div className="flex justify-end items-center gap-4 p-4 bg-muted/50 rounded-lg">
                     <p className="font-semibold">Invoice Total:</p>
                     <p className="text-2xl font-bold">${invoiceTotal.toFixed(2)}</p>

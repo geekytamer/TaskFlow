@@ -35,7 +35,7 @@ import {
 import { getUsersByCompany } from '@/services/userService';
 import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
-import { taskPriorities, taskPriorities as priorities } from '@/modules/projects/types';
+import { taskPriorities } from '@/modules/projects/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -49,13 +49,16 @@ import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select'
 import { Label } from '@/components/ui/label';
 import { useRouter } from 'next/navigation';
 import type { Task } from '@/modules/projects/types';
+import { canViewProject } from '@/modules/projects/lib/access';
+
+const priorityValues = ['Low', 'Medium', 'High'] as const;
 
 const createTaskSchema = z.object({
   projectId: z.string({ required_error: 'Please select a project.' }),
   title: z.string().min(3, 'Title must be at least 3 characters.'),
   description: z.string().optional(),
   assignedUserIds: z.array(z.string()).optional(),
-  priority: z.enum(priorities),
+  priority: z.enum(priorityValues),
   dueDate: z.date().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
@@ -71,7 +74,7 @@ export function CreateTaskSheet() {
   const [suggestedTags, setSuggestedTags] = React.useState<string[]>([]);
   const [isSuggesting, setIsSuggesting] = React.useState(false);
   const { toast } = useToast();
-  const { selectedCompany, currentUser, projects } = useCompany();
+  const { selectedCompany, currentUser, currentRole, projects } = useCompany();
 
   const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
@@ -102,7 +105,7 @@ export function CreateTaskSheet() {
         
         const filteredProjects = projects.filter(p => 
             p.companyId === selectedCompany?.id &&
-            (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
+            canViewProject(p, currentUser.id, currentRole)
         );
         setVisibleProjects(filteredProjects);
         setCompanyTasks(tasks.filter(t => t.companyId === selectedCompany.id));
@@ -117,7 +120,7 @@ export function CreateTaskSheet() {
     if (open) {
       loadData();
     }
-  }, [selectedCompany, open, currentUser, projects]);
+  }, [selectedCompany, open, currentUser, currentRole, projects]);
 
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];
@@ -163,6 +166,7 @@ export function CreateTaskSheet() {
         await createTask({
             ...data,
             companyId: selectedCompany.id,
+            description: data.description || '',
             tags: data.tags || [],
             parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
         });
@@ -186,7 +190,7 @@ export function CreateTaskSheet() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button><PlusCircle className="mr-2 h-4 w-4" />New Task</Button>
+        <Button><PlusCircle className="me-2 h-4 w-4" />New Task</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-2xl sm:max-w-2xl flex flex-col">
        <Form {...form}>
@@ -197,14 +201,14 @@ export function CreateTaskSheet() {
                 Fill in the details below to add a new task to a project.
               </SheetDescription>
             </SheetHeader>
-            <div className="flex-1 overflow-y-auto pr-6 -mr-6">
+            <div className="flex-1 overflow-y-auto pe-6 -me-6">
               <div className="grid gap-4 py-4">
                 <FormField
                   control={form.control}
                   name="projectId"
                   render={({ field }) => (
                     <FormItem className="grid grid-cols-4 items-center gap-4">
-                      <FormLabel className="text-right">Project</FormLabel>
+                      <FormLabel className="text-end">Project</FormLabel>
                       <div className="col-span-3">
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
@@ -233,7 +237,7 @@ export function CreateTaskSheet() {
                   name="title"
                   render={({ field }) => (
                     <FormItem className="grid grid-cols-4 items-center gap-4">
-                      <FormLabel className="text-right">Title</FormLabel>
+                      <FormLabel className="text-end">Title</FormLabel>
                       <div className="col-span-3">
                          <FormControl>
                             <Input placeholder="e.g. Design homepage mockups" {...field} />
@@ -248,7 +252,7 @@ export function CreateTaskSheet() {
                   name="description"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-start gap-4">
-                      <FormLabel className="text-right pt-2">Description</FormLabel>
+                      <FormLabel className="text-end pt-2">Description</FormLabel>
                       <div className="col-span-3">
                         <FormControl>
                           <Textarea
@@ -270,7 +274,7 @@ export function CreateTaskSheet() {
                     );
                     return (
                       <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-right">Parent Task</FormLabel>
+                        <FormLabel className="text-end">Parent Task</FormLabel>
                         <div className="col-span-3">
                           <Select onValueChange={field.onChange} value={field.value || 'none'}>
                             <FormControl>
@@ -294,7 +298,7 @@ export function CreateTaskSheet() {
                   }}
                 />
                 <div className="grid grid-cols-4 items-start gap-4">
-                  <Label className="text-right pt-2">Tags</Label>
+                  <Label className="text-end pt-2">Tags</Label>
                   <div className="col-span-3">
                     <div className="flex items-center gap-2 mb-2">
                         <Input
@@ -309,7 +313,7 @@ export function CreateTaskSheet() {
                             placeholder="Add a tag and press Enter"
                         />
                          <Button type="button" variant="outline" size="sm" onClick={handleSuggestTags} disabled={isSuggesting}>
-                            <Sparkles className={cn("mr-2 h-4 w-4", isSuggesting && "animate-spin")} />
+                            <Sparkles className={cn("me-2 h-4 w-4", isSuggesting && "animate-spin")} />
                             {isSuggesting ? 'Thinking...' : 'Suggest'}
                         </Button>
                     </div>
@@ -317,7 +321,7 @@ export function CreateTaskSheet() {
                       {tagsValue.map((tag) => (
                         <Badge key={tag} variant="default">
                           {tag}
-                          <button type="button" onClick={() => removeTag(tag)} className="ml-2">
+                          <button type="button" onClick={() => removeTag(tag)} className="ms-2">
                             <X className="h-3 w-3" />
                           </button>
                         </Badge>
@@ -328,8 +332,8 @@ export function CreateTaskSheet() {
                             <p className="text-xs text-muted-foreground mb-1">Suggestions:</p>
                             <div className="flex flex-wrap gap-1">
                             {suggestedTags.map(tag => (
-                                <Button key={tag} type="button" size="xs" variant="outline" onClick={() => addTag(tag)}>
-                                    <PlusCircle className="h-3 w-3 mr-1" />
+                                <Button key={tag} type="button" size="sm" variant="outline" onClick={() => addTag(tag)}>
+                                    <PlusCircle className="h-3 w-3 me-1" />
                                     {tag}
                                 </Button>
                             ))}
@@ -343,7 +347,7 @@ export function CreateTaskSheet() {
                   name="assignedUserIds"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-start gap-4">
-                        <FormLabel className="text-right pt-2">Assignees</FormLabel>
+                        <FormLabel className="text-end pt-2">Assignees</FormLabel>
                         <div className="col-span-3">
                           <MultiSelect
                               items={companyUsers}
@@ -360,7 +364,7 @@ export function CreateTaskSheet() {
                   name="priority"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-center gap-4">
-                      <FormLabel className="text-right">Priority</FormLabel>
+                      <FormLabel className="text-end">Priority</FormLabel>
                        <div className="col-span-3">
                           <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
@@ -369,7 +373,7 @@ export function CreateTaskSheet() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {priorities.map((priority) => (
+                              {taskPriorities.map((priority) => (
                                 <SelectItem key={priority} value={priority}>
                                   {priority}
                                 </SelectItem>
@@ -386,7 +390,7 @@ export function CreateTaskSheet() {
                   name="dueDate"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-right">Due Date</FormLabel>
+                        <FormLabel className="text-end">Due Date</FormLabel>
                         <div className="col-span-3">
                         <Popover>
                             <PopoverTrigger asChild>
@@ -394,11 +398,11 @@ export function CreateTaskSheet() {
                                 <Button
                                     variant={'outline'}
                                     className={cn(
-                                    'w-full justify-start text-left font-normal',
+                                    'w-full justify-start text-start font-normal',
                                     !field.value && 'text-muted-foreground'
                                     )}
                                 >
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    <CalendarIcon className="me-2 h-4 w-4" />
                                     {field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}
                                 </Button>
                                </FormControl>
@@ -417,7 +421,7 @@ export function CreateTaskSheet() {
                     name="color"
                     render={({ field }) => (
                         <FormItem className="grid grid-cols-4 items-center gap-4">
-                            <FormLabel className="text-right">Task Color</FormLabel>
+                            <FormLabel className="text-end">Task Color</FormLabel>
                             <FormControl>
                                 <Input id="color" type="color" className="col-span-3 p-1" {...field} />
                             </FormControl>

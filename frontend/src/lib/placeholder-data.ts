@@ -103,7 +103,9 @@ export const placeholderProjects: Project[] = [
 ];
 
 
-export const placeholderTasks: Omit<Task, 'createdAt' | 'dueDate'> & { createdAt: string, dueDate?: string }[] = [
+export const placeholderTasks: (
+  Omit<Task, 'createdAt' | 'dueDate'> & { createdAt: string; dueDate?: string }
+)[] = [
   // Tasks for Project 1
   {
     id: 'task-1',

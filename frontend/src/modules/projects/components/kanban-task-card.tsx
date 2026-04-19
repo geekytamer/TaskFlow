@@ -5,9 +5,10 @@ import type { Task } from '@/modules/projects/types';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getUsers } from '@/services/userService';
+import { getUsersByCompany } from '@/services/userService';
 import type { User } from '@/modules/users/types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useCompany } from '@/context/company-context';
 
 const priorityColors: Record<Task['priority'], string> = {
   High: 'bg-red-500',
@@ -21,15 +22,34 @@ interface KanbanTaskCardProps {
 
 export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
     const [users, setUsers] = React.useState<User[]>([]);
+    const { selectedCompany, currentUser, currentRole } = useCompany();
 
     React.useEffect(() => {
         async function loadUsers() {
-            const allUsers = await getUsers();
-            const assigned = allUsers.filter(u => task.assignedUserIds?.includes(u.id));
-            setUsers(assigned);
+            const companyId = selectedCompany?.id || task.companyId;
+            if (!companyId) {
+                setUsers([]);
+                return;
+            }
+            if (currentRole === 'Employee') {
+                setUsers(
+                    currentUser && task.assignedUserIds?.includes(currentUser.id)
+                        ? [currentUser]
+                        : [],
+                );
+                return;
+            }
+            try {
+                const companyUsers = await getUsersByCompany(companyId);
+                const assigned = companyUsers.filter(u => task.assignedUserIds?.includes(u.id));
+                setUsers(assigned);
+            } catch (error) {
+                console.error('Failed to load task assignees', error);
+                setUsers([]);
+            }
         }
         loadUsers();
-    }, [task.assignedUserIds]);
+    }, [currentRole, currentUser, selectedCompany, task.assignedUserIds, task.companyId]);
 
     return (
         <Card className="shadow-sm hover:shadow-md transition-shadow">
@@ -58,7 +78,7 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                     <p className="text-xs text-muted-foreground">
                         {task.dueDate ? `Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}
                     </p>
-                    <div className="flex -space-x-2">
+                    <div className="flex -space-x-2 rtl:space-x-reverse">
                         {users.map(user => (
                              <TooltipProvider key={user.id}>
                                 <Tooltip>

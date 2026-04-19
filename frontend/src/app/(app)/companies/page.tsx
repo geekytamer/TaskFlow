@@ -3,14 +3,16 @@
 import * as React from 'react';
 import { CompaniesPage } from '@/modules/companies/components/companies-page';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
+import { useI18n } from '@/context/i18n-context';
 
 export default function CompaniesRoute() {
-  const { user, loading } = useAuthGuard(['Admin']);
+  const { user, loading } = useAuthGuard();
+  const { t } = useI18n();
 
   if (loading || !user) {
     return (
        <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">{t('common.loading')}</p>
       </div>
     );
   }
@@ -18,7 +20,7 @@ export default function CompaniesRoute() {
   if (user.role !== 'Admin') {
      return (
       <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground">Access Denied. You must be an Admin to view this page.</p>
+        <p className="text-muted-foreground">{t('auth.adminOnly')}</p>
       </div>
     );
   }

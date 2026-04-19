@@ -16,10 +16,12 @@ import {
 import { logout } from '@/services/authService';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useI18n } from '@/context/i18n-context';
 
 export function UserNav() {
   const router = useRouter();
   const { currentUser: user, loading } = useCompany();
+  const { t } = useI18n();
 
   const handleLogout = async () => {
     await logout();
@@ -45,7 +47,7 @@ export function UserNav() {
             <AvatarImage src={user.avatar} alt={user.name} />
             <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
           </Avatar>
-          <div className="text-left group-data-[collapsible=icon]:hidden">
+          <div className="text-start group-data-[collapsible=icon]:hidden">
             <p className="text-sm font-medium leading-none">{user.name}</p>
             <p className="text-xs leading-none text-muted-foreground">
               {user.email}
@@ -64,11 +66,11 @@ export function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>Profile</DropdownMenuItem>
-          <DropdownMenuItem>Settings</DropdownMenuItem>
+          <DropdownMenuItem>{t('user.profile')}</DropdownMenuItem>
+          <DropdownMenuItem>{t('user.settings')}</DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleLogout}>Log out</DropdownMenuItem>
+        <DropdownMenuItem onClick={handleLogout}>{t('user.logout')}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

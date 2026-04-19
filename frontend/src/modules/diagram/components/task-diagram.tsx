@@ -21,6 +21,7 @@ import { taskStatuses } from '@/modules/projects/types';
 import TaskNode from './task-node';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
+import { canViewProject } from '@/modules/projects/lib/access';
 
 const nodeTypes = {
   taskNode: TaskNode,
@@ -91,24 +92,36 @@ const getNodesAndEdges = (companyTasks: Task[]) => {
 
 
 export function TaskDiagram() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser, currentRole, projects } = useCompany();
   const [nodes, setNodes] = useState<Node<Task>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadTasks() {
-      if (!selectedCompany) return;
+      if (!selectedCompany || !currentUser) return;
       setLoading(true);
       const allTasks = await getTasks();
-      const companyTasks = allTasks.filter(task => task.companyId === selectedCompany.id);
+      const visibleProjectIds = new Set(
+        projects
+          .filter(
+            (project) =>
+              project.companyId === selectedCompany.id &&
+              canViewProject(project, currentUser.id, currentRole),
+          )
+          .map((project) => project.id),
+      );
+      const companyTasks = allTasks.filter(
+        (task) =>
+          task.companyId === selectedCompany.id && visibleProjectIds.has(task.projectId),
+      );
       const { initialNodes, initialEdges } = getNodesAndEdges(companyTasks);
       setNodes(initialNodes);
       setEdges(initialEdges);
       setLoading(false);
     }
     loadTasks();
-  }, [selectedCompany]);
+  }, [selectedCompany, currentUser, currentRole, projects]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),

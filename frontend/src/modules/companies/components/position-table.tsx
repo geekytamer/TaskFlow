@@ -88,7 +88,7 @@ export function PositionTable() {
                       <TableRow>
                           <TableHead>Position Title</TableHead>
                           <TableHead>Company</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead className="text-end">Actions</TableHead>
                       </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -96,7 +96,7 @@ export function PositionTable() {
                           <TableRow key={i}>
                               <TableCell><Skeleton className="h-5 w-32" /></TableCell>
                               <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                              <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                              <TableCell className="text-end"><Skeleton className="h-8 w-8 ms-auto" /></TableCell>
                           </TableRow>
                       ))}
                   </TableBody>
@@ -115,7 +115,7 @@ export function PositionTable() {
               onPositionAdded={onPositionAdded}
             >
               <Button>
-                  <PlusCircle className="mr-2 h-4 w-4" />
+                  <PlusCircle className="me-2 h-4 w-4" />
                   Add Position
               </Button>
             </AddPositionDialog>
@@ -126,7 +126,7 @@ export function PositionTable() {
             <TableRow>
                 <TableHead>Position Title</TableHead>
                 <TableHead>Company</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-end">Actions</TableHead>
             </TableRow>
             </TableHeader>
             <TableBody>
@@ -136,7 +136,7 @@ export function PositionTable() {
                 <TableRow key={position.id}>
                   <TableCell className="font-medium">{position.title}</TableCell>
                   <TableCell>{company?.name || 'N/A'}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <AlertDialog>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

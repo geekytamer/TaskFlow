@@ -1,7 +1,7 @@
-import 'dotenv/config';
-import { createServer } from './server';
+import "dotenv/config";
+import { createServer } from "./server";
 
-const port = process.env.PORT || 4000;
+const port = process.env.PORT || 4005;
 
 const app = createServer();
 

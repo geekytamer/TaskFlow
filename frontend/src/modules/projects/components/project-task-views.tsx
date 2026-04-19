@@ -16,9 +16,9 @@ export function ProjectTaskViews({ project }: ProjectTaskViewsProps) {
     return (
         <Tabs defaultValue="table" className="flex flex-col flex-1 h-full">
             <TabsList className="mb-4 self-start">
-            <TabsTrigger value="table"><TableIcon className="mr-2 h-4 w-4" />Table</TabsTrigger>
-            <TabsTrigger value="kanban"><LayoutGrid className="mr-2 h-4 w-4" />Kanban</TabsTrigger>
-            <TabsTrigger value="gantt"><GanttChartIcon className="mr-2 h-4 w-4" />Gantt</TabsTrigger>
+            <TabsTrigger value="table"><TableIcon className="me-2 h-4 w-4" />Table</TabsTrigger>
+            <TabsTrigger value="kanban"><LayoutGrid className="me-2 h-4 w-4" />Kanban</TabsTrigger>
+            <TabsTrigger value="gantt"><GanttChartIcon className="me-2 h-4 w-4" />Gantt</TabsTrigger>
             </TabsList>
             <TabsContent value="table" className="flex-1 overflow-hidden">
                 <ProjectTable projectId={project.id} />

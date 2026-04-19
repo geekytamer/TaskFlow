@@ -35,7 +35,7 @@ export function UserNav() {
             <AvatarImage src={user.avatar} alt={user.name} />
             <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
           </Avatar>
-          <div className="text-left group-data-[collapsible=icon]:hidden">
+          <div className="text-start group-data-[collapsible=icon]:hidden">
             <p className="text-sm font-medium leading-none">{user.name}</p>
             <p className="text-xs leading-none text-muted-foreground">
               {user.email}

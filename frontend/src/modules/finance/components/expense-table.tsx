@@ -8,25 +8,43 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
 import { getTasks } from '@/services/projectService';
 import { format } from 'date-fns';
-import { ExternalLink, Receipt, Image as ImageIcon } from 'lucide-react';
+import { ExternalLink, Receipt, Image as ImageIcon, Download } from 'lucide-react';
 import Link from 'next/link';
 import type { Task } from '@/modules/projects/types';
+import { Button } from '@/components/ui/button';
+import { downloadCsv } from '@/modules/finance/lib/csv';
+import { useToast } from '@/hooks/use-toast';
 
 export function ExpenseTable() {
   const { selectedCompany, projects, currentUser } = useCompany();
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const { toast } = useToast();
 
   React.useEffect(() => {
     async function load() {
-      if (!selectedCompany) return;
+      if (!selectedCompany) {
+        setTasks([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
-      const allTasks = await getTasks();
-      setTasks(allTasks);
-      setLoading(false);
+      try {
+        const allTasks = await getTasks();
+        setTasks(allTasks);
+      } catch (error: any) {
+        setTasks([]);
+        toast({
+          variant: 'destructive',
+          title: 'Expenses unavailable',
+          description: error?.message || 'Could not load expense receipts.',
+        });
+      } finally {
+        setLoading(false);
+      }
     }
     load();
-  }, [selectedCompany]);
+  }, [selectedCompany, toast]);
 
   const expenses = React.useMemo(() => {
     if (!selectedCompany) return [];
@@ -74,6 +92,16 @@ export function ExpenseTable() {
     );
   }
 
+  if (!selectedCompany) {
+    return (
+      <Card>
+        <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+          Select a company to view expense receipts.
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
@@ -81,6 +109,31 @@ export function ExpenseTable() {
           <CardTitle>Expenses</CardTitle>
           <p className="text-sm text-muted-foreground">Employee-uploaded receipts linked to tasks.</p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            downloadCsv(
+              `expenses-${format(new Date(), 'yyyy-MM-dd')}.csv`,
+              ['task', 'project', 'vendor', 'invoiceNumber', 'amount', 'date', 'receiptUrl'],
+              expenses.map((task) => {
+                const project = projects.find((p) => p.id === task.projectId);
+                return [
+                  task.title,
+                  project?.name || '',
+                  task.invoiceVendor || '',
+                  task.invoiceNumber || '',
+                  task.invoiceAmount || 0,
+                  task.invoiceDate ? task.invoiceDate.toISOString() : '',
+                  task.invoiceImage || '',
+                ];
+              }),
+            )
+          }
+        >
+          <Download className="me-2 h-4 w-4" />
+          Export CSV
+        </Button>
       </CardHeader>
       <CardContent>
         <Table>
@@ -92,7 +145,7 @@ export function ExpenseTable() {
               <TableHead>Amount</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Attachments</TableHead>
-              <TableHead className="text-right">Open</TableHead>
+              <TableHead className="text-end">Open</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -146,7 +199,7 @@ export function ExpenseTable() {
                         <span className="text-muted-foreground">None</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Link
                         href={`/projects/${task.projectId}`}
                         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"

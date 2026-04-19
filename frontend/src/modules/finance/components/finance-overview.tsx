@@ -1,0 +1,265 @@
+'use client';
+
+import * as React from 'react';
+import { format } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useCompany } from '@/context/company-context';
+import { useToast } from '@/hooks/use-toast';
+import {
+  getFinanceAging,
+  getFinanceOverview,
+  getInvoices,
+  getPurchaseOrderPayables,
+  getSupplierPayables,
+  getVendorBills,
+} from '@/services/financeService';
+import type {
+  AgingBucket,
+  FinanceOverview,
+  PurchaseOrderPayableSummary,
+  SupplierPayablesSummary,
+} from '@/modules/finance/types';
+import { Download } from 'lucide-react';
+import { downloadCsv } from '@/modules/finance/lib/csv';
+
+const bucketLabel: Record<AgingBucket['bucket'], string> = {
+  current: 'Current',
+  '1_30': '1-30 days',
+  '31_60': '31-60 days',
+  '61_90': '61-90 days',
+  over_90: '> 90 days',
+};
+
+const money = (value: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  }).format(value || 0);
+
+export function FinanceOverviewPanel() {
+  const { selectedCompany } = useCompany();
+  const { toast } = useToast();
+  const [overview, setOverview] = React.useState<FinanceOverview | null>(null);
+  const [receivablesAging, setReceivablesAging] = React.useState<AgingBucket[]>([]);
+  const [payablesAging, setPayablesAging] = React.useState<AgingBucket[]>([]);
+  const [asOf, setAsOf] = React.useState<Date | null>(null);
+  const [invoiceCount, setInvoiceCount] = React.useState(0);
+  const [billCount, setBillCount] = React.useState(0);
+  const [purchasePayables, setPurchasePayables] = React.useState<PurchaseOrderPayableSummary[]>([]);
+  const [supplierPayables, setSupplierPayables] = React.useState<SupplierPayablesSummary[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    if (!selectedCompany) {
+      setOverview(null);
+      setReceivablesAging([]);
+      setPayablesAging([]);
+      setAsOf(null);
+      setInvoiceCount(0);
+      setBillCount(0);
+      setPurchasePayables([]);
+      setSupplierPayables([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const [overviewData, agingData, invoices, bills, purchaseData, supplierData] = await Promise.all([
+        getFinanceOverview(selectedCompany.id),
+        getFinanceAging(selectedCompany.id),
+        getInvoices(selectedCompany.id),
+        getVendorBills(selectedCompany.id),
+        getPurchaseOrderPayables(selectedCompany.id),
+        getSupplierPayables(selectedCompany.id),
+      ]);
+      setOverview(overviewData);
+      setReceivablesAging(agingData.receivables || []);
+      setPayablesAging(agingData.payables || []);
+      setAsOf(agingData.asOf ? new Date(agingData.asOf) : new Date());
+      setInvoiceCount(invoices.length);
+      setBillCount(bills.length);
+      setPurchasePayables(purchaseData);
+      setSupplierPayables(supplierData);
+    } catch (error: any) {
+      setOverview(null);
+      setReceivablesAging([]);
+      setPayablesAging([]);
+      setAsOf(null);
+      setInvoiceCount(0);
+      setBillCount(0);
+      setPurchasePayables([]);
+      setSupplierPayables([]);
+      toast({
+        variant: 'destructive',
+        title: 'Finance overview unavailable',
+        description: error?.message || 'Could not load finance analytics.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCompany, toast]);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading) {
+      return (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Card key={index}>
+            <CardHeader>
+              <Skeleton className="h-4 w-24" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-28" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (!selectedCompany) {
+    return (
+      <Card>
+        <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+          Select a company to view finance analytics.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const receivablesByBucket = new Map(receivablesAging.map((bucket) => [bucket.bucket, bucket.amount]));
+  const payablesByBucket = new Map(payablesAging.map((bucket) => [bucket.bucket, bucket.amount]));
+  const allBuckets: AgingBucket['bucket'][] = ['current', '1_30', '31_60', '61_90', 'over_90'];
+  const unbilledPurchaseValue = purchasePayables.reduce(
+    (sum, summary) => sum + summary.remainingToBill,
+    0,
+  );
+  const suppliersWithOpenPayables = supplierPayables.filter((summary) => summary.openPayables > 0).length;
+  const bucketRows = allBuckets.map((bucket) => ({
+    bucket,
+    receivables: receivablesByBucket.get(bucket) || 0,
+    payables: payablesByBucket.get(bucket) || 0,
+  }));
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Open Receivables</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{money(overview?.openReceivables || 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Open Payables</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{money(overview?.openPayables || 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Billed This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{money(overview?.billedThisMonth || 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Collected This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{money(overview?.paidThisMonth || 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Expense Receipts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{money(overview?.expenseReceiptsThisMonth || 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Unbilled POs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{money(unbilledPurchaseValue)}</div>
+            <div className="text-xs text-muted-foreground">
+              {suppliersWithOpenPayables} suppliers with open payables
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Aging Summary</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {asOf ? `As of ${format(asOf, 'MMM d, yyyy')}` : 'As of today'}.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              downloadCsv(
+                `finance-aging-${format(new Date(), 'yyyy-MM-dd')}.csv`,
+                ['bucket', 'receivables', 'payables'],
+                bucketRows.map((row) => [bucketLabel[row.bucket], row.receivables, row.payables]),
+              )
+            }
+          >
+            <Download className="me-2 h-4 w-4" />
+            Export CSV
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border p-3 text-sm">
+              <p className="text-muted-foreground">Open customer invoices</p>
+              <p className="text-xl font-semibold">{invoiceCount}</p>
+            </div>
+            <div className="rounded-md border p-3 text-sm">
+              <p className="text-muted-foreground">Open vendor bills</p>
+              <p className="text-xl font-semibold">{billCount}</p>
+            </div>
+          </div>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Bucket</TableHead>
+                  <TableHead className="text-end">Receivables</TableHead>
+                  <TableHead className="text-end">Payables</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bucketRows.map((row) => (
+                  <TableRow key={row.bucket}>
+                    <TableCell>{bucketLabel[row.bucket]}</TableCell>
+                    <TableCell className="text-end">{money(row.receivables)}</TableCell>
+                    <TableCell className="text-end">{money(row.payables)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

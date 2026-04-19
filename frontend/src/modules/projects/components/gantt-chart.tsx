@@ -2,8 +2,9 @@
 
 import * as React from 'react';
 import { getTasks } from '@/services/projectService';
-import { getUsers } from '@/services/userService';
-import type { Task, Project, TaskStatus, User } from '@/modules/projects/types';
+import { getUsersByCompany } from '@/services/userService';
+import type { Task, Project, TaskStatus } from '@/modules/projects/types';
+import type { User } from '@/modules/users/types';
 import { taskStatuses } from '@/modules/projects/types';
 import {
   BarChart,
@@ -31,6 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { ProjectLegend } from './project-legend';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
+import { canViewProject } from '@/modules/projects/lib/access';
 
 
 const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
@@ -66,14 +68,14 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
             {users.length > 0 && (
                 <div className="pt-2 mt-2 border-t">
                   <p className="text-muted-foreground mb-1">Assignees:</p>
-                  <div className="flex items-center -space-x-2">
+                  <div className="flex items-center -space-x-2 rtl:space-x-reverse">
                     {users.map((user: User) => (
                       <Avatar key={user.id} className="h-6 w-6 border">
                           <AvatarImage src={user.avatar} />
                           <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
                       </Avatar>
                     ))}
-                    <span className="pl-4 text-xs">{users.map((u:User) => u.name).join(', ')}</span>
+                    <span className="ps-4 text-xs">{users.map((u:User) => u.name).join(', ')}</span>
                   </div>
                 </div>
             )}
@@ -92,45 +94,71 @@ const Y_AXIS_WIDTH = 200;
 const BAR_HEIGHT = 28;
 const CHART_PADDING_TOP = 20;
 
+type ProcessedTaskRow = Task & {
+  isLabel: false;
+  startDate: Date;
+  endDate: Date;
+  duration: number;
+  ganttRange: [number, number];
+  projectName: string;
+  fill: string;
+};
+
+type LabelRow = {
+  isLabel: true;
+  title: string;
+  fill: string;
+};
+
+type GanttRow = ProcessedTaskRow | LabelRow;
+
 export function GanttChart({ projectId }: GanttChartProps) {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
-  const { selectedCompany, projects, currentUser } = useCompany();
+  const { selectedCompany, projects, currentUser, currentRole } = useCompany();
   const chartRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     async function loadData() {
         if (!selectedCompany) return;
         setLoading(true);
-        const [tasksData, usersData] = await Promise.all([
-            getTasks(),
-            getUsers(),
-        ]);
-        setTasks(tasksData);
-        setUsers(usersData);
-        setLoading(false);
+        try {
+          const canLoadCompanyUsers = currentRole && currentRole !== 'Employee';
+          const [tasksData, usersData] = await Promise.all([
+              getTasks(),
+              canLoadCompanyUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
+          ]);
+          setTasks(tasksData);
+          setUsers(usersData);
+        } catch (error) {
+          console.error('Failed to load gantt data', error);
+          setTasks([]);
+          setUsers([]);
+        } finally {
+          setLoading(false);
+        }
     }
     loadData();
-  }, [selectedCompany]);
+  }, [currentRole, selectedCompany]);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser) return [];
     return projects.filter(p => 
       p.companyId === selectedCompany?.id &&
       (!projectId || p.id === projectId) &&
-      (p.visibility === 'Public' || p.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin')
+      canViewProject(p, currentUser.id, currentRole)
     );
-  }, [projects, currentUser, selectedCompany, projectId]);
+  }, [projects, currentUser, currentRole, selectedCompany, projectId]);
 
   const companyUsers = React.useMemo(() => {
       if (!selectedCompany) return [];
-      return users.filter(u => u.companyId === selectedCompany.id);
+      return users.filter((u) => u.companyIds?.includes(selectedCompany.id));
   }, [users, selectedCompany]);
 
-  const processedTasks = React.useMemo(() => {
+  const processedTasks = React.useMemo<ProcessedTaskRow[]>(() => {
     const today = startOfDay(new Date());
     const visibleProjectIds = visibleProjects.map(p => p.id);
 
@@ -144,10 +172,14 @@ export function GanttChart({ projectId }: GanttChartProps) {
 
         return {
             ...task,
+            isLabel: false as const,
             startDate,
             endDate,
             duration,
-            ganttRange: [differenceInDays(startDate, today), differenceInDays(endDate, today)],
+            ganttRange: [
+              differenceInDays(startDate, today),
+              differenceInDays(endDate, today),
+            ] as [number, number],
             projectName: project?.name || 'Uncategorized',
             fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
@@ -168,14 +200,14 @@ export function GanttChart({ projectId }: GanttChartProps) {
   }, [tasks, projects, visibleProjects, selectedStatus, selectedAssignee]);
 
 
-  const groupedTasks = React.useMemo(() => {
+  const groupedTasks = React.useMemo<GanttRow[]>(() => {
       const groups = processedTasks.reduce((acc, task) => {
           (acc[task.projectName] = acc[task.projectName] || []).push(task);
           return acc;
-      }, {} as Record<string, typeof processedTasks>);
+      }, {} as Record<string, ProcessedTaskRow[]>);
 
       return Object.entries(groups).flatMap(([projectName, tasks]) => [
-          {isLabel: true, title: projectName, fill: tasks[0]?.fill},
+          { isLabel: true as const, title: projectName, fill: tasks[0]?.fill || 'transparent' },
           ...tasks
       ]);
   }, [processedTasks]);
@@ -277,8 +309,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         type="category" 
                         width={Y_AXIS_WIDTH} 
                         tick={({ y, payload }) => {
-                            const item = payload.payload;
-                            if (!item) return null;
+                            const item = payload?.payload as GanttRow | undefined;
+                            if (!item) return <g />;
                             const yPos = y + (BAR_HEIGHT / 2) - 10;
                             if (item.isLabel) {
                                  return (
@@ -295,7 +327,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                             return (
                                 <g transform={`translate(0,${yPos})`}>
                                     <foreignObject x="0" y="0" width={Y_AXIS_WIDTH -10} height="24">
-                                        <div className="flex items-center gap-2 pl-5" title={item.title}>
+                                        <div className="flex items-center gap-2 ps-5" title={item.title}>
                                             <p className='text-xs truncate font-medium text-muted-foreground'>{item.title}</p>
                                         </div>
                                     </foreignObject>
@@ -316,23 +348,25 @@ export function GanttChart({ projectId }: GanttChartProps) {
                             className="fill-primary-foreground font-semibold text-xs" 
                             content={(props) => {
                                 const {x, y, width, height, value, index} = props;
-                                if (!width || !height || !value || !index) return null;
+                                if (width == null || height == null || value == null || index == null) return null;
                                 const data = groupedTasks[index as number];
                                 if (!data || data.isLabel) return null;
+                                const numericWidth = Number(width);
+                                const labelText = String(value);
                                 
                                 const canvas = document.createElement("canvas");
                                 const context = canvas.getContext("2d");
                                 if(context) {
                                     context.font = "11px sans-serif";
-                                    const labelWidth = context.measureText(value).width;
-                                    if (width < labelWidth + 20) return null;
+                                    const labelWidth = context.measureText(labelText).width;
+                                    if (numericWidth < labelWidth + 20) return null;
                                 }
 
 
                                 return (
                                     <g>
                                     <text x={Number(x) + 10} y={Number(y) + Number(height) / 2} dy={4} fill="#fff" fontSize="11" fontWeight="bold">
-                                        {value}
+                                        {labelText}
                                     </text>
                                     </g>
                                 )

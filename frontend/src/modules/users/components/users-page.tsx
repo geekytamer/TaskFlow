@@ -5,30 +5,17 @@ import { UserTable } from '@/modules/users/components/user-table';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { AddUserSheet } from './add-user-sheet';
-import { getUsers } from '@/services/userService';
-import type { User } from '../types';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
+import { useI18n } from '@/context/i18n-context';
 
 export function UsersPage() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
-  // We need to re-fetch users here to pass to the table for potential refresh
-  const [users, setUsers] = React.useState<User[]>([]);
-  const { user } = useAuthGuard(['Admin', 'Manager']);
+  const [refreshToken, setRefreshToken] = React.useState(0);
+  const { user, effectiveRole } = useAuthGuard(['Admin', 'Manager']);
+  const { t } = useI18n();
 
-  const refreshUsers = async () => {
-    // In a real app with better state management, this might not be needed,
-    // but for now it ensures the table is up-to-date.
-    const freshUsers = await getUsers();
-    setUsers(freshUsers);
-  };
-
-  React.useEffect(() => {
-    refreshUsers();
-  }, []);
-
-
-  const handleUserAdded = () => {
-    refreshUsers();
+  const handleUsersChanged = () => {
+    setRefreshToken((current) => current + 1);
     setIsSheetOpen(false);
   };
 
@@ -36,26 +23,30 @@ export function UsersPage() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between pb-4">
         <div>
-          <h1 className="text-3xl font-bold font-headline">User Management</h1>
+          <h1 className="text-3xl font-bold font-headline">{t('users.title')}</h1>
           <p className="text-muted-foreground">
-            Add, edit, and manage users for your company.
+            {t('users.subtitle')}
           </p>
         </div>
-        {user && ['Admin', 'Manager'].includes(user.role) && (
+        {user && effectiveRole && ['Admin', 'Manager'].includes(effectiveRole) && (
           <AddUserSheet
             open={isSheetOpen}
             onOpenChange={setIsSheetOpen}
-            onUserAdded={handleUserAdded}
-            currentUserRole={user.role}
+            onUserAdded={handleUsersChanged}
+            currentUserRole={effectiveRole}
           >
             <Button>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add User
+              <PlusCircle className="me-2 h-4 w-4" />
+              {t('users.addUser')}
             </Button>
           </AddUserSheet>
         )}
       </div>
-      <UserTable onUserUpdated={refreshUsers} currentUserRole={user?.role} />
+      <UserTable
+        onUserUpdated={handleUsersChanged}
+        currentUserRole={effectiveRole}
+        refreshToken={refreshToken}
+      />
     </div>
   );
 }

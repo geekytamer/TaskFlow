@@ -39,7 +39,7 @@ export function CompanySwitcher() {
             <Building className="h-4 w-4" />
             <span className="truncate">{selectedCompany.name}</span>
           </div>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[250px] p-0">
@@ -59,7 +59,7 @@ export function CompanySwitcher() {
                 >
                   <Check
                     className={cn(
-                      'mr-2 h-4 w-4',
+                      'me-2 h-4 w-4',
                       selectedCompany.id === company.id
                         ? 'opacity-100'
                         : 'opacity-0'

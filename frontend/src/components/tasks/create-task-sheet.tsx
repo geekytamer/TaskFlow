@@ -80,7 +80,7 @@ export function CreateTaskSheet() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button><PlusCircle className="mr-2 h-4 w-4" />New Task</Button>
+        <Button><PlusCircle className="me-2 h-4 w-4" />New Task</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-2xl sm:max-w-2xl flex flex-col">
         <SheetHeader>
@@ -89,16 +89,16 @@ export function CreateTaskSheet() {
             Fill in the details below to add a new task to the board.
           </SheetDescription>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto pr-6 -mr-6">
+        <div className="flex-1 overflow-y-auto pe-6 -me-6">
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="title" className="text-right">
+              <Label htmlFor="title" className="text-end">
                 Title
               </Label>
               <Input id="title" placeholder="e.g. Design homepage mockups" className="col-span-3" />
             </div>
             <div className="grid grid-cols-4 items-start gap-4">
-              <Label htmlFor="description" className="text-right pt-2">
+              <Label htmlFor="description" className="text-end pt-2">
                 Description
               </Label>
               <div className="col-span-3">
@@ -112,7 +112,7 @@ export function CreateTaskSheet() {
               </div>
             </div>
             <div className="grid grid-cols-4 items-start gap-4">
-              <Label className="text-right pt-2">Tags</Label>
+              <Label className="text-end pt-2">Tags</Label>
               <div className="col-span-3">
                 <div className="flex items-center gap-2 mb-2">
                     <Input
@@ -127,7 +127,7 @@ export function CreateTaskSheet() {
                         placeholder="Add a tag and press Enter"
                     />
                      <Button variant="outline" size="sm" onClick={handleSuggestTags} disabled={isSuggesting}>
-                        <Sparkles className={cn("mr-2 h-4 w-4", isSuggesting && "animate-spin")} />
+                        <Sparkles className={cn("me-2 h-4 w-4", isSuggesting && "animate-spin")} />
                         {isSuggesting ? 'Thinking...' : 'Suggest'}
                     </Button>
                 </div>
@@ -135,7 +135,7 @@ export function CreateTaskSheet() {
                   {tags.map((tag) => (
                     <Badge key={tag} variant="default">
                       {tag}
-                      <button onClick={() => removeTag(tag)} className="ml-2">
+                      <button onClick={() => removeTag(tag)} className="ms-2">
                         <X className="h-3 w-3" />
                       </button>
                     </Badge>
@@ -147,7 +147,7 @@ export function CreateTaskSheet() {
                         <div className="flex flex-wrap gap-1">
                         {suggestedTags.map(tag => (
                             <Button key={tag} size="xs" variant="outline" onClick={() => addTag(tag)}>
-                                <PlusCircle className="h-3 w-3 mr-1" />
+                                <PlusCircle className="h-3 w-3 me-1" />
                                 {tag}
                             </Button>
                         ))}
@@ -157,7 +157,7 @@ export function CreateTaskSheet() {
               </div>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="assignee" className="text-right">
+              <Label htmlFor="assignee" className="text-end">
                 Assignee
               </Label>
               <Select>
@@ -174,7 +174,7 @@ export function CreateTaskSheet() {
               </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="priority" className="text-right">
+              <Label htmlFor="priority" className="text-end">
                 Priority
               </Label>
               <Select>
@@ -191,7 +191,7 @@ export function CreateTaskSheet() {
               </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="due-date" className="text-right">
+              <Label htmlFor="due-date" className="text-end">
                 Due Date
               </Label>
               <Popover>
@@ -199,11 +199,11 @@ export function CreateTaskSheet() {
                   <Button
                     variant={'outline'}
                     className={cn(
-                      'col-span-3 justify-start text-left font-normal',
+                      'col-span-3 justify-start text-start font-normal',
                       !description && 'text-muted-foreground'
                     )}
                   >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    <CalendarIcon className="me-2 h-4 w-4" />
                     {description ? format(new Date(), 'PPP') : <span>Pick a date</span>}
                   </Button>
                 </PopoverTrigger>

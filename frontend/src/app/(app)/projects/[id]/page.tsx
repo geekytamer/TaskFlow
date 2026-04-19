@@ -10,29 +10,37 @@ import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { Globe, Lock, Trash2, UserPlus, UserMinus, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getUsersByCompany } from '@/services/userService';
-import { getClients } from '@/services/financeService';
-import type { Client, ProjectVisibility } from '@/lib/types';
+import { getClients, getInvoices } from '@/services/financeService';
+import { getTasks } from '@/services/projectService';
+import type { Client, Invoice, ProjectVisibility, Task } from '@/lib/types';
+import { format } from 'date-fns';
+import { canManageProjects, canViewProject } from '@/modules/projects/lib/access';
+import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
 
-  const { selectedCompany, currentUser } = useCompany();
+  const { selectedCompany, currentUser, currentRole } = useCompany();
   const [project, setProject] = React.useState<Project | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [users, setUsers] = React.useState<User[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
+  const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [editName, setEditName] = React.useState('');
   const [editDescription, setEditDescription] = React.useState('');
   const [editVisibility, setEditVisibility] = React.useState<ProjectVisibility>('Public');
@@ -54,7 +62,7 @@ export default function ProjectDetailsPage() {
         return;
       }
 
-      const canView = projectData.visibility === 'Public' || projectData.memberIds?.includes(currentUser.id) || currentUser.role === 'Admin';
+      const canView = canViewProject(projectData, currentUser.id, currentRole);
 
       if (!canView) {
         // User doesn't have permission to view this private project
@@ -68,17 +76,22 @@ export default function ProjectDetailsPage() {
       setEditVisibility(projectData.visibility);
       setEditClient(projectData.clientId);
 
-      const [companyUsers, clientData] = await Promise.all([
-        getUsersByCompany(selectedCompany.id),
-        getClients(selectedCompany.id),
+      const canLoadCompanyReferences = currentRole && currentRole !== 'Employee';
+      const [companyUsers, clientData, taskData, invoiceData] = await Promise.all([
+        canLoadCompanyReferences ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
+        canLoadCompanyReferences ? getClients(selectedCompany.id) : Promise.resolve([]),
+        getTasks(),
+        canLoadCompanyReferences ? getInvoices(selectedCompany.id) : Promise.resolve([]),
       ]);
       setUsers(companyUsers);
       setClients(clientData);
+      setTasks(taskData.filter((task) => task.companyId === selectedCompany.id));
+      setInvoices(invoiceData);
       setLoading(false);
     }
 
     fetchData();
-  }, [id, selectedCompany, router, currentUser]);
+  }, [id, selectedCompany, router, currentUser, currentRole]);
 
   if (loading) {
     return (
@@ -154,7 +167,27 @@ export default function ProjectDetailsPage() {
 
   const projectMembers = (project?.memberIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean) as User[];
   const availableMembers = users.filter((u) => !(project?.memberIds || []).includes(u.id));
-  const isManager = currentUser && ['Admin', 'Manager'].includes(currentUser.role);
+  const isManager = canManageProjects(currentRole);
+  const clientName = clients.find((client) => client.id === project.clientId)?.name;
+  const projectTasks = tasks.filter((task) => task.projectId === project.id);
+  const projectTaskIds = new Set(projectTasks.map((task) => task.id));
+  const readyToBillTasks = projectTasks.filter(
+    (task) => task.status === 'Done' && (task.invoiceAmount || 0) > 0 && !task.generatedInvoiceId,
+  );
+  const billedTasks = projectTasks.filter((task) => Boolean(task.generatedInvoiceId));
+  const projectInvoices = invoices.filter((invoice) =>
+    invoice.lineItems.some((item) => item.taskId && projectTaskIds.has(item.taskId)),
+  );
+  const billedAmount = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+  const collectedAmount = projectInvoices.reduce((sum, invoice) => sum + (invoice.paidAmount || 0), 0);
+  const outstandingAmount = projectInvoices.reduce(
+    (sum, invoice) => sum + (invoice.outstandingAmount || 0),
+    0,
+  );
+  const readyToBillAmount = readyToBillTasks.reduce(
+    (sum, task) => sum + (task.invoiceAmount || 0),
+    0,
+  );
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -163,11 +196,16 @@ export default function ProjectDetailsPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
             <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
-              {project.visibility === 'Private' ? <Lock className="mr-1 h-3 w-3" /> : <Globe className="mr-1 h-3 w-3" />}
+              {project.visibility === 'Private' ? <Lock className="me-1 h-3 w-3" /> : <Globe className="me-1 h-3 w-3" />}
               {project.visibility}
             </Badge>
           </div>
           <p className="text-muted-foreground">{project.description}</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-sm text-muted-foreground">
+            <span>{projectTasks.length} tasks</span>
+            <span>•</span>
+            <span>{clientName || 'No linked client'}</span>
+          </div>
         </div>
         <div className="flex gap-2">
           {isManager && (
@@ -175,7 +213,7 @@ export default function ProjectDetailsPage() {
               <Sheet open={editOpen} onOpenChange={setEditOpen}>
                 <SheetTrigger asChild>
                   <Button variant="outline">
-                    <Pencil className="h-4 w-4 mr-1" />
+                    <Pencil className="h-4 w-4 me-1" />
                     Edit Project
                   </Button>
                 </SheetTrigger>
@@ -242,7 +280,7 @@ export default function ProjectDetailsPage() {
                             </SelectContent>
                           </Select>
                           <Button variant="outline" onClick={handleAddMember} disabled={!selectedMemberToAdd}>
-                            <UserPlus className="h-4 w-4 mr-1" /> Add
+                            <UserPlus className="h-4 w-4 me-1" /> Add
                           </Button>
                         </div>
                       </div>
@@ -264,7 +302,7 @@ export default function ProjectDetailsPage() {
                   </div>
                   <SheetFooter className="flex justify-between gap-2">
                     <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-                      <Trash2 className="h-4 w-4 mr-1" />
+                      <Trash2 className="h-4 w-4 me-1" />
                       Delete Project
                     </Button>
                     <Button onClick={handleSave} disabled={saving}>
@@ -278,6 +316,95 @@ export default function ProjectDetailsPage() {
           <CreateTaskSheet />
         </div>
       </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Ready To Bill</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{readyToBillTasks.length}</div>
+            <div className="text-xs text-muted-foreground">${readyToBillAmount.toFixed(2)} pending invoice</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Invoiced Tasks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{billedTasks.length}</div>
+            <div className="text-xs text-muted-foreground">${billedAmount.toFixed(2)} billed</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Collected</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">${collectedAmount.toFixed(2)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Outstanding</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-600">${outstandingAmount.toFixed(2)}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Revenue Workflow</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Issue Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-end">Total</TableHead>
+                  <TableHead className="text-end">Paid</TableHead>
+                  <TableHead className="text-end">Outstanding</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {projectInvoices.map((invoice) => (
+                  <TableRow key={invoice.id}>
+                    <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                    <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{invoice.status}</Badge>
+                    </TableCell>
+                    <TableCell className="text-end">${invoice.total.toFixed(2)}</TableCell>
+                    <TableCell className="text-end">${(invoice.paidAmount || 0).toFixed(2)}</TableCell>
+                    <TableCell className="text-end">${(invoice.outstandingAmount || 0).toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+                {projectInvoices.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-20 text-center text-sm text-muted-foreground">
+                      No invoices linked to this project yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {selectedCompany && (
+        <RecordSupportPanel
+          companyId={selectedCompany.id}
+          entityType="project"
+          entityId={project.id}
+          title="Project Attachments & Timeline"
+        />
+      )}
 
       <ProjectTaskViews project={project} />
     </div>

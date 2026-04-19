@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, AlertTriangle } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Printer } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -22,8 +22,15 @@ import {
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { createPayment, getInvoices, updateInvoiceStatus } from '@/services/financeService';
-import type { Client, Invoice, InvoiceStatus } from '../types';
+import {
+  bulkUpdateInvoiceStatus,
+  createPayment,
+  getInvoices,
+  getInvoiceTemplates,
+  getPayments,
+  updateInvoiceStatus,
+} from '@/services/financeService';
+import type { Client, Invoice, InvoiceStatus, InvoiceTemplate, Payment } from '../types';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,44 +39,62 @@ import type { Task } from '@/modules/projects/types';
 import { format } from 'date-fns';
 import { getClients } from '@/services/financeService';
 import { CreateInvoiceSheet } from './create-invoice-sheet';
-
-const statusColors: Record<InvoiceStatus, string> = {
-    Draft: 'bg-gray-200 text-gray-800',
-    Sent: 'bg-blue-200 text-blue-800',
-    Paid: 'bg-green-200 text-green-800',
-    Overdue: 'bg-red-200 text-red-800',
-}
+import { downloadCsv } from '@/modules/finance/lib/csv';
+import { useI18n } from '@/context/i18n-context';
+import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
+import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { InvoiceDocument } from './invoice-document';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
+  const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState<'all' | InvoiceStatus>('all');
   const [paymentDialog, setPaymentDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
+  const [previewInvoice, setPreviewInvoice] = React.useState<Invoice | null>(null);
   const [paymentAmount, setPaymentAmount] = React.useState('');
   const [paymentMethod, setPaymentMethod] = React.useState('');
   const [paymentNote, setPaymentNote] = React.useState('');
+  const [payments, setPayments] = React.useState<Payment[]>([]);
+  const [paymentLoading, setPaymentLoading] = React.useState(false);
   const { toast } = useToast();
+  const { t } = useI18n();
 
   const fetchData = React.useCallback(async () => {
-    if (!selectedCompany) return;
+    if (!selectedCompany) {
+      setInvoices([]);
+      setClients([]);
+      setTemplates([]);
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const [invoiceData, clientData, taskData] = await Promise.all([
+      const [invoiceData, clientData, templateData, taskData] = await Promise.all([
         getInvoices(selectedCompany.id),
         getClients(selectedCompany.id),
+        getInvoiceTemplates(selectedCompany.id),
         getTasks(),
       ]);
       setInvoices(invoiceData);
       setClients(clientData);
+      setTemplates(templateData);
       setTasks(taskData.filter((t) => t.companyId === selectedCompany.id));
-    } catch (error) {
+    } catch (error: any) {
+      setInvoices([]);
+      setClients([]);
+      setTemplates([]);
+      setTasks([]);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Could not load invoices.',
+        description: error?.message || 'Could not load invoices.',
       });
     } finally {
       setLoading(false);
@@ -82,24 +107,106 @@ export function InvoiceTable() {
 
   const getClientName = (clientId: string) => {
     return clients.find(c => c.id === clientId)?.name || 'N/A';
-  }
+  };
+
+  const getTaskTitle = (taskId?: string) =>
+    taskId ? tasks.find((task) => task.id === taskId)?.title || taskId : undefined;
+
+  const getTemplateName = (templateId?: string) =>
+    templateId ? templates.find((template) => template.id === templateId)?.name || 'Custom' : 'Default';
+
+  const getTemplate = (templateId?: string) =>
+    (templateId ? templates.find((template) => template.id === templateId) : undefined)
+    || templates.find((template) => template.isDefault)
+    || templates[0];
+
+  const filteredInvoices = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return invoices.filter((invoice) => {
+      if (statusFilter !== 'all' && invoice.status !== statusFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const taskText = invoice.lineItems
+        .map((item) => (item.taskId ? getTaskTitle(item.taskId) : item.description) || '')
+        .join(' ');
+
+      return [
+        invoice.invoiceNumber,
+        getClientName(invoice.clientId),
+        invoice.status,
+        taskText,
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+  }, [invoices, search, statusFilter, tasks, clients]);
+
+  const filteredOutstanding = React.useMemo(
+    () => filteredInvoices.reduce((sum, invoice) => sum + (invoice.outstandingAmount || 0), 0),
+    [filteredInvoices],
+  );
 
   const handleStatusChange = async (invoiceId: string, status: InvoiceStatus) => {
     try {
       await updateInvoiceStatus(invoiceId, status);
       await fetchData();
-    } catch {
+    } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Update failed',
-        description: 'Could not update invoice status.',
+        description: error?.message || 'Could not update invoice status.',
       });
+    }
+  };
+
+  const handleBulkStatus = async (targetStatus: InvoiceStatus, currentStatus: InvoiceStatus) => {
+    if (!selectedCompany) return;
+    try {
+      const result = await bulkUpdateInvoiceStatus(selectedCompany.id, targetStatus, {
+        currentStatus,
+      });
+      await fetchData();
+      toast({
+        title: 'Bulk status update complete',
+        description: `${result.updatedCount} invoices moved to ${targetStatus}.`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Bulk update failed',
+        description: error?.message || 'Could not apply status update.',
+      });
+    }
+  };
+
+  const openPaymentDialog = async (invoice: Invoice) => {
+    setPaymentDialog({ open: true, invoice });
+    setPaymentAmount(String(invoice.outstandingAmount || 0));
+    setPaymentMethod('');
+    setPaymentNote('');
+    setPayments([]);
+    setPaymentLoading(true);
+    try {
+      const paymentHistory = await getPayments(invoice.id);
+      setPayments(paymentHistory);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Payments unavailable',
+        description: error?.message || 'Could not load payment history.',
+      });
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -107,6 +214,7 @@ export function InvoiceTable() {
               <TableHead>Client</TableHead>
               <TableHead>Issue Date</TableHead>
               <TableHead>Due Date</TableHead>
+              <TableHead>Template</TableHead>
               <TableHead>Total</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
@@ -128,24 +236,106 @@ export function InvoiceTable() {
     );
   }
 
-  const getTaskTitle = (taskId: string) =>
-    tasks.find((t) => t.id === taskId)?.title || taskId;
+  if (!selectedCompany) {
+    return (
+      <div className="rounded-lg border">
+        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+          Select a company to view invoices.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
-      <div className="flex justify-end mb-4">
-        <CreateInvoiceSheet 
-            open={isSheetOpen}
-            onOpenChange={setIsSheetOpen}
-            onInvoiceCreated={fetchData}
-        >
-            <Button>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Create Invoice
+      <SectionToolbar
+        search={(
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by invoice number, client, or task"
+            className="max-w-md"
+          />
+        )}
+        filters={(
+          <Select
+            value={statusFilter}
+            onValueChange={(value) => setStatusFilter(value as 'all' | InvoiceStatus)}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {(['Draft', 'Sent', 'Paid', 'Overdue'] as InvoiceStatus[]).map((status) => (
+                <SelectItem key={status} value={status}>
+                  {status}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        summary={`${filteredInvoices.length} invoices shown • outstanding ${filteredOutstanding.toFixed(2)} ${(filteredInvoices[0]?.currency || 'USD')}`}
+        actions={(
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                handleBulkStatus('Sent', 'Draft')
+              }
+            >
+              <ListChecks className="me-2 h-4 w-4" />
+              {t('finance.sendAllDraft')}
             </Button>
-        </CreateInvoiceSheet>
-      </div>
-      <div className="rounded-lg border">
+            <Button variant="outline" size="sm" onClick={() => handleBulkStatus('Paid', 'Sent')}>
+              <ListChecks className="me-2 h-4 w-4" />
+              {t('finance.markAllSentPaid')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadCsv(
+                  `invoices-${format(new Date(), 'yyyy-MM-dd')}.csv`,
+                  [
+                    'invoiceNumber',
+                    'client',
+                    'issueDate',
+                    'dueDate',
+                    'total',
+                    'status',
+                    'currency',
+                  ],
+                  filteredInvoices.map((invoice) => [
+                    invoice.invoiceNumber,
+                    getClientName(invoice.clientId),
+                    invoice.issueDate.toISOString(),
+                    invoice.dueDate.toISOString(),
+                    invoice.total,
+                    invoice.status,
+                    invoice.currency || 'USD',
+                  ]),
+                )
+              }
+            >
+              <Download className="me-2 h-4 w-4" />
+              {t('finance.exportCsv')}
+            </Button>
+            <CreateInvoiceSheet
+              open={isSheetOpen}
+              onOpenChange={setIsSheetOpen}
+              onInvoiceCreated={fetchData}
+            >
+              <Button>
+                <PlusCircle className="me-2 h-4 w-4" />
+                {t('finance.createInvoice')}
+              </Button>
+            </CreateInvoiceSheet>
+          </>
+        )}
+      />
+      <div className="overflow-x-auto rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -153,20 +343,26 @@ export function InvoiceTable() {
               <TableHead>Client</TableHead>
               <TableHead>Issue Date</TableHead>
               <TableHead>Due Date</TableHead>
-              <TableHead className="text-right">Total</TableHead>
+              <TableHead>Template</TableHead>
+              <TableHead className="text-end">Total</TableHead>
+              <TableHead className="text-end">Paid</TableHead>
+              <TableHead className="text-end">Outstanding</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Origin Tasks</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-end">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {invoices.map((invoice) => (
+            {filteredInvoices.map((invoice) => (
               <TableRow key={invoice.id}>
                 <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                 <TableCell>{getClientName(invoice.clientId)}</TableCell>
                 <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{format(invoice.dueDate, 'MMM d, yyyy')}</TableCell>
-                <TableCell className="text-right">${invoice.total.toFixed(2)}</TableCell>
+                <TableCell>{getTemplateName(invoice.templateId)}</TableCell>
+                <TableCell className="text-end">${invoice.total.toFixed(2)}</TableCell>
+                <TableCell className="text-end">${(invoice.paidAmount || 0).toFixed(2)}</TableCell>
+                <TableCell className="text-end">${(invoice.outstandingAmount || 0).toFixed(2)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Select
@@ -194,90 +390,228 @@ export function InvoiceTable() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
-                    {invoice.lineItems.map((item) => (
-                      <Badge key={item.taskId} variant="outline">
-                        {getTaskTitle(item.taskId)}
+                    {invoice.lineItems.map((item, index) => (
+                      <Badge key={`${item.taskId || item.description}-${index}`} variant="outline">
+                        {item.taskId
+                          ? getTaskTitle(item.taskId)
+                          : item.description}
                       </Badge>
                     ))}
                   </div>
                 </TableCell>
-                <TableCell className="text-right">
-                  <Dialog
-                    open={paymentDialog.open && paymentDialog.invoice?.id === invoice.id}
-                    onOpenChange={(open) => {
-                      if (!open) setPaymentDialog({ open: false });
-                      else setPaymentDialog({ open: true, invoice });
-                    }}
-                  >
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm">Record Payment</Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Record Payment</DialogTitle>
-                        <p className="text-sm text-muted-foreground">
-                          Invoice {invoice.invoiceNumber} — {getClientName(invoice.clientId)}
-                        </p>
-                      </DialogHeader>
-                      <div className="space-y-3 py-2">
-                        <div className="space-y-1">
-                          <Label>Amount</Label>
-                          <Input
-                            type="number"
-                            value={paymentAmount}
-                            onChange={(e) => setPaymentAmount(e.target.value)}
-                            placeholder="e.g. 500"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Method</Label>
-                          <Input
-                            value={paymentMethod}
-                            onChange={(e) => setPaymentMethod(e.target.value)}
-                            placeholder="e.g. Bank transfer, Cash"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Note</Label>
-                          <Input
-                            value={paymentNote}
-                            onChange={(e) => setPaymentNote(e.target.value)}
-                            placeholder="Optional"
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
+                <TableCell className="text-end">
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPreviewInvoice(invoice)}
+                    >
+                      <Eye className="me-2 h-4 w-4" />
+                      Preview
+                    </Button>
+                    <Dialog
+                      open={paymentDialog.open && paymentDialog.invoice?.id === invoice.id}
+                      onOpenChange={(open) => {
+                        if (!open) {
+                          setPaymentDialog({ open: false });
+                          setPayments([]);
+                        } else {
+                          openPaymentDialog(invoice);
+                        }
+                      }}
+                    >
+                      <DialogTrigger asChild>
                         <Button
-                          onClick={async () => {
-                            try {
-                              await createPayment(invoice.id, {
-                                amount: Number(paymentAmount),
-                                method: paymentMethod || undefined,
-                                note: paymentNote || undefined,
-                              });
-                              setPaymentDialog({ open: false });
-                              setPaymentAmount('');
-                              setPaymentMethod('');
-                              setPaymentNote('');
-                              await fetchData();
-                              toast({ title: 'Payment recorded' });
-                            } catch {
-                              toast({ variant: 'destructive', title: 'Failed', description: 'Could not record payment.' });
-                            }
-                          }}
-                          disabled={!paymentAmount}
+                          variant="outline"
+                          size="sm"
+                          disabled={invoice.status === 'Draft' || (invoice.outstandingAmount || 0) <= 0}
                         >
-                          Save Payment
+                          Record Payment
                         </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Record Payment</DialogTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Invoice {invoice.invoiceNumber} — {getClientName(invoice.clientId)}
+                          </p>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-md border p-3 text-sm">
+                              <div className="text-muted-foreground">Invoice Total</div>
+                              <div className="text-lg font-semibold">${invoice.total.toFixed(2)}</div>
+                            </div>
+                            <div className="rounded-md border p-3 text-sm">
+                              <div className="text-muted-foreground">Paid</div>
+                              <div className="text-lg font-semibold">${(invoice.paidAmount || 0).toFixed(2)}</div>
+                            </div>
+                            <div className="rounded-md border p-3 text-sm">
+                              <div className="text-muted-foreground">Outstanding</div>
+                              <div className="text-lg font-semibold">${(invoice.outstandingAmount || 0).toFixed(2)}</div>
+                            </div>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="space-y-1">
+                              <Label>Amount</Label>
+                              <Input
+                                type="number"
+                                value={paymentAmount}
+                                onChange={(e) => setPaymentAmount(e.target.value)}
+                                placeholder="e.g. 500"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Method</Label>
+                              <Input
+                                value={paymentMethod}
+                                onChange={(e) => setPaymentMethod(e.target.value)}
+                                placeholder="e.g. Bank transfer, Cash"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Note</Label>
+                              <Input
+                                value={paymentNote}
+                                onChange={(e) => setPaymentNote(e.target.value)}
+                                placeholder="Optional"
+                              />
+                            </div>
+                          </div>
+                          <div className="rounded-lg border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Date</TableHead>
+                                  <TableHead>Method</TableHead>
+                                  <TableHead>Note</TableHead>
+                                  <TableHead className="text-end">Amount</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {paymentLoading && (
+                                  <TableRow>
+                                    <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
+                                      Loading payment history...
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                                {!paymentLoading && payments.length === 0 && (
+                                  <TableRow>
+                                    <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
+                                      No payments recorded yet.
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                                {!paymentLoading &&
+                                  payments.map((payment) => (
+                                    <TableRow key={payment.id}>
+                                      <TableCell>{format(payment.paidAt, 'MMM d, yyyy')}</TableCell>
+                                      <TableCell>{payment.method || '—'}</TableCell>
+                                      <TableCell>{payment.note || '—'}</TableCell>
+                                      <TableCell className="text-end">${payment.amount.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                  ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                          {selectedCompany && (
+                            <RecordSupportPanel
+                              companyId={selectedCompany.id}
+                              entityType="invoice"
+                              entityId={invoice.id}
+                              title="Invoice Attachments & Timeline"
+                              compact
+                            />
+                          )}
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            onClick={async () => {
+                              const amount = Number(paymentAmount);
+                              if (!Number.isFinite(amount) || amount <= 0) {
+                                toast({
+                                  variant: 'destructive',
+                                  title: 'Invalid payment',
+                                  description: 'Enter a payment amount greater than zero.',
+                                });
+                                return;
+                              }
+                              try {
+                                await createPayment(invoice.id, {
+                                  amount,
+                                  method: paymentMethod || undefined,
+                                  note: paymentNote || undefined,
+                                });
+                                setPaymentDialog({ open: false });
+                                setPayments([]);
+                                setPaymentAmount('');
+                                setPaymentMethod('');
+                                setPaymentNote('');
+                                await fetchData();
+                                toast({ title: 'Payment recorded' });
+                              } catch (error: any) {
+                                toast({
+                                  variant: 'destructive',
+                                  title: 'Failed',
+                                  description: error?.message || 'Could not record payment.',
+                                });
+                              }
+                            }}
+                            disabled={!paymentAmount}
+                          >
+                            Save Payment
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
+            {filteredInvoices.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={11} className="h-24 text-center text-sm text-muted-foreground">
+                  {invoices.length === 0
+                    ? 'No invoices yet. Create one from project work or manual billing to start collections.'
+                    : 'No invoices match the current search or status filter.'}
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>
+      <Dialog open={Boolean(previewInvoice)} onOpenChange={(open) => !open && setPreviewInvoice(null)}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Invoice Preview</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {previewInvoice?.invoiceNumber} uses {getTemplateName(previewInvoice?.templateId)}.
+            </p>
+          </DialogHeader>
+          <div className="invoice-preview-actions flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              For a cleaner PDF, open the print view and disable browser headers/footers in the print dialog.
+            </p>
+            <Button asChild>
+              <a href={`/finance/invoices/${previewInvoice?.id}/print?print=1`} target="_blank" rel="noopener noreferrer">
+                <Printer className="me-2 h-4 w-4" />
+                Download Invoice
+              </a>
+            </Button>
+          </div>
+          {previewInvoice && (
+            <div className="rounded-lg bg-muted/30 p-3">
+              <InvoiceDocument
+                invoice={previewInvoice}
+                client={clients.find((client) => client.id === previewInvoice.clientId)}
+                company={selectedCompany}
+                template={getTemplate(previewInvoice.templateId)}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

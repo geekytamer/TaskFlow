@@ -16,11 +16,13 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/icons/logo';
 import { login } from '@/services/authService';
+import { useI18n } from '@/context/i18n-context';
 
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const { t } = useI18n();
   const [email, setEmail] = useState('admin@taskflow.com');
   const [password, setPassword] = useState('password');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,8 +32,8 @@ function LoginPageInner() {
     if (error === 'no-firestore-user') {
       toast({
         variant: 'destructive',
-        title: 'Access Denied',
-        description: "Your account exists but has not been configured by an administrator yet. Please contact your manager.",
+        title: t('login.accessDeniedTitle'),
+        description: t('login.accessDeniedMessage'),
       });
     }
   }, [searchParams, toast]);
@@ -43,16 +45,16 @@ function LoginPageInner() {
     try {
       await login(email, password);
       toast({
-        title: 'Login Successful',
-        description: 'Welcome back!',
+        title: t('login.successTitle'),
+        description: t('login.successMessage'),
       });
       router.push('/');
     } catch (error: any) {
       console.error('Auth Error:', error);
-      const description = error?.message || 'Invalid email or password. Please try again.';
+      const description = error?.message || t('login.failedMessage');
       toast({
         variant: 'destructive',
-        title: 'Login Failed',
+        title: t('login.failedTitle'),
         description,
       });
     } finally {
@@ -68,15 +70,15 @@ function LoginPageInner() {
                 <Logo className="h-8 w-8 text-primary" />
                 <h1 className="text-3xl font-bold text-primary font-headline">TaskFlow</h1>
             </div>
-          <CardTitle className="text-2xl">Login</CardTitle>
+          <CardTitle className="text-2xl">{t('login.title')}</CardTitle>
           <CardDescription>
-            Enter your email below to login to your account
+            {t('login.subtitle')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('login.email')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -89,7 +91,7 @@ function LoginPageInner() {
             </div>
             <div className="grid gap-2">
               <div className="flex items-center">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('login.password')}</Label>
               </div>
               <Input 
                 id="password" 
@@ -101,7 +103,7 @@ function LoginPageInner() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing In...' : 'Sign In'}
+              {isLoading ? t('login.signingIn') : t('login.signIn')}
             </Button>
           </form>
         </CardContent>
