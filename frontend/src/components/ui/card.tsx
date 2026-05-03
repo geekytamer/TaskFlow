@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { localizeUiNode } from "@/lib/ui-text"
 import { cn } from "@/lib/utils"
 
 const Card = React.forwardRef<
@@ -32,7 +33,7 @@ CardHeader.displayName = "CardHeader"
 const CardTitle = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <div
     ref={ref}
     className={cn(
@@ -40,19 +41,23 @@ const CardTitle = React.forwardRef<
       className
     )}
     {...props}
-  />
+  >
+    {localizeUiNode(children)}
+  </div>
 ))
 CardTitle.displayName = "CardTitle"
 
 const CardDescription = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <div
     ref={ref}
     className={cn("text-sm text-muted-foreground", className)}
     {...props}
-  />
+  >
+    {localizeUiNode(children)}
+  </div>
 ))
 CardDescription.displayName = "CardDescription"
 

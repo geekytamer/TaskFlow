@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { supportedCurrencies, normalizeCurrencyCode } from '@/lib/currency';
 import type {
   CompanyFinanceSettings,
   CompanyNumberingSetting,
@@ -36,6 +37,7 @@ const entityLabels: Record<NumberingEntityType, string> = {
   supplier: 'Suppliers',
   inventory_item: 'Inventory Items / SKU',
   purchase_order: 'Purchase Orders',
+  sales_order: 'Sales Orders',
   sales_invoice: 'Sales Invoices',
   vendor_invoice: 'Vendor Invoices',
 };
@@ -69,6 +71,7 @@ export function NumberingSettingsPanel() {
   const [financeSettings, setFinanceSettings] = React.useState<CompanyFinanceSettings | null>(null);
   const [lockedThroughDate, setLockedThroughDate] = React.useState('');
   const [fiscalYearStartMonth, setFiscalYearStartMonth] = React.useState('1');
+  const [currencyCode, setCurrencyCode] = React.useState('USD');
   const [loading, setLoading] = React.useState(true);
   const [savingFinance, setSavingFinance] = React.useState(false);
 
@@ -97,6 +100,7 @@ export function NumberingSettingsPanel() {
       );
       setFinanceSettings(financeData);
       setFiscalYearStartMonth(String(financeData?.fiscalYearStartMonth || 1));
+      setCurrencyCode(normalizeCurrencyCode(financeData?.currencyCode));
       setLockedThroughDate(
         financeData?.lockedThroughDate ? format(financeData.lockedThroughDate, 'yyyy-MM-dd') : '',
       );
@@ -172,6 +176,7 @@ export function NumberingSettingsPanel() {
       const updated = await updateCompanyFinanceSettings(selectedCompany.id, {
         fiscalYearStartMonth: Number(fiscalYearStartMonth),
         lockedThroughDate: lockedThroughDate ? new Date(lockedThroughDate) : null,
+        currencyCode,
       });
       setFinanceSettings(updated);
       toast({ title: 'Finance controls updated' });
@@ -302,7 +307,26 @@ export function NumberingSettingsPanel() {
             Lock closed accounting periods so old invoices, payments, and journal entries cannot be changed accidentally.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[220px_220px_auto]">
+        <CardContent className="grid gap-4 md:grid-cols-[220px_220px_220px_auto]">
+          <div className="space-y-1">
+            <Label>Platform Currency</Label>
+            <Select
+              value={currencyCode}
+              onValueChange={setCurrencyCode}
+              disabled={!canEdit}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {supportedCurrencies.map((currency) => (
+                  <SelectItem key={currency.code} value={currency.code}>
+                    {currency.code} - {currency.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1">
             <Label>Fiscal Year Starts</Label>
             <Select
@@ -334,7 +358,10 @@ export function NumberingSettingsPanel() {
               {savingFinance ? 'Saving...' : 'Save Finance Controls'}
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground md:col-span-3">
+          <p className="text-sm text-muted-foreground md:col-span-4">
+            Currency: {financeSettings?.currencyCode || 'USD'}. OMR will use /currency/omr.svg when that file is available.
+          </p>
+          <p className="text-sm text-muted-foreground md:col-span-4">
             Current lock:{' '}
             {financeSettings?.lockedThroughDate
               ? `transactions dated on or before ${format(financeSettings.lockedThroughDate, 'MMM d, yyyy')} are blocked`

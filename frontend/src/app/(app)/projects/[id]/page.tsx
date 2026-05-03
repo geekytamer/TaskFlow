@@ -26,6 +26,7 @@ import type { Client, Invoice, ProjectVisibility, Task } from '@/lib/types';
 import { format } from 'date-fns';
 import { canManageProjects, canViewProject } from '@/modules/projects/lib/access';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { useCompanyCurrency } from '@/lib/currency';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -48,6 +49,7 @@ export default function ProjectDetailsPage() {
   const [selectedMemberToAdd, setSelectedMemberToAdd] = React.useState<string | undefined>();
   const [editOpen, setEditOpen] = React.useState(false);
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
 
   React.useEffect(() => {
     async function fetchData() {
@@ -324,7 +326,7 @@ export default function ProjectDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{readyToBillTasks.length}</div>
-            <div className="text-xs text-muted-foreground">${readyToBillAmount.toFixed(2)} pending invoice</div>
+            <div className="text-xs text-muted-foreground">{amount(readyToBillAmount)} pending invoice</div>
           </CardContent>
         </Card>
         <Card>
@@ -333,7 +335,7 @@ export default function ProjectDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{billedTasks.length}</div>
-            <div className="text-xs text-muted-foreground">${billedAmount.toFixed(2)} billed</div>
+            <div className="text-xs text-muted-foreground">{amount(billedAmount)} billed</div>
           </CardContent>
         </Card>
         <Card>
@@ -341,7 +343,7 @@ export default function ProjectDetailsPage() {
             <CardTitle className="text-sm font-medium">Collected</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">${collectedAmount.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-emerald-600">{amount(collectedAmount)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -349,7 +351,7 @@ export default function ProjectDetailsPage() {
             <CardTitle className="text-sm font-medium">Outstanding</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">${outstandingAmount.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-amber-600">{amount(outstandingAmount)}</div>
           </CardContent>
         </Card>
       </div>
@@ -379,9 +381,9 @@ export default function ProjectDetailsPage() {
                     <TableCell>
                       <Badge variant="outline">{invoice.status}</Badge>
                     </TableCell>
-                    <TableCell className="text-end">${invoice.total.toFixed(2)}</TableCell>
-                    <TableCell className="text-end">${(invoice.paidAmount || 0).toFixed(2)}</TableCell>
-                    <TableCell className="text-end">${(invoice.outstandingAmount || 0).toFixed(2)}</TableCell>
+                    <TableCell className="text-end">{amount(invoice.total)}</TableCell>
+                    <TableCell className="text-end">{amount(invoice.paidAmount || 0)}</TableCell>
+                    <TableCell className="text-end">{amount(invoice.outstandingAmount || 0)}</TableCell>
                   </TableRow>
                 ))}
                 {projectInvoices.length === 0 && (

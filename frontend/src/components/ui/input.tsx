@@ -1,9 +1,10 @@
 import * as React from "react"
 
+import { localizeUiPlaceholder } from "@/lib/ui-text"
 import { cn } from "@/lib/utils"
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, placeholder, ...props }, ref) => {
     return (
       <input
         type={type}
@@ -12,6 +13,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           className
         )}
         ref={ref}
+        placeholder={localizeUiPlaceholder(placeholder) as string | undefined}
         {...props}
       />
     )

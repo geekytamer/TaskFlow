@@ -27,6 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
 import {
   createJournalEntry,
   createLedgerAccount,
@@ -39,13 +40,6 @@ import type { JournalEntry, LedgerAccount, LedgerAccountType } from '@/modules/f
 import { Download, FilePlus2, NotebookPen, Pencil, Trash2 } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
-
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
 
 const accountTypeOrder: LedgerAccountType[] = [
   'Asset',
@@ -95,6 +89,7 @@ const accountColumnGroup = (
 export function JournalTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
   const [entries, setEntries] = React.useState<JournalEntry[]>([]);
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -754,8 +749,8 @@ export function JournalTable() {
                             );
                           })}
                         </TableCell>
-                        <TableCell className="text-end">{money(totalDebit)}</TableCell>
-                        <TableCell className="text-end">{money(totalCredit)}</TableCell>
+                        <TableCell className="text-end">{amount(totalDebit)}</TableCell>
+                        <TableCell className="text-end">{amount(totalCredit)}</TableCell>
                       </TableRow>
                     );
                   })

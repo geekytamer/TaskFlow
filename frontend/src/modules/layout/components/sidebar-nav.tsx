@@ -15,6 +15,7 @@ import {
   Building,
   Settings,
   Banknote,
+  ReceiptText,
   Package,
   ShoppingCart,
   Handshake,
@@ -29,6 +30,7 @@ const allNavItems = [
   { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'] },
+  { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'] },
@@ -54,8 +56,12 @@ export function SidebarNav() {
   }
 
   const navItems = allNavItems.filter(item => {
-    if (item.href === '/companies' || item.href === '/settings') {
+    if (item.href === '/companies') {
       return user.role === 'Admin';
+    }
+
+    if (item.href === '/settings') {
+      return effectiveRole === 'Admin';
     }
 
     if (!effectiveRole) return false;

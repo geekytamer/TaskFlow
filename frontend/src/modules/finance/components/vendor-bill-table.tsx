@@ -27,6 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
 import {
   bulkUpdateVendorBillStatus,
   createVendorBillPayment,
@@ -60,16 +61,10 @@ const statusColor: Record<VendorBillStatus, string> = {
   Overdue: 'bg-red-200 text-red-800',
 };
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-
 export function VendorBillTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
 
   const [bills, setBills] = React.useState<VendorBill[]>([]);
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
@@ -406,7 +401,7 @@ export function VendorBillTable() {
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredBills.length} invoices shown • outstanding ${money(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0))}`}
+        summary={`${filteredBills.length} invoices shown • outstanding ${amount(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0))}`}
         actions={(
           <>
           <Button variant="outline" size="sm" onClick={() => bulkUpdate('Approved', 'Draft')}>
@@ -527,7 +522,7 @@ export function VendorBillTable() {
                   {form.purchaseOrderId && (
                     <p className="text-xs text-muted-foreground">
                       Remaining to bill{' '}
-                      {money(
+                      {amount(
                         purchasePayablesMap.get(form.purchaseOrderId)?.remainingToBill
                         || purchaseOrderMap.get(form.purchaseOrderId)?.totalAmount
                         || 0,
@@ -698,9 +693,9 @@ export function VendorBillTable() {
                   </TableCell>
                   <TableCell>{format(bill.issueDate, 'MMM d, yyyy')}</TableCell>
                   <TableCell>{format(bill.dueDate, 'MMM d, yyyy')}</TableCell>
-                  <TableCell className="text-end">{money(bill.amount)}</TableCell>
-                  <TableCell className="text-end">{money(bill.paidAmount || 0)}</TableCell>
-                  <TableCell className="text-end">{money(bill.outstandingAmount || 0)}</TableCell>
+                  <TableCell className="text-end">{amount(bill.amount)}</TableCell>
+                  <TableCell className="text-end">{amount(bill.paidAmount || 0)}</TableCell>
+                  <TableCell className="text-end">{amount(bill.outstandingAmount || 0)}</TableCell>
                   <TableCell>{purchaseOrderMap.get(bill.purchaseOrderId || '')?.orderNumber || '—'}</TableCell>
                   <TableCell>{accountNameMap.get(bill.expenseAccountId || '') || 'Default'}</TableCell>
                   <TableCell>
@@ -774,15 +769,15 @@ export function VendorBillTable() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Bill Amount</div>
-                  <div className="text-lg font-semibold">{money(selectedBill.amount)}</div>
+                  <div className="text-lg font-semibold">{amount(selectedBill.amount)}</div>
                 </div>
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Paid</div>
-                  <div className="text-lg font-semibold">{money(selectedBill.paidAmount || 0)}</div>
+                  <div className="text-lg font-semibold">{amount(selectedBill.paidAmount || 0)}</div>
                 </div>
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">Outstanding</div>
-                  <div className="text-lg font-semibold">{money(selectedBill.outstandingAmount || 0)}</div>
+                  <div className="text-lg font-semibold">{amount(selectedBill.outstandingAmount || 0)}</div>
                 </div>
               </div>
 
@@ -873,7 +868,7 @@ export function VendorBillTable() {
                           <TableCell>{format(payment.paidAt, 'MMM d, yyyy')}</TableCell>
                           <TableCell>{payment.method || '—'}</TableCell>
                           <TableCell>{payment.note || '—'}</TableCell>
-                          <TableCell className="text-end">{money(payment.amount)}</TableCell>
+                          <TableCell className="text-end">{amount(payment.amount)}</TableCell>
                         </TableRow>
                       ))}
                   </TableBody>

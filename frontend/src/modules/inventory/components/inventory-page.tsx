@@ -26,7 +26,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
+import { getCurrentLocale } from '@/lib/locale';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
@@ -46,13 +49,6 @@ import type { InventoryItem, InventoryLocationBalance, PurchaseOrder, StockMovem
 import type { Project } from '@/modules/projects/types';
 import { ArrowRightLeft, PackageMinus, PackagePlus, SlidersHorizontal } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
-
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
 
 type InventoryFormState = {
   name: string;
@@ -115,7 +111,13 @@ const inventoryUnitOptions = ['pcs', 'box', 'pack', 'set', 'kg', 'g', 'ltr', 'ml
 
 export function InventoryPage() {
   const { selectedCompany } = useCompany();
+  const { money, amount } = useCompanyCurrency();
+  const { language } = useI18n();
   const { toast } = useToast();
+  const tr = React.useCallback(
+    (en: string, ar: string) => (language === 'ar' ? ar : en),
+    [language],
+  );
   const [items, setItems] = React.useState<InventoryItem[]>([]);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
@@ -180,8 +182,8 @@ export function InventoryPage() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Inventory unavailable',
-        description: error?.message || 'Could not load inventory items.',
+        title: tr('Inventory unavailable', 'المخزون غير متاح'),
+        description: error?.message || tr('Could not load inventory items.', 'تعذر تحميل عناصر المخزون.'),
       });
     } finally {
       setLoading(false);
@@ -282,8 +284,8 @@ export function InventoryPage() {
     if (!form.name || !form.category || !form.unit) {
       toast({
         variant: 'destructive',
-        title: 'Missing required fields',
-        description: 'Name, category, and unit are required.',
+        title: tr('Missing required fields', 'حقول مطلوبة مفقودة'),
+        description: tr('Name, category, and unit are required.', 'الاسم والفئة والوحدة مطلوبة.'),
       });
       return;
     }
@@ -308,12 +310,12 @@ export function InventoryPage() {
       setOpenCreate(false);
       resetForm();
       await load();
-      toast({ title: 'Inventory item created' });
+      toast({ title: tr('Inventory item created', 'تم إنشاء عنصر مخزون') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Create failed',
-        description: error?.message || 'Could not create inventory item.',
+        title: tr('Create failed', 'فشل الإنشاء'),
+        description: error?.message || tr('Could not create inventory item.', 'تعذر إنشاء عنصر المخزون.'),
       });
     }
   };
@@ -324,8 +326,8 @@ export function InventoryPage() {
     if (!Number.isFinite(quantityChange) || quantityChange === 0) {
       toast({
         variant: 'destructive',
-        title: 'Invalid adjustment',
-        description: 'Enter a non-zero quantity change.',
+        title: tr('Invalid adjustment', 'تعديل غير صالح'),
+        description: tr('Enter a non-zero quantity change.', 'أدخل تغيير كمية غير صفري.'),
       });
       return;
     }
@@ -338,12 +340,12 @@ export function InventoryPage() {
       });
       setAdjustment({ open: false, quantityChange: '', location: '', note: '' });
       await load();
-      toast({ title: 'Stock adjusted' });
+      toast({ title: tr('Stock adjusted', 'تم تعديل المخزون') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Adjustment failed',
-        description: error?.message || 'Could not adjust inventory.',
+        title: tr('Adjustment failed', 'فشل التعديل'),
+        description: error?.message || tr('Could not adjust inventory.', 'تعذر تعديل المخزون.'),
       });
     }
   };
@@ -354,8 +356,8 @@ export function InventoryPage() {
     if (!Number.isFinite(quantity) || quantity <= 0) {
       toast({
         variant: 'destructive',
-        title: 'Invalid issue',
-        description: 'Enter a quantity greater than zero.',
+        title: tr('Invalid issue', 'عملية صرف غير صالحة'),
+        description: tr('Enter a quantity greater than zero.', 'أدخل كمية أكبر من صفر.'),
       });
       return;
     }
@@ -377,12 +379,12 @@ export function InventoryPage() {
         note: '',
       });
       await load();
-      toast({ title: 'Inventory issued' });
+      toast({ title: tr('Inventory issued', 'تم صرف المخزون') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Issue failed',
-        description: error?.message || 'Could not issue stock.',
+        title: tr('Issue failed', 'فشل الصرف'),
+        description: error?.message || tr('Could not issue stock.', 'تعذر صرف المخزون.'),
       });
     }
   };
@@ -393,8 +395,8 @@ export function InventoryPage() {
     if (!Number.isFinite(quantity) || quantity <= 0 || !transfer.toLocation.trim()) {
       toast({
         variant: 'destructive',
-        title: 'Invalid transfer',
-        description: 'Enter a quantity and destination location.',
+        title: tr('Invalid transfer', 'تحويل غير صالح'),
+        description: tr('Enter a quantity and destination location.', 'أدخل الكمية وموقع الوجهة.'),
       });
       return;
     }
@@ -414,35 +416,35 @@ export function InventoryPage() {
         note: '',
       });
       await load();
-      toast({ title: 'Inventory transferred' });
+      toast({ title: tr('Inventory transferred', 'تم تحويل المخزون') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Transfer failed',
-        description: error?.message || 'Could not transfer stock.',
+        title: tr('Transfer failed', 'فشل التحويل'),
+        description: error?.message || tr('Could not transfer stock.', 'تعذر تحويل المخزون.'),
       });
     }
   };
 
   const getStatus = (item: InventoryItem) => {
     if (item.onHand <= 0) {
-      return { label: 'Out of Stock', className: 'bg-red-100 text-red-700 border-red-200' };
+      return { label: tr('Out of Stock', 'نفد المخزون'), className: 'bg-red-100 text-red-700 border-red-200' };
     }
     if (item.onHand <= item.reorderPoint) {
-      return { label: 'Low Stock', className: 'bg-amber-100 text-amber-700 border-amber-200' };
+      return { label: tr('Low Stock', 'مخزون منخفض'), className: 'bg-amber-100 text-amber-700 border-amber-200' };
     }
-    return { label: 'Healthy', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+    return { label: tr('Healthy', 'جيد'), className: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
   };
 
   if (!selectedCompany) {
     return (
       <SectionPageShell
-        title="Inventory Management"
-        description="Track stock levels, reorder points, locations, and inbound quantities from purchase orders."
+        title={tr('Inventory Management', 'إدارة المخزون')}
+        description={tr('Track stock levels, reorder points, locations, and inbound quantities from purchase orders.', 'تتبع مستويات المخزون ونقاط إعادة الطلب والمواقع والكميات الواردة من أوامر الشراء.')}
       >
         <SectionEmptyState
-          title="Choose a company to continue"
-          description="Inventory is scoped by company. Use the company switcher first, then manage stock, movements, and receiving from one place."
+          title={tr('Choose a company to continue', 'اختر شركة للمتابعة')}
+          description={tr('Inventory is scoped by company. Use the company switcher first, then manage stock, movements, and receiving from one place.', 'المخزون مرتبط بالشركة. استخدم مبدل الشركة أولًا ثم أدر المخزون والحركات والاستلام من مكان واحد.')}
         />
       </SectionPageShell>
     );
@@ -450,13 +452,13 @@ export function InventoryPage() {
 
   return (
     <SectionPageShell
-      title="Inventory Management"
-      description="Track stock levels, reorder points, and inbound quantities from purchase orders."
+      title={tr('Inventory Management', 'إدارة المخزون')}
+      description={tr('Track stock levels, reorder points, and inbound quantities from purchase orders.', 'تتبع مستويات المخزون ونقاط إعادة الطلب والكميات الواردة من أوامر الشراء.')}
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active SKUs</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Active SKUs', 'الأصناف النشطة')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalItems}</div>
@@ -464,7 +466,7 @@ export function InventoryPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Low Stock', 'مخزون منخفض')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{stats.lowStock}</div>
@@ -472,7 +474,7 @@ export function InventoryPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Out of Stock</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Out of Stock', 'نفد المخزون')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">{stats.outOfStock}</div>
@@ -480,7 +482,7 @@ export function InventoryPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Incoming Units</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Incoming Units', 'الوحدات الواردة')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{stats.incomingUnits}</div>
@@ -488,15 +490,15 @@ export function InventoryPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Stock Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Stock Value', 'قيمة المخزون')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(stats.inventoryValue)}</div>
+            <div className="text-2xl font-bold">{amount(stats.inventoryValue)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Tracked Locations</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Tracked Locations', 'المواقع المتتبعة')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.trackedLocations}</div>
@@ -509,7 +511,7 @@ export function InventoryPage() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by SKU, item, vendor, or location"
+            placeholder={tr('Search by SKU, item, vendor, or location', 'ابحث حسب SKU أو الصنف أو المورد أو الموقع')}
             className="max-w-md"
           />
         )}
@@ -520,25 +522,25 @@ export function InventoryPage() {
               size="sm"
               onClick={() => setStockFilter('all')}
             >
-              All
+              {tr('All', 'الكل')}
             </Button>
             <Button
               variant={stockFilter === 'attention' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setStockFilter('attention')}
             >
-              Needs Attention
+              {tr('Needs Attention', 'تحتاج انتباه')}
             </Button>
             <Button
               variant={stockFilter === 'healthy' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setStockFilter('healthy')}
             >
-              Healthy
+              {tr('Healthy', 'جيد')}
             </Button>
           </div>
         )}
-        summary={`Showing ${filteredItems.length} of ${items.length} items`}
+        summary={tr(`Showing ${filteredItems.length} of ${items.length} items`, `عرض ${filteredItems.length} من أصل ${items.length} عنصر`)}
         actions={(
           <Dialog
           open={openCreate}
@@ -550,51 +552,51 @@ export function InventoryPage() {
           <DialogTrigger asChild>
             <Button>
               <PackagePlus className="me-2 h-4 w-4" />
-              New Inventory Item
+              {tr('New Inventory Item', 'عنصر مخزون جديد')}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Add Inventory Item</DialogTitle>
+              <DialogTitle>{tr('Add Inventory Item', 'إضافة عنصر مخزون')}</DialogTitle>
               <DialogDescription>
-                Create a stock item that can be tracked in inventory and referenced by purchases.
+                {tr('Create a stock item that can be tracked in inventory and referenced by purchases.', 'أنشئ عنصر مخزون يمكن تتبعه في المخزون وربطه بعمليات الشراء.')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-2 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>Name</Label>
+                <Label>{tr('Name', 'الاسم')}</Label>
                 <Input
                   value={form.name}
                   onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                  placeholder="Item name"
+                  placeholder={tr('Item name', 'اسم الصنف')}
                 />
               </div>
               <div className="space-y-1">
-                <Label>SKU</Label>
+                <Label>{tr('SKU', 'SKU')}</Label>
                 <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
-                  Auto-generated when saved
+                  {tr('Auto-generated when saved', 'يتم إنشاؤه تلقائيًا عند الحفظ')}
                 </div>
               </div>
               <div className="space-y-1">
-                <Label>Barcode</Label>
+                <Label>{tr('Barcode', 'الباركود')}</Label>
                 <Input
                   value={form.barcode}
                   onChange={(event) => setForm((prev) => ({ ...prev, barcode: event.target.value }))}
-                  placeholder="Optional barcode"
+                  placeholder={tr('Optional barcode', 'باركود اختياري')}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Category</Label>
+                <Label>{tr('Category', 'الفئة')}</Label>
                 <Input
                   value={form.category}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, category: event.target.value }))
                   }
-                  placeholder="Category"
+                  placeholder={tr('Category', 'الفئة')}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Unit</Label>
+                <Label>{tr('Unit', 'الوحدة')}</Label>
                 <Select value={form.unit} onValueChange={(value) => setForm((prev) => ({ ...prev, unit: value }))}>
                   <SelectTrigger>
                     <SelectValue />
@@ -609,7 +611,7 @@ export function InventoryPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>VAT</Label>
+                <Label>{tr('VAT', 'ضريبة القيمة المضافة')}</Label>
                 <Select
                   value={form.vatApplicable}
                   onValueChange={(value) =>
@@ -620,13 +622,13 @@ export function InventoryPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="yes">5% VAT applicable</SelectItem>
-                    <SelectItem value="no">No VAT</SelectItem>
+                    <SelectItem value="yes">{tr('5% VAT applicable', 'تطبق ضريبة 5%')}</SelectItem>
+                    <SelectItem value="no">{tr('No VAT', 'بدون ضريبة')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>Inventory Tracking</Label>
+                <Label>{tr('Inventory Tracking', 'تتبع المخزون')}</Label>
                 <Select
                   value={form.tracksInventory}
                   onValueChange={(value) =>
@@ -637,13 +639,13 @@ export function InventoryPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="tracked">Track in inventory</SelectItem>
-                    <SelectItem value="non-tracked">Do not track stock</SelectItem>
+                    <SelectItem value="tracked">{tr('Track in inventory', 'تتبع في المخزون')}</SelectItem>
+                    <SelectItem value="non-tracked">{tr('Do not track stock', 'عدم تتبع المخزون')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>On Hand</Label>
+                <Label>{tr('On Hand', 'الكمية المتاحة')}</Label>
                 <Input
                   type="number"
                   value={form.onHand}
@@ -653,7 +655,7 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Reorder Point</Label>
+                <Label>{tr('Reorder Point', 'نقطة إعادة الطلب')}</Label>
                 <Input
                   type="number"
                   value={form.reorderPoint}
@@ -663,7 +665,7 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Unit Cost</Label>
+                <Label>{tr('Unit Cost', 'تكلفة الوحدة')}</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -674,7 +676,7 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Sale Price</Label>
+                <Label>{tr('Sale Price', 'سعر البيع')}</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -685,13 +687,13 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Preferred Supplier</Label>
+                <Label>{tr('Preferred Supplier', 'المورد المفضل')}</Label>
                 <Select
                   value={form.preferredSupplierId}
                   onValueChange={(value) => setForm((prev) => ({ ...prev, preferredSupplierId: value }))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select supplier" />
+                    <SelectValue placeholder={tr('Select supplier', 'اختر المورد')} />
                   </SelectTrigger>
                   <SelectContent>
                     {suppliers.map((supplier) => (
@@ -703,21 +705,21 @@ export function InventoryPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>Location</Label>
+                <Label>{tr('Location', 'الموقع')}</Label>
                 <Input
                   value={form.location}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, location: event.target.value }))
                   }
-                  placeholder="Warehouse A"
+                  placeholder={tr('Warehouse A', 'المستودع أ')}
                 />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>
-                Cancel
+                {tr('Cancel', 'إلغاء')}
               </Button>
-            <Button onClick={handleCreate}>Create Item</Button>
+            <Button onClick={handleCreate}>{tr('Create Item', 'إنشاء عنصر')}</Button>
           </DialogFooter>
         </DialogContent>
           </Dialog>
@@ -728,16 +730,16 @@ export function InventoryPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>SKU</TableHead>
-              <TableHead>Item</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead className="text-end">On Hand</TableHead>
-              <TableHead className="text-end">Incoming</TableHead>
-              <TableHead className="text-end">Reorder</TableHead>
-              <TableHead className="text-end">Unit Cost</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-end">Actions</TableHead>
+              <TableHead>{tr('SKU', 'SKU')}</TableHead>
+              <TableHead>{tr('Item', 'الصنف')}</TableHead>
+              <TableHead>{tr('Category', 'الفئة')}</TableHead>
+              <TableHead className="text-end">{tr('On Hand', 'الكمية المتاحة')}</TableHead>
+              <TableHead className="text-end">{tr('Incoming', 'الوارد')}</TableHead>
+              <TableHead className="text-end">{tr('Reorder', 'إعادة الطلب')}</TableHead>
+              <TableHead className="text-end">{tr('Unit Cost', 'تكلفة الوحدة')}</TableHead>
+              <TableHead>{tr('Vendor', 'المورد')}</TableHead>
+              <TableHead>{tr('Status', 'الحالة')}</TableHead>
+              <TableHead className="text-end">{tr('Actions', 'الإجراءات')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -761,7 +763,7 @@ export function InventoryPage() {
               const status = getStatus(item);
               const incoming = incomingMap.get(item.id) || incomingMap.get(item.sku) || 0;
               const itemBalances = balancesByItem.get(item.id) || [];
-              const primaryLocation = itemBalances[0]?.location || item.location || 'Unassigned';
+              const primaryLocation = itemBalances[0]?.location || item.location || tr('Unassigned', 'غير محدد');
               const locationSummary = itemBalances.length
                 ? itemBalances.map((entry) => `${entry.location}: ${entry.quantity}`).join(' • ')
                 : `${primaryLocation}: ${item.onHand}`;
@@ -772,7 +774,7 @@ export function InventoryPage() {
                     <TableCell>
                       <div className="font-medium">{item.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {[item.barcode || 'No barcode', item.tracksInventory ? locationSummary : 'Non-stock item']
+                        {[item.barcode || tr('No barcode', 'لا يوجد باركود'), item.tracksInventory ? locationSummary : tr('Non-stock item', 'عنصر غير مخزني')]
                           .filter(Boolean)
                           .join(' • ')}
                       </div>
@@ -783,11 +785,11 @@ export function InventoryPage() {
                     </TableCell>
                     <TableCell className="text-end">{incoming}</TableCell>
                     <TableCell className="text-end">{item.reorderPoint}</TableCell>
-                    <TableCell className="text-end">{money(item.unitCost)}</TableCell>
+                    <TableCell className="text-end">{amount(item.unitCost)}</TableCell>
                     <TableCell>
                       {item.preferredSupplierId
                         ? supplierNameMap.get(item.preferredSupplierId) || item.preferredVendor || 'Unassigned'
-                        : item.preferredVendor || 'Unassigned'}
+                        : item.preferredVendor || tr('Unassigned', 'غير محدد')}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={status.className}>
@@ -802,7 +804,7 @@ export function InventoryPage() {
                           size="sm"
                           onClick={() => setSelectedItemForDocs(item)}
                         >
-                          Docs
+                          {tr('Docs', 'ملفات')}
                         </Button>
                         <Dialog
                           open={adjustment.open && adjustment.item?.id === item.id}
@@ -823,29 +825,29 @@ export function InventoryPage() {
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm">
                               <SlidersHorizontal className="me-2 h-4 w-4" />
-                              Adjust
+                              {tr('Adjust', 'تعديل')}
                             </Button>
                           </DialogTrigger>
                           <DialogContent className="sm:max-w-md">
                             <DialogHeader>
-                              <DialogTitle>Adjust Stock</DialogTitle>
+                              <DialogTitle>{tr('Adjust Stock', 'تعديل المخزون')}</DialogTitle>
                               <DialogDescription>
-                                Use a positive quantity to add stock or a negative quantity to reduce it.
+                                {tr('Use a positive quantity to add stock or a negative quantity to reduce it.', 'استخدم قيمة موجبة لإضافة مخزون أو سالبة لتقليله.')}
                               </DialogDescription>
                             </DialogHeader>
                             <div className="space-y-3 py-2">
                               <div className="space-y-1">
-                                <Label>Location</Label>
+                                <Label>{tr('Location', 'الموقع')}</Label>
                                 <Input
                                   value={adjustment.location}
                                   onChange={(event) =>
                                     setAdjustment((prev) => ({ ...prev, location: event.target.value }))
                                   }
-                                  placeholder="Warehouse A"
+                                  placeholder={tr('Warehouse A', 'المستودع أ')}
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>Quantity Change</Label>
+                                <Label>{tr('Quantity Change', 'تغيير الكمية')}</Label>
                                 <Input
                                   type="number"
                                   value={adjustment.quantityChange}
@@ -855,13 +857,13 @@ export function InventoryPage() {
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>Reason</Label>
+                                <Label>{tr('Reason', 'السبب')}</Label>
                                 <Input
                                   value={adjustment.note}
                                   onChange={(event) =>
                                     setAdjustment((prev) => ({ ...prev, note: event.target.value }))
                                   }
-                                  placeholder="Cycle count, damaged stock, shrinkage..."
+                                  placeholder={tr('Cycle count, damaged stock, shrinkage...', 'جرد دوري، تلف، فاقد...')}
                                 />
                               </div>
                             </div>
@@ -872,9 +874,9 @@ export function InventoryPage() {
                                   setAdjustment({ open: false, quantityChange: '', location: '', note: '' })
                                 }
                               >
-                                Cancel
+                                {tr('Cancel', 'إلغاء')}
                               </Button>
-                              <Button onClick={handleAdjust}>Save Adjustment</Button>
+                              <Button onClick={handleAdjust}>{tr('Save Adjustment', 'حفظ التعديل')}</Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
@@ -906,19 +908,19 @@ export function InventoryPage() {
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm">
                               <PackageMinus className="me-2 h-4 w-4" />
-                              Issue
+                              {tr('Issue', 'صرف')}
                             </Button>
                           </DialogTrigger>
                           <DialogContent className="sm:max-w-lg">
                             <DialogHeader>
-                              <DialogTitle>Issue Stock</DialogTitle>
+                              <DialogTitle>{tr('Issue Stock', 'صرف المخزون')}</DialogTitle>
                               <DialogDescription>
-                                Allocate stock to a project, team member, or internal use.
+                                {tr('Allocate stock to a project, team member, or internal use.', 'خصص المخزون لمشروع أو موظف أو استخدام داخلي.')}
                               </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-3 py-2 sm:grid-cols-2">
                               <div className="space-y-1">
-                                <Label>Location</Label>
+                                <Label>{tr('Location', 'الموقع')}</Label>
                                 <Input
                                   value={issue.location}
                                   onChange={(event) =>
@@ -927,7 +929,7 @@ export function InventoryPage() {
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>Quantity</Label>
+                                <Label>{tr('Quantity', 'الكمية')}</Label>
                                 <Input
                                   type="number"
                                   value={issue.quantity}
@@ -937,7 +939,7 @@ export function InventoryPage() {
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>Project</Label>
+                                <Label>{tr('Project', 'المشروع')}</Label>
                                 <select
                                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                   value={issue.projectId}
@@ -945,7 +947,7 @@ export function InventoryPage() {
                                     setIssue((prev) => ({ ...prev, projectId: event.target.value }))
                                   }
                                 >
-                                  <option value="">Internal / Unassigned</option>
+                                  <option value="">{tr('Internal / Unassigned', 'داخلي / غير محدد')}</option>
                                   {projects.map((project) => (
                                     <option key={project.id} value={project.id}>
                                       {project.name}
@@ -954,23 +956,23 @@ export function InventoryPage() {
                                 </select>
                               </div>
                               <div className="space-y-1">
-                                <Label>Issued To</Label>
+                                <Label>{tr('Issued To', 'مُصروف إلى')}</Label>
                                 <Input
                                   value={issue.issuedTo}
                                   onChange={(event) =>
                                     setIssue((prev) => ({ ...prev, issuedTo: event.target.value }))
                                   }
-                                  placeholder="Team, department, employee..."
+                                  placeholder={tr('Team, department, employee...', 'فريق، قسم، موظف...')}
                                 />
                               </div>
                               <div className="space-y-1 sm:col-span-2">
-                                <Label>Note</Label>
+                                <Label>{tr('Note', 'ملاحظة')}</Label>
                                 <Textarea
                                   value={issue.note}
                                   onChange={(event) =>
                                     setIssue((prev) => ({ ...prev, note: event.target.value }))
                                   }
-                                  placeholder="Issued for event kit, project delivery, office use..."
+                                  placeholder={tr('Issued for event kit, project delivery, office use...', 'صرف لحقيبة فعالية، تسليم مشروع، استخدام مكتبي...')}
                                 />
                               </div>
                             </div>
@@ -988,9 +990,9 @@ export function InventoryPage() {
                                   })
                                 }
                               >
-                                Cancel
+                                {tr('Cancel', 'إلغاء')}
                               </Button>
-                              <Button onClick={handleIssue}>Issue Stock</Button>
+                              <Button onClick={handleIssue}>{tr('Issue Stock', 'صرف المخزون')}</Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
@@ -1020,19 +1022,19 @@ export function InventoryPage() {
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm">
                               <ArrowRightLeft className="me-2 h-4 w-4" />
-                              Transfer
+                              {tr('Transfer', 'تحويل')}
                             </Button>
                           </DialogTrigger>
                           <DialogContent className="sm:max-w-lg">
                             <DialogHeader>
-                              <DialogTitle>Transfer Stock</DialogTitle>
+                              <DialogTitle>{tr('Transfer Stock', 'تحويل المخزون')}</DialogTitle>
                               <DialogDescription>
-                                Move stock between internal storage locations while keeping total quantity unchanged.
+                                {tr('Move stock between internal storage locations while keeping total quantity unchanged.', 'انقل المخزون بين مواقع التخزين الداخلية مع بقاء الكمية الإجمالية دون تغيير.')}
                               </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-3 py-2 sm:grid-cols-2">
                               <div className="space-y-1">
-                                <Label>From Location</Label>
+                                <Label>{tr('From Location', 'من موقع')}</Label>
                                 <Input
                                   value={transfer.fromLocation}
                                   onChange={(event) =>
@@ -1041,17 +1043,17 @@ export function InventoryPage() {
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>To Location</Label>
+                                <Label>{tr('To Location', 'إلى موقع')}</Label>
                                 <Input
                                   value={transfer.toLocation}
                                   onChange={(event) =>
                                     setTransfer((prev) => ({ ...prev, toLocation: event.target.value }))
                                   }
-                                  placeholder="Warehouse B"
+                                  placeholder={tr('Warehouse B', 'المستودع ب')}
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>Quantity</Label>
+                                <Label>{tr('Quantity', 'الكمية')}</Label>
                                 <Input
                                   type="number"
                                   value={transfer.quantity}
@@ -1061,13 +1063,13 @@ export function InventoryPage() {
                                 />
                               </div>
                               <div className="space-y-1 sm:col-span-2">
-                                <Label>Note</Label>
+                                <Label>{tr('Note', 'ملاحظة')}</Label>
                                 <Textarea
                                   value={transfer.note}
                                   onChange={(event) =>
                                     setTransfer((prev) => ({ ...prev, note: event.target.value }))
                                   }
-                                  placeholder="Shelf reorganization, event staging, warehouse move..."
+                                  placeholder={tr('Shelf reorganization, event staging, warehouse move...', 'إعادة تنظيم الرفوف، تجهيز فعالية، نقل مستودع...')}
                                 />
                               </div>
                             </div>
@@ -1084,9 +1086,9 @@ export function InventoryPage() {
                                   })
                                 }
                               >
-                                Cancel
+                                {tr('Cancel', 'إلغاء')}
                               </Button>
-                              <Button onClick={handleTransfer}>Transfer Stock</Button>
+                              <Button onClick={handleTransfer}>{tr('Transfer Stock', 'تحويل المخزون')}</Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
@@ -1097,7 +1099,7 @@ export function InventoryPage() {
                           size="sm"
                           onClick={() => setSelectedItemForDocs(item)}
                         >
-                          Docs
+                          {tr('Docs', 'ملفات')}
                         </Button>
                       )}
                     </TableCell>
@@ -1108,8 +1110,8 @@ export function InventoryPage() {
               <TableRow>
                 <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                   {items.length === 0
-                    ? 'No inventory items yet. Add your first stock item to start tracking inventory.'
-                    : 'No inventory items match the current search or filter.'}
+                    ? tr('No inventory items yet. Add your first stock item to start tracking inventory.', 'لا توجد عناصر مخزون بعد. أضف أول عنصر لبدء تتبع المخزون.')
+                    : tr('No inventory items match the current search or filter.', 'لا توجد عناصر مخزون تطابق البحث أو الفلتر الحالي.')}
                 </TableCell>
               </TableRow>
             )}
@@ -1119,19 +1121,19 @@ export function InventoryPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Stock Movements</CardTitle>
+          <CardTitle>{tr('Recent Stock Movements', 'أحدث حركات المخزون')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-end">Quantity</TableHead>
-                  <TableHead>Reference</TableHead>
-                  <TableHead>Note</TableHead>
+                  <TableHead>{tr('Date', 'التاريخ')}</TableHead>
+                  <TableHead>{tr('Item', 'الصنف')}</TableHead>
+                  <TableHead>{tr('Type', 'النوع')}</TableHead>
+                  <TableHead className="text-end">{tr('Quantity', 'الكمية')}</TableHead>
+                  <TableHead>{tr('Reference', 'المرجع')}</TableHead>
+                  <TableHead>{tr('Note', 'ملاحظة')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1139,7 +1141,7 @@ export function InventoryPage() {
                   const item = items.find((entry) => entry.id === movement.inventoryItemId);
                   return (
                     <TableRow key={movement.id}>
-                      <TableCell>{movement.createdAt.toLocaleDateString()}</TableCell>
+                      <TableCell>{movement.createdAt.toLocaleDateString(getCurrentLocale())}</TableCell>
                       <TableCell>{item?.name || movement.inventoryItemId}</TableCell>
                       <TableCell>{movement.movementType}</TableCell>
                       <TableCell className="text-end">
@@ -1153,7 +1155,7 @@ export function InventoryPage() {
                 {movements.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                      No stock movements recorded yet.
+                      {tr('No stock movements recorded yet.', 'لا توجد حركات مخزون مسجلة بعد.')}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1167,14 +1169,14 @@ export function InventoryPage() {
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{selectedItemForDocs?.sku} - {selectedItemForDocs?.name}</DialogTitle>
-            <DialogDescription>Inventory item documents and audit timeline.</DialogDescription>
+            <DialogDescription>{tr('Inventory item documents and audit timeline.', 'مستندات عنصر المخزون وسجل التدقيق الزمني.')}</DialogDescription>
           </DialogHeader>
           {selectedItemForDocs && selectedCompany && (
             <RecordSupportPanel
               companyId={selectedCompany.id}
               entityType="inventory_item"
               entityId={selectedItemForDocs.id}
-              title="Inventory Attachments & Timeline"
+              title={tr('Inventory Attachments & Timeline', 'مرفقات المخزون والخط الزمني')}
             />
           )}
         </DialogContent>

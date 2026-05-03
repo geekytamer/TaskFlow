@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { localizeUiNode } from "@/lib/ui-text"
 import { cn } from "@/lib/utils"
 
 const Table = React.forwardRef<
@@ -69,7 +70,7 @@ TableRow.displayName = "TableRow"
 const TableHead = React.forwardRef<
   HTMLTableCellElement,
   React.ThHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <th
     ref={ref}
     className={cn(
@@ -77,7 +78,9 @@ const TableHead = React.forwardRef<
       className
     )}
     {...props}
-  />
+  >
+    {localizeUiNode(children)}
+  </th>
 ))
 TableHead.displayName = "TableHead"
 
@@ -96,12 +99,14 @@ TableCell.displayName = "TableCell"
 const TableCaption = React.forwardRef<
   HTMLTableCaptionElement,
   React.HTMLAttributes<HTMLTableCaptionElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <caption
     ref={ref}
     className={cn("mt-4 text-sm text-muted-foreground", className)}
     {...props}
-  />
+  >
+    {localizeUiNode(children)}
+  </caption>
 ))
 TableCaption.displayName = "TableCaption"
 

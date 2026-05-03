@@ -44,6 +44,7 @@ import { useI18n } from '@/context/i18n-context';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { InvoiceDocument } from './invoice-document';
+import { useCompanyCurrency } from '@/lib/currency';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
@@ -64,6 +65,7 @@ export function InvoiceTable() {
   const [paymentLoading, setPaymentLoading] = React.useState(false);
   const { toast } = useToast();
   const { t } = useI18n();
+  const { money, amount } = useCompanyCurrency();
 
   const fetchData = React.useCallback(async () => {
     if (!selectedCompany) {
@@ -275,7 +277,7 @@ export function InvoiceTable() {
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredInvoices.length} invoices shown • outstanding ${filteredOutstanding.toFixed(2)} ${(filteredInvoices[0]?.currency || 'USD')}`}
+        summary={`${filteredInvoices.length} invoices shown • outstanding ${amount(filteredOutstanding)}`}
         actions={(
           <>
             <Button
@@ -360,9 +362,9 @@ export function InvoiceTable() {
                 <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{format(invoice.dueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{getTemplateName(invoice.templateId)}</TableCell>
-                <TableCell className="text-end">${invoice.total.toFixed(2)}</TableCell>
-                <TableCell className="text-end">${(invoice.paidAmount || 0).toFixed(2)}</TableCell>
-                <TableCell className="text-end">${(invoice.outstandingAmount || 0).toFixed(2)}</TableCell>
+                <TableCell className="text-end">{amount(invoice.total)}</TableCell>
+                <TableCell className="text-end">{amount(invoice.paidAmount || 0)}</TableCell>
+                <TableCell className="text-end">{amount(invoice.outstandingAmount || 0)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Select
@@ -440,15 +442,15 @@ export function InvoiceTable() {
                           <div className="grid gap-3 sm:grid-cols-3">
                             <div className="rounded-md border p-3 text-sm">
                               <div className="text-muted-foreground">Invoice Total</div>
-                              <div className="text-lg font-semibold">${invoice.total.toFixed(2)}</div>
+                              <div className="text-lg font-semibold">{amount(invoice.total)}</div>
                             </div>
                             <div className="rounded-md border p-3 text-sm">
                               <div className="text-muted-foreground">Paid</div>
-                              <div className="text-lg font-semibold">${(invoice.paidAmount || 0).toFixed(2)}</div>
+                              <div className="text-lg font-semibold">{amount(invoice.paidAmount || 0)}</div>
                             </div>
                             <div className="rounded-md border p-3 text-sm">
                               <div className="text-muted-foreground">Outstanding</div>
-                              <div className="text-lg font-semibold">${(invoice.outstandingAmount || 0).toFixed(2)}</div>
+                              <div className="text-lg font-semibold">{amount(invoice.outstandingAmount || 0)}</div>
                             </div>
                           </div>
                           <div className="grid gap-3 sm:grid-cols-3">
@@ -509,7 +511,7 @@ export function InvoiceTable() {
                                       <TableCell>{format(payment.paidAt, 'MMM d, yyyy')}</TableCell>
                                       <TableCell>{payment.method || '—'}</TableCell>
                                       <TableCell>{payment.note || '—'}</TableCell>
-                                      <TableCell className="text-end">${payment.amount.toFixed(2)}</TableCell>
+                                      <TableCell className="text-end">{amount(payment.amount)}</TableCell>
                                     </TableRow>
                                   ))}
                               </TableBody>

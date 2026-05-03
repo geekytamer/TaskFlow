@@ -3,6 +3,7 @@
 import { format } from 'date-fns';
 import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice, InvoiceTemplate } from '../types';
+import { CurrencyAmount } from '@/lib/currency';
 
 interface InvoiceDocumentProps {
   invoice: Invoice;
@@ -43,10 +44,11 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
   const compact = activeTemplate.layout === 'compact';
   const modern = activeTemplate.layout === 'modern';
   const letterhead = activeTemplate.layout === 'letterhead';
+  const amount = (value: number) => <CurrencyAmount value={value} currencyCode={invoice.currency || 'USD'} />;
 
   return (
     <div
-      className="invoice-print-area mx-auto min-h-[760px] w-full max-w-[760px] overflow-hidden rounded-sm bg-white text-slate-950 shadow-sm"
+      className="invoice-print-area relative mx-auto min-h-[760px] w-full rounded-sm bg-white text-slate-950 shadow-sm"
       style={{
         borderTop: letterhead ? `10px solid ${activeTemplate.primaryColor}` : undefined,
         backgroundImage: template?.letterheadPdfUrl
@@ -76,18 +78,69 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
             margin: 0 !important;
             box-shadow: none !important;
             border-radius: 0 !important;
+            overflow: visible !important;
+            min-height: auto !important;
           }
           .invoice-preview-actions, .no-print {
             display: none !important;
           }
+          .invoice-line-items {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important;
+            page-break-inside: auto !important;
+          }
+          .invoice-line-items thead {
+            display: table-header-group !important;
+          }
+          .invoice-line-items tfoot {
+            display: table-footer-group !important;
+          }
+          .invoice-line-items tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            page-break-after: auto !important;
+          }
+          .invoice-line-items td,
+          .invoice-line-items th {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .invoice-line-items th {
+            color: #111827 !important;
+            background: #f3f4f6 !important;
+            border-bottom: 1px solid #d1d5db !important;
+          }
+          .invoice-line-items td {
+            border-bottom: 1px solid #e5e7eb !important;
+          }
+          .invoice-totals {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
         }
       `}</style>
+
+      {activeTemplate.watermarkEnabled && activeTemplate.watermarkText && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <span
+            className="select-none text-8xl font-extrabold uppercase"
+            style={{
+              color: activeTemplate.primaryColor,
+              opacity: activeTemplate.watermarkOpacity ?? 0.12,
+              transform: 'rotate(-30deg)',
+            }}
+          >
+            {activeTemplate.watermarkText}
+          </span>
+        </div>
+      )}
 
       {template?.headerImageUrl && (
         <img src={template.headerImageUrl} alt="" className="h-20 w-full object-cover" />
       )}
 
-      <div className={compact ? 'p-8' : 'p-10'}>
+      <div className={`${compact ? 'p-8' : 'p-10'} relative z-20`}>
         <div
           className={`flex gap-6 ${
             modern ? 'items-start justify-between border-b pb-8' : 'items-start justify-between'
@@ -177,48 +230,56 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
         </div>
 
         <div className={compact ? 'mt-8' : 'mt-10'}>
-          <div
-            className="grid grid-cols-[1fr_80px_110px_110px] gap-3 rounded-t px-4 py-3 text-sm font-semibold text-white"
-            style={{ backgroundColor: activeTemplate.primaryColor }}
-          >
-            <div>Description</div>
-            <div className="text-right">Qty</div>
-            <div className="text-right">Unit</div>
-            <div className="text-right">Amount</div>
-          </div>
-          <div className="border-x border-b">
-            {invoice.lineItems.map((line, index) => (
-              <div
-                key={`${line.description}-${index}`}
-                className={`grid grid-cols-[1fr_80px_110px_110px] gap-3 px-4 py-3 text-sm ${
-                  index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
-                }`}
+          <table className="invoice-line-items w-full border-collapse text-sm">
+            <colgroup>
+              <col style={{ width: '55%' }} />
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '15%' }} />
+            </colgroup>
+            <thead>
+              <tr
+                className="text-white"
+                style={{ backgroundColor: activeTemplate.primaryColor }}
               >
-                <div>{line.description}</div>
-                <div className="text-right">{line.quantity}</div>
-                <div className="text-right">${line.unitPrice.toFixed(2)}</div>
-                <div className="text-right font-medium">${line.amount.toFixed(2)}</div>
-              </div>
-            ))}
-          </div>
+                <th className="rounded-tl px-4 py-3 text-left font-semibold">Description</th>
+                <th className="px-4 py-3 text-right font-semibold">Qty</th>
+                <th className="px-4 py-3 text-right font-semibold">Unit</th>
+                <th className="rounded-tr px-4 py-3 text-right font-semibold">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.lineItems.map((line, index) => (
+                <tr
+                  key={`${line.description}-${index}`}
+                  className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
+                >
+                  <td className="border-x border-b px-4 py-3">{line.description}</td>
+                  <td className="border-b px-4 py-3 text-right">{line.quantity}</td>
+                  <td className="border-b px-4 py-3 text-right">{amount(line.unitPrice)}</td>
+                  <td className="border-r border-b px-4 py-3 text-right font-medium">{amount(line.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        <div className="mt-8 flex justify-end">
+        <div className="invoice-totals mt-8 flex justify-end">
           <div className="w-full max-w-xs space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-slate-500">Subtotal</span>
-              <span>${subtotal.toFixed(2)}</span>
+              <span>{amount(subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Tax {taxRate.toFixed(2)}%</span>
-              <span>${taxAmount.toFixed(2)}</span>
+              <span>{amount(taxAmount)}</span>
             </div>
             <div
               className="flex justify-between border-t pt-3 text-lg font-bold"
               style={{ borderColor: activeTemplate.accentColor, color: activeTemplate.primaryColor }}
             >
               <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+              <span>{amount(total)}</span>
             </div>
           </div>
         </div>

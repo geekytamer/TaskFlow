@@ -27,16 +27,18 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getClients, createInvoice, getInvoiceTemplates } from '@/services/financeService';
+import { getClients, createInvoice, getInvoiceTemplates, getSalesOrders } from '@/services/financeService';
 import { getTasksByClient, markTasksAsInvoiced } from '@/services/projectService';
-import type { Client, InvoiceLineItem, InvoiceTemplate } from '@/modules/finance/types';
+import type { Client, InvoiceLineItem, InvoiceTemplate, SalesOrder } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { add, format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { useCompanyCurrency } from '@/lib/currency';
 
 interface CreateInvoiceSheetProps {
     children: React.ReactNode;
@@ -48,10 +50,14 @@ interface CreateInvoiceSheetProps {
 export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCreated }: CreateInvoiceSheetProps) {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
+  const { currencyCode, amount } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
+  const [salesOrders, setSalesOrders] = React.useState<SalesOrder[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | undefined>();
   const [selectedClient, setSelectedClient] = React.useState<string | undefined>();
+  const [selectedSalesOrderId, setSelectedSalesOrderId] = React.useState<string | undefined>();
   const [billableTasks, setBillableTasks] = React.useState<Task[]>([]);
   const [selectedTaskIds, setSelectedTaskIds] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -79,14 +85,17 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
           getClients(selectedCompany.id),
           getInvoiceTemplates(selectedCompany.id),
         ]);
+        const orderData = await getSalesOrders(selectedCompany.id);
         setClients(clientData);
         setTemplates(templateData);
+        setSalesOrders(orderData.filter((order) => order.status === 'Confirmed' && !order.invoiceId));
         setSelectedTemplateId((current) =>
           current || templateData.find((template) => template.isDefault)?.id || templateData[0]?.id,
         );
       } catch (error: any) {
         setClients([]);
         setTemplates([]);
+        setSalesOrders([]);
         toast({
           variant: 'destructive',
           title: 'Clients unavailable',
@@ -159,6 +168,27 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const invoiceTotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
+
+  const confirmedOrdersForClient = React.useMemo(
+    () => salesOrders.filter((order) => !selectedClient || order.clientId === selectedClient),
+    [salesOrders, selectedClient],
+  );
+
+  const applySalesOrder = (salesOrderId: string) => {
+    const order = salesOrders.find((candidate) => candidate.id === salesOrderId);
+    setSelectedSalesOrderId(salesOrderId);
+    if (!order) return;
+    setSelectedClient(order.clientId);
+    setSelectedTaskIds([]);
+    setManualLines(order.items.map((item) => ({
+      itemType: 'Manual' as const,
+      sku: item.sku,
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      amount: item.lineTotal,
+    })));
+  };
 
   const addManualLine = () => {
     const description = manualDescription.trim();
@@ -235,25 +265,25 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     try {
       const issueDate = new Date();
       const dueDate = add(issueDate, { days: 30 });
-      const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
 
       const newInvoice = await createInvoice({
-        invoiceNumber,
         companyId: selectedCompany.id,
         clientId: selectedClient,
+        salesOrderId: selectedSalesOrderId,
         templateId: selectedTemplateId,
         issueDate,
         dueDate,
         lineItems: selectedLineItems,
         total: invoiceTotal,
+        currency: currencyCode,
         status: 'Draft',
       });
       
       await markTasksAsInvoiced(selectedTaskIds, newInvoice.id);
 
       toast({
-        title: 'Invoice Created',
-        description: `Invoice ${invoiceNumber} has been created in draft status.`,
+        title: t('finance.invoiceCreated'),
+        description: t('finance.invoiceCreatedDescription').replace('{invoiceNumber}', newInvoice.invoiceNumber),
       });
       onInvoiceCreated();
       onOpenChange(false);
@@ -269,6 +299,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
 
   const resetState = () => {
     setSelectedClient(undefined);
+    setSelectedSalesOrderId(undefined);
     setSelectedTemplateId(undefined);
     setBillableTasks([]);
     setSelectedTaskIds([]);
@@ -304,6 +335,26 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                         {clients.map(client => (
                             <SelectItem key={client.id} value={client.id}>
                                 {client.name}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="pe-6">
+                <Label>{t('finance.salesOrder')}</Label>
+                <Select
+                  onValueChange={applySalesOrder}
+                  value={selectedSalesOrderId}
+                  disabled={loading || confirmedOrdersForClient.length === 0}
+                >
+                    <SelectTrigger className="mt-1">
+                        <SelectValue placeholder={t('finance.selectSalesOrder')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {confirmedOrdersForClient.map((order) => (
+                            <SelectItem key={order.id} value={order.id}>
+                                {order.orderNumber} - {amount(order.totalAmount)}
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -450,7 +501,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                                         <p className="text-sm text-muted-foreground">{task.invoiceVendor} - #{task.invoiceNumber}</p>
                                     </TableCell>
                                     <TableCell>{task.invoiceDate ? format(task.invoiceDate, 'MMM d, yyyy') : 'N/A'}</TableCell>
-                                    <TableCell className="text-end">${task.invoiceAmount?.toFixed(2)}</TableCell>
+                                    <TableCell className="text-end">{amount(task.invoiceAmount || 0)}</TableCell>
                                 </TableRow>
                             ))
                         ) : (
@@ -479,8 +530,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                             <TableCell>{line.description}</TableCell>
                             <TableCell>{line.sku || '—'}</TableCell>
                             <TableCell className="text-end">{line.quantity}</TableCell>
-                            <TableCell className="text-end">${line.unitPrice.toFixed(2)}</TableCell>
-                            <TableCell className="text-end">${line.amount.toFixed(2)}</TableCell>
+                            <TableCell className="text-end">{amount(line.unitPrice)}</TableCell>
+                            <TableCell className="text-end">{amount(line.amount)}</TableCell>
                             <TableCell className="text-end">
                               <Button
                                 type="button"
@@ -499,7 +550,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 )}
                 <div className="flex justify-end items-center gap-4 p-4 bg-muted/50 rounded-lg">
                     <p className="font-semibold">Invoice Total:</p>
-                    <p className="text-2xl font-bold">${invoiceTotal.toFixed(2)}</p>
+                    <p className="text-2xl font-bold">{amount(invoiceTotal)}</p>
                 </div>
             </div>
         </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { getCurrentLocale } from '@/lib/locale';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
 import { getSupplierPayables } from '@/services/financeService';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
@@ -50,6 +52,7 @@ const emptyForm = (): SupplierForm => ({
 export function SuppliersPage() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [payables, setPayables] = React.useState<SupplierPayablesSummary[]>([]);
@@ -206,11 +209,7 @@ export function SuppliersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {new Intl.NumberFormat('en-US', {
-                style: 'currency',
-                currency: 'USD',
-                maximumFractionDigits: 2,
-              }).format(payables.reduce((sum, summary) => sum + summary.openPayables, 0))}
+              {amount(payables.reduce((sum, summary) => sum + summary.openPayables, 0))}
             </div>
           </CardContent>
         </Card>
@@ -355,7 +354,7 @@ export function SuppliersPage() {
                       <div className="space-y-1 text-sm">
                         <div>{metrics?.orderCount || 0} orders</div>
                         <div className="text-muted-foreground">
-                          {metrics?.lastOrderDate ? `Last order ${metrics.lastOrderDate.toLocaleDateString()}` : 'No orders yet'}
+                          {metrics?.lastOrderDate ? `Last order ${metrics.lastOrderDate.toLocaleDateString(getCurrentLocale())}` : 'No orders yet'}
                         </div>
                       </div>
                     </TableCell>
@@ -363,19 +362,11 @@ export function SuppliersPage() {
                       <div className="space-y-1 text-sm">
                         <div>
                           Open{' '}
-                          {new Intl.NumberFormat('en-US', {
-                            style: 'currency',
-                            currency: 'USD',
-                            maximumFractionDigits: 2,
-                          }).format(payable?.openPayables || 0)}
+                          {amount(payable?.openPayables || 0)}
                         </div>
                         <div className="text-muted-foreground">
                           To bill{' '}
-                          {new Intl.NumberFormat('en-US', {
-                            style: 'currency',
-                            currency: 'USD',
-                            maximumFractionDigits: 2,
-                          }).format(payable?.remainingToBill || 0)}
+                          {amount(payable?.remainingToBill || 0)}
                         </div>
                       </div>
                     </TableCell>

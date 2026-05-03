@@ -25,6 +25,9 @@ import type {
   RecordAttachment,
   RecordEntityType,
   RecordTimelineItem,
+  SalesOrder,
+  SalesOrderLineItem,
+  SalesOrderStatus,
   SupplierSpendSummary,
   SupplierPayablesSummary,
   TrialBalanceReport,
@@ -59,6 +62,7 @@ const mapInvoiceLineItem = (item: any): InvoiceLineItem => {
 
 const mapInvoice = (invoice: any): Invoice => ({
   ...invoice,
+  salesOrderId: invoice.salesOrderId || undefined,
   total: Number(invoice.total || 0),
   issueDate: toDate(invoice.issueDate) || new Date(),
   dueDate: toDate(invoice.dueDate) || new Date(),
@@ -71,9 +75,39 @@ const mapInvoice = (invoice: any): Invoice => ({
   outstandingAmount: Number(invoice.outstandingAmount || 0),
 });
 
+const mapSalesOrderLineItem = (item: any): SalesOrderLineItem => {
+  const quantity = Number(item?.quantity ?? 0);
+  const unitPrice = Number(item?.unitPrice ?? 0);
+  const fallbackLineTotal = quantity * unitPrice;
+  const lineTotal = Number(item?.lineTotal ?? fallbackLineTotal);
+
+  return {
+    inventoryItemId: item?.inventoryItemId ? String(item.inventoryItemId) : undefined,
+    sku: item?.sku ? String(item.sku) : undefined,
+    description: String(item?.description || ''),
+    quantity: Number.isFinite(quantity) ? quantity : 0,
+    unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+    lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+  };
+};
+
+const mapSalesOrder = (order: any): SalesOrder => ({
+  ...order,
+  orderDate: toDate(order.orderDate) || new Date(),
+  expectedDate: toDate(order.expectedDate),
+  items: Array.isArray(order.items) ? order.items.map(mapSalesOrderLineItem) : [],
+  totalAmount: Number(order.totalAmount || 0),
+  invoiceId: order.invoiceId || undefined,
+});
+
 const mapInvoiceTemplate = (template: any): InvoiceTemplate => ({
   ...template,
   isDefault: Boolean(template.isDefault),
+  watermarkEnabled: template.watermarkEnabled === true,
+  watermarkText: template.watermarkText || 'DRAFT',
+  watermarkOpacity: Number.isFinite(Number(template.watermarkOpacity))
+    ? Number(template.watermarkOpacity)
+    : 0.12,
   showCompanyAddress: template.showCompanyAddress !== false,
   showTaxId: template.showTaxId !== false,
   createdAt: toDate(template.createdAt) || new Date(),
@@ -96,6 +130,7 @@ const mapCompanyFinanceSettings = (settings: any): CompanyFinanceSettings => ({
   ...settings,
   fiscalYearStartMonth: Number(settings.fiscalYearStartMonth || 1),
   lockedThroughDate: toDate(settings.lockedThroughDate),
+  currencyCode: String(settings.currencyCode || 'USD').toUpperCase(),
   updatedAt: toDate(settings.updatedAt) || new Date(),
 });
 
@@ -307,6 +342,7 @@ export async function updateCompanyFinanceSettings(
   data: Partial<{
     fiscalYearStartMonth: number;
     lockedThroughDate: Date | null;
+    currencyCode: string;
   }>,
 ): Promise<CompanyFinanceSettings> {
   const settings = await apiFetch<CompanyFinanceSettings>(
@@ -352,6 +388,59 @@ export async function getInvoices(companyId: string): Promise<Invoice[]> {
   if (!companyId) return [];
   const invoices = await apiFetch<Invoice[]>(`/companies/${companyId}/invoices`);
   return invoices.map(mapInvoice);
+}
+
+export async function getSalesOrders(companyId: string): Promise<SalesOrder[]> {
+  if (!companyId) return [];
+  const orders = await apiFetch<SalesOrder[]>(`/companies/${companyId}/sales-orders`);
+  return orders.map(mapSalesOrder);
+}
+
+export async function createSalesOrder(
+  companyId: string,
+  data: {
+    clientId: string;
+    orderDate: Date;
+    expectedDate?: Date;
+    status: SalesOrderStatus;
+    notes?: string;
+    items: SalesOrderLineItem[];
+  },
+): Promise<SalesOrder> {
+  const order = await apiFetch<SalesOrder>(`/companies/${companyId}/sales-orders`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return mapSalesOrder(order);
+}
+
+export async function updateSalesOrderStatus(
+  salesOrderId: string,
+  status: SalesOrderStatus,
+): Promise<SalesOrder> {
+  const order = await apiFetch<SalesOrder>(`/sales-orders/${salesOrderId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return mapSalesOrder(order);
+}
+
+export async function createInvoiceFromSalesOrder(
+  salesOrderId: string,
+  data: {
+    templateId?: string;
+    issueDate?: Date;
+    dueDate?: Date;
+    notes?: string;
+    currency?: string;
+    taxRate?: number;
+  } = {},
+): Promise<Invoice> {
+  const invoice = await apiFetch<Invoice>(`/sales-orders/${salesOrderId}/invoice`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return mapInvoice(invoice);
 }
 
 export async function getInvoice(invoiceId: string): Promise<Invoice | null> {

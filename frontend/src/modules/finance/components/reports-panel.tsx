@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { getCurrentLocale } from '@/lib/locale';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,15 +12,13 @@ import { useToast } from '@/hooks/use-toast';
 import { downloadReportExport, getManagementReportSummary } from '@/services/financeService';
 import type { ManagementReportSummary } from '@/modules/finance/types';
 import { Download, FileText } from 'lucide-react';
+import { useCompanyCurrency } from '@/lib/currency';
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-
-const renderPrintDocument = (summary: ManagementReportSummary, companyName: string) => `
+const renderPrintDocument = (
+  summary: ManagementReportSummary,
+  companyName: string,
+  money: (value: number) => string,
+) => `
   <html>
     <head>
       <title>${companyName} Management Report</title>
@@ -38,7 +37,7 @@ const renderPrintDocument = (summary: ManagementReportSummary, companyName: stri
     </head>
     <body>
       <h1>${companyName} Management Report</h1>
-      <div class="label">Generated ${new Date().toLocaleString()}</div>
+      <div class="label">Generated ${new Date().toLocaleString(getCurrentLocale())}</div>
       <h2>KPIs</h2>
       <div class="grid">
         <div class="card"><div class="label">Open Receivables</div><div class="value">${money(summary.finance.openReceivables)}</div></div>
@@ -69,6 +68,7 @@ const renderPrintDocument = (summary: ManagementReportSummary, companyName: stri
 export function ReportsPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
   const [summary, setSummary] = React.useState<ManagementReportSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -117,7 +117,7 @@ export function ReportsPanel() {
     if (!summary || !selectedCompany) return;
     const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
     if (!reportWindow) return;
-    reportWindow.document.write(renderPrintDocument(summary, selectedCompany.name));
+    reportWindow.document.write(renderPrintDocument(summary, selectedCompany.name, money));
     reportWindow.document.close();
     reportWindow.focus();
     reportWindow.print();
@@ -181,7 +181,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">Open Receivables</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(summary.finance.openReceivables)}</div>
+            <div className="text-2xl font-bold">{amount(summary.finance.openReceivables)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -189,7 +189,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">Open Payables</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(summary.finance.openPayables)}</div>
+            <div className="text-2xl font-bold">{amount(summary.finance.openPayables)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -197,7 +197,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">Inventory Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(summary.inventory.stockValue)}</div>
+            <div className="text-2xl font-bold">{amount(summary.inventory.stockValue)}</div>
             <div className="text-xs text-muted-foreground">{summary.inventory.totalItems} active items</div>
           </CardContent>
         </Card>
@@ -224,7 +224,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">Ordered Spend</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(summary.purchases.orderedSpend)}</div>
+            <div className="text-2xl font-bold">{amount(summary.purchases.orderedSpend)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -232,7 +232,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">Collected This Month</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">{money(summary.finance.paidThisMonth)}</div>
+            <div className="text-2xl font-bold text-emerald-600">{amount(summary.finance.paidThisMonth)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -240,7 +240,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">Unbilled PO Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{money(summary.purchases.unbilledValue)}</div>
+            <div className="text-2xl font-bold text-amber-600">{amount(summary.purchases.unbilledValue)}</div>
           </CardContent>
         </Card>
       </div>
@@ -265,9 +265,9 @@ export function ReportsPanel() {
                   {summary.topClients.map((client) => (
                     <TableRow key={client.clientId}>
                       <TableCell className="font-medium">{client.clientName}</TableCell>
-                      <TableCell className="text-end">{money(client.totalBilled)}</TableCell>
-                      <TableCell className="text-end">{money(client.paidAmount)}</TableCell>
-                      <TableCell className="text-end">{money(client.outstandingAmount)}</TableCell>
+                      <TableCell className="text-end">{amount(client.totalBilled)}</TableCell>
+                      <TableCell className="text-end">{amount(client.paidAmount)}</TableCell>
+                      <TableCell className="text-end">{amount(client.outstandingAmount)}</TableCell>
                     </TableRow>
                   ))}
                   {summary.topClients.length === 0 && (
@@ -302,9 +302,9 @@ export function ReportsPanel() {
                   {summary.topSuppliers.map((supplier) => (
                     <TableRow key={supplier.supplierId}>
                       <TableCell className="font-medium">{supplier.supplierName}</TableCell>
-                      <TableCell className="text-end">{money(supplier.totalOrderedAmount)}</TableCell>
-                      <TableCell className="text-end">{money(supplier.openPayables)}</TableCell>
-                      <TableCell className="text-end">{money(supplier.remainingToBill)}</TableCell>
+                      <TableCell className="text-end">{amount(supplier.totalOrderedAmount)}</TableCell>
+                      <TableCell className="text-end">{amount(supplier.openPayables)}</TableCell>
+                      <TableCell className="text-end">{amount(supplier.remainingToBill)}</TableCell>
                     </TableRow>
                   ))}
                   {summary.topSuppliers.length === 0 && (

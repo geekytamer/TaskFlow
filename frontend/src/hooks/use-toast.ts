@@ -2,6 +2,7 @@
 
 // Inspired by react-hot-toast library
 import * as React from "react"
+import { localizeUiNode } from "@/lib/ui-text"
 
 import type {
   ToastActionElement,
@@ -11,7 +12,7 @@ import type {
 const TOAST_LIMIT = 1
 const TOAST_REMOVE_DELAY = 1000000
 
-type ToasterToast = ToastProps & {
+type ToasterToast = Omit<ToastProps, "title" | "description"> & {
   id: string
   title?: React.ReactNode
   description?: React.ReactNode
@@ -144,6 +145,12 @@ type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
   const id = genId()
+  const localizedTitle =
+    typeof props.title === "string" ? localizeUiNode(props.title) : props.title
+  const localizedDescription =
+    typeof props.description === "string"
+      ? localizeUiNode(props.description)
+      : props.description
 
   const update = (props: ToasterToast) =>
     dispatch({
@@ -156,6 +163,8 @@ function toast({ ...props }: Toast) {
     type: "ADD_TOAST",
     toast: {
       ...props,
+      title: localizedTitle,
+      description: localizedDescription,
       id,
       open: true,
       onOpenChange: (open) => {

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
+import { useCompanyCurrency } from '@/lib/currency';
 import { ActivityFeed } from '@/modules/operations/components/activity-feed';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
@@ -12,15 +13,9 @@ import { getClients, getInvoices } from '@/services/financeService';
 import { getProjects } from '@/services/projectService';
 import type { Client, Invoice, Project } from '@/lib/types';
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-
 export function ClientsPage() {
   const { selectedCompany } = useCompany();
+  const { money, amount } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
@@ -120,7 +115,7 @@ export function ClientsPage() {
             <CardTitle className="text-sm font-medium">Outstanding Receivables</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{money(outstanding)}</div>}
+            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{amount(outstanding)}</div>}
           </CardContent>
         </Card>
         <Card>

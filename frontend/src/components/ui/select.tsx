@@ -4,13 +4,24 @@ import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
 import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
+import { localizeUiNode, localizeUiPlaceholder } from "@/lib/ui-text"
 import { cn } from "@/lib/utils"
 
 const Select = SelectPrimitive.Root
 
 const SelectGroup = SelectPrimitive.Group
 
-const SelectValue = SelectPrimitive.Value
+const SelectValue = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Value>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Value>
+>(({ placeholder, ...props }, ref) => (
+  <SelectPrimitive.Value
+    ref={ref}
+    placeholder={localizeUiPlaceholder(placeholder) as string | undefined}
+    {...props}
+  />
+))
+SelectValue.displayName = SelectPrimitive.Value.displayName
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
@@ -102,12 +113,14 @@ SelectContent.displayName = SelectPrimitive.Content.displayName
 const SelectLabel = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
     className={cn("py-1.5 ps-8 pe-2 text-sm font-semibold", className)}
     {...props}
-  />
+  >
+    {localizeUiNode(children)}
+  </SelectPrimitive.Label>
 ))
 SelectLabel.displayName = SelectPrimitive.Label.displayName
 
@@ -129,7 +142,7 @@ const SelectItem = React.forwardRef<
       </SelectPrimitive.ItemIndicator>
     </span>
 
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemText>{localizeUiNode(children)}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ))
 SelectItem.displayName = SelectPrimitive.Item.displayName

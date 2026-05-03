@@ -11,12 +11,14 @@ import {
   type JournalEntryLine,
   type Project,
   type PurchaseOrderLineItem,
+  type SalesOrderLineItem,
   type SanitizedUser,
   type UserRole,
   type VendorBillStatus,
   type InvoiceStatus,
   type LedgerAccountType,
   type PurchaseOrderStatus,
+  type SalesOrderStatus,
   type NumberingEntityType,
   type RecordEntityType,
 } from './types';
@@ -58,6 +60,7 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
   'Received',
   'Cancelled',
 ];
+const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -75,6 +78,7 @@ const activityEntityTypes = [
   'supplier',
   'inventory_item',
   'purchase_order',
+  'sales_order',
   'invoice',
   'vendor_bill',
 ] as const;
@@ -93,6 +97,7 @@ const numberingEntityTypes = [
   'supplier',
   'inventory_item',
   'purchase_order',
+  'sales_order',
   'sales_invoice',
   'vendor_invoice',
 ] as const;
@@ -236,6 +241,29 @@ const parsePurchaseOrderItems = (value: unknown): PurchaseOrderLineItem[] => {
       unitCost,
       lineTotal: requiredNumber(
         record.lineTotal ?? quantity * unitCost,
+        `items[${index}].lineTotal`,
+      ),
+    };
+  });
+};
+
+const parseSalesOrderItems = (value: unknown): SalesOrderLineItem[] => {
+  const rows = requiredArray<unknown>(value, 'items');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'items must contain at least one line item.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    const quantity = requiredNumber(record.quantity, `items[${index}].quantity`);
+    const unitPrice = requiredNumber(record.unitPrice, `items[${index}].unitPrice`);
+    return {
+      inventoryItemId: optionalString(record.inventoryItemId),
+      sku: optionalString(record.sku),
+      description: requiredString(record.description, `items[${index}].description`, { min: 2 }),
+      quantity,
+      unitPrice,
+      lineTotal: requiredNumber(
+        record.lineTotal ?? quantity * unitPrice,
         `items[${index}].lineTotal`,
       ),
     };
@@ -488,6 +516,26 @@ export function createServer(options: CreateServerOptions = {}) {
     });
   };
 
+  const ensureSalesItemsBelongToCompany = (
+    items: SalesOrderLineItem[],
+    companyId: string,
+  ) => {
+    items.forEach((item, index) => {
+      if (!item.inventoryItemId && !item.sku) return;
+      const inventoryItem = item.inventoryItemId
+        ? store.getInventoryItemById(item.inventoryItemId)
+        : item.sku
+          ? store.getInventoryItemBySku(companyId, item.sku)
+          : undefined;
+      if (!inventoryItem || inventoryItem.companyId !== companyId) {
+        throw new HttpError(
+          400,
+          `items[${index}] must reference inventory in company ${companyId}.`,
+        );
+      }
+    });
+  };
+
   const ensurePurchaseOrderBelongsToCompany = (purchaseOrderId: string | undefined, companyId: string) => {
     if (!purchaseOrderId) return undefined;
     const order = store.getPurchaseOrderById(purchaseOrderId);
@@ -674,6 +722,7 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
       clientId: record.clientId !== undefined ? requiredString(record.clientId, 'clientId') : undefined,
+      salesOrderId: record.salesOrderId !== undefined ? optionalString(record.salesOrderId) : undefined,
       templateId: record.templateId !== undefined ? optionalString(record.templateId) : undefined,
       issueDate: record.issueDate !== undefined ? requiredDateInput(record.issueDate, 'issueDate') : undefined,
       dueDate: record.dueDate !== undefined ? requiredDateInput(record.dueDate, 'dueDate') : undefined,
@@ -721,6 +770,11 @@ export function createServer(options: CreateServerOptions = {}) {
         record.paymentInstructions !== undefined ? optionalString(record.paymentInstructions) : undefined,
       terms: record.terms !== undefined ? optionalString(record.terms) : undefined,
       footerNote: record.footerNote !== undefined ? optionalString(record.footerNote) : undefined,
+      watermarkEnabled:
+        record.watermarkEnabled !== undefined ? optionalBoolean(record.watermarkEnabled) : undefined,
+      watermarkText: record.watermarkText !== undefined ? optionalString(record.watermarkText) : undefined,
+      watermarkOpacity:
+        record.watermarkOpacity !== undefined ? optionalNumber(record.watermarkOpacity) : undefined,
       showCompanyAddress:
         record.showCompanyAddress !== undefined ? optionalBoolean(record.showCompanyAddress) : undefined,
       showTaxId: record.showTaxId !== undefined ? optionalBoolean(record.showTaxId) : undefined,
@@ -890,6 +944,10 @@ export function createServer(options: CreateServerOptions = {}) {
                 ? requiredNumber(body.fiscalYearStartMonth, 'fiscalYearStartMonth')
                 : undefined,
             lockedThroughDate,
+            currencyCode:
+              body.currencyCode !== undefined
+                ? requiredString(body.currencyCode, 'currencyCode', { min: 3 })
+                : undefined,
           }),
         );
       } catch (error: any) {
@@ -929,6 +987,9 @@ export function createServer(options: CreateServerOptions = {}) {
             paymentInstructions: payload.paymentInstructions,
             terms: payload.terms,
             footerNote: payload.footerNote,
+            watermarkEnabled: payload.watermarkEnabled ?? false,
+            watermarkText: payload.watermarkText,
+            watermarkOpacity: payload.watermarkOpacity,
             showCompanyAddress: payload.showCompanyAddress ?? true,
             showTaxId: payload.showTaxId ?? true,
           }),
@@ -1897,6 +1958,113 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   app.get(
+    '/companies/:companyId/sales-orders',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listSalesOrders(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/sales-orders',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const items = parseSalesOrderItems(body.items);
+      const clientId = requiredString(body.clientId, 'clientId');
+      ensureClientBelongsToCompany(clientId, req.params.companyId);
+      ensureSalesItemsBelongToCompany(items, req.params.companyId);
+      const expectedDate = optionalDateInput(body.expectedDate);
+      const order = withActor(req, () =>
+        store.createSalesOrder({
+          companyId: req.params.companyId,
+          clientId,
+          orderDate: new Date(requiredDateInput(body.orderDate, 'orderDate')),
+          expectedDate: expectedDate ? new Date(expectedDate) : undefined,
+          status: enumValue(body.status ?? 'Draft', 'status', salesOrderStatuses),
+          items,
+          notes: optionalString(body.notes),
+        }),
+      );
+      res.status(201).json(order);
+    }),
+  );
+
+  app.patch(
+    '/sales-orders/:id/status',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getSalesOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Sales order not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      let order;
+      try {
+        order = withActor(req, () =>
+          store.updateSalesOrderStatus(
+            req.params.id,
+            enumValue(body.status, 'status', salesOrderStatuses),
+          ),
+        );
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update sales order status.');
+      }
+      if (!order) throw new HttpError(404, 'Sales order not found.');
+      res.json(order);
+    }),
+  );
+
+  app.post(
+    '/sales-orders/:id/invoice',
+    authMiddleware,
+    handler((req, res) => {
+      const order = store.getSalesOrderById(req.params.id);
+      if (!order) throw new HttpError(404, 'Sales order not found.');
+      requireCompanyRoles(req, order.companyId, companyManagementRoles);
+      if (order.status !== 'Confirmed') {
+        throw new HttpError(400, 'Only confirmed sales orders can be invoiced.');
+      }
+      if (order.invoiceId) {
+        const existingInvoice = store.getInvoiceById(order.invoiceId);
+        if (existingInvoice) {
+          res.json(existingInvoice);
+          return;
+        }
+      }
+      const body = asRecord(req.body ?? {}, 'body');
+      const issueDate = optionalDateInput(body.issueDate) || new Date().toISOString();
+      const dueDate = optionalDateInput(body.dueDate)
+        || new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+      const invoice = withActor(req, () =>
+        store.createInvoice({
+          companyId: order.companyId,
+          clientId: order.clientId,
+          salesOrderId: order.id,
+          templateId: optionalString(body.templateId),
+          issueDate: new Date(issueDate),
+          dueDate: new Date(dueDate),
+          lineItems: order.items.map((item) => ({
+            itemType: 'Manual',
+            sku: item.sku,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: item.lineTotal,
+          })),
+          total: order.totalAmount,
+          status: 'Draft',
+          notes: optionalString(body.notes) || `Created from sales order ${order.orderNumber}.`,
+          currency: optionalString(body.currency),
+          taxRate: optionalNumber(body.taxRate),
+        }),
+      );
+      res.status(201).json(invoice);
+    }),
+  );
+
+  app.get(
     '/companies/:companyId/invoices',
     authMiddleware,
     handler((req, res) => {
@@ -1912,6 +2080,12 @@ export function createServer(options: CreateServerOptions = {}) {
       const payload = parseInvoicePayload(req.body);
       requireCompanyRoles(req, payload.companyId!, companyManagementRoles);
       ensureClientBelongsToCompany(payload.clientId!, payload.companyId!);
+      if (payload.salesOrderId) {
+        const salesOrder = store.getSalesOrderById(payload.salesOrderId);
+        if (!salesOrder || salesOrder.companyId !== payload.companyId || salesOrder.clientId !== payload.clientId) {
+          throw new HttpError(400, 'Sales order does not belong to this company and client.');
+        }
+      }
       if (payload.templateId) {
         const template = store.getInvoiceTemplateById(payload.templateId);
         if (!template || template.companyId !== payload.companyId) {
@@ -1929,6 +2103,7 @@ export function createServer(options: CreateServerOptions = {}) {
             invoiceNumber: payload.invoiceNumber,
             companyId: payload.companyId!,
             clientId: payload.clientId!,
+            salesOrderId: payload.salesOrderId,
             templateId: payload.templateId,
             issueDate: new Date(payload.issueDate!),
             dueDate: new Date(payload.dueDate!),
@@ -1997,9 +2172,16 @@ export function createServer(options: CreateServerOptions = {}) {
         requireCompanyRoles(req, targetCompanyId, companyManagementRoles);
       }
       const targetClientId = payload.clientId !== undefined ? payload.clientId : existing.clientId;
+      const targetSalesOrderId = payload.salesOrderId !== undefined ? payload.salesOrderId : existing.salesOrderId;
       const targetTemplateId = payload.templateId !== undefined ? payload.templateId : existing.templateId;
       const targetLineItems = payload.lineItems ?? existing.lineItems;
       ensureClientBelongsToCompany(targetClientId, targetCompanyId);
+      if (targetSalesOrderId) {
+        const salesOrder = store.getSalesOrderById(targetSalesOrderId);
+        if (!salesOrder || salesOrder.companyId !== targetCompanyId || salesOrder.clientId !== targetClientId) {
+          throw new HttpError(400, 'Sales order does not belong to this company and client.');
+        }
+      }
       if (targetTemplateId) {
         const template = store.getInvoiceTemplateById(targetTemplateId);
         if (!template || template.companyId !== targetCompanyId) {

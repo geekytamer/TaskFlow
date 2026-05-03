@@ -4,6 +4,7 @@ import * as React from "react"
 import * as LabelPrimitive from "@radix-ui/react-label"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { localizeUiNode } from "@/lib/ui-text"
 import { cn } from "@/lib/utils"
 
 const labelVariants = cva(
@@ -19,7 +20,9 @@ const Label = React.forwardRef<
     ref={ref}
     className={cn(labelVariants(), className)}
     {...props}
-  />
+  >
+    {localizeUiNode(props.children)}
+  </LabelPrimitive.Root>
 ))
 Label.displayName = LabelPrimitive.Root.displayName
 

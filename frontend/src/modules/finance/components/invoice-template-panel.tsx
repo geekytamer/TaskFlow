@@ -24,7 +24,9 @@ import {
   getInvoiceTemplates,
   updateInvoiceTemplate,
 } from '@/services/financeService';
-import type { InvoiceTemplate, InvoiceTemplateInput, InvoiceTemplateLayout } from '../types';
+import type { InvoiceTemplateInput } from '@/services/financeService';
+import type { InvoiceTemplate, InvoiceTemplateLayout } from '../types';
+import { useCompanyCurrency } from '@/lib/currency';
 
 const emptyForm: InvoiceTemplateInput = {
   name: '',
@@ -39,6 +41,9 @@ const emptyForm: InvoiceTemplateInput = {
   paymentInstructions: '',
   terms: '',
   footerNote: '',
+  watermarkEnabled: false,
+  watermarkText: 'DRAFT',
+  watermarkOpacity: 0.12,
   showCompanyAddress: true,
   showTaxId: true,
 };
@@ -63,6 +68,9 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   paymentInstructions: template.paymentInstructions || '',
   terms: template.terms || '',
   footerNote: template.footerNote || '',
+  watermarkEnabled: template.watermarkEnabled === true,
+  watermarkText: template.watermarkText || 'DRAFT',
+  watermarkOpacity: template.watermarkOpacity ?? 0.12,
   showCompanyAddress: template.showCompanyAddress,
   showTaxId: template.showTaxId,
 });
@@ -77,7 +85,82 @@ const cleanForm = (form: InvoiceTemplateInput): InvoiceTemplateInput => ({
   paymentInstructions: form.paymentInstructions?.trim() || undefined,
   terms: form.terms?.trim() || undefined,
   footerNote: form.footerNote?.trim() || undefined,
+  watermarkEnabled: form.watermarkEnabled === true,
+  watermarkText: form.watermarkText?.trim() || undefined,
+  watermarkOpacity: Number.isFinite(Number(form.watermarkOpacity))
+    ? Math.max(0.05, Math.min(0.4, Number(form.watermarkOpacity)))
+    : 0.12,
 });
+
+const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024;
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read selected file.'));
+    reader.readAsDataURL(file);
+  });
+
+interface AssetUploadFieldProps {
+  label: string;
+  value?: string;
+  accept: string;
+  onFileSelected: (file: File | null) => Promise<void> | void;
+  onClear: () => void;
+  hint?: string;
+}
+
+function AssetUploadField({
+  label,
+  value,
+  accept,
+  onFileSelected,
+  onClear,
+  hint,
+}: AssetUploadFieldProps) {
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const isImage = Boolean(value && value.startsWith('data:image'));
+  const isPdf = Boolean(value && value.startsWith('data:application/pdf'));
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="flex items-center gap-2">
+        <Input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          onChange={(event) => onFileSelected(event.target.files?.[0] || null)}
+        />
+        {value && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onClear();
+              if (inputRef.current) inputRef.current.value = '';
+            }}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {isImage && (
+        <img
+          src={value}
+          alt=""
+          className="max-h-20 rounded border object-contain"
+        />
+      )}
+      {isPdf && (
+        <p className="text-xs text-muted-foreground">PDF uploaded</p>
+      )}
+    </div>
+  );
+}
 
 const sampleInvoice = {
   number: 'INV-0042',
@@ -100,6 +183,7 @@ const sampleInvoice = {
 };
 
 function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }) {
+  const { money, amount } = useCompanyCurrency();
   const subtotal = sampleInvoice.lines.reduce((sum, line) => sum + line.amount, 0);
   const tax = Number((subtotal * 0.05).toFixed(2));
   const total = subtotal + tax;
@@ -116,7 +200,7 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
       </div>
       <div className="overflow-x-auto rounded-lg border bg-muted/30 p-3">
         <div
-          className="mx-auto min-h-[760px] w-full max-w-[720px] overflow-hidden rounded-sm bg-white text-slate-950 shadow-sm"
+          className="relative mx-auto min-h-[760px] w-full max-w-[720px] overflow-hidden rounded-sm bg-white text-slate-950 shadow-sm"
           style={{
             borderTop: letterhead ? `10px solid ${template.primaryColor}` : undefined,
             backgroundImage: template.letterheadPdfUrl
@@ -126,6 +210,22 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
             backgroundPosition: 'center top',
           }}
         >
+          {template.watermarkEnabled && template.watermarkText && (
+            <div
+              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+            >
+              <span
+                className="select-none text-7xl font-extrabold uppercase"
+                style={{
+                  color: template.primaryColor,
+                  opacity: template.watermarkOpacity ?? 0.12,
+                  transform: 'rotate(-30deg)',
+                }}
+              >
+                {template.watermarkText}
+              </span>
+            </div>
+          )}
           {template.headerImageUrl && (
             <img
               src={template.headerImageUrl}
@@ -235,8 +335,8 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
                   >
                     <div>{line.description}</div>
                     <div className="text-right">{line.quantity}</div>
-                    <div className="text-right">${line.unitPrice.toFixed(2)}</div>
-                    <div className="text-right font-medium">${line.amount.toFixed(2)}</div>
+                    <div className="text-right">{amount(line.unitPrice)}</div>
+                    <div className="text-right font-medium">{amount(line.amount)}</div>
                   </div>
                 ))}
               </div>
@@ -246,18 +346,18 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
               <div className="w-full max-w-xs space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
+                  <span>{amount(subtotal)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Tax 5%</span>
-                  <span>${tax.toFixed(2)}</span>
+                  <span>{amount(tax)}</span>
                 </div>
                 <div
                   className="flex justify-between border-t pt-3 text-lg font-bold"
                   style={{ borderColor: template.accentColor, color: template.primaryColor }}
                 >
                   <span>Total</span>
-                  <span>${total.toFixed(2)}</span>
+                  <span>{amount(total)}</span>
                 </div>
               </div>
             </div>
@@ -411,6 +511,31 @@ export function InvoiceTemplatePanel() {
     }
   };
 
+  const handleAssetUpload = async (
+    field: 'logoUrl' | 'headerImageUrl' | 'footerImageUrl' | 'letterheadPdfUrl',
+    file: File | null,
+  ) => {
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      toast({
+        variant: 'destructive',
+        title: 'File too large',
+        description: 'Please upload a file smaller than 8 MB.',
+      });
+      return;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      updateForm(field, dataUrl);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Upload failed',
+        description: error?.message || 'Could not process selected file.',
+      });
+    }
+  };
+
   if (!selectedCompany) {
     return (
       <div className="rounded-lg border">
@@ -542,38 +667,35 @@ export function InvoiceTemplatePanel() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label>Logo URL</Label>
-              <Input
-                value={form.logoUrl || ''}
-                onChange={(event) => updateForm('logoUrl', event.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Header Image URL</Label>
-              <Input
-                value={form.headerImageUrl || ''}
-                onChange={(event) => updateForm('headerImageUrl', event.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Footer Image URL</Label>
-              <Input
-                value={form.footerImageUrl || ''}
-                onChange={(event) => updateForm('footerImageUrl', event.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Letterhead PDF URL</Label>
-              <Input
-                value={form.letterheadPdfUrl || ''}
-                onChange={(event) => updateForm('letterheadPdfUrl', event.target.value)}
-                placeholder="Optional"
-              />
-            </div>
+            <AssetUploadField
+              label="Logo"
+              value={form.logoUrl || ''}
+              accept="image/*"
+              onFileSelected={(file) => handleAssetUpload('logoUrl', file)}
+              onClear={() => updateForm('logoUrl', '')}
+            />
+            <AssetUploadField
+              label="Header Image"
+              value={form.headerImageUrl || ''}
+              accept="image/*"
+              onFileSelected={(file) => handleAssetUpload('headerImageUrl', file)}
+              onClear={() => updateForm('headerImageUrl', '')}
+            />
+            <AssetUploadField
+              label="Footer Image"
+              value={form.footerImageUrl || ''}
+              accept="image/*"
+              onFileSelected={(file) => handleAssetUpload('footerImageUrl', file)}
+              onClear={() => updateForm('footerImageUrl', '')}
+            />
+            <AssetUploadField
+              label="Letterhead Background"
+              value={form.letterheadPdfUrl || ''}
+              accept="image/*,application/pdf"
+              onFileSelected={(file) => handleAssetUpload('letterheadPdfUrl', file)}
+              onClear={() => updateForm('letterheadPdfUrl', '')}
+              hint="Use image files for visible preview background."
+            />
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -625,6 +747,35 @@ export function InvoiceTemplatePanel() {
               />
               Show tax ID
             </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="flex items-center gap-2 pt-6">
+              <Switch
+                checked={form.watermarkEnabled}
+                onCheckedChange={(checked) => updateForm('watermarkEnabled', checked)}
+              />
+              <Label>Enable watermark</Label>
+            </div>
+            <div className="space-y-1">
+              <Label>Watermark Text</Label>
+              <Input
+                value={form.watermarkText || ''}
+                onChange={(event) => updateForm('watermarkText', event.target.value)}
+                placeholder="DRAFT"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Watermark Opacity ({Math.round((form.watermarkOpacity ?? 0.12) * 100)}%)</Label>
+              <Input
+                type="range"
+                min="0.05"
+                max="0.4"
+                step="0.01"
+                value={form.watermarkOpacity ?? 0.12}
+                onChange={(event) => updateForm('watermarkOpacity', Number(event.target.value))}
+              />
+            </div>
           </div>
 
           <InvoiceTemplatePreview template={form} />

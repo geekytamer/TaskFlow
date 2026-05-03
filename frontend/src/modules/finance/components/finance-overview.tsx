@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
 import {
   getFinanceAging,
   getFinanceOverview,
@@ -33,16 +34,10 @@ const bucketLabel: Record<AgingBucket['bucket'], string> = {
   over_90: '> 90 days',
 };
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-
 export function FinanceOverviewPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
   const [overview, setOverview] = React.useState<FinanceOverview | null>(null);
   const [receivablesAging, setReceivablesAging] = React.useState<AgingBucket[]>([]);
   const [payablesAging, setPayablesAging] = React.useState<AgingBucket[]>([]);
@@ -156,7 +151,7 @@ export function FinanceOverviewPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Receivables</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(overview?.openReceivables || 0)}</div>
+            <div className="text-2xl font-bold">{amount(overview?.openReceivables || 0)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -164,7 +159,7 @@ export function FinanceOverviewPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Payables</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(overview?.openPayables || 0)}</div>
+            <div className="text-2xl font-bold">{amount(overview?.openPayables || 0)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -172,7 +167,7 @@ export function FinanceOverviewPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Billed This Month</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(overview?.billedThisMonth || 0)}</div>
+            <div className="text-2xl font-bold">{amount(overview?.billedThisMonth || 0)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -180,7 +175,7 @@ export function FinanceOverviewPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Collected This Month</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(overview?.paidThisMonth || 0)}</div>
+            <div className="text-2xl font-bold">{amount(overview?.paidThisMonth || 0)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -188,7 +183,7 @@ export function FinanceOverviewPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Expense Receipts</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(overview?.expenseReceiptsThisMonth || 0)}</div>
+            <div className="text-2xl font-bold">{amount(overview?.expenseReceiptsThisMonth || 0)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -196,7 +191,7 @@ export function FinanceOverviewPanel() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Unbilled POs</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(unbilledPurchaseValue)}</div>
+            <div className="text-2xl font-bold">{amount(unbilledPurchaseValue)}</div>
             <div className="text-xs text-muted-foreground">
               {suppliersWithOpenPayables} suppliers with open payables
             </div>
@@ -251,8 +246,8 @@ export function FinanceOverviewPanel() {
                 {bucketRows.map((row) => (
                   <TableRow key={row.bucket}>
                     <TableCell>{bucketLabel[row.bucket]}</TableCell>
-                    <TableCell className="text-end">{money(row.receivables)}</TableCell>
-                    <TableCell className="text-end">{money(row.payables)}</TableCell>
+                    <TableCell className="text-end">{amount(row.receivables)}</TableCell>
+                    <TableCell className="text-end">{amount(row.payables)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

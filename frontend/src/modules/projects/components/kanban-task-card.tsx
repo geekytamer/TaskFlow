@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { getCurrentLocale } from '@/lib/locale';
 import type { Task } from '@/modules/projects/types';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -76,7 +77,7 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                 </div>
                 <div className="flex justify-between items-center">
                     <p className="text-xs text-muted-foreground">
-                        {task.dueDate ? `Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}
+                        {task.dueDate ? `Due: ${new Date(task.dueDate).toLocaleDateString(getCurrentLocale())}` : ''}
                     </p>
                     <div className="flex -space-x-2 rtl:space-x-reverse">
                         {users.map(user => (

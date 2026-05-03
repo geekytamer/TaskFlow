@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
+import { useCompanyCurrency } from '@/lib/currency';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { getClients, getInvoices, updateClient } from '@/services/financeService';
@@ -37,15 +38,9 @@ import { ActivityFeed } from '@/modules/operations/components/activity-feed';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-
 export function ClientTable() {
   const { selectedCompany } = useCompany();
+  const { money, amount } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -292,7 +287,7 @@ export function ClientTable() {
                   </TableCell>
                   <TableCell>{client.address}</TableCell>
                   <TableCell className="text-end">{metrics?.invoiceCount || 0}</TableCell>
-                  <TableCell className="text-end">{money(metrics?.outstanding || 0)}</TableCell>
+                  <TableCell className="text-end">{amount(metrics?.outstanding || 0)}</TableCell>
                 </TableRow>
               );
             })}
@@ -341,15 +336,15 @@ export function ClientTable() {
                     <div className="grid grid-cols-3 gap-4">
                       <div className="rounded-lg border p-4">
                         <p className="text-sm text-muted-foreground">Total Billed</p>
-                        <p className="text-2xl font-bold">{money(total)}</p>
+                        <p className="text-2xl font-bold">{amount(total)}</p>
                       </div>
                       <div className="rounded-lg border p-4">
                         <p className="text-sm text-muted-foreground">Outstanding</p>
-                        <p className="text-2xl font-bold text-orange-600">{money(outstanding)}</p>
+                        <p className="text-2xl font-bold text-orange-600">{amount(outstanding)}</p>
                       </div>
                       <div className="rounded-lg border p-4">
                         <p className="text-sm text-muted-foreground">Paid</p>
-                        <p className="text-2xl font-bold text-green-600">{money(paid)}</p>
+                        <p className="text-2xl font-bold text-green-600">{amount(paid)}</p>
                         <Progress value={paidPct} className="mt-2" />
                         <p className="text-xs text-muted-foreground mt-1">{paidPct}% paid</p>
                       </div>
@@ -359,7 +354,7 @@ export function ClientTable() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-lg border p-4">
                     <p className="text-sm text-muted-foreground">Credit Limit</p>
-                    <p className="text-xl font-semibold">{money(selectedClient.creditLimit || 0)}</p>
+                    <p className="text-xl font-semibold">{amount(selectedClient.creditLimit || 0)}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {selectedClient.creditNumber || 'No credit number'}
                     </p>
@@ -539,9 +534,9 @@ export function ClientTable() {
                             <TableCell>
                               <Badge variant="outline">{inv.status}</Badge>
                             </TableCell>
-                            <TableCell className="text-end">${(inv.paidAmount || 0).toFixed(2)}</TableCell>
-                            <TableCell className="text-end">${(inv.outstandingAmount || 0).toFixed(2)}</TableCell>
-                            <TableCell className="text-end">${inv.total.toFixed(2)}</TableCell>
+                            <TableCell className="text-end">{amount(inv.paidAmount || 0)}</TableCell>
+                            <TableCell className="text-end">{amount(inv.outstandingAmount || 0)}</TableCell>
+                            <TableCell className="text-end">{amount(inv.total)}</TableCell>
                           </TableRow>
                         ))}
                         {clientInvoices.length === 0 && (

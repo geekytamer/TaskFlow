@@ -106,12 +106,27 @@ export default function PrintInvoicePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8">
+    <div className="min-h-screen bg-slate-50 p-8 print:bg-white print:p-0">
+      <style>{`
+        @media print {
+          html, body {
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .invoice-print-shell {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
       <div className="no-print mx-auto mb-6 flex max-w-[760px] flex-col items-center gap-4 rounded-lg bg-white p-4 shadow-sm sm:flex-row sm:justify-between">
         <p className="text-sm text-slate-500">
           {shouldAutoPrint
-            ? 'The print dialog should open automatically. Disable browser headers and footers for a clean PDF.'
-            : 'Disable browser headers and footers in the print dialog for a clean PDF.'}
+            ? 'The print dialog should open automatically. Use Pages per sheet = 1 and disable browser headers/footers for a clean PDF.'
+            : 'Use Pages per sheet = 1 and disable browser headers/footers in the print dialog for a clean PDF.'}
         </p>
         <Button onClick={() => window.print()}>
           <Printer className="mr-2 h-4 w-4" />
@@ -119,7 +134,7 @@ export default function PrintInvoicePage() {
         </Button>
       </div>
 
-      <div className="mx-auto max-w-[760px]">
+      <div className="invoice-print-shell mx-auto w-full max-w-[190mm] print:max-w-none">
         <InvoiceDocument
           invoice={invoice}
           client={client || undefined}

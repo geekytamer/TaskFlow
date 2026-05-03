@@ -22,6 +22,7 @@ export type NumberingEntityType =
   | 'supplier'
   | 'inventory_item'
   | 'purchase_order'
+  | 'sales_order'
   | 'sales_invoice'
   | 'vendor_invoice';
 
@@ -39,6 +40,7 @@ export interface CompanyFinanceSettings {
   companyId: string;
   fiscalYearStartMonth: number;
   lockedThroughDate?: Date;
+  currencyCode: string;
   updatedAt: Date;
 }
 
@@ -62,6 +64,7 @@ export interface Invoice {
   invoiceNumber: string;
   companyId: string;
   clientId: string;
+  salesOrderId?: string;
   templateId?: string;
   issueDate: Date;
   dueDate: Date;
@@ -75,6 +78,32 @@ export interface Invoice {
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+}
+
+export type SalesOrderStatus = 'Draft' | 'Confirmed' | 'Invoiced' | 'Cancelled';
+export const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
+
+export interface SalesOrderLineItem {
+  inventoryItemId?: string;
+  sku?: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface SalesOrder {
+  id: string;
+  companyId: string;
+  orderNumber: string;
+  clientId: string;
+  orderDate: Date;
+  expectedDate?: Date;
+  status: SalesOrderStatus;
+  items: SalesOrderLineItem[];
+  totalAmount: number;
+  notes?: string;
+  invoiceId?: string;
 }
 
 export type InvoiceTemplateLayout = 'classic' | 'modern' | 'compact' | 'letterhead';
@@ -94,6 +123,9 @@ export interface InvoiceTemplate {
   paymentInstructions?: string;
   terms?: string;
   footerNote?: string;
+  watermarkEnabled: boolean;
+  watermarkText?: string;
+  watermarkOpacity?: number;
   showCompanyAddress: boolean;
   showTaxId: boolean;
   createdAt: Date;
@@ -285,6 +317,7 @@ export interface ActivityEvent {
     | 'supplier'
     | 'inventory_item'
     | 'purchase_order'
+    | 'sales_order'
     | 'invoice'
     | 'vendor_bill';
   entityId: string;

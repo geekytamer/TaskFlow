@@ -28,6 +28,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
 import type { PurchaseOrderPayableSummary } from '@/modules/finance/types';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
@@ -51,13 +52,6 @@ import type {
 } from '@/modules/operations/types';
 import { PackageCheck, ShoppingCart } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
-
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
   Draft: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -101,6 +95,7 @@ const emptyPurchaseForm = (): PurchaseForm => ({
 export function PurchasesPage() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
@@ -452,7 +447,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">Ordered Spend</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{money(stats.orderedSpend)}</div>
+            <div className="text-2xl font-bold">{amount(stats.orderedSpend)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -476,7 +471,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">Unbilled PO Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{money(stats.unbilledValue)}</div>
+            <div className="text-2xl font-bold text-amber-600">{amount(stats.unbilledValue)}</div>
           </CardContent>
         </Card>
       </div>
@@ -602,7 +597,7 @@ export function PurchasesPage() {
               <div className="space-y-1">
                 <Label>Estimated Total</Label>
                 <div className="flex h-10 items-center rounded-md border px-3 text-sm">
-                  {money(estimatedTotal)}
+                  {amount(estimatedTotal)}
                 </div>
               </div>
               <div className="space-y-1 sm:col-span-2">
@@ -674,7 +669,7 @@ export function PurchasesPage() {
                   </div>
                   <div className="flex items-end gap-2">
                     <div className="min-w-20 text-sm text-muted-foreground">
-                      {money(Number(item.quantity || 0) * Number(item.unitCost || 0))}
+                      {amount(Number(item.quantity || 0) * Number(item.unitCost || 0))}
                     </div>
                     <Button
                       type="button"
@@ -752,7 +747,7 @@ export function PurchasesPage() {
                   <div className="space-y-1">
                     <Label>Unit Cost</Label>
                     <div className="flex h-10 items-center rounded-md border px-3 text-sm">
-                      {money(item.unitCost)}
+                      {amount(item.unitCost)}
                     </div>
                   </div>
                 </div>
@@ -854,12 +849,12 @@ export function PurchasesPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-end">{money(order.totalAmount)}</TableCell>
+                  <TableCell className="text-end">{amount(order.totalAmount)}</TableCell>
                   <TableCell>
                     <div className="space-y-1 text-sm">
-                      <div>Billed {money(payableMap.get(order.id)?.billedAmount || 0)}</div>
+                      <div>Billed {amount(payableMap.get(order.id)?.billedAmount || 0)}</div>
                       <div className="text-muted-foreground">
-                        Remaining {money(payableMap.get(order.id)?.remainingToBill || order.totalAmount)}
+                        Remaining {amount(payableMap.get(order.id)?.remainingToBill || order.totalAmount)}
                       </div>
                     </div>
                   </TableCell>

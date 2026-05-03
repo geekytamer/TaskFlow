@@ -49,6 +49,9 @@ test('health endpoint reports status and applied migrations', async () => {
     '012_record_support_and_numbering',
     '013_finance_period_controls',
     '014_invoice_templates',
+    '015_invoice_template_watermark',
+    '016_sales_orders',
+    '017_company_currency_settings',
   ]);
 });
 
@@ -1529,9 +1532,11 @@ test('finance controls block locked-period postings and duplicate external refer
     .send({
       fiscalYearStartMonth: 4,
       lockedThroughDate: '2026-04-15T00:00:00.000Z',
+      currencyCode: 'OMR',
     });
   assert.equal(lockResponse.status, 200);
   assert.equal(lockResponse.body.fiscalYearStartMonth, 4);
+  assert.equal(lockResponse.body.currencyCode, 'OMR');
 
   const accountsResponse = await request(app)
     .get('/companies/1/finance/accounts')
@@ -2134,4 +2139,55 @@ test('vendor bills can link suppliers and purchase orders with derived defaults'
     });
   assert.equal(overbillResponse.status, 400);
   assert.match(overbillResponse.body.message, /remaining purchase order amount/i);
+});
+
+test('sales orders confirm and create draft invoices', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+
+  const createOrderResponse = await request(app)
+    .post('/companies/1/sales-orders')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      clientId: 'client-1',
+      orderDate: '2026-04-08T00:00:00.000Z',
+      status: 'Draft',
+      notes: 'Website package',
+      items: [
+        {
+          description: 'Discovery workshop',
+          quantity: 2,
+          unitPrice: 250,
+          lineTotal: 500,
+        },
+      ],
+    });
+  assert.equal(createOrderResponse.status, 201);
+  assert.match(createOrderResponse.body.orderNumber, /^SO-/);
+  assert.equal(createOrderResponse.body.totalAmount, 500);
+  const orderId = createOrderResponse.body.id;
+
+  const confirmResponse = await request(app)
+    .patch(`/sales-orders/${orderId}/status`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ status: 'Confirmed' });
+  assert.equal(confirmResponse.status, 200);
+  assert.equal(confirmResponse.body.status, 'Confirmed');
+
+  const invoiceResponse = await request(app)
+    .post(`/sales-orders/${orderId}/invoice`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({});
+  assert.equal(invoiceResponse.status, 201);
+  assert.equal(invoiceResponse.body.status, 'Draft');
+  assert.equal(invoiceResponse.body.salesOrderId, orderId);
+  assert.equal(invoiceResponse.body.total, 500);
+
+  const listResponse = await request(app)
+    .get('/companies/1/sales-orders')
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(listResponse.status, 200);
+  const order = listResponse.body.find((item) => item.id === orderId);
+  assert.equal(order.status, 'Invoiced');
+  assert.equal(order.invoiceId, invoiceResponse.body.id);
 });

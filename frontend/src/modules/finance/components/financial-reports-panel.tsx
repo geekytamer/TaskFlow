@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { getCurrentLocale } from '@/lib/locale';
 import { format } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -34,13 +35,7 @@ import {
   getTrialBalanceReport,
 } from '@/services/financeService';
 import { Download, FileText, Info } from 'lucide-react';
-
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
+import { useCompanyCurrency } from '@/lib/currency';
 
 const toInputDate = (date: Date) => format(date, 'yyyy-MM-dd');
 
@@ -66,7 +61,7 @@ const printableReport = (title: string, body: string) => `
     </head>
     <body>
       <h1>${title}</h1>
-      <div class="muted">Generated ${new Date().toLocaleString()}</div>
+      <div class="muted">Generated ${new Date().toLocaleString(getCurrentLocale())}</div>
       ${body}
     </body>
   </html>
@@ -75,6 +70,7 @@ const printableReport = (title: string, body: string) => `
 export function FinancialReportsPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [trialBalance, setTrialBalance] = React.useState<TrialBalanceReport | null>(null);
   const [profitAndLoss, setProfitAndLoss] = React.useState<ProfitAndLossReport | null>(null);
@@ -248,7 +244,7 @@ export function FinancialReportsPanel() {
                   onClick={() =>
                     handlePrint(
                       `${selectedCompany.name} Trial Balance`,
-                      `<table><thead><tr><th>Code</th><th>Name</th><th>Debit</th><th>Credit</th></tr></thead><tbody>${trialRows.map((line) => `<tr><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.debitBalance)}</td><td class="right">${money(line.creditBalance)}</td></tr>`).join('')}<tr class="total"><td colspan="2">Totals</td><td class="right">${money(trialBalance?.totalDebit || 0)}</td><td class="right">${money(trialBalance?.totalCredit || 0)}</td></tr></tbody></table>`,
+                      `<table><thead><tr><th>Code</th><th>Name</th><th>Debit</th><th>Credit</th></tr></thead><tbody>${trialRows.map((line) => `<tr><td>${line.code}</td><td>${line.name}</td><td class="right">${amount(line.debitBalance)}</td><td class="right">${amount(line.creditBalance)}</td></tr>`).join('')}<tr class="total"><td colspan="2">Totals</td><td class="right">${amount(trialBalance?.totalDebit || 0)}</td><td class="right">${amount(trialBalance?.totalCredit || 0)}</td></tr></tbody></table>`,
                     )
                   }
                 >
@@ -274,14 +270,14 @@ export function FinancialReportsPanel() {
                         <TableCell className="font-mono">{line.code}</TableCell>
                         <TableCell className="font-medium">{line.name}</TableCell>
                         <TableCell><Badge variant="outline">{line.type}</Badge></TableCell>
-                        <TableCell className="text-end">{money(line.debitBalance)}</TableCell>
-                        <TableCell className="text-end">{money(line.creditBalance)}</TableCell>
+                        <TableCell className="text-end">{amount(line.debitBalance)}</TableCell>
+                        <TableCell className="text-end">{amount(line.creditBalance)}</TableCell>
                       </TableRow>
                     ))}
                     <TableRow>
                       <TableCell colSpan={3} className="font-semibold">Totals</TableCell>
-                      <TableCell className="text-end font-semibold">{money(trialBalance?.totalDebit || 0)}</TableCell>
-                      <TableCell className="text-end font-semibold">{money(trialBalance?.totalCredit || 0)}</TableCell>
+                      <TableCell className="text-end font-semibold">{amount(trialBalance?.totalDebit || 0)}</TableCell>
+                      <TableCell className="text-end font-semibold">{amount(trialBalance?.totalCredit || 0)}</TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -308,7 +304,7 @@ export function FinancialReportsPanel() {
                   onClick={() =>
                     handlePrint(
                       `${selectedCompany.name} Profit & Loss`,
-                      `<table><thead><tr><th>Section</th><th>Code</th><th>Name</th><th>Amount</th></tr></thead><tbody>${pnlRows.map((line) => `<tr><td>${line.section}</td><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.amount)}</td></tr>`).join('')}<tr class="total"><td colspan="3">Net Income</td><td class="right">${money(profitAndLoss?.netIncome || 0)}</td></tr></tbody></table>`,
+                      `<table><thead><tr><th>Section</th><th>Code</th><th>Name</th><th>Amount</th></tr></thead><tbody>${pnlRows.map((line) => `<tr><td>${line.section}</td><td>${line.code}</td><td>${line.name}</td><td class="right">${amount(line.amount)}</td></tr>`).join('')}<tr class="total"><td colspan="3">Net Income</td><td class="right">${amount(profitAndLoss?.netIncome || 0)}</td></tr></tbody></table>`,
                     )
                   }
                 >
@@ -320,15 +316,15 @@ export function FinancialReportsPanel() {
               <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Revenue</CardTitle></CardHeader>
-                  <CardContent><div className="text-2xl font-bold">{money(profitAndLoss?.totalRevenue || 0)}</div></CardContent>
+                  <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.totalRevenue || 0)}</div></CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Expenses</CardTitle></CardHeader>
-                  <CardContent><div className="text-2xl font-bold">{money(profitAndLoss?.totalExpenses || 0)}</div></CardContent>
+                  <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.totalExpenses || 0)}</div></CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Net Income</CardTitle></CardHeader>
-                  <CardContent><div className="text-2xl font-bold">{money(profitAndLoss?.netIncome || 0)}</div></CardContent>
+                  <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.netIncome || 0)}</div></CardContent>
                 </Card>
               </div>
               <div className="rounded-md border">
@@ -347,7 +343,7 @@ export function FinancialReportsPanel() {
                         <TableCell><Badge variant="outline">{line.section}</Badge></TableCell>
                         <TableCell className="font-mono">{line.code}</TableCell>
                         <TableCell className="font-medium">{line.name}</TableCell>
-                        <TableCell className="text-end">{money(line.amount)}</TableCell>
+                        <TableCell className="text-end">{amount(line.amount)}</TableCell>
                       </TableRow>
                     ))}
                     {pnlRows.length === 0 && (
@@ -389,15 +385,15 @@ export function FinancialReportsPanel() {
               <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Opening</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold">{money(accountActivity?.openingBalance || 0)}</div></CardContent>
+                  <CardContent><div className="text-xl font-bold">{amount(accountActivity?.openingBalance || 0)}</div></CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Debits / Credits</CardTitle></CardHeader>
-                  <CardContent><div className="text-sm">{money(accountActivity?.debitTotal || 0)} / {money(accountActivity?.creditTotal || 0)}</div></CardContent>
+                  <CardContent><div className="text-sm">{amount(accountActivity?.debitTotal || 0)} / {amount(accountActivity?.creditTotal || 0)}</div></CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Closing</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold">{money(accountActivity?.closingBalance || 0)}</div></CardContent>
+                  <CardContent><div className="text-xl font-bold">{amount(accountActivity?.closingBalance || 0)}</div></CardContent>
                 </Card>
               </div>
               <div className="rounded-md border">
@@ -418,9 +414,9 @@ export function FinancialReportsPanel() {
                         <TableCell>{format(line.entryDate, 'MMM d, yyyy')}</TableCell>
                         <TableCell><Badge variant="outline">{line.sourceType}</Badge></TableCell>
                         <TableCell>{line.description || line.memo || '—'}</TableCell>
-                        <TableCell className="text-end">{money(line.debit)}</TableCell>
-                        <TableCell className="text-end">{money(line.credit)}</TableCell>
-                        <TableCell className="text-end">{money(line.runningBalance)}</TableCell>
+                        <TableCell className="text-end">{amount(line.debit)}</TableCell>
+                        <TableCell className="text-end">{amount(line.credit)}</TableCell>
+                        <TableCell className="text-end">{amount(line.runningBalance)}</TableCell>
                       </TableRow>
                     ))}
                     {!accountActivity?.lines.length && (

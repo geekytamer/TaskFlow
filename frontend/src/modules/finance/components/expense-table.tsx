@@ -14,12 +14,14 @@ import type { Task } from '@/modules/projects/types';
 import { Button } from '@/components/ui/button';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { useToast } from '@/hooks/use-toast';
+import { useCompanyCurrency } from '@/lib/currency';
 
 export function ExpenseTable() {
   const { selectedCompany, projects, currentUser } = useCompany();
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
+  const { money, amount } = useCompanyCurrency();
 
   React.useEffect(() => {
     async function load() {
@@ -182,7 +184,7 @@ export function ExpenseTable() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>${(task.invoiceAmount || 0).toFixed(2)}</TableCell>
+                    <TableCell>{amount(task.invoiceAmount || 0)}</TableCell>
                     <TableCell>{task.invoiceDate ? format(task.invoiceDate, 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell>
                       {task.invoiceImage ? (
