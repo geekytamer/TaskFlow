@@ -5817,11 +5817,65 @@ export class DataStore {
     return rows.map((row) => this.decodeWhatsappMessage(row));
   }
 
+  /** Best-effort lookup of a contact id for a given phone number. */
+  private findContactIdByPhone(companyId: string, phone: string): string | undefined {
+    if (!phone) return undefined;
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return undefined;
+    const candidate = `%${digits.slice(-9)}`;
+    const row = this.db
+      .prepare(
+        `SELECT id FROM contacts WHERE companyId = ? AND REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '(', ''), ')', '') LIKE ? LIMIT 1`,
+      )
+      .get(companyId, candidate) as { id?: string } | undefined;
+    return row?.id;
+  }
+
   createWhatsappMessage(
     input: Omit<WhatsAppMessage, 'id' | 'createdAt'> & { createdAt?: Date },
   ): WhatsAppMessage {
+    // Idempotency: if the same externalId already exists for the company,
+    // update the existing record instead of inserting a duplicate.
+    if (input.externalId) {
+      const existing = this.db
+        .prepare('SELECT * FROM whatsapp_messages WHERE externalId = ? AND companyId = ?')
+        .get(input.externalId, input.companyId) as any;
+      if (existing) {
+        // refresh status / timestamps without changing the row id
+        this.db
+          .prepare(
+            `UPDATE whatsapp_messages
+               SET status = ?, body = COALESCE(?, body), mediaUrl = COALESCE(?, mediaUrl),
+                   fileName = COALESCE(?, fileName),
+                   sentAt = COALESCE(sentAt, ?), deliveredAt = COALESCE(deliveredAt, ?),
+                   readAt = COALESCE(readAt, ?), receivedAt = COALESCE(receivedAt, ?),
+                   error = COALESCE(?, error)
+               WHERE id = ?`,
+          )
+          .run(
+            input.status,
+            input.body ?? null,
+            input.mediaUrl ?? null,
+            input.fileName ?? null,
+            input.sentAt ? input.sentAt.toISOString() : null,
+            input.deliveredAt ? input.deliveredAt.toISOString() : null,
+            input.readAt ? input.readAt.toISOString() : null,
+            input.receivedAt ? input.receivedAt.toISOString() : null,
+            input.error ?? null,
+            existing.id,
+          );
+        return this.decodeWhatsappMessage(
+          this.db.prepare('SELECT * FROM whatsapp_messages WHERE id = ?').get(existing.id) as any,
+        );
+      }
+    }
+
+    // Auto-link to a contact by phone if not provided
+    const linkedContactId = input.contactId || this.findContactIdByPhone(input.companyId, input.phone);
+
     const message: WhatsAppMessage = {
       ...input,
+      contactId: linkedContactId,
       id: uuid(),
       createdAt: input.createdAt || new Date(),
     } as WhatsAppMessage;
@@ -5854,6 +5908,133 @@ export class DataStore {
         createdAt: message.createdAt.toISOString(),
       });
     return message;
+  }
+
+  listWhatsappChats(companyId: string): Array<{
+    chatId: string;
+    phone: string;
+    contactId?: string;
+    contactName?: string;
+    lastMessageAt: Date;
+    lastMessageBody: string;
+    lastMessageDirection: WhatsAppMessageDirection;
+    unreadCount: number;
+    messageCount: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT
+           m.chatId as chatId,
+           m.phone as phone,
+           MAX(m.createdAt) as lastAt,
+           COUNT(*) as messageCount,
+           SUM(CASE WHEN m.direction = 'inbound' AND m.readAt IS NULL THEN 1 ELSE 0 END) as unreadCount
+         FROM whatsapp_messages m
+         WHERE m.companyId = ?
+         GROUP BY m.chatId
+         ORDER BY lastAt DESC`,
+      )
+      .all(companyId) as any[];
+
+    const lastMessageStmt = this.db.prepare(
+      `SELECT body, direction, contactId
+         FROM whatsapp_messages
+         WHERE companyId = ? AND chatId = ?
+         ORDER BY createdAt DESC LIMIT 1`,
+    );
+    const contactNameStmt = this.db.prepare('SELECT name FROM contacts WHERE id = ?');
+
+    return rows.map((row) => {
+      const last = lastMessageStmt.get(companyId, row.chatId) as any;
+      const contactId = last?.contactId || undefined;
+      const contactName = contactId
+        ? ((contactNameStmt.get(contactId) as any)?.name ?? undefined)
+        : undefined;
+      return {
+        chatId: row.chatId,
+        phone: row.phone,
+        contactId,
+        contactName,
+        lastMessageAt: new Date(row.lastAt),
+        lastMessageBody: last?.body ?? '',
+        lastMessageDirection: (last?.direction as WhatsAppMessageDirection) || 'inbound',
+        unreadCount: Number(row.unreadCount) || 0,
+        messageCount: Number(row.messageCount) || 0,
+      };
+    });
+  }
+
+  markWhatsappChatRead(companyId: string, chatId: string): number {
+    const now = new Date().toISOString();
+    const res = this.db
+      .prepare(
+        `UPDATE whatsapp_messages
+           SET readAt = ?, status = CASE WHEN status = 'pending' OR status = 'sent' OR status = 'delivered' THEN 'read' ELSE status END
+           WHERE companyId = ? AND chatId = ? AND direction = 'inbound' AND readAt IS NULL`,
+      )
+      .run(now, companyId, chatId);
+    return res.changes ?? 0;
+  }
+
+  /**
+   * Backfills history from Green API response payload. Returns inserted count.
+   */
+  importWhatsappHistory(
+    companyId: string,
+    instanceId: string,
+    chatId: string,
+    rawMessages: any[],
+  ): number {
+    let inserted = 0;
+    rawMessages.forEach((raw) => {
+      try {
+        const externalId = String(raw?.idMessage || '');
+        if (!externalId) return;
+        const type = String(raw?.type || raw?.typeMessage || '').toLowerCase();
+        const direction: WhatsAppMessageDirection = type === 'incoming' ? 'inbound' : 'outbound';
+        const body =
+          raw?.textMessage ||
+          raw?.text ||
+          raw?.textMessageData?.textMessage ||
+          raw?.extendedTextMessageData?.text ||
+          raw?.caption ||
+          '';
+        const mediaUrl = raw?.downloadUrl || raw?.fileMessageData?.downloadUrl;
+        const fileName = raw?.fileName || raw?.fileMessageData?.fileName;
+        const messageType: WhatsAppMessageType = mediaUrl ? 'file' : 'text';
+        const status: WhatsAppMessageStatus =
+          direction === 'inbound'
+            ? 'delivered'
+            : ((String(raw?.statusMessage || raw?.status || '').toLowerCase() as WhatsAppMessageStatus) ||
+              'sent');
+        const ts = Number(raw?.timestamp) || Math.floor(Date.now() / 1000);
+        const when = new Date(ts * 1000);
+        const phone = chatId.replace(/@c\.us$/, '');
+        const before = this.db
+          .prepare('SELECT 1 FROM whatsapp_messages WHERE externalId = ? AND companyId = ?')
+          .get(externalId, companyId);
+        this.createWhatsappMessage({
+          companyId,
+          instanceId,
+          direction,
+          externalId,
+          chatId,
+          phone,
+          type: messageType,
+          body,
+          mediaUrl,
+          fileName,
+          status,
+          sentAt: direction === 'outbound' ? when : undefined,
+          receivedAt: direction === 'inbound' ? when : undefined,
+          createdAt: when,
+        });
+        if (!before) inserted += 1;
+      } catch {
+        /* skip malformed entry */
+      }
+    });
+    return inserted;
   }
 
   updateWhatsappMessageStatus(

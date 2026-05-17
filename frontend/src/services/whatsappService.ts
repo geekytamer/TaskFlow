@@ -129,3 +129,49 @@ export async function getWhatsappMessages(
     `/companies/${companyId}/whatsapp/messages${qs ? `?${qs}` : ''}`,
   );
 }
+
+export interface WhatsAppChatSummary {
+  chatId: string;
+  phone: string;
+  contactId?: string;
+  contactName?: string;
+  lastMessageAt: string;
+  lastMessageBody: string;
+  lastMessageDirection: WhatsAppMessageDirection;
+  unreadCount: number;
+  messageCount: number;
+}
+
+export async function getWhatsappChats(companyId: string): Promise<WhatsAppChatSummary[]> {
+  if (!companyId) return [];
+  return apiFetch<WhatsAppChatSummary[]>(`/companies/${companyId}/whatsapp/chats`);
+}
+
+export async function syncWhatsappChatHistory(
+  companyId: string,
+  chatId: string,
+  count = 100,
+): Promise<{ inserted: number; fetched: number }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/sync-history?count=${count}`, {
+    method: 'POST',
+  });
+}
+
+export async function markWhatsappChatRead(
+  companyId: string,
+  chatId: string,
+): Promise<{ updated: number }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/read`, {
+    method: 'POST',
+  });
+}
+
+export async function openWhatsappChat(
+  companyId: string,
+  phone: string,
+): Promise<{ chatId: string; phone: string; imported: number }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/open-chat`, {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
+}

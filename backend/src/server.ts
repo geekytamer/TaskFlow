@@ -3531,6 +3531,83 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.get(
+    '/companies/:companyId/whatsapp/chats',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listWhatsappChats(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/chats/:chatId/read',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const updated = store.markWhatsappChatRead(req.params.companyId, req.params.chatId);
+      res.json({ updated });
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/chats/:chatId/sync-history',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { instance, creds } = requireWhatsapp(req.params.companyId);
+      const count = Math.min(Math.max(Number(req.query.count) || 100, 1), 100);
+      const raw = await wrapGreenApi(() =>
+        greenApi.getChatHistory(creds, req.params.chatId, count),
+      );
+      const inserted = store.importWhatsappHistory(
+        req.params.companyId,
+        instance.id,
+        req.params.chatId,
+        raw,
+      );
+      res.json({ inserted, fetched: raw.length });
+    }),
+  );
+
+  /**
+   * Helper for the "new chat" composer: validates a phone number actually
+   * has WhatsApp, returns its chatId, and triggers a history backfill.
+   */
+  app.post(
+    '/companies/:companyId/whatsapp/open-chat',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { instance, creds } = requireWhatsapp(req.params.companyId);
+      const body = asRecord(req.body, 'body');
+      const phone = requiredString(body.phone, 'phone');
+      const chatId = toChatId(phone);
+      try {
+        const check = await wrapGreenApi(() => greenApi.checkWhatsapp(creds, phone));
+        if (!check.existsWhatsapp) {
+          throw new HttpError(400, 'This phone number is not on WhatsApp.');
+        }
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        // If checkWhatsapp fails we still allow opening the chat.
+      }
+      let imported = 0;
+      try {
+        const raw = await greenApi.getChatHistory(creds, chatId, 50);
+        imported = store.importWhatsappHistory(
+          req.params.companyId,
+          instance.id,
+          chatId,
+          raw,
+        );
+      } catch {
+        /* history fetch is best-effort */
+      }
+      res.json({ chatId, phone: chatId.replace(/@c\.us$/, ''), imported });
+    }),
+  );
+
   /**
    * Public webhook receiver — Green API calls this for every event on the
    * configured instance. We identify the company by the webhook token in the

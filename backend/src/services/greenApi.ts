@@ -181,4 +181,27 @@ export const greenApi = {
     const digits = String(phoneNumber).replace(/\D/g, '');
     return call(creds, 'POST', 'checkWhatsapp', { phoneNumber: Number(digits) });
   },
+
+  /**
+   * Returns history for a specific chat (most recent first). `count` is
+   * clamped by Green API (default 100, max 100 per call).
+   */
+  async getChatHistory(
+    creds: GreenApiCredentials,
+    chatId: string,
+    count = 100,
+  ): Promise<any[]> {
+    const res = await call<any>(creds, 'POST', 'getChatHistory', {
+      chatId,
+      count: Math.min(Math.max(count, 1), 100),
+    });
+    return Array.isArray(res) ? res : [];
+  },
+
+  async getContactInfo(
+    creds: GreenApiCredentials,
+    chatId: string,
+  ): Promise<{ name?: string; avatar?: string } & Record<string, any>> {
+    return call(creds, 'POST', 'getContactInfo', { chatId });
+  },
 };
