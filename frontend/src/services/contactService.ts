@@ -54,6 +54,33 @@ function decodeContact(raw: any): Contact {
     };
   }
 
+export interface ContactSummary {
+  contact: Contact;
+  totals: {
+    invoiceCount: number;
+    invoiceOutstanding: number;
+    invoiceTotal: number;
+    salesOrderCount: number;
+    salesOrderTotal: number;
+    purchaseOrderCount: number;
+    vendorBillCount: number;
+    vendorBillOutstanding: number;
+    opportunityCount: number;
+    projectCount: number;
+  };
+  invoices: any[];
+  salesOrders: any[];
+  purchaseOrders: any[];
+  vendorBills: any[];
+  opportunities: any[];
+  projects: any[];
+}
+
+export async function getContactSummary(id: string): Promise<ContactSummary> {
+  const data = await apiFetch<any>(`/contacts/${id}/summary`);
+  return { ...data, contact: decodeContact(data.contact) };
+}
+
 export async function getContacts(companyId: string, role?: ContactRoleType): Promise<Contact[]> {
   const params = role ? `?role=${encodeURIComponent(role)}` : '';
   const data = await apiFetch<any[]>(`/companies/${companyId}/contacts${params}`);

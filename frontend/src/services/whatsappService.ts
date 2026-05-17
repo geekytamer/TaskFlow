@@ -48,11 +48,23 @@ export interface WhatsAppMessage {
   error?: string;
   contextEntityType?: string;
   contextEntityId?: string;
+  actorUserId?: string;
+  actorName?: string;
   sentAt?: string;
   deliveredAt?: string;
   readAt?: string;
   receivedAt?: string;
   createdAt: string;
+}
+
+export type WhatsAppChatVisibility = 'shared' | 'private';
+
+export interface WhatsAppChatSettings {
+  companyId: string;
+  chatId: string;
+  visibility: WhatsAppChatVisibility;
+  ownerUserId?: string;
+  updatedAt: string;
 }
 
 export async function getWhatsappInstance(companyId: string): Promise<WhatsAppInstance | null> {
@@ -118,9 +130,10 @@ export async function sendWhatsappMessage(
 
 export async function getWhatsappMessages(
   companyId: string,
-  opts: { contactId?: string; phone?: string; limit?: number } = {},
+  opts: { chatId?: string; contactId?: string; phone?: string; limit?: number } = {},
 ): Promise<WhatsAppMessage[]> {
   const params = new URLSearchParams();
+  if (opts.chatId) params.set('chatId', opts.chatId);
   if (opts.contactId) params.set('contactId', opts.contactId);
   if (opts.phone) params.set('phone', opts.phone);
   if (opts.limit) params.set('limit', String(opts.limit));
@@ -140,6 +153,31 @@ export interface WhatsAppChatSummary {
   lastMessageDirection: WhatsAppMessageDirection;
   unreadCount: number;
   messageCount: number;
+  visibility: WhatsAppChatVisibility;
+  ownerUserId?: string;
+}
+
+export async function getWhatsappChatSettings(
+  companyId: string,
+  chatId: string,
+): Promise<WhatsAppChatSettings> {
+  return apiFetch<WhatsAppChatSettings>(
+    `/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/settings`,
+  );
+}
+
+export async function updateWhatsappChatSettings(
+  companyId: string,
+  chatId: string,
+  updates: { visibility?: WhatsAppChatVisibility; ownerUserId?: string | null },
+): Promise<WhatsAppChatSettings> {
+  return apiFetch<WhatsAppChatSettings>(
+    `/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/settings`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    },
+  );
 }
 
 export async function getWhatsappChats(companyId: string): Promise<WhatsAppChatSummary[]> {

@@ -607,11 +607,23 @@ export interface WhatsAppMessage {
   error?: string;
   contextEntityType?: string;
   contextEntityId?: string;
+  actorUserId?: string;
+  actorName?: string;
   sentAt?: Date;
   deliveredAt?: Date;
   readAt?: Date;
   receivedAt?: Date;
   createdAt: Date;
+}
+
+export type WhatsAppChatVisibility = 'shared' | 'private';
+
+export interface WhatsAppChatSettings {
+  companyId: string;
+  chatId: string;
+  visibility: WhatsAppChatVisibility;
+  ownerUserId?: string;
+  updatedAt: Date;
 }
 
 export type ContactKind = 'Organization' | 'Person';

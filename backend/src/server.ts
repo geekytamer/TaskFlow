@@ -1639,6 +1639,97 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /**
+   * Contact 360° summary — all records linked to a contact, used by the
+   * WhatsApp inbox detail panel and contact pages. Read-only.
+   */
+  app.get(
+    '/contacts/:id/summary',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) throw new HttpError(404, 'Contact not found.');
+      requireCompanyRoles(req, contact.companyId, [
+        'Admin',
+        'Manager',
+        'Accountant',
+        'Employee',
+      ]);
+      const companyId = contact.companyId;
+      const linkedClientId = contact.clientId;
+      const linkedSupplierId = contact.supplierId;
+
+      const invoices = store
+        .listInvoices(companyId)
+        .filter(
+          (inv) =>
+            inv.contactId === contact.id ||
+            (linkedClientId && inv.clientId === linkedClientId),
+        );
+      const salesOrders = store
+        .listSalesOrders(companyId)
+        .filter(
+          (order) =>
+            order.contactId === contact.id ||
+            (linkedClientId && order.clientId === linkedClientId),
+        );
+      const purchaseOrders = linkedSupplierId
+        ? store
+            .listPurchaseOrders(companyId)
+            .filter((po) => po.supplierId === linkedSupplierId)
+        : [];
+      const vendorBills = linkedSupplierId
+        ? store
+            .listVendorBills(companyId)
+            .filter((bill) => bill.supplierId === linkedSupplierId)
+        : [];
+      const opportunities = store
+        .listOpportunities(companyId)
+        .filter((opp) => opp.contactId === contact.id);
+      const projects = linkedClientId
+        ? store
+            .listProjects()
+            .filter(
+              (project) =>
+                project.companyId === companyId && project.clientId === linkedClientId,
+            )
+        : [];
+
+      const totals = {
+        invoiceCount: invoices.length,
+        invoiceOutstanding: invoices.reduce(
+          (sum, inv) => sum + (inv.outstandingAmount || 0),
+          0,
+        ),
+        invoiceTotal: invoices.reduce((sum, inv) => sum + (inv.total || 0), 0),
+        salesOrderCount: salesOrders.length,
+        salesOrderTotal: salesOrders.reduce(
+          (sum, so) => sum + (so.totalAmount || 0),
+          0,
+        ),
+        purchaseOrderCount: purchaseOrders.length,
+        vendorBillCount: vendorBills.length,
+        vendorBillOutstanding: vendorBills.reduce(
+          (sum, bill) => sum + (bill.outstandingAmount || 0),
+          0,
+        ),
+        opportunityCount: opportunities.length,
+        projectCount: projects.length,
+      };
+
+      res.json({
+        contact,
+        totals,
+        invoices: invoices.slice(0, 50),
+        salesOrders: salesOrders.slice(0, 50),
+        purchaseOrders: purchaseOrders.slice(0, 50),
+        vendorBills: vendorBills.slice(0, 50),
+        opportunities: opportunities.slice(0, 50),
+        projects: projects.slice(0, 50),
+      });
+    }),
+  );
+
   app.delete(
     '/contacts/:id/roles/:role',
     authMiddleware,
@@ -3478,6 +3569,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const contextEntityType = optionalString(body.contextEntityType) || undefined;
       const contextEntityId = optionalString(body.contextEntityId) || undefined;
       const chatId = toChatId(phone);
+      const actorUserId = req.user?.id;
+      const actorName = req.user?.name;
       try {
         const sent = await wrapGreenApi(() => greenApi.sendMessage(creds, chatId, message));
         const stored = store.createWhatsappMessage({
@@ -3493,6 +3586,8 @@ export function createServer(options: CreateServerOptions = {}) {
           status: 'sent',
           contextEntityType,
           contextEntityId,
+          actorUserId,
+          actorName,
           sentAt: new Date(),
         });
         res.status(201).json(stored);
@@ -3510,6 +3605,8 @@ export function createServer(options: CreateServerOptions = {}) {
           error: error instanceof Error ? error.message : String(error),
           contextEntityType,
           contextEntityId,
+          actorUserId,
+          actorName,
         });
         throw error;
       }
@@ -3521,8 +3618,17 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const { contactId, phone, limit } = req.query as Record<string, string | undefined>;
+      const { chatId, contactId, phone, limit } = req.query as Record<string, string | undefined>;
+      // Privacy enforcement when filtering by chat
+      if (chatId) {
+        const settings = store.getWhatsappChatSettings(req.params.companyId, chatId);
+        const viewer = req.user ? { userId: req.user.id, role: req.user.role } : undefined;
+        if (!store.canViewWhatsappChat(settings, viewer)) {
+          throw new HttpError(403, 'You do not have access to this private chat.');
+        }
+      }
       const messages = store.listWhatsappMessages(req.params.companyId, {
+        chatId: chatId || undefined,
         contactId: contactId || undefined,
         phone: phone || undefined,
         limit: limit ? Number(limit) : undefined,
@@ -3536,7 +3642,51 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      res.json(store.listWhatsappChats(req.params.companyId));
+      const viewer = req.user ? { userId: req.user.id, role: req.user.role } : undefined;
+      res.json(store.listWhatsappChats(req.params.companyId, viewer));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/whatsapp/chats/:chatId/settings',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.getWhatsappChatSettings(req.params.companyId, req.params.chatId));
+    }),
+  );
+
+  app.patch(
+    '/companies/:companyId/whatsapp/chats/:chatId/settings',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const current = store.getWhatsappChatSettings(req.params.companyId, req.params.chatId);
+      const viewer = req.user ? { userId: req.user.id, role: req.user.role } : undefined;
+      // Only owner or Admin/Manager can change a private chat's settings.
+      if (current.visibility === 'private' && !store.canViewWhatsappChat(current, viewer)) {
+        throw new HttpError(403, 'Only the chat owner or a manager can change these settings.');
+      }
+      const visibilityRaw = optionalString(body.visibility);
+      const visibility =
+        visibilityRaw === 'private' || visibilityRaw === 'shared'
+          ? (visibilityRaw as 'private' | 'shared')
+          : undefined;
+      const ownerProvided = Object.prototype.hasOwnProperty.call(body, 'ownerUserId');
+      const ownerValue = ownerProvided ? (body.ownerUserId === null ? null : optionalString(body.ownerUserId) || null) : undefined;
+
+      // Default ownership for a fresh private toggle = current user
+      const effectiveOwner =
+        visibility === 'private' && !ownerProvided && !current.ownerUserId
+          ? req.user?.id ?? null
+          : ownerValue;
+
+      const updated = store.setWhatsappChatSettings(req.params.companyId, req.params.chatId, {
+        visibility,
+        ownerUserId: effectiveOwner as any,
+      });
+      res.json(updated);
     }),
   );
 

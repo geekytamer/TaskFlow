@@ -26,20 +26,26 @@ import {
   openWhatsappChat,
   sendWhatsappMessage,
   syncWhatsappChatHistory,
+  updateWhatsappChatSettings,
   type WhatsAppChatSummary,
   type WhatsAppInstance,
   type WhatsAppMessage,
 } from '@/services/whatsappService';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
 import {
   Check,
   CheckCheck,
   History,
+  Lock,
   MessageSquarePlus,
   Phone,
   RefreshCw,
   Search,
   Send,
+  UserPlus,
+  Users,
 } from 'lucide-react';
+import { ContactDetailSheet } from './contact-detail-sheet';
 
 // --- visual helpers ---
 
@@ -163,7 +169,10 @@ export function WhatsappInboxPage() {
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
   const { toast } = useToast();
+  const { user, effectiveRole } = useAuthGuard();
   const locale = language === 'ar' ? 'ar' : 'en-US';
+  const isManager = effectiveRole === 'Admin' || effectiveRole === 'Manager';
+  const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
 
   const [instance, setInstance] = React.useState<WhatsAppInstance | null>(null);
   const [chats, setChats] = React.useState<WhatsAppChatSummary[]>([]);
@@ -219,8 +228,7 @@ export function WhatsappInboxPage() {
       if (!companyId) return;
       if (!opts.silent) setLoadingMessages(true);
       try {
-        const phone = chatId.replace(/@c\.us$/, '');
-        const list = await getWhatsappMessages(companyId, { phone, limit: 500 });
+        const list = await getWhatsappMessages(companyId, { chatId, limit: 500 });
         // server returns newest-first; we render oldest-first
         setMessages(list.slice().reverse());
       } catch (error: any) {
@@ -338,6 +346,37 @@ export function WhatsappInboxPage() {
     } finally {
       setSyncingHistory(false);
     }
+  };
+
+  const handleTogglePrivacy = async () => {
+    if (!companyId || !activeChat) return;
+    const next = activeChat.visibility === 'private' ? 'shared' : 'private';
+    try {
+      await updateWhatsappChatSettings(companyId, activeChat.chatId, {
+        visibility: next,
+        // If toggling to private and there's no owner yet, server defaults to current user
+        ownerUserId: next === 'private' ? user?.id : null,
+      });
+      await loadChats();
+      toast({
+        title:
+          next === 'private'
+            ? t('whatsapp.privacyEnabledToast')
+            : t('whatsapp.privacyDisabledToast'),
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: t('whatsapp.privacyFailedTitle'),
+        description: error?.message,
+      });
+    }
+  };
+
+  const handleContactCreated = async () => {
+    // Refresh chats so the newly created contact links by phone
+    await loadChats();
+    setContactSheetOpen(false);
   };
 
   const handleOpenNewChat = async () => {
@@ -471,7 +510,12 @@ export function WhatsappInboxPage() {
                 <Avatar label={display} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-semibold">{display}</span>
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className="truncate text-sm font-semibold">{display}</span>
+                      {chat.visibility === 'private' && (
+                        <Lock className="h-3 w-3 shrink-0 text-amber-600" />
+                      )}
+                    </span>
                     <span className="shrink-0 text-[11px] text-muted-foreground">
                       {formatChatPreviewTime(chat.lastMessageAt, locale, t)}
                     </span>
@@ -512,15 +556,66 @@ export function WhatsappInboxPage() {
 
         {activeChat && (
           <>
-            {/* Thread header */}
+            {/* Thread header — click to open contact panel */}
             <header className="flex items-center gap-3 border-b bg-card px-4 py-3">
-              <Avatar label={activeChat.contactName || activeChat.phone} size={40} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold">
-                  {activeChat.contactName || formatPhone(activeChat.phone)}
+              <button
+                onClick={() => setContactSheetOpen(true)}
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-md py-1 text-start transition hover:bg-muted/50"
+                title={
+                  activeChat.contactId
+                    ? t('whatsapp.viewContact')
+                    : t('whatsapp.createContactFromChat')
+                }
+              >
+                <Avatar label={activeChat.contactName || activeChat.phone} size={40} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-semibold">
+                      {activeChat.contactName || formatPhone(activeChat.phone)}
+                    </span>
+                    {activeChat.visibility === 'private' && (
+                      <Lock className="h-3.5 w-3.5 text-amber-600" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{formatPhone(activeChat.phone)}</span>
+                    {!activeChat.contactId && (
+                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                        {t('whatsapp.notLinked')}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">{formatPhone(activeChat.phone)}</div>
-              </div>
+              </button>
+              {!activeChat.contactId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setContactSheetOpen(true)}
+                  title={t('whatsapp.createContactFromChat')}
+                >
+                  <UserPlus className="me-2 h-4 w-4" />
+                  {t('whatsapp.createContact')}
+                </Button>
+              )}
+              {(isManager || activeChat.ownerUserId === user?.id) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleTogglePrivacy}
+                  title={
+                    activeChat.visibility === 'private'
+                      ? t('whatsapp.makeShared')
+                      : t('whatsapp.makePrivate')
+                  }
+                >
+                  {activeChat.visibility === 'private' ? (
+                    <Users className="h-4 w-4" />
+                  ) : (
+                    <Lock className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -588,6 +683,11 @@ export function WhatsappInboxPage() {
                             <span className="italic opacity-60">({t('whatsapp.emptyMessage')})</span>
                           ))}
                           <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-500">
+                            {out && m.actorName && (
+                              <span className="me-1 italic opacity-80">
+                                {t('whatsapp.bySender')} {m.actorName}
+                              </span>
+                            )}
                             <span>{formatTime(m.sentAt || m.receivedAt || m.createdAt, locale)}</span>
                             {out && <StatusTicks status={m.status} />}
                           </div>
@@ -642,6 +742,15 @@ export function WhatsappInboxPage() {
           </>
         )}
       </section>
+
+      <ContactDetailSheet
+        open={contactSheetOpen}
+        onOpenChange={setContactSheetOpen}
+        companyId={companyId}
+        contactId={activeChat?.contactId}
+        fallbackPhone={activeChat?.phone}
+        onContactCreated={handleContactCreated}
+      />
     </div>
   );
 }

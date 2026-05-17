@@ -59,6 +59,8 @@ import {
   WhatsAppMessageDirection,
   WhatsAppMessageStatus,
   WhatsAppMessageType,
+  WhatsAppChatSettings,
+  WhatsAppChatVisibility,
   Invoice,
   InvoiceTemplate,
   InvoiceTemplateLayout,
@@ -697,11 +699,21 @@ export class DataStore {
         error TEXT,
         contextEntityType TEXT,
         contextEntityId TEXT,
+        actorUserId TEXT,
+        actorName TEXT,
         sentAt TEXT,
         deliveredAt TEXT,
         readAt TEXT,
         receivedAt TEXT,
         createdAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS whatsapp_chat_settings (
+        companyId TEXT NOT NULL,
+        chatId TEXT NOT NULL,
+        visibility TEXT NOT NULL DEFAULT 'shared',
+        ownerUserId TEXT,
+        updatedAt TEXT NOT NULL,
+        PRIMARY KEY (companyId, chatId)
       );
       CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY,
@@ -1782,6 +1794,33 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '032_whatsapp_actor_and_privacy',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(whatsapp_messages)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('actorUserId')) {
+            this.db.exec(`ALTER TABLE whatsapp_messages ADD COLUMN actorUserId TEXT;`);
+          }
+          if (!cols.includes('actorName')) {
+            this.db.exec(`ALTER TABLE whatsapp_messages ADD COLUMN actorName TEXT;`);
+          }
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS whatsapp_chat_settings (
+              companyId TEXT NOT NULL,
+              chatId TEXT NOT NULL,
+              visibility TEXT NOT NULL DEFAULT 'shared',
+              ownerUserId TEXT,
+              updatedAt TEXT NOT NULL,
+              PRIMARY KEY (companyId, chatId)
+            );
+          `);
+          this.db.exec(`
+            UPDATE whatsapp_messages
+               SET phone = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '')
+             WHERE phone IS NOT NULL;
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -1947,6 +1986,7 @@ export class DataStore {
         DELETE FROM ledger_accounts;
         DELETE FROM payments;
         DELETE FROM invoices;
+        DELETE FROM whatsapp_chat_settings;
         DELETE FROM whatsapp_messages;
         DELETE FROM whatsapp_instances;
         DELETE FROM deliveries;
@@ -5786,6 +5826,8 @@ export class DataStore {
       error: row.error ?? undefined,
       contextEntityType: row.contextEntityType ?? undefined,
       contextEntityId: row.contextEntityId ?? undefined,
+      actorUserId: row.actorUserId ?? undefined,
+      actorName: row.actorName ?? undefined,
       sentAt: row.sentAt ? new Date(row.sentAt) : undefined,
       deliveredAt: row.deliveredAt ? new Date(row.deliveredAt) : undefined,
       readAt: row.readAt ? new Date(row.readAt) : undefined,
@@ -5794,20 +5836,28 @@ export class DataStore {
     };
   }
 
+  private digitsOnly(value: string | null | undefined): string {
+    return String(value || '').replace(/\D/g, '');
+  }
+
   listWhatsappMessages(
     companyId: string,
-    options: { contactId?: string; phone?: string; limit?: number } = {},
+    options: { chatId?: string; contactId?: string; phone?: string; limit?: number } = {},
   ): WhatsAppMessage[] {
     const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
     const conditions: string[] = ['companyId = ?'];
     const params: any[] = [companyId];
+    if (options.chatId) {
+      conditions.push('chatId = ?');
+      params.push(options.chatId);
+    }
     if (options.contactId) {
       conditions.push('contactId = ?');
       params.push(options.contactId);
     }
     if (options.phone) {
       conditions.push('phone = ?');
-      params.push(options.phone);
+      params.push(this.digitsOnly(options.phone));
     }
     const rows = this.db
       .prepare(
@@ -5815,6 +5865,92 @@ export class DataStore {
       )
       .all(...params, limit) as any[];
     return rows.map((row) => this.decodeWhatsappMessage(row));
+  }
+
+  // -------- chat settings (visibility / privacy) --------
+
+  getWhatsappChatSettings(companyId: string, chatId: string): WhatsAppChatSettings {
+    const row = this.db
+      .prepare('SELECT * FROM whatsapp_chat_settings WHERE companyId = ? AND chatId = ?')
+      .get(companyId, chatId) as any;
+    if (!row) {
+      return {
+        companyId,
+        chatId,
+        visibility: 'shared',
+        ownerUserId: undefined,
+        updatedAt: new Date(0),
+      };
+    }
+    return {
+      companyId: row.companyId,
+      chatId: row.chatId,
+      visibility: (row.visibility as WhatsAppChatVisibility) || 'shared',
+      ownerUserId: row.ownerUserId ?? undefined,
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  setWhatsappChatSettings(
+    companyId: string,
+    chatId: string,
+    updates: { visibility?: WhatsAppChatVisibility; ownerUserId?: string | null },
+  ): WhatsAppChatSettings {
+    const current = this.getWhatsappChatSettings(companyId, chatId);
+    const visibility = updates.visibility ?? current.visibility;
+    const ownerUserId =
+      updates.ownerUserId === null
+        ? undefined
+        : updates.ownerUserId ?? current.ownerUserId;
+    const updatedAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO whatsapp_chat_settings (companyId, chatId, visibility, ownerUserId, updatedAt)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(companyId, chatId) DO UPDATE SET
+           visibility = excluded.visibility,
+           ownerUserId = excluded.ownerUserId,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(companyId, chatId, visibility, ownerUserId ?? null, updatedAt);
+    return this.getWhatsappChatSettings(companyId, chatId);
+  }
+
+  /**
+   * Returns map of chatId → settings for a company. Used by chats list to
+   * filter and badge chats consistently.
+   */
+  listWhatsappChatSettings(companyId: string): Map<string, WhatsAppChatSettings> {
+    const rows = this.db
+      .prepare('SELECT * FROM whatsapp_chat_settings WHERE companyId = ?')
+      .all(companyId) as any[];
+    const map = new Map<string, WhatsAppChatSettings>();
+    rows.forEach((row) => {
+      map.set(row.chatId, {
+        companyId: row.companyId,
+        chatId: row.chatId,
+        visibility: (row.visibility as WhatsAppChatVisibility) || 'shared',
+        ownerUserId: row.ownerUserId ?? undefined,
+        updatedAt: new Date(row.updatedAt),
+      });
+    });
+    return map;
+  }
+
+  /**
+   * True if the viewer is allowed to see this chat under its current
+   * privacy setting. Admin and Manager always see all; Employee sees only
+   * shared chats and private chats they own.
+   */
+  canViewWhatsappChat(
+    settings: WhatsAppChatSettings,
+    viewer: { userId: string; role?: string } | undefined,
+  ): boolean {
+    if (!viewer) return false;
+    if (settings.visibility !== 'private') return true;
+    const role = viewer.role;
+    if (role === 'Admin' || role === 'Manager') return true;
+    return settings.ownerUserId === viewer.userId;
   }
 
   /** Best-effort lookup of a contact id for a given phone number. */
@@ -5870,11 +6006,16 @@ export class DataStore {
       }
     }
 
+    // Normalize phone to digits-only so chatId-based filters always match.
+    const normalizedPhone = this.digitsOnly(input.phone);
+
     // Auto-link to a contact by phone if not provided
-    const linkedContactId = input.contactId || this.findContactIdByPhone(input.companyId, input.phone);
+    const linkedContactId =
+      input.contactId || this.findContactIdByPhone(input.companyId, normalizedPhone);
 
     const message: WhatsAppMessage = {
       ...input,
+      phone: normalizedPhone,
       contactId: linkedContactId,
       id: uuid(),
       createdAt: input.createdAt || new Date(),
@@ -5884,10 +6025,12 @@ export class DataStore {
         `INSERT INTO whatsapp_messages (
            id, companyId, instanceId, direction, externalId, chatId, phone, contactId,
            type, body, mediaUrl, fileName, status, error, contextEntityType, contextEntityId,
+           actorUserId, actorName,
            sentAt, deliveredAt, readAt, receivedAt, createdAt
          ) VALUES (
            @id, @companyId, @instanceId, @direction, @externalId, @chatId, @phone, @contactId,
            @type, @body, @mediaUrl, @fileName, @status, @error, @contextEntityType, @contextEntityId,
+           @actorUserId, @actorName,
            @sentAt, @deliveredAt, @readAt, @receivedAt, @createdAt
          )`,
       )
@@ -5901,6 +6044,8 @@ export class DataStore {
         error: message.error ?? null,
         contextEntityType: message.contextEntityType ?? null,
         contextEntityId: message.contextEntityId ?? null,
+        actorUserId: message.actorUserId ?? null,
+        actorName: message.actorName ?? null,
         sentAt: message.sentAt ? message.sentAt.toISOString() : null,
         deliveredAt: message.deliveredAt ? message.deliveredAt.toISOString() : null,
         readAt: message.readAt ? message.readAt.toISOString() : null,
@@ -5910,7 +6055,10 @@ export class DataStore {
     return message;
   }
 
-  listWhatsappChats(companyId: string): Array<{
+  listWhatsappChats(
+    companyId: string,
+    viewer?: { userId: string; role?: string },
+  ): Array<{
     chatId: string;
     phone: string;
     contactId?: string;
@@ -5920,6 +6068,8 @@ export class DataStore {
     lastMessageDirection: WhatsAppMessageDirection;
     unreadCount: number;
     messageCount: number;
+    visibility: WhatsAppChatVisibility;
+    ownerUserId?: string;
   }> {
     const rows = this.db
       .prepare(
@@ -5944,13 +6094,36 @@ export class DataStore {
     );
     const contactNameStmt = this.db.prepare('SELECT name FROM contacts WHERE id = ?');
 
-    return rows.map((row) => {
+    const settingsMap = this.listWhatsappChatSettings(companyId);
+    const out: Array<{
+      chatId: string;
+      phone: string;
+      contactId?: string;
+      contactName?: string;
+      lastMessageAt: Date;
+      lastMessageBody: string;
+      lastMessageDirection: WhatsAppMessageDirection;
+      unreadCount: number;
+      messageCount: number;
+      visibility: WhatsAppChatVisibility;
+      ownerUserId?: string;
+    }> = [];
+
+    rows.forEach((row) => {
+      const settings: WhatsAppChatSettings = settingsMap.get(row.chatId) || {
+        companyId,
+        chatId: row.chatId,
+        visibility: 'shared',
+        ownerUserId: undefined,
+        updatedAt: new Date(0),
+      };
+      if (viewer && !this.canViewWhatsappChat(settings, viewer)) return;
       const last = lastMessageStmt.get(companyId, row.chatId) as any;
       const contactId = last?.contactId || undefined;
       const contactName = contactId
         ? ((contactNameStmt.get(contactId) as any)?.name ?? undefined)
         : undefined;
-      return {
+      out.push({
         chatId: row.chatId,
         phone: row.phone,
         contactId,
@@ -5960,8 +6133,12 @@ export class DataStore {
         lastMessageDirection: (last?.direction as WhatsAppMessageDirection) || 'inbound',
         unreadCount: Number(row.unreadCount) || 0,
         messageCount: Number(row.messageCount) || 0,
-      };
+        visibility: settings.visibility,
+        ownerUserId: settings.ownerUserId,
+      });
     });
+
+    return out;
   }
 
   markWhatsappChatRead(companyId: string, chatId: string): number {
