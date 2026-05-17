@@ -39,16 +39,15 @@ import {
   getInventoryItems,
   getPurchaseOrders,
   getPurchaseReceipts,
-  getSuppliers,
   receivePurchaseOrder,
   updatePurchaseOrderStatus,
 } from '@/services/operationsService';
+import { getContacts, type Contact } from '@/services/contactService';
 import type {
   InventoryItem,
   PurchaseOrder,
   PurchaseOrderStatus,
   PurchaseReceipt,
-  Supplier,
 } from '@/modules/operations/types';
 import { PackageCheck, ShoppingCart } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
@@ -68,7 +67,7 @@ type PurchaseItemForm = {
 };
 
 type PurchaseForm = {
-  supplierId: string;
+  contactId: string;
   orderDate: string;
   expectedDate: string;
   status: PurchaseOrderStatus;
@@ -84,7 +83,7 @@ type ReceiptState = {
 };
 
 const emptyPurchaseForm = (): PurchaseForm => ({
-  supplierId: '',
+  contactId: '',
   orderDate: format(new Date(), 'yyyy-MM-dd'),
   expectedDate: format(new Date(Date.now() + 1000 * 60 * 60 * 24 * 14), 'yyyy-MM-dd'),
   status: 'Draft',
@@ -98,7 +97,7 @@ export function PurchasesPage() {
   const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
-  const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
+  const [suppliers, setSuppliers] = React.useState<Contact[]>([]);
   const [receipts, setReceipts] = React.useState<PurchaseReceipt[]>([]);
   const [payables, setPayables] = React.useState<PurchaseOrderPayableSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -128,7 +127,7 @@ export function PurchasesPage() {
       const [orderData, itemData, supplierData, receiptData, payableData] = await Promise.all([
         getPurchaseOrders(selectedCompany.id),
         getInventoryItems(selectedCompany.id),
-        getSuppliers(selectedCompany.id),
+        getContacts(selectedCompany.id, 'Vendor'),
         getPurchaseReceipts(selectedCompany.id),
         getPurchaseOrderPayables(selectedCompany.id),
       ]);
@@ -159,8 +158,11 @@ export function PurchasesPage() {
   }, [items]);
 
   const supplierMap = React.useMemo(() => {
-    const map = new Map<string, Supplier>();
-    suppliers.forEach((supplier) => map.set(supplier.id, supplier));
+    const map = new Map<string, Contact>();
+    suppliers.forEach((c: Contact) => {
+      map.set(c.id, c);
+      if (c.supplierId) map.set(c.supplierId, c);
+    });
     return map;
   }, [suppliers]);
 
@@ -286,7 +288,7 @@ export function PurchasesPage() {
 
   const handleCreate = async () => {
     if (!selectedCompany) return;
-    if (!form.supplierId || !form.orderDate) {
+    if (!form.contactId || !form.orderDate) {
       toast({
         variant: 'destructive',
         title: 'Missing required fields',
@@ -294,6 +296,8 @@ export function PurchasesPage() {
       });
       return;
     }
+    const selectedContact = supplierMap.get(form.contactId);
+    const supplierId = selectedContact?.supplierId || form.contactId;
 
     const preparedItems = form.items
       .map((item) => {
@@ -324,7 +328,8 @@ export function PurchasesPage() {
 
     try {
       await createPurchaseOrder(selectedCompany.id, {
-        supplierId: form.supplierId,
+        supplierId,
+        contactId: form.contactId,
         orderDate: new Date(form.orderDate),
         expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
         status: form.status,
@@ -433,7 +438,7 @@ export function PurchasesPage() {
       title="Purchases"
       description="Manage procurement orders and receive stock directly into inventory."
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="purchases-metrics">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Open Orders</CardTitle>
@@ -479,6 +484,7 @@ export function PurchasesPage() {
       <SectionToolbar
         search={(
           <Input
+            data-tutorial="purchases-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search by order number, supplier, note, or item"
@@ -490,7 +496,7 @@ export function PurchasesPage() {
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as 'all' | PurchaseOrderStatus)}
           >
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[180px]" data-tutorial="purchases-status-filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -513,7 +519,7 @@ export function PurchasesPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button disabled={!items.length}>
+            <Button disabled={!items.length} data-tutorial="purchases-create-btn">
               <ShoppingCart className="me-2 h-4 w-4" />
               New Purchase Order
             </Button>
@@ -535,11 +541,11 @@ export function PurchasesPage() {
                 <div className="space-y-1">
                   <Label>Supplier</Label>
                   <Select
-                    value={form.supplierId}
+                    value={form.contactId}
                     onValueChange={(value) => {
                       setForm((prev) => ({
                         ...prev,
-                        supplierId: value,
+                        contactId: value,
                       }));
                     }}
                   >
@@ -547,9 +553,9 @@ export function PurchasesPage() {
                       <SelectValue placeholder="Select supplier" />
                     </SelectTrigger>
                     <SelectContent>
-                      {suppliers.map((supplier) => (
-                        <SelectItem key={supplier.id} value={supplier.id}>
-                          {supplier.reference} - {supplier.name}
+                      {suppliers.map((c: Contact) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -629,11 +635,11 @@ export function PurchasesPage() {
                           inventoryItemId: value,
                           unitCost: String(selectedItem?.unitCost ?? 0),
                         });
-                        if (!form.supplierId && selectedItem?.preferredSupplierId) {
-                          setForm((prev) => ({
-                            ...prev,
-                            supplierId: selectedItem.preferredSupplierId || prev.supplierId,
-                          }));
+                        if (!form.contactId && selectedItem?.preferredSupplierId) {
+                          const preferredContact = supplierMap.get(selectedItem.preferredSupplierId);
+                          if (preferredContact) {
+                            setForm((prev) => ({ ...prev, contactId: preferredContact.id }));
+                          }
                         }
                       }}
                     >
@@ -786,7 +792,7 @@ export function PurchasesPage() {
         />
       )}
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border" data-tutorial="purchases-table">
         <Table>
           <TableHeader>
             <TableRow>

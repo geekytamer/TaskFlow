@@ -48,6 +48,7 @@ export default function ProjectDetailsPage() {
   const [editClient, setEditClient] = React.useState<string | undefined>();
   const [selectedMemberToAdd, setSelectedMemberToAdd] = React.useState<string | undefined>();
   const [editOpen, setEditOpen] = React.useState(false);
+  const [financeOpen, setFinanceOpen] = React.useState(false);
   const { toast } = useToast();
   const { money, amount } = useCompanyCurrency();
 
@@ -193,7 +194,9 @@ export default function ProjectDetailsPage() {
 
   return (
     <div className="flex h-full flex-col gap-6">
-      <div className="flex items-center justify-between">
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
@@ -202,166 +205,150 @@ export default function ProjectDetailsPage() {
               {project.visibility}
             </Badge>
           </div>
-          <p className="text-muted-foreground">{project.description}</p>
-          <div className="mt-2 flex flex-wrap gap-2 text-sm text-muted-foreground">
-            <span>{projectTasks.length} tasks</span>
-            <span>•</span>
-            <span>{clientName || 'No linked client'}</span>
+          {project.description && <p className="mt-1 text-muted-foreground">{project.description}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{projectTasks.length} tasks</span>
+            {clientName && <><span>•</span><span>{clientName}</span></>}
+            {projectMembers.length > 0 && (
+              <><span>•</span><span>{projectMembers.length} member{projectMembers.length !== 1 ? 's' : ''}</span></>
+            )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           {isManager && (
-            <>
-              <Sheet open={editOpen} onOpenChange={setEditOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="outline">
-                    <Pencil className="h-4 w-4 me-1" />
-                    Edit Project
-                  </Button>
-                </SheetTrigger>
-                <SheetContent className="w-full max-w-xl">
-                  <SheetHeader>
-                    <SheetTitle>Edit Project</SheetTitle>
-                    <SheetDescription>Update details, visibility, client, and members.</SheetDescription>
-                  </SheetHeader>
-                  <div className="flex flex-col gap-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Name</Label>
-                      <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
+            <Sheet open={editOpen} onOpenChange={setEditOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Pencil className="h-4 w-4 me-1" /> Edit
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-full max-w-xl">
+                <SheetHeader>
+                  <SheetTitle>Edit Project</SheetTitle>
+                  <SheetDescription>Update details, visibility, client, and members.</SheetDescription>
+                </SheetHeader>
+                <div className="flex flex-col gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Name</Label>
+                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Description</Label>
+                    <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Description" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Visibility</Label>
+                    <Select value={editVisibility} onValueChange={(v) => setEditVisibility(v as ProjectVisibility)}>
+                      <SelectTrigger><SelectValue placeholder="Visibility" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Public">Public</SelectItem>
+                        <SelectItem value="Private">Private</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Client</Label>
+                    <Select value={editClient ?? 'none'} onValueChange={(v) => setEditClient(v)}>
+                      <SelectTrigger><SelectValue placeholder="Client (optional)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No client</SelectItem>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-base font-semibold">Members</Label>
+                      <div className="flex gap-2">
+                        <Select value={selectedMemberToAdd} onValueChange={(v) => setSelectedMemberToAdd(v)}>
+                          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Invite member" /></SelectTrigger>
+                          <SelectContent>
+                            {availableMembers.map((user) => (
+                              <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" onClick={handleAddMember} disabled={!selectedMemberToAdd}>
+                          <UserPlus className="h-4 w-4 me-1" /> Add
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
-                      <Label>Description</Label>
-                      <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Description" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Visibility</Label>
-                      <Select value={editVisibility} onValueChange={(v) => setEditVisibility(v as ProjectVisibility)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Visibility" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Public">Public</SelectItem>
-                          <SelectItem value="Private">Private</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Client</Label>
-                      <Select
-                        value={editClient ?? 'none'}
-                        onValueChange={(v) => setEditClient(v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Client (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No client</SelectItem>
-                          {clients.map((client) => (
-                            <SelectItem key={client.id} value={client.id}>
-                              {client.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-base font-semibold">Members</Label>
-                        <div className="flex gap-2">
-                          <Select value={selectedMemberToAdd} onValueChange={(v) => setSelectedMemberToAdd(v)}>
-                            <SelectTrigger className="w-[180px]">
-                              <SelectValue placeholder="Invite member" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableMembers.map((user) => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  {user.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button variant="outline" onClick={handleAddMember} disabled={!selectedMemberToAdd}>
-                            <UserPlus className="h-4 w-4 me-1" /> Add
+                      {projectMembers.length === 0 && <p className="text-sm text-muted-foreground">No members yet.</p>}
+                      {projectMembers.map((user) => (
+                        <div key={user.id} className="flex items-center justify-between rounded border px-3 py-2 bg-card">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: project.color || '#999' }} />
+                            <span>{user.name}</span>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => handleRemoveMember(user.id)}>
+                            <UserMinus className="h-4 w-4" />
                           </Button>
                         </div>
-                      </div>
-                      <div className="space-y-2">
-                        {projectMembers.length === 0 && <p className="text-sm text-muted-foreground">No members yet.</p>}
-                        {projectMembers.map((user) => (
-                          <div key={user.id} className="flex items-center justify-between rounded border px-3 py-2">
-                            <div className="flex items-center gap-2">
-                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: project.color || '#999' }} />
-                              <span>{user.name}</span>
-                            </div>
-                            <Button variant="ghost" size="sm" onClick={() => handleRemoveMember(user.id)}>
-                              <UserMinus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
+                      ))}
                     </div>
                   </div>
-                  <SheetFooter className="flex justify-between gap-2">
-                    <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-                      <Trash2 className="h-4 w-4 me-1" />
-                      Delete Project
-                    </Button>
-                    <Button onClick={handleSave} disabled={saving}>
-                      Save Changes
-                    </Button>
-                  </SheetFooter>
-                </SheetContent>
-              </Sheet>
-            </>
+                </div>
+                <SheetFooter className="flex justify-between gap-2">
+                  <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+                    <Trash2 className="h-4 w-4 me-1" /> Delete Project
+                  </Button>
+                  <Button onClick={handleSave} disabled={saving}>Save Changes</Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
           )}
           <CreateTaskSheet />
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Ready To Bill</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{readyToBillTasks.length}</div>
-            <div className="text-xs text-muted-foreground">{amount(readyToBillAmount)} pending invoice</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Invoiced Tasks</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{billedTasks.length}</div>
-            <div className="text-xs text-muted-foreground">{amount(billedAmount)} billed</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Collected</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">{amount(collectedAmount)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Outstanding</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{amount(outstandingAmount)}</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ── Tasks — PRIMARY CONTENT ────────────────────────────────────── */}
+      <ProjectTaskViews project={project} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Revenue Workflow</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-lg border">
+      {/* ── Finance summary ────────────────────────────────────────────── */}
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <button
+          className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-muted/30 transition-colors"
+          onClick={() => setFinanceOpen((v) => !v)}
+        >
+          <div className="flex items-center gap-4">
+            <span className="font-semibold">Finance Summary</span>
+            <div className="flex items-center gap-3 text-sm">
+              {readyToBillTasks.length > 0 && (
+                <span className="rounded-full bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 text-xs font-medium">
+                  {readyToBillTasks.length} ready to bill
+                </span>
+              )}
+              <span className="text-muted-foreground">Billed: <span className="font-medium text-foreground">{amount(billedAmount)}</span></span>
+              <span className="text-muted-foreground">Collected: <span className="font-medium text-emerald-600">{amount(collectedAmount)}</span></span>
+              {outstandingAmount > 0 && (
+                <span className="text-muted-foreground">Outstanding: <span className="font-medium text-amber-600">{amount(outstandingAmount)}</span></span>
+              )}
+            </div>
+          </div>
+          <span className="text-muted-foreground text-xs">{financeOpen ? '▲ Hide' : '▼ Show'}</span>
+        </button>
+
+        {financeOpen && (
+          <div className="border-t">
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 divide-x border-b">
+              {[
+                { label: 'Ready to Bill', value: readyToBillTasks.length, sub: amount(readyToBillAmount), color: '' },
+                { label: 'Invoiced Tasks', value: billedTasks.length, sub: amount(billedAmount), color: '' },
+                { label: 'Collected', value: amount(collectedAmount), sub: null, color: 'text-emerald-600' },
+                { label: 'Outstanding', value: amount(outstandingAmount), sub: null, color: 'text-amber-600' },
+              ].map(({ label, value, sub, color }) => (
+                <div key={label} className="px-5 py-4">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
+                  {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+                </div>
+              ))}
+            </div>
+            {/* Invoice table */}
             <Table>
               <TableHeader>
                 <TableRow>
@@ -378,9 +365,7 @@ export default function ProjectDetailsPage() {
                   <TableRow key={invoice.id}>
                     <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                     <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{invoice.status}</Badge>
-                    </TableCell>
+                    <TableCell><Badge variant="outline">{invoice.status}</Badge></TableCell>
                     <TableCell className="text-end">{amount(invoice.total)}</TableCell>
                     <TableCell className="text-end">{amount(invoice.paidAmount || 0)}</TableCell>
                     <TableCell className="text-end">{amount(invoice.outstandingAmount || 0)}</TableCell>
@@ -388,7 +373,7 @@ export default function ProjectDetailsPage() {
                 ))}
                 {projectInvoices.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-20 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
                       No invoices linked to this project yet.
                     </TableCell>
                   </TableRow>
@@ -396,9 +381,10 @@ export default function ProjectDetailsPage() {
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
+      {/* ── Attachments & Timeline ─────────────────────────────────────── */}
       {selectedCompany && (
         <RecordSupportPanel
           companyId={selectedCompany.id}
@@ -407,8 +393,6 @@ export default function ProjectDetailsPage() {
           title="Project Attachments & Timeline"
         />
       )}
-
-      <ProjectTaskViews project={project} />
     </div>
   );
 }

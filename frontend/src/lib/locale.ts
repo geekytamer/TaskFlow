@@ -6,14 +6,6 @@ export function getCurrentLocale(): string {
   return 'en-US';
 }
 
-export function formatCurrency(value: number, currency = 'USD'): string {
-  return new Intl.NumberFormat(getCurrentLocale(), {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-}
-
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat(getCurrentLocale()).format(value || 0);
 }

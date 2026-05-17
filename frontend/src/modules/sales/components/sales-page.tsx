@@ -34,10 +34,12 @@ import { SectionPageShell } from '@/modules/operations/components/section-page-s
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import type { InventoryItem } from '@/modules/operations/types';
-import type { Client, SalesOrder, SalesOrderStatus } from '@/modules/finance/types';
-import { createInvoiceFromSalesOrder, createSalesOrder, getClients, getInvoices, getSalesOrders, updateSalesOrderStatus } from '@/services/financeService';
+import type { SalesOrder, SalesOrderStatus } from '@/modules/finance/types';
+import { createInvoiceFromSalesOrder, createSalesOrder, getInvoices, getSalesOrders, updateSalesOrderStatus } from '@/services/financeService';
+import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
-import { FileText, PlusCircle } from 'lucide-react';
+import { FileText, PlusCircle, Truck } from 'lucide-react';
+import { DeliveryManagementDialog } from './delivery-management-dialog';
 
 const formatDisplayDate = (value: Date, locale: string) =>
   new Intl.DateTimeFormat(locale, {
@@ -67,7 +69,7 @@ type SalesItemForm = {
 };
 
 const emptyForm = () => ({
-  clientId: '',
+  contactId: '',
   orderDate: format(new Date(), 'yyyy-MM-dd'),
   expectedDate: '',
   status: 'Draft' as SalesOrderStatus,
@@ -81,12 +83,13 @@ export function SalesPage() {
   const { t, language } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
-  const [clients, setClients] = React.useState<Client[]>([]);
+  const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
   const [invoiceIds, setInvoiceIds] = React.useState<Set<string>>(new Set());
   const [loading, setLoading] = React.useState(true);
   const [openCreate, setOpenCreate] = React.useState(false);
   const [selectedOrderForDocs, setSelectedOrderForDocs] = React.useState<SalesOrder | null>(null);
+  const [deliveryOrder, setDeliveryOrder] = React.useState<SalesOrder | null>(null);
   const [form, setForm] = React.useState(emptyForm);
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | SalesOrderStatus>('all');
@@ -118,7 +121,7 @@ export function SalesPage() {
     try {
       const [orderData, clientData, itemData, invoiceData] = await Promise.all([
         getSalesOrders(selectedCompany.id),
-        getClients(selectedCompany.id),
+        getContacts(selectedCompany.id, 'Client'),
         getInventoryItems(selectedCompany.id),
         getInvoices(selectedCompany.id),
       ]);
@@ -141,7 +144,14 @@ export function SalesPage() {
     load();
   }, [load]);
 
-  const clientMap = React.useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  const clientMap = React.useMemo(() => {
+    const map = new Map<string, Contact>();
+    clients.forEach((c: Contact) => {
+      map.set(c.id, c);
+      if (c.clientId) map.set(c.clientId, c);
+    });
+    return map;
+  }, [clients]);
   const inventoryMap = React.useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
   const stats = React.useMemo(() => {
@@ -206,10 +216,12 @@ export function SalesPage() {
 
   const handleCreate = async () => {
     if (!selectedCompany) return;
-    if (!form.clientId || !form.orderDate) {
+    if (!form.contactId || !form.orderDate) {
       toast({ variant: 'destructive', title: t('sales.missingFieldsTitle'), description: t('sales.missingFieldsDescription') });
       return;
     }
+    const selectedContact = clientMap.get(form.contactId);
+    const clientId = selectedContact?.clientId || form.contactId;
 
     const preparedItems = form.items
       .map((item) => {
@@ -236,7 +248,8 @@ export function SalesPage() {
 
     try {
       await createSalesOrder(selectedCompany.id, {
-        clientId: form.clientId,
+        clientId,
+        contactId: form.contactId,
         orderDate: new Date(form.orderDate),
         expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
         status: form.status,
@@ -294,7 +307,7 @@ export function SalesPage() {
 
   return (
     <SectionPageShell title={t('sales.title')} description={t('sales.subtitle')}>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="sales-metrics">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.openOrders')}</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{stats.openOrders}</div></CardContent>
@@ -314,10 +327,10 @@ export function SalesPage() {
       </div>
 
       <SectionToolbar
-        search={<Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('sales.searchPlaceholder')} className="max-w-md" />}
+        search={<Input data-tutorial="sales-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('sales.searchPlaceholder')} className="max-w-md" />}
         filters={(
           <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as 'all' | SalesOrderStatus)}>
-            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[180px]" data-tutorial="sales-status-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t('sales.allStatuses')}</SelectItem>
               <SelectItem value="Draft">{statusLabel('Draft')}</SelectItem>
@@ -331,7 +344,7 @@ export function SalesPage() {
         actions={(
           <Dialog open={openCreate} onOpenChange={(open) => { setOpenCreate(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button disabled={!clients.length}>
+              <Button disabled={!clients.length} data-tutorial="sales-create-btn">
                 <PlusCircle className="me-2 h-4 w-4" />
                 {t('sales.newOrder')}
               </Button>
@@ -348,11 +361,11 @@ export function SalesPage() {
                 </div>
                 <div className="space-y-1">
                   <Label>{t('sales.client')}</Label>
-                  <Select value={form.clientId} onValueChange={(value) => setForm((prev) => ({ ...prev, clientId: value }))}>
+                  <Select value={form.contactId} onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}>
                     <SelectTrigger><SelectValue placeholder={t('sales.selectClient')} /></SelectTrigger>
                     <SelectContent>
-                      {clients.map((client) => (
-                        <SelectItem key={client.id} value={client.id}>{client.reference} - {client.name}</SelectItem>
+                      {clients.map((c: Contact) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -459,7 +472,7 @@ export function SalesPage() {
         )}
       />
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border" data-tutorial="sales-table">
         <Table>
           <TableHeader>
             <TableRow>
@@ -511,6 +524,20 @@ export function SalesPage() {
                     </SelectContent>
                   </Select>
                   <Badge variant="outline" className={`mt-2 block w-fit ${statusStyles[order.status]}`}>{statusLabel(order.status)}</Badge>
+                  {order.fulfillmentStatus && order.fulfillmentStatus !== 'Unfulfilled' && (
+                    <Badge
+                      variant="outline"
+                      className={`mt-1 block w-fit ${
+                        order.fulfillmentStatus === 'Fulfilled'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}
+                    >
+                      {order.fulfillmentStatus === 'Fulfilled'
+                        ? t('sales.fulfilled')
+                        : t('sales.partiallyFulfilled')}
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell>
                   {order.invoiceId && invoiceIds.has(order.invoiceId) ? (
@@ -524,6 +551,16 @@ export function SalesPage() {
                 <TableCell className="text-end">
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => setSelectedOrderForDocs(order)}>{t('sales.docs')}</Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDeliveryOrder(order)}
+                      disabled={order.status === 'Draft' || order.status === 'Cancelled'}
+                      title={t('sales.manageDeliveries')}
+                    >
+                      <Truck className="me-2 h-4 w-4" />
+                      {t('sales.deliveries')}
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => handleCreateInvoice(order)} disabled={order.status !== 'Confirmed' || Boolean(order.invoiceId)}>
                       <FileText className="me-2 h-4 w-4" />
                       {t('sales.createInvoice')}
@@ -538,6 +575,13 @@ export function SalesPage() {
           </TableBody>
         </Table>
       </div>
+
+      <DeliveryManagementDialog
+        order={deliveryOrder}
+        open={Boolean(deliveryOrder)}
+        onOpenChange={(open) => { if (!open) setDeliveryOrder(null); }}
+        onChanged={() => { load(); }}
+      />
 
       <Dialog open={Boolean(selectedOrderForDocs)} onOpenChange={(open) => !open && setSelectedOrderForDocs(null)}>
         <DialogContent className="sm:max-w-3xl">

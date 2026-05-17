@@ -42,6 +42,7 @@ const renderPrintDocument = (
       <div class="grid">
         <div class="card"><div class="label">Open Receivables</div><div class="value">${money(summary.finance.openReceivables)}</div></div>
         <div class="card"><div class="label">Open Payables</div><div class="value">${money(summary.finance.openPayables)}</div></div>
+        <div class="card"><div class="label">Paid Payables This Month</div><div class="value">${money(summary.finance.paidPayablesThisMonth)}</div></div>
         <div class="card"><div class="label">Stock Value</div><div class="value">${money(summary.inventory.stockValue)}</div></div>
         <div class="card"><div class="label">Low Stock Items</div><div class="value">${summary.inventory.lowStockCount}</div></div>
         <div class="card"><div class="label">Open Orders</div><div class="value">${summary.purchases.openOrders}</div></div>
@@ -233,6 +234,14 @@ export function ReportsPanel() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">{amount(summary.finance.paidThisMonth)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Paid Payables This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{amount(summary.finance.paidPayablesThisMonth)}</div>
           </CardContent>
         </Card>
         <Card>

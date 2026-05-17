@@ -14,7 +14,8 @@ export type NumberingEntityType =
   | 'purchase_order'
   | 'sales_order'
   | 'sales_invoice'
-  | 'vendor_invoice';
+  | 'vendor_invoice'
+  | 'delivery';
 
 export interface CompanyNumberingSetting {
   companyId: string;
@@ -176,6 +177,7 @@ export interface PurchaseOrder {
   orderNumber: string;
   supplierName: string;
   supplierId?: string;
+  contactId?: string;
   orderDate: Date;
   expectedDate?: Date;
   status: PurchaseOrderStatus;
@@ -254,7 +256,8 @@ export interface StockMovement {
     | 'purchase_order'
     | 'manual_adjustment'
     | 'inventory_issue'
-    | 'inventory_transfer';
+    | 'inventory_transfer'
+    | 'delivery';
   referenceId?: string;
   note?: string;
   createdAt: Date;
@@ -279,6 +282,7 @@ export interface Invoice {
   invoiceNumber: string;
   companyId: string;
   clientId: string;
+  contactId?: string;
   salesOrderId?: string;
   templateId?: string;
   issueDate: Date;
@@ -293,9 +297,11 @@ export interface Invoice {
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+  campaignId?: string;
 }
 
 export type SalesOrderStatus = 'Draft' | 'Confirmed' | 'Invoiced' | 'Cancelled';
+export type SalesOrderFulfillmentStatus = 'Unfulfilled' | 'Partially Fulfilled' | 'Fulfilled';
 
 export interface SalesOrderLineItem {
   inventoryItemId?: string;
@@ -311,6 +317,7 @@ export interface SalesOrder {
   companyId: string;
   orderNumber: string;
   clientId: string;
+  contactId?: string;
   orderDate: Date;
   expectedDate?: Date;
   status: SalesOrderStatus;
@@ -318,6 +325,36 @@ export interface SalesOrder {
   totalAmount: number;
   notes?: string;
   invoiceId?: string;
+  fulfillmentStatus?: SalesOrderFulfillmentStatus;
+  deliveredQuantityByLine?: number[];
+}
+
+export type DeliveryStatus = 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
+
+export interface DeliveryLineItem {
+  salesOrderLineIndex: number;
+  inventoryItemId?: string;
+  sku?: string;
+  description: string;
+  quantity: number;
+  location?: string;
+}
+
+export interface Delivery {
+  id: string;
+  companyId: string;
+  deliveryNumber: string;
+  salesOrderId: string;
+  status: DeliveryStatus;
+  items: DeliveryLineItem[];
+  carrier?: string;
+  trackingNumber?: string;
+  notes?: string;
+  scheduledFor?: Date;
+  dispatchedAt?: Date;
+  deliveredAt?: Date;
+  cancelledAt?: Date;
+  createdAt: Date;
 }
 
 export type InvoiceTemplateLayout = 'classic' | 'modern' | 'compact' | 'letterhead';
@@ -465,6 +502,7 @@ export interface VendorBill {
   vendorName: string;
   supplierId?: string;
   purchaseOrderId?: string;
+  campaignId?: string;
   billNumber: string;
   referenceInvoiceNumber?: string;
   issueDate: Date;
@@ -516,25 +554,330 @@ export interface SupplierPayablesSummary {
   remainingToBill: number;
 }
 
+export type ContactKind = 'Organization' | 'Person';
+export type ContactRoleType = 'Lead' | 'Client' | 'Vendor' | 'Influencer' | 'Partner';
+export type ContactRoleSource = 'Manual' | 'SalesOrder' | 'PurchaseOrder' | 'Invoice' | 'VendorBill';
+
+export type LeadStatus = 'New' | 'Qualified' | 'Follow-up' | 'Proposal' | 'Won' | 'Lost' | 'Archived';
+export type LeadSource = 'Instagram' | 'TikTok' | 'WhatsApp' | 'Referral' | 'Website' | 'Campaign' | 'Former Client' | 'Other';
+export type ContactPriority = 'High' | 'Medium' | 'Low';
+
+export const leadStatuses: LeadStatus[] = ['New', 'Qualified', 'Follow-up', 'Proposal', 'Won', 'Lost', 'Archived'];
+export const leadSources: LeadSource[] = ['Instagram', 'TikTok', 'WhatsApp', 'Referral', 'Website', 'Campaign', 'Former Client', 'Other'];
+export const contactPriorities: ContactPriority[] = ['High', 'Medium', 'Low'];
+
+export interface Contact {
+  id: string;
+  companyId: string;
+  kind: ContactKind;
+  name: string;
+  legalName?: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  taxNumber?: string;
+  tags?: string[];
+  notes?: string;
+  roles?: ContactRoleType[];
+  clientId?: string;
+  supplierId?: string;
+  // CRM fields
+  leadStatus?: LeadStatus;
+  leadSource?: LeadSource;
+  priority?: ContactPriority;
+  ownerUserId?: string;
+  ownerName?: string;
+  nextFollowupDate?: Date;
+  nextFollowupNote?: string;
+  convertedToClientAt?: Date;
+  visibility?: 'Public' | 'Private';
+  influencerPlatform?: string;
+  influencerHandle?: string;
+  influencerNiche?: string;
+  followerCount?: number;
+  engagementRate?: number;
+  rateCardAmount?: number;
+  location?: string;
+  languages?: string[];
+  availabilityStatus?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ContactRole {
+  id: string;
+  contactId: string;
+  companyId: string;
+  role: ContactRoleType;
+  source: ContactRoleSource;
+  createdAt: Date;
+}
+
+export type ActivityCategory = 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Proposal Sent' | 'Follow-up' | 'Note' | 'Other';
+export const activityCategories: ActivityCategory[] = ['Call', 'WhatsApp', 'Email', 'Meeting', 'Proposal Sent', 'Follow-up', 'Note', 'Other'];
+
+export type OpportunityStage = 'New' | 'Qualified' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost' | 'Cancelled';
+export const opportunityStages: OpportunityStage[] = ['New', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost', 'Cancelled'];
+
+export type VendorRequestStatus = 'New' | 'Under Review' | 'Approved' | 'Rejected' | 'Completed' | 'Archived';
+export const vendorRequestStatuses: VendorRequestStatus[] = ['New', 'Under Review', 'Approved', 'Rejected', 'Completed', 'Archived'];
+
+export type ProposalStatus = 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Expired';
+export const proposalStatuses: ProposalStatus[] = ['Draft', 'Sent', 'Accepted', 'Declined', 'Expired'];
+
+export type CampaignStatus = 'Planned' | 'Active' | 'On Hold' | 'Completed' | 'Cancelled' | 'Archived';
+export const campaignStatuses: CampaignStatus[] = ['Planned', 'Active', 'On Hold', 'Completed', 'Cancelled', 'Archived'];
+
+export type CampaignDeliverableStatus = 'Planned' | 'In Progress' | 'Submitted' | 'Approved' | 'Published' | 'Cancelled';
+export const campaignDeliverableStatuses: CampaignDeliverableStatus[] = ['Planned', 'In Progress', 'Submitted', 'Approved', 'Published', 'Cancelled'];
+
+export type CampaignAssignmentStatus = 'Planned' | 'Contacted' | 'Confirmed' | 'Completed' | 'Cancelled';
+export const campaignAssignmentStatuses: CampaignAssignmentStatus[] = ['Planned', 'Contacted', 'Confirmed', 'Completed', 'Cancelled'];
+
+export type CampaignExpenseStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | 'Paid';
+export const campaignExpenseStatuses: CampaignExpenseStatus[] = ['Draft', 'Submitted', 'Approved', 'Rejected', 'Paid'];
+
+export type CommissionBasis = 'Revenue' | 'Paid Amount' | 'Profit';
+export type CommissionRateType = 'Percent' | 'Fixed';
+export type CommissionStatus = 'Draft' | 'Approved' | 'Paid' | 'Void';
+export const commissionBases: CommissionBasis[] = ['Revenue', 'Paid Amount', 'Profit'];
+export const commissionRateTypes: CommissionRateType[] = ['Percent', 'Fixed'];
+export const commissionStatuses: CommissionStatus[] = ['Draft', 'Approved', 'Paid', 'Void'];
+
+export interface Opportunity {
+  id: string;
+  companyId: string;
+  contactId: string;
+  ownerUserId?: string;
+  ownerName?: string;
+  title: string;
+  serviceType: string;
+  stage: OpportunityStage;
+  expectedRevenue: number;
+  probability: number;
+  expectedCloseDate?: Date;
+  notes?: string;
+  wonSalesOrderId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProposalLineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface CrmProposal {
+  id: string;
+  companyId: string;
+  opportunityId: string;
+  contactId: string;
+  proposalNumber: string;
+  title: string;
+  status: ProposalStatus;
+  issueDate: Date;
+  validUntil?: Date;
+  items: ProposalLineItem[];
+  totalAmount: number;
+  notes?: string;
+  acceptedAt?: Date;
+  declinedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CrmCampaign {
+  id: string;
+  companyId: string;
+  proposalId?: string;
+  opportunityId?: string;
+  contactId?: string;
+  projectId?: string;
+  name: string;
+  status: CampaignStatus;
+  startDate?: Date;
+  endDate?: Date;
+  budget?: number;
+  ownerUserId?: string;
+  ownerName?: string;
+  visibility: ProjectVisibility;
+  notes?: string;
+  archivedAt?: Date;
+  invoiceId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignDeliverable {
+  id: string;
+  companyId: string;
+  campaignId: string;
+  contactId?: string;
+  vendorContactId?: string;
+  assignedUserId?: string;
+  assignedUserName?: string;
+  title: string;
+  platform?: string;
+  dueDate?: Date;
+  status: CampaignDeliverableStatus;
+  contentUrl?: string;
+  publishedAt?: Date;
+  notes?: string;
+  price?: number;
+  cost?: number;
+  vendorBillId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignAssignment {
+  id: string;
+  companyId: string;
+  campaignId: string;
+  contactId: string;
+  role: ContactRoleType;
+  agreedRate?: number;
+  status: CampaignAssignmentStatus;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignExpense {
+  id: string;
+  companyId: string;
+  campaignId: string;
+  contactId?: string;
+  vendorRequestId?: string;
+  description: string;
+  amount: number;
+  expenseDate?: Date;
+  status: CampaignExpenseStatus;
+  billable: boolean;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface VendorRequest {
+  id: string;
+  companyId: string;
+  contactId?: string;
+  requestedByUserId?: string;
+  requestedByName?: string;
+	  name: string;
+	  role: ContactRoleType;
+	  requestType?: string;
+	  platform?: string;
+	  handle?: string;
+	  details?: string;
+	  dueDate?: Date;
+	  cost?: number;
+	  status: VendorRequestStatus;
+  notes?: string;
+  reviewedByUserId?: string;
+  reviewedByName?: string;
+  reviewedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CommissionRule {
+  id: string;
+  companyId: string;
+  serviceType: string;
+  basis: CommissionBasis;
+  rateType: CommissionRateType;
+  rate: number;
+  fixedAmount?: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Commission {
+  id: string;
+  companyId: string;
+  opportunityId: string;
+  contactId: string;
+  userId?: string;
+  userName?: string;
+  serviceType: string;
+  basis: CommissionBasis;
+  basisAmount: number;
+  amount: number;
+  status: CommissionStatus;
+  calculatedAt: Date;
+}
+
+export interface CrmDashboardSummary {
+  companyId: string;
+  ownerUserId?: string;
+  activeContacts: number;
+  activeClients: number;
+  openLeads: number;
+  wonDeals: number;
+  lostDeals: number;
+  openOpportunities: number;
+  openOpportunityValue: number;
+  forecastValue: number;
+  wonRevenue: number;
+  openTasks: number;
+  openFollowups: number;
+  overdueFollowups: number;
+  openVendorRequests: number;
+  commissionDraft: number;
+  commissionApproved: number;
+  leadsByStatus: Array<{ status: LeadStatus | 'Unspecified'; count: number }>;
+  opportunitiesByStage: Array<{ stage: OpportunityStage; count: number; value: number }>;
+  upcomingFollowups: Array<{
+    id: string;
+    contactId: string;
+    contactName: string;
+    nextFollowupDate: Date;
+    nextFollowupNote?: string;
+    ownerName?: string;
+  }>;
+}
+
 export interface ActivityEvent {
   id: string;
   companyId: string;
   actorUserId?: string;
   actorName?: string;
   entityType:
-    | 'client'
+		  | 'contact'
+		    | 'opportunity'
+		    | 'proposal'
+		    | 'campaign'
+		    | 'campaign_deliverable'
+		    | 'campaign_assignment'
+		    | 'campaign_expense'
+		    | 'vendor_request'
+	    | 'commission'
+	    | 'client'
     | 'project'
     | 'task'
     | 'supplier'
     | 'inventory_item'
     | 'purchase_order'
     | 'sales_order'
+    | 'delivery'
     | 'invoice'
     | 'vendor_bill';
   entityId: string;
   action: string;
   summary: string;
   metadata?: Record<string, unknown>;
+  // CRM fields
+  category?: ActivityCategory;
+  outcome?: string;
+  nextAction?: string;
+  nextActionDueDate?: Date;
+  durationMinutes?: number;
   createdAt: Date;
 }
 
@@ -699,6 +1042,7 @@ export interface FinanceOverview {
   openReceivables: number;
   openPayables: number;
   paidThisMonth: number;
+  paidPayablesThisMonth: number;
   billedThisMonth: number;
   expenseReceiptsThisMonth: number;
 }

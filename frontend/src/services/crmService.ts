@@ -1,0 +1,868 @@
+import { apiFetch } from '@/lib/api-client';
+import type { Contact, ContactRoleType } from './contactService';
+
+const stringId = (value: any) => {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value.id) return String(value.id);
+  return String(value);
+};
+
+export type ActivityCategory = 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Proposal Sent' | 'Follow-up' | 'Note' | 'Other';
+export type LeadStatus = 'New' | 'Qualified' | 'Follow-up' | 'Proposal' | 'Won' | 'Lost' | 'Archived';
+export type LeadSource = 'Instagram' | 'TikTok' | 'WhatsApp' | 'Referral' | 'Website' | 'Campaign' | 'Former Client' | 'Other';
+export type ContactPriority = 'High' | 'Medium' | 'Low';
+export type OpportunityStage = 'New' | 'Qualified' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost' | 'Cancelled';
+export type ProposalStatus = 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Expired';
+export type CampaignStatus = 'Planned' | 'Active' | 'On Hold' | 'Completed' | 'Cancelled' | 'Archived';
+export type VendorRequestStatus = 'New' | 'Under Review' | 'Approved' | 'Rejected' | 'Completed' | 'Archived';
+export type CampaignDeliverableStatus = 'Planned' | 'In Progress' | 'Submitted' | 'Approved' | 'Published' | 'Cancelled';
+export type CampaignAssignmentStatus = 'Planned' | 'Contacted' | 'Confirmed' | 'Completed' | 'Cancelled';
+export type CampaignExpenseStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | 'Paid';
+export type CommissionBasis = 'Revenue' | 'Paid Amount' | 'Profit';
+export type CommissionRateType = 'Percent' | 'Fixed';
+export type CommissionStatus = 'Draft' | 'Approved' | 'Paid' | 'Void';
+
+export const activityCategories: ActivityCategory[] = ['Call', 'WhatsApp', 'Email', 'Meeting', 'Proposal Sent', 'Follow-up', 'Note', 'Other'];
+export const leadStatuses: LeadStatus[] = ['New', 'Qualified', 'Follow-up', 'Proposal', 'Won', 'Lost', 'Archived'];
+export const leadSources: LeadSource[] = ['Instagram', 'TikTok', 'WhatsApp', 'Referral', 'Website', 'Campaign', 'Former Client', 'Other'];
+export const contactPriorities: ContactPriority[] = ['High', 'Medium', 'Low'];
+export const opportunityStages: OpportunityStage[] = ['New', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost', 'Cancelled'];
+export const proposalStatuses: ProposalStatus[] = ['Draft', 'Sent', 'Accepted', 'Declined', 'Expired'];
+export const campaignStatuses: CampaignStatus[] = ['Planned', 'Active', 'On Hold', 'Completed', 'Cancelled', 'Archived'];
+export const vendorRequestStatuses: VendorRequestStatus[] = ['New', 'Under Review', 'Approved', 'Rejected', 'Completed', 'Archived'];
+export const campaignDeliverableStatuses: CampaignDeliverableStatus[] = ['Planned', 'In Progress', 'Submitted', 'Approved', 'Published', 'Cancelled'];
+export const campaignAssignmentStatuses: CampaignAssignmentStatus[] = ['Planned', 'Contacted', 'Confirmed', 'Completed', 'Cancelled'];
+export const campaignExpenseStatuses: CampaignExpenseStatus[] = ['Draft', 'Submitted', 'Approved', 'Rejected', 'Paid'];
+
+export interface CrmActivity {
+  id: string;
+  companyId: string;
+  entityId: string;
+  actorUserId?: string;
+  actorName?: string;
+  action: string;
+  summary: string;
+  category?: ActivityCategory;
+  outcome?: string;
+  nextAction?: string;
+  nextActionDueDate?: Date;
+  durationMinutes?: number;
+  createdAt: Date;
+}
+
+export interface Followup extends CrmActivity {
+  contact: { id: string; name: string; email?: string; roles?: string[] } | null;
+}
+
+export interface Opportunity {
+  id: string;
+  companyId: string;
+  contactId: string;
+  ownerUserId?: string;
+  ownerName?: string;
+  title: string;
+  serviceType: string;
+  stage: OpportunityStage;
+  expectedRevenue: number;
+  probability: number;
+  expectedCloseDate?: Date;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface VendorRequest {
+  id: string;
+  companyId: string;
+  contactId?: string;
+	  requestedByName?: string;
+	  name: string;
+	  role: 'Lead' | 'Client' | 'Vendor' | 'Influencer' | 'Partner';
+	  requestType?: string;
+	  platform?: string;
+	  handle?: string;
+	  details?: string;
+	  dueDate?: Date;
+	  cost?: number;
+	  status: VendorRequestStatus;
+  notes?: string;
+  reviewedByName?: string;
+  reviewedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProposalLineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface CrmProposal {
+  id: string;
+  companyId: string;
+  opportunityId: string;
+  contactId: string;
+  proposalNumber: string;
+  title: string;
+  status: ProposalStatus;
+  issueDate: Date;
+  validUntil?: Date;
+  items: ProposalLineItem[];
+  totalAmount: number;
+  notes?: string;
+  acceptedAt?: Date;
+  declinedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CrmCampaign {
+  id: string;
+  companyId: string;
+  proposalId?: string;
+  opportunityId?: string;
+  contactId: string;
+  projectId?: string;
+  name: string;
+  status: CampaignStatus;
+  startDate?: Date;
+  endDate?: Date;
+  budget?: number;
+  ownerUserId?: string;
+  ownerName?: string;
+  visibility: 'Public' | 'Private';
+  notes?: string;
+  archivedAt?: Date;
+  invoiceId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignDeliverable {
+  id: string;
+  companyId: string;
+  campaignId: string;
+  contactId?: string;
+  vendorContactId?: string;
+  assignedUserId?: string;
+  assignedUserName?: string;
+  title: string;
+  platform?: string;
+  dueDate?: Date;
+  status: CampaignDeliverableStatus;
+  contentUrl?: string;
+  publishedAt?: Date;
+  notes?: string;
+  price?: number;
+  cost?: number;
+  vendorBillId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignAssignment {
+  id: string;
+  companyId: string;
+  campaignId: string;
+  contactId: string;
+  role: ContactRoleType;
+  agreedRate?: number;
+  status: CampaignAssignmentStatus;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignExpense {
+  id: string;
+  companyId: string;
+  campaignId: string;
+  contactId?: string;
+  vendorRequestId?: string;
+  description: string;
+  amount: number;
+  expenseDate?: Date;
+  status: CampaignExpenseStatus;
+  billable: boolean;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CommissionRule {
+  id: string;
+  companyId: string;
+  serviceType: string;
+  basis: CommissionBasis;
+  rateType: CommissionRateType;
+  rate: number;
+  fixedAmount?: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Commission {
+  id: string;
+  companyId: string;
+  opportunityId: string;
+  contactId: string;
+  userName?: string;
+  serviceType: string;
+  basis: CommissionBasis;
+  basisAmount: number;
+  amount: number;
+  status: CommissionStatus;
+  calculatedAt: Date;
+}
+
+export interface CrmDashboardSummary {
+  companyId: string;
+  ownerUserId?: string;
+  activeContacts: number;
+  activeClients: number;
+  openLeads: number;
+  wonDeals: number;
+  lostDeals: number;
+  openOpportunities: number;
+  openOpportunityValue: number;
+  forecastValue: number;
+  wonRevenue: number;
+  openTasks: number;
+  openFollowups: number;
+  overdueFollowups: number;
+  openVendorRequests: number;
+  commissionDraft: number;
+  commissionApproved: number;
+  leadsByStatus: Array<{ status: LeadStatus | 'Unspecified'; count: number }>;
+  opportunitiesByStage: Array<{ stage: OpportunityStage; count: number; value: number }>;
+  upcomingFollowups: Array<{
+    id: string;
+    contactId: string;
+    contactName: string;
+    nextFollowupDate: Date;
+    nextFollowupNote?: string;
+    ownerName?: string;
+  }>;
+}
+
+const toDate = (v: any) => (v ? new Date(v) : undefined);
+
+function decodeActivity(raw: any): CrmActivity {
+  return {
+    ...raw,
+    nextActionDueDate: toDate(raw.nextActionDueDate),
+    createdAt: new Date(raw.createdAt),
+  };
+}
+
+function decodeFollowup(raw: any): Followup {
+  return { ...decodeActivity(raw), contact: raw.contact ?? null };
+}
+
+function decodeOpportunity(raw: any): Opportunity {
+  return {
+    ...raw,
+    expectedCloseDate: toDate(raw.expectedCloseDate),
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeVendorRequest(raw: any): VendorRequest {
+  return {
+    ...raw,
+    dueDate: toDate(raw.dueDate),
+    reviewedAt: toDate(raw.reviewedAt),
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCrmProposal(raw: any): CrmProposal {
+  return {
+    ...raw,
+    issueDate: new Date(raw.issueDate),
+    validUntil: toDate(raw.validUntil),
+    acceptedAt: toDate(raw.acceptedAt),
+    declinedAt: toDate(raw.declinedAt),
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCrmCampaign(raw: any): CrmCampaign {
+  return {
+    ...raw,
+    startDate: toDate(raw.startDate),
+    endDate: toDate(raw.endDate),
+    archivedAt: toDate(raw.archivedAt),
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCampaignDeliverable(raw: any): CampaignDeliverable {
+  return {
+    ...raw,
+    dueDate: toDate(raw.dueDate),
+    publishedAt: toDate(raw.publishedAt),
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCampaignAssignment(raw: any): CampaignAssignment {
+  return {
+    ...raw,
+    campaignId: stringId(raw.campaignId) || '',
+    contactId: stringId(raw.contactId) || '',
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCampaignExpense(raw: any): CampaignExpense {
+  return {
+    ...raw,
+    expenseDate: toDate(raw.expenseDate),
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCommissionRule(raw: any): CommissionRule {
+  return {
+    ...raw,
+    createdAt: new Date(raw.createdAt),
+    updatedAt: new Date(raw.updatedAt),
+  };
+}
+
+function decodeCommission(raw: any): Commission {
+  return {
+    ...raw,
+    calculatedAt: new Date(raw.calculatedAt),
+  };
+}
+
+function decodeCrmDashboard(raw: any): CrmDashboardSummary {
+  return {
+    ...raw,
+    upcomingFollowups: (raw.upcomingFollowups || []).map((item: any) => ({
+      ...item,
+      nextFollowupDate: new Date(item.nextFollowupDate),
+    })),
+  };
+}
+
+export async function logActivity(contactId: string, input: {
+  category: ActivityCategory;
+  summary: string;
+  outcome?: string;
+  nextAction?: string;
+  nextActionDueDate?: Date;
+  durationMinutes?: number;
+}): Promise<CrmActivity> {
+  const body = {
+    ...input,
+    nextActionDueDate: input.nextActionDueDate?.toISOString(),
+  };
+  const data = await apiFetch<any>(`/contacts/${contactId}/activities`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return decodeActivity(data);
+}
+
+export async function getContactActivities(contactId: string, limit = 50): Promise<CrmActivity[]> {
+  const data = await apiFetch<any[]>(`/contacts/${contactId}/activities?limit=${limit}`);
+  return data.map(decodeActivity);
+}
+
+export async function getFollowups(companyId: string, options?: {
+  contactId?: string;
+  ownerUserId?: string;
+  overdue?: boolean;
+}): Promise<Followup[]> {
+  const params = new URLSearchParams();
+  if (options?.contactId) params.set('contactId', options.contactId);
+  if (options?.ownerUserId) params.set('ownerUserId', options.ownerUserId);
+  if (options?.overdue !== undefined) params.set('overdue', String(options.overdue));
+  const qs = params.toString() ? `?${params}` : '';
+  const data = await apiFetch<any[]>(`/companies/${companyId}/followups${qs}`);
+  return data.map(decodeFollowup);
+}
+
+export async function patchContactCrm(contactId: string, updates: {
+  leadStatus?: LeadStatus;
+  leadSource?: LeadSource;
+  priority?: ContactPriority;
+  ownerUserId?: string;
+  ownerName?: string;
+  nextFollowupDate?: Date | null;
+  nextFollowupNote?: string;
+  visibility?: 'Public' | 'Private';
+}): Promise<Contact> {
+  const body = {
+    ...updates,
+    nextFollowupDate: updates.nextFollowupDate === null ? null
+      : updates.nextFollowupDate?.toISOString(),
+  };
+  const data = await apiFetch<any>(`/contacts/${contactId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+  return { ...data, createdAt: new Date(data.createdAt), updatedAt: new Date(data.updatedAt) };
+}
+
+export async function getOpportunities(companyId: string): Promise<Opportunity[]> {
+  const data = await apiFetch<any[]>(`/companies/${companyId}/opportunities`);
+  return data.map(decodeOpportunity);
+}
+
+export async function getCrmDashboard(companyId: string, ownerUserId?: string): Promise<CrmDashboardSummary> {
+  const params = ownerUserId ? `?ownerUserId=${encodeURIComponent(ownerUserId)}` : '';
+  const data = await apiFetch<any>(`/companies/${companyId}/crm-dashboard${params}`);
+  return decodeCrmDashboard(data);
+}
+
+export async function createOpportunity(companyId: string, input: {
+  contactId: string;
+  title: string;
+  serviceType: string;
+  expectedRevenue?: number;
+  probability?: number;
+  expectedCloseDate?: Date;
+  notes?: string;
+}): Promise<Opportunity> {
+  const data = await apiFetch<any>(`/companies/${companyId}/opportunities`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      expectedCloseDate: input.expectedCloseDate?.toISOString(),
+    }),
+  });
+  return decodeOpportunity(data);
+}
+
+export async function updateOpportunityStage(id: string, stage: OpportunityStage): Promise<Opportunity> {
+  const data = await apiFetch<any>(`/opportunities/${id}/stage`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage }),
+  });
+  return decodeOpportunity(data);
+}
+
+export async function updateOpportunity(id: string, input: Partial<{
+  contactId: string;
+  title: string;
+  serviceType: string;
+  stage: OpportunityStage;
+  expectedRevenue: number;
+  probability: number;
+  expectedCloseDate: Date;
+  notes: string;
+}>): Promise<Opportunity> {
+  const data = await apiFetch<any>(`/opportunities/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...input,
+      expectedCloseDate: input.expectedCloseDate?.toISOString(),
+    }),
+  });
+  return decodeOpportunity(data);
+}
+
+export async function deleteOpportunity(id: string): Promise<void> {
+  await apiFetch<void>(`/opportunities/${id}`, { method: 'DELETE' });
+}
+
+export async function getProposals(companyId: string): Promise<CrmProposal[]> {
+  const data = await apiFetch<any[]>(`/companies/${companyId}/proposals`);
+  return data.map(decodeCrmProposal);
+}
+
+export async function createProposal(companyId: string, input: {
+  opportunityId: string;
+  title: string;
+  status?: ProposalStatus;
+  issueDate?: Date;
+  validUntil?: Date;
+  items: ProposalLineItem[];
+  notes?: string;
+}): Promise<CrmProposal> {
+  const data = await apiFetch<any>(`/companies/${companyId}/proposals`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      issueDate: input.issueDate?.toISOString(),
+      validUntil: input.validUntil?.toISOString(),
+    }),
+  });
+  return decodeCrmProposal(data);
+}
+
+export async function updateProposalStatus(id: string, status: ProposalStatus): Promise<CrmProposal> {
+  const data = await apiFetch<any>(`/proposals/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return decodeCrmProposal(data);
+}
+
+export async function updateProposal(id: string, input: Partial<{
+  title: string;
+  status: ProposalStatus;
+  issueDate: Date;
+  validUntil: Date;
+  items: ProposalLineItem[];
+  notes: string;
+}>): Promise<CrmProposal> {
+  const data = await apiFetch<any>(`/proposals/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...input,
+      issueDate: input.issueDate?.toISOString(),
+      validUntil: input.validUntil?.toISOString(),
+    }),
+  });
+  return decodeCrmProposal(data);
+}
+
+export async function deleteProposal(id: string): Promise<void> {
+  await apiFetch<void>(`/proposals/${id}`, { method: 'DELETE' });
+}
+
+export async function getCampaigns(companyId: string, includeArchived = false): Promise<CrmCampaign[]> {
+  const qs = includeArchived ? '?includeArchived=true' : '';
+  const data = await apiFetch<any[]>(`/companies/${companyId}/campaigns${qs}`);
+  return data.map(decodeCrmCampaign);
+}
+
+export async function createCampaign(companyId: string, input: {
+  contactId?: string;
+  proposalId?: string;
+  opportunityId?: string;
+  name: string;
+  status?: CampaignStatus;
+  startDate?: Date;
+  endDate?: Date;
+  budget?: number;
+  visibility?: 'Public' | 'Private';
+  notes?: string;
+}): Promise<CrmCampaign> {
+  const data = await apiFetch<any>(`/companies/${companyId}/campaigns`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      startDate: input.startDate?.toISOString(),
+      endDate: input.endDate?.toISOString(),
+    }),
+  });
+  return decodeCrmCampaign(data);
+}
+
+export async function updateCampaign(id: string, input: Partial<{
+  contactId: string;
+  proposalId: string;
+  opportunityId: string;
+  name: string;
+  status: CampaignStatus;
+  startDate: Date;
+  endDate: Date;
+  budget: number;
+  visibility: 'Public' | 'Private';
+  notes: string;
+}>): Promise<CrmCampaign> {
+  const data = await apiFetch<any>(`/campaigns/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...input,
+      startDate: input.startDate?.toISOString(),
+      endDate: input.endDate?.toISOString(),
+    }),
+  });
+  return decodeCrmCampaign(data);
+}
+
+export async function deleteCampaign(id: string): Promise<void> {
+  await apiFetch<void>(`/campaigns/${id}`, { method: 'DELETE' });
+}
+
+export async function getCampaignDeliverables(campaignId: string): Promise<CampaignDeliverable[]> {
+  const data = await apiFetch<any[]>(`/campaigns/${campaignId}/deliverables`);
+  return data.map(decodeCampaignDeliverable);
+}
+
+export async function createCampaignDeliverable(campaignId: string, input: {
+  contactId?: string;
+  vendorContactId?: string;
+  assignedUserId?: string;
+  assignedUserName?: string;
+  title: string;
+  platform?: string;
+  dueDate?: Date;
+  status?: CampaignDeliverableStatus;
+  contentUrl?: string;
+  publishedAt?: Date;
+  notes?: string;
+  price?: number;
+  cost?: number;
+}): Promise<CampaignDeliverable> {
+  const data = await apiFetch<any>(`/campaigns/${campaignId}/deliverables`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      dueDate: input.dueDate?.toISOString(),
+      publishedAt: input.publishedAt?.toISOString(),
+    }),
+  });
+  return decodeCampaignDeliverable(data);
+}
+
+export async function updateCampaignDeliverable(id: string, input: Partial<{
+  contactId: string;
+  vendorContactId: string;
+  assignedUserId: string;
+  assignedUserName: string;
+  title: string;
+  platform: string;
+  dueDate: Date;
+  status: CampaignDeliverableStatus;
+  contentUrl: string;
+  publishedAt: Date;
+  notes: string;
+  price: number;
+  cost: number;
+  vendorBillId: string;
+}>): Promise<CampaignDeliverable> {
+  const data = await apiFetch<any>(`/campaign-deliverables/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...input,
+      dueDate: input.dueDate?.toISOString(),
+      publishedAt: input.publishedAt?.toISOString(),
+    }),
+  });
+  return decodeCampaignDeliverable(data);
+}
+
+export async function deleteCampaignDeliverable(id: string): Promise<void> {
+  await apiFetch<void>(`/campaign-deliverables/${id}`, { method: 'DELETE' });
+}
+
+export async function getCampaignAssignments(campaignId: string): Promise<CampaignAssignment[]> {
+  const data = await apiFetch<any[]>(`/campaigns/${campaignId}/assignments`);
+  return data.map(decodeCampaignAssignment);
+}
+
+export async function createCampaignAssignment(campaignId: string, input: {
+  contactId: string;
+  role: ContactRoleType;
+  agreedRate?: number;
+  status?: CampaignAssignmentStatus;
+  notes?: string;
+}): Promise<CampaignAssignment> {
+  const data = await apiFetch<any>(`/campaigns/${campaignId}/assignments`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return decodeCampaignAssignment(data);
+}
+
+export async function updateCampaignAssignment(id: string, input: Partial<{
+  role: ContactRoleType;
+  agreedRate: number;
+  status: CampaignAssignmentStatus;
+  notes: string;
+}>): Promise<CampaignAssignment> {
+  const data = await apiFetch<any>(`/campaign-assignments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  return decodeCampaignAssignment(data);
+}
+
+export async function deleteCampaignAssignment(id: string): Promise<void> {
+  await apiFetch<void>(`/campaign-assignments/${id}`, { method: 'DELETE' });
+}
+
+export async function getCampaignExpenses(campaignId: string): Promise<CampaignExpense[]> {
+  const data = await apiFetch<any[]>(`/campaigns/${campaignId}/expenses`);
+  return data.map(decodeCampaignExpense);
+}
+
+export async function createCampaignExpense(campaignId: string, input: {
+  contactId?: string;
+  vendorRequestId?: string;
+  description: string;
+  amount: number;
+  expenseDate?: Date;
+  status?: CampaignExpenseStatus;
+  billable?: boolean;
+  notes?: string;
+}): Promise<CampaignExpense> {
+  const data = await apiFetch<any>(`/campaigns/${campaignId}/expenses`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      expenseDate: input.expenseDate?.toISOString(),
+    }),
+  });
+  return decodeCampaignExpense(data);
+}
+
+export async function updateCampaignExpense(id: string, input: Partial<{
+  contactId: string;
+  vendorRequestId: string;
+  description: string;
+  amount: number;
+  expenseDate: Date;
+  status: CampaignExpenseStatus;
+  billable: boolean;
+  notes: string;
+}>): Promise<CampaignExpense> {
+  const data = await apiFetch<any>(`/campaign-expenses/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...input,
+      expenseDate: input.expenseDate?.toISOString(),
+    }),
+  });
+  return decodeCampaignExpense(data);
+}
+
+export async function deleteCampaignExpense(id: string): Promise<void> {
+  await apiFetch<void>(`/campaign-expenses/${id}`, { method: 'DELETE' });
+}
+
+export async function getVendorRequests(companyId: string): Promise<VendorRequest[]> {
+  const data = await apiFetch<any[]>(`/companies/${companyId}/vendor-requests`);
+  return data.map(decodeVendorRequest);
+}
+
+export async function createVendorRequest(companyId: string, input: {
+  name: string;
+  role: VendorRequest['role'];
+  requestType?: string;
+  platform?: string;
+  handle?: string;
+  details?: string;
+  dueDate?: Date;
+  cost?: number;
+}): Promise<VendorRequest> {
+  const data = await apiFetch<any>(`/companies/${companyId}/vendor-requests`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      dueDate: input.dueDate?.toISOString(),
+    }),
+  });
+  return decodeVendorRequest(data);
+}
+
+export async function updateVendorRequestStatus(id: string, status: VendorRequestStatus, notes?: string): Promise<VendorRequest> {
+  const data = await apiFetch<any>(`/vendor-requests/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, notes }),
+  });
+  return decodeVendorRequest(data);
+}
+
+export async function updateVendorRequest(id: string, input: Partial<{
+  contactId: string;
+  name: string;
+  role: VendorRequest['role'];
+  requestType: string;
+  platform: string;
+  handle: string;
+  details: string;
+  dueDate: Date;
+  cost: number;
+  status: VendorRequestStatus;
+  notes: string;
+}>): Promise<VendorRequest> {
+  const data = await apiFetch<any>(`/vendor-requests/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...input,
+      dueDate: input.dueDate?.toISOString(),
+    }),
+  });
+  return decodeVendorRequest(data);
+}
+
+export async function deleteVendorRequest(id: string): Promise<void> {
+  await apiFetch<void>(`/vendor-requests/${id}`, { method: 'DELETE' });
+}
+
+export async function getCommissionRules(companyId: string): Promise<CommissionRule[]> {
+  const data = await apiFetch<any[]>(`/companies/${companyId}/commission-rules`);
+  return data.map(decodeCommissionRule);
+}
+
+export async function createCommissionRule(companyId: string, input: {
+  serviceType: string;
+  basis: CommissionBasis;
+  rateType: CommissionRateType;
+  rate: number;
+  fixedAmount?: number;
+  isActive?: boolean;
+}): Promise<CommissionRule> {
+  const data = await apiFetch<any>(`/companies/${companyId}/commission-rules`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return decodeCommissionRule(data);
+}
+
+export async function getCommissions(companyId: string): Promise<Commission[]> {
+  const data = await apiFetch<any[]>(`/companies/${companyId}/commissions`);
+  return data.map(decodeCommission);
+}
+
+export async function updateCommissionStatus(id: string, status: CommissionStatus): Promise<Commission> {
+  const data = await apiFetch<any>(`/commissions/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return decodeCommission(data);
+}
+
+export interface EmployeePerformance {
+  userId: string;
+  userName: string;
+  role: string;
+  openLeads: number;
+  wonDeals: number;
+  lostDeals: number;
+  wonRevenue: number;
+  openOpportunities: number;
+  openOpportunityValue: number;
+  openFollowups: number;
+  overdueFollowups: number;
+  openTasks: number;
+  commissionDraft: number;
+  commissionApproved: number;
+  conversionRate: number;
+}
+
+export async function getCrmPerformance(companyId: string): Promise<EmployeePerformance[]> {
+  return apiFetch<EmployeePerformance[]>(`/companies/${companyId}/crm-performance`);
+}
+
+export async function generateCampaignInvoice(companyId: string, campaignId: string): Promise<any> {
+  return apiFetch<any>(`/companies/${companyId}/campaigns/${campaignId}/generate-invoice`, {
+    method: 'POST',
+  });
+}
+
+export async function generateCampaignVendorBills(companyId: string, campaignId: string): Promise<any[]> {
+  return apiFetch<any[]>(`/companies/${companyId}/campaigns/${campaignId}/generate-vendor-bills`, {
+    method: 'POST',
+  });
+}

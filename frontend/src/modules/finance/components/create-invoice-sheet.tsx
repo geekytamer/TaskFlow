@@ -326,7 +326,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
           <SheetDescription>Select a client to find billable tasks and generate an invoice.</SheetDescription>
         </SheetHeader>
         <div className="flex-1 flex flex-col gap-4 py-4 overflow-y-auto">
-            <div className="pe-6">
+            <div className="pe-6" data-tutorial="invoice-form-client">
                 <Select onValueChange={setSelectedClient} value={selectedClient} disabled={loading}>
                     <SelectTrigger>
                         <SelectValue placeholder="Select a client..." />
@@ -341,7 +341,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 </Select>
             </div>
 
-            <div className="pe-6">
+            <div className="pe-6" data-tutorial="invoice-form-sales-order">
                 <Label>{t('finance.salesOrder')}</Label>
                 <Select
                   onValueChange={applySalesOrder}
@@ -361,7 +361,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 </Select>
             </div>
 
-            <div className="pe-6">
+            <div className="pe-6" data-tutorial="invoice-form-template">
                 <Label>Invoice Template</Label>
                 <Select
                   onValueChange={setSelectedTemplateId}
@@ -381,7 +381,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 </Select>
             </div>
 
-            <div className="grid gap-3 pe-6 md:grid-cols-4">
+            <div className="grid gap-3 pe-6 md:grid-cols-4" data-tutorial="invoice-form-task-filter">
               <div className="md:col-span-2 space-y-1">
                 <Label>Search</Label>
                 <Input
@@ -427,7 +427,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
               </div>
             </div>
 
-            <div className="rounded-lg border p-4 pe-6 space-y-3">
+            <div className="rounded-lg border p-4 pe-6 space-y-3" data-tutorial="invoice-form-manual-line">
               <p className="text-sm font-semibold">Add Manual Item</p>
               <div className="grid gap-3 md:grid-cols-5">
                 <div className="md:col-span-2 space-y-1">
@@ -470,7 +470,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
               </div>
             </div>
             
-            <div className="flex-1 rounded-lg border overflow-y-auto pe-1">
+            <div className="flex-1 rounded-lg border overflow-y-auto pe-1" data-tutorial="invoice-form-task-table">
                  <Table>
                     <TableHeader className="sticky top-0 bg-background">
                         <TableRow>
@@ -548,7 +548,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     </Table>
                   </div>
                 )}
-                <div className="flex justify-end items-center gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="flex justify-end items-center gap-4 p-4 bg-muted/50 rounded-lg" data-tutorial="invoice-form-total">
                     <p className="font-semibold">Invoice Total:</p>
                     <p className="text-2xl font-bold">{amount(invoiceTotal)}</p>
                 </div>
@@ -557,7 +557,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
 
         <SheetFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleCreateInvoice} disabled={selectedLineItems.length === 0}>
+          <Button onClick={handleCreateInvoice} disabled={selectedLineItems.length === 0} data-tutorial="invoice-form-submit">
             Create Draft Invoice
           </Button>
         </SheetFooter>

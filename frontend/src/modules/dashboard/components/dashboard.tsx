@@ -366,7 +366,7 @@ export function Dashboard() {
           </p>
         </div>
         {quickActions.length > 0 && (
-          <div className="flex gap-3">
+          <div className="flex gap-3" data-tutorial="dash-quick-actions">
             {quickActions.map((action) => (
               <a key={action.id} href={action.route} className="bg-white hover:bg-slate-50 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-indigo-600 shadow-sm transition-colors flex items-center gap-2">
                 <Zap className="w-4 h-4" />
@@ -378,7 +378,7 @@ export function Dashboard() {
       </div>
 
       {metrics.length > 0 && (
-        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10" style={{ background: 'linear-gradient(135deg, #e0ebff 0%, #e6e6ff 100%)' }}>
+        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10" style={{ background: 'linear-gradient(135deg, #e0ebff 0%, #e6e6ff 100%)' }} data-tutorial="dash-primary-metric">
           <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
 
           <div className="relative z-10 flex flex-col xl:flex-row items-center gap-8">
@@ -393,7 +393,7 @@ export function Dashboard() {
             )}
 
             {secondaryMetrics.length > 0 && (
-              <div className="w-full xl:w-3/4 grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="w-full xl:w-3/4 grid grid-cols-2 md:grid-cols-3 gap-4" data-tutorial="dash-secondary-metrics">
                 {secondaryMetrics.map((item) => (
                   <div key={item.id} className="bg-white/90 backdrop-blur-md rounded-2xl p-5 shadow-sm flex flex-col justify-center border border-white/60">
                     <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">{item.label}</p>
@@ -410,7 +410,7 @@ export function Dashboard() {
       )}
 
       {charts.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-tutorial="dash-charts">
           {charts.map((chart) => (
             <div key={chart.id} className="bg-white rounded-[24px] p-6 shadow-sm flex flex-col">
               <div className="mb-4">
@@ -426,7 +426,7 @@ export function Dashboard() {
       {(alerts.length > 0 || activity.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {alerts.length > 0 && (
-            <div className="lg:col-span-1 bg-white rounded-[24px] p-6 shadow-sm flex flex-col">
+            <div className="lg:col-span-1 bg-white rounded-[24px] p-6 shadow-sm flex flex-col" data-tutorial="dash-alerts">
               <h3 className="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500" /> {tr('Action Required', 'إجراء مطلوب')}
               </h3>

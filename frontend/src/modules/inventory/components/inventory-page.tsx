@@ -455,7 +455,7 @@ export function InventoryPage() {
       title={tr('Inventory Management', 'إدارة المخزون')}
       description={tr('Track stock levels, reorder points, and inbound quantities from purchase orders.', 'تتبع مستويات المخزون ونقاط إعادة الطلب والكميات الواردة من أوامر الشراء.')}
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="inventory-metrics">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{tr('Active SKUs', 'الأصناف النشطة')}</CardTitle>
@@ -509,6 +509,7 @@ export function InventoryPage() {
       <SectionToolbar
         search={(
           <Input
+            data-tutorial="inventory-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={tr('Search by SKU, item, vendor, or location', 'ابحث حسب SKU أو الصنف أو المورد أو الموقع')}
@@ -516,7 +517,7 @@ export function InventoryPage() {
           />
         )}
         filters={(
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2" data-tutorial="inventory-stock-filter">
             <Button
               variant={stockFilter === 'all' ? 'default' : 'outline'}
               size="sm"
@@ -550,7 +551,7 @@ export function InventoryPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button>
+            <Button data-tutorial="inventory-create-btn">
               <PackagePlus className="me-2 h-4 w-4" />
               {tr('New Inventory Item', 'عنصر مخزون جديد')}
             </Button>
@@ -726,7 +727,7 @@ export function InventoryPage() {
         )}
       />
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border" data-tutorial="inventory-table">
         <Table>
           <TableHeader>
             <TableRow>
@@ -1119,7 +1120,7 @@ export function InventoryPage() {
         </Table>
       </div>
 
-      <Card>
+      <Card data-tutorial="inventory-movements">
         <CardHeader>
           <CardTitle>{tr('Recent Stock Movements', 'أحدث حركات المخزون')}</CardTitle>
         </CardHeader>

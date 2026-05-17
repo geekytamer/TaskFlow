@@ -20,7 +20,7 @@ export function UserNav() {
 
   const handleLogout = () => {
     // Mock logout
-    localStorage.removeItem('taskflow_user');
+    try { localStorage.removeItem('taskflow_user'); } catch {}
     router.push('/login');
   };
 

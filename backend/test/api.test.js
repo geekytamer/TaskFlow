@@ -52,6 +52,18 @@ test('health endpoint reports status and applied migrations', async () => {
     '015_invoice_template_watermark',
     '016_sales_orders',
     '017_company_currency_settings',
+    '018_contacts_master_data',
+    '019_contactid_on_transactions',
+    '020_crm_fields',
+    '021_crm_pipeline_requests_commissions',
+    '022_vendor_request_scheduling_costs',
+    '023_crm_proposals',
+    '024_crm_campaigns',
+    '025_campaigns_optional_contact',
+    '026_contact_visibility',
+    '027_campaign_execution',
+    '028_campaign_invoice_columns',
+    '029_deliverable_vendor_bill',
   ]);
 });
 
@@ -1116,6 +1128,12 @@ test('vendor bill payments support partial settlement and update balances', asyn
     ),
     180,
   );
+
+  const overviewResponse = await request(app)
+    .get('/companies/1/finance/overview')
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(overviewResponse.status, 200);
+  assert.equal(overviewResponse.body.paidPayablesThisMonth, 180);
 });
 
 test('chart of accounts supports rich custom account CRUD while protecting system accounts', async () => {
@@ -1746,6 +1764,322 @@ test('activity events capture actor metadata and can be filtered by user', async
   assert.ok(activityResponse.body.some((event) => event.actorUserId === 'user-2'));
   assert.ok(activityResponse.body.some((event) => /Samantha Bee/i.test(event.actorName || '')));
 });
+
+test('crm pipeline supports influencer profiles, opportunities, requests, and commissions', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+
+  const contactResponse = await request(app)
+    .post('/companies/1/contacts')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      kind: 'Person',
+      name: 'Noor Creator',
+      email: 'noor.creator@example.com',
+      roles: ['Lead', 'Influencer'],
+      influencerPlatform: 'Instagram',
+      influencerHandle: '@noorcreates',
+      influencerNiche: 'Lifestyle',
+      followerCount: 125000,
+      engagementRate: 4.2,
+      rateCardAmount: 900,
+      location: 'Muscat',
+      languages: ['Arabic', 'English'],
+      availabilityStatus: 'Available',
+    });
+  assert.equal(contactResponse.status, 201);
+  assert.equal(contactResponse.body.influencerHandle, '@noorcreates');
+  assert.equal(contactResponse.body.followerCount, 125000);
+  assert.deepEqual(contactResponse.body.languages, ['Arabic', 'English']);
+  const contactId = contactResponse.body.id;
+
+  const ruleResponse = await request(app)
+    .post('/companies/1/commission-rules')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      serviceType: 'Influencer Campaign',
+      basis: 'Revenue',
+      rateType: 'Percent',
+      rate: 10,
+    });
+  assert.equal(ruleResponse.status, 201);
+
+  const opportunityResponse = await request(app)
+    .post('/companies/1/opportunities')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      contactId,
+      title: 'Noor Ramadan Campaign',
+      serviceType: 'Influencer Campaign',
+      expectedRevenue: 5000,
+      probability: 70,
+      expectedCloseDate: '2026-06-01T00:00:00.000Z',
+    });
+  assert.equal(opportunityResponse.status, 201);
+  assert.equal(opportunityResponse.body.stage, 'New');
+  const opportunityId = opportunityResponse.body.id;
+
+  const updatedOpportunityResponse = await request(app)
+    .put(`/opportunities/${opportunityId}`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      title: 'Noor Ramadan Campaign Updated',
+      expectedRevenue: 5500,
+      probability: 80,
+      notes: 'Updated during qualification.',
+    });
+  assert.equal(updatedOpportunityResponse.status, 200);
+  assert.equal(updatedOpportunityResponse.body.title, 'Noor Ramadan Campaign Updated');
+  assert.equal(updatedOpportunityResponse.body.expectedRevenue, 5500);
+
+	  const proposalResponse = await request(app)
+	    .post('/companies/1/proposals')
+	    .set('Authorization', `Bearer ${token}`)
+	    .send({
+	      opportunityId,
+	      title: 'Noor Ramadan Campaign Proposal',
+	      validUntil: '2026-05-20T00:00:00.000Z',
+	      items: [
+	        {
+	          description: 'Influencer campaign package',
+	          quantity: 1,
+	          unitPrice: 5000,
+	        },
+	      ],
+	    });
+	  assert.equal(proposalResponse.status, 201);
+	  assert.equal(proposalResponse.body.totalAmount, 5000);
+	  assert.equal(proposalResponse.body.status, 'Draft');
+
+	  const updatedProposalResponse = await request(app)
+	    .put(`/proposals/${proposalResponse.body.id}`)
+	    .set('Authorization', `Bearer ${token}`)
+	    .send({
+	      title: 'Noor Ramadan Campaign Proposal v2',
+	      items: [
+	        {
+	          description: 'Influencer campaign package v2',
+	          quantity: 1,
+	          unitPrice: 5500,
+	        },
+	      ],
+	    });
+	  assert.equal(updatedProposalResponse.status, 200);
+	  assert.equal(updatedProposalResponse.body.title, 'Noor Ramadan Campaign Proposal v2');
+	  assert.equal(updatedProposalResponse.body.totalAmount, 5500);
+
+	  const sentProposalResponse = await request(app)
+	    .patch(`/proposals/${proposalResponse.body.id}/status`)
+	    .set('Authorization', `Bearer ${token}`)
+	    .send({ status: 'Sent' });
+	  assert.equal(sentProposalResponse.status, 200);
+	  assert.equal(sentProposalResponse.body.status, 'Sent');
+
+	  const acceptedProposalResponse = await request(app)
+	    .patch(`/proposals/${proposalResponse.body.id}/status`)
+	    .set('Authorization', `Bearer ${token}`)
+	    .send({ status: 'Accepted' });
+	  assert.equal(acceptedProposalResponse.status, 200);
+	  assert.equal(acceptedProposalResponse.body.status, 'Accepted');
+
+	  const commissionsResponse = await request(app)
+    .get('/companies/1/commissions')
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(commissionsResponse.status, 200);
+  const commission = commissionsResponse.body.find((item) => item.opportunityId === opportunityId);
+  assert.ok(commission);
+  assert.equal(commission.amount, 550);
+  assert.equal(commission.status, 'Draft');
+
+  const requestResponse = await request(app)
+    .post('/companies/1/vendor-requests')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+	      name: 'Creator Studio',
+	      role: 'Vendor',
+	      requestType: 'Quote',
+	      platform: 'Production',
+	      dueDate: '2026-06-05T00:00:00.000Z',
+	      cost: 750,
+	      details: 'Suggested studio for short-form campaigns.',
+	    });
+	  assert.equal(requestResponse.status, 201);
+	  assert.equal(requestResponse.body.requestType, 'Quote');
+	  assert.equal(requestResponse.body.cost, 750);
+
+	  const updatedRequestResponse = await request(app)
+	    .put(`/vendor-requests/${requestResponse.body.id}`)
+	    .set('Authorization', `Bearer ${token}`)
+	    .send({
+	      requestType: 'Booking',
+	      cost: 900,
+	      details: 'Updated studio quote.',
+	    });
+	  assert.equal(updatedRequestResponse.status, 200);
+	  assert.equal(updatedRequestResponse.body.requestType, 'Booking');
+	  assert.equal(updatedRequestResponse.body.cost, 900);
+
+  const approveResponse = await request(app)
+    .patch(`/vendor-requests/${requestResponse.body.id}/status`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ status: 'Approved', notes: 'Approved for vendor onboarding.' });
+  assert.equal(approveResponse.status, 200);
+  assert.equal(approveResponse.body.status, 'Approved');
+  assert.ok(approveResponse.body.contactId);
+
+	  const contactsResponse = await request(app)
+	    .get('/companies/1/contacts?role=Vendor')
+	    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(contactsResponse.status, 200);
+		  assert.ok(contactsResponse.body.some((contact) => contact.id === approveResponse.body.contactId));
+
+		  const campaignResponse = await request(app)
+		    .post('/companies/1/campaigns')
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({
+		      proposalId: proposalResponse.body.id,
+		      opportunityId,
+		      contactId,
+		      name: 'Noor Ramadan Campaign Execution',
+		      status: 'Planned',
+		      startDate: '2026-06-02T00:00:00.000Z',
+		      endDate: '2026-06-20T00:00:00.000Z',
+		      budget: 2500,
+		      visibility: 'Public',
+		    });
+		  assert.equal(campaignResponse.status, 201);
+		  assert.equal(campaignResponse.body.status, 'Planned');
+		  assert.equal(campaignResponse.body.budget, 2500);
+		  const campaignId = campaignResponse.body.id;
+
+		  const deliverableResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/deliverables`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({
+		      contactId,
+		      vendorContactId: approveResponse.body.contactId,
+		      title: 'Instagram Reel',
+		      platform: 'Instagram',
+		      dueDate: '2026-06-10T00:00:00.000Z',
+		      status: 'Planned',
+		      price: 5500,
+		      cost: 900,
+		    });
+		  assert.equal(deliverableResponse.status, 201);
+		  assert.equal(deliverableResponse.body.title, 'Instagram Reel');
+		  assert.equal(deliverableResponse.body.vendorContactId, approveResponse.body.contactId);
+		  assert.equal(deliverableResponse.body.price, 5500);
+		  assert.equal(deliverableResponse.body.cost, 900);
+
+		  const updatedDeliverableResponse = await request(app)
+		    .put(`/campaign-deliverables/${deliverableResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ status: 'Published', contentUrl: 'https://example.com/reel' });
+		  assert.equal(updatedDeliverableResponse.status, 200);
+		  assert.equal(updatedDeliverableResponse.body.status, 'Published');
+
+		  const campaignInvoiceResponse = await request(app)
+		    .post(`/companies/1/campaigns/${campaignId}/generate-invoice`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(campaignInvoiceResponse.status, 201);
+		  assert.equal(campaignInvoiceResponse.body.campaignId, campaignId);
+		  assert.equal(campaignInvoiceResponse.body.contactId, contactId);
+		  assert.equal(campaignInvoiceResponse.body.clientId, contactId);
+		  assert.equal(campaignInvoiceResponse.body.total, 5500);
+
+		  const campaignVendorBillsResponse = await request(app)
+		    .post(`/companies/1/campaigns/${campaignId}/generate-vendor-bills`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(campaignVendorBillsResponse.status, 201);
+		  assert.equal(campaignVendorBillsResponse.body.length, 1);
+		  assert.equal(campaignVendorBillsResponse.body[0].campaignId, campaignId);
+		  assert.equal(campaignVendorBillsResponse.body[0].amount, 900);
+
+		  const assignmentResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/assignments`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({
+		      contactId,
+		      role: 'Influencer',
+		      agreedRate: 900,
+		      status: 'Confirmed',
+		    });
+		  assert.equal(assignmentResponse.status, 201);
+		  assert.equal(assignmentResponse.body.agreedRate, 900);
+
+		  const expenseResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/expenses`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({
+		      contactId,
+		      description: 'Boosting spend',
+		      amount: 120,
+		      expenseDate: '2026-06-12T00:00:00.000Z',
+		      billable: true,
+		      status: 'Submitted',
+		    });
+		  assert.equal(expenseResponse.status, 201);
+		  assert.equal(expenseResponse.body.amount, 120);
+		  assert.equal(expenseResponse.body.billable, true);
+
+		  const campaignExecutionResponse = await request(app)
+		    .get(`/campaigns/${campaignId}/deliverables`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(campaignExecutionResponse.status, 200);
+		  assert.ok(campaignExecutionResponse.body.some((item) => item.id === deliverableResponse.body.id));
+
+		  const updatedCampaignResponse = await request(app)
+		    .put(`/campaigns/${campaignId}`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ status: 'Active', budget: 3000 });
+		  assert.equal(updatedCampaignResponse.status, 200);
+		  assert.equal(updatedCampaignResponse.body.status, 'Active');
+		  assert.equal(updatedCampaignResponse.body.budget, 3000);
+
+		  const deleteCampaignResponse = await request(app)
+		    .delete(`/campaigns/${campaignId}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(deleteCampaignResponse.status, 204);
+
+		  const campaignsResponse = await request(app)
+		    .get('/companies/1/campaigns?includeArchived=true')
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(campaignsResponse.status, 200);
+		  const archivedCampaign = campaignsResponse.body.find((item) => item.id === campaignId);
+		  assert.ok(archivedCampaign);
+		  assert.equal(archivedCampaign.status, 'Archived');
+		  assert.ok(archivedCampaign.archivedAt);
+
+		  const dashboardResponse = await request(app)
+	    .get('/companies/1/crm-dashboard')
+	    .set('Authorization', `Bearer ${token}`);
+	  assert.equal(dashboardResponse.status, 200);
+	  assert.ok(dashboardResponse.body.wonDeals >= 1);
+	  assert.ok(dashboardResponse.body.wonRevenue >= 5000);
+	  assert.ok(Array.isArray(dashboardResponse.body.opportunitiesByStage));
+
+	  const myDashboardResponse = await request(app)
+	    .get('/companies/1/crm-dashboard?ownerUserId=me')
+	    .set('Authorization', `Bearer ${token}`);
+	  assert.equal(myDashboardResponse.status, 200);
+	  assert.equal(myDashboardResponse.body.ownerUserId, 'admin-placeholder-id');
+	  assert.ok(myDashboardResponse.body.commissionDraft >= 550);
+
+		  const archiveProposalResponse = await request(app)
+		    .delete(`/proposals/${proposalResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(archiveProposalResponse.status, 204);
+
+		  const archiveVendorRequestResponse = await request(app)
+		    .delete(`/vendor-requests/${requestResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(archiveVendorRequestResponse.status, 204);
+
+		  const archiveOpportunityResponse = await request(app)
+		    .delete(`/opportunities/${opportunityId}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(archiveOpportunityResponse.status, 204);
+	});
 
 test('management summary and report exports surface reporting controls', async () => {
   const app = makeApp();

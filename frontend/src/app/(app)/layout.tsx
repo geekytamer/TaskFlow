@@ -19,6 +19,9 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useCompany } from '@/context/company-context';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
 import { useI18n } from '@/context/i18n-context';
+import { TourProvider } from '@/components/tutorial/tour-context';
+import { TourOverlay } from '@/components/tutorial/tour-overlay';
+import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-launcher';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading: authLoading } = useAuthGuard();
@@ -41,7 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
+    <TourProvider>
       <Sidebar side={isRtl ? 'right' : 'left'}>
         <SidebarHeader className="p-4">
           <div className="flex items-center gap-2">
@@ -54,9 +57,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarHeader>
         <SidebarContent>
-            <SidebarNav />
+          <SidebarNav />
         </SidebarContent>
         <SidebarFooter>
+          <div className="px-2 pb-1">
+            <TourHelpButton />
+          </div>
           <UserNav />
         </SidebarFooter>
       </Sidebar>
@@ -70,6 +76,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </SidebarInset>
-    </>
+      <TourOverlay />
+      <WelcomeTourModal />
+    </TourProvider>
   );
 }

@@ -38,6 +38,7 @@ export interface CreateSupplierInput {
 
 export interface CreatePurchaseOrderInput {
   supplierId: string;
+  contactId?: string;
   orderDate: Date;
   expectedDate?: Date;
   status: PurchaseOrderStatus;

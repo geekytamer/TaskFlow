@@ -391,13 +391,19 @@ function wordFallbackTranslate(text: string): string {
 }
 
 function isArabicUi() {
-  if (typeof window !== 'undefined') {
-    const storedLanguage = window.localStorage.getItem('taskflow_language');
-    if (storedLanguage === 'en' || storedLanguage === 'ar') {
-      return storedLanguage === 'ar';
-    }
+  // Primary: read from document.documentElement.lang, which i18n-context keeps in sync
+  // with the React language state. This means localizeUiNode re-evaluates correctly
+  // whenever components re-render after a language change.
+  if (typeof document !== 'undefined') {
+    const lang = document.documentElement.lang?.toLowerCase();
+    if (lang === 'ar' || lang === 'en') return lang === 'ar';
   }
-  return typeof document !== 'undefined' && document.documentElement.lang?.toLowerCase().startsWith('ar');
+  // Fallback for SSR / before i18n-context mounts
+  try {
+    const stored = localStorage.getItem('taskflow_language');
+    if (stored === 'en' || stored === 'ar') return stored === 'ar';
+  } catch {}
+  return false;
 }
 
 export function localizeUiText(text: string): string {

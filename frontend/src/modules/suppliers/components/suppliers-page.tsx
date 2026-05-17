@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { getCurrentLocale } from '@/lib/locale';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,382 +18,291 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
-import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
-import { getSupplierPayables } from '@/services/financeService';
+import { useI18n } from '@/context/i18n-context';
+import { useToast } from '@/hooks/use-toast';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
-import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
-import { createSupplier, getPurchaseOrders, getSuppliers } from '@/services/operationsService';
-import type { PurchaseOrder, Supplier } from '@/modules/operations/types';
+import { getContacts, createContact, type Contact } from '@/services/contactService';
+import { getSupplierPayables } from '@/services/financeService';
+import { getPurchaseOrders } from '@/services/operationsService';
+import type { PurchaseOrder } from '@/modules/operations/types';
 import type { SupplierPayablesSummary } from '@/modules/finance/types';
-import { Truck } from 'lucide-react';
-import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { Building2, User, Plus, Search } from 'lucide-react';
 
 type SupplierForm = {
   name: string;
-  contactName: string;
+  contactPerson: string;
   email: string;
   phone: string;
-  paymentTermsDays: string;
+  address: string;
   notes: string;
 };
 
 const emptyForm = (): SupplierForm => ({
   name: '',
-  contactName: '',
+  contactPerson: '',
   email: '',
   phone: '',
-  paymentTermsDays: '30',
+  address: '',
   notes: '',
 });
 
 export function SuppliersPage() {
   const { selectedCompany } = useCompany();
+  const { amount } = useCompanyCurrency();
+  const { t } = useI18n();
   const { toast } = useToast();
-  const { money, amount } = useCompanyCurrency();
-  const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
+  const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [payables, setPayables] = React.useState<SupplierPayablesSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [openCreate, setOpenCreate] = React.useState(false);
-  const [selectedSupplier, setSelectedSupplier] = React.useState<Supplier | null>(null);
   const [search, setSearch] = React.useState('');
-  const [form, setForm] = React.useState<SupplierForm>(emptyForm);
-
-  const load = React.useCallback(async () => {
-    if (!selectedCompany) {
-      setSuppliers([]);
-      setOrders([]);
-      setPayables([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [supplierData, orderData, payableData] = await Promise.all([
-        getSuppliers(selectedCompany.id),
-        getPurchaseOrders(selectedCompany.id),
-        getSupplierPayables(selectedCompany.id),
-      ]);
-      setSuppliers(supplierData);
-      setOrders(orderData);
-      setPayables(payableData);
-    } catch (error: any) {
-      setSuppliers([]);
-      setOrders([]);
-      setPayables([]);
-      toast({
-        variant: 'destructive',
-        title: 'Suppliers unavailable',
-        description: error?.message || 'Could not load suppliers.',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCompany, toast]);
+  const [openCreate, setOpenCreate] = React.useState(false);
+  const [form, setForm] = React.useState<SupplierForm>(emptyForm());
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!selectedCompany) {
+        setContacts([]);
+        setOrders([]);
+        setPayables([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const [contactData, orderData, payableData] = await Promise.all([
+          getContacts(selectedCompany.id, 'Vendor'),
+          getPurchaseOrders(selectedCompany.id),
+          getSupplierPayables(selectedCompany.id),
+        ]);
+        if (!cancelled) {
+          setContacts(contactData);
+          setOrders(orderData);
+          setPayables(payableData);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
     load();
-  }, [load]);
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
 
-  const supplierMetrics = React.useMemo(() => {
-    const map = new Map<string, { orderCount: number; spend: number; lastOrderDate?: Date }>();
-    suppliers.forEach((supplier) => {
-      const supplierOrders = orders.filter(
-        (order) => order.supplierId === supplier.id || order.supplierName === supplier.name,
-      );
-      map.set(supplier.id, {
+  const contactMetrics = React.useMemo(() => {
+    const map = new Map<string, { orderCount: number; spend: number }>();
+    contacts.forEach((contact: Contact) => {
+      const lookupId = contact.supplierId || contact.id;
+      const supplierOrders = orders.filter((o: PurchaseOrder) => o.supplierId === lookupId);
+      map.set(contact.id, {
         orderCount: supplierOrders.length,
-        spend: supplierOrders.reduce((sum, order) => sum + order.totalAmount, 0),
-        lastOrderDate: supplierOrders[0]?.orderDate,
+        spend: supplierOrders.reduce((sum: number, o: PurchaseOrder) => sum + o.totalAmount, 0),
       });
     });
     return map;
-  }, [orders, suppliers]);
+  }, [contacts, orders]);
 
   const payablesMap = React.useMemo(() => {
     const map = new Map<string, SupplierPayablesSummary>();
-    payables.forEach((summary) => map.set(summary.supplierId, summary));
+    payables.forEach((p: SupplierPayablesSummary) => map.set(p.supplierId, p));
     return map;
   }, [payables]);
 
-  const filteredSuppliers = React.useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return suppliers;
-    return suppliers.filter((supplier) =>
-      [
-        supplier.reference,
-        supplier.name,
-        supplier.contactName || '',
-        supplier.email || '',
-        supplier.phone || '',
-      ].some((value) => value.toLowerCase().includes(query)),
+  const openPayablesTotal = React.useMemo(
+    () => payables.reduce((sum: number, p: SupplierPayablesSummary) => sum + p.openPayables, 0),
+    [payables],
+  );
+
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c: Contact) =>
+      c.name.toLowerCase().includes(q) ||
+      c.email?.toLowerCase().includes(q) ||
+      c.contactPerson?.toLowerCase().includes(q),
     );
-  }, [search, suppliers]);
+  }, [contacts, search]);
 
   const handleCreate = async () => {
-    if (!selectedCompany) return;
-    if (!form.name.trim()) {
-      toast({
-        variant: 'destructive',
-        title: 'Missing required fields',
-        description: 'Supplier name is required.',
-      });
-      return;
-    }
-
+    if (!selectedCompany || !form.name.trim()) return;
+    setSaving(true);
     try {
-      await createSupplier(selectedCompany.id, {
+      const contact = await createContact({
+        companyId: selectedCompany.id,
+        kind: 'Organization',
         name: form.name.trim(),
-        contactName: form.contactName.trim() || undefined,
+        contactPerson: form.contactPerson.trim() || undefined,
         email: form.email.trim() || undefined,
         phone: form.phone.trim() || undefined,
-        paymentTermsDays: form.paymentTermsDays ? Number(form.paymentTermsDays) : undefined,
+        address: form.address.trim() || undefined,
         notes: form.notes.trim() || undefined,
-        isActive: true,
+        roles: ['Vendor'],
       });
+      setContacts((prev: Contact[]) => [...prev, contact]);
       setOpenCreate(false);
       setForm(emptyForm());
-      await load();
-      toast({ title: 'Supplier created' });
-    } catch (error: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Create failed',
-        description: error?.message || 'Could not create supplier.',
-      });
+      toast({ title: t('contacts.created') });
+    } catch {
+      toast({ title: t('common.error'), variant: 'destructive' });
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (!selectedCompany) {
-    return (
-      <SectionPageShell
-        title="Suppliers"
-        description="Maintain vendor records used by purchasing, preferred stock sources, and payables."
-      >
-        <SectionEmptyState
-          title="Choose a company to continue"
-          description="Supplier records are stored per company. Switch into a company first to manage vendors, linked orders, and open payable exposure."
-        />
-      </SectionPageShell>
-    );
-  }
-
   return (
     <SectionPageShell
-      title="Suppliers"
-      description="Maintain vendor records used by purchasing, preferred stock sources, and payable workflows. Non-stock purchases are controlled at the item level through inventory tracking."
+      title={t('sections.suppliers.title')}
+      description={t('sections.suppliers.description')}
+      actions={
+        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+          <DialogTrigger asChild>
+            <Button size="sm"><Plus className="h-4 w-4 mr-1" />{t('suppliers.addSupplier')}</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{t('suppliers.createTitle')}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <Label>{t('contacts.name')} *</Label>
+                <Input value={form.name} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <Label>{t('contacts.contactPerson')}</Label>
+                <Input value={form.contactPerson} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, contactPerson: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>{t('contacts.email')}</Label>
+                  <Input type="email" value={form.email} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, email: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>{t('contacts.phone')}</Label>
+                  <Input value={form.phone} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, phone: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <Label>{t('contacts.address')}</Label>
+                <Input value={form.address} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, address: e.target.value }))} />
+              </div>
+              <div>
+                <Label>{t('contacts.notes')}</Label>
+                <Textarea value={form.notes} rows={2} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
+              <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      }
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active Suppliers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('suppliers.statSuppliers')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{suppliers.filter((supplier) => supplier.isActive).length}</div>
+            {loading ? <Skeleton className="h-8 w-14" /> : <div className="text-2xl font-bold">{contacts.length}</div>}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Linked Purchase Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('suppliers.statPurchaseOrders')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{orders.length}</div>
+            {loading ? <Skeleton className="h-8 w-14" /> : <div className="text-2xl font-bold">{orders.length}</div>}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Open Supplier Payables</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('suppliers.statOpenPayables')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {amount(payables.reduce((sum, summary) => sum + summary.openPayables, 0))}
-            </div>
+            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{amount(openPayablesTotal)}</div>}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Suppliers To Bill</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('suppliers.statToBill')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {payables.filter((summary) => summary.remainingToBill > 0).length}
-            </div>
+            {loading ? <Skeleton className="h-8 w-14" /> : (
+              <div className="text-2xl font-bold">
+                {payables.filter((p: SupplierPayablesSummary) => p.remainingToBill > 0).length}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <SectionToolbar
-        search={(
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name, contact, email, or phone"
-            className="max-w-md"
-          />
-        )}
-        summary={`Showing ${filteredSuppliers.length} of ${suppliers.length} suppliers`}
-        actions={(
-          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-          <DialogTrigger asChild>
-            <Button>
-              <Truck className="me-2 h-4 w-4" />
-              New Supplier
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Create Supplier</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-3 py-2 sm:grid-cols-2">
-              <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:col-span-2">
-                Supplier reference is generated automatically when the record is saved.
-              </div>
-              <div className="space-y-1">
-                <Label>Supplier Name</Label>
-                <Input value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label>Contact Name</Label>
-                <Input value={form.contactName} onChange={(event) => setForm((prev) => ({ ...prev, contactName: event.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label>Email</Label>
-                <Input value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label>Phone</Label>
-                <Input value={form.phone} onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label>Payment Terms (days)</Label>
-                <Input
-                  type="number"
-                  value={form.paymentTermsDays}
-                  onChange={(event) => setForm((prev) => ({ ...prev, paymentTermsDays: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label>Notes</Label>
-                <Textarea value={form.notes} onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpenCreate(false)}>Cancel</Button>
-              <Button onClick={handleCreate}>Create Supplier</Button>
-            </DialogFooter>
-          </DialogContent>
-          </Dialog>
-        )}
-      />
+      <div className="relative max-w-sm">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          className="pl-8"
+          placeholder={t('contacts.searchPlaceholder')}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(5)].map((_: unknown, i: number) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      ) : filtered.length === 0 ? (
+        <SectionEmptyState
+          title={t('suppliers.emptyTitle')}
+          description={t('suppliers.emptyDescription')}
+        />
+      ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Supplier</TableHead>
-              <TableHead>Reference</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Terms</TableHead>
-              <TableHead>Purchase Activity</TableHead>
-              <TableHead>Payables</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t('contacts.name')}</TableHead>
+              <TableHead>{t('contacts.contactPerson')}</TableHead>
+              <TableHead>{t('contacts.email')}</TableHead>
+              <TableHead>{t('contacts.phone')}</TableHead>
+              <TableHead className="text-end">{t('suppliers.colOrders')}</TableHead>
+              <TableHead className="text-end">{t('suppliers.colPayables')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading &&
-              Array.from({ length: 5 }).map((_, index) => (
-                <TableRow key={index}>
-                  <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-20" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-36" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-20" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-28" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-28" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+            {filtered.map((c: Contact) => {
+              const metrics = contactMetrics.get(c.id);
+              const lookupId = c.supplierId || c.id;
+              const payable = payablesMap.get(lookupId);
+              return (
+                <TableRow key={c.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {c.kind === 'Organization' ? (
+                        <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                      ) : (
+                        <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      {c.name}
+                    </div>
+                  </TableCell>
+                  <TableCell>{c.contactPerson ?? '—'}</TableCell>
+                  <TableCell>{c.email ?? '—'}</TableCell>
+                  <TableCell>{c.phone ?? '—'}</TableCell>
+                  <TableCell className="text-end">{metrics?.orderCount ?? 0}</TableCell>
+                  <TableCell className="text-end">
+                    {payable?.openPayables ? (
+                      <Badge variant="outline" className="text-orange-600">{amount(payable.openPayables)}</Badge>
+                    ) : '—'}
+                  </TableCell>
                 </TableRow>
-              ))}
-            {!loading && filteredSuppliers.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  {suppliers.length === 0
-                    ? 'No suppliers yet. Create one to connect purchasing and preferred stock sources.'
-                    : 'No suppliers match the current search.'}
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading &&
-              filteredSuppliers.map((supplier) => {
-                const metrics = supplierMetrics.get(supplier.id);
-                const payable = payablesMap.get(supplier.id);
-                return (
-                  <TableRow
-                    key={supplier.id}
-                    className="cursor-pointer"
-                    onClick={() => setSelectedSupplier(supplier)}
-                  >
-                    <TableCell>
-                      <div className="space-y-1">
-                        <p className="font-medium">{supplier.name}</p>
-                        {supplier.notes && (
-                          <p className="max-w-md truncate text-xs text-muted-foreground">{supplier.notes}</p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{supplier.reference}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
-                        <div>{supplier.contactName || '—'}</div>
-                        <div className="text-muted-foreground">{supplier.email || supplier.phone || '—'}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{supplier.paymentTermsDays ? `${supplier.paymentTermsDays} days` : '—'}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
-                        <div>{metrics?.orderCount || 0} orders</div>
-                        <div className="text-muted-foreground">
-                          {metrics?.lastOrderDate ? `Last order ${metrics.lastOrderDate.toLocaleDateString(getCurrentLocale())}` : 'No orders yet'}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
-                        <div>
-                          Open{' '}
-                          {amount(payable?.openPayables || 0)}
-                        </div>
-                        <div className="text-muted-foreground">
-                          To bill{' '}
-                          {amount(payable?.remainingToBill || 0)}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{supplier.isActive ? 'Active' : 'Inactive'}</Badge>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              );
+            })}
           </TableBody>
         </Table>
-      </div>
-
-      <Dialog open={!!selectedSupplier} onOpenChange={(open) => !open && setSelectedSupplier(null)}>
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{selectedSupplier?.name}</DialogTitle>
-          </DialogHeader>
-          {selectedSupplier && selectedCompany && (
-            <RecordSupportPanel
-              companyId={selectedCompany.id}
-              entityType="supplier"
-              entityId={selectedSupplier.id}
-              title="Supplier Attachments & Timeline"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      )}
     </SectionPageShell>
   );
 }

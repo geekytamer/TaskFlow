@@ -74,13 +74,13 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     await fetchProjects();
 
     if (accessibleCompanies.length > 0) {
-      const storedCompanyId = localStorage.getItem('selectedCompanyId');
+      const storedCompanyId = (() => { try { return localStorage.getItem('selectedCompanyId'); } catch { return null; } })();
       // Ensure the stored company is one the user can actually access
       const companyToSelect = accessibleCompanies.find(c => c.id === storedCompanyId) || accessibleCompanies[0];
       
       if (!selectedCompany || selectedCompany.id !== companyToSelect.id) {
         setSelectedCompany(companyToSelect);
-        localStorage.setItem('selectedCompanyId', companyToSelect.id);
+        try { localStorage.setItem('selectedCompanyId', companyToSelect.id); } catch {}
       }
     } else {
       setSelectedCompany(null);
@@ -103,9 +103,9 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const handleSetSelectedCompany = (company: Company | null) => {
     setSelectedCompany(company);
     if (company) {
-      localStorage.setItem('selectedCompanyId', company.id);
+      try { localStorage.setItem('selectedCompanyId', company.id); } catch {}
     } else {
-      localStorage.removeItem('selectedCompanyId');
+      try { localStorage.removeItem('selectedCompanyId'); } catch {}
     }
   };
 

@@ -59,6 +59,7 @@ export interface PurchaseOrder {
   orderNumber: string;
   supplierName: string;
   supplierId?: string;
+  contactId?: string;
   orderDate: Date;
   expectedDate?: Date;
   status: PurchaseOrderStatus;

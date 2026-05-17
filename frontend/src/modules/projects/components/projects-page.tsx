@@ -25,19 +25,19 @@ export function ProjectsPage() {
           </p>
         </div>
         {user && canManageProjects(currentRole) && (
-           <div className="flex items-center gap-2">
+           <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
               <CreateProjectSheet />
           </div>
         )}
       </div>
 
-      <ProjectList />
+      <div data-tutorial="projects-list"><ProjectList /></div>
 
       <div className="flex-1 overflow-hidden">
           <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold font-headline">{t('projects.allTasks')}</h2>
           </div>
-          <ProjectTable />
+          <div data-tutorial="projects-tasks-table"><ProjectTable /></div>
       </div>
 
       <ActivityFeed

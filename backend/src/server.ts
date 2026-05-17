@@ -9,9 +9,11 @@ import {
   type InvoiceTemplateLayout,
   type InvoiceLineItem,
   type JournalEntryLine,
-  type Project,
-  type PurchaseOrderLineItem,
-  type SalesOrderLineItem,
+	  type Project,
+	  type ProjectVisibility,
+	  type PurchaseOrderLineItem,
+	  type ProposalLineItem,
+	  type SalesOrderLineItem,
   type SanitizedUser,
   type UserRole,
   type VendorBillStatus,
@@ -19,9 +21,24 @@ import {
   type LedgerAccountType,
   type PurchaseOrderStatus,
   type SalesOrderStatus,
+  type DeliveryStatus,
   type NumberingEntityType,
   type RecordEntityType,
-} from './types';
+	  activityCategories,
+	  leadStatuses,
+	  leadSources,
+	  contactPriorities,
+		  opportunityStages,
+		  campaignStatuses,
+		  proposalStatuses,
+		  vendorRequestStatuses,
+		  commissionBases,
+		  commissionRateTypes,
+		  commissionStatuses,
+		  campaignDeliverableStatuses,
+		  campaignAssignmentStatuses,
+		  campaignExpenseStatuses,
+		} from './types';
 import {
   HttpError,
   canAccessCompany,
@@ -61,6 +78,7 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
   'Cancelled',
 ];
 const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
+const deliveryStatuses: DeliveryStatus[] = ['Pending', 'Shipped', 'Delivered', 'Cancelled'];
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -71,7 +89,12 @@ const ledgerAccountTypes: LedgerAccountType[] = [
 const userRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
 const companyManagementRoles: UserRole[] = ['Admin', 'Manager', 'Accountant'];
 const clientStatuses = ['Lead', 'Active', 'At Risk', 'Inactive'] as const;
+const contactRoles = ['Lead', 'Client', 'Vendor', 'Influencer', 'Partner'] as const;
 const activityEntityTypes = [
+  'contact',
+  'opportunity',
+  'vendor_request',
+  'commission',
   'client',
   'project',
   'task',
@@ -270,6 +293,24 @@ const parseSalesOrderItems = (value: unknown): SalesOrderLineItem[] => {
   });
 };
 
+const parseProposalItems = (value: unknown): ProposalLineItem[] => {
+  const rows = requiredArray<unknown>(value, 'items');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'items must contain at least one proposal line item.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    const quantity = requiredNumber(record.quantity ?? 1, `items[${index}].quantity`);
+    const unitPrice = requiredNumber(record.unitPrice, `items[${index}].unitPrice`);
+    return {
+      description: requiredString(record.description, `items[${index}].description`, { min: 2 }),
+      quantity,
+      unitPrice,
+      lineTotal: requiredNumber(record.lineTotal ?? quantity * unitPrice, `items[${index}].lineTotal`),
+    };
+  });
+};
+
 const parsePurchaseReceiptItems = (
   value: unknown,
 ): Array<{ lineIndex: number; quantity: number }> => {
@@ -353,6 +394,19 @@ export function createServer(options: CreateServerOptions = {}) {
       req.user ? { userId: req.user.id, name: req.user.name } : undefined,
       fn,
     );
+
+  // Auto-convert a contact to Client when a transaction is created for them
+  const autoConvertContactToClient = (contactId: string | undefined, companyId: string) => {
+    if (!contactId) return;
+    const contact = store.getContactById(contactId);
+    if (!contact || contact.companyId !== companyId) return;
+    if (!contact.roles?.includes('Client')) {
+      store.addContactRole(contactId, companyId, 'Client', 'Manual');
+    }
+    if (contact.leadStatus && contact.leadStatus !== 'Won') {
+      store.updateContact(contactId, { leadStatus: 'Won', convertedToClientAt: new Date() });
+    }
+  };
 
   const requireAdmin = (req: AuthedRequest) => {
     if (!req.user || req.user.role !== 'Admin') {
@@ -722,6 +776,7 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
       clientId: record.clientId !== undefined ? requiredString(record.clientId, 'clientId') : undefined,
+      contactId: record.contactId !== undefined ? optionalString(record.contactId) : undefined,
       salesOrderId: record.salesOrderId !== undefined ? optionalString(record.salesOrderId) : undefined,
       templateId: record.templateId !== undefined ? optionalString(record.templateId) : undefined,
       issueDate: record.issueDate !== undefined ? requiredDateInput(record.issueDate, 'issueDate') : undefined,
@@ -1465,6 +1520,1104 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Contacts ────────────────────────────────────────────────────────────
+
+	  app.get(
+	    '/companies/:companyId/contacts',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const role = req.query.role as string | undefined;
+	      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+	      const viewer = { userId: req.user!.id, role: effectiveRole ?? 'Employee' };
+	      const contacts = store.listContacts(req.params.companyId, role as any, viewer);
+	      res.json(contacts);
+	    }),
+	  );
+
+  app.post(
+    '/companies/:companyId/contacts',
+    authMiddleware,
+    handler((req, res) => {
+	      const { companyId } = req.params;
+	      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const body = asRecord(req.body, 'body');
+	      const effectiveRole = getEffectiveRole(req.user!, companyId);
+	      const contact = store.createContact({
+        companyId,
+        kind: (optionalString(body.kind) as any) ?? 'Organization',
+        name: requiredString(body.name, 'name'),
+        legalName: optionalString(body.legalName),
+        contactPerson: optionalString(body.contactPerson),
+        email: optionalString(body.email),
+        phone: optionalString(body.phone),
+        address: optionalString(body.address),
+        taxNumber: optionalString(body.taxNumber),
+		        tags: Array.isArray(body.tags) ? body.tags : undefined,
+		        notes: optionalString(body.notes),
+		        roles: Array.isArray(body.roles) ? body.roles : undefined,
+		        leadStatus: body.leadStatus !== undefined ? enumValue(body.leadStatus, 'leadStatus', leadStatuses) : undefined,
+		        leadSource: body.leadSource !== undefined ? enumValue(body.leadSource, 'leadSource', leadSources) : undefined,
+		        priority: body.priority !== undefined ? enumValue(body.priority, 'priority', contactPriorities) : undefined,
+		        ownerUserId: effectiveRole === 'Employee' ? req.user!.id : optionalString(body.ownerUserId),
+		        ownerName: effectiveRole === 'Employee' ? req.user!.name : optionalString(body.ownerName),
+		        nextFollowupDate: body.nextFollowupDate ? new Date(optionalDateInput(body.nextFollowupDate)!) : undefined,
+		        nextFollowupNote: optionalString(body.nextFollowupNote),
+		        influencerPlatform: optionalString(body.influencerPlatform),
+	        influencerHandle: optionalString(body.influencerHandle),
+	        influencerNiche: optionalString(body.influencerNiche),
+	        followerCount: optionalNumber(body.followerCount),
+	        engagementRate: optionalNumber(body.engagementRate),
+	        rateCardAmount: optionalNumber(body.rateCardAmount),
+	        location: optionalString(body.location),
+	        languages: Array.isArray(body.languages) ? body.languages.map((item, index) => requiredString(item, `languages[${index}]`)) : undefined,
+	        availabilityStatus: optionalString(body.availabilityStatus),
+	      });
+      res.status(201).json(contact);
+    }),
+  );
+
+  app.get(
+    '/contacts/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      res.json(contact);
+    }),
+  );
+
+  app.put(
+    '/contacts/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getContactById(req.params.id);
+      if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const contact = store.updateContact(req.params.id, {
+        kind: optionalString(body.kind) as any,
+        name: optionalString(body.name),
+        legalName: optionalString(body.legalName),
+        contactPerson: optionalString(body.contactPerson),
+        email: optionalString(body.email),
+        phone: optionalString(body.phone),
+        address: optionalString(body.address),
+        taxNumber: optionalString(body.taxNumber),
+	        tags: Array.isArray(body.tags) ? body.tags : undefined,
+	        notes: optionalString(body.notes),
+	        influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : undefined,
+	        influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : undefined,
+	        influencerNiche: body.influencerNiche !== undefined ? optionalString(body.influencerNiche) : undefined,
+	        followerCount: body.followerCount !== undefined ? optionalNumber(body.followerCount) : undefined,
+	        engagementRate: body.engagementRate !== undefined ? optionalNumber(body.engagementRate) : undefined,
+	        rateCardAmount: body.rateCardAmount !== undefined ? optionalNumber(body.rateCardAmount) : undefined,
+	        location: body.location !== undefined ? optionalString(body.location) : undefined,
+	        languages: body.languages !== undefined
+	          ? requiredArray(body.languages, 'languages').map((item, index) => requiredString(item, `languages[${index}]`))
+	          : undefined,
+	        availabilityStatus: body.availabilityStatus !== undefined ? optionalString(body.availabilityStatus) : undefined,
+	      });
+      res.json(contact);
+    }),
+  );
+
+  app.post(
+    '/contacts/:id/roles',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const role = requiredString(body.role, 'role') as any;
+      store.addContactRole(req.params.id, contact.companyId, role, 'Manual');
+      res.json(store.getContactById(req.params.id));
+    }),
+  );
+
+  app.delete(
+    '/contacts/:id/roles/:role',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      store.removeContactRole(req.params.id, req.params.role as any);
+      res.json(store.getContactById(req.params.id));
+    }),
+  );
+
+  app.delete(
+    '/contacts/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      store.deleteContact(req.params.id);
+      res.status(204).end();
+    }),
+  );
+
+  // ─── CRM: Activities ─────────────────────────────────────────────────────
+
+  app.post(
+    '/contacts/:id/activities',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const activity = withActor(req, () =>
+        store.createCrmActivity({
+          companyId: contact.companyId,
+          contactId: req.params.id,
+          category: enumValue(body.category, 'category', activityCategories),
+          summary: requiredString(body.summary, 'summary', { min: 1 }),
+          outcome: optionalString(body.outcome),
+          nextAction: optionalString(body.nextAction),
+          nextActionDueDate: body.nextActionDueDate
+            ? new Date(optionalDateInput(body.nextActionDueDate)!)
+            : undefined,
+          durationMinutes: body.durationMinutes ? optionalNumber(body.durationMinutes) : undefined,
+        }),
+      );
+      res.status(201).json(activity);
+    }),
+  );
+
+  app.get(
+    '/contacts/:id/activities',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      res.json(store.listActivityEvents(contact.companyId, { entityType: 'contact', entityId: req.params.id, limit }));
+    }),
+  );
+
+  // PATCH for CRM-specific contact fields (leadStatus, priority, followup, etc.)
+  app.patch(
+    '/contacts/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const contact = store.getContactById(req.params.id);
+      if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
+      requireCompanyRoles(req, contact.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      const effectiveRolePatch = getEffectiveRole(req.user!, contact.companyId);
+      // Employees can only patch contacts they own
+      if (effectiveRolePatch === 'Employee' && contact.ownerUserId && contact.ownerUserId !== req.user!.id) {
+        throw new HttpError(403, 'You can only update your own contacts.');
+      }
+      const body = asRecord(req.body, 'body');
+      const updated = store.updateContact(req.params.id, {
+        leadStatus: body.leadStatus !== undefined ? enumValue(body.leadStatus, 'leadStatus', leadStatuses) : undefined,
+        leadSource: body.leadSource !== undefined ? enumValue(body.leadSource, 'leadSource', leadSources) : undefined,
+        priority: body.priority !== undefined ? enumValue(body.priority, 'priority', contactPriorities) : undefined,
+        ownerUserId: body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
+        ownerName: body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
+        nextFollowupDate:
+          body.nextFollowupDate !== undefined
+            ? body.nextFollowupDate
+              ? new Date(optionalDateInput(body.nextFollowupDate)!)
+              : null
+            : undefined,
+        nextFollowupNote: body.nextFollowupNote !== undefined ? optionalString(body.nextFollowupNote) : undefined,
+        visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as const) : undefined,
+      });
+      res.json(updated);
+    }),
+  );
+
+  // ─── CRM: Follow-ups ─────────────────────────────────────────────────────
+
+	  app.get(
+	    '/companies/:companyId/followups',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const contactId = optionalString(req.query.contactId);
+	      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+	      const requestedOwnerUserId = optionalString(req.query.ownerUserId);
+	      const ownerUserId = effectiveRole === 'Employee' ? req.user!.id : requestedOwnerUserId;
+	      const overdueParam = req.query.overdue;
+      const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : 100;
+      const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit });
+      // Enrich with contact info
+      const enriched = followups.map((f) => {
+        const contact = store.getContactById(f.entityId);
+        return { ...f, contact: contact ? { id: contact.id, name: contact.name, email: contact.email, roles: contact.roles } : null };
+      });
+	      res.json(enriched);
+	    }),
+	  );
+
+		  // ─── CRM: Opportunities ──────────────────────────────────────────────────
+
+		  app.get(
+		    '/companies/:companyId/crm-dashboard',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const ownerParam = optionalString(req.query.ownerUserId);
+		      const ownerUserId = ownerParam === 'me' ? req.user!.id : ownerParam;
+		      if (ownerUserId && ownerUserId !== req.user!.id) {
+		        requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+		      }
+		      res.json(store.getCrmDashboardSummary(req.params.companyId, ownerUserId));
+		    }),
+		  );
+
+	  app.get(
+    '/companies/:companyId/crm-performance',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const users = store.getUsersByCompany(req.params.companyId);
+      const results = users.map((user) => {
+        const s = store.getCrmDashboardSummary(req.params.companyId, user.id);
+        return {
+          userId: user.id,
+          userName: user.name,
+          role: user.role,
+          openLeads: s.openLeads,
+          wonDeals: s.wonDeals,
+          lostDeals: s.lostDeals,
+          wonRevenue: s.wonRevenue,
+          openOpportunities: s.openOpportunities,
+          openOpportunityValue: s.openOpportunityValue,
+          openFollowups: s.openFollowups,
+          overdueFollowups: s.overdueFollowups,
+          openTasks: s.openTasks,
+          commissionDraft: s.commissionDraft,
+          commissionApproved: s.commissionApproved,
+          conversionRate: s.openLeads + s.wonDeals > 0
+            ? Math.round((s.wonDeals / (s.openLeads + s.wonDeals)) * 100)
+            : 0,
+        };
+      });
+      res.json(results);
+    }),
+  );
+
+	  app.get(
+		    '/companies/:companyId/opportunities',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const opportunities = store.listOpportunities(req.params.companyId);
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      res.json(effectiveRole === 'Employee' ? opportunities.filter((item) => item.ownerUserId === req.user!.id) : opportunities);
+		    }),
+		  );
+
+	  app.post(
+	    '/companies/:companyId/opportunities',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const body = asRecord(req.body, 'body');
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      const opportunity = withActor(req, () =>
+		        store.createOpportunity({
+	          companyId: req.params.companyId,
+	          contactId: requiredString(body.contactId, 'contactId'),
+		          ownerUserId: effectiveRole === 'Employee' ? req.user!.id : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : req.user!.id,
+		          ownerName: effectiveRole === 'Employee' ? req.user!.name : body.ownerName !== undefined ? optionalString(body.ownerName) : req.user!.name,
+	          title: requiredString(body.title, 'title', { min: 2 }),
+	          serviceType: requiredString(body.serviceType, 'serviceType', { min: 2 }),
+	          stage: body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : 'New',
+	          expectedRevenue: optionalNumber(body.expectedRevenue) ?? 0,
+	          probability: optionalNumber(body.probability) ?? 0,
+	          expectedCloseDate: body.expectedCloseDate ? new Date(optionalDateInput(body.expectedCloseDate)!) : undefined,
+	          notes: optionalString(body.notes),
+	        }),
+	      );
+	      res.status(201).json(opportunity);
+	    }),
+	  );
+
+		  app.patch(
+		    '/opportunities/:id/stage',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = store.getOpportunityById(req.params.id);
+	      if (!existing) throw new HttpError(404, 'Opportunity not found.');
+	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+	      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+	        throw new HttpError(403, 'You can only update your own opportunities.');
+	      }
+	      const body = asRecord(req.body, 'body');
+	      const newStage = enumValue(body.stage, 'stage', opportunityStages);
+	      const updated = withActor(req, () => store.updateOpportunityStage(req.params.id, newStage));
+	      if (!updated) throw new HttpError(404, 'Opportunity not found.');
+	      if (newStage === 'Won') {
+	        store.calculateCommissionsForOpportunity(req.params.id);
+	        autoConvertContactToClient(existing.contactId, existing.companyId);
+	      }
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.put(
+		    '/opportunities/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getOpportunityById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Opportunity not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+		      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+		        throw new HttpError(403, 'You can only edit your own opportunities.');
+		      }
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateOpportunity(req.params.id, {
+		          contactId: body.contactId !== undefined ? requiredString(body.contactId, 'contactId') : undefined,
+		          ownerUserId: effectiveRole === 'Employee' ? existing.ownerUserId : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
+		          ownerName: effectiveRole === 'Employee' ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
+		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,
+		          serviceType: body.serviceType !== undefined ? requiredString(body.serviceType, 'serviceType', { min: 2 }) : undefined,
+		          stage: body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : undefined,
+		          expectedRevenue: body.expectedRevenue !== undefined ? optionalNumber(body.expectedRevenue) ?? 0 : undefined,
+		          probability: body.probability !== undefined ? optionalNumber(body.probability) ?? 0 : undefined,
+		          expectedCloseDate:
+		            body.expectedCloseDate !== undefined && body.expectedCloseDate ? new Date(optionalDateInput(body.expectedCloseDate)!) : undefined,
+		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		        }),
+		      );
+		      if (!updated) throw new HttpError(404, 'Opportunity not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.delete(
+		    '/opportunities/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getOpportunityById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Opportunity not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+		      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+		        throw new HttpError(403, 'You can only archive your own opportunities.');
+		      }
+		      const updated = withActor(req, () => store.updateOpportunity(req.params.id, { stage: 'Cancelled' }));
+		      if (!updated) throw new HttpError(404, 'Opportunity not found.');
+		      res.status(204).end();
+		    }),
+		  );
+
+		  // ─── CRM: Proposals / Quotes ────────────────────────────────────────────
+
+		  app.get(
+		    '/companies/:companyId/proposals',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const proposals = store.listCrmProposals(req.params.companyId);
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      if (effectiveRole !== 'Employee') {
+		        res.json(proposals);
+		        return;
+		      }
+		      const ownedOpportunityIds = new Set(
+		        store.listOpportunities(req.params.companyId)
+		          .filter((opportunity) => opportunity.ownerUserId === req.user!.id)
+		          .map((opportunity) => opportunity.id),
+		      );
+		      res.json(proposals.filter((proposal) => ownedOpportunityIds.has(proposal.opportunityId)));
+		    }),
+		  );
+
+		  app.post(
+		    '/companies/:companyId/proposals',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const body = asRecord(req.body, 'body');
+		      const opportunity = store.getOpportunityById(requiredString(body.opportunityId, 'opportunityId'));
+		      if (!opportunity || opportunity.companyId !== req.params.companyId) {
+		        throw new HttpError(400, 'Opportunity must belong to the selected company.');
+		      }
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      if (effectiveRole === 'Employee' && opportunity.ownerUserId !== req.user!.id) {
+		        throw new HttpError(403, 'You can only create proposals for your own opportunities.');
+		      }
+		      const proposal = withActor(req, () =>
+		        store.createCrmProposal({
+		          companyId: req.params.companyId,
+		          opportunityId: opportunity.id,
+		          title: requiredString(body.title, 'title', { min: 2 }),
+		          status: body.status !== undefined ? enumValue(body.status, 'status', proposalStatuses) : 'Draft',
+		          issueDate: body.issueDate ? new Date(optionalDateInput(body.issueDate)!) : new Date(),
+		          validUntil: body.validUntil ? new Date(optionalDateInput(body.validUntil)!) : undefined,
+		          items: parseProposalItems(body.items),
+		          notes: optionalString(body.notes),
+		        }),
+		      );
+		      res.status(201).json(proposal);
+		    }),
+		  );
+
+		  app.patch(
+		    '/proposals/:id/status',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCrmProposalById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Proposal not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+		      if (effectiveRole === 'Employee') {
+		        const opportunity = store.getOpportunityById(existing.opportunityId);
+		        if (opportunity?.ownerUserId !== req.user!.id) {
+		          throw new HttpError(403, 'You can only update your own proposals.');
+		        }
+		      }
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCrmProposalStatus(req.params.id, enumValue(body.status, 'status', proposalStatuses)),
+		      );
+		      if (!updated) throw new HttpError(404, 'Proposal not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.put(
+		    '/proposals/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCrmProposalById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Proposal not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+		      if (effectiveRole === 'Employee') {
+		        const opportunity = store.getOpportunityById(existing.opportunityId);
+		        if (opportunity?.ownerUserId !== req.user!.id) {
+		          throw new HttpError(403, 'You can only edit your own proposals.');
+		        }
+		      }
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCrmProposal(req.params.id, {
+		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', proposalStatuses) : undefined,
+		          issueDate: body.issueDate !== undefined && body.issueDate ? new Date(optionalDateInput(body.issueDate)!) : undefined,
+		          validUntil: body.validUntil !== undefined && body.validUntil ? new Date(optionalDateInput(body.validUntil)!) : undefined,
+		          items: body.items !== undefined ? parseProposalItems(body.items) : undefined,
+		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		        }),
+		      );
+		      if (!updated) throw new HttpError(404, 'Proposal not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.delete(
+		    '/proposals/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCrmProposalById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Proposal not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+		      if (effectiveRole === 'Employee') {
+		        const opportunity = store.getOpportunityById(existing.opportunityId);
+		        if (opportunity?.ownerUserId !== req.user!.id) {
+		          throw new HttpError(403, 'You can only archive your own proposals.');
+		        }
+		      }
+		      if (!store.deleteCrmProposal(req.params.id)) throw new HttpError(404, 'Proposal not found.');
+		      res.status(204).end();
+		    }),
+		  );
+
+		  // ─── CRM: Campaigns ─────────────────────────────────────────────────────
+
+		  app.get(
+		    '/companies/:companyId/campaigns',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const includeArchived = req.query.includeArchived === 'true';
+		      const campaigns = store.listCrmCampaigns(req.params.companyId, includeArchived);
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      res.json(effectiveRole === 'Employee' ? campaigns.filter((campaign) => campaign.ownerUserId === req.user!.id) : campaigns);
+		    }),
+		  );
+
+		  app.post(
+		    '/companies/:companyId/campaigns',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const body = asRecord(req.body, 'body');
+		      const contactId = optionalString(body.contactId);
+		      if (contactId) {
+		        const contact = store.getContactById(contactId);
+		        if (!contact || contact.companyId !== req.params.companyId) throw new HttpError(400, 'Contact must belong to the selected company.');
+		      }
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      const campaign = withActor(req, () =>
+		        store.createCrmCampaign({
+		          companyId: req.params.companyId,
+		          proposalId: optionalString(body.proposalId),
+		          opportunityId: optionalString(body.opportunityId),
+		          contactId,
+		          projectId: optionalString(body.projectId),
+		          name: requiredString(body.name, 'name', { min: 2 }),
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignStatuses) : 'Planned',
+		          startDate: body.startDate ? new Date(optionalDateInput(body.startDate)!) : undefined,
+		          endDate: body.endDate ? new Date(optionalDateInput(body.endDate)!) : undefined,
+		          budget: optionalNumber(body.budget),
+		          ownerUserId: effectiveRole === 'Employee' ? req.user!.id : optionalString(body.ownerUserId) ?? req.user!.id,
+		          ownerName: effectiveRole === 'Employee' ? req.user!.name : optionalString(body.ownerName) ?? req.user!.name,
+		          visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as ProjectVisibility[]) : 'Public',
+		          notes: optionalString(body.notes),
+		        }),
+		      );
+		      // Auto-assign 'Client' role to the contact when linked to a campaign
+		      if (contactId) {
+		        store.addContactRole(contactId, req.params.companyId, 'Client', 'Manual');
+		      }
+		      res.status(201).json(campaign);
+		    }),
+		  );
+
+		  app.put(
+		    '/campaigns/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCrmCampaignById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Campaign not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+		      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+		        throw new HttpError(403, 'You can only edit your own campaigns.');
+		      }
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCrmCampaign(req.params.id, {
+		          proposalId: body.proposalId !== undefined ? optionalString(body.proposalId) : undefined,
+		          opportunityId: body.opportunityId !== undefined ? optionalString(body.opportunityId) : undefined,
+		          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
+		          projectId: body.projectId !== undefined ? optionalString(body.projectId) : undefined,
+		          name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignStatuses) : undefined,
+		          startDate: body.startDate !== undefined && body.startDate ? new Date(optionalDateInput(body.startDate)!) : undefined,
+		          endDate: body.endDate !== undefined && body.endDate ? new Date(optionalDateInput(body.endDate)!) : undefined,
+		          budget: body.budget !== undefined ? optionalNumber(body.budget) : undefined,
+		          ownerUserId: effectiveRole === 'Employee' ? existing.ownerUserId : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
+		          ownerName: effectiveRole === 'Employee' ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
+		          visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as ProjectVisibility[]) : undefined,
+		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		        }),
+		      );
+		      if (!updated) throw new HttpError(404, 'Campaign not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.delete(
+		    '/campaigns/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCrmCampaignById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Campaign not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+		      if (!store.deleteCrmCampaign(req.params.id)) throw new HttpError(404, 'Campaign not found.');
+		      res.status(204).end();
+		    }),
+		  );
+
+		  app.post(
+		    '/companies/:companyId/campaigns/:campaignId/generate-invoice',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+		      const campaign = store.getCrmCampaignById(req.params.campaignId);
+		      if (!campaign || campaign.companyId !== req.params.companyId) {
+		        throw new HttpError(404, 'Campaign not found.');
+		      }
+		      if (campaign.invoiceId) {
+		        const existing = store.getInvoiceById(campaign.invoiceId);
+		        if (existing) { res.json(existing); return; }
+		      }
+		      const deliverables = store.listCampaignDeliverables(campaign.id);
+		      const lineItems = deliverables.map((d) => ({
+		        itemType: 'Manual' as const,
+		        description: d.title,
+		        quantity: 1,
+		        unitPrice: d.price || 0,
+		        amount: d.price || 0,
+		      }));
+		      // Resolve clientId — campaigns use contactId; find or create the linked client
+		      let clientId: string | undefined;
+		      if (campaign.contactId) {
+		        const contact = store.getContactById(campaign.contactId);
+		        if (contact) {
+		          store.addContactRole(contact.id, req.params.companyId, 'Client', 'Invoice');
+		          clientId = contact.id;
+		        }
+		      }
+		      if (!clientId) {
+		        // No contactId on campaign — throw a helpful error
+		        throw new HttpError(400, 'Please select a client contact for this campaign before generating an invoice.');
+		      }
+		      const now = new Date();
+		      const invoice = withActor(req, () =>
+		        store.createInvoice({
+		          companyId: campaign.companyId,
+		          clientId,
+		          contactId: campaign.contactId ?? undefined,
+		          campaignId: campaign.id,
+		          issueDate: now,
+		          dueDate: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30),
+		          lineItems: lineItems.length > 0 ? lineItems : [{ itemType: 'Manual' as const, description: `Campaign: ${campaign.name}`, quantity: 1, unitPrice: 0, amount: 0 }],
+		          total: 0,
+		          status: 'Draft',
+		          notes: `Generated from campaign: ${campaign.name}`,
+		          currency: undefined,
+		          taxRate: undefined,
+		        }),
+		      );
+		      store.updateCrmCampaign(campaign.id, { invoiceId: invoice.id });
+		      res.status(201).json(invoice);
+		    }),
+		  );
+
+		  app.post(
+		    '/companies/:companyId/campaigns/:campaignId/generate-vendor-bills',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const campaign = store.getCrmCampaignById(req.params.campaignId);
+		      if (!campaign || campaign.companyId !== req.params.companyId) {
+		        throw new HttpError(404, 'Campaign not found.');
+		      }
+		      const bills = withActor(req, () =>
+		        store.generateCampaignVendorBills(req.params.companyId, req.params.campaignId),
+		      );
+		      res.status(201).json(bills);
+		    }),
+		  );
+
+		  const requireCampaignAccess = (req: AuthedRequest, campaignId: string, action: string) => {
+		    const campaign = store.getCrmCampaignById(campaignId);
+		    if (!campaign) throw new HttpError(404, 'Campaign not found.');
+		    requireCompanyRoles(req, campaign.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		    const effectiveRole = getEffectiveRole(req.user!, campaign.companyId);
+		    if (effectiveRole === 'Employee' && campaign.ownerUserId !== req.user!.id) {
+		      throw new HttpError(403, `You can only ${action} your own campaigns.`);
+		    }
+		    return campaign;
+		  };
+
+		  app.get(
+		    '/campaigns/:id/deliverables',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCampaignAccess(req, req.params.id, 'view');
+		      res.json(store.listCampaignDeliverables(req.params.id));
+		    }),
+		  );
+
+		  app.post(
+		    '/campaigns/:id/deliverables',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const campaign = requireCampaignAccess(req, req.params.id, 'edit');
+		      const body = asRecord(req.body, 'body');
+		      const deliverable = withActor(req, () =>
+		        store.createCampaignDeliverable({
+		          companyId: campaign.companyId,
+		          campaignId: campaign.id,
+		          contactId: optionalString(body.contactId),
+		          vendorContactId: optionalString(body.vendorContactId),
+		          assignedUserId: optionalString(body.assignedUserId),
+		          assignedUserName: optionalString(body.assignedUserName),
+		          title: requiredString(body.title, 'title', { min: 2 }),
+		          platform: optionalString(body.platform),
+		          dueDate: body.dueDate ? new Date(optionalDateInput(body.dueDate)!) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignDeliverableStatuses) : 'Planned',
+		          contentUrl: optionalString(body.contentUrl),
+		          publishedAt: body.publishedAt ? new Date(optionalDateInput(body.publishedAt)!) : undefined,
+		          notes: optionalString(body.notes),
+		          price: optionalNumber(body.price),
+		          cost: optionalNumber(body.cost),
+		        }),
+		      );
+		      res.status(201).json(deliverable);
+		    }),
+		  );
+
+		  app.put(
+		    '/campaign-deliverables/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCampaignDeliverableById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Deliverable not found.');
+		      requireCampaignAccess(req, existing.campaignId, 'edit');
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCampaignDeliverable(req.params.id, {
+		          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
+		          vendorContactId: body.vendorContactId !== undefined ? optionalString(body.vendorContactId) : undefined,
+		          assignedUserId: body.assignedUserId !== undefined ? optionalString(body.assignedUserId) : undefined,
+		          assignedUserName: body.assignedUserName !== undefined ? optionalString(body.assignedUserName) : undefined,
+		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,
+		          platform: body.platform !== undefined ? optionalString(body.platform) : undefined,
+		          dueDate: body.dueDate !== undefined && body.dueDate ? new Date(optionalDateInput(body.dueDate)!) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignDeliverableStatuses) : undefined,
+		          contentUrl: body.contentUrl !== undefined ? optionalString(body.contentUrl) : undefined,
+		          publishedAt: body.publishedAt !== undefined && body.publishedAt ? new Date(optionalDateInput(body.publishedAt)!) : undefined,
+		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		          price: body.price !== undefined ? optionalNumber(body.price) : undefined,
+		          cost: body.cost !== undefined ? optionalNumber(body.cost) : undefined,
+		        }),
+		      );
+		      if (!updated) throw new HttpError(404, 'Deliverable not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.delete(
+		    '/campaign-deliverables/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCampaignDeliverableById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Deliverable not found.');
+		      requireCampaignAccess(req, existing.campaignId, 'edit');
+		      if (!store.deleteCampaignDeliverable(req.params.id)) throw new HttpError(404, 'Deliverable not found.');
+		      res.status(204).end();
+		    }),
+		  );
+
+		  app.get(
+		    '/campaigns/:id/assignments',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCampaignAccess(req, req.params.id, 'view');
+		      res.json(store.listCampaignAssignments(req.params.id));
+		    }),
+		  );
+
+		  app.post(
+		    '/campaigns/:id/assignments',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const campaign = requireCampaignAccess(req, req.params.id, 'edit');
+		      const body = asRecord(req.body, 'body');
+		      const assignment = withActor(req, () =>
+		        store.createCampaignAssignment({
+		          companyId: campaign.companyId,
+		          campaignId: campaign.id,
+		          contactId: requiredString(body.contactId, 'contactId'),
+		          role: enumValue(body.role, 'role', contactRoles),
+		          agreedRate: optionalNumber(body.agreedRate),
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignAssignmentStatuses) : 'Planned',
+		          notes: optionalString(body.notes),
+		        }),
+		      );
+		      // Auto-assign the assignment role to the contact's roles
+		      store.addContactRole(assignment.contactId, campaign.companyId, assignment.role, 'Manual');
+		      res.status(201).json(assignment);
+		    }),
+		  );
+
+		  app.put(
+		    '/campaign-assignments/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCampaignAssignmentById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Assignment not found.');
+		      requireCampaignAccess(req, existing.campaignId, 'edit');
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCampaignAssignment(req.params.id, {
+		          role: body.role !== undefined ? enumValue(body.role, 'role', contactRoles) : undefined,
+		          agreedRate: body.agreedRate !== undefined ? optionalNumber(body.agreedRate) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignAssignmentStatuses) : undefined,
+		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		        }),
+		      );
+		      if (!updated) throw new HttpError(404, 'Assignment not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.delete(
+		    '/campaign-assignments/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCampaignAssignmentById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Assignment not found.');
+		      requireCampaignAccess(req, existing.campaignId, 'edit');
+		      if (!store.deleteCampaignAssignment(req.params.id)) throw new HttpError(404, 'Assignment not found.');
+		      res.status(204).end();
+		    }),
+		  );
+
+		  app.get(
+		    '/campaigns/:id/expenses',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCampaignAccess(req, req.params.id, 'view');
+		      res.json(store.listCampaignExpenses(req.params.id));
+		    }),
+		  );
+
+		  app.post(
+		    '/campaigns/:id/expenses',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const campaign = requireCampaignAccess(req, req.params.id, 'edit');
+		      const body = asRecord(req.body, 'body');
+		      const expense = withActor(req, () =>
+		        store.createCampaignExpense({
+		          companyId: campaign.companyId,
+		          campaignId: campaign.id,
+		          contactId: optionalString(body.contactId),
+		          vendorRequestId: optionalString(body.vendorRequestId),
+		          description: requiredString(body.description, 'description', { min: 2 }),
+		          amount: optionalNumber(body.amount) ?? 0,
+		          expenseDate: body.expenseDate ? new Date(optionalDateInput(body.expenseDate)!) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignExpenseStatuses) : 'Draft',
+		          billable: optionalBoolean(body.billable) ?? false,
+		          notes: optionalString(body.notes),
+		        }),
+		      );
+		      res.status(201).json(expense);
+		    }),
+		  );
+
+		  app.put(
+		    '/campaign-expenses/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCampaignExpenseById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Campaign expense not found.');
+		      requireCampaignAccess(req, existing.campaignId, 'edit');
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCampaignExpense(req.params.id, {
+		          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
+		          vendorRequestId: body.vendorRequestId !== undefined ? optionalString(body.vendorRequestId) : undefined,
+		          description: body.description !== undefined ? requiredString(body.description, 'description', { min: 2 }) : undefined,
+		          amount: body.amount !== undefined ? optionalNumber(body.amount) ?? 0 : undefined,
+		          expenseDate: body.expenseDate !== undefined && body.expenseDate ? new Date(optionalDateInput(body.expenseDate)!) : undefined,
+		          status: body.status !== undefined ? enumValue(body.status, 'status', campaignExpenseStatuses) : undefined,
+		          billable: body.billable !== undefined ? optionalBoolean(body.billable) ?? false : undefined,
+		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		        }),
+		      );
+		      if (!updated) throw new HttpError(404, 'Campaign expense not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.delete(
+		    '/campaign-expenses/:id',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCampaignExpenseById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Campaign expense not found.');
+		      requireCampaignAccess(req, existing.campaignId, 'edit');
+		      if (!store.deleteCampaignExpense(req.params.id)) throw new HttpError(404, 'Campaign expense not found.');
+		      res.status(204).end();
+		    }),
+		  );
+
+		  // ─── CRM: Vendor / Influencer Requests ───────────────────────────────────
+
+	  app.get(
+	    '/companies/:companyId/vendor-requests',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const requests = store.listVendorRequests(req.params.companyId);
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      res.json(effectiveRole === 'Employee' ? requests.filter((request) => request.requestedByUserId === req.user!.id) : requests);
+		    }),
+		  );
+
+	  app.post(
+	    '/companies/:companyId/vendor-requests',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const body = asRecord(req.body, 'body');
+	      const request = withActor(req, () =>
+	        store.createVendorRequest({
+	          companyId: req.params.companyId,
+		          contactId: optionalString(body.contactId),
+		          name: requiredString(body.name, 'name', { min: 2 }),
+		          role: enumValue(body.role, 'role', contactRoles),
+		          requestType: optionalString(body.requestType),
+		          platform: optionalString(body.platform),
+		          handle: optionalString(body.handle),
+		          details: optionalString(body.details),
+		          dueDate: body.dueDate ? new Date(optionalDateInput(body.dueDate)!) : undefined,
+		          cost: optionalNumber(body.cost),
+		          status: body.status !== undefined ? enumValue(body.status, 'status', vendorRequestStatuses) : 'New',
+	          notes: optionalString(body.notes),
+	        }),
+	      );
+	      res.status(201).json(request);
+	    }),
+	  );
+
+	  app.patch(
+	    '/vendor-requests/:id/status',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = store
+	        .listCompanies()
+	        .flatMap((company) => store.listVendorRequests(company.id))
+	        .find((request) => request.id === req.params.id);
+	      if (!existing) throw new HttpError(404, 'Vendor request not found.');
+	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+	      const body = asRecord(req.body, 'body');
+	      const updated = withActor(req, () =>
+	        store.reviewVendorRequest(
+	          req.params.id,
+	          enumValue(body.status, 'status', vendorRequestStatuses),
+	          optionalString(body.notes),
+	        ),
+	      );
+	      if (!updated) throw new HttpError(404, 'Vendor request not found.');
+	      res.json(updated);
+	    }),
+	  );
+
+	  app.put(
+	    '/vendor-requests/:id',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = store.getVendorRequestById(req.params.id);
+	      if (!existing) throw new HttpError(404, 'Vendor request not found.');
+	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+	      if (effectiveRole === 'Employee' && existing.requestedByUserId !== req.user!.id) {
+	        throw new HttpError(403, 'You can only edit your own vendor requests.');
+	      }
+	      const body = asRecord(req.body, 'body');
+	      const updated = withActor(req, () =>
+	        store.updateVendorRequest(req.params.id, {
+	          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
+	          name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+	          role: body.role !== undefined ? enumValue(body.role, 'role', contactRoles) : undefined,
+	          requestType: body.requestType !== undefined ? optionalString(body.requestType) : undefined,
+	          platform: body.platform !== undefined ? optionalString(body.platform) : undefined,
+	          handle: body.handle !== undefined ? optionalString(body.handle) : undefined,
+	          details: body.details !== undefined ? optionalString(body.details) : undefined,
+	          dueDate: body.dueDate !== undefined && body.dueDate ? new Date(optionalDateInput(body.dueDate)!) : undefined,
+	          cost: body.cost !== undefined ? optionalNumber(body.cost) : undefined,
+	          status:
+	            body.status !== undefined && effectiveRole !== 'Employee'
+	              ? enumValue(body.status, 'status', vendorRequestStatuses)
+	              : undefined,
+	          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+	        }),
+	      );
+	      if (!updated) throw new HttpError(404, 'Vendor request not found.');
+	      res.json(updated);
+	    }),
+	  );
+
+	  app.delete(
+	    '/vendor-requests/:id',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = store.getVendorRequestById(req.params.id);
+	      if (!existing) throw new HttpError(404, 'Vendor request not found.');
+	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
+	      if (effectiveRole === 'Employee' && existing.requestedByUserId !== req.user!.id) {
+	        throw new HttpError(403, 'You can only archive your own vendor requests.');
+	      }
+	      if (!store.deleteVendorRequest(req.params.id)) throw new HttpError(404, 'Vendor request not found.');
+	      res.status(204).end();
+	    }),
+	  );
+
+	  // ─── CRM: Commissions ────────────────────────────────────────────────────
+
+	  app.get(
+	    '/companies/:companyId/commission-rules',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      res.json(store.listCommissionRules(req.params.companyId));
+		    }),
+		  );
+
+	  app.post(
+	    '/companies/:companyId/commission-rules',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+	      const body = asRecord(req.body, 'body');
+	      const rule = store.createCommissionRule({
+	        companyId: req.params.companyId,
+	        serviceType: requiredString(body.serviceType, 'serviceType', { min: 2 }),
+	        basis: enumValue(body.basis, 'basis', commissionBases),
+	        rateType: enumValue(body.rateType, 'rateType', commissionRateTypes),
+	        rate: optionalNumber(body.rate) ?? 0,
+	        fixedAmount: optionalNumber(body.fixedAmount),
+	        isActive: optionalBoolean(body.isActive) ?? true,
+	      });
+	      res.status(201).json(rule);
+	    }),
+	  );
+
+		  app.get(
+		    '/companies/:companyId/commissions',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+		      const commissions = store.listCommissions(req.params.companyId);
+		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      res.json(effectiveRole === 'Employee' ? commissions.filter((commission) => commission.userId === req.user!.id) : commissions);
+		    }),
+		  );
+
+		  app.patch(
+		    '/commissions/:id/status',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCommissionById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Commission not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
+		      const body = asRecord(req.body, 'body');
+		      const updated = withActor(req, () =>
+		        store.updateCommissionStatus(req.params.id, enumValue(body.status, 'status', commissionStatuses)),
+		      );
+		      if (!updated) throw new HttpError(404, 'Commission not found.');
+		      res.json(updated);
+		    }),
+		  );
+
+		  app.post(
+	    '/opportunities/:id/commissions/recalculate',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const opportunity = store.getOpportunityById(req.params.id);
+	      if (!opportunity) throw new HttpError(404, 'Opportunity not found.');
+	      requireCompanyRoles(req, opportunity.companyId, ['Admin', 'Manager', 'Accountant']);
+	      res.json(store.calculateCommissionsForOpportunity(req.params.id));
+	    }),
+	  );
+
+	  // ─── Clients ─────────────────────────────────────────────────────────────
+
   app.get(
     '/companies/:companyId/clients',
     authMiddleware,
@@ -1474,43 +2627,43 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
-  app.post(
-    '/clients',
-    authMiddleware,
-    handler((req, res) => {
-      const body = asRecord(req.body, 'body');
-      const companyId = requiredString(body.companyId, 'companyId');
-      requireCompanyRoles(req, companyId, companyManagementRoles);
-      const client = withActor(req, () =>
-        store.createClient({
-          companyId,
-          name: requiredString(body.name, 'name', { min: 2 }),
-          email: requiredString(body.email, 'email', { min: 3 }),
-          address: requiredString(body.address, 'address', { min: 5 }),
-          contactName: optionalString(body.contactName),
-          phone: optionalString(body.phone),
-          vatNumber: optionalString(body.vatNumber),
-          creditLimit: optionalNumber(body.creditLimit),
-          creditNumber: optionalString(body.creditNumber),
-          paymentMethod: optionalString(body.paymentMethod),
-          status: body.status !== undefined ? enumValue(body.status, 'status', clientStatuses) : 'Active',
-          notes: optionalString(body.notes),
-        }),
-      );
-      res.status(201).json(client);
-    }),
-  );
+	  app.post(
+	    '/clients',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const body = asRecord(req.body, 'body');
+	      const companyId = requiredString(body.companyId, 'companyId');
+	      requireCompanyRoles(req, companyId, companyManagementRoles);
+	      const client = withActor(req, () =>
+	        store.createClient({
+	          companyId,
+	          name: requiredString(body.name, 'name', { min: 2 }),
+	          email: requiredString(body.email, 'email', { min: 3 }),
+	          address: requiredString(body.address, 'address', { min: 5 }),
+	          contactName: optionalString(body.contactName),
+	          phone: optionalString(body.phone),
+	          vatNumber: optionalString(body.vatNumber),
+	          creditLimit: optionalNumber(body.creditLimit),
+	          creditNumber: optionalString(body.creditNumber),
+	          paymentMethod: optionalString(body.paymentMethod),
+	          status: body.status !== undefined ? enumValue(body.status, 'status', clientStatuses) : 'Active',
+	          notes: optionalString(body.notes),
+	        }),
+	      );
+	      res.status(201).json(client);
+	    }),
+	  );
 
   app.put(
     '/clients/:id',
     authMiddleware,
     handler((req, res) => {
       const existing = store.getClientById(req.params.id);
-      if (!existing) throw new HttpError(404, 'Client not found.');
-      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
-      const body = asRecord(req.body, 'body');
-      const updated = withActor(req, () =>
-        store.updateClient(req.params.id, {
+	      if (!existing) throw new HttpError(404, 'Client not found.');
+	      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+	      const body = asRecord(req.body, 'body');
+	      const updated = withActor(req, () =>
+	        store.updateClient(req.params.id, {
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
           email: body.email !== undefined ? requiredString(body.email, 'email', { min: 3 }) : undefined,
           address: body.address !== undefined ? requiredString(body.address, 'address', { min: 5 }) : undefined,
@@ -1523,11 +2676,25 @@ export function createServer(options: CreateServerOptions = {}) {
           status: body.status !== undefined ? enumValue(body.status, 'status', clientStatuses) : undefined,
           notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
         }),
-      );
-      if (!updated) throw new HttpError(404, 'Client not found.');
-      res.json(updated);
-    }),
-  );
+	      );
+	      if (!updated) throw new HttpError(404, 'Client not found.');
+	      const contactRow = (store as any).db
+	        .prepare(`SELECT id FROM contacts WHERE clientId = ? OR id = ? LIMIT 1`)
+	        .get(req.params.id, req.params.id) as any;
+	      if (contactRow) {
+	        store.updateContact(contactRow.id, {
+	          name: updated.name,
+	          email: updated.email,
+	          address: updated.address,
+	          contactPerson: updated.contactName,
+	          phone: updated.phone,
+	          taxNumber: updated.vatNumber,
+	          notes: updated.notes,
+	        });
+	      }
+	      res.json(updated);
+	    }),
+	  );
 
   app.get(
     '/companies/:companyId/activity-events',
@@ -1638,27 +2805,27 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
-  app.post(
-    '/companies/:companyId/suppliers',
-    authMiddleware,
-    handler((req, res) => {
-      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const body = asRecord(req.body, 'body');
-      const supplier = withActor(req, () =>
-        store.createSupplier({
-          companyId: req.params.companyId,
-          name: requiredString(body.name, 'name', { min: 2 }),
-          contactName: optionalString(body.contactName),
-          email: optionalString(body.email),
-          phone: optionalString(body.phone),
-          paymentTermsDays: optionalNumber(body.paymentTermsDays),
-          notes: optionalString(body.notes),
-          isActive: optionalBoolean(body.isActive) ?? true,
-        }),
-      );
-      res.status(201).json(supplier);
-    }),
-  );
+	  app.post(
+	    '/companies/:companyId/suppliers',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+	      const body = asRecord(req.body, 'body');
+	      const supplier = withActor(req, () =>
+	        store.createSupplier({
+	          companyId: req.params.companyId,
+	          name: requiredString(body.name, 'name', { min: 2 }),
+	          contactName: optionalString(body.contactName),
+	          email: optionalString(body.email),
+	          phone: optionalString(body.phone),
+	          paymentTermsDays: optionalNumber(body.paymentTermsDays),
+	          notes: optionalString(body.notes),
+	          isActive: optionalBoolean(body.isActive) ?? true,
+	        }),
+	      );
+	      res.status(201).json(supplier);
+	    }),
+	  );
 
   app.get(
     '/companies/:companyId/inventory-items',
@@ -1875,6 +3042,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       const expectedDate = optionalDateInput(body.expectedDate);
       const items = parsePurchaseOrderItems(body.items);
+      const contactId = optionalString(body.contactId);
       const supplierId = requiredString(body.supplierId, 'supplierId');
       const supplier = ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
       ensurePurchaseItemsBelongToCompany(items, req.params.companyId);
@@ -1891,6 +3059,7 @@ export function createServer(options: CreateServerOptions = {}) {
           companyId: req.params.companyId,
           supplierName,
           supplierId,
+          contactId: contactId ?? undefined,
           orderDate: new Date(requiredDateInput(body.orderDate, 'orderDate')),
           expectedDate: expectedDate ? new Date(expectedDate) : undefined,
           status,
@@ -1973,6 +3142,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       const items = parseSalesOrderItems(body.items);
+      const contactId = optionalString(body.contactId);
       const clientId = requiredString(body.clientId, 'clientId');
       ensureClientBelongsToCompany(clientId, req.params.companyId);
       ensureSalesItemsBelongToCompany(items, req.params.companyId);
@@ -1981,6 +3151,7 @@ export function createServer(options: CreateServerOptions = {}) {
         store.createSalesOrder({
           companyId: req.params.companyId,
           clientId,
+          contactId: contactId ?? undefined,
           orderDate: new Date(requiredDateInput(body.orderDate, 'orderDate')),
           expectedDate: expectedDate ? new Date(expectedDate) : undefined,
           status: enumValue(body.status ?? 'Draft', 'status', salesOrderStatuses),
@@ -1988,6 +3159,7 @@ export function createServer(options: CreateServerOptions = {}) {
           notes: optionalString(body.notes),
         }),
       );
+      autoConvertContactToClient(contactId, req.params.companyId);
       res.status(201).json(order);
     }),
   );
@@ -2064,6 +3236,115 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ============================================================
+  // Deliveries / Fulfillment
+  // ============================================================
+
+  app.get(
+    '/companies/:companyId/deliveries',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listDeliveries(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/sales-orders/:id/deliveries',
+    authMiddleware,
+    handler((req, res) => {
+      const order = store.getSalesOrderById(req.params.id);
+      if (!order) throw new HttpError(404, 'Sales order not found.');
+      requireCompanyRoles(req, order.companyId, companyManagementRoles);
+      res.json(store.listDeliveriesForSalesOrder(order.id));
+    }),
+  );
+
+  app.post(
+    '/sales-orders/:id/deliveries',
+    authMiddleware,
+    handler((req, res) => {
+      const order = store.getSalesOrderById(req.params.id);
+      if (!order) throw new HttpError(404, 'Sales order not found.');
+      requireCompanyRoles(req, order.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const itemsRaw = Array.isArray(body.items) ? body.items : [];
+      const items = itemsRaw.map((row, index) => {
+        const record = asRecord(row, `items[${index}]`);
+        return {
+          salesOrderLineIndex: Number(record.salesOrderLineIndex ?? record.lineIndex ?? 0),
+          quantity: Number(record.quantity ?? 0),
+          location: optionalString(record.location),
+        };
+      });
+      try {
+        const delivery = withActor(req, () =>
+          store.createDelivery({
+            salesOrderId: order.id,
+            items,
+            carrier: optionalString(body.carrier),
+            trackingNumber: optionalString(body.trackingNumber),
+            notes: optionalString(body.notes),
+            scheduledFor: body.scheduledFor ? new Date(String(body.scheduledFor)) : undefined,
+          }),
+        );
+        res.status(201).json(delivery);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not create delivery.');
+      }
+    }),
+  );
+
+  app.patch(
+    '/deliveries/:id/status',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getDeliveryById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Delivery not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const nextStatus = enumValue(body.status, 'status', deliveryStatuses);
+      const occurredAt = body.occurredAt ? new Date(String(body.occurredAt)) : undefined;
+      try {
+        let updated;
+        if (nextStatus === 'Shipped') {
+          updated = withActor(req, () => store.markDeliveryShipped(existing.id, occurredAt));
+        } else if (nextStatus === 'Delivered') {
+          updated = withActor(req, () => store.markDeliveryDelivered(existing.id, occurredAt));
+        } else if (nextStatus === 'Cancelled') {
+          updated = withActor(req, () =>
+            store.cancelDelivery(existing.id, optionalString(body.reason) ?? undefined),
+          );
+        } else {
+          throw new HttpError(400, 'Use a specific status transition (Shipped, Delivered, or Cancelled).');
+        }
+        res.json(updated);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update delivery status.');
+      }
+    }),
+  );
+
+  app.post(
+    '/deliveries/:id/cancel',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getDeliveryById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Delivery not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body ?? {}, 'body');
+      try {
+        const updated = withActor(req, () =>
+          store.cancelDelivery(existing.id, optionalString(body.reason) ?? undefined),
+        );
+        res.json(updated);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not cancel delivery.');
+      }
+    }),
+  );
+
   app.get(
     '/companies/:companyId/invoices',
     authMiddleware,
@@ -2103,6 +3384,7 @@ export function createServer(options: CreateServerOptions = {}) {
             invoiceNumber: payload.invoiceNumber,
             companyId: payload.companyId!,
             clientId: payload.clientId!,
+            contactId: payload.contactId ?? undefined,
             salesOrderId: payload.salesOrderId,
             templateId: payload.templateId,
             issueDate: new Date(payload.issueDate!),
@@ -2120,6 +3402,7 @@ export function createServer(options: CreateServerOptions = {}) {
       } catch (error: any) {
         throw new HttpError(400, error?.message || 'Could not create invoice.');
       }
+      autoConvertContactToClient(payload.contactId ?? undefined, payload.companyId!);
       res.status(201).json(invoice);
     }),
   );
@@ -2715,6 +3998,7 @@ export function createServer(options: CreateServerOptions = {}) {
             ['finance', 'openReceivables', summary.finance.openReceivables],
             ['finance', 'openPayables', summary.finance.openPayables],
             ['finance', 'paidThisMonth', summary.finance.paidThisMonth],
+            ['finance', 'paidPayablesThisMonth', summary.finance.paidPayablesThisMonth],
             ['finance', 'billedThisMonth', summary.finance.billedThisMonth],
             ['inventory', 'totalItems', summary.inventory.totalItems],
             ['inventory', 'stockValue', summary.inventory.stockValue],

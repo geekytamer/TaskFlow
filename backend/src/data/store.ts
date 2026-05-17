@@ -7,9 +7,36 @@ import {
   Position,
   User,
   CompanyRoleAssignment,
-  Project,
-  Task,
+	  Project,
+	  ProjectVisibility,
+	  Task,
   Comment,
+  Contact,
+	  ContactRole,
+	  ContactRoleType,
+	  ContactRoleSource,
+	  LeadStatus,
+	  Opportunity,
+	  OpportunityStage,
+	  CrmProposal,
+	  ProposalLineItem,
+	  ProposalStatus,
+	  CrmCampaign,
+	  CampaignStatus,
+	  CampaignDeliverable,
+	  CampaignDeliverableStatus,
+	  CampaignAssignment,
+	  CampaignAssignmentStatus,
+	  CampaignExpense,
+	  CampaignExpenseStatus,
+	  VendorRequest,
+  VendorRequestStatus,
+	  CommissionRule,
+	  Commission,
+	  CrmDashboardSummary,
+	  CommissionBasis,
+  CommissionRateType,
+  CommissionStatus,
   Client,
   Supplier,
   InventoryItem,
@@ -21,6 +48,10 @@ import {
   PurchaseOrderStatus,
   SalesOrder,
   SalesOrderStatus,
+  SalesOrderFulfillmentStatus,
+  Delivery,
+  DeliveryStatus,
+  DeliveryLineItem,
   Invoice,
   InvoiceTemplate,
   InvoiceTemplateLayout,
@@ -68,6 +99,78 @@ import {
 type CreateUserInput = Omit<User, 'id'> & { id?: string };
 type CreateTaskInput = Omit<Task, 'id' | 'createdAt'> & { createdAt?: Date | string };
 type UpdateTaskInput = Partial<Omit<Task, 'id'>>;
+type UpdateContactInput = Partial<
+  Omit<Contact, 'id' | 'companyId' | 'createdAt' | 'nextFollowupDate' | 'convertedToClientAt'>
+> & {
+  nextFollowupDate?: Date | null;
+  convertedToClientAt?: Date | null;
+};
+type CreateOpportunityInput = Omit<Opportunity, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+type UpdateOpportunityInput = Partial<Omit<Opportunity, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>>;
+type CreateVendorRequestInput = Omit<
+  VendorRequest,
+  'id' | 'requestedByUserId' | 'requestedByName' | 'reviewedByUserId' | 'reviewedByName' | 'reviewedAt' | 'createdAt' | 'updatedAt'
+> & {
+  id?: string;
+  requestedByUserId?: string;
+  requestedByName?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+	};
+type UpdateVendorRequestInput = Partial<
+  Omit<VendorRequest, 'id' | 'companyId' | 'requestedByUserId' | 'requestedByName' | 'reviewedByUserId' | 'reviewedByName' | 'reviewedAt' | 'createdAt' | 'updatedAt'>
+>;
+type CreateCrmProposalInput = Omit<
+  CrmProposal,
+  'id' | 'proposalNumber' | 'contactId' | 'totalAmount' | 'acceptedAt' | 'declinedAt' | 'createdAt' | 'updatedAt'
+> & {
+  id?: string;
+  proposalNumber?: string;
+  contactId?: string;
+  acceptedAt?: Date | string;
+  declinedAt?: Date | string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+type UpdateCrmProposalInput = Partial<
+  Omit<CrmProposal, 'id' | 'companyId' | 'opportunityId' | 'contactId' | 'proposalNumber' | 'totalAmount' | 'acceptedAt' | 'declinedAt' | 'createdAt' | 'updatedAt'>
+>;
+type CreateCrmCampaignInput = Omit<CrmCampaign, 'id' | 'archivedAt' | 'createdAt' | 'updatedAt'> & {
+  id?: string;
+  archivedAt?: Date | string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+type UpdateCrmCampaignInput = Partial<
+  Omit<CrmCampaign, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>
+>;
+type CreateCampaignDeliverableInput = Omit<CampaignDeliverable, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+type UpdateCampaignDeliverableInput = Partial<Omit<CampaignDeliverable, 'id' | 'companyId' | 'campaignId' | 'createdAt' | 'updatedAt'>>;
+type CreateCampaignAssignmentInput = Omit<CampaignAssignment, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+type UpdateCampaignAssignmentInput = Partial<Omit<CampaignAssignment, 'id' | 'companyId' | 'campaignId' | 'contactId' | 'createdAt' | 'updatedAt'>>;
+type CreateCampaignExpenseInput = Omit<CampaignExpense, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
+type UpdateCampaignExpenseInput = Partial<Omit<CampaignExpense, 'id' | 'companyId' | 'campaignId' | 'createdAt' | 'updatedAt'>>;
+type CreateCommissionRuleInput = Omit<CommissionRule, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+};
 type CreateClientInput = Omit<Client, 'id' | 'reference'> & { reference?: string };
 type CreateSupplierInput = Omit<Supplier, 'id' | 'reference'> & { reference?: string };
 type CreateInventoryItemInput = Omit<InventoryItem, 'id' | 'sku'> & { sku?: string };
@@ -149,6 +252,7 @@ const defaultNumberingSettings: Record<
   sales_order: { prefix: 'SO-', padLength: 4 },
   sales_invoice: { prefix: 'INV-', padLength: 4 },
   vendor_invoice: { prefix: 'VI-', padLength: 4 },
+  delivery: { prefix: 'DL-', padLength: 4 },
 };
 
 const numberingEntityTypes = Object.keys(defaultNumberingSettings) as NumberingEntityType[];
@@ -204,6 +308,10 @@ const defaultInvoiceTemplates: Array<
 const invoiceTemplateLayouts: InvoiceTemplateLayout[] = ['classic', 'modern', 'compact', 'letterhead'];
 
 const activityEntityTypes: ActivityEvent['entityType'][] = [
+  'contact',
+  'opportunity',
+  'vendor_request',
+  'commission',
   'client',
   'project',
   'task',
@@ -211,6 +319,7 @@ const activityEntityTypes: ActivityEvent['entityType'][] = [
   'inventory_item',
   'purchase_order',
   'sales_order',
+  'delivery',
   'invoice',
   'vendor_bill',
 ];
@@ -533,6 +642,22 @@ export class DataStore {
         totalAmount REAL NOT NULL,
         notes TEXT,
         invoiceId TEXT
+      );
+      CREATE TABLE IF NOT EXISTS deliveries (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        deliveryNumber TEXT NOT NULL,
+        salesOrderId TEXT NOT NULL,
+        status TEXT NOT NULL,
+        items TEXT NOT NULL,
+        carrier TEXT,
+        trackingNumber TEXT,
+        notes TEXT,
+        scheduledFor TEXT,
+        dispatchedAt TEXT,
+        deliveredAt TEXT,
+        cancelledAt TEXT,
+        createdAt TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY,
@@ -1075,6 +1200,492 @@ export class DataStore {
           this.db.exec(`UPDATE company_finance_settings SET currencyCode = COALESCE(NULLIF(TRIM(currencyCode), ''), 'USD');`);
         },
       },
+      {
+        id: '018_contacts_master_data',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS contacts (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              kind TEXT NOT NULL DEFAULT 'Organization',
+              name TEXT NOT NULL,
+              legalName TEXT,
+              contactPerson TEXT,
+              email TEXT,
+              phone TEXT,
+              address TEXT,
+              taxNumber TEXT,
+              tags TEXT,
+              notes TEXT,
+              clientId TEXT,
+              supplierId TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS contact_roles (
+              id TEXT PRIMARY KEY,
+              contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+              companyId TEXT NOT NULL,
+              role TEXT NOT NULL,
+              source TEXT NOT NULL DEFAULT 'Manual',
+              createdAt TEXT NOT NULL,
+              UNIQUE(contactId, role)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_contacts_companyId ON contacts(companyId);
+            CREATE INDEX IF NOT EXISTS idx_contact_roles_contactId ON contact_roles(contactId);
+            CREATE INDEX IF NOT EXISTS idx_contact_roles_companyId_role ON contact_roles(companyId, role);
+          `);
+
+          // Backfill contacts from clients
+          const clients = this.db.prepare('SELECT * FROM clients').all() as any[];
+          const insertContact = this.db.prepare(
+            `INSERT OR IGNORE INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, address, taxNumber, notes, clientId, createdAt, updatedAt)
+             VALUES (@id, @companyId, 'Organization', @name, @name, @contactPerson, @email, @phone, @address, @vatNumber, @notes, @clientId, @now, @now)`,
+          );
+          const insertRole = this.db.prepare(
+            `INSERT OR IGNORE INTO contact_roles (id, contactId, companyId, role, source, createdAt)
+             VALUES (@id, @contactId, @companyId, @role, @source, @now)`,
+          );
+          const now = new Date().toISOString();
+          clients.forEach((c) => {
+            insertContact.run({
+              id: uuid(),
+              companyId: c.companyId,
+              name: c.name,
+              contactPerson: c.contactName ?? null,
+              email: c.email ?? null,
+              phone: c.phone ?? null,
+              address: c.address ?? null,
+              vatNumber: c.vatNumber ?? null,
+              notes: c.notes ?? null,
+              clientId: c.id,
+              now,
+            });
+          });
+
+          // Get newly created contacts for clients to add roles
+          const clientContacts = this.db.prepare('SELECT id, companyId, clientId FROM contacts WHERE clientId IS NOT NULL').all() as any[];
+          clientContacts.forEach((c) => {
+            insertRole.run({ id: uuid(), contactId: c.id, companyId: c.companyId, role: 'Client', source: 'Manual', now });
+          });
+
+          // Backfill contacts from suppliers
+          const suppliers = this.db.prepare('SELECT * FROM suppliers').all() as any[];
+          const insertSupplierContact = this.db.prepare(
+            `INSERT OR IGNORE INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, notes, supplierId, createdAt, updatedAt)
+             VALUES (@id, @companyId, 'Organization', @name, @name, @contactPerson, @email, @phone, @notes, @supplierId, @now, @now)`,
+          );
+          suppliers.forEach((s) => {
+            const contactId = uuid();
+            insertSupplierContact.run({
+              id: contactId,
+              companyId: s.companyId,
+              name: s.name,
+              contactPerson: s.contactName ?? null,
+              email: s.email ?? null,
+              phone: s.phone ?? null,
+              notes: s.notes ?? null,
+              supplierId: s.id,
+              now,
+            });
+            const contact = this.db.prepare('SELECT id FROM contacts WHERE supplierId = ?').get(s.id) as any;
+            if (contact) {
+              insertRole.run({ id: uuid(), contactId: contact.id, companyId: s.companyId, role: 'Vendor', source: 'Manual', now });
+            }
+          });
+        },
+      },
+      {
+        id: '019_contactid_on_transactions',
+        run: () => {
+          const invoiceCols = this.db.prepare(`PRAGMA table_info('invoices')`).all() as any[];
+          if (!invoiceCols.some((c) => c.name === 'contactId')) {
+            this.db.exec(`ALTER TABLE invoices ADD COLUMN contactId TEXT;`);
+          }
+          const salesOrderCols = this.db.prepare(`PRAGMA table_info('sales_orders')`).all() as any[];
+          if (!salesOrderCols.some((c) => c.name === 'contactId')) {
+            this.db.exec(`ALTER TABLE sales_orders ADD COLUMN contactId TEXT;`);
+          }
+          const purchaseOrderCols = this.db.prepare(`PRAGMA table_info('purchase_orders')`).all() as any[];
+          if (!purchaseOrderCols.some((c) => c.name === 'contactId')) {
+            this.db.exec(`ALTER TABLE purchase_orders ADD COLUMN contactId TEXT;`);
+          }
+          // Back-fill contactId from contacts.clientId → invoices and sales_orders
+          this.db.exec(`
+            UPDATE invoices SET contactId = (
+              SELECT c.id FROM contacts c WHERE c.clientId = invoices.clientId LIMIT 1
+            ) WHERE contactId IS NULL AND clientId IS NOT NULL;
+
+            UPDATE sales_orders SET contactId = (
+              SELECT c.id FROM contacts c WHERE c.clientId = sales_orders.clientId LIMIT 1
+            ) WHERE contactId IS NULL AND clientId IS NOT NULL;
+
+            UPDATE purchase_orders SET contactId = (
+              SELECT c.id FROM contacts c WHERE c.supplierId = purchase_orders.supplierId LIMIT 1
+            ) WHERE contactId IS NULL AND supplierId IS NOT NULL;
+          `);
+        },
+      },
+	      {
+	        id: '020_crm_fields',
+	        run: () => {
+          // CRM fields on contacts
+          const contactCols = this.db.prepare(`PRAGMA table_info('contacts')`).all() as any[];
+          const contactColNames = contactCols.map((c) => c.name);
+          if (!contactColNames.includes('leadStatus'))        this.db.exec(`ALTER TABLE contacts ADD COLUMN leadStatus TEXT;`);
+          if (!contactColNames.includes('leadSource'))        this.db.exec(`ALTER TABLE contacts ADD COLUMN leadSource TEXT;`);
+          if (!contactColNames.includes('priority'))          this.db.exec(`ALTER TABLE contacts ADD COLUMN priority TEXT;`);
+          if (!contactColNames.includes('ownerUserId'))       this.db.exec(`ALTER TABLE contacts ADD COLUMN ownerUserId TEXT;`);
+          if (!contactColNames.includes('ownerName'))         this.db.exec(`ALTER TABLE contacts ADD COLUMN ownerName TEXT;`);
+          if (!contactColNames.includes('nextFollowupDate'))  this.db.exec(`ALTER TABLE contacts ADD COLUMN nextFollowupDate TEXT;`);
+          if (!contactColNames.includes('nextFollowupNote'))  this.db.exec(`ALTER TABLE contacts ADD COLUMN nextFollowupNote TEXT;`);
+          if (!contactColNames.includes('convertedToClientAt')) this.db.exec(`ALTER TABLE contacts ADD COLUMN convertedToClientAt TEXT;`);
+
+          // CRM fields on activity_events
+          const actCols = this.db.prepare(`PRAGMA table_info('activity_events')`).all() as any[];
+          const actColNames = actCols.map((c) => c.name);
+          if (!actColNames.includes('category'))          this.db.exec(`ALTER TABLE activity_events ADD COLUMN category TEXT;`);
+          if (!actColNames.includes('outcome'))           this.db.exec(`ALTER TABLE activity_events ADD COLUMN outcome TEXT;`);
+          if (!actColNames.includes('nextAction'))        this.db.exec(`ALTER TABLE activity_events ADD COLUMN nextAction TEXT;`);
+          if (!actColNames.includes('nextActionDueDate')) this.db.exec(`ALTER TABLE activity_events ADD COLUMN nextActionDueDate TEXT;`);
+          if (!actColNames.includes('durationMinutes'))   this.db.exec(`ALTER TABLE activity_events ADD COLUMN durationMinutes INTEGER;`);
+
+          // Index for followup queries
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_activity_events_nextActionDueDate
+              ON activity_events(companyId, nextActionDueDate)
+              WHERE nextActionDueDate IS NOT NULL;
+	          `);
+	        },
+	      },
+	      {
+	        id: '021_crm_pipeline_requests_commissions',
+	        run: () => {
+	          const contactCols = this.db.prepare(`PRAGMA table_info('contacts')`).all() as any[];
+	          const contactColNames = contactCols.map((c) => c.name);
+	          if (!contactColNames.includes('influencerPlatform')) this.db.exec(`ALTER TABLE contacts ADD COLUMN influencerPlatform TEXT;`);
+	          if (!contactColNames.includes('influencerHandle')) this.db.exec(`ALTER TABLE contacts ADD COLUMN influencerHandle TEXT;`);
+	          if (!contactColNames.includes('influencerNiche')) this.db.exec(`ALTER TABLE contacts ADD COLUMN influencerNiche TEXT;`);
+	          if (!contactColNames.includes('followerCount')) this.db.exec(`ALTER TABLE contacts ADD COLUMN followerCount INTEGER;`);
+	          if (!contactColNames.includes('engagementRate')) this.db.exec(`ALTER TABLE contacts ADD COLUMN engagementRate REAL;`);
+	          if (!contactColNames.includes('rateCardAmount')) this.db.exec(`ALTER TABLE contacts ADD COLUMN rateCardAmount REAL;`);
+	          if (!contactColNames.includes('location')) this.db.exec(`ALTER TABLE contacts ADD COLUMN location TEXT;`);
+	          if (!contactColNames.includes('languages')) this.db.exec(`ALTER TABLE contacts ADD COLUMN languages TEXT;`);
+	          if (!contactColNames.includes('availabilityStatus')) this.db.exec(`ALTER TABLE contacts ADD COLUMN availabilityStatus TEXT;`);
+
+	          this.db.exec(`
+	            CREATE TABLE IF NOT EXISTS opportunities (
+	              id TEXT PRIMARY KEY,
+	              companyId TEXT NOT NULL,
+	              contactId TEXT NOT NULL,
+	              ownerUserId TEXT,
+	              ownerName TEXT,
+	              title TEXT NOT NULL,
+	              serviceType TEXT NOT NULL,
+	              stage TEXT NOT NULL,
+	              expectedRevenue REAL NOT NULL DEFAULT 0,
+	              probability REAL NOT NULL DEFAULT 0,
+	              expectedCloseDate TEXT,
+	              notes TEXT,
+	              wonSalesOrderId TEXT,
+	              createdAt TEXT NOT NULL,
+	              updatedAt TEXT NOT NULL
+	            );
+	            CREATE INDEX IF NOT EXISTS idx_opportunities_company_stage ON opportunities(companyId, stage);
+	            CREATE INDEX IF NOT EXISTS idx_opportunities_contact ON opportunities(contactId);
+
+	            CREATE TABLE IF NOT EXISTS vendor_requests (
+	              id TEXT PRIMARY KEY,
+	              companyId TEXT NOT NULL,
+	              contactId TEXT,
+	              requestedByUserId TEXT,
+	              requestedByName TEXT,
+		              name TEXT NOT NULL,
+		              role TEXT NOT NULL,
+		              requestType TEXT,
+		              platform TEXT,
+		              handle TEXT,
+		              details TEXT,
+		              dueDate TEXT,
+		              cost REAL,
+		              status TEXT NOT NULL,
+	              notes TEXT,
+	              reviewedByUserId TEXT,
+	              reviewedByName TEXT,
+	              reviewedAt TEXT,
+	              createdAt TEXT NOT NULL,
+	              updatedAt TEXT NOT NULL
+	            );
+		            CREATE INDEX IF NOT EXISTS idx_vendor_requests_company_status ON vendor_requests(companyId, status);
+
+	            CREATE TABLE IF NOT EXISTS commission_rules (
+	              id TEXT PRIMARY KEY,
+	              companyId TEXT NOT NULL,
+	              serviceType TEXT NOT NULL,
+	              basis TEXT NOT NULL,
+	              rateType TEXT NOT NULL,
+	              rate REAL NOT NULL DEFAULT 0,
+	              fixedAmount REAL,
+	              isActive INTEGER NOT NULL DEFAULT 1,
+	              createdAt TEXT NOT NULL,
+	              updatedAt TEXT NOT NULL
+	            );
+	            CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_rules_company_service
+	              ON commission_rules(companyId, serviceType);
+
+	            CREATE TABLE IF NOT EXISTS commissions (
+	              id TEXT PRIMARY KEY,
+	              companyId TEXT NOT NULL,
+	              opportunityId TEXT NOT NULL,
+	              contactId TEXT NOT NULL,
+	              userId TEXT,
+	              userName TEXT,
+	              serviceType TEXT NOT NULL,
+	              basis TEXT NOT NULL,
+	              basisAmount REAL NOT NULL DEFAULT 0,
+	              amount REAL NOT NULL DEFAULT 0,
+	              status TEXT NOT NULL,
+	              calculatedAt TEXT NOT NULL,
+	              UNIQUE(opportunityId, userId, serviceType)
+	            );
+	            CREATE INDEX IF NOT EXISTS idx_commissions_company_status ON commissions(companyId, status);
+		          `);
+
+		        },
+		      },
+		      {
+		        id: '022_vendor_request_scheduling_costs',
+		        run: () => {
+		          const vendorRequestCols = this.db.prepare(`PRAGMA table_info('vendor_requests')`).all() as any[];
+		          const vendorRequestColNames = vendorRequestCols.map((c) => c.name);
+		          if (!vendorRequestColNames.includes('requestType')) this.db.exec(`ALTER TABLE vendor_requests ADD COLUMN requestType TEXT;`);
+		          if (!vendorRequestColNames.includes('dueDate')) this.db.exec(`ALTER TABLE vendor_requests ADD COLUMN dueDate TEXT;`);
+		          if (!vendorRequestColNames.includes('cost')) this.db.exec(`ALTER TABLE vendor_requests ADD COLUMN cost REAL;`);
+		        },
+		      },
+		      {
+		        id: '023_crm_proposals',
+		        run: () => {
+		          this.db.exec(`
+		            CREATE TABLE IF NOT EXISTS crm_proposals (
+		              id TEXT PRIMARY KEY,
+		              companyId TEXT NOT NULL,
+		              opportunityId TEXT NOT NULL,
+		              contactId TEXT NOT NULL,
+		              proposalNumber TEXT NOT NULL,
+		              title TEXT NOT NULL,
+		              status TEXT NOT NULL,
+		              issueDate TEXT NOT NULL,
+		              validUntil TEXT,
+		              items TEXT NOT NULL,
+		              totalAmount REAL NOT NULL DEFAULT 0,
+		              notes TEXT,
+		              acceptedAt TEXT,
+		              declinedAt TEXT,
+		              createdAt TEXT NOT NULL,
+		              updatedAt TEXT NOT NULL,
+		              UNIQUE(companyId, proposalNumber)
+		            );
+		            CREATE INDEX IF NOT EXISTS idx_crm_proposals_company_status ON crm_proposals(companyId, status);
+		            CREATE INDEX IF NOT EXISTS idx_crm_proposals_opportunity ON crm_proposals(opportunityId);
+		          `);
+		        },
+		      },
+		      {
+		        id: '024_crm_campaigns',
+		        run: () => {
+		          this.db.exec(`
+		            CREATE TABLE IF NOT EXISTS crm_campaigns (
+		              id TEXT PRIMARY KEY,
+		              companyId TEXT NOT NULL,
+		              proposalId TEXT,
+		              opportunityId TEXT,
+		              contactId TEXT NOT NULL,
+		              projectId TEXT,
+		              name TEXT NOT NULL,
+		              status TEXT NOT NULL,
+		              startDate TEXT,
+		              endDate TEXT,
+		              budget REAL,
+		              ownerUserId TEXT,
+		              ownerName TEXT,
+		              visibility TEXT NOT NULL DEFAULT 'Public',
+		              notes TEXT,
+		              archivedAt TEXT,
+		              createdAt TEXT NOT NULL,
+		              updatedAt TEXT NOT NULL
+		            );
+		            CREATE INDEX IF NOT EXISTS idx_crm_campaigns_company_status ON crm_campaigns(companyId, status);
+		            CREATE INDEX IF NOT EXISTS idx_crm_campaigns_proposal ON crm_campaigns(proposalId);
+		            CREATE INDEX IF NOT EXISTS idx_crm_campaigns_opportunity ON crm_campaigns(opportunityId);
+		          `);
+		        },
+		      },
+		      {
+        id: '025_campaigns_optional_contact',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS crm_campaigns_new (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              proposalId TEXT,
+              opportunityId TEXT,
+              contactId TEXT,
+              projectId TEXT,
+              name TEXT NOT NULL,
+              status TEXT NOT NULL,
+              startDate TEXT,
+              endDate TEXT,
+              budget REAL,
+              ownerUserId TEXT,
+              ownerName TEXT,
+              visibility TEXT NOT NULL DEFAULT 'Public',
+              notes TEXT,
+              archivedAt TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            INSERT OR IGNORE INTO crm_campaigns_new SELECT * FROM crm_campaigns;
+            DROP TABLE crm_campaigns;
+            ALTER TABLE crm_campaigns_new RENAME TO crm_campaigns;
+            CREATE INDEX IF NOT EXISTS idx_crm_campaigns_company_status ON crm_campaigns(companyId, status);
+            CREATE INDEX IF NOT EXISTS idx_crm_campaigns_proposal ON crm_campaigns(proposalId);
+            CREATE INDEX IF NOT EXISTS idx_crm_campaigns_opportunity ON crm_campaigns(opportunityId);
+          `);
+        },
+      },
+      {
+        id: '026_contact_visibility',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(contacts)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('visibility')) {
+            this.db.exec(`ALTER TABLE contacts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'Public';`);
+          }
+        },
+      },
+      {
+        id: '027_campaign_execution',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS campaign_deliverables (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              campaignId TEXT NOT NULL,
+              contactId TEXT,
+              assignedUserId TEXT,
+              assignedUserName TEXT,
+              title TEXT NOT NULL,
+              platform TEXT,
+              dueDate TEXT,
+              status TEXT NOT NULL,
+              contentUrl TEXT,
+              publishedAt TEXT,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_campaign_deliverables_campaign ON campaign_deliverables(campaignId, status);
+
+            CREATE TABLE IF NOT EXISTS campaign_assignments (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              campaignId TEXT NOT NULL,
+              contactId TEXT NOT NULL,
+              role TEXT NOT NULL,
+              agreedRate REAL,
+              status TEXT NOT NULL,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_campaign_assignments_campaign ON campaign_assignments(campaignId, status);
+
+            CREATE TABLE IF NOT EXISTS campaign_expenses (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              campaignId TEXT NOT NULL,
+              contactId TEXT,
+              vendorRequestId TEXT,
+              description TEXT NOT NULL,
+              amount REAL NOT NULL DEFAULT 0,
+              expenseDate TEXT,
+              status TEXT NOT NULL,
+              billable INTEGER NOT NULL DEFAULT 0,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_campaign_expenses_campaign ON campaign_expenses(campaignId, status);
+          `);
+        },
+      },
+      {
+        id: '028_campaign_invoice_columns',
+        run: () => {
+          const deliverableCols = (this.db.prepare(`PRAGMA table_info(campaign_deliverables)`).all() as any[]).map((c) => c.name);
+          if (!deliverableCols.includes('price')) {
+            this.db.exec(`ALTER TABLE campaign_deliverables ADD COLUMN price REAL DEFAULT 0;`);
+          }
+          const invoiceCols = (this.db.prepare(`PRAGMA table_info(invoices)`).all() as any[]).map((c) => c.name);
+          if (!invoiceCols.includes('campaignId')) {
+            this.db.exec(`ALTER TABLE invoices ADD COLUMN campaignId TEXT;`);
+          }
+          const campaignCols = (this.db.prepare(`PRAGMA table_info(crm_campaigns)`).all() as any[]).map((c) => c.name);
+          if (!campaignCols.includes('invoiceId')) {
+            this.db.exec(`ALTER TABLE crm_campaigns ADD COLUMN invoiceId TEXT;`);
+          }
+        },
+      },
+      {
+        id: '029_deliverable_vendor_bill',
+        run: () => {
+          const deliverableCols = (this.db.prepare(`PRAGMA table_info(campaign_deliverables)`).all() as any[]).map((c) => c.name);
+          if (!deliverableCols.includes('cost')) {
+            this.db.exec(`ALTER TABLE campaign_deliverables ADD COLUMN cost REAL DEFAULT 0;`);
+          }
+          if (!deliverableCols.includes('vendorContactId')) {
+            this.db.exec(`ALTER TABLE campaign_deliverables ADD COLUMN vendorContactId TEXT;`);
+          }
+          if (!deliverableCols.includes('vendorBillId')) {
+            this.db.exec(`ALTER TABLE campaign_deliverables ADD COLUMN vendorBillId TEXT;`);
+          }
+          const vendorBillCols = (this.db.prepare(`PRAGMA table_info(vendor_bills)`).all() as any[]).map((c) => c.name);
+          if (!vendorBillCols.includes('campaignId')) {
+            this.db.exec(`ALTER TABLE vendor_bills ADD COLUMN campaignId TEXT;`);
+          }
+        },
+      },
+      {
+        id: '030_deliveries',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS deliveries (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              deliveryNumber TEXT NOT NULL,
+              salesOrderId TEXT NOT NULL,
+              status TEXT NOT NULL,
+              items TEXT NOT NULL,
+              carrier TEXT,
+              trackingNumber TEXT,
+              notes TEXT,
+              scheduledFor TEXT,
+              dispatchedAt TEXT,
+              deliveredAt TEXT,
+              cancelledAt TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_company_number
+              ON deliveries (companyId, deliveryNumber);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_sales_order
+              ON deliveries (salesOrderId);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_company_status
+              ON deliveries (companyId, status);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -1240,6 +1851,7 @@ export class DataStore {
         DELETE FROM ledger_accounts;
         DELETE FROM payments;
         DELETE FROM invoices;
+        DELETE FROM deliveries;
         DELETE FROM sales_orders;
         DELETE FROM purchase_orders;
         DELETE FROM inventory_items;
@@ -1966,7 +2578,1467 @@ export class DataStore {
     return newComment;
   }
 
+  // ─── Contacts ────────────────────────────────────────────────────────────
+
+  listContacts(
+    companyId: string,
+    roleFilter?: ContactRoleType,
+    viewer?: { userId: string; role: string },
+  ): Contact[] {
+    // Private contacts are only visible to their owner or Admin/Manager
+    const visibilityClause =
+      viewer && viewer.role !== 'Admin' && viewer.role !== 'Manager'
+        ? `AND (c.visibility = 'Public' OR c.ownerUserId = '${viewer.userId}')`
+        : '';
+
+    let rows: any[];
+    if (roleFilter) {
+      rows = this.db
+        .prepare(
+          `SELECT c.*, GROUP_CONCAT(r.role) as roleList
+           FROM contacts c
+           LEFT JOIN contact_roles r ON r.contactId = c.id
+           WHERE c.companyId = ?
+           AND c.id IN (SELECT contactId FROM contact_roles WHERE companyId = ? AND role = ?)
+           ${visibilityClause}
+           GROUP BY c.id
+           ORDER BY c.name ASC`,
+        )
+        .all(companyId, companyId, roleFilter) as any[];
+    } else {
+      rows = this.db
+        .prepare(
+          `SELECT c.*, GROUP_CONCAT(r.role) as roleList
+           FROM contacts c
+           LEFT JOIN contact_roles r ON r.contactId = c.id
+           WHERE c.companyId = ?
+           ${visibilityClause}
+           GROUP BY c.id
+           ORDER BY c.name ASC`,
+        )
+        .all(companyId) as any[];
+    }
+    return rows.map((row) => this.decodeContact(row));
+  }
+
+  getContactById(id: string): Contact | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT c.*, GROUP_CONCAT(r.role) as roleList
+         FROM contacts c
+         LEFT JOIN contact_roles r ON r.contactId = c.id
+         WHERE c.id = ?
+         GROUP BY c.id`,
+      )
+      .get(id) as any;
+    return row ? this.decodeContact(row) : undefined;
+  }
+
+  createContact(input: {
+    companyId: string;
+    kind?: 'Organization' | 'Person';
+    name: string;
+    legalName?: string;
+    contactPerson?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    taxNumber?: string;
+	    tags?: string[];
+	    notes?: string;
+			    roles?: ContactRoleType[];
+			    clientId?: string;
+			    supplierId?: string;
+			    leadStatus?: LeadStatus;
+			    leadSource?: Contact['leadSource'];
+			    priority?: Contact['priority'];
+			    ownerUserId?: string;
+			    ownerName?: string;
+			    nextFollowupDate?: Date;
+			    nextFollowupNote?: string;
+			    influencerPlatform?: string;
+		    influencerHandle?: string;
+		    influencerNiche?: string;
+		    followerCount?: number;
+		    engagementRate?: number;
+		    rateCardAmount?: number;
+		    location?: string;
+		    languages?: string[];
+		    availabilityStatus?: string;
+		  }): Contact {
+    const id = uuid();
+    const now = new Date().toISOString();
+	  this.db.prepare(
+		      `INSERT INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, address, taxNumber, tags, notes, clientId, supplierId,
+		         leadStatus, leadSource, priority, ownerUserId, ownerName, nextFollowupDate, nextFollowupNote,
+		         influencerPlatform, influencerHandle, influencerNiche, followerCount, engagementRate, rateCardAmount, location, languages, availabilityStatus,
+		         createdAt, updatedAt)
+		       VALUES (@id, @companyId, @kind, @name, @legalName, @contactPerson, @email, @phone, @address, @taxNumber, @tags, @notes, @clientId, @supplierId,
+		         @leadStatus, @leadSource, @priority, @ownerUserId, @ownerName, @nextFollowupDate, @nextFollowupNote,
+		         @influencerPlatform, @influencerHandle, @influencerNiche, @followerCount, @engagementRate, @rateCardAmount, @location, @languages, @availabilityStatus,
+		         @now, @now)`,
+	    ).run({
+      id,
+      companyId: input.companyId,
+      kind: input.kind ?? 'Organization',
+      name: input.name,
+      legalName: input.legalName ?? null,
+      contactPerson: input.contactPerson ?? null,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      address: input.address ?? null,
+      taxNumber: input.taxNumber ?? null,
+	      tags: input.tags ? JSON.stringify(input.tags) : null,
+	      notes: input.notes ?? null,
+			      clientId: input.clientId ?? null,
+			      supplierId: input.supplierId ?? null,
+			      leadStatus: input.leadStatus ?? null,
+			      leadSource: input.leadSource ?? null,
+			      priority: input.priority ?? null,
+			      ownerUserId: input.ownerUserId ?? null,
+			      ownerName: input.ownerName ?? null,
+			      nextFollowupDate: input.nextFollowupDate ? new Date(input.nextFollowupDate).toISOString() : null,
+			      nextFollowupNote: input.nextFollowupNote ?? null,
+			      influencerPlatform: input.influencerPlatform ?? null,
+		      influencerHandle: input.influencerHandle ?? null,
+		      influencerNiche: input.influencerNiche ?? null,
+		      followerCount: input.followerCount ?? null,
+		      engagementRate: input.engagementRate ?? null,
+		      rateCardAmount: input.rateCardAmount ?? null,
+		      location: input.location ?? null,
+		      languages: input.languages ? JSON.stringify(input.languages) : null,
+		      availabilityStatus: input.availabilityStatus ?? null,
+		      now,
+	    });
+
+    if (input.roles?.length) {
+      for (const role of input.roles) {
+        this.addContactRole(id, input.companyId, role, 'Manual');
+      }
+    }
+
+    return this.getContactById(id)!;
+  }
+
+  updateContact(id: string, updates: UpdateContactInput): Contact {
+    const existing = this.getContactById(id);
+    if (!existing) throw new Error(`Contact ${id} not found`);
+    const now = new Date().toISOString();
+    this.db.prepare(
+      `UPDATE contacts SET kind=@kind, name=@name, legalName=@legalName, contactPerson=@contactPerson,
+       email=@email, phone=@phone, address=@address, taxNumber=@taxNumber, tags=@tags, notes=@notes,
+	       leadStatus=@leadStatus, leadSource=@leadSource, priority=@priority,
+	       ownerUserId=@ownerUserId, ownerName=@ownerName,
+	       nextFollowupDate=@nextFollowupDate, nextFollowupNote=@nextFollowupNote,
+	       convertedToClientAt=@convertedToClientAt,
+	       influencerPlatform=@influencerPlatform, influencerHandle=@influencerHandle,
+	       influencerNiche=@influencerNiche, followerCount=@followerCount,
+	       engagementRate=@engagementRate, rateCardAmount=@rateCardAmount,
+	       location=@location, languages=@languages, availabilityStatus=@availabilityStatus,
+	       visibility=@visibility, updatedAt=@now
+       WHERE id=@id`,
+    ).run({
+      id,
+      kind: updates.kind ?? existing.kind,
+      name: updates.name ?? existing.name,
+      legalName: updates.legalName ?? existing.legalName ?? null,
+      contactPerson: updates.contactPerson ?? existing.contactPerson ?? null,
+      email: updates.email ?? existing.email ?? null,
+      phone: updates.phone ?? existing.phone ?? null,
+      address: updates.address ?? existing.address ?? null,
+      taxNumber: updates.taxNumber ?? existing.taxNumber ?? null,
+      tags: updates.tags !== undefined ? JSON.stringify(updates.tags) : (existing.tags ? JSON.stringify(existing.tags) : null),
+      notes: updates.notes ?? existing.notes ?? null,
+      leadStatus: updates.leadStatus !== undefined ? (updates.leadStatus ?? null) : (existing.leadStatus ?? null),
+      leadSource: updates.leadSource !== undefined ? (updates.leadSource ?? null) : (existing.leadSource ?? null),
+      priority: updates.priority !== undefined ? (updates.priority ?? null) : (existing.priority ?? null),
+      ownerUserId: updates.ownerUserId !== undefined ? (updates.ownerUserId ?? null) : (existing.ownerUserId ?? null),
+      ownerName: updates.ownerName !== undefined ? (updates.ownerName ?? null) : (existing.ownerName ?? null),
+      nextFollowupDate: updates.nextFollowupDate !== undefined
+        ? (updates.nextFollowupDate ? updates.nextFollowupDate.toISOString() : null)
+        : (existing.nextFollowupDate ? existing.nextFollowupDate.toISOString() : null),
+      nextFollowupNote: updates.nextFollowupNote !== undefined ? (updates.nextFollowupNote ?? null) : (existing.nextFollowupNote ?? null),
+	      convertedToClientAt: updates.convertedToClientAt !== undefined
+	        ? (updates.convertedToClientAt ? updates.convertedToClientAt.toISOString() : null)
+	        : (existing.convertedToClientAt ? existing.convertedToClientAt.toISOString() : null),
+	      influencerPlatform: updates.influencerPlatform !== undefined ? (updates.influencerPlatform ?? null) : (existing.influencerPlatform ?? null),
+	      influencerHandle: updates.influencerHandle !== undefined ? (updates.influencerHandle ?? null) : (existing.influencerHandle ?? null),
+	      influencerNiche: updates.influencerNiche !== undefined ? (updates.influencerNiche ?? null) : (existing.influencerNiche ?? null),
+	      followerCount: updates.followerCount !== undefined ? (updates.followerCount ?? null) : (existing.followerCount ?? null),
+	      engagementRate: updates.engagementRate !== undefined ? (updates.engagementRate ?? null) : (existing.engagementRate ?? null),
+	      rateCardAmount: updates.rateCardAmount !== undefined ? (updates.rateCardAmount ?? null) : (existing.rateCardAmount ?? null),
+	      location: updates.location !== undefined ? (updates.location ?? null) : (existing.location ?? null),
+	      languages: updates.languages !== undefined
+	        ? (updates.languages ? JSON.stringify(updates.languages) : null)
+	        : (existing.languages ? JSON.stringify(existing.languages) : null),
+	      availabilityStatus: updates.availabilityStatus !== undefined ? (updates.availabilityStatus ?? null) : (existing.availabilityStatus ?? null),
+	      // Auto-promote to Public when leadStatus becomes Won, or when explicitly set
+	      visibility: (updates.leadStatus === 'Won' || updates.visibility === 'Public')
+	        ? 'Public'
+	        : (updates.visibility ?? existing.visibility ?? 'Public'),
+	      now,
+    });
+    return this.getContactById(id)!;
+  }
+
+  addContactRole(contactId: string, companyId: string, role: ContactRoleType, source: ContactRoleSource = 'Manual'): void {
+    this.db.prepare(
+      `INSERT OR IGNORE INTO contact_roles (id, contactId, companyId, role, source, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(uuid(), contactId, companyId, role, source, new Date().toISOString());
+    // When a real business relationship is established, auto-promote to Public
+    if (['Client', 'Vendor', 'Partner'].includes(role)) {
+      this.db.prepare(`UPDATE contacts SET visibility = 'Public', updatedAt = ? WHERE id = ?`)
+        .run(new Date().toISOString(), contactId);
+    }
+  }
+
+  removeContactRole(contactId: string, role: ContactRoleType): void {
+    this.db.prepare('DELETE FROM contact_roles WHERE contactId = ? AND role = ?').run(contactId, role);
+  }
+
+  deleteContact(id: string): void {
+    this.db.prepare('DELETE FROM contact_roles WHERE contactId = ?').run(id);
+    this.db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
+  }
+
+  listContactRoles(contactId: string): ContactRole[] {
+    return (this.db.prepare('SELECT * FROM contact_roles WHERE contactId = ?').all(contactId) as any[]).map((r) => ({
+      id: r.id,
+      contactId: r.contactId,
+      companyId: r.companyId,
+      role: r.role as ContactRoleType,
+      source: r.source as ContactRoleSource,
+      createdAt: new Date(r.createdAt),
+    }));
+  }
+
+  private decodeContact(row: any): Contact {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      kind: row.kind as 'Organization' | 'Person',
+      name: row.name,
+      legalName: row.legalName ?? undefined,
+      contactPerson: row.contactPerson ?? undefined,
+      email: row.email ?? undefined,
+      phone: row.phone ?? undefined,
+      address: row.address ?? undefined,
+      taxNumber: row.taxNumber ?? undefined,
+      tags: row.tags ? JSON.parse(row.tags) : undefined,
+      notes: row.notes ?? undefined,
+      roles: row.roleList ? (row.roleList as string).split(',').filter(Boolean) as ContactRoleType[] : [],
+      clientId: row.clientId ?? undefined,
+      supplierId: row.supplierId ?? undefined,
+      leadStatus: row.leadStatus ?? undefined,
+      leadSource: row.leadSource ?? undefined,
+      priority: row.priority ?? undefined,
+      ownerUserId: row.ownerUserId ?? undefined,
+      ownerName: row.ownerName ?? undefined,
+      nextFollowupDate: row.nextFollowupDate ? new Date(row.nextFollowupDate) : undefined,
+      nextFollowupNote: row.nextFollowupNote ?? undefined,
+	      convertedToClientAt: row.convertedToClientAt ? new Date(row.convertedToClientAt) : undefined,
+	      influencerPlatform: row.influencerPlatform ?? undefined,
+	      influencerHandle: row.influencerHandle ?? undefined,
+	      influencerNiche: row.influencerNiche ?? undefined,
+	      followerCount: row.followerCount === null || row.followerCount === undefined ? undefined : Number(row.followerCount),
+	      engagementRate: row.engagementRate === null || row.engagementRate === undefined ? undefined : Number(row.engagementRate),
+	      rateCardAmount: row.rateCardAmount === null || row.rateCardAmount === undefined ? undefined : Number(row.rateCardAmount),
+	      location: row.location ?? undefined,
+	      languages: row.languages ? this.parseJson<string[]>(row.languages) : undefined,
+	      availabilityStatus: row.availabilityStatus ?? undefined,
+	      visibility: (row.visibility as 'Public' | 'Private') ?? 'Public',
+	      createdAt: new Date(row.createdAt),
+	      updatedAt: new Date(row.updatedAt),
+	    };
+	  }
+
+	  // ─── CRM Pipeline / Vendor Requests / Commissions ───────────────────────
+
+		  listOpportunities(companyId: string): Opportunity[] {
+		    const rows = this.db
+		      .prepare('SELECT * FROM opportunities WHERE companyId = ? ORDER BY updatedAt DESC')
+		      .all(companyId) as any[];
+		    return rows.map((row) => this.decodeOpportunity(row));
+		  }
+
+		  getCrmDashboardSummary(companyId: string, ownerUserId?: string): CrmDashboardSummary {
+		    const contacts = this.listContacts(companyId).filter((contact) => !ownerUserId || contact.ownerUserId === ownerUserId);
+		    const opportunities = this.listOpportunities(companyId).filter((opportunity) => !ownerUserId || opportunity.ownerUserId === ownerUserId);
+		    const tasks = this.listTasks().filter((task) => {
+		      if (task.companyId !== companyId) return false;
+		      if (!ownerUserId) return true;
+		      return (task.assignedUserIds || []).includes(ownerUserId);
+		    });
+		    const followups = this.listFollowups(companyId, { ownerUserId, limit: 500 });
+		    const vendorRequests = this.listVendorRequests(companyId).filter((request) => !ownerUserId || request.requestedByUserId === ownerUserId);
+		    const commissions = this.listCommissions(companyId).filter((commission) => !ownerUserId || commission.userId === ownerUserId);
+		    const now = new Date();
+
+		    const openStages: OpportunityStage[] = ['New', 'Qualified', 'Proposal', 'Negotiation'];
+		    const openStatuses = new Set(['To Do', 'In Progress']);
+		    const openVendorStatuses: VendorRequestStatus[] = ['New', 'Under Review'];
+
+		    const leadStatusCounts = new Map<LeadStatus | 'Unspecified', number>();
+		    contacts.forEach((contact) => {
+		      const status = contact.leadStatus ?? 'Unspecified';
+		      leadStatusCounts.set(status, (leadStatusCounts.get(status) || 0) + 1);
+		    });
+
+		    const stageCounts = new Map<OpportunityStage, { count: number; value: number }>();
+		    opportunities.forEach((opportunity) => {
+		      const current = stageCounts.get(opportunity.stage) || { count: 0, value: 0 };
+		      current.count += 1;
+		      current.value += opportunity.expectedRevenue;
+		      stageCounts.set(opportunity.stage, current);
+		    });
+
+		    const upcomingFollowups = contacts
+		      .filter((contact) => contact.nextFollowupDate)
+		      .sort((a, b) => a.nextFollowupDate!.getTime() - b.nextFollowupDate!.getTime())
+		      .slice(0, 6)
+		      .map((contact) => ({
+		        id: contact.id,
+		        contactId: contact.id,
+		        contactName: contact.name,
+		        nextFollowupDate: contact.nextFollowupDate!,
+		        nextFollowupNote: contact.nextFollowupNote,
+		        ownerName: contact.ownerName,
+		      }));
+
+		    return {
+		      companyId,
+		      ownerUserId,
+		      activeContacts: contacts.length,
+		      activeClients: contacts.filter((contact) => contact.roles?.includes('Client')).length,
+		      openLeads: contacts.filter((contact) => contact.roles?.includes('Lead') && !['Won', 'Lost', 'Archived'].includes(contact.leadStatus || '')).length,
+		      wonDeals: opportunities.filter((opportunity) => opportunity.stage === 'Won').length,
+		      lostDeals: opportunities.filter((opportunity) => opportunity.stage === 'Lost').length,
+		      openOpportunities: opportunities.filter((opportunity) => openStages.includes(opportunity.stage)).length,
+		      openOpportunityValue: opportunities
+		        .filter((opportunity) => openStages.includes(opportunity.stage))
+		        .reduce((sum, opportunity) => sum + opportunity.expectedRevenue, 0),
+		      forecastValue: opportunities
+		        .filter((opportunity) => openStages.includes(opportunity.stage))
+		        .reduce((sum, opportunity) => sum + opportunity.expectedRevenue * (opportunity.probability / 100), 0),
+		      wonRevenue: opportunities
+		        .filter((opportunity) => opportunity.stage === 'Won')
+		        .reduce((sum, opportunity) => sum + opportunity.expectedRevenue, 0),
+		      openTasks: tasks.filter((task) => openStatuses.has(task.status)).length,
+		      openFollowups: followups.length,
+		      overdueFollowups: followups.filter((followup) => followup.nextActionDueDate && followup.nextActionDueDate < now).length,
+		      openVendorRequests: vendorRequests.filter((request) => openVendorStatuses.includes(request.status)).length,
+		      commissionDraft: commissions
+		        .filter((commission) => commission.status === 'Draft')
+		        .reduce((sum, commission) => sum + commission.amount, 0),
+		      commissionApproved: commissions
+		        .filter((commission) => commission.status === 'Approved')
+		        .reduce((sum, commission) => sum + commission.amount, 0),
+		      leadsByStatus: Array.from(leadStatusCounts.entries()).map(([status, count]) => ({ status, count })),
+		      opportunitiesByStage: Array.from(stageCounts.entries()).map(([stage, value]) => ({ stage, ...value })),
+		      upcomingFollowups,
+		    };
+		  }
+
+		  getOpportunityById(id: string): Opportunity | undefined {
+	    const row = this.db.prepare('SELECT * FROM opportunities WHERE id = ?').get(id) as any;
+	    return row ? this.decodeOpportunity(row) : undefined;
+	  }
+
+	  createOpportunity(input: CreateOpportunityInput): Opportunity {
+	    const contact = this.getContactById(input.contactId);
+	    if (!contact || contact.companyId !== input.companyId) {
+	      throw new Error('Opportunity contact must belong to the selected company.');
+	    }
+	    const now = new Date();
+	    const opportunity: Opportunity = {
+	      ...input,
+	      id: input.id ?? uuid(),
+	      stage: input.stage ?? 'New',
+	      expectedRevenue: Number(input.expectedRevenue || 0),
+	      probability: Number(input.probability || 0),
+	      expectedCloseDate: input.expectedCloseDate ? new Date(input.expectedCloseDate) : undefined,
+	      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+	      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+	    };
+	    this.db
+	      .prepare(
+	        `INSERT INTO opportunities
+	          (id, companyId, contactId, ownerUserId, ownerName, title, serviceType, stage,
+	           expectedRevenue, probability, expectedCloseDate, notes, wonSalesOrderId, createdAt, updatedAt)
+	         VALUES
+	          (@id, @companyId, @contactId, @ownerUserId, @ownerName, @title, @serviceType, @stage,
+	           @expectedRevenue, @probability, @expectedCloseDate, @notes, @wonSalesOrderId, @createdAt, @updatedAt)`,
+	      )
+	      .run({
+	        ...opportunity,
+	        ownerUserId: opportunity.ownerUserId ?? null,
+	        ownerName: opportunity.ownerName ?? null,
+	        expectedCloseDate: opportunity.expectedCloseDate ? opportunity.expectedCloseDate.toISOString() : null,
+	        notes: opportunity.notes ?? null,
+	        wonSalesOrderId: opportunity.wonSalesOrderId ?? null,
+	        createdAt: opportunity.createdAt.toISOString(),
+	        updatedAt: opportunity.updatedAt.toISOString(),
+	      });
+	    this.addContactRole(input.contactId, input.companyId, 'Lead', 'Manual');
+	    this.createActivityEvent({
+	      companyId: opportunity.companyId,
+	      entityType: 'opportunity',
+	      entityId: opportunity.id,
+	      action: 'created',
+	      summary: `Opportunity ${opportunity.title} created.`,
+	      metadata: { contactId: opportunity.contactId, stage: opportunity.stage },
+	    });
+	    return opportunity;
+	  }
+
+	  updateOpportunity(id: string, updates: UpdateOpportunityInput): Opportunity | undefined {
+	    const existing = this.getOpportunityById(id);
+	    if (!existing) return undefined;
+	    if (updates.contactId) {
+	      const contact = this.getContactById(updates.contactId);
+	      if (!contact || contact.companyId !== existing.companyId) {
+	        throw new Error('Opportunity contact must belong to the selected company.');
+	      }
+	    }
+	    const opportunity: Opportunity = {
+	      ...existing,
+	      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
+	      ownerUserId: updates.ownerUserId === undefined ? existing.ownerUserId : updates.ownerUserId,
+	      ownerName: updates.ownerName === undefined ? existing.ownerName : updates.ownerName,
+	      title: updates.title === undefined ? existing.title : updates.title,
+	      serviceType: updates.serviceType === undefined ? existing.serviceType : updates.serviceType,
+	      stage: updates.stage === undefined ? existing.stage : updates.stage,
+	      expectedRevenue: updates.expectedRevenue === undefined ? existing.expectedRevenue : Number(updates.expectedRevenue),
+	      probability: updates.probability === undefined ? existing.probability : Number(updates.probability),
+	      expectedCloseDate:
+	        updates.expectedCloseDate === undefined
+	          ? existing.expectedCloseDate
+	          : updates.expectedCloseDate
+	            ? new Date(updates.expectedCloseDate)
+	            : undefined,
+	      notes: updates.notes === undefined ? existing.notes : updates.notes,
+	      wonSalesOrderId: updates.wonSalesOrderId === undefined ? existing.wonSalesOrderId : updates.wonSalesOrderId,
+	      updatedAt: new Date(),
+	    };
+	    this.db
+	      .prepare(
+	        `UPDATE opportunities SET contactId=@contactId, ownerUserId=@ownerUserId, ownerName=@ownerName,
+	         title=@title, serviceType=@serviceType, stage=@stage, expectedRevenue=@expectedRevenue,
+	         probability=@probability, expectedCloseDate=@expectedCloseDate, notes=@notes,
+	         wonSalesOrderId=@wonSalesOrderId, updatedAt=@updatedAt WHERE id=@id`,
+	      )
+	      .run({
+	        ...opportunity,
+	        ownerUserId: opportunity.ownerUserId ?? null,
+	        ownerName: opportunity.ownerName ?? null,
+	        expectedCloseDate: opportunity.expectedCloseDate ? opportunity.expectedCloseDate.toISOString() : null,
+	        notes: opportunity.notes ?? null,
+	        wonSalesOrderId: opportunity.wonSalesOrderId ?? null,
+	        updatedAt: opportunity.updatedAt.toISOString(),
+	      });
+	    if (updates.stage && updates.stage !== existing.stage) {
+	      if (updates.stage === 'Won') {
+	        this.addContactRole(opportunity.contactId, opportunity.companyId, 'Client', 'Manual');
+	        this.updateContact(opportunity.contactId, {
+	          leadStatus: 'Won',
+	          convertedToClientAt: opportunity.updatedAt,
+	        });
+	        this.calculateCommissionsForOpportunity(id);
+	      } else if (updates.stage === 'Lost') {
+	        this.updateContact(opportunity.contactId, { leadStatus: 'Lost' });
+	      }
+	    }
+	    const result = this.getOpportunityById(id);
+	    if (result) {
+	      this.createActivityEvent({
+	        companyId: result.companyId,
+	        entityType: 'opportunity',
+	        entityId: result.id,
+	        action: 'updated',
+	        summary: `Opportunity ${result.title} updated.`,
+	        metadata: { stage: result.stage },
+	      });
+	    }
+	    return result;
+	  }
+
+		  updateOpportunityStage(id: string, stage: OpportunityStage): Opportunity | undefined {
+		    const existing = this.getOpportunityById(id);
+	    if (!existing) return undefined;
+	    const now = new Date().toISOString();
+	    this.db.prepare('UPDATE opportunities SET stage = ?, updatedAt = ? WHERE id = ?').run(stage, now, id);
+	    if (stage === 'Won') {
+	      this.addContactRole(existing.contactId, existing.companyId, 'Client', 'Manual');
+	      this.updateContact(existing.contactId, {
+	        leadStatus: 'Won',
+	        convertedToClientAt: new Date(now),
+	      });
+	      this.calculateCommissionsForOpportunity(id);
+	    } else if (stage === 'Lost') {
+	      this.updateContact(existing.contactId, { leadStatus: 'Lost' });
+	    }
+	    const result = this.getOpportunityById(id);
+	    if (result) {
+	      this.createActivityEvent({
+	        companyId: result.companyId,
+	        entityType: 'opportunity',
+	        entityId: result.id,
+	        action: 'stage_changed',
+	        summary: `Opportunity ${result.title} moved to ${result.stage}.`,
+	        metadata: { stage: result.stage },
+	      });
+	    }
+		    return result;
+		  }
+
+		  private nextProposalNumber(companyId: string): string {
+		    const countRow = this.db
+		      .prepare('SELECT COUNT(*) as count FROM crm_proposals WHERE companyId = ?')
+		      .get(companyId) as { count: number };
+		    return `PROP-${String(Number(countRow?.count || 0) + 1).padStart(5, '0')}`;
+		  }
+
+		  listCrmProposals(companyId: string): CrmProposal[] {
+		    const rows = this.db
+		      .prepare('SELECT * FROM crm_proposals WHERE companyId = ? ORDER BY updatedAt DESC')
+		      .all(companyId) as any[];
+		    return rows.map((row) => this.decodeCrmProposal(row));
+		  }
+
+		  getCrmProposalById(id: string): CrmProposal | undefined {
+		    const row = this.db.prepare('SELECT * FROM crm_proposals WHERE id = ?').get(id) as any;
+		    return row ? this.decodeCrmProposal(row) : undefined;
+		  }
+
+		  createCrmProposal(input: CreateCrmProposalInput): CrmProposal {
+		    const opportunity = this.getOpportunityById(input.opportunityId);
+		    if (!opportunity || opportunity.companyId !== input.companyId) {
+		      throw new Error('Proposal opportunity must belong to the selected company.');
+		    }
+		    const now = new Date();
+		    const items = input.items.map((item) => ({
+		      description: item.description,
+		      quantity: Number(item.quantity || 0),
+		      unitPrice: Number(item.unitPrice || 0),
+		      lineTotal: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2)),
+		    }));
+		    const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+		    const proposal: CrmProposal = {
+		      ...input,
+		      id: input.id ?? uuid(),
+		      contactId: input.contactId ?? opportunity.contactId,
+		      proposalNumber: input.proposalNumber ?? this.nextProposalNumber(input.companyId),
+		      status: input.status ?? 'Draft',
+		      issueDate: input.issueDate ? new Date(input.issueDate) : now,
+		      validUntil: input.validUntil ? new Date(input.validUntil) : undefined,
+		      items,
+		      totalAmount,
+		      acceptedAt: input.acceptedAt ? new Date(input.acceptedAt) : undefined,
+		      declinedAt: input.declinedAt ? new Date(input.declinedAt) : undefined,
+		      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+		      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+		    };
+		    this.db
+		      .prepare(
+		        `INSERT INTO crm_proposals
+		          (id, companyId, opportunityId, contactId, proposalNumber, title, status, issueDate,
+		           validUntil, items, totalAmount, notes, acceptedAt, declinedAt, createdAt, updatedAt)
+		         VALUES
+		          (@id, @companyId, @opportunityId, @contactId, @proposalNumber, @title, @status, @issueDate,
+		           @validUntil, @items, @totalAmount, @notes, @acceptedAt, @declinedAt, @createdAt, @updatedAt)`,
+		      )
+		      .run({
+		        ...proposal,
+		        issueDate: proposal.issueDate.toISOString(),
+		        validUntil: proposal.validUntil ? proposal.validUntil.toISOString() : null,
+		        items: JSON.stringify(proposal.items),
+		        notes: proposal.notes ?? null,
+		        acceptedAt: proposal.acceptedAt ? proposal.acceptedAt.toISOString() : null,
+		        declinedAt: proposal.declinedAt ? proposal.declinedAt.toISOString() : null,
+		        createdAt: proposal.createdAt.toISOString(),
+		        updatedAt: proposal.updatedAt.toISOString(),
+		      });
+		    this.updateOpportunityStage(opportunity.id, 'Proposal');
+		    this.createActivityEvent({
+		      companyId: proposal.companyId,
+		      entityType: 'proposal',
+		      entityId: proposal.id,
+		      action: 'created',
+		      summary: `Proposal ${proposal.proposalNumber} created for ${proposal.title}.`,
+		      metadata: { opportunityId: proposal.opportunityId, totalAmount: proposal.totalAmount },
+		    });
+		    return proposal;
+		  }
+
+		  updateCrmProposalStatus(id: string, status: ProposalStatus): CrmProposal | undefined {
+		    const existing = this.getCrmProposalById(id);
+		    if (!existing) return undefined;
+		    const now = new Date().toISOString();
+		    this.db
+		      .prepare(
+		        `UPDATE crm_proposals
+		         SET status = ?, acceptedAt = ?, declinedAt = ?, updatedAt = ?
+		         WHERE id = ?`,
+		      )
+		      .run(
+		        status,
+		        status === 'Accepted' ? now : existing.acceptedAt ? existing.acceptedAt.toISOString() : null,
+		        status === 'Declined' ? now : existing.declinedAt ? existing.declinedAt.toISOString() : null,
+		        now,
+		        id,
+		      );
+		    if (status === 'Accepted') {
+		      this.updateOpportunityStage(existing.opportunityId, 'Won');
+		    } else if (status === 'Declined') {
+		      this.updateOpportunityStage(existing.opportunityId, 'Lost');
+		    } else if (status === 'Sent') {
+		      this.updateOpportunityStage(existing.opportunityId, 'Proposal');
+		    }
+		    const result = this.getCrmProposalById(id);
+		    if (result) {
+		      this.createActivityEvent({
+		        companyId: result.companyId,
+		        entityType: 'proposal',
+		        entityId: result.id,
+		        action: 'status_changed',
+		        summary: `Proposal ${result.proposalNumber} marked ${result.status}.`,
+		        metadata: { opportunityId: result.opportunityId, status: result.status },
+		      });
+		    }
+		    return result;
+		  }
+
+		  updateCrmProposal(id: string, updates: UpdateCrmProposalInput): CrmProposal | undefined {
+		    const existing = this.getCrmProposalById(id);
+		    if (!existing) return undefined;
+		    const items =
+		      updates.items === undefined
+		        ? existing.items
+		        : updates.items.map((item) => ({
+		            description: item.description,
+		            quantity: Number(item.quantity || 0),
+		            unitPrice: Number(item.unitPrice || 0),
+		            lineTotal: Number((Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2)),
+		          }));
+		    const proposal: CrmProposal = {
+		      ...existing,
+		      title: updates.title === undefined ? existing.title : updates.title,
+		      status: updates.status === undefined ? existing.status : updates.status,
+		      issueDate:
+		        updates.issueDate === undefined
+		          ? existing.issueDate
+		          : updates.issueDate
+		            ? new Date(updates.issueDate)
+		            : existing.issueDate,
+		      validUntil:
+		        updates.validUntil === undefined
+		          ? existing.validUntil
+		          : updates.validUntil
+		            ? new Date(updates.validUntil)
+		            : undefined,
+		      items,
+		      totalAmount: Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2)),
+		      notes: updates.notes === undefined ? existing.notes : updates.notes,
+		      updatedAt: new Date(),
+		    };
+		    this.db
+		      .prepare(
+		        `UPDATE crm_proposals SET title=@title, status=@status, issueDate=@issueDate,
+		         validUntil=@validUntil, items=@items, totalAmount=@totalAmount, notes=@notes,
+		         updatedAt=@updatedAt WHERE id=@id`,
+		      )
+		      .run({
+		        id,
+		        title: proposal.title,
+		        status: proposal.status,
+		        issueDate: proposal.issueDate.toISOString(),
+		        validUntil: proposal.validUntil ? proposal.validUntil.toISOString() : null,
+		        items: JSON.stringify(proposal.items),
+		        totalAmount: proposal.totalAmount,
+		        notes: proposal.notes ?? null,
+		        updatedAt: proposal.updatedAt.toISOString(),
+		      });
+		    if (updates.status && updates.status !== existing.status) {
+		      if (updates.status === 'Accepted') {
+		        this.updateOpportunityStage(existing.opportunityId, 'Won');
+		      } else if (updates.status === 'Declined') {
+		        this.updateOpportunityStage(existing.opportunityId, 'Lost');
+		      } else if (updates.status === 'Sent') {
+		        this.updateOpportunityStage(existing.opportunityId, 'Proposal');
+		      }
+		    }
+		    const result = this.getCrmProposalById(id);
+		    if (result) {
+		      this.createActivityEvent({
+		        companyId: result.companyId,
+		        entityType: 'proposal',
+		        entityId: result.id,
+		        action: 'updated',
+		        summary: `Proposal ${result.proposalNumber} updated.`,
+		        metadata: { opportunityId: result.opportunityId, status: result.status },
+		      });
+		    }
+		    return result;
+		  }
+
+		  deleteCrmProposal(id: string): boolean {
+		    const existing = this.getCrmProposalById(id);
+		    if (!existing) return false;
+		    if (existing.status === 'Expired') return true;
+		    this.updateCrmProposal(id, { status: 'Expired' });
+		    return true;
+		  }
+
+		  listCrmCampaigns(companyId: string, includeArchived = false): CrmCampaign[] {
+		    const rows = this.db
+		      .prepare(
+		        includeArchived
+		          ? 'SELECT * FROM crm_campaigns WHERE companyId = ? ORDER BY updatedAt DESC'
+		          : 'SELECT * FROM crm_campaigns WHERE companyId = ? AND archivedAt IS NULL ORDER BY updatedAt DESC',
+		      )
+		      .all(companyId) as any[];
+		    return rows.map((row) => this.decodeCrmCampaign(row));
+		  }
+
+		  getCrmCampaignById(id: string): CrmCampaign | undefined {
+		    const row = this.db.prepare('SELECT * FROM crm_campaigns WHERE id = ?').get(id) as any;
+		    return row ? this.decodeCrmCampaign(row) : undefined;
+		  }
+
+		  createCrmCampaign(input: CreateCrmCampaignInput): CrmCampaign {
+		    if (input.contactId) {
+		      const contact = this.getContactById(input.contactId);
+		      if (!contact || contact.companyId !== input.companyId) {
+		        throw new Error('Campaign contact must belong to the selected company.');
+		      }
+		    }
+		    if (input.proposalId) {
+		      const proposal = this.getCrmProposalById(input.proposalId);
+		      if (!proposal || proposal.companyId !== input.companyId) {
+		        throw new Error('Campaign proposal must belong to the selected company.');
+		      }
+		    }
+		    if (input.opportunityId) {
+		      const opportunity = this.getOpportunityById(input.opportunityId);
+		      if (!opportunity || opportunity.companyId !== input.companyId) {
+		        throw new Error('Campaign opportunity must belong to the selected company.');
+		      }
+		    }
+		    const now = new Date();
+		    const campaign: CrmCampaign = {
+		      ...input,
+		      id: input.id ?? uuid(),
+		      status: input.status ?? 'Planned',
+		      startDate: input.startDate ? new Date(input.startDate) : undefined,
+		      endDate: input.endDate ? new Date(input.endDate) : undefined,
+		      budget: input.budget === undefined ? undefined : Number(input.budget),
+		      visibility: input.visibility ?? 'Public',
+		      archivedAt: input.archivedAt ? new Date(input.archivedAt) : undefined,
+		      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+		      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+		    };
+		    this.db
+		      .prepare(
+		        `INSERT INTO crm_campaigns
+		          (id, companyId, proposalId, opportunityId, contactId, projectId, name, status,
+		           startDate, endDate, budget, ownerUserId, ownerName, visibility, notes, archivedAt, createdAt, updatedAt)
+		         VALUES
+		          (@id, @companyId, @proposalId, @opportunityId, @contactId, @projectId, @name, @status,
+		           @startDate, @endDate, @budget, @ownerUserId, @ownerName, @visibility, @notes, @archivedAt, @createdAt, @updatedAt)`,
+		      )
+		      .run(this.serializeCrmCampaign(campaign));
+		    this.createActivityEvent({
+		      companyId: campaign.companyId,
+		      entityType: 'campaign',
+		      entityId: campaign.id,
+		      action: 'created',
+		      summary: `Campaign ${campaign.name} created.`,
+		      metadata: { status: campaign.status, opportunityId: campaign.opportunityId, proposalId: campaign.proposalId },
+		    });
+		    return campaign;
+		  }
+
+		  updateCrmCampaign(id: string, updates: UpdateCrmCampaignInput): CrmCampaign | undefined {
+		    const existing = this.getCrmCampaignById(id);
+		    if (!existing) return undefined;
+		    if (updates.contactId) {
+		      const contact = this.getContactById(updates.contactId);
+		      if (!contact || contact.companyId !== existing.companyId) {
+		        throw new Error('Campaign contact must belong to the selected company.');
+		      }
+		    }
+		    const campaign: CrmCampaign = {
+		      ...existing,
+		      proposalId: updates.proposalId === undefined ? existing.proposalId : updates.proposalId,
+		      opportunityId: updates.opportunityId === undefined ? existing.opportunityId : updates.opportunityId,
+		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
+		      projectId: updates.projectId === undefined ? existing.projectId : updates.projectId,
+		      name: updates.name === undefined ? existing.name : updates.name,
+		      status: updates.status === undefined ? existing.status : updates.status,
+		      startDate: updates.startDate ? new Date(updates.startDate) : existing.startDate,
+		      endDate: updates.endDate ? new Date(updates.endDate) : existing.endDate,
+		      budget: updates.budget === undefined ? existing.budget : Number(updates.budget),
+		      ownerUserId: updates.ownerUserId === undefined ? existing.ownerUserId : updates.ownerUserId,
+		      ownerName: updates.ownerName === undefined ? existing.ownerName : updates.ownerName,
+		      visibility: updates.visibility === undefined ? existing.visibility : updates.visibility,
+		      notes: updates.notes === undefined ? existing.notes : updates.notes,
+		      archivedAt: updates.archivedAt ? new Date(updates.archivedAt) : existing.archivedAt,
+		      invoiceId: updates.invoiceId === undefined ? existing.invoiceId : updates.invoiceId,
+		      updatedAt: new Date(),
+		    };
+		    this.db
+		      .prepare(
+		        `UPDATE crm_campaigns SET proposalId=@proposalId, opportunityId=@opportunityId, projectId=@projectId,
+		         contactId=@contactId, name=@name, status=@status, startDate=@startDate, endDate=@endDate, budget=@budget,
+		         ownerUserId=@ownerUserId, ownerName=@ownerName, visibility=@visibility, notes=@notes,
+		         archivedAt=@archivedAt, invoiceId=@invoiceId, updatedAt=@updatedAt WHERE id=@id`,
+		      )
+		      .run(this.serializeCrmCampaign(campaign));
+		    const result = this.getCrmCampaignById(id);
+		    if (result) {
+		      this.createActivityEvent({
+		        companyId: result.companyId,
+		        entityType: 'campaign',
+		        entityId: result.id,
+		        action: 'updated',
+		        summary: `Campaign ${result.name} updated.`,
+		        metadata: { status: result.status },
+		      });
+		    }
+		    return result;
+		  }
+
+		  deleteCrmCampaign(id: string): boolean {
+		    const existing = this.getCrmCampaignById(id);
+		    if (!existing) return false;
+		    if (existing.archivedAt) return true;
+		    this.updateCrmCampaign(id, { status: 'Archived', archivedAt: new Date() });
+		    return true;
+		  }
+
+		  generateCampaignVendorBills(companyId: string, campaignId: string): VendorBill[] {
+		    const campaign = this.getCrmCampaignById(campaignId);
+		    if (!campaign || campaign.companyId !== companyId) {
+		      throw new Error('Campaign not found.');
+		    }
+		    const deliverables = this.listCampaignDeliverables(campaignId);
+		    const createdBills: VendorBill[] = [];
+		    const now = new Date();
+		    const dueDate = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30);
+		    for (const d of deliverables) {
+		      // Skip deliverables that already have a bill or have no vendor contact
+		      if (d.vendorBillId) continue;
+		      const vendorContactId = d.vendorContactId ?? d.contactId;
+		      if (!vendorContactId) continue;
+		      const contact = this.getContactById(vendorContactId);
+		      if (!contact) continue;
+		      const amount = d.cost ?? d.price ?? 0;
+		      const bill = this.createVendorBill({
+		        companyId,
+		        vendorName: contact.name,
+		        supplierId: contact.supplierId ?? undefined,
+		        campaignId,
+		        issueDate: now,
+		        dueDate,
+		        amount,
+		        status: 'Draft',
+		        notes: `Generated from campaign deliverable: ${d.title}`,
+		      });
+		      // Link deliverable to bill
+		      this.db
+		        .prepare(`UPDATE campaign_deliverables SET vendorBillId=?, updatedAt=? WHERE id=?`)
+		        .run(bill.id, new Date().toISOString(), d.id);
+		      createdBills.push(bill);
+		    }
+		    return createdBills;
+		  }
+
+		  listCampaignDeliverables(campaignId: string): CampaignDeliverable[] {
+		    const rows = this.db
+		      .prepare('SELECT * FROM campaign_deliverables WHERE campaignId = ? ORDER BY dueDate IS NULL, dueDate ASC, createdAt DESC')
+		      .all(campaignId) as any[];
+		    return rows.map((row) => this.decodeCampaignDeliverable(row));
+		  }
+
+		  getCampaignDeliverableById(id: string): CampaignDeliverable | undefined {
+		    const row = this.db.prepare('SELECT * FROM campaign_deliverables WHERE id = ?').get(id) as any;
+		    return row ? this.decodeCampaignDeliverable(row) : undefined;
+		  }
+
+		  createCampaignDeliverable(input: CreateCampaignDeliverableInput): CampaignDeliverable {
+		    const campaign = this.getCrmCampaignById(input.campaignId);
+		    if (!campaign || campaign.companyId !== input.companyId) {
+		      throw new Error('Deliverable campaign must belong to the selected company.');
+		    }
+		    if (input.contactId) {
+		      const contact = this.getContactById(input.contactId);
+		      if (!contact || contact.companyId !== input.companyId) throw new Error('Deliverable contact must belong to the selected company.');
+		    }
+		    const now = new Date();
+		    const deliverable: CampaignDeliverable = {
+		      ...input,
+		      id: input.id ?? uuid(),
+		      dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+		      status: input.status ?? 'Planned',
+		      publishedAt: input.publishedAt ? new Date(input.publishedAt) : undefined,
+		      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+		      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+		    };
+		    this.db
+		      .prepare(
+		        `INSERT INTO campaign_deliverables
+		          (id, companyId, campaignId, contactId, vendorContactId, assignedUserId, assignedUserName, title, platform,
+		           dueDate, status, contentUrl, price, cost, vendorBillId, publishedAt, notes, createdAt, updatedAt)
+		         VALUES
+		          (@id, @companyId, @campaignId, @contactId, @vendorContactId, @assignedUserId, @assignedUserName, @title, @platform,
+		           @dueDate, @status, @contentUrl, @price, @cost, @vendorBillId, @publishedAt, @notes, @createdAt, @updatedAt)`,
+		      )
+		      .run(this.serializeCampaignDeliverable(deliverable));
+		    this.createActivityEvent({
+		      companyId: deliverable.companyId,
+		      entityType: 'campaign_deliverable',
+		      entityId: deliverable.id,
+		      action: 'created',
+		      summary: `Campaign deliverable ${deliverable.title} created.`,
+		      metadata: { campaignId: deliverable.campaignId, status: deliverable.status },
+		    });
+		    return deliverable;
+		  }
+
+		  updateCampaignDeliverable(id: string, updates: UpdateCampaignDeliverableInput): CampaignDeliverable | undefined {
+		    const existing = this.getCampaignDeliverableById(id);
+		    if (!existing) return undefined;
+		    if (updates.contactId) {
+		      const contact = this.getContactById(updates.contactId);
+		      if (!contact || contact.companyId !== existing.companyId) throw new Error('Deliverable contact must belong to the selected company.');
+		    }
+		    const deliverable: CampaignDeliverable = {
+		      ...existing,
+		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
+		      vendorContactId: updates.vendorContactId === undefined ? existing.vendorContactId : updates.vendorContactId,
+		      assignedUserId: updates.assignedUserId === undefined ? existing.assignedUserId : updates.assignedUserId,
+		      assignedUserName: updates.assignedUserName === undefined ? existing.assignedUserName : updates.assignedUserName,
+		      title: updates.title === undefined ? existing.title : updates.title,
+		      platform: updates.platform === undefined ? existing.platform : updates.platform,
+		      dueDate: updates.dueDate === undefined ? existing.dueDate : updates.dueDate ? new Date(updates.dueDate) : undefined,
+		      status: updates.status === undefined ? existing.status : updates.status,
+		      contentUrl: updates.contentUrl === undefined ? existing.contentUrl : updates.contentUrl,
+		      price: updates.price === undefined ? existing.price : updates.price,
+		      cost: updates.cost === undefined ? existing.cost : updates.cost,
+		      vendorBillId: updates.vendorBillId === undefined ? existing.vendorBillId : updates.vendorBillId,
+		      publishedAt: updates.publishedAt === undefined ? existing.publishedAt : updates.publishedAt ? new Date(updates.publishedAt) : undefined,
+		      notes: updates.notes === undefined ? existing.notes : updates.notes,
+		      updatedAt: new Date(),
+		    };
+		    this.db
+		      .prepare(
+		        `UPDATE campaign_deliverables SET contactId=@contactId, vendorContactId=@vendorContactId,
+		         assignedUserId=@assignedUserId,
+		         assignedUserName=@assignedUserName, title=@title, platform=@platform, dueDate=@dueDate,
+		         status=@status, contentUrl=@contentUrl, price=@price, cost=@cost, vendorBillId=@vendorBillId,
+		         publishedAt=@publishedAt, notes=@notes,
+		         updatedAt=@updatedAt WHERE id=@id`,
+		      )
+		      .run(this.serializeCampaignDeliverable(deliverable));
+		    return this.getCampaignDeliverableById(id);
+		  }
+
+		  deleteCampaignDeliverable(id: string): boolean {
+		    return this.db.prepare('DELETE FROM campaign_deliverables WHERE id = ?').run(id).changes > 0;
+		  }
+
+		  listCampaignAssignments(campaignId: string): CampaignAssignment[] {
+		    const rows = this.db
+		      .prepare('SELECT * FROM campaign_assignments WHERE campaignId = ? ORDER BY createdAt DESC')
+		      .all(campaignId) as any[];
+		    return rows.map((row) => this.decodeCampaignAssignment(row));
+		  }
+
+		  getCampaignAssignmentById(id: string): CampaignAssignment | undefined {
+		    const row = this.db.prepare('SELECT * FROM campaign_assignments WHERE id = ?').get(id) as any;
+		    return row ? this.decodeCampaignAssignment(row) : undefined;
+		  }
+
+		  createCampaignAssignment(input: CreateCampaignAssignmentInput): CampaignAssignment {
+		    const campaign = this.getCrmCampaignById(input.campaignId);
+		    const contact = this.getContactById(input.contactId);
+		    if (!campaign || campaign.companyId !== input.companyId) throw new Error('Assignment campaign must belong to the selected company.');
+		    if (!contact || contact.companyId !== input.companyId) throw new Error('Assignment contact must belong to the selected company.');
+		    const now = new Date();
+		    const assignment: CampaignAssignment = {
+		      ...input,
+		      id: input.id ?? uuid(),
+		      agreedRate: input.agreedRate === undefined ? undefined : Number(input.agreedRate),
+		      status: input.status ?? 'Planned',
+		      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+		      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+		    };
+		    this.db
+		      .prepare(
+		        `INSERT INTO campaign_assignments
+		          (id, companyId, campaignId, contactId, role, agreedRate, status, notes, createdAt, updatedAt)
+		         VALUES
+		          (@id, @companyId, @campaignId, @contactId, @role, @agreedRate, @status, @notes, @createdAt, @updatedAt)`,
+		      )
+		      .run(this.serializeCampaignAssignment(assignment));
+		    this.addContactRole(input.contactId, input.companyId, input.role, 'Manual');
+		    return assignment;
+		  }
+
+		  updateCampaignAssignment(id: string, updates: UpdateCampaignAssignmentInput): CampaignAssignment | undefined {
+		    const existing = this.getCampaignAssignmentById(id);
+		    if (!existing) return undefined;
+		    const assignment: CampaignAssignment = {
+		      ...existing,
+		      role: updates.role === undefined ? existing.role : updates.role,
+		      agreedRate: updates.agreedRate === undefined ? existing.agreedRate : Number(updates.agreedRate),
+		      status: updates.status === undefined ? existing.status : updates.status,
+		      notes: updates.notes === undefined ? existing.notes : updates.notes,
+		      updatedAt: new Date(),
+		    };
+		    this.db
+		      .prepare(
+		        `UPDATE campaign_assignments SET role=@role, agreedRate=@agreedRate, status=@status,
+		         notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
+		      )
+		      .run(this.serializeCampaignAssignment(assignment));
+		    return this.getCampaignAssignmentById(id);
+		  }
+
+		  deleteCampaignAssignment(id: string): boolean {
+		    return this.db.prepare('DELETE FROM campaign_assignments WHERE id = ?').run(id).changes > 0;
+		  }
+
+		  listCampaignExpenses(campaignId: string): CampaignExpense[] {
+		    const rows = this.db
+		      .prepare('SELECT * FROM campaign_expenses WHERE campaignId = ? ORDER BY expenseDate DESC, createdAt DESC')
+		      .all(campaignId) as any[];
+		    return rows.map((row) => this.decodeCampaignExpense(row));
+		  }
+
+		  getCampaignExpenseById(id: string): CampaignExpense | undefined {
+		    const row = this.db.prepare('SELECT * FROM campaign_expenses WHERE id = ?').get(id) as any;
+		    return row ? this.decodeCampaignExpense(row) : undefined;
+		  }
+
+		  createCampaignExpense(input: CreateCampaignExpenseInput): CampaignExpense {
+		    const campaign = this.getCrmCampaignById(input.campaignId);
+		    if (!campaign || campaign.companyId !== input.companyId) throw new Error('Expense campaign must belong to the selected company.');
+		    if (input.contactId) {
+		      const contact = this.getContactById(input.contactId);
+		      if (!contact || contact.companyId !== input.companyId) throw new Error('Expense contact must belong to the selected company.');
+		    }
+		    const now = new Date();
+		    const expense: CampaignExpense = {
+		      ...input,
+		      id: input.id ?? uuid(),
+		      amount: Number(input.amount || 0),
+		      expenseDate: input.expenseDate ? new Date(input.expenseDate) : undefined,
+		      status: input.status ?? 'Draft',
+		      billable: Boolean(input.billable),
+		      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+		      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+		    };
+		    this.db
+		      .prepare(
+		        `INSERT INTO campaign_expenses
+		          (id, companyId, campaignId, contactId, vendorRequestId, description, amount,
+		           expenseDate, status, billable, notes, createdAt, updatedAt)
+		         VALUES
+		          (@id, @companyId, @campaignId, @contactId, @vendorRequestId, @description, @amount,
+		           @expenseDate, @status, @billable, @notes, @createdAt, @updatedAt)`,
+		      )
+		      .run(this.serializeCampaignExpense(expense));
+		    return expense;
+		  }
+
+		  updateCampaignExpense(id: string, updates: UpdateCampaignExpenseInput): CampaignExpense | undefined {
+		    const existing = this.getCampaignExpenseById(id);
+		    if (!existing) return undefined;
+		    const expense: CampaignExpense = {
+		      ...existing,
+		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
+		      vendorRequestId: updates.vendorRequestId === undefined ? existing.vendorRequestId : updates.vendorRequestId,
+		      description: updates.description === undefined ? existing.description : updates.description,
+		      amount: updates.amount === undefined ? existing.amount : Number(updates.amount),
+		      expenseDate: updates.expenseDate === undefined ? existing.expenseDate : updates.expenseDate ? new Date(updates.expenseDate) : undefined,
+		      status: updates.status === undefined ? existing.status : updates.status,
+		      billable: updates.billable === undefined ? existing.billable : Boolean(updates.billable),
+		      notes: updates.notes === undefined ? existing.notes : updates.notes,
+		      updatedAt: new Date(),
+		    };
+		    this.db
+		      .prepare(
+		        `UPDATE campaign_expenses SET contactId=@contactId, vendorRequestId=@vendorRequestId,
+		         description=@description, amount=@amount, expenseDate=@expenseDate, status=@status,
+		         billable=@billable, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
+		      )
+		      .run(this.serializeCampaignExpense(expense));
+		    return this.getCampaignExpenseById(id);
+		  }
+
+		  deleteCampaignExpense(id: string): boolean {
+		    return this.db.prepare('DELETE FROM campaign_expenses WHERE id = ?').run(id).changes > 0;
+		  }
+
+			  listVendorRequests(companyId: string): VendorRequest[] {
+	    const rows = this.db
+	      .prepare('SELECT * FROM vendor_requests WHERE companyId = ? ORDER BY createdAt DESC')
+	      .all(companyId) as any[];
+	    return rows.map((row) => this.decodeVendorRequest(row));
+	  }
+
+	  getVendorRequestById(id: string): VendorRequest | undefined {
+	    const row = this.db.prepare('SELECT * FROM vendor_requests WHERE id = ?').get(id) as any;
+	    return row ? this.decodeVendorRequest(row) : undefined;
+	  }
+
+	  createVendorRequest(input: CreateVendorRequestInput): VendorRequest {
+	    const now = new Date();
+		    const request: VendorRequest = {
+		      ...input,
+		      id: input.id ?? uuid(),
+		      dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+		      cost: input.cost === undefined ? undefined : Number(input.cost),
+		      status: input.status ?? 'New',
+	      requestedByUserId: input.requestedByUserId ?? this.currentActor?.userId,
+	      requestedByName: input.requestedByName ?? this.currentActor?.name,
+	      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+	      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+	    };
+	    this.db
+	      .prepare(
+		        `INSERT INTO vendor_requests
+		          (id, companyId, contactId, requestedByUserId, requestedByName, name, role, requestType, platform, handle,
+		           details, dueDate, cost, status, notes, reviewedByUserId, reviewedByName, reviewedAt, createdAt, updatedAt)
+		         VALUES
+		          (@id, @companyId, @contactId, @requestedByUserId, @requestedByName, @name, @role, @requestType, @platform, @handle,
+		           @details, @dueDate, @cost, @status, @notes, @reviewedByUserId, @reviewedByName, @reviewedAt, @createdAt, @updatedAt)`,
+	      )
+	      .run({
+	        ...request,
+	        contactId: request.contactId ?? null,
+	        requestedByUserId: request.requestedByUserId ?? null,
+		        requestedByName: request.requestedByName ?? null,
+		        requestType: request.requestType ?? null,
+		        platform: request.platform ?? null,
+		        handle: request.handle ?? null,
+		        details: request.details ?? null,
+		        dueDate: request.dueDate ? request.dueDate.toISOString() : null,
+		        cost: request.cost ?? null,
+		        notes: request.notes ?? null,
+	        reviewedByUserId: null,
+	        reviewedByName: null,
+	        reviewedAt: null,
+	        createdAt: request.createdAt.toISOString(),
+	        updatedAt: request.updatedAt.toISOString(),
+	      });
+	    this.createActivityEvent({
+	      companyId: request.companyId,
+	      entityType: 'vendor_request',
+	      entityId: request.id,
+	      action: 'created',
+	      summary: `Vendor request ${request.name} created.`,
+	      metadata: { role: request.role, status: request.status },
+	    });
+	    return request;
+	  }
+
+	  updateVendorRequest(id: string, updates: UpdateVendorRequestInput): VendorRequest | undefined {
+	    const existing = this.getVendorRequestById(id);
+	    if (!existing) return undefined;
+	    if (updates.contactId) {
+	      const contact = this.getContactById(updates.contactId);
+	      if (!contact || contact.companyId !== existing.companyId) {
+	        throw new Error('Vendor request contact must belong to the selected company.');
+	      }
+	    }
+	    const request: VendorRequest = {
+	      ...existing,
+	      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
+	      name: updates.name === undefined ? existing.name : updates.name,
+	      role: updates.role === undefined ? existing.role : updates.role,
+	      requestType: updates.requestType === undefined ? existing.requestType : updates.requestType,
+	      platform: updates.platform === undefined ? existing.platform : updates.platform,
+	      handle: updates.handle === undefined ? existing.handle : updates.handle,
+	      details: updates.details === undefined ? existing.details : updates.details,
+	      dueDate:
+	        updates.dueDate === undefined
+	          ? existing.dueDate
+	          : updates.dueDate
+	            ? new Date(updates.dueDate)
+	            : undefined,
+	      cost: updates.cost === undefined ? existing.cost : updates.cost === null ? undefined : Number(updates.cost),
+	      status: updates.status === undefined ? existing.status : updates.status,
+	      notes: updates.notes === undefined ? existing.notes : updates.notes,
+	      updatedAt: new Date(),
+	    };
+	    this.db
+	      .prepare(
+	        `UPDATE vendor_requests SET contactId=@contactId, name=@name, role=@role, requestType=@requestType,
+	         platform=@platform, handle=@handle, details=@details, dueDate=@dueDate, cost=@cost,
+	         status=@status, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
+	      )
+	      .run({
+	        id,
+	        contactId: request.contactId ?? null,
+	        name: request.name,
+	        role: request.role,
+	        requestType: request.requestType ?? null,
+	        platform: request.platform ?? null,
+	        handle: request.handle ?? null,
+	        details: request.details ?? null,
+	        dueDate: request.dueDate ? request.dueDate.toISOString() : null,
+	        cost: request.cost ?? null,
+	        status: request.status,
+	        notes: request.notes ?? null,
+	        updatedAt: request.updatedAt.toISOString(),
+	      });
+	    const result = this.getVendorRequestById(id);
+	    if (result) {
+	      this.createActivityEvent({
+	        companyId: result.companyId,
+	        entityType: 'vendor_request',
+	        entityId: result.id,
+	        action: 'updated',
+	        summary: `Vendor request ${result.name} updated.`,
+	        metadata: { role: result.role, status: result.status },
+	      });
+	    }
+	    return result;
+	  }
+
+	  deleteVendorRequest(id: string): boolean {
+	    const existing = this.getVendorRequestById(id);
+	    if (!existing) return false;
+	    if (existing.status === 'Archived') return true;
+	    this.updateVendorRequest(id, { status: 'Archived' });
+	    return true;
+	  }
+
+	  reviewVendorRequest(id: string, status: VendorRequestStatus, notes?: string): VendorRequest | undefined {
+	    const existing = this.db.prepare('SELECT * FROM vendor_requests WHERE id = ?').get(id) as any;
+	    if (!existing) return undefined;
+	    const now = new Date().toISOString();
+	    let contactId = existing.contactId as string | null;
+	    if (status === 'Approved' && !contactId) {
+	      const contact = this.createContact({
+	        companyId: existing.companyId,
+	        kind: 'Organization',
+	        name: existing.name,
+	        roles: [existing.role],
+	        influencerPlatform: existing.platform ?? undefined,
+	        influencerHandle: existing.handle ?? undefined,
+	        notes: existing.details ?? undefined,
+	      });
+	      contactId = contact.id;
+	    } else if (status === 'Approved' && contactId) {
+	      this.addContactRole(contactId, existing.companyId, existing.role, 'Manual');
+	    }
+	    this.db
+	      .prepare(
+	        `UPDATE vendor_requests SET status=@status, contactId=@contactId, notes=@notes,
+	           reviewedByUserId=@reviewedByUserId, reviewedByName=@reviewedByName,
+	           reviewedAt=@reviewedAt, updatedAt=@updatedAt WHERE id=@id`,
+	      )
+	      .run({
+	        id,
+	        status,
+	        contactId,
+	        notes: notes ?? existing.notes ?? null,
+	        reviewedByUserId: this.currentActor?.userId ?? null,
+	        reviewedByName: this.currentActor?.name ?? null,
+	        reviewedAt: now,
+	        updatedAt: now,
+	      });
+	    const result = this.decodeVendorRequest(this.db.prepare('SELECT * FROM vendor_requests WHERE id = ?').get(id) as any);
+	    this.createActivityEvent({
+	      companyId: result.companyId,
+	      entityType: 'vendor_request',
+	      entityId: result.id,
+	      action: 'reviewed',
+	      summary: `Vendor request ${result.name} marked ${result.status}.`,
+	      metadata: { status: result.status, contactId: result.contactId },
+	    });
+	    return result;
+	  }
+
+	  listCommissionRules(companyId: string): CommissionRule[] {
+	    const rows = this.db
+	      .prepare('SELECT * FROM commission_rules WHERE companyId = ? ORDER BY serviceType ASC')
+	      .all(companyId) as any[];
+	    return rows.map((row) => this.decodeCommissionRule(row));
+	  }
+
+	  createCommissionRule(input: CreateCommissionRuleInput): CommissionRule {
+	    const now = new Date();
+	    const rule: CommissionRule = {
+	      ...input,
+	      id: input.id ?? uuid(),
+	      rate: Number(input.rate || 0),
+	      fixedAmount: input.fixedAmount === undefined ? undefined : Number(input.fixedAmount),
+	      isActive: input.isActive ?? true,
+	      createdAt: input.createdAt ? new Date(input.createdAt) : now,
+	      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
+	    };
+	    this.db
+	      .prepare(
+	        `INSERT INTO commission_rules
+	          (id, companyId, serviceType, basis, rateType, rate, fixedAmount, isActive, createdAt, updatedAt)
+	         VALUES
+	          (@id, @companyId, @serviceType, @basis, @rateType, @rate, @fixedAmount, @isActive, @createdAt, @updatedAt)
+	         ON CONFLICT(companyId, serviceType)
+	         DO UPDATE SET basis=excluded.basis, rateType=excluded.rateType, rate=excluded.rate,
+	           fixedAmount=excluded.fixedAmount, isActive=excluded.isActive, updatedAt=excluded.updatedAt`,
+	      )
+	      .run({
+	        ...rule,
+	        fixedAmount: rule.fixedAmount ?? null,
+	        isActive: rule.isActive ? 1 : 0,
+	        createdAt: rule.createdAt.toISOString(),
+	        updatedAt: rule.updatedAt.toISOString(),
+	      });
+	    return this.listCommissionRules(rule.companyId).find((item) => item.serviceType === rule.serviceType)!;
+	  }
+
+		  listCommissions(companyId: string): Commission[] {
+		    const rows = this.db
+		      .prepare('SELECT * FROM commissions WHERE companyId = ? ORDER BY calculatedAt DESC')
+		      .all(companyId) as any[];
+		    return rows.map((row) => this.decodeCommission(row));
+		  }
+
+		  getCommissionById(id: string): Commission | undefined {
+		    const row = this.db.prepare('SELECT * FROM commissions WHERE id = ?').get(id) as any;
+		    return row ? this.decodeCommission(row) : undefined;
+		  }
+
+		  updateCommissionStatus(id: string, status: CommissionStatus): Commission | undefined {
+		    const existing = this.getCommissionById(id);
+		    if (!existing) return undefined;
+		    this.db.prepare('UPDATE commissions SET status = ? WHERE id = ?').run(status, id);
+		    const result = this.getCommissionById(id);
+		    if (result) {
+		      this.createActivityEvent({
+		        companyId: result.companyId,
+		        entityType: 'commission',
+		        entityId: result.id,
+		        action: 'status_changed',
+		        summary: `Commission ${result.serviceType} marked ${result.status}.`,
+		        metadata: { opportunityId: result.opportunityId, status: result.status, amount: result.amount },
+		      });
+		    }
+		    return result;
+		  }
+
+		  calculateCommissionsForOpportunity(opportunityId: string): Commission[] {
+	    const opportunity = this.getOpportunityById(opportunityId);
+	    if (!opportunity || opportunity.stage !== 'Won') return [];
+	    const ruleRow =
+	      (this.db
+	        .prepare('SELECT * FROM commission_rules WHERE companyId = ? AND serviceType = ? AND isActive = 1 LIMIT 1')
+	        .get(opportunity.companyId, opportunity.serviceType) as any) ||
+	      (this.db
+	        .prepare('SELECT * FROM commission_rules WHERE companyId = ? AND serviceType = ? AND isActive = 1 LIMIT 1')
+	        .get(opportunity.companyId, 'Default') as any);
+	    if (!ruleRow || !opportunity.ownerUserId) return [];
+	    const rule = this.decodeCommissionRule(ruleRow);
+	    const basisAmount = Number(opportunity.expectedRevenue || 0);
+	    const amount =
+	      rule.rateType === 'Fixed'
+	        ? Number(rule.fixedAmount || rule.rate || 0)
+	        : Number(((basisAmount * rule.rate) / 100).toFixed(2));
+	    const calculatedAt = new Date().toISOString();
+	    this.db
+	      .prepare(
+	        `INSERT INTO commissions
+	          (id, companyId, opportunityId, contactId, userId, userName, serviceType, basis, basisAmount, amount, status, calculatedAt)
+	         VALUES
+	          (@id, @companyId, @opportunityId, @contactId, @userId, @userName, @serviceType, @basis, @basisAmount, @amount, 'Draft', @calculatedAt)
+	         ON CONFLICT(opportunityId, userId, serviceType)
+	         DO UPDATE SET basis=excluded.basis, basisAmount=excluded.basisAmount, amount=excluded.amount,
+	           status='Draft', calculatedAt=excluded.calculatedAt`,
+	      )
+	      .run({
+	        id: uuid(),
+	        companyId: opportunity.companyId,
+	        opportunityId: opportunity.id,
+	        contactId: opportunity.contactId,
+	        userId: opportunity.ownerUserId,
+	        userName: opportunity.ownerName ?? null,
+	        serviceType: opportunity.serviceType,
+	        basis: rule.basis,
+	        basisAmount,
+	        amount,
+	        calculatedAt,
+	      });
+	    return this.listCommissions(opportunity.companyId).filter((item) => item.opportunityId === opportunity.id);
+	  }
+
+	  private contactToClient(c: Contact): Client {
+	    if (c.clientId) {
+	      const row = this.db.prepare('SELECT * FROM clients WHERE id = ?').get(c.clientId) as any;
+	      if (row) {
+	        return {
+	          ...this.decodeClient(row),
+	          name: c.name,
+	          email: c.email || row.email,
+	          address: c.address || row.address,
+	          contactName: c.contactPerson ?? row.contactName ?? undefined,
+	          phone: c.phone ?? row.phone ?? undefined,
+	          vatNumber: c.taxNumber ?? row.vatNumber ?? undefined,
+	          notes: c.notes ?? row.notes ?? undefined,
+	        };
+	      }
+	    }
+	    return {
+      id: c.clientId || c.id,
+      reference: c.clientId || c.id,
+      name: c.name,
+      email: c.email || '',
+      address: c.address || '',
+      companyId: c.companyId,
+      contactName: c.contactPerson,
+      phone: c.phone,
+      vatNumber: c.taxNumber,
+      notes: c.notes,
+      status: 'Active',
+    };
+  }
+
+	  private contactToSupplier(c: Contact): Supplier {
+	    if (c.supplierId) {
+	      const row = this.db.prepare('SELECT * FROM suppliers WHERE id = ?').get(c.supplierId) as any;
+	      if (row) {
+	        return {
+	          ...this.decodeSupplier(row),
+	          name: c.name,
+	          contactName: c.contactPerson ?? row.contactName ?? undefined,
+	          email: c.email ?? row.email ?? undefined,
+	          phone: c.phone ?? row.phone ?? undefined,
+	          notes: c.notes ?? row.notes ?? undefined,
+	        };
+	      }
+	    }
+	    return {
+      id: c.supplierId || c.id,
+      companyId: c.companyId,
+      reference: c.supplierId || c.id,
+      name: c.name,
+      contactName: c.contactPerson,
+      email: c.email,
+      phone: c.phone,
+      notes: c.notes,
+      isActive: true,
+    };
+  }
+
+  // ─── Clients ─────────────────────────────────────────────────────────────
+
   listClients(companyId: string): Client[] {
+    const contacts = this.listContacts(companyId, 'Client');
+    if (contacts.length > 0) return contacts.map((c) => this.contactToClient(c));
     const rows = this.db
       .prepare('SELECT * FROM clients WHERE companyId = ? ORDER BY name ASC')
       .all(companyId) as any[];
@@ -1974,13 +4046,21 @@ export class DataStore {
   }
 
   getClientById(id: string): Client | undefined {
+    const contactByClientId = (this.db
+      .prepare(`SELECT c.*, GROUP_CONCAT(r.role) as roleList FROM contacts c LEFT JOIN contact_roles r ON r.contactId = c.id WHERE c.clientId = ? GROUP BY c.id`)
+      .get(id) as any);
+    if (contactByClientId) return this.contactToClient(this.decodeContact(contactByClientId));
+    const contactById = (this.db
+      .prepare(`SELECT c.*, GROUP_CONCAT(r.role) as roleList FROM contacts c LEFT JOIN contact_roles r ON r.contactId = c.id WHERE c.id = ? GROUP BY c.id`)
+      .get(id) as any);
+    if (contactById) return this.contactToClient(this.decodeContact(contactById));
     const row = this.db.prepare('SELECT * FROM clients WHERE id = ?').get(id) as any;
     return row ? this.decodeClient(row) : undefined;
   }
 
   private getNumberingDataSource(entityType: NumberingEntityType): {
-    table: 'clients' | 'suppliers' | 'inventory_items' | 'purchase_orders' | 'sales_orders' | 'vendor_bills' | 'invoices';
-    column: 'reference' | 'sku' | 'orderNumber' | 'billNumber' | 'invoiceNumber';
+    table: 'clients' | 'suppliers' | 'inventory_items' | 'purchase_orders' | 'sales_orders' | 'vendor_bills' | 'invoices' | 'deliveries';
+    column: 'reference' | 'sku' | 'orderNumber' | 'billNumber' | 'invoiceNumber' | 'deliveryNumber';
   } {
     switch (entityType) {
       case 'client':
@@ -1997,6 +4077,8 @@ export class DataStore {
         return { table: 'invoices', column: 'invoiceNumber' };
       case 'vendor_invoice':
         return { table: 'vendor_bills', column: 'billNumber' };
+      case 'delivery':
+        return { table: 'deliveries', column: 'deliveryNumber' };
     }
   }
 
@@ -2445,16 +4527,29 @@ export class DataStore {
         status: newClient.status ?? null,
         notes: newClient.notes ?? null,
       });
-    this.createActivityEvent({
-      companyId: newClient.companyId,
+	    this.createActivityEvent({
+	      companyId: newClient.companyId,
       entityType: 'client',
       entityId: newClient.id,
       action: 'created',
       summary: `Client ${newClient.name} created.`,
       metadata: { status: newClient.status },
-    });
-    return newClient;
-  }
+	    });
+	    this.createContact({
+	      companyId: newClient.companyId,
+	      kind: 'Organization',
+	      name: newClient.name,
+	      email: newClient.email,
+	      address: newClient.address,
+	      contactPerson: newClient.contactName,
+	      phone: newClient.phone,
+	      taxNumber: newClient.vatNumber,
+	      notes: newClient.notes,
+	      roles: ['Client'],
+	      clientId: newClient.id,
+	    });
+	    return newClient;
+	  }
 
   updateClient(id: string, updates: Partial<Omit<Client, 'id'>>) {
     const existing = this.db.prepare('SELECT * FROM clients WHERE id = ?').get(id) as any;
@@ -2493,6 +4588,8 @@ export class DataStore {
   }
 
   listSuppliers(companyId: string): Supplier[] {
+    const contacts = this.listContacts(companyId, 'Vendor');
+    if (contacts.length > 0) return contacts.map((c) => this.contactToSupplier(c));
     const rows = this.db
       .prepare('SELECT * FROM suppliers WHERE companyId = ? ORDER BY name ASC')
       .all(companyId) as any[];
@@ -2500,6 +4597,14 @@ export class DataStore {
   }
 
   getSupplierById(id: string): Supplier | undefined {
+    const contactBySupplierId = (this.db
+      .prepare(`SELECT c.*, GROUP_CONCAT(r.role) as roleList FROM contacts c LEFT JOIN contact_roles r ON r.contactId = c.id WHERE c.supplierId = ? GROUP BY c.id`)
+      .get(id) as any);
+    if (contactBySupplierId) return this.contactToSupplier(this.decodeContact(contactBySupplierId));
+    const contactById = (this.db
+      .prepare(`SELECT c.*, GROUP_CONCAT(r.role) as roleList FROM contacts c LEFT JOIN contact_roles r ON r.contactId = c.id WHERE c.id = ? GROUP BY c.id`)
+      .get(id) as any);
+    if (contactById) return this.contactToSupplier(this.decodeContact(contactById));
     const row = this.db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id) as any;
     return row ? this.decodeSupplier(row) : undefined;
   }
@@ -2530,16 +4635,27 @@ export class DataStore {
         isActive: supplier.isActive ? 1 : 0,
       });
 
-    this.createActivityEvent({
-      companyId: supplier.companyId,
+	    this.createActivityEvent({
+	      companyId: supplier.companyId,
       entityType: 'supplier',
       entityId: supplier.id,
       action: 'created',
-      summary: `Supplier ${supplier.name} created.`,
-    });
+	      summary: `Supplier ${supplier.name} created.`,
+	    });
+	    this.createContact({
+	      companyId: supplier.companyId,
+	      kind: 'Organization',
+	      name: supplier.name,
+	      contactPerson: supplier.contactName,
+	      email: supplier.email,
+	      phone: supplier.phone,
+	      notes: supplier.notes,
+	      roles: ['Vendor'],
+	      supplierId: supplier.id,
+	    });
 
-    return supplier;
-  }
+	    return supplier;
+	  }
 
   listInventoryItems(companyId: string): InventoryItem[] {
     const rows = this.db
@@ -2994,17 +5110,22 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO purchase_orders (id, companyId, orderNumber, supplierName, supplierId, orderDate, expectedDate, status, items, totalAmount, notes, receivedAt) VALUES (@id, @companyId, @orderNumber, @supplierName, @supplierId, @orderDate, @expectedDate, @status, @items, @totalAmount, @notes, @receivedAt)',
+        'INSERT INTO purchase_orders (id, companyId, orderNumber, supplierName, supplierId, contactId, orderDate, expectedDate, status, items, totalAmount, notes, receivedAt) VALUES (@id, @companyId, @orderNumber, @supplierName, @supplierId, @contactId, @orderDate, @expectedDate, @status, @items, @totalAmount, @notes, @receivedAt)',
       )
       .run({
         ...order,
         supplierId: order.supplierId ?? null,
+        contactId: order.contactId ?? null,
         orderDate: order.orderDate.toISOString(),
         expectedDate: order.expectedDate ? order.expectedDate.toISOString() : null,
         items: JSON.stringify(order.items),
         notes: order.notes ?? null,
         receivedAt: null,
       });
+
+    if (input.contactId) {
+      this.addContactRole(input.contactId, input.companyId, 'Vendor', 'PurchaseOrder');
+    }
 
     if (shouldAutoReceive) {
       const receivedOrder = this.receivePurchaseOrder(order.id, {
@@ -3120,16 +5241,21 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO sales_orders (id, companyId, orderNumber, clientId, orderDate, expectedDate, status, items, totalAmount, notes, invoiceId) VALUES (@id, @companyId, @orderNumber, @clientId, @orderDate, @expectedDate, @status, @items, @totalAmount, @notes, @invoiceId)',
+        'INSERT INTO sales_orders (id, companyId, orderNumber, clientId, contactId, orderDate, expectedDate, status, items, totalAmount, notes, invoiceId) VALUES (@id, @companyId, @orderNumber, @clientId, @contactId, @orderDate, @expectedDate, @status, @items, @totalAmount, @notes, @invoiceId)',
       )
       .run({
         ...order,
+        contactId: order.contactId ?? null,
         orderDate: order.orderDate.toISOString(),
         expectedDate: order.expectedDate ? order.expectedDate.toISOString() : null,
         items: JSON.stringify(order.items),
         notes: order.notes ?? null,
         invoiceId: null,
       });
+
+    if (input.contactId) {
+      this.addContactRole(input.contactId, input.companyId, 'Client', 'SalesOrder');
+    }
 
     this.createActivityEvent({
       companyId: order.companyId,
@@ -3166,6 +5292,276 @@ export class DataStore {
       });
     }
     return result;
+  }
+
+  // ============================================================
+  // Deliveries / Fulfillment
+  // ============================================================
+
+  listDeliveries(companyId: string): Delivery[] {
+    const rows = this.db
+      .prepare('SELECT * FROM deliveries WHERE companyId = ? ORDER BY createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((row) => this.decodeDelivery(row));
+  }
+
+  listDeliveriesForSalesOrder(salesOrderId: string): Delivery[] {
+    const rows = this.db
+      .prepare('SELECT * FROM deliveries WHERE salesOrderId = ? ORDER BY createdAt DESC')
+      .all(salesOrderId) as any[];
+    return rows.map((row) => this.decodeDelivery(row));
+  }
+
+  getDeliveryById(id: string): Delivery | undefined {
+    const row = this.db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id) as any;
+    return row ? this.decodeDelivery(row) : undefined;
+  }
+
+  createDelivery(input: {
+    salesOrderId: string;
+    items: Array<{ salesOrderLineIndex: number; quantity: number; location?: string }>;
+    carrier?: string;
+    trackingNumber?: string;
+    notes?: string;
+    scheduledFor?: Date;
+  }): Delivery {
+    const order = this.getSalesOrderById(input.salesOrderId);
+    if (!order) {
+      throw new Error('Sales order not found.');
+    }
+    if (order.status === 'Cancelled' || order.status === 'Draft') {
+      throw new Error('Only confirmed or invoiced sales orders can be fulfilled.');
+    }
+
+    const deliveredByLine = this.getDeliveredQuantityByLine(order.id);
+    const normalized = input.items
+      .map((item) => ({
+        salesOrderLineIndex: Number(item.salesOrderLineIndex),
+        quantity: Number(item.quantity),
+        location: item.location ? String(item.location) : undefined,
+      }))
+      .filter((item) => Number.isInteger(item.salesOrderLineIndex) && Number.isFinite(item.quantity) && item.quantity > 0);
+
+    if (!normalized.length) {
+      throw new Error('Delivery requires at least one positive line quantity.');
+    }
+
+    const deliveryItems: DeliveryLineItem[] = normalized.map((item) => {
+      const soLine = order.items[item.salesOrderLineIndex];
+      if (!soLine) {
+        throw new Error(`Sales order line ${item.salesOrderLineIndex} does not exist.`);
+      }
+      const previouslyDelivered = deliveredByLine.get(item.salesOrderLineIndex) || 0;
+      const remaining = Number((soLine.quantity - previouslyDelivered).toFixed(4));
+      if (remaining <= 0) {
+        throw new Error(`Line ${item.salesOrderLineIndex} is already fully delivered.`);
+      }
+      if (item.quantity > remaining + 0.0001) {
+        throw new Error(`Delivery quantity for line ${item.salesOrderLineIndex} exceeds the remaining amount (${remaining}).`);
+      }
+      return {
+        salesOrderLineIndex: item.salesOrderLineIndex,
+        inventoryItemId: soLine.inventoryItemId,
+        sku: soLine.sku,
+        description: soLine.description,
+        quantity: Number(item.quantity.toFixed(4)),
+        location: item.location,
+      };
+    });
+
+    const delivery: Delivery = {
+      id: uuid(),
+      companyId: order.companyId,
+      deliveryNumber: this.nextConfiguredSequenceValue(order.companyId, 'delivery'),
+      salesOrderId: order.id,
+      status: 'Pending',
+      items: deliveryItems,
+      carrier: input.carrier,
+      trackingNumber: input.trackingNumber,
+      notes: input.notes,
+      scheduledFor: input.scheduledFor,
+      createdAt: new Date(),
+    };
+
+    this.db
+      .prepare(
+        `INSERT INTO deliveries (id, companyId, deliveryNumber, salesOrderId, status, items, carrier, trackingNumber, notes, scheduledFor, dispatchedAt, deliveredAt, cancelledAt, createdAt)
+         VALUES (@id, @companyId, @deliveryNumber, @salesOrderId, @status, @items, @carrier, @trackingNumber, @notes, @scheduledFor, @dispatchedAt, @deliveredAt, @cancelledAt, @createdAt)`,
+      )
+      .run({
+        ...delivery,
+        items: JSON.stringify(delivery.items),
+        carrier: delivery.carrier ?? null,
+        trackingNumber: delivery.trackingNumber ?? null,
+        notes: delivery.notes ?? null,
+        scheduledFor: delivery.scheduledFor ? delivery.scheduledFor.toISOString() : null,
+        dispatchedAt: null,
+        deliveredAt: null,
+        cancelledAt: null,
+        createdAt: delivery.createdAt.toISOString(),
+      });
+
+    this.createActivityEvent({
+      companyId: delivery.companyId,
+      entityType: 'delivery',
+      entityId: delivery.id,
+      action: 'created',
+      summary: `Delivery ${delivery.deliveryNumber} created for sales order ${order.orderNumber}.`,
+      metadata: { salesOrderId: order.id, status: delivery.status, lineCount: delivery.items.length },
+    });
+
+    return delivery;
+  }
+
+  markDeliveryShipped(id: string, dispatchedAt?: Date): Delivery {
+    const delivery = this.getDeliveryById(id);
+    if (!delivery) throw new Error('Delivery not found.');
+    if (delivery.status !== 'Pending') {
+      throw new Error(`Delivery cannot be shipped from status "${delivery.status}".`);
+    }
+    const order = this.getSalesOrderById(delivery.salesOrderId);
+    if (!order) throw new Error('Linked sales order not found.');
+
+    const shipAt = dispatchedAt || new Date();
+    const updateItemQty = this.db.prepare(
+      'UPDATE inventory_items SET onHand = onHand - ? WHERE id = ? AND companyId = ?',
+    );
+
+    const trx = this.db.transaction(() => {
+      delivery.items.forEach((line) => {
+        if (!line.inventoryItemId) return;
+        const inventoryItem = this.getInventoryItemById(line.inventoryItemId);
+        if (!inventoryItem || !inventoryItem.tracksInventory) return;
+        const location = this.normalizeInventoryLocation(line.location || inventoryItem.location);
+        // decrement on-hand (allow negative; surface warnings on stock movement)
+        updateItemQty.run(line.quantity, line.inventoryItemId, delivery.companyId);
+        this.incrementLocationBalance(
+          delivery.companyId,
+          line.inventoryItemId,
+          location,
+          -line.quantity,
+        );
+        this.createStockMovement({
+          companyId: delivery.companyId,
+          inventoryItemId: line.inventoryItemId,
+          movementType: 'Issue',
+          quantityChange: -line.quantity,
+          unitCost: inventoryItem.unitCost,
+          referenceType: 'delivery',
+          referenceId: delivery.id,
+          note: `Dispatched on ${delivery.deliveryNumber} (SO ${order.orderNumber})`,
+        });
+      });
+
+      this.db
+        .prepare('UPDATE deliveries SET status = ?, dispatchedAt = ? WHERE id = ?')
+        .run('Shipped', shipAt.toISOString(), id);
+    });
+
+    trx();
+
+    const updated = this.getDeliveryById(id);
+    if (!updated) throw new Error('Delivery not found after dispatch.');
+    this.createActivityEvent({
+      companyId: updated.companyId,
+      entityType: 'delivery',
+      entityId: updated.id,
+      action: 'shipped',
+      summary: `Delivery ${updated.deliveryNumber} dispatched.`,
+      metadata: {
+        salesOrderId: updated.salesOrderId,
+        carrier: updated.carrier,
+        trackingNumber: updated.trackingNumber,
+      },
+    });
+    return updated;
+  }
+
+  markDeliveryDelivered(id: string, deliveredAt?: Date): Delivery {
+    const delivery = this.getDeliveryById(id);
+    if (!delivery) throw new Error('Delivery not found.');
+    if (delivery.status !== 'Shipped') {
+      throw new Error(`Delivery must be shipped before it can be marked delivered (current: ${delivery.status}).`);
+    }
+    const at = deliveredAt || new Date();
+    this.db
+      .prepare('UPDATE deliveries SET status = ?, deliveredAt = ? WHERE id = ?')
+      .run('Delivered', at.toISOString(), id);
+    const updated = this.getDeliveryById(id);
+    if (!updated) throw new Error('Delivery not found after update.');
+    this.createActivityEvent({
+      companyId: updated.companyId,
+      entityType: 'delivery',
+      entityId: updated.id,
+      action: 'delivered',
+      summary: `Delivery ${updated.deliveryNumber} marked as delivered (POD recorded).`,
+      metadata: { salesOrderId: updated.salesOrderId, deliveredAt: at.toISOString() },
+    });
+    return updated;
+  }
+
+  cancelDelivery(id: string, reason?: string): Delivery {
+    const delivery = this.getDeliveryById(id);
+    if (!delivery) throw new Error('Delivery not found.');
+    if (delivery.status === 'Cancelled') return delivery;
+    if (delivery.status === 'Delivered') {
+      throw new Error('Delivered shipments cannot be cancelled. Create a return instead.');
+    }
+
+    const order = this.getSalesOrderById(delivery.salesOrderId);
+    const cancelledAt = new Date();
+
+    const wasShipped = delivery.status === 'Shipped';
+    const updateItemQty = this.db.prepare(
+      'UPDATE inventory_items SET onHand = onHand + ? WHERE id = ? AND companyId = ?',
+    );
+
+    const trx = this.db.transaction(() => {
+      if (wasShipped) {
+        // reverse stock movements
+        delivery.items.forEach((line) => {
+          if (!line.inventoryItemId) return;
+          const inventoryItem = this.getInventoryItemById(line.inventoryItemId);
+          if (!inventoryItem || !inventoryItem.tracksInventory) return;
+          const location = this.normalizeInventoryLocation(line.location || inventoryItem.location);
+          updateItemQty.run(line.quantity, line.inventoryItemId, delivery.companyId);
+          this.incrementLocationBalance(
+            delivery.companyId,
+            line.inventoryItemId,
+            location,
+            line.quantity,
+          );
+          this.createStockMovement({
+            companyId: delivery.companyId,
+            inventoryItemId: line.inventoryItemId,
+            movementType: 'Adjustment',
+            quantityChange: line.quantity,
+            unitCost: inventoryItem.unitCost,
+            referenceType: 'delivery',
+            referenceId: delivery.id,
+            note: `Reversal of ${delivery.deliveryNumber}${reason ? ` (${reason})` : ''}`,
+          });
+        });
+      }
+
+      this.db
+        .prepare('UPDATE deliveries SET status = ?, cancelledAt = ?, notes = COALESCE(notes, ?) WHERE id = ?')
+        .run('Cancelled', cancelledAt.toISOString(), reason ?? null, id);
+    });
+
+    trx();
+
+    const updated = this.getDeliveryById(id);
+    if (!updated) throw new Error('Delivery not found after cancellation.');
+    this.createActivityEvent({
+      companyId: updated.companyId,
+      entityType: 'delivery',
+      entityId: updated.id,
+      action: 'cancelled',
+      summary: `Delivery ${updated.deliveryNumber} cancelled${wasShipped ? ' (stock reversed)' : ''}.`,
+      metadata: { salesOrderId: order?.id, reason, reversed: wasShipped },
+    });
+    return updated;
   }
 
   receivePurchaseOrder(
@@ -3365,12 +5761,14 @@ export class DataStore {
     this.assertUniqueInvoiceNumber(newInvoice.companyId, newInvoice.invoiceNumber);
     this.db
       .prepare(
-        'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, salesOrderId, templateId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @salesOrderId, @templateId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
+        'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
       )
       .run({
         ...newInvoice,
+        contactId: newInvoice.contactId ?? null,
         salesOrderId: newInvoice.salesOrderId ?? null,
         templateId: newInvoice.templateId ?? null,
+        campaignId: newInvoice.campaignId ?? null,
         issueDate: newInvoice.issueDate.toISOString(),
         dueDate: newInvoice.dueDate.toISOString(),
         lineItems: JSON.stringify(normalizedLineItems),
@@ -3380,6 +5778,10 @@ export class DataStore {
         sentAt: newInvoice.sentAt ? newInvoice.sentAt.toISOString() : null,
         paidAt: newInvoice.paidAt ? newInvoice.paidAt.toISOString() : null,
       });
+
+    if (invoice.contactId) {
+      this.addContactRole(invoice.contactId, invoice.companyId, 'Client', 'Invoice');
+    }
     if (newInvoice.salesOrderId) {
       this.db
         .prepare('UPDATE sales_orders SET status = ?, invoiceId = ? WHERE id = ?')
@@ -3506,6 +5908,7 @@ export class DataStore {
     const total = Number(row.total) || 0;
     return {
       ...row,
+      contactId: row.contactId ?? undefined,
       salesOrderId: row.salesOrderId ?? undefined,
       templateId: row.templateId ?? undefined,
       issueDate: new Date(row.issueDate),
@@ -4292,12 +6695,13 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO vendor_bills (id, companyId, vendorName, supplierId, purchaseOrderId, billNumber, referenceInvoiceNumber, issueDate, dueDate, amount, status, notes, expenseAccountId, paidAt) VALUES (@id, @companyId, @vendorName, @supplierId, @purchaseOrderId, @billNumber, @referenceInvoiceNumber, @issueDate, @dueDate, @amount, @status, @notes, @expenseAccountId, @paidAt)',
+        'INSERT INTO vendor_bills (id, companyId, vendorName, supplierId, purchaseOrderId, campaignId, billNumber, referenceInvoiceNumber, issueDate, dueDate, amount, status, notes, expenseAccountId, paidAt) VALUES (@id, @companyId, @vendorName, @supplierId, @purchaseOrderId, @campaignId, @billNumber, @referenceInvoiceNumber, @issueDate, @dueDate, @amount, @status, @notes, @expenseAccountId, @paidAt)',
       )
       .run({
         ...bill,
         supplierId: bill.supplierId ?? null,
         purchaseOrderId: bill.purchaseOrderId ?? null,
+        campaignId: bill.campaignId ?? null,
         referenceInvoiceNumber: bill.referenceInvoiceNumber ?? null,
         issueDate: bill.issueDate.toISOString(),
         dueDate: bill.dueDate.toISOString(),
@@ -4517,6 +6921,14 @@ export class DataStore {
          WHERE i.companyId = ? AND p.paidAt >= ? AND p.paidAt < ?`,
       )
       .get(companyId, monthStart, nextMonth) as { amount: number };
+    const paidPayablesThisMonthRow = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(p.amount), 0) as amount
+         FROM vendor_bill_payments p
+         JOIN vendor_bills b ON b.id = p.billId
+         WHERE b.companyId = ? AND p.paidAt >= ? AND p.paidAt < ?`,
+      )
+      .get(companyId, monthStart, nextMonth) as { amount: number };
     const billedThisMonthRow = this.db
       .prepare(
         'SELECT COALESCE(SUM(total), 0) as amount FROM invoices WHERE companyId = ? AND issueDate >= ? AND issueDate < ?',
@@ -4532,6 +6944,7 @@ export class DataStore {
       openReceivables: Number(openReceivablesAmount.toFixed(2)),
       openPayables: Number(openPayablesAmount.toFixed(2)),
       paidThisMonth: Number(paidThisMonthRow.amount || 0),
+      paidPayablesThisMonth: Number(paidPayablesThisMonthRow.amount || 0),
       billedThisMonth: Number(billedThisMonthRow.amount || 0),
       expenseReceiptsThisMonth: Number(expensesRow.amount || 0),
     };
@@ -5578,6 +7991,77 @@ export class DataStore {
     return event;
   }
 
+  createCrmActivity(input: {
+    companyId: string;
+    contactId: string;
+    category: import('../types').ActivityCategory;
+    summary: string;
+    outcome?: string;
+    nextAction?: string;
+    nextActionDueDate?: Date;
+    durationMinutes?: number;
+  }): ActivityEvent {
+    const id = uuid();
+    const now = new Date().toISOString();
+    this.db.prepare(
+      `INSERT INTO activity_events
+         (id, companyId, actorUserId, actorName, entityType, entityId, action, summary,
+          category, outcome, nextAction, nextActionDueDate, durationMinutes, createdAt)
+       VALUES
+         (@id, @companyId, @actorUserId, @actorName, 'contact', @contactId, @action, @summary,
+          @category, @outcome, @nextAction, @nextActionDueDate, @durationMinutes, @now)`,
+    ).run({
+      id,
+      companyId: input.companyId,
+      actorUserId: this.currentActor?.userId ?? null,
+      actorName: this.currentActor?.name ?? null,
+      contactId: input.contactId,
+      action: `crm_activity_${input.category.toLowerCase().replace(/\s+/g, '_')}`,
+      summary: input.summary,
+      category: input.category,
+      outcome: input.outcome ?? null,
+      nextAction: input.nextAction ?? null,
+      nextActionDueDate: input.nextActionDueDate ? input.nextActionDueDate.toISOString() : null,
+      durationMinutes: input.durationMinutes ?? null,
+      now,
+    });
+
+    // Update contact nextFollowupDate if provided
+    if (input.nextActionDueDate) {
+      this.db.prepare(
+        `UPDATE contacts SET nextFollowupDate=@date, nextFollowupNote=@note, updatedAt=@now WHERE id=@id`,
+      ).run({
+        id: input.contactId,
+        date: input.nextActionDueDate.toISOString(),
+        note: input.nextAction ?? null,
+        now,
+      });
+    }
+
+    const row = this.db.prepare('SELECT * FROM activity_events WHERE id = ?').get(id) as any;
+    return this.decodeActivityEvent(row);
+  }
+
+  listFollowups(companyId: string, options?: {
+    contactId?: string;
+    ownerUserId?: string;
+    overdue?: boolean;
+    limit?: number;
+  }): ActivityEvent[] {
+    const limit = options?.limit ?? 100;
+    const now = new Date().toISOString();
+    let sql = `SELECT * FROM activity_events WHERE companyId = ? AND nextActionDueDate IS NOT NULL`;
+    const params: any[] = [companyId];
+    if (options?.contactId) { sql += ` AND entityId = ?`; params.push(options.contactId); }
+    if (options?.ownerUserId) { sql += ` AND actorUserId = ?`; params.push(options.ownerUserId); }
+    if (options?.overdue === true) { sql += ` AND nextActionDueDate < ?`; params.push(now); }
+    if (options?.overdue === false) { sql += ` AND nextActionDueDate >= ?`; params.push(now); }
+    sql += ` ORDER BY nextActionDueDate ASC LIMIT ?`;
+    params.push(limit);
+    const rows = this.db.prepare(sql).all(...params) as any[];
+    return rows.map((r) => this.decodeActivityEvent(r));
+  }
+
   private decodeInventoryItem(row: any): InventoryItem {
     return {
       id: row.id,
@@ -5655,6 +8139,7 @@ export class DataStore {
       orderNumber: row.orderNumber,
       supplierName: row.supplierName,
       supplierId: row.supplierId ?? undefined,
+      contactId: row.contactId ?? undefined,
       orderDate: new Date(row.orderDate),
       expectedDate: row.expectedDate ? new Date(row.expectedDate) : undefined,
       status: row.status as PurchaseOrderStatus,
@@ -5666,19 +8151,78 @@ export class DataStore {
   }
 
   private decodeSalesOrder(row: any): SalesOrder {
+    const items = this.normalizeSalesOrderItems(this.parseJson(row.items) || []);
+    const deliveredByLine = this.getDeliveredQuantityByLine(row.id);
+    const deliveredQuantityByLine = items.map((_, idx) => Number((deliveredByLine.get(idx) || 0).toFixed(4)));
+    const totalOrdered = items.reduce((sum, item) => sum + item.quantity, 0);
+    const totalDelivered = deliveredQuantityByLine.reduce((sum, qty) => sum + qty, 0);
+    let fulfillmentStatus: SalesOrderFulfillmentStatus = 'Unfulfilled';
+    if (totalOrdered > 0 && totalDelivered >= totalOrdered - 0.0001) {
+      fulfillmentStatus = 'Fulfilled';
+    } else if (totalDelivered > 0.0001) {
+      fulfillmentStatus = 'Partially Fulfilled';
+    }
     return {
       id: row.id,
       companyId: row.companyId,
       orderNumber: row.orderNumber,
       clientId: row.clientId,
+      contactId: row.contactId ?? undefined,
       orderDate: new Date(row.orderDate),
       expectedDate: row.expectedDate ? new Date(row.expectedDate) : undefined,
       status: row.status as SalesOrderStatus,
-      items: this.normalizeSalesOrderItems(this.parseJson(row.items) || []),
+      items,
       totalAmount: Number(row.totalAmount) || 0,
       notes: row.notes ?? undefined,
       invoiceId: row.invoiceId ?? undefined,
+      fulfillmentStatus,
+      deliveredQuantityByLine,
     };
+  }
+
+  private decodeDelivery(row: any): Delivery {
+    const parsedItems = this.parseJson<any[]>(row.items);
+    const items: DeliveryLineItem[] = (Array.isArray(parsedItems) ? parsedItems : []).map((item: any) => ({
+      salesOrderLineIndex: Number(item.salesOrderLineIndex) || 0,
+      inventoryItemId: item.inventoryItemId ?? undefined,
+      sku: item.sku ?? undefined,
+      description: String(item.description || ''),
+      quantity: Number(item.quantity) || 0,
+      location: item.location ?? undefined,
+    }));
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      deliveryNumber: row.deliveryNumber,
+      salesOrderId: row.salesOrderId,
+      status: row.status as DeliveryStatus,
+      items,
+      carrier: row.carrier ?? undefined,
+      trackingNumber: row.trackingNumber ?? undefined,
+      notes: row.notes ?? undefined,
+      scheduledFor: row.scheduledFor ? new Date(row.scheduledFor) : undefined,
+      dispatchedAt: row.dispatchedAt ? new Date(row.dispatchedAt) : undefined,
+      deliveredAt: row.deliveredAt ? new Date(row.deliveredAt) : undefined,
+      cancelledAt: row.cancelledAt ? new Date(row.cancelledAt) : undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  private getDeliveredQuantityByLine(salesOrderId: string): Map<number, number> {
+    const rows = this.db
+      .prepare(`SELECT items, status FROM deliveries WHERE salesOrderId = ?`)
+      .all(salesOrderId) as Array<{ items: string; status: string }>;
+    const map = new Map<number, number>();
+    rows.forEach((row) => {
+      if (row.status === 'Cancelled' || row.status === 'Pending') return;
+      const items = this.parseJson<any[]>(row.items) || [];
+      items.forEach((item: any) => {
+        const idx = Number(item.salesOrderLineIndex) || 0;
+        const qty = Number(item.quantity) || 0;
+        map.set(idx, Number(((map.get(idx) || 0) + qty).toFixed(4)));
+      });
+    });
+    return map;
   }
 
   private decodePurchaseReceipt(row: any): PurchaseReceipt {
@@ -5753,6 +8297,7 @@ export class DataStore {
       vendorName: row.vendorName,
       supplierId: row.supplierId ?? undefined,
       purchaseOrderId: row.purchaseOrderId ?? undefined,
+      campaignId: row.campaignId ?? undefined,
       billNumber: row.billNumber,
       referenceInvoiceNumber: row.referenceInvoiceNumber ?? undefined,
       issueDate: new Date(row.issueDate),
@@ -5796,7 +8341,7 @@ export class DataStore {
     };
   }
 
-  private decodeActivityEvent(row: any): ActivityEvent {
+	  private decodeActivityEvent(row: any): ActivityEvent {
     return {
       id: row.id,
       companyId: row.companyId,
@@ -5807,11 +8352,258 @@ export class DataStore {
       action: row.action,
       summary: row.summary,
       metadata: this.parseJson<Record<string, unknown>>(row.metadata) ?? undefined,
-      createdAt: new Date(row.createdAt),
-    };
-  }
+      category: row.category ?? undefined,
+      outcome: row.outcome ?? undefined,
+      nextAction: row.nextAction ?? undefined,
+      nextActionDueDate: row.nextActionDueDate ? new Date(row.nextActionDueDate) : undefined,
+      durationMinutes: row.durationMinutes != null ? Number(row.durationMinutes) : undefined,
+	      createdAt: new Date(row.createdAt),
+	    };
+	  }
 
-  private decodeRecordAttachment(row: any): RecordAttachment {
+		  private decodeOpportunity(row: any): Opportunity {
+		    return {
+	      id: row.id,
+	      companyId: row.companyId,
+	      contactId: row.contactId,
+	      ownerUserId: row.ownerUserId ?? undefined,
+	      ownerName: row.ownerName ?? undefined,
+	      title: row.title,
+	      serviceType: row.serviceType,
+	      stage: row.stage as OpportunityStage,
+	      expectedRevenue: Number(row.expectedRevenue || 0),
+	      probability: Number(row.probability || 0),
+	      expectedCloseDate: row.expectedCloseDate ? new Date(row.expectedCloseDate) : undefined,
+	      notes: row.notes ?? undefined,
+	      wonSalesOrderId: row.wonSalesOrderId ?? undefined,
+	      createdAt: new Date(row.createdAt),
+	      updatedAt: new Date(row.updatedAt),
+		    };
+		  }
+
+		  private decodeCrmProposal(row: any): CrmProposal {
+		    return {
+		      id: row.id,
+		      companyId: row.companyId,
+		      opportunityId: row.opportunityId,
+		      contactId: row.contactId,
+		      proposalNumber: row.proposalNumber,
+		      title: row.title,
+		      status: row.status as ProposalStatus,
+		      issueDate: new Date(row.issueDate),
+		      validUntil: row.validUntil ? new Date(row.validUntil) : undefined,
+		      items: this.parseJson<ProposalLineItem[]>(row.items) || [],
+		      totalAmount: Number(row.totalAmount || 0),
+		      notes: row.notes ?? undefined,
+		      acceptedAt: row.acceptedAt ? new Date(row.acceptedAt) : undefined,
+		      declinedAt: row.declinedAt ? new Date(row.declinedAt) : undefined,
+		      createdAt: new Date(row.createdAt),
+		      updatedAt: new Date(row.updatedAt),
+		    };
+		  }
+
+		  private serializeCrmCampaign(campaign: CrmCampaign) {
+		    return {
+		      ...campaign,
+		      proposalId: campaign.proposalId ?? null,
+		      opportunityId: campaign.opportunityId ?? null,
+		      projectId: campaign.projectId ?? null,
+		      startDate: campaign.startDate ? campaign.startDate.toISOString() : null,
+		      endDate: campaign.endDate ? campaign.endDate.toISOString() : null,
+		      budget: campaign.budget ?? null,
+		      ownerUserId: campaign.ownerUserId ?? null,
+		      ownerName: campaign.ownerName ?? null,
+		      notes: campaign.notes ?? null,
+		      archivedAt: campaign.archivedAt ? campaign.archivedAt.toISOString() : null,
+		      invoiceId: campaign.invoiceId ?? null,
+		      createdAt: campaign.createdAt.toISOString(),
+		      updatedAt: campaign.updatedAt.toISOString(),
+		    };
+		  }
+
+		  private decodeCrmCampaign(row: any): CrmCampaign {
+		    return {
+		      id: row.id,
+		      companyId: row.companyId,
+		      proposalId: row.proposalId ?? undefined,
+		      opportunityId: row.opportunityId ?? undefined,
+		      contactId: row.contactId,
+		      projectId: row.projectId ?? undefined,
+		      name: row.name,
+		      status: row.status as CampaignStatus,
+		      startDate: row.startDate ? new Date(row.startDate) : undefined,
+		      endDate: row.endDate ? new Date(row.endDate) : undefined,
+		      budget: row.budget === null || row.budget === undefined ? undefined : Number(row.budget),
+		      ownerUserId: row.ownerUserId ?? undefined,
+		      ownerName: row.ownerName ?? undefined,
+		      visibility: row.visibility as ProjectVisibility,
+		      notes: row.notes ?? undefined,
+		      archivedAt: row.archivedAt ? new Date(row.archivedAt) : undefined,
+		      invoiceId: row.invoiceId ?? undefined,
+		      createdAt: new Date(row.createdAt),
+		      updatedAt: new Date(row.updatedAt),
+		    };
+		  }
+
+		  private serializeCampaignDeliverable(deliverable: CampaignDeliverable) {
+		    return {
+		      ...deliverable,
+		      contactId: deliverable.contactId ?? null,
+		      vendorContactId: deliverable.vendorContactId ?? null,
+		      assignedUserId: deliverable.assignedUserId ?? null,
+		      assignedUserName: deliverable.assignedUserName ?? null,
+		      platform: deliverable.platform ?? null,
+		      dueDate: deliverable.dueDate ? deliverable.dueDate.toISOString() : null,
+		      contentUrl: deliverable.contentUrl ?? null,
+		      price: deliverable.price ?? null,
+		      cost: deliverable.cost ?? null,
+		      vendorBillId: deliverable.vendorBillId ?? null,
+		      publishedAt: deliverable.publishedAt ? deliverable.publishedAt.toISOString() : null,
+		      notes: deliverable.notes ?? null,
+		      createdAt: deliverable.createdAt.toISOString(),
+		      updatedAt: deliverable.updatedAt.toISOString(),
+		    };
+		  }
+
+		  private decodeCampaignDeliverable(row: any): CampaignDeliverable {
+		    return {
+		      id: row.id,
+		      companyId: row.companyId,
+		      campaignId: row.campaignId,
+		      contactId: row.contactId ?? undefined,
+		      vendorContactId: row.vendorContactId ?? undefined,
+		      assignedUserId: row.assignedUserId ?? undefined,
+		      assignedUserName: row.assignedUserName ?? undefined,
+		      title: row.title,
+		      platform: row.platform ?? undefined,
+		      dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
+		      status: row.status as CampaignDeliverableStatus,
+		      contentUrl: row.contentUrl ?? undefined,
+		      price: row.price === null || row.price === undefined ? undefined : Number(row.price),
+		      cost: row.cost === null || row.cost === undefined ? undefined : Number(row.cost),
+		      vendorBillId: row.vendorBillId ?? undefined,
+		      publishedAt: row.publishedAt ? new Date(row.publishedAt) : undefined,
+		      notes: row.notes ?? undefined,
+		      createdAt: new Date(row.createdAt),
+		      updatedAt: new Date(row.updatedAt),
+		    };
+		  }
+
+		  private serializeCampaignAssignment(assignment: CampaignAssignment) {
+		    return {
+		      ...assignment,
+		      agreedRate: assignment.agreedRate ?? null,
+		      notes: assignment.notes ?? null,
+		      createdAt: assignment.createdAt.toISOString(),
+		      updatedAt: assignment.updatedAt.toISOString(),
+		    };
+		  }
+
+		  private decodeCampaignAssignment(row: any): CampaignAssignment {
+		    return {
+		      id: row.id,
+		      companyId: row.companyId,
+		      campaignId: row.campaignId,
+		      contactId: row.contactId,
+		      role: row.role as ContactRoleType,
+		      agreedRate: row.agreedRate === null || row.agreedRate === undefined ? undefined : Number(row.agreedRate),
+		      status: row.status as CampaignAssignmentStatus,
+		      notes: row.notes ?? undefined,
+		      createdAt: new Date(row.createdAt),
+		      updatedAt: new Date(row.updatedAt),
+		    };
+		  }
+
+		  private serializeCampaignExpense(expense: CampaignExpense) {
+		    return {
+		      ...expense,
+		      contactId: expense.contactId ?? null,
+		      vendorRequestId: expense.vendorRequestId ?? null,
+		      amount: Number(expense.amount || 0),
+		      expenseDate: expense.expenseDate ? expense.expenseDate.toISOString() : null,
+		      billable: expense.billable ? 1 : 0,
+		      notes: expense.notes ?? null,
+		      createdAt: expense.createdAt.toISOString(),
+		      updatedAt: expense.updatedAt.toISOString(),
+		    };
+		  }
+
+		  private decodeCampaignExpense(row: any): CampaignExpense {
+		    return {
+		      id: row.id,
+		      companyId: row.companyId,
+		      campaignId: row.campaignId,
+		      contactId: row.contactId ?? undefined,
+		      vendorRequestId: row.vendorRequestId ?? undefined,
+		      description: row.description,
+		      amount: Number(row.amount || 0),
+		      expenseDate: row.expenseDate ? new Date(row.expenseDate) : undefined,
+		      status: row.status as CampaignExpenseStatus,
+		      billable: Boolean(row.billable),
+		      notes: row.notes ?? undefined,
+		      createdAt: new Date(row.createdAt),
+		      updatedAt: new Date(row.updatedAt),
+		    };
+		  }
+
+		  private decodeVendorRequest(row: any): VendorRequest {
+	    return {
+	      id: row.id,
+	      companyId: row.companyId,
+	      contactId: row.contactId ?? undefined,
+	      requestedByUserId: row.requestedByUserId ?? undefined,
+		      requestedByName: row.requestedByName ?? undefined,
+		      name: row.name,
+		      role: row.role as ContactRoleType,
+		      requestType: row.requestType ?? undefined,
+		      platform: row.platform ?? undefined,
+		      handle: row.handle ?? undefined,
+		      details: row.details ?? undefined,
+		      dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
+		      cost: row.cost === null || row.cost === undefined ? undefined : Number(row.cost),
+		      status: row.status as VendorRequestStatus,
+	      notes: row.notes ?? undefined,
+	      reviewedByUserId: row.reviewedByUserId ?? undefined,
+	      reviewedByName: row.reviewedByName ?? undefined,
+	      reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : undefined,
+	      createdAt: new Date(row.createdAt),
+	      updatedAt: new Date(row.updatedAt),
+	    };
+	  }
+
+	  private decodeCommissionRule(row: any): CommissionRule {
+	    return {
+	      id: row.id,
+	      companyId: row.companyId,
+	      serviceType: row.serviceType,
+	      basis: row.basis as CommissionBasis,
+	      rateType: row.rateType as CommissionRateType,
+	      rate: Number(row.rate || 0),
+	      fixedAmount: row.fixedAmount === null || row.fixedAmount === undefined ? undefined : Number(row.fixedAmount),
+	      isActive: Boolean(row.isActive),
+	      createdAt: new Date(row.createdAt),
+	      updatedAt: new Date(row.updatedAt),
+	    };
+	  }
+
+	  private decodeCommission(row: any): Commission {
+	    return {
+	      id: row.id,
+	      companyId: row.companyId,
+	      opportunityId: row.opportunityId,
+	      contactId: row.contactId,
+	      userId: row.userId ?? undefined,
+	      userName: row.userName ?? undefined,
+	      serviceType: row.serviceType,
+	      basis: row.basis as CommissionBasis,
+	      basisAmount: Number(row.basisAmount || 0),
+	      amount: Number(row.amount || 0),
+	      status: row.status as CommissionStatus,
+	      calculatedAt: new Date(row.calculatedAt),
+	    };
+	  }
+
+	  private decodeRecordAttachment(row: any): RecordAttachment {
     return {
       id: row.id,
       companyId: row.companyId,

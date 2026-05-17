@@ -368,6 +368,7 @@ export function JournalTable() {
         actions={(
           <>
             <Button
+              data-tutorial="coa-export-btn"
               variant="outline"
               size="sm"
               onClick={() =>
@@ -398,7 +399,7 @@ export function JournalTable() {
               }}
             >
               <DialogTrigger asChild>
-                <Button variant="outline" onClick={openCreateAccount}>
+                <Button variant="outline" onClick={openCreateAccount} data-tutorial="coa-add-account-btn">
                   <FilePlus2 className="me-2 h-4 w-4" />
                   Add Account
                 </Button>
@@ -495,7 +496,7 @@ export function JournalTable() {
 
             <Dialog open={openJournal} onOpenChange={setOpenJournal}>
               <DialogTrigger asChild>
-                <Button>
+                <Button data-tutorial="coa-journal-btn">
                   <NotebookPen className="me-2 h-4 w-4" />
                   Manual Journal
                 </Button>
@@ -601,7 +602,7 @@ export function JournalTable() {
         )}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="coa-stats">
         {accountStats.map((stat) => (
           <Card key={stat.type}>
             <CardHeader className="pb-2">
@@ -617,7 +618,7 @@ export function JournalTable() {
         ))}
       </div>
 
-      <Card>
+      <Card data-tutorial="coa-table">
         <CardHeader>
           <CardTitle>Chart of Accounts</CardTitle>
         </CardHeader>
@@ -704,7 +705,7 @@ export function JournalTable() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tutorial="coa-journal-table">
         <CardHeader>
           <CardTitle>Journal Entries</CardTitle>
         </CardHeader>

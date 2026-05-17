@@ -20,16 +20,16 @@ export function FinancePage() {
     <SectionPageShell title={t('finance.title')} description={t('finance.subtitle')}>
       <Tabs defaultValue="overview" className="space-y-4">
         <div className="overflow-x-auto pb-1">
-          <TabsList className="flex h-auto min-w-max justify-start gap-1">
-          <TabsTrigger value="overview">{t('finance.tabOverview')}</TabsTrigger>
-          <TabsTrigger value="invoices">{t('finance.tabInvoices')}</TabsTrigger>
+          <TabsList className="flex h-auto min-w-max justify-start gap-1" data-tutorial="finance-tabs">
+          <TabsTrigger value="overview" data-tutorial="finance-tab-overview">{t('finance.tabOverview')}</TabsTrigger>
+          <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
           <TabsTrigger value="invoice-templates">Invoice Templates</TabsTrigger>
-          <TabsTrigger value="payables">{t('finance.tabPayables')}</TabsTrigger>
-          <TabsTrigger value="ledger">{t('finance.tabLedger')}</TabsTrigger>
+          <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
+          <TabsTrigger value="ledger" data-tutorial="finance-tab-ledger">{t('finance.tabLedger')}</TabsTrigger>
           <TabsTrigger value="accounting">Accounting Reports</TabsTrigger>
-          <TabsTrigger value="reports">Reports</TabsTrigger>
+          <TabsTrigger value="reports" data-tutorial="finance-tab-reports">Reports</TabsTrigger>
           <TabsTrigger value="activity">Activity Log</TabsTrigger>
-          <TabsTrigger value="expenses">{t('finance.tabExpenses')}</TabsTrigger>
+          <TabsTrigger value="expenses" data-tutorial="finance-tab-expenses">{t('finance.tabExpenses')}</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="overview">

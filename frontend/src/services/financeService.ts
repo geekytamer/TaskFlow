@@ -37,6 +37,12 @@ import type {
 } from '@/modules/finance/types';
 
 const toDate = (value: any) => (value ? new Date(value) : undefined);
+const stringId = (value: any) => {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value.id) return String(value.id);
+  return String(value);
+};
 
 const mapInvoiceLineItem = (item: any): InvoiceLineItem => {
   const quantity = Number(item?.quantity ?? 1);
@@ -62,7 +68,11 @@ const mapInvoiceLineItem = (item: any): InvoiceLineItem => {
 
 const mapInvoice = (invoice: any): Invoice => ({
   ...invoice,
-  salesOrderId: invoice.salesOrderId || undefined,
+  clientId: stringId(invoice.clientId) || '',
+  contactId: stringId(invoice.contactId),
+  salesOrderId: stringId(invoice.salesOrderId),
+  templateId: stringId(invoice.templateId),
+  campaignId: stringId(invoice.campaignId),
   total: Number(invoice.total || 0),
   issueDate: toDate(invoice.issueDate) || new Date(),
   dueDate: toDate(invoice.dueDate) || new Date(),
@@ -98,6 +108,29 @@ const mapSalesOrder = (order: any): SalesOrder => ({
   items: Array.isArray(order.items) ? order.items.map(mapSalesOrderLineItem) : [],
   totalAmount: Number(order.totalAmount || 0),
   invoiceId: order.invoiceId || undefined,
+  fulfillmentStatus: order.fulfillmentStatus || 'Unfulfilled',
+  deliveredQuantityByLine: Array.isArray(order.deliveredQuantityByLine)
+    ? order.deliveredQuantityByLine.map((n: any) => Number(n) || 0)
+    : [],
+});
+
+const mapDelivery = (delivery: any): import('@/modules/finance/types').Delivery => ({
+  ...delivery,
+  items: Array.isArray(delivery.items)
+    ? delivery.items.map((item: any) => ({
+        salesOrderLineIndex: Number(item.salesOrderLineIndex || 0),
+        inventoryItemId: item.inventoryItemId || undefined,
+        sku: item.sku || undefined,
+        description: String(item.description || ''),
+        quantity: Number(item.quantity || 0),
+        location: item.location || undefined,
+      }))
+    : [],
+  scheduledFor: toDate(delivery.scheduledFor),
+  dispatchedAt: toDate(delivery.dispatchedAt),
+  deliveredAt: toDate(delivery.deliveredAt),
+  cancelledAt: toDate(delivery.cancelledAt),
+  createdAt: toDate(delivery.createdAt) || new Date(),
 });
 
 const mapInvoiceTemplate = (template: any): InvoiceTemplate => ({
@@ -155,6 +188,7 @@ const mapManagementReportSummary = (summary: any): ManagementReportSummary => ({
     openReceivables: Number(summary?.finance?.openReceivables || 0),
     openPayables: Number(summary?.finance?.openPayables || 0),
     paidThisMonth: Number(summary?.finance?.paidThisMonth || 0),
+    paidPayablesThisMonth: Number(summary?.finance?.paidPayablesThisMonth || 0),
     billedThisMonth: Number(summary?.finance?.billedThisMonth || 0),
     expenseReceiptsThisMonth: Number(summary?.finance?.expenseReceiptsThisMonth || 0),
   },
@@ -400,6 +434,7 @@ export async function createSalesOrder(
   companyId: string,
   data: {
     clientId: string;
+    contactId?: string;
     orderDate: Date;
     expectedDate?: Date;
     status: SalesOrderStatus;
@@ -453,6 +488,70 @@ export async function getInvoiceTemplates(companyId: string): Promise<InvoiceTem
   if (!companyId) return [];
   const templates = await apiFetch<InvoiceTemplate[]>(`/companies/${companyId}/invoice-templates`);
   return templates.map(mapInvoiceTemplate);
+}
+
+// ============================================================
+// Deliveries / Fulfillment
+// ============================================================
+
+export async function getDeliveries(
+  companyId: string,
+): Promise<import('@/modules/finance/types').Delivery[]> {
+  if (!companyId) return [];
+  const rows = await apiFetch<any[]>(`/companies/${companyId}/deliveries`);
+  return rows.map(mapDelivery);
+}
+
+export async function getDeliveriesForSalesOrder(
+  salesOrderId: string,
+): Promise<import('@/modules/finance/types').Delivery[]> {
+  if (!salesOrderId) return [];
+  const rows = await apiFetch<any[]>(`/sales-orders/${salesOrderId}/deliveries`);
+  return rows.map(mapDelivery);
+}
+
+export async function createDelivery(
+  salesOrderId: string,
+  data: {
+    items: Array<{ salesOrderLineIndex: number; quantity: number; location?: string }>;
+    carrier?: string;
+    trackingNumber?: string;
+    notes?: string;
+    scheduledFor?: Date;
+  },
+): Promise<import('@/modules/finance/types').Delivery> {
+  const body = await apiFetch<any>(`/sales-orders/${salesOrderId}/deliveries`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return mapDelivery(body);
+}
+
+export async function updateDeliveryStatus(
+  deliveryId: string,
+  status: import('@/modules/finance/types').DeliveryStatus,
+  options: { occurredAt?: Date; reason?: string } = {},
+): Promise<import('@/modules/finance/types').Delivery> {
+  const body = await apiFetch<any>(`/deliveries/${deliveryId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      status,
+      occurredAt: options.occurredAt?.toISOString(),
+      reason: options.reason,
+    }),
+  });
+  return mapDelivery(body);
+}
+
+export async function cancelDelivery(
+  deliveryId: string,
+  reason?: string,
+): Promise<import('@/modules/finance/types').Delivery> {
+  const body = await apiFetch<any>(`/deliveries/${deliveryId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+  return mapDelivery(body);
 }
 
 export type InvoiceTemplateInput = Omit<

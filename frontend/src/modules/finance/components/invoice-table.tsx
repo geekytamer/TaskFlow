@@ -45,6 +45,7 @@ import { SectionToolbar } from '@/modules/operations/components/section-toolbar'
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { InvoiceDocument } from './invoice-document';
 import { useCompanyCurrency } from '@/lib/currency';
+import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
@@ -52,6 +53,7 @@ export function InvoiceTable() {
   const [clients, setClients] = React.useState<Client[]>([]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [campaigns, setCampaigns] = React.useState<CrmCampaign[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
@@ -78,16 +80,18 @@ export function InvoiceTable() {
     }
     setLoading(true);
     try {
-      const [invoiceData, clientData, templateData, taskData] = await Promise.all([
+      const [invoiceData, clientData, templateData, taskData, campaignData] = await Promise.all([
         getInvoices(selectedCompany.id),
         getClients(selectedCompany.id),
         getInvoiceTemplates(selectedCompany.id),
         getTasks(),
+        getCampaigns(selectedCompany.id, true),
       ]);
       setInvoices(invoiceData);
       setClients(clientData);
       setTemplates(templateData);
       setTasks(taskData.filter((t) => t.companyId === selectedCompany.id));
+      setCampaigns(campaignData);
     } catch (error: any) {
       setInvoices([]);
       setClients([]);
@@ -107,8 +111,8 @@ export function InvoiceTable() {
     fetchData();
   }, [fetchData]);
 
-  const getClientName = (clientId: string) => {
-    return clients.find(c => c.id === clientId)?.name || 'N/A';
+  const getClientName = (clientId: string, contactId?: string) => {
+    return clients.find(c => c.id === clientId || c.id === contactId)?.name || 'N/A';
   };
 
   const getTaskTitle = (taskId?: string) =>
@@ -121,6 +125,15 @@ export function InvoiceTable() {
     (templateId ? templates.find((template) => template.id === templateId) : undefined)
     || templates.find((template) => template.isDefault)
     || templates[0];
+
+  const getCampaignName = (campaignId?: string) =>
+    campaignId ? campaigns.find((campaign) => campaign.id === campaignId)?.name || campaignId : undefined;
+
+  const getOriginLabel = (invoice: Invoice, item: Invoice['lineItems'][number]) => {
+    if (item.taskId) return getTaskTitle(item.taskId);
+    if (invoice.campaignId) return `Campaign: ${getCampaignName(invoice.campaignId)}`;
+    return item.description;
+  };
 
   const filteredInvoices = React.useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -140,12 +153,12 @@ export function InvoiceTable() {
 
       return [
         invoice.invoiceNumber,
-        getClientName(invoice.clientId),
+        getClientName(invoice.clientId, invoice.contactId),
         invoice.status,
         taskText,
       ].some((value) => value.toLowerCase().includes(query));
     });
-  }, [invoices, search, statusFilter, tasks, clients]);
+  }, [invoices, search, statusFilter, tasks, clients, campaigns]);
 
   const filteredOutstanding = React.useMemo(
     () => filteredInvoices.reduce((sum, invoice) => sum + (invoice.outstandingAmount || 0), 0),
@@ -253,6 +266,7 @@ export function InvoiceTable() {
       <SectionToolbar
         search={(
           <Input
+            data-tutorial="invoice-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search by invoice number, client, or task"
@@ -264,7 +278,7 @@ export function InvoiceTable() {
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as 'all' | InvoiceStatus)}
           >
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[180px]" data-tutorial="invoice-status-filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -277,9 +291,9 @@ export function InvoiceTable() {
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredInvoices.length} invoices shown • outstanding ${amount(filteredOutstanding)}`}
+        summary={`${filteredInvoices.length} invoices shown • outstanding ${money(filteredOutstanding)}`}
         actions={(
-          <>
+          <div data-tutorial="invoice-bulk-actions" className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -311,7 +325,7 @@ export function InvoiceTable() {
                   ],
                   filteredInvoices.map((invoice) => [
                     invoice.invoiceNumber,
-                    getClientName(invoice.clientId),
+                    getClientName(invoice.clientId, invoice.contactId),
                     invoice.issueDate.toISOString(),
                     invoice.dueDate.toISOString(),
                     invoice.total,
@@ -329,15 +343,15 @@ export function InvoiceTable() {
               onOpenChange={setIsSheetOpen}
               onInvoiceCreated={fetchData}
             >
-              <Button>
+              <Button data-tutorial="invoice-create-btn">
                 <PlusCircle className="me-2 h-4 w-4" />
                 {t('finance.createInvoice')}
               </Button>
             </CreateInvoiceSheet>
-          </>
+          </div>
         )}
       />
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border" data-tutorial="invoice-table">
         <Table>
           <TableHeader>
             <TableRow>
@@ -350,7 +364,7 @@ export function InvoiceTable() {
               <TableHead className="text-end">Paid</TableHead>
               <TableHead className="text-end">Outstanding</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Origin Tasks</TableHead>
+              <TableHead>Origin</TableHead>
               <TableHead className="text-end">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -358,7 +372,7 @@ export function InvoiceTable() {
             {filteredInvoices.map((invoice) => (
               <TableRow key={invoice.id}>
                 <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                <TableCell>{getClientName(invoice.clientId)}</TableCell>
+                <TableCell>{getClientName(invoice.clientId, invoice.contactId)}</TableCell>
                 <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{format(invoice.dueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{getTemplateName(invoice.templateId)}</TableCell>
@@ -393,10 +407,8 @@ export function InvoiceTable() {
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
                     {invoice.lineItems.map((item, index) => (
-                      <Badge key={`${item.taskId || item.description}-${index}`} variant="outline">
-                        {item.taskId
-                          ? getTaskTitle(item.taskId)
-                          : item.description}
+                      <Badge key={`${item.taskId || invoice.campaignId || item.description}-${index}`} variant="outline">
+                        {getOriginLabel(invoice, item)}
                       </Badge>
                     ))}
                   </div>
@@ -435,7 +447,7 @@ export function InvoiceTable() {
                         <DialogHeader>
                           <DialogTitle>Record Payment</DialogTitle>
                           <p className="text-sm text-muted-foreground">
-                            Invoice {invoice.invoiceNumber} — {getClientName(invoice.clientId)}
+                            Invoice {invoice.invoiceNumber} — {getClientName(invoice.clientId, invoice.contactId)}
                           </p>
                         </DialogHeader>
                         <div className="space-y-4 py-2">

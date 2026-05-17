@@ -64,8 +64,10 @@ export interface Invoice {
   invoiceNumber: string;
   companyId: string;
   clientId: string;
+  contactId?: string;
   salesOrderId?: string;
   templateId?: string;
+  campaignId?: string;
   issueDate: Date;
   dueDate: Date;
   lineItems: InvoiceLineItem[];
@@ -92,11 +94,14 @@ export interface SalesOrderLineItem {
   lineTotal: number;
 }
 
+export type SalesOrderFulfillmentStatus = 'Unfulfilled' | 'Partially Fulfilled' | 'Fulfilled';
+
 export interface SalesOrder {
   id: string;
   companyId: string;
   orderNumber: string;
   clientId: string;
+  contactId?: string;
   orderDate: Date;
   expectedDate?: Date;
   status: SalesOrderStatus;
@@ -104,6 +109,37 @@ export interface SalesOrder {
   totalAmount: number;
   notes?: string;
   invoiceId?: string;
+  fulfillmentStatus?: SalesOrderFulfillmentStatus;
+  deliveredQuantityByLine?: number[];
+}
+
+export type DeliveryStatus = 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
+export const deliveryStatuses: DeliveryStatus[] = ['Pending', 'Shipped', 'Delivered', 'Cancelled'];
+
+export interface DeliveryLineItem {
+  salesOrderLineIndex: number;
+  inventoryItemId?: string;
+  sku?: string;
+  description: string;
+  quantity: number;
+  location?: string;
+}
+
+export interface Delivery {
+  id: string;
+  companyId: string;
+  deliveryNumber: string;
+  salesOrderId: string;
+  status: DeliveryStatus;
+  items: DeliveryLineItem[];
+  carrier?: string;
+  trackingNumber?: string;
+  notes?: string;
+  scheduledFor?: Date;
+  dispatchedAt?: Date;
+  deliveredAt?: Date;
+  cancelledAt?: Date;
+  createdAt: Date;
 }
 
 export type InvoiceTemplateLayout = 'classic' | 'modern' | 'compact' | 'letterhead';
@@ -417,6 +453,7 @@ export interface FinanceOverview {
   openReceivables: number;
   openPayables: number;
   paidThisMonth: number;
+  paidPayablesThisMonth: number;
   billedThisMonth: number;
   expenseReceiptsThisMonth: number;
 }

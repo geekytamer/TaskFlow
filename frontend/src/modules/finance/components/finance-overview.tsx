@@ -145,8 +145,8 @@ export function FinanceOverviewPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7" data-tutorial="finance-metrics-grid">
+        <Card data-tutorial="finance-metric-receivables">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Receivables</CardTitle>
           </CardHeader>
@@ -154,7 +154,7 @@ export function FinanceOverviewPanel() {
             <div className="text-2xl font-bold">{amount(overview?.openReceivables || 0)}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card data-tutorial="finance-metric-payables">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Payables</CardTitle>
           </CardHeader>
@@ -162,7 +162,7 @@ export function FinanceOverviewPanel() {
             <div className="text-2xl font-bold">{amount(overview?.openPayables || 0)}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card data-tutorial="finance-metric-billed">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Billed This Month</CardTitle>
           </CardHeader>
@@ -170,12 +170,20 @@ export function FinanceOverviewPanel() {
             <div className="text-2xl font-bold">{amount(overview?.billedThisMonth || 0)}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card data-tutorial="finance-metric-collected">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Collected This Month</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.paidThisMonth || 0)}</div>
+          </CardContent>
+        </Card>
+        <Card data-tutorial="finance-metric-paid-payables">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Paid Payables This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{amount(overview?.paidPayablesThisMonth || 0)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -233,7 +241,7 @@ export function FinanceOverviewPanel() {
               <p className="text-xl font-semibold">{billCount}</p>
             </div>
           </div>
-          <div className="rounded-md border">
+          <div className="rounded-md border" data-tutorial="finance-aging-table">
             <Table>
               <TableHeader>
                 <TableRow>

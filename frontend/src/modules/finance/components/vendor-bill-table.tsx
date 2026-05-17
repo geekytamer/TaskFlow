@@ -247,7 +247,7 @@ export function VendorBillTable() {
       setOpenCreate(false);
       resetForm();
       await load();
-      toast({ title: 'Vendor invoice created' });
+      toast({ title: 'Vendor bill created' });
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -340,7 +340,7 @@ export function VendorBillTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Invoice #</TableHead>
+              <TableHead>Bill #</TableHead>
               <TableHead>Vendor</TableHead>
               <TableHead>Due Date</TableHead>
               <TableHead>Amount</TableHead>
@@ -367,7 +367,7 @@ export function VendorBillTable() {
     return (
       <div className="rounded-lg border">
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view vendor invoices.
+          Select a company to view vendor bills.
         </div>
       </div>
     );
@@ -401,23 +401,19 @@ export function VendorBillTable() {
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredBills.length} invoices shown • outstanding ${amount(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0))}`}
+        summary={`${filteredBills.length} vendor bills shown • outstanding ${money(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0))}`}
         actions={(
           <>
           <Button variant="outline" size="sm" onClick={() => bulkUpdate('Approved', 'Draft')}>
             <ListChecks className="me-2 h-4 w-4" />
             Approve All Draft
           </Button>
-          <Button variant="outline" size="sm" onClick={() => bulkUpdate('Paid', 'Approved')}>
-            <ListChecks className="me-2 h-4 w-4" />
-            Mark All Approved Paid
-          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() =>
               downloadCsv(
-                `vendor-invoices-${format(new Date(), 'yyyy-MM-dd')}.csv`,
+                `vendor-bills-${format(new Date(), 'yyyy-MM-dd')}.csv`,
                 [
                   'invoiceNumber',
                   'referenceInvoiceNumber',
@@ -448,12 +444,12 @@ export function VendorBillTable() {
             <DialogTrigger asChild>
               <Button>
                 <FilePlus className="me-2 h-4 w-4" />
-                New Vendor Invoice
+                New Vendor Bill
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Create Vendor Invoice</DialogTitle>
+                <DialogTitle>Create Vendor Bill</DialogTitle>
                 <DialogDescription>
                   Internal invoice number is generated automatically. Use the optional reference field for the supplier-side invoice number.
                 </DialogDescription>
@@ -541,7 +537,7 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Invoice Number</Label>
+                  <Label>Bill Number</Label>
                   <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
                     Auto-generated when saved
                   </div>
@@ -597,7 +593,6 @@ export function VendorBillTable() {
                     <SelectContent>
                       <SelectItem value="Draft">Draft</SelectItem>
                       <SelectItem value="Approved">Approved</SelectItem>
-                      <SelectItem value="Paid">Paid</SelectItem>
                       <SelectItem value="Overdue">Overdue</SelectItem>
                     </SelectContent>
                   </Select>
@@ -641,7 +636,7 @@ export function VendorBillTable() {
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>
                   Cancel
                 </Button>
-            <Button onClick={handleCreate}>Create Invoice</Button>
+            <Button onClick={handleCreate}>Create Bill</Button>
             </DialogFooter>
           </DialogContent>
           </Dialog>
@@ -649,11 +644,15 @@ export function VendorBillTable() {
         )}
       />
 
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+        Approve a vendor bill when it becomes payable. Record cash movement with <span className="font-medium">Record Payment</span>; paid status is set automatically after payments clear the outstanding balance.
+      </div>
+
       <div className="overflow-x-auto rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Invoice #</TableHead>
+              <TableHead>Bill #</TableHead>
               <TableHead>Vendor</TableHead>
               <TableHead>Issue Date</TableHead>
               <TableHead>Due Date</TableHead>
@@ -663,7 +662,7 @@ export function VendorBillTable() {
               <TableHead>Purchase Order</TableHead>
               <TableHead>Expense Account</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-end">Action</TableHead>
+              <TableHead className="text-end">Payment</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -671,8 +670,8 @@ export function VendorBillTable() {
               <TableRow>
                 <TableCell colSpan={11} className="h-20 text-center text-muted-foreground">
                   {bills.length === 0
-                    ? 'No vendor invoices yet. Create one from purchasing or manual AP entry to start payable tracking.'
-                    : 'No vendor invoices match the current search or status filter.'}
+                    ? 'No vendor bills yet. Create one from purchasing or manual AP entry to start payable tracking.'
+                    : 'No vendor bills match the current search or status filter.'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -702,6 +701,7 @@ export function VendorBillTable() {
                     <div className="flex items-center gap-2">
                       <Select
                         value={bill.status}
+                        disabled={bill.status === 'Paid'}
                         onValueChange={async (value) => {
                           try {
                             await updateVendorBillStatus(bill.id, value as VendorBillStatus);
@@ -721,7 +721,7 @@ export function VendorBillTable() {
                         <SelectContent>
                           <SelectItem value="Draft">Draft</SelectItem>
                           <SelectItem value="Approved">Approved</SelectItem>
-                          <SelectItem value="Paid">Paid</SelectItem>
+                          {bill.status === 'Paid' && <SelectItem value="Paid">Paid</SelectItem>}
                           <SelectItem value="Overdue">Overdue</SelectItem>
                         </SelectContent>
                       </Select>
@@ -729,10 +729,31 @@ export function VendorBillTable() {
                     </div>
                   </TableCell>
                   <TableCell className="text-end">
-                    {(bill.outstandingAmount || 0) > 0 && bill.status !== 'Draft' ? (
+                    {bill.status === 'Draft' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await updateVendorBillStatus(bill.id, 'Approved');
+                            await load();
+                            toast({ title: 'Vendor bill approved' });
+                          } catch (error: any) {
+                            toast({
+                              variant: 'destructive',
+                              title: 'Approval failed',
+                              description: error?.message || 'Could not approve vendor bill.',
+                            });
+                          }
+                        }}
+                      >
+                        <ListChecks className="me-2 h-4 w-4" />
+                        Approve
+                      </Button>
+                    ) : (bill.outstandingAmount || 0) > 0 ? (
                       <Button variant="outline" size="sm" onClick={() => openPaymentDialog(bill)}>
                         <CircleDollarSign className="me-2 h-4 w-4" />
-                        Pay
+                        Record Payment
                       </Button>
                     ) : (
                       <span className="text-sm text-muted-foreground">
