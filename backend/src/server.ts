@@ -79,6 +79,8 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
 ];
 const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
 const deliveryStatuses: DeliveryStatus[] = ['Pending', 'Shipped', 'Delivered', 'Cancelled'];
+
+import { greenApi, toChatId, GreenApiError } from './services/greenApi';
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -3342,6 +3344,266 @@ export function createServer(options: CreateServerOptions = {}) {
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not cancel delivery.');
       }
+    }),
+  );
+
+  // ============================================================
+  // WhatsApp (Green API) integration
+  // ============================================================
+
+  const requireWhatsapp = (companyId: string) => {
+    const instance = store.getWhatsappInstanceForCompany(companyId);
+    if (!instance) throw new HttpError(404, 'WhatsApp instance is not configured for this company.');
+    const creds = store.getWhatsappCredentials(companyId);
+    if (!creds) throw new HttpError(500, 'WhatsApp credentials missing.');
+    return { instance, creds };
+  };
+
+  const wrapGreenApi = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof GreenApiError) {
+        throw new HttpError(error.status >= 400 && error.status < 600 ? error.status : 502, error.message);
+      }
+      throw error;
+    }
+  };
+
+  app.get(
+    '/companies/:companyId/whatsapp/instance',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const instance = store.getWhatsappInstanceForCompany(req.params.companyId);
+      res.json(instance || null);
+    }),
+  );
+
+  app.put(
+    '/companies/:companyId/whatsapp/instance',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const body = asRecord(req.body, 'body');
+      const idInstance = requiredString(body.idInstance, 'idInstance');
+      const apiToken = requiredString(body.apiToken, 'apiToken');
+      try {
+        const instance = store.upsertWhatsappInstance(req.params.companyId, {
+          idInstance,
+          apiToken,
+          apiHost: optionalString(body.apiHost) || undefined,
+          phoneNumber: optionalString(body.phoneNumber) || undefined,
+          displayName: optionalString(body.displayName) || undefined,
+        });
+        res.json(instance);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not save WhatsApp instance.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/companies/:companyId/whatsapp/instance',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const removed = store.deleteWhatsappInstance(req.params.companyId);
+      res.json({ success: removed });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/whatsapp/state',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const { creds } = requireWhatsapp(req.params.companyId);
+      const state = await wrapGreenApi(() => greenApi.getStateInstance(creds));
+      const updated = store.updateWhatsappInstanceState(req.params.companyId, state);
+      res.json(updated || { state });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/whatsapp/qr',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const { creds } = requireWhatsapp(req.params.companyId);
+      const qr = await wrapGreenApi(() => greenApi.getQrCode(creds));
+      res.json(qr);
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/configure-webhook',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const { instance, creds } = requireWhatsapp(req.params.companyId);
+      const body = asRecord(req.body ?? {}, 'body');
+      const publicBaseUrl =
+        optionalString(body.baseUrl) ||
+        process.env.PUBLIC_BASE_URL ||
+        `${req.protocol}://${req.get('host')}`;
+      const webhookUrl = `${publicBaseUrl.replace(/\/$/, '')}/whatsapp/webhook/${instance.webhookToken}`;
+      await wrapGreenApi(() => greenApi.configureWebhook(creds, webhookUrl, instance.webhookToken));
+      res.json({ success: true, webhookUrl });
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/logout',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      const { creds } = requireWhatsapp(req.params.companyId);
+      const result = await wrapGreenApi(() => greenApi.logout(creds));
+      const refreshed = store.updateWhatsappInstanceState(req.params.companyId, 'notAuthorized');
+      res.json({ ...result, instance: refreshed });
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/send',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { instance, creds } = requireWhatsapp(req.params.companyId);
+      const body = asRecord(req.body, 'body');
+      const phone = requiredString(body.phone, 'phone');
+      const message = requiredString(body.message, 'message');
+      const contactId = optionalString(body.contactId) || undefined;
+      const contextEntityType = optionalString(body.contextEntityType) || undefined;
+      const contextEntityId = optionalString(body.contextEntityId) || undefined;
+      const chatId = toChatId(phone);
+      try {
+        const sent = await wrapGreenApi(() => greenApi.sendMessage(creds, chatId, message));
+        const stored = store.createWhatsappMessage({
+          companyId: req.params.companyId,
+          instanceId: instance.id,
+          direction: 'outbound',
+          externalId: sent.idMessage,
+          chatId,
+          phone,
+          contactId,
+          type: 'text',
+          body: message,
+          status: 'sent',
+          contextEntityType,
+          contextEntityId,
+          sentAt: new Date(),
+        });
+        res.status(201).json(stored);
+      } catch (error) {
+        store.createWhatsappMessage({
+          companyId: req.params.companyId,
+          instanceId: instance.id,
+          direction: 'outbound',
+          chatId,
+          phone,
+          contactId,
+          type: 'text',
+          body: message,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+          contextEntityType,
+          contextEntityId,
+        });
+        throw error;
+      }
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/whatsapp/messages',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { contactId, phone, limit } = req.query as Record<string, string | undefined>;
+      const messages = store.listWhatsappMessages(req.params.companyId, {
+        contactId: contactId || undefined,
+        phone: phone || undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+      res.json(messages);
+    }),
+  );
+
+  /**
+   * Public webhook receiver — Green API calls this for every event on the
+   * configured instance. We identify the company by the webhook token in the
+   * URL. Always respond 200 quickly so Green API does not retry.
+   */
+  app.post(
+    '/whatsapp/webhook/:webhookToken',
+    handler((req, res) => {
+      const token = req.params.webhookToken;
+      const instance = store.getWhatsappInstanceByWebhookToken(token);
+      if (!instance) {
+        res.status(200).json({ ok: true, ignored: true });
+        return;
+      }
+      try {
+        const payload = req.body as any;
+        const typeWebhook = payload?.typeWebhook;
+        if (typeWebhook === 'stateInstanceChanged') {
+          const next = String(payload?.stateInstance || 'unknown');
+          store.updateWhatsappInstanceState(
+            instance.companyId,
+            (['notAuthorized','authorized','blocked','sleepMode','starting','yellowCard'].includes(next)
+              ? next
+              : 'unknown') as any,
+          );
+        } else if (typeWebhook === 'incomingMessageReceived') {
+          const senderData = payload?.senderData || {};
+          const messageData = payload?.messageData || {};
+          const textBody =
+            messageData?.textMessageData?.textMessage ||
+            messageData?.extendedTextMessageData?.text ||
+            '';
+          const fileUrl = messageData?.fileMessageData?.downloadUrl;
+          const fileName = messageData?.fileMessageData?.fileName;
+          const messageType: import('./types').WhatsAppMessageType =
+            fileUrl ? 'file' : 'text';
+          store.createWhatsappMessage({
+            companyId: instance.companyId,
+            instanceId: instance.id,
+            direction: 'inbound',
+            externalId: String(payload?.idMessage || ''),
+            chatId: String(senderData?.chatId || ''),
+            phone: String(senderData?.chatId || '').replace(/@c\.us$/, ''),
+            type: messageType,
+            body: textBody || '',
+            mediaUrl: fileUrl || undefined,
+            fileName: fileName || undefined,
+            status: 'delivered',
+            receivedAt: new Date((Number(payload?.timestamp) || Date.now() / 1000) * 1000),
+          });
+        } else if (
+          typeWebhook === 'outgoingMessageStatus' ||
+          typeWebhook === 'outgoingAPIMessageReceived' ||
+          typeWebhook === 'outgoingMessageReceived'
+        ) {
+          const externalId = String(payload?.idMessage || '');
+          const status = String(payload?.status || '').toLowerCase();
+          if (externalId && status) {
+            const mapped: import('./types').WhatsAppMessageStatus =
+              status === 'read'
+                ? 'read'
+                : status === 'delivered'
+                  ? 'delivered'
+                  : status === 'failed' || status === 'noaccount' || status === 'notinwhitelist'
+                    ? 'failed'
+                    : 'sent';
+            store.updateWhatsappMessageStatus(externalId, mapped);
+          }
+        }
+      } catch (err) {
+        logger.error('WhatsApp webhook handler error', err);
+      }
+      res.status(200).json({ ok: true });
     }),
   );
 

@@ -1,4 +1,5 @@
 import path from 'path';
+import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { seedData } from './seed-data';
@@ -52,6 +53,12 @@ import {
   Delivery,
   DeliveryStatus,
   DeliveryLineItem,
+  WhatsAppInstance,
+  WhatsAppInstanceState,
+  WhatsAppMessage,
+  WhatsAppMessageDirection,
+  WhatsAppMessageStatus,
+  WhatsAppMessageType,
   Invoice,
   InvoiceTemplate,
   InvoiceTemplateLayout,
@@ -657,6 +664,43 @@ export class DataStore {
         dispatchedAt TEXT,
         deliveredAt TEXT,
         cancelledAt TEXT,
+        createdAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS whatsapp_instances (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL UNIQUE,
+        idInstance TEXT NOT NULL,
+        apiTokenEncrypted TEXT NOT NULL,
+        apiHost TEXT,
+        phoneNumber TEXT,
+        displayName TEXT,
+        state TEXT NOT NULL DEFAULT 'notAuthorized',
+        webhookToken TEXT NOT NULL,
+        lastSyncedAt TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        instanceId TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        externalId TEXT,
+        chatId TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        contactId TEXT,
+        type TEXT NOT NULL,
+        body TEXT,
+        mediaUrl TEXT,
+        fileName TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        contextEntityType TEXT,
+        contextEntityId TEXT,
+        sentAt TEXT,
+        deliveredAt TEXT,
+        readAt TEXT,
+        receivedAt TEXT,
         createdAt TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS invoices (
@@ -1686,6 +1730,58 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '031_whatsapp_integration',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS whatsapp_instances (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL UNIQUE,
+              idInstance TEXT NOT NULL,
+              apiTokenEncrypted TEXT NOT NULL,
+              apiHost TEXT,
+              phoneNumber TEXT,
+              displayName TEXT,
+              state TEXT NOT NULL DEFAULT 'notAuthorized',
+              webhookToken TEXT NOT NULL,
+              lastSyncedAt TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_instances_webhook
+              ON whatsapp_instances (webhookToken);
+            CREATE TABLE IF NOT EXISTS whatsapp_messages (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              instanceId TEXT NOT NULL,
+              direction TEXT NOT NULL,
+              externalId TEXT,
+              chatId TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              contactId TEXT,
+              type TEXT NOT NULL,
+              body TEXT,
+              mediaUrl TEXT,
+              fileName TEXT,
+              status TEXT NOT NULL,
+              error TEXT,
+              contextEntityType TEXT,
+              contextEntityId TEXT,
+              sentAt TEXT,
+              deliveredAt TEXT,
+              readAt TEXT,
+              receivedAt TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_company_created
+              ON whatsapp_messages (companyId, createdAt);
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_external
+              ON whatsapp_messages (externalId);
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_contact
+              ON whatsapp_messages (companyId, contactId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -1851,6 +1947,8 @@ export class DataStore {
         DELETE FROM ledger_accounts;
         DELETE FROM payments;
         DELETE FROM invoices;
+        DELETE FROM whatsapp_messages;
+        DELETE FROM whatsapp_instances;
         DELETE FROM deliveries;
         DELETE FROM sales_orders;
         DELETE FROM purchase_orders;
@@ -5498,6 +5596,288 @@ export class DataStore {
       metadata: { salesOrderId: updated.salesOrderId, deliveredAt: at.toISOString() },
     });
     return updated;
+  }
+
+  // ============================================================
+  // WhatsApp (Green API) — instance + messages
+  // ============================================================
+
+  private whatsappKey(): Buffer {
+    const raw = process.env.WHATSAPP_ENCRYPTION_KEY || 'taskflow-dev-only-not-for-production-use';
+    return crypto.createHash('sha256').update(raw).digest();
+  }
+
+  private encryptApiToken(token: string): string {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', this.whatsappKey(), iv);
+    const enc = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `v1:${iv.toString('base64')}:${tag.toString('base64')}:${enc.toString('base64')}`;
+  }
+
+  private decryptApiToken(payload: string): string {
+    const parts = payload.split(':');
+    if (parts.length !== 4 || parts[0] !== 'v1') {
+      throw new Error('Stored WhatsApp token is malformed.');
+    }
+    const iv = Buffer.from(parts[1], 'base64');
+    const tag = Buffer.from(parts[2], 'base64');
+    const data = Buffer.from(parts[3], 'base64');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', this.whatsappKey(), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  }
+
+  private decodeWhatsappInstance(row: any): WhatsAppInstance {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      idInstance: row.idInstance,
+      phoneNumber: row.phoneNumber ?? undefined,
+      displayName: row.displayName ?? undefined,
+      state: row.state as WhatsAppInstanceState,
+      webhookToken: row.webhookToken,
+      lastSyncedAt: row.lastSyncedAt ? new Date(row.lastSyncedAt) : undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  getWhatsappInstanceForCompany(companyId: string): WhatsAppInstance | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM whatsapp_instances WHERE companyId = ?')
+      .get(companyId) as any;
+    return row ? this.decodeWhatsappInstance(row) : undefined;
+  }
+
+  getWhatsappInstanceByWebhookToken(token: string): WhatsAppInstance | undefined {
+    if (!token) return undefined;
+    const row = this.db
+      .prepare('SELECT * FROM whatsapp_instances WHERE webhookToken = ?')
+      .get(token) as any;
+    return row ? this.decodeWhatsappInstance(row) : undefined;
+  }
+
+  /** Returns instance credentials (decrypted) for use by the Green API service. */
+  getWhatsappCredentials(
+    companyId: string,
+  ): { idInstance: string; apiToken: string; apiHost?: string } | undefined {
+    const row = this.db
+      .prepare('SELECT idInstance, apiTokenEncrypted, apiHost FROM whatsapp_instances WHERE companyId = ?')
+      .get(companyId) as any;
+    if (!row) return undefined;
+    return {
+      idInstance: row.idInstance,
+      apiToken: this.decryptApiToken(row.apiTokenEncrypted),
+      apiHost: row.apiHost ?? undefined,
+    };
+  }
+
+  upsertWhatsappInstance(
+    companyId: string,
+    input: {
+      idInstance: string;
+      apiToken: string;
+      apiHost?: string;
+      phoneNumber?: string;
+      displayName?: string;
+    },
+  ): WhatsAppInstance {
+    const idInstance = String(input.idInstance || '').trim();
+    const apiToken = String(input.apiToken || '').trim();
+    if (!idInstance) throw new Error('idInstance is required.');
+    if (!apiToken) throw new Error('apiToken is required.');
+
+    const now = new Date().toISOString();
+    const existing = this.getWhatsappInstanceForCompany(companyId);
+    const encrypted = this.encryptApiToken(apiToken);
+    if (existing) {
+      this.db
+        .prepare(
+          `UPDATE whatsapp_instances SET idInstance = ?, apiTokenEncrypted = ?, apiHost = ?,
+             phoneNumber = COALESCE(?, phoneNumber), displayName = COALESCE(?, displayName), updatedAt = ?
+             WHERE companyId = ?`,
+        )
+        .run(
+          idInstance,
+          encrypted,
+          input.apiHost ?? null,
+          input.phoneNumber ?? null,
+          input.displayName ?? null,
+          now,
+          companyId,
+        );
+    } else {
+      this.db
+        .prepare(
+          `INSERT INTO whatsapp_instances (id, companyId, idInstance, apiTokenEncrypted, apiHost, phoneNumber, displayName, state, webhookToken, createdAt, updatedAt)
+           VALUES (@id, @companyId, @idInstance, @apiTokenEncrypted, @apiHost, @phoneNumber, @displayName, @state, @webhookToken, @createdAt, @updatedAt)`,
+        )
+        .run({
+          id: uuid(),
+          companyId,
+          idInstance,
+          apiTokenEncrypted: encrypted,
+          apiHost: input.apiHost ?? null,
+          phoneNumber: input.phoneNumber ?? null,
+          displayName: input.displayName ?? null,
+          state: 'notAuthorized',
+          webhookToken: crypto.randomBytes(24).toString('hex'),
+          createdAt: now,
+          updatedAt: now,
+        });
+    }
+    const refreshed = this.getWhatsappInstanceForCompany(companyId);
+    if (!refreshed) throw new Error('Failed to persist WhatsApp instance.');
+    return refreshed;
+  }
+
+  updateWhatsappInstanceState(
+    companyId: string,
+    state: WhatsAppInstanceState,
+    phoneNumber?: string,
+    displayName?: string,
+  ): WhatsAppInstance | undefined {
+    const existing = this.getWhatsappInstanceForCompany(companyId);
+    if (!existing) return undefined;
+    this.db
+      .prepare(
+        `UPDATE whatsapp_instances SET state = ?, phoneNumber = COALESCE(?, phoneNumber),
+           displayName = COALESCE(?, displayName), lastSyncedAt = ?, updatedAt = ?
+           WHERE companyId = ?`,
+      )
+      .run(
+        state,
+        phoneNumber ?? null,
+        displayName ?? null,
+        new Date().toISOString(),
+        new Date().toISOString(),
+        companyId,
+      );
+    return this.getWhatsappInstanceForCompany(companyId);
+  }
+
+  deleteWhatsappInstance(companyId: string): boolean {
+    const existing = this.getWhatsappInstanceForCompany(companyId);
+    if (!existing) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM whatsapp_messages WHERE instanceId = ?').run(existing.id);
+      this.db.prepare('DELETE FROM whatsapp_instances WHERE companyId = ?').run(companyId);
+    });
+    trx();
+    return true;
+  }
+
+  private decodeWhatsappMessage(row: any): WhatsAppMessage {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      instanceId: row.instanceId,
+      direction: row.direction as WhatsAppMessageDirection,
+      externalId: row.externalId ?? undefined,
+      chatId: row.chatId,
+      phone: row.phone,
+      contactId: row.contactId ?? undefined,
+      type: row.type as WhatsAppMessageType,
+      body: row.body ?? '',
+      mediaUrl: row.mediaUrl ?? undefined,
+      fileName: row.fileName ?? undefined,
+      status: row.status as WhatsAppMessageStatus,
+      error: row.error ?? undefined,
+      contextEntityType: row.contextEntityType ?? undefined,
+      contextEntityId: row.contextEntityId ?? undefined,
+      sentAt: row.sentAt ? new Date(row.sentAt) : undefined,
+      deliveredAt: row.deliveredAt ? new Date(row.deliveredAt) : undefined,
+      readAt: row.readAt ? new Date(row.readAt) : undefined,
+      receivedAt: row.receivedAt ? new Date(row.receivedAt) : undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listWhatsappMessages(
+    companyId: string,
+    options: { contactId?: string; phone?: string; limit?: number } = {},
+  ): WhatsAppMessage[] {
+    const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
+    const conditions: string[] = ['companyId = ?'];
+    const params: any[] = [companyId];
+    if (options.contactId) {
+      conditions.push('contactId = ?');
+      params.push(options.contactId);
+    }
+    if (options.phone) {
+      conditions.push('phone = ?');
+      params.push(options.phone);
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM whatsapp_messages WHERE ${conditions.join(' AND ')} ORDER BY createdAt DESC LIMIT ?`,
+      )
+      .all(...params, limit) as any[];
+    return rows.map((row) => this.decodeWhatsappMessage(row));
+  }
+
+  createWhatsappMessage(
+    input: Omit<WhatsAppMessage, 'id' | 'createdAt'> & { createdAt?: Date },
+  ): WhatsAppMessage {
+    const message: WhatsAppMessage = {
+      ...input,
+      id: uuid(),
+      createdAt: input.createdAt || new Date(),
+    } as WhatsAppMessage;
+    this.db
+      .prepare(
+        `INSERT INTO whatsapp_messages (
+           id, companyId, instanceId, direction, externalId, chatId, phone, contactId,
+           type, body, mediaUrl, fileName, status, error, contextEntityType, contextEntityId,
+           sentAt, deliveredAt, readAt, receivedAt, createdAt
+         ) VALUES (
+           @id, @companyId, @instanceId, @direction, @externalId, @chatId, @phone, @contactId,
+           @type, @body, @mediaUrl, @fileName, @status, @error, @contextEntityType, @contextEntityId,
+           @sentAt, @deliveredAt, @readAt, @receivedAt, @createdAt
+         )`,
+      )
+      .run({
+        ...message,
+        externalId: message.externalId ?? null,
+        contactId: message.contactId ?? null,
+        body: message.body ?? null,
+        mediaUrl: message.mediaUrl ?? null,
+        fileName: message.fileName ?? null,
+        error: message.error ?? null,
+        contextEntityType: message.contextEntityType ?? null,
+        contextEntityId: message.contextEntityId ?? null,
+        sentAt: message.sentAt ? message.sentAt.toISOString() : null,
+        deliveredAt: message.deliveredAt ? message.deliveredAt.toISOString() : null,
+        readAt: message.readAt ? message.readAt.toISOString() : null,
+        receivedAt: message.receivedAt ? message.receivedAt.toISOString() : null,
+        createdAt: message.createdAt.toISOString(),
+      });
+    return message;
+  }
+
+  updateWhatsappMessageStatus(
+    externalId: string,
+    status: WhatsAppMessageStatus,
+    timestamp?: Date,
+  ): WhatsAppMessage | undefined {
+    if (!externalId) return undefined;
+    const ts = (timestamp || new Date()).toISOString();
+    const setColumn =
+      status === 'delivered'
+        ? 'deliveredAt = ?'
+        : status === 'read'
+          ? 'readAt = ?'
+          : status === 'sent'
+            ? 'sentAt = COALESCE(sentAt, ?)'
+            : 'createdAt = COALESCE(createdAt, ?)';
+    this.db
+      .prepare(`UPDATE whatsapp_messages SET status = ?, ${setColumn} WHERE externalId = ?`)
+      .run(status, ts, externalId);
+    const row = this.db
+      .prepare('SELECT * FROM whatsapp_messages WHERE externalId = ?')
+      .get(externalId) as any;
+    return row ? this.decodeWhatsappMessage(row) : undefined;
   }
 
   cancelDelivery(id: string, reason?: string): Delivery {

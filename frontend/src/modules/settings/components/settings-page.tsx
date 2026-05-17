@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { runSeedDatabase } from '@/actions/seedActions';
 import { useI18n } from '@/context/i18n-context';
 import { NumberingSettingsPanel } from './numbering-settings-panel';
+import { WhatsappSettingsPanel } from './whatsapp-settings-panel';
 
 export function SettingsPage() {
   const { toast } = useToast();
@@ -133,6 +134,8 @@ export function SettingsPage() {
       </div>
 
       <NumberingSettingsPanel />
+
+      <WhatsappSettingsPanel />
 
       <Card>
         <CardHeader>

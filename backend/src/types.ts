@@ -554,6 +554,66 @@ export interface SupplierPayablesSummary {
   remainingToBill: number;
 }
 
+// ============================================================
+// WhatsApp (Green API) integration
+// ============================================================
+
+export type WhatsAppInstanceState =
+  | 'notAuthorized'
+  | 'authorized'
+  | 'blocked'
+  | 'sleepMode'
+  | 'starting'
+  | 'yellowCard'
+  | 'unknown';
+
+export interface WhatsAppInstance {
+  id: string;
+  companyId: string;
+  idInstance: string;
+  // apiToken is intentionally never returned to the frontend.
+  phoneNumber?: string;
+  displayName?: string;
+  state: WhatsAppInstanceState;
+  webhookToken: string;
+  lastSyncedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type WhatsAppMessageDirection = 'outbound' | 'inbound';
+export type WhatsAppMessageType = 'text' | 'file' | 'image' | 'document';
+export type WhatsAppMessageStatus =
+  | 'pending'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'failed';
+
+export interface WhatsAppMessage {
+  id: string;
+  companyId: string;
+  instanceId: string;
+  direction: WhatsAppMessageDirection;
+  externalId?: string;
+  chatId: string;
+  phone: string;
+  contactId?: string;
+  type: WhatsAppMessageType;
+  body: string;
+  mediaUrl?: string;
+  fileName?: string;
+  status: WhatsAppMessageStatus;
+  error?: string;
+  contextEntityType?: string;
+  contextEntityId?: string;
+  sentAt?: Date;
+  deliveredAt?: Date;
+  readAt?: Date;
+  receivedAt?: Date;
+  createdAt: Date;
+}
+
 export type ContactKind = 'Organization' | 'Person';
 export type ContactRoleType = 'Lead' | 'Client' | 'Vendor' | 'Influencer' | 'Partner';
 export type ContactRoleSource = 'Manual' | 'SalesOrder' | 'PurchaseOrder' | 'Invoice' | 'VendorBill';
@@ -867,7 +927,8 @@ export interface ActivityEvent {
     | 'sales_order'
     | 'delivery'
     | 'invoice'
-    | 'vendor_bill';
+    | 'vendor_bill'
+    | 'whatsapp_message';
   entityId: string;
   action: string;
   summary: string;
