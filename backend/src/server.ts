@@ -2833,14 +2833,101 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const body = asRecord(req.body, 'body');
 	      const rule = store.createCommissionRule({
 	        companyId: req.params.companyId,
-	        serviceType: requiredString(body.serviceType, 'serviceType', { min: 2 }),
+	        userId: optionalString(body.userId) || undefined,
+	        role:
+	          body.role !== undefined && body.role !== null && body.role !== ''
+	            ? (enumValue(body.role, 'role', [
+	                'Sales',
+	                'Account Manager',
+	                'Project Lead',
+	                'Contributor',
+	                'Other',
+	              ] as const) as import('./types').ContributionRole)
+	            : undefined,
+	        serviceType:
+	          body.serviceType !== undefined && body.serviceType !== null && body.serviceType !== ''
+	            ? requiredString(body.serviceType, 'serviceType', { min: 2 })
+	            : undefined,
 	        basis: enumValue(body.basis, 'basis', commissionBases),
 	        rateType: enumValue(body.rateType, 'rateType', commissionRateTypes),
 	        rate: optionalNumber(body.rate) ?? 0,
 	        fixedAmount: optionalNumber(body.fixedAmount),
+	        priority: optionalNumber(body.priority) ?? 0,
 	        isActive: optionalBoolean(body.isActive) ?? true,
+	        notes: optionalString(body.notes) || undefined,
 	      });
+	      // Recompute open commissions so the rate change surfaces immediately
+	      try { store.recomputeCommissionsForCompany(rule.companyId); } catch {}
 	      res.status(201).json(rule);
+	    }),
+	  );
+
+	  app.put(
+	    '/commission-rules/:id',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = (store as any).db
+	        .prepare('SELECT companyId FROM commission_rules WHERE id = ?')
+	        .get(req.params.id) as { companyId?: string } | undefined;
+	      if (!existing?.companyId) throw new HttpError(404, 'Rule not found.');
+	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
+	      const body = asRecord(req.body, 'body');
+	      const updates: Record<string, unknown> = {};
+	      if (body.userId !== undefined) updates.userId = optionalString(body.userId) || undefined;
+	      if (body.role !== undefined) {
+	        updates.role =
+	          body.role === null || body.role === ''
+	            ? undefined
+	            : (enumValue(body.role, 'role', [
+	                'Sales',
+	                'Account Manager',
+	                'Project Lead',
+	                'Contributor',
+	                'Other',
+	              ] as const) as import('./types').ContributionRole);
+	      }
+	      if (body.serviceType !== undefined) {
+	        updates.serviceType =
+	          body.serviceType === null || body.serviceType === ''
+	            ? undefined
+	            : String(body.serviceType);
+	      }
+	      if (body.basis !== undefined) updates.basis = enumValue(body.basis, 'basis', commissionBases);
+	      if (body.rateType !== undefined) updates.rateType = enumValue(body.rateType, 'rateType', commissionRateTypes);
+	      if (body.rate !== undefined) updates.rate = optionalNumber(body.rate) ?? 0;
+	      if (body.fixedAmount !== undefined) updates.fixedAmount = optionalNumber(body.fixedAmount);
+	      if (body.priority !== undefined) updates.priority = optionalNumber(body.priority) ?? 0;
+	      if (body.isActive !== undefined) updates.isActive = Boolean(body.isActive);
+	      if (body.notes !== undefined) updates.notes = optionalString(body.notes) || undefined;
+	      const result = store.updateCommissionRule(req.params.id, updates as any);
+	      if (!result) throw new HttpError(404, 'Rule not found.');
+	      try { store.recomputeCommissionsForCompany(existing.companyId); } catch {}
+	      res.json(result);
+	    }),
+	  );
+
+	  app.delete(
+	    '/commission-rules/:id',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = (store as any).db
+	        .prepare('SELECT companyId FROM commission_rules WHERE id = ?')
+	        .get(req.params.id) as { companyId?: string } | undefined;
+	      if (!existing?.companyId) throw new HttpError(404, 'Rule not found.');
+	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
+	      const removed = store.deleteCommissionRule(req.params.id);
+	      try { store.recomputeCommissionsForCompany(existing.companyId); } catch {}
+	      res.json({ success: removed });
+	    }),
+	  );
+
+	  app.post(
+	    '/companies/:companyId/commissions/recompute',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+	      const touched = store.recomputeCommissionsForCompany(req.params.companyId);
+	      res.json({ recomputed: touched });
 	    }),
 	  );
 

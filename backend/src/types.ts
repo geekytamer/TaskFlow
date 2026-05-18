@@ -898,29 +898,51 @@ export interface VendorRequest {
 export interface CommissionRule {
   id: string;
   companyId: string;
-  serviceType: string;
+  userId?: string;                 // NULL = applies to anyone (default)
+  role?: ContributionRole;         // NULL = any contribution role
+  serviceType?: string;            // NULL = any service type. Legacy: required, kept for back-compat.
   basis: CommissionBasis;
   rateType: CommissionRateType;
   rate: number;
   fixedAmount?: number;
+  priority: number;                // higher wins when multiple match
   isActive: boolean;
+  notes?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
+export type CommissionStatusV2 = CommissionStatus | 'Voided';
+
 export interface Commission {
   id: string;
   companyId: string;
-  opportunityId: string;
-  contactId: string;
   userId?: string;
   userName?: string;
+  contributionId?: string;         // v2: which contribution row produced this
+  sourceType?: ContributionSourceType;
+  sourceId?: string;
+  sourceLabel?: string;
+  invoiceId?: string;              // v2: the invoice that triggered/links to this commission
+  role?: ContributionRole;
+  ruleId?: string;
   serviceType: string;
   basis: CommissionBasis;
   basisAmount: number;
+  weightPercent?: number;
+  ratePercent?: number;
+  fixedAmount?: number;
   amount: number;
-  status: CommissionStatus;
+  status: CommissionStatusV2;
+  // Legacy v1 field — kept so existing rows still decode cleanly.
+  opportunityId?: string;
+  contactId?: string;
   calculatedAt: Date;
+  approvedAt?: Date;
+  paidAt?: Date;
+  voidedAt?: Date;
+  approvedByUserId?: string;
+  paidByUserId?: string;
 }
 
 export interface CrmDashboardSummary {

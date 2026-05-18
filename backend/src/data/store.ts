@@ -1855,6 +1855,64 @@ export class DataStore {
         },
       },
       {
+        id: '035_commissions_v2_engine',
+        run: () => {
+          // commission_rules — add userId, role, priority, notes; make
+          // serviceType optional (kept NOT NULL on legacy rows).
+          const ruleCols = (this.db.prepare(`PRAGMA table_info(commission_rules)`).all() as any[]).map((c) => c.name);
+          if (!ruleCols.includes('userId'))   this.db.exec(`ALTER TABLE commission_rules ADD COLUMN userId TEXT;`);
+          if (!ruleCols.includes('role'))     this.db.exec(`ALTER TABLE commission_rules ADD COLUMN role TEXT;`);
+          if (!ruleCols.includes('priority')) this.db.exec(`ALTER TABLE commission_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;`);
+          if (!ruleCols.includes('notes'))    this.db.exec(`ALTER TABLE commission_rules ADD COLUMN notes TEXT;`);
+
+          // commissions — add v2 columns. Old columns (opportunityId,
+          // contactId, serviceType) stay so existing rows are still valid.
+          const comCols = (this.db.prepare(`PRAGMA table_info(commissions)`).all() as any[]).map((c) => c.name);
+          if (!comCols.includes('contributionId')) this.db.exec(`ALTER TABLE commissions ADD COLUMN contributionId TEXT;`);
+          if (!comCols.includes('sourceType'))     this.db.exec(`ALTER TABLE commissions ADD COLUMN sourceType TEXT;`);
+          if (!comCols.includes('sourceId'))       this.db.exec(`ALTER TABLE commissions ADD COLUMN sourceId TEXT;`);
+          if (!comCols.includes('sourceLabel'))    this.db.exec(`ALTER TABLE commissions ADD COLUMN sourceLabel TEXT;`);
+          if (!comCols.includes('invoiceId'))      this.db.exec(`ALTER TABLE commissions ADD COLUMN invoiceId TEXT;`);
+          if (!comCols.includes('role'))           this.db.exec(`ALTER TABLE commissions ADD COLUMN role TEXT;`);
+          if (!comCols.includes('ruleId'))         this.db.exec(`ALTER TABLE commissions ADD COLUMN ruleId TEXT;`);
+          if (!comCols.includes('weightPercent'))  this.db.exec(`ALTER TABLE commissions ADD COLUMN weightPercent REAL;`);
+          if (!comCols.includes('ratePercent'))    this.db.exec(`ALTER TABLE commissions ADD COLUMN ratePercent REAL;`);
+          if (!comCols.includes('fixedAmount'))    this.db.exec(`ALTER TABLE commissions ADD COLUMN fixedAmount REAL;`);
+          if (!comCols.includes('approvedAt'))     this.db.exec(`ALTER TABLE commissions ADD COLUMN approvedAt TEXT;`);
+          if (!comCols.includes('paidAt'))         this.db.exec(`ALTER TABLE commissions ADD COLUMN paidAt TEXT;`);
+          if (!comCols.includes('voidedAt'))       this.db.exec(`ALTER TABLE commissions ADD COLUMN voidedAt TEXT;`);
+          if (!comCols.includes('approvedByUserId'))
+            this.db.exec(`ALTER TABLE commissions ADD COLUMN approvedByUserId TEXT;`);
+          if (!comCols.includes('paidByUserId'))
+            this.db.exec(`ALTER TABLE commissions ADD COLUMN paidByUserId TEXT;`);
+
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_commissions_invoice
+              ON commissions(invoiceId);
+            CREATE INDEX IF NOT EXISTS idx_commissions_contribution
+              ON commissions(contributionId);
+            CREATE INDEX IF NOT EXISTS idx_commissions_company_user
+              ON commissions(companyId, userId);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_commissions_v2_dedup
+              ON commissions(companyId, contributionId, invoiceId)
+              WHERE contributionId IS NOT NULL AND invoiceId IS NOT NULL;
+          `);
+
+          // commission_rules used to allow one rule per (companyId, serviceType).
+          // v2 wants multiple rules differentiated by (userId, role, serviceType).
+          this.db.exec(`DROP INDEX IF EXISTS idx_commission_rules_company_service;`);
+          this.db.exec(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_rules_v2
+              ON commission_rules(
+                companyId,
+                COALESCE(userId, ''),
+                COALESCE(role, ''),
+                COALESCE(serviceType, '')
+              );
+          `);
+        },
+      },
+      {
         id: '034_commissions_v2_foundation',
         run: () => {
           // 1. Per-user commission profile fields
@@ -4625,30 +4683,414 @@ export class DataStore {
 	    const rule: CommissionRule = {
 	      ...input,
 	      id: input.id ?? uuid(),
+	      userId: input.userId ?? undefined,
+	      role: input.role ?? undefined,
+	      serviceType: input.serviceType ?? undefined,
 	      rate: Number(input.rate || 0),
 	      fixedAmount: input.fixedAmount === undefined ? undefined : Number(input.fixedAmount),
+	      priority: Number(input.priority || 0),
 	      isActive: input.isActive ?? true,
+	      notes: input.notes ?? undefined,
 	      createdAt: input.createdAt ? new Date(input.createdAt) : now,
 	      updatedAt: input.updatedAt ? new Date(input.updatedAt) : now,
 	    };
+
+	    // Manual upsert keyed on (companyId, userId, role, serviceType)
+	    const existing = this.db
+	      .prepare(
+	        `SELECT id FROM commission_rules
+	           WHERE companyId = ?
+	             AND COALESCE(userId, '') = COALESCE(?, '')
+	             AND COALESCE(role, '') = COALESCE(?, '')
+	             AND COALESCE(serviceType, '') = COALESCE(?, '')`,
+	      )
+	      .get(
+	        rule.companyId,
+	        rule.userId ?? null,
+	        rule.role ?? null,
+	        rule.serviceType ?? null,
+	      ) as { id?: string } | undefined;
+
+	    if (existing?.id) {
+	      this.db
+	        .prepare(
+	          `UPDATE commission_rules
+	             SET basis = ?, rateType = ?, rate = ?, fixedAmount = ?,
+	                 priority = ?, isActive = ?, notes = ?, updatedAt = ?
+	             WHERE id = ?`,
+	        )
+	        .run(
+	          rule.basis,
+	          rule.rateType,
+	          rule.rate,
+	          rule.fixedAmount ?? null,
+	          rule.priority,
+	          rule.isActive ? 1 : 0,
+	          rule.notes ?? null,
+	          rule.updatedAt.toISOString(),
+	          existing.id,
+	        );
+	      const refreshed = this.db
+	        .prepare('SELECT * FROM commission_rules WHERE id = ?')
+	        .get(existing.id) as any;
+	      return this.decodeCommissionRule(refreshed);
+	    }
+
 	    this.db
 	      .prepare(
 	        `INSERT INTO commission_rules
-	          (id, companyId, serviceType, basis, rateType, rate, fixedAmount, isActive, createdAt, updatedAt)
+	          (id, companyId, userId, role, serviceType, basis, rateType, rate, fixedAmount, priority, isActive, notes, createdAt, updatedAt)
 	         VALUES
-	          (@id, @companyId, @serviceType, @basis, @rateType, @rate, @fixedAmount, @isActive, @createdAt, @updatedAt)
-	         ON CONFLICT(companyId, serviceType)
-	         DO UPDATE SET basis=excluded.basis, rateType=excluded.rateType, rate=excluded.rate,
-	           fixedAmount=excluded.fixedAmount, isActive=excluded.isActive, updatedAt=excluded.updatedAt`,
+	          (@id, @companyId, @userId, @role, @serviceType, @basis, @rateType, @rate, @fixedAmount, @priority, @isActive, @notes, @createdAt, @updatedAt)`,
 	      )
 	      .run({
 	        ...rule,
+	        userId: rule.userId ?? null,
+	        role: rule.role ?? null,
+	        serviceType: rule.serviceType ?? null,
 	        fixedAmount: rule.fixedAmount ?? null,
 	        isActive: rule.isActive ? 1 : 0,
+	        notes: rule.notes ?? null,
 	        createdAt: rule.createdAt.toISOString(),
 	        updatedAt: rule.updatedAt.toISOString(),
 	      });
-	    return this.listCommissionRules(rule.companyId).find((item) => item.serviceType === rule.serviceType)!;
+
+	    const row = this.db
+	      .prepare('SELECT * FROM commission_rules WHERE id = ?')
+	      .get(rule.id) as any;
+	    return this.decodeCommissionRule(row);
+	  }
+
+	  updateCommissionRule(
+	    id: string,
+	    updates: Partial<Omit<CommissionRule, 'id' | 'companyId' | 'createdAt'>>,
+	  ): CommissionRule | undefined {
+	    const row = this.db
+	      .prepare('SELECT * FROM commission_rules WHERE id = ?')
+	      .get(id) as any;
+	    if (!row) return undefined;
+	    const existing = this.decodeCommissionRule(row);
+	    const next: CommissionRule = {
+	      ...existing,
+	      ...updates,
+	      updatedAt: new Date(),
+	    };
+	    this.db
+	      .prepare(
+	        `UPDATE commission_rules
+	           SET userId = ?, role = ?, serviceType = ?, basis = ?, rateType = ?, rate = ?,
+	               fixedAmount = ?, priority = ?, isActive = ?, notes = ?, updatedAt = ?
+	           WHERE id = ?`,
+	      )
+	      .run(
+	        next.userId ?? null,
+	        next.role ?? null,
+	        next.serviceType ?? null,
+	        next.basis,
+	        next.rateType,
+	        next.rate,
+	        next.fixedAmount ?? null,
+	        next.priority,
+	        next.isActive ? 1 : 0,
+	        next.notes ?? null,
+	        next.updatedAt.toISOString(),
+	        id,
+	      );
+	    const refreshed = this.db
+	      .prepare('SELECT * FROM commission_rules WHERE id = ?')
+	      .get(id) as any;
+	    return this.decodeCommissionRule(refreshed);
+	  }
+
+	  deleteCommissionRule(id: string): boolean {
+	    const result = this.db.prepare('DELETE FROM commission_rules WHERE id = ?').run(id);
+	    return result.changes > 0;
+	  }
+
+	  /**
+	   * Gather all contributors that should share commission for a given invoice.
+	   * Walks invoice → linked SO → linked opportunity (via wonSalesOrderId).
+	   * Returns a flat deduplicated list.
+	   */
+	  private gatherContributorsForInvoice(invoice: Invoice): Contribution[] {
+	    const seen = new Map<string, Contribution>();
+	    const add = (c: Contribution) => {
+	      const key = `${c.userId}::${c.role}::${c.sourceType}::${c.sourceId}`;
+	      if (!seen.has(key)) seen.set(key, c);
+	    };
+
+	    this.listContributions(invoice.companyId, {
+	      sourceType: 'invoice',
+	      sourceId: invoice.id,
+	    }).forEach(add);
+
+	    if (invoice.salesOrderId) {
+	      const oppRow = this.db
+	        .prepare('SELECT id FROM opportunities WHERE wonSalesOrderId = ? LIMIT 1')
+	        .get(invoice.salesOrderId) as { id?: string } | undefined;
+	      if (oppRow?.id) {
+	        this.listContributions(invoice.companyId, {
+	          sourceType: 'opportunity',
+	          sourceId: oppRow.id,
+	        }).forEach(add);
+	      }
+	    }
+
+	    return Array.from(seen.values());
+	  }
+
+	  /** Compute the per-invoice basis amount for a rule's basis type. */
+	  private computeBasisForInvoice(invoice: Invoice, basis: CommissionBasis): number {
+	    if (basis === 'Revenue') return Number(invoice.total || 0);
+	    if (basis === 'Paid Amount') return Number(this.getInvoicePaidAmount(invoice.id) || 0);
+	    if (basis === 'Profit') {
+	      const paid = Number(this.getInvoicePaidAmount(invoice.id) || 0);
+	      let cost = 0;
+	      if (invoice.campaignId) {
+	        const expenses = this.db
+	          .prepare('SELECT amount FROM campaign_expenses WHERE campaignId = ?')
+	          .all(invoice.campaignId) as Array<{ amount: number }>;
+	        cost += expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+	        const bills = this.db
+	          .prepare('SELECT amount FROM vendor_bills WHERE campaignId = ? AND status != ?')
+	          .all(invoice.campaignId, 'Draft') as Array<{ amount: number }>;
+	        cost += bills.reduce((s, b) => s + Number(b.amount || 0), 0);
+	      }
+	      return Math.max(0, paid - cost);
+	    }
+	    return 0;
+	  }
+
+	  /**
+	   * Idempotent v2 engine — for each contributor on the invoice (or upstream
+	   * source linked to it), resolve a rule and upsert a Draft commission row.
+	   * Re-running for the same invoice updates amounts in place. Paid
+	   * commissions are left untouched so they don't get clawed back.
+	   */
+	  recomputeCommissionsForInvoice(invoiceId: string): Commission[] {
+	    const invoice = this.getInvoiceById(invoiceId);
+	    if (!invoice) return [];
+	    const contributions = this.gatherContributorsForInvoice(invoice);
+	    const result: Commission[] = [];
+	    const sourceLabel = `Invoice ${invoice.invoiceNumber}`;
+
+	    let serviceType: string | undefined;
+	    if (invoice.salesOrderId) {
+	      const oppRow = this.db
+	        .prepare('SELECT serviceType FROM opportunities WHERE wonSalesOrderId = ? LIMIT 1')
+	        .get(invoice.salesOrderId) as { serviceType?: string } | undefined;
+	      serviceType = oppRow?.serviceType;
+	    }
+
+	    for (const contribution of contributions) {
+	      const userRow = this.db
+	        .prepare('SELECT commissionEligible FROM users WHERE id = ?')
+	        .get(contribution.userId) as { commissionEligible?: number } | undefined;
+	      if (!userRow?.commissionEligible) continue;
+
+	      const rule = this.resolveCommissionRule(
+	        invoice.companyId,
+	        contribution.userId,
+	        contribution.role,
+	        serviceType,
+	      );
+	      if (!rule) continue;
+
+	      const fullBasis = this.computeBasisForInvoice(invoice, rule.basis);
+	      const weightedBasis = Number((fullBasis * (contribution.weightPercent / 100)).toFixed(4));
+	      const amount =
+	        rule.rateType === 'Fixed'
+	          ? Number((rule.fixedAmount ?? rule.rate ?? 0).toFixed(2))
+	          : Number(((weightedBasis * rule.rate) / 100).toFixed(2));
+	      const ruleIdToStore = rule.id.startsWith('user-default:') ? null : rule.id;
+
+	      const existing = this.db
+	        .prepare(
+	          `SELECT * FROM commissions
+	             WHERE companyId = ? AND contributionId = ? AND invoiceId = ?`,
+	        )
+	        .get(invoice.companyId, contribution.id, invoice.id) as any;
+
+	      const calculatedAt = new Date().toISOString();
+	      if (existing) {
+	        if (existing.status === 'Paid') continue;
+	        this.db
+	          .prepare(
+	            `UPDATE commissions
+	               SET userId = ?, userName = ?, role = ?, ruleId = ?, sourceType = ?, sourceId = ?,
+	                   sourceLabel = ?, serviceType = ?, basis = ?, basisAmount = ?,
+	                   weightPercent = ?, ratePercent = ?, fixedAmount = ?, amount = ?,
+	                   status = CASE WHEN status = 'Voided' THEN 'Voided' ELSE 'Draft' END,
+	                   calculatedAt = ?
+	               WHERE id = ?`,
+	          )
+	          .run(
+	            contribution.userId,
+	            contribution.userName ?? null,
+	            contribution.role,
+	            ruleIdToStore,
+	            contribution.sourceType,
+	            contribution.sourceId,
+	            sourceLabel,
+	            serviceType ?? 'Default',
+	            rule.basis,
+	            weightedBasis,
+	            contribution.weightPercent,
+	            rule.rateType === 'Percent' ? rule.rate : null,
+	            rule.rateType === 'Fixed' ? rule.fixedAmount ?? rule.rate : null,
+	            amount,
+	            calculatedAt,
+	            existing.id,
+	          );
+	        const refreshed = this.db
+	          .prepare('SELECT * FROM commissions WHERE id = ?')
+	          .get(existing.id) as any;
+	        result.push(this.decodeCommission(refreshed));
+	        continue;
+	      }
+
+	      const id = uuid();
+	      this.db
+	        .prepare(
+	          `INSERT INTO commissions
+	             (id, companyId, userId, userName, contributionId, sourceType, sourceId, sourceLabel,
+	              invoiceId, role, ruleId, serviceType, basis, basisAmount, weightPercent,
+	              ratePercent, fixedAmount, amount, status, opportunityId, contactId, calculatedAt)
+	           VALUES
+	             (@id, @companyId, @userId, @userName, @contributionId, @sourceType, @sourceId, @sourceLabel,
+	              @invoiceId, @role, @ruleId, @serviceType, @basis, @basisAmount, @weightPercent,
+	              @ratePercent, @fixedAmount, @amount, 'Draft', @opportunityId, @contactId, @calculatedAt)`,
+	        )
+	        .run({
+	          id,
+	          companyId: invoice.companyId,
+	          userId: contribution.userId,
+	          userName: contribution.userName ?? null,
+	          contributionId: contribution.id,
+	          sourceType: contribution.sourceType,
+	          sourceId: contribution.sourceId,
+	          sourceLabel,
+	          invoiceId: invoice.id,
+	          role: contribution.role,
+	          ruleId: ruleIdToStore,
+	          serviceType: serviceType ?? 'Default',
+	          basis: rule.basis,
+	          basisAmount: weightedBasis,
+	          weightPercent: contribution.weightPercent,
+	          ratePercent: rule.rateType === 'Percent' ? rule.rate : null,
+	          fixedAmount: rule.rateType === 'Fixed' ? rule.fixedAmount ?? rule.rate : null,
+	          amount,
+	          opportunityId: contribution.sourceType === 'opportunity' ? contribution.sourceId : null,
+	          contactId: invoice.contactId ?? null,
+	          calculatedAt,
+	        });
+	      const refreshed = this.db
+	        .prepare('SELECT * FROM commissions WHERE id = ?')
+	        .get(id) as any;
+	      result.push(this.decodeCommission(refreshed));
+	    }
+
+	    return result;
+	  }
+
+	  /** Replay recompute across every Draft commission in a company. */
+	  recomputeCommissionsForCompany(companyId: string): number {
+	    const rows = this.db
+	      .prepare(
+	        `SELECT DISTINCT invoiceId FROM commissions
+	           WHERE companyId = ? AND invoiceId IS NOT NULL AND status = 'Draft'`,
+	      )
+	      .all(companyId) as Array<{ invoiceId: string }>;
+	    let touched = 0;
+	    rows.forEach((row) => {
+	      const updates = this.recomputeCommissionsForInvoice(row.invoiceId);
+	      touched += updates.length;
+	    });
+	    return touched;
+	  }
+
+	  /** Void all non-Paid commissions linked to an invoice. */
+	  voidCommissionsForInvoice(invoiceId: string): number {
+	    const result = this.db
+	      .prepare(
+	        `UPDATE commissions
+	           SET status = 'Voided', voidedAt = ?
+	           WHERE invoiceId = ? AND status != 'Paid' AND status != 'Voided'`,
+	      )
+	      .run(new Date().toISOString(), invoiceId);
+	    return result.changes ?? 0;
+	  }
+
+	  /**
+	   * Walk specificity ordering to find the best rule for a given
+	   * (user, role, serviceType) context. Most specific match wins, ties
+	   * broken by priority (DESC) then createdAt (DESC).
+	   *
+	   * Precedence order (most to least specific):
+	   *   1. user + role + serviceType
+	   *   2. user + role
+	   *   3. user + serviceType
+	   *   4. user
+	   *   5. role + serviceType
+	   *   6. role
+	   *   7. serviceType
+	   *   8. any (the company default)
+	   *
+	   * Falls back to the user's defaultCommissionRate (a synthetic rule)
+	   * when no row matches.
+	   */
+	  resolveCommissionRule(
+	    companyId: string,
+	    userId: string,
+	    role: ContributionRole | undefined,
+	    serviceType: string | undefined,
+	  ): CommissionRule | undefined {
+	    const rules = this.db
+	      .prepare(
+	        `SELECT * FROM commission_rules
+	           WHERE companyId = ? AND isActive = 1
+	             AND (userId = ? OR userId IS NULL)
+	             AND (role = ? OR role IS NULL)
+	             AND (serviceType = ? OR serviceType IS NULL OR serviceType = '')`,
+	      )
+	      .all(companyId, userId, role ?? null, serviceType ?? null) as any[];
+	    if (!rules.length) {
+	      // Fallback: user's defaultCommissionRate creates a synthetic rule.
+	      const user = this.db
+	        .prepare('SELECT * FROM users WHERE id = ?')
+	        .get(userId) as any;
+	      if (user?.commissionEligible && user?.defaultCommissionRate != null) {
+	        return {
+	          id: `user-default:${userId}`,
+	          companyId,
+	          userId,
+	          role: undefined,
+	          serviceType: undefined,
+	          basis: (user.defaultCommissionBasis as CommissionBasis) || 'Revenue',
+	          rateType: 'Percent' as CommissionRateType,
+	          rate: Number(user.defaultCommissionRate || 0),
+	          fixedAmount: undefined,
+	          priority: -1,
+	          isActive: true,
+	          notes: 'User default rate',
+	          createdAt: new Date(),
+	          updatedAt: new Date(),
+	        };
+	      }
+	      return undefined;
+	    }
+	    const decoded = rules.map((r) => this.decodeCommissionRule(r));
+	    // Score: 4 = user+role+service, 3 = user+role, etc. Specificity weight.
+	    const specificity = (r: CommissionRule) =>
+	      (r.userId ? 4 : 0) + (r.role ? 2 : 0) + (r.serviceType ? 1 : 0);
+	    decoded.sort((a, b) => {
+	      const sa = specificity(a);
+	      const sb = specificity(b);
+	      if (sa !== sb) return sb - sa;
+	      if (b.priority !== a.priority) return b.priority - a.priority;
+	      return b.createdAt.getTime() - a.createdAt.getTime();
+	    });
+	    return decoded[0];
 	  }
 
 		  listCommissions(companyId: string): Commission[] {
@@ -7249,6 +7691,8 @@ export class DataStore {
     try {
       const oppId = this.findOpportunityIdForInvoice(newInvoice);
       if (oppId) this.calculateCommissionsForOpportunity(oppId);
+      // v2 engine: one commission row per contributor per invoice
+      this.recomputeCommissionsForInvoice(newInvoice.id);
     } catch (error) {
       console.error('Failed to recalc commissions on invoice create', error);
     }
@@ -7558,6 +8002,8 @@ export class DataStore {
       try {
         const oppId = this.findOpportunityIdForInvoice(refreshedInvoice);
         if (oppId) this.calculateCommissionsForOpportunity(oppId);
+        // v2 engine: Paid Amount & Profit basis commissions now have a real value
+        this.recomputeCommissionsForInvoice(refreshedInvoice.id);
       } catch (error) {
         console.error('Failed to recalc commissions on payment', error);
       }
@@ -10291,12 +10737,16 @@ export class DataStore {
 	    return {
 	      id: row.id,
 	      companyId: row.companyId,
-	      serviceType: row.serviceType,
+	      userId: row.userId ?? undefined,
+	      role: row.role ?? undefined,
+	      serviceType: row.serviceType || undefined,
 	      basis: row.basis as CommissionBasis,
 	      rateType: row.rateType as CommissionRateType,
 	      rate: Number(row.rate || 0),
 	      fixedAmount: row.fixedAmount === null || row.fixedAmount === undefined ? undefined : Number(row.fixedAmount),
+	      priority: Number(row.priority || 0),
 	      isActive: Boolean(row.isActive),
+	      notes: row.notes ?? undefined,
 	      createdAt: new Date(row.createdAt),
 	      updatedAt: new Date(row.updatedAt),
 	    };
@@ -10306,16 +10756,40 @@ export class DataStore {
 	    return {
 	      id: row.id,
 	      companyId: row.companyId,
-	      opportunityId: row.opportunityId,
-	      contactId: row.contactId,
+	      opportunityId: row.opportunityId ?? undefined,
+	      contactId: row.contactId ?? undefined,
 	      userId: row.userId ?? undefined,
 	      userName: row.userName ?? undefined,
+	      contributionId: row.contributionId ?? undefined,
+	      sourceType: row.sourceType ?? undefined,
+	      sourceId: row.sourceId ?? undefined,
+	      sourceLabel: row.sourceLabel ?? undefined,
+	      invoiceId: row.invoiceId ?? undefined,
+	      role: row.role ?? undefined,
+	      ruleId: row.ruleId ?? undefined,
 	      serviceType: row.serviceType,
 	      basis: row.basis as CommissionBasis,
 	      basisAmount: Number(row.basisAmount || 0),
+	      weightPercent:
+	        row.weightPercent === null || row.weightPercent === undefined
+	          ? undefined
+	          : Number(row.weightPercent),
+	      ratePercent:
+	        row.ratePercent === null || row.ratePercent === undefined
+	          ? undefined
+	          : Number(row.ratePercent),
+	      fixedAmount:
+	        row.fixedAmount === null || row.fixedAmount === undefined
+	          ? undefined
+	          : Number(row.fixedAmount),
 	      amount: Number(row.amount || 0),
 	      status: row.status as CommissionStatus,
 	      calculatedAt: new Date(row.calculatedAt),
+	      approvedAt: row.approvedAt ? new Date(row.approvedAt) : undefined,
+	      paidAt: row.paidAt ? new Date(row.paidAt) : undefined,
+	      voidedAt: row.voidedAt ? new Date(row.voidedAt) : undefined,
+	      approvedByUserId: row.approvedByUserId ?? undefined,
+	      paidByUserId: row.paidByUserId ?? undefined,
 	    };
 	  }
 
