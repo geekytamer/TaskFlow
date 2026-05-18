@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ContributorsPanel } from '@/modules/crm/components/contributors-panel';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -569,6 +570,16 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
 
             </div>
             </div>
+            {task?.id && task?.companyId && (
+              <div className="rounded-lg border bg-muted/10 p-3 mt-3">
+                <ContributorsPanel
+                  companyId={task.companyId}
+                  sourceType="task"
+                  sourceId={task.id}
+                  compact
+                />
+              </div>
+            )}
             <SheetFooter>
             <SheetClose asChild>
                 <Button variant="outline">Cancel</Button>

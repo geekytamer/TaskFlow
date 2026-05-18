@@ -44,6 +44,7 @@ import { useI18n } from '@/context/i18n-context';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { InvoiceDocument } from './invoice-document';
+import { InvoiceCommissionsPanel } from './invoice-commissions-panel';
 import { useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
@@ -630,13 +631,21 @@ export function InvoiceTable() {
             </Button>
           </div>
           {previewInvoice && (
-            <div className="rounded-lg bg-muted/30 p-3">
-              <InvoiceDocument
-                invoice={previewInvoice}
-                client={clients.find((client) => client.id === previewInvoice.clientId)}
-                company={selectedCompany}
-                template={getTemplate(previewInvoice.templateId)}
-              />
+            <div className="space-y-3">
+              <div className="rounded-lg bg-muted/30 p-3">
+                <InvoiceDocument
+                  invoice={previewInvoice}
+                  client={clients.find((client) => client.id === previewInvoice.clientId)}
+                  company={selectedCompany}
+                  template={getTemplate(previewInvoice.templateId)}
+                />
+              </div>
+              {selectedCompany && (
+                <InvoiceCommissionsPanel
+                  companyId={selectedCompany.id}
+                  invoiceId={previewInvoice.id}
+                />
+              )}
             </div>
           )}
         </DialogContent>

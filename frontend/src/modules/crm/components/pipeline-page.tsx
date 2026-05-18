@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
+import { ContributorsPanel } from './contributors-panel';
 import { createContact, getContacts, type Contact, type ContactRoleType } from '@/services/contactService';
 import {
   createOpportunity,
@@ -613,6 +614,16 @@ export function PipelinePage() {
               <Label>Notes</Label>
               <Textarea placeholder="Any notes about this deal…" rows={2} value={oppForm.notes} onChange={(e) => setOppForm((p) => ({ ...p, notes: e.target.value }))} />
             </div>
+            {editingOpportunity && selectedCompany && (
+              <div className="pt-2 border-t">
+                <ContributorsPanel
+                  companyId={selectedCompany.id}
+                  sourceType="opportunity"
+                  sourceId={editingOpportunity.id}
+                  compact
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOppDialogOpen(false)}>Cancel</Button>
