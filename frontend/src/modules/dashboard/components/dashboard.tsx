@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { getCurrentLocale } from '@/lib/locale';
 import { AlertTriangle, Activity, Zap, Inbox } from 'lucide-react';
+import { OnboardingChecklist } from './onboarding-checklist';
 
 const METRIC_ROUTES: Record<string, string> = {
   'open-receivables': '/finance?tab=invoices',
@@ -394,6 +395,8 @@ export function Dashboard() {
         )}
       </div>
 
+      <OnboardingChecklist />
+
       {metrics.length > 0 && (
         <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10" style={{ background: 'linear-gradient(135deg, #e0ebff 0%, #e6e6ff 100%)' }} data-tutorial="dash-primary-metric">
           <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
@@ -500,7 +503,7 @@ export function Dashboard() {
                         {item.detail} {item.actorName && `• ${tr('by', 'بواسطة')} ${item.actorName}`}
                       </p>
                     </div>
-                    <time className="text-xs text-slate-400 font-medium whitespace-nowrap ml-4">
+                    <time className="text-xs text-slate-400 font-medium whitespace-nowrap ms-4">
                       {new Date(item.createdAt).toLocaleString(getCurrentLocale(), {
                         month: 'short',
                         day: 'numeric',

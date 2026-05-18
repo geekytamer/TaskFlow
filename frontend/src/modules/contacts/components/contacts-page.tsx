@@ -63,7 +63,8 @@ import { getUsersByCompany } from '@/services/userService';
 import type { User as UserType } from '@/modules/users/types';
 import { LogActivityDialog } from '@/modules/crm/components/log-activity-dialog';
 import { ActivityFeed } from '@/modules/crm/components/activity-feed';
-import { Building2, User, Plus, Search, MoreHorizontal, Pencil, Trash2, Phone, CalendarClock, Lock, Globe } from 'lucide-react';
+import { Building2, User, Plus, Search, MoreHorizontal, Pencil, Trash2, Phone, CalendarClock, Lock, Globe, Eye } from 'lucide-react';
+import Link from 'next/link';
 
 const ALL_ROLES: ContactRoleType[] = ['Lead', 'Client', 'Vendor', 'Influencer', 'Partner'];
 
@@ -411,7 +412,7 @@ export function ContactsPage() {
       actions={
         <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
-            <Button size="sm" data-tutorial="contacts-create"><Plus className="h-4 w-4 mr-1" />{t('contacts.create')}</Button>
+            <Button size="sm" data-tutorial="contacts-create"><Plus className="h-4 w-4 me-1" />{t('contacts.create')}</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>{t('contacts.createTitle')}</DialogTitle></DialogHeader>
@@ -512,12 +513,17 @@ export function ContactsPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/contacts/${c.id}`} className="flex items-center">
+                          <Eye className="h-4 w-4 me-2" />{t('contact360.openDetail')}
+                        </Link>
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => { setEditingContact(c); setEditForm(contactToForm(c)); }}>
-                        <Pencil className="h-4 w-4 mr-2" />{t('common.edit')}
+                        <Pencil className="h-4 w-4 me-2" />{t('common.edit')}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeletingContact(c)}>
-                        <Trash2 className="h-4 w-4 mr-2" />{t('common.delete')}
+                        <Trash2 className="h-4 w-4 me-2" />{t('common.delete')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

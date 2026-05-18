@@ -37,6 +37,8 @@ import {
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
+import { useCompany } from '@/context/company-context';
+import { getWhatsappChats } from '@/services/whatsappService';
 
 type NavItem = {
   href: string;
@@ -110,6 +112,29 @@ export function SidebarNav() {
   const pathname = usePathname();
   const { user, loading, effectiveRole } = useAuthGuard();
   const { t } = useI18n();
+  const { selectedCompany } = useCompany();
+  const [whatsappUnread, setWhatsappUnread] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!selectedCompany?.id) {
+      setWhatsappUnread(0);
+      return;
+    }
+    const fetchUnread = () => {
+      getWhatsappChats(selectedCompany.id)
+        .then((chats) =>
+          setWhatsappUnread(chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0)),
+        )
+        .catch(() => undefined);
+    };
+    fetchUnread();
+    const id = window.setInterval(fetchUnread, 30000);
+    return () => window.clearInterval(id);
+  }, [selectedCompany?.id]);
+
+  const badges: Record<string, number> = {
+    '/whatsapp': whatsappUnread,
+  };
 
   if (loading || !user) {
     return (
@@ -146,6 +171,7 @@ export function SidebarNav() {
                     item.href === '/'
                       ? pathname === '/'
                       : pathname.startsWith(item.href);
+                  const badge = badges[item.href] || 0;
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
@@ -154,9 +180,16 @@ export function SidebarNav() {
                         tooltip={{ children: t(item.labelKey), side: 'right' }}
                         data-tutorial={item.tutorial}
                       >
-                        <a href={item.href}>
-                          <Icon />
-                          <span>{t(item.labelKey)}</span>
+                        <a href={item.href} className="flex items-center justify-between">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <Icon />
+                            <span className="truncate">{t(item.labelKey)}</span>
+                          </span>
+                          {badge > 0 && (
+                            <span className="ms-2 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
+                              {badge > 99 ? '99+' : badge}
+                            </span>
+                          )}
                         </a>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

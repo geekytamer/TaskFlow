@@ -34,7 +34,7 @@ function RankBadge({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-yellow-500 font-bold text-base">🥇</span>;
   if (rank === 2) return <span className="text-slate-400 font-bold text-base">🥈</span>;
   if (rank === 3) return <span className="text-amber-600 font-bold text-base">🥉</span>;
-  return <span className="text-xs text-muted-foreground font-medium pl-1">#{rank}</span>;
+  return <span className="text-xs text-muted-foreground font-medium ps-1">#{rank}</span>;
 }
 
 type SortKey = 'wonRevenue' | 'wonDeals' | 'openLeads' | 'openOpportunityValue' | 'conversionRate' | 'commissionApproved';
@@ -98,7 +98,7 @@ export function PerformanceDashboard() {
 
       {/* Sort tabs */}
       <div className="flex flex-wrap gap-2 mb-4" data-tutorial="perf-sort">
-        <span className="text-xs text-muted-foreground self-center mr-1">{t('perf.rankBy')}</span>
+        <span className="text-xs text-muted-foreground self-center me-1">{t('perf.rankBy')}</span>
         {SORT_OPTIONS.map(opt => (
           <button key={opt.key} onClick={() => setSortBy(opt.key)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
@@ -141,7 +141,7 @@ export function PerformanceDashboard() {
                 <TableCell className="text-right font-semibold text-green-700">{amount(emp.wonRevenue)}</TableCell>
                 <TableCell className="text-right">
                   <span className="text-green-700 font-medium">{emp.wonDeals}W</span>
-                  {emp.lostDeals > 0 && <span className="text-red-500 text-xs ml-1">{emp.lostDeals}L</span>}
+                  {emp.lostDeals > 0 && <span className="text-red-500 text-xs ms-1">{emp.lostDeals}L</span>}
                 </TableCell>
                 <TableCell className="text-right text-sm">{amount(emp.openOpportunityValue)}</TableCell>
                 <TableCell className="text-right text-sm">{emp.openLeads}</TableCell>

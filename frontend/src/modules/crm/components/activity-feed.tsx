@@ -76,7 +76,7 @@ export function ActivityFeed({ activities, loading }: Props) {
                 {a.durationMinutes != null && (
                   <span className="text-xs text-muted-foreground">{a.durationMinutes} min</span>
                 )}
-                <span className="text-xs text-muted-foreground ml-auto">{fmt(a.createdAt)}</span>
+                <span className="text-xs text-muted-foreground ms-auto">{fmt(a.createdAt)}</span>
               </div>
               <p className="text-sm mt-1">{a.summary}</p>
               {a.outcome && <p className="text-xs text-muted-foreground mt-0.5">{t('crm.outcomeLabel')}: {a.outcome}</p>}

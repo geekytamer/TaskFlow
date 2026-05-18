@@ -24,6 +24,7 @@ import { TourProvider } from '@/components/tutorial/tour-context';
 import { TourOverlay } from '@/components/tutorial/tour-overlay';
 import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-launcher';
 import { CommandPalette } from '@/modules/layout/components/command-palette';
+import { NotificationBell } from '@/modules/layout/components/notification-bell';
 import { Search } from 'lucide-react';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -88,6 +89,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </kbd>
           </button>
           <div className="flex items-center gap-2 sm:gap-4">
+            <NotificationBell />
             <LanguageSwitcher />
             <CompanySwitcher />
           </div>

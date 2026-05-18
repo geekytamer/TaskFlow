@@ -159,7 +159,7 @@ export function SuppliersPage() {
       actions={
         <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
-            <Button size="sm"><Plus className="h-4 w-4 mr-1" />{t('suppliers.addSupplier')}</Button>
+            <Button size="sm"><Plus className="h-4 w-4 me-1" />{t('suppliers.addSupplier')}</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>

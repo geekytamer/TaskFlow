@@ -158,7 +158,7 @@ export function ClientsPage() {
       actions={
         <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
-            <Button size="sm"><Plus className="h-4 w-4 mr-1" />{t('clients.addClient')}</Button>
+            <Button size="sm"><Plus className="h-4 w-4 me-1" />{t('clients.addClient')}</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
