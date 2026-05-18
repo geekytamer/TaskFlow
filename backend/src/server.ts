@@ -362,6 +362,26 @@ export function createServer(options: CreateServerOptions = {}) {
     seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
   });
 
+  // Background sweep: every 30 minutes, queue InvoiceOverdue follow-ups for
+  // any unpaid invoice past its dueDate. Idempotent — won't duplicate.
+  // Disabled in test environment to avoid leaking timers.
+  if (process.env.NODE_ENV !== 'test') {
+    const sweepIntervalMs =
+      Number(process.env.FOLLOWUP_SWEEP_INTERVAL_MS) || 30 * 60 * 1000;
+    const runSweep = () => {
+      try {
+        const created = store.sweepOverdueInvoiceFollowups();
+        if (created > 0) {
+          logger.info(`[followups] created ${created} overdue-invoice follow-up(s)`);
+        }
+      } catch (error) {
+        logger.error('[followups] overdue sweep failed', error);
+      }
+    };
+    setTimeout(runSweep, 30 * 1000).unref?.();
+    setInterval(runSweep, sweepIntervalMs).unref?.();
+  }
+
   const app = express();
   app.use(
     cors({
@@ -1891,6 +1911,16 @@ export function createServer(options: CreateServerOptions = {}) {
 	        nextAction: optionalString(body.nextAction),
 	      });
 	      res.json(updated);
+	    }),
+	  );
+
+	  app.post(
+	    '/companies/:companyId/followups/sweep-overdue',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+	      const created = store.sweepOverdueInvoiceFollowups(req.params.companyId);
+	      res.json({ created });
 	    }),
 	  );
 
@@ -3843,7 +3873,7 @@ export function createServer(options: CreateServerOptions = {}) {
           const fileName = messageData?.fileMessageData?.fileName;
           const messageType: import('./types').WhatsAppMessageType =
             fileUrl ? 'file' : 'text';
-          store.createWhatsappMessage({
+          const savedMessage = store.createWhatsappMessage({
             companyId: instance.companyId,
             instanceId: instance.id,
             direction: 'inbound',
@@ -3857,6 +3887,25 @@ export function createServer(options: CreateServerOptions = {}) {
             status: 'delivered',
             receivedAt: new Date((Number(payload?.timestamp) || Date.now() / 1000) * 1000),
           });
+          // Auto-follow-up: if the inbound message is linked to a known
+          // contact, schedule a same-day reply reminder.
+          if (savedMessage.contactId) {
+            try {
+              store.scheduleAutomaticFollowup({
+                companyId: instance.companyId,
+                contactId: savedMessage.contactId,
+                trigger: 'InboundWhatsapp',
+                sourceType: 'whatsapp_message',
+                sourceId: savedMessage.id,
+                summary: 'New WhatsApp message — reply needed.',
+                nextAction: 'Reply to the inbound WhatsApp message.',
+                offsetDays: 0,
+                category: 'WhatsApp',
+              });
+            } catch (error) {
+              logger.error('Failed to schedule InboundWhatsapp follow-up', error);
+            }
+          }
         } else if (
           typeWebhook === 'outgoingMessageStatus' ||
           typeWebhook === 'outgoingAPIMessageReceived' ||

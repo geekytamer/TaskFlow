@@ -500,6 +500,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'crm.nextWeek': 'Next week',
     'crm.inTwoWeeks': 'In 2 weeks',
     'crm.nextMonth': 'Next month',
+    'crm.autoBadge': 'Auto',
     // CRM contact fields
     'crm.leadStatus': 'Lead Status',
     'crm.leadSource': 'Lead Source',
@@ -1694,6 +1695,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'crm.nextWeek': 'الأسبوع القادم',
     'crm.inTwoWeeks': 'بعد أسبوعين',
     'crm.nextMonth': 'الشهر القادم',
+    'crm.autoBadge': 'تلقائي',
     'crm.leadStatus': 'حالة العميل المحتمل',
     'crm.leadSource': 'مصدر العميل',
     'crm.priority': 'الأولوية',

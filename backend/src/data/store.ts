@@ -2869,6 +2869,25 @@ export class DataStore {
       }
     }
 
+    // Auto-follow-up: when a new Lead is created, queue a first-touch reminder.
+    if ((input.roles || []).includes('Lead')) {
+      try {
+        this.scheduleAutomaticFollowup({
+          companyId: input.companyId,
+          contactId: id,
+          trigger: 'NewLead',
+          sourceType: 'contact',
+          sourceId: id,
+          summary: `New lead: ${input.name} — reach out.`,
+          nextAction: 'First-touch outreach to qualify the lead.',
+          offsetDays: 2,
+          category: 'Follow-up',
+        });
+      } catch (error) {
+        console.error('Failed to schedule NewLead follow-up', error);
+      }
+    }
+
     return this.getContactById(id)!;
   }
 
@@ -3350,8 +3369,55 @@ export class DataStore {
 	        convertedToClientAt: new Date(now),
 	      });
 	      this.calculateCommissionsForOpportunity(id);
+	      try {
+	        this.scheduleAutomaticFollowup({
+	          companyId: existing.companyId,
+	          contactId: existing.contactId,
+	          trigger: 'OppWon',
+	          sourceType: 'opportunity',
+	          sourceId: existing.id,
+	          summary: `Opportunity won: ${existing.title} — schedule kickoff.`,
+	          nextAction: 'Schedule kickoff / onboarding call.',
+	          offsetDays: 2,
+	          category: 'Meeting',
+	        });
+	      } catch (error) {
+	        console.error('Failed to schedule OppWon follow-up', error);
+	      }
 	    } else if (stage === 'Lost') {
 	      this.updateContact(existing.contactId, { leadStatus: 'Lost' });
+	    } else if (stage === 'Proposal') {
+	      try {
+	        this.scheduleAutomaticFollowup({
+	          companyId: existing.companyId,
+	          contactId: existing.contactId,
+	          trigger: 'OppProposal',
+	          sourceType: 'opportunity',
+	          sourceId: existing.id,
+	          summary: `Proposal stage: ${existing.title} — confirm receipt.`,
+	          nextAction: 'Confirm the client received the proposal and is reviewing.',
+	          offsetDays: 3,
+	          category: 'Call',
+	        });
+	      } catch (error) {
+	        console.error('Failed to schedule OppProposal follow-up', error);
+	      }
+	    } else if (stage === 'Negotiation') {
+	      try {
+	        this.scheduleAutomaticFollowup({
+	          companyId: existing.companyId,
+	          contactId: existing.contactId,
+	          trigger: 'OppNegotiation',
+	          sourceType: 'opportunity',
+	          sourceId: existing.id,
+	          summary: `Negotiation stage: ${existing.title} — chase decision.`,
+	          nextAction: 'Check decision status, address objections.',
+	          offsetDays: 7,
+	          category: 'Call',
+	        });
+	      } catch (error) {
+	        console.error('Failed to schedule OppNegotiation follow-up', error);
+	      }
 	    }
 	    const result = this.getOpportunityById(id);
 	    if (result) {
@@ -3435,6 +3501,24 @@ export class DataStore {
 		        updatedAt: proposal.updatedAt.toISOString(),
 		      });
 		    this.updateOpportunityStage(opportunity.id, 'Proposal');
+
+		    // Auto-follow-up: chase response to the proposal.
+		    try {
+		      this.scheduleAutomaticFollowup({
+		        companyId: proposal.companyId,
+		        contactId: proposal.contactId,
+		        trigger: 'ProposalSent',
+		        sourceType: 'proposal',
+		        sourceId: proposal.id,
+		        summary: `Proposal ${proposal.proposalNumber} sent — follow up.`,
+		        nextAction: `Check status of proposal ${proposal.proposalNumber}.`,
+		        offsetDays: 5,
+		        category: 'Email',
+		      });
+		    } catch (error) {
+		      console.error('Failed to schedule ProposalSent follow-up', error);
+		    }
+
 		    this.createActivityEvent({
 		      companyId: proposal.companyId,
 		      entityType: 'proposal',
@@ -5829,6 +5913,28 @@ export class DataStore {
         trackingNumber: updated.trackingNumber,
       },
     });
+
+    // Auto-follow-up: remind the rep to confirm safe arrival.
+    if (order.contactId) {
+      try {
+        this.scheduleAutomaticFollowup({
+          companyId: updated.companyId,
+          contactId: order.contactId,
+          trigger: 'DeliveryShipped',
+          sourceType: 'delivery',
+          sourceId: updated.id,
+          summary: `Shipment ${updated.deliveryNumber} dispatched — confirm arrival.`,
+          nextAction: updated.trackingNumber
+            ? `Confirm receipt (tracking: ${updated.trackingNumber}).`
+            : 'Confirm the client received the shipment.',
+          offsetDays: 3,
+          category: 'Call',
+        });
+      } catch (error) {
+        console.error('Failed to schedule DeliveryShipped follow-up', error);
+      }
+    }
+
     return updated;
   }
 
@@ -6824,6 +6930,32 @@ export class DataStore {
       summary: `Invoice ${updated.invoiceNumber} moved to ${updated.status}.`,
       metadata: { status: updated.status, total: updated.total, outstandingAmount: updated.outstandingAmount },
     });
+
+    // Auto-follow-up: when an invoice flips to Sent for the first time,
+    // remind the rep to confirm receipt.
+    if (status === 'Sent' && existing.status !== 'Sent') {
+      const contactId =
+        updated.contactId ||
+        this.contactIdForClient(updated.clientId, updated.companyId);
+      if (contactId) {
+        try {
+          this.scheduleAutomaticFollowup({
+            companyId: updated.companyId,
+            contactId,
+            trigger: 'InvoiceSent',
+            sourceType: 'invoice',
+            sourceId: updated.id,
+            summary: `Invoice ${updated.invoiceNumber} was sent — confirm receipt.`,
+            nextAction: `Confirm client received invoice ${updated.invoiceNumber}.`,
+            offsetDays: 3,
+            category: 'Email',
+          });
+        } catch (error) {
+          console.error('Failed to schedule InvoiceSent follow-up', error);
+        }
+      }
+    }
+
     return updated;
   }
 
@@ -9081,6 +9213,142 @@ export class DataStore {
   getActivityEventById(id: string): ActivityEvent | undefined {
     const row = this.db.prepare('SELECT * FROM activity_events WHERE id = ?').get(id) as any;
     return row ? this.decodeActivityEvent(row) : undefined;
+  }
+
+  /**
+   * Auto-create a follow-up entry in response to a business event.
+   *
+   * Idempotency: a follow-up is created at most once per
+   * (companyId, contactId, trigger, sourceId) so re-firing the same event
+   * (e.g. saving an invoice twice) does NOT produce duplicate reminders.
+   *
+   * The follow-up shows up in /crm/followups via listFollowups exactly like
+   * any manually-created one. Clearing it via "Mark Done" / "Reschedule"
+   * works through the same endpoints with no special handling needed.
+   *
+   * @returns the ActivityEvent created, or undefined if skipped (already
+   *          exists, no contact, missing data).
+   */
+  scheduleAutomaticFollowup(input: {
+    companyId: string;
+    contactId: string;
+    trigger: string;
+    sourceType?: string;
+    sourceId?: string;
+    summary: string;
+    nextAction: string;
+    offsetDays: number;
+    category?: import('../types').ActivityCategory;
+  }): ActivityEvent | undefined {
+    if (!input.contactId) return undefined;
+    const contact = this.getContactById(input.contactId);
+    if (!contact || contact.companyId !== input.companyId) return undefined;
+
+    // Idempotency check: scan recent automatic follow-ups for this contact
+    // matching the same trigger + sourceId. Look in the last 90 days to
+    // bound the search.
+    if (input.sourceId) {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const existing = this.db
+        .prepare(
+          `SELECT id, metadata FROM activity_events
+             WHERE companyId = ?
+               AND entityType = 'contact'
+               AND entityId = ?
+               AND action = 'auto_followup'
+               AND createdAt >= ?`,
+        )
+        .all(input.companyId, input.contactId, cutoff) as Array<{ id: string; metadata: string | null }>;
+      for (const row of existing) {
+        try {
+          const meta = row.metadata ? JSON.parse(row.metadata) : null;
+          if (meta && meta.trigger === input.trigger && meta.sourceId === input.sourceId) {
+            return undefined; // already scheduled
+          }
+        } catch {
+          /* malformed metadata, skip */
+        }
+      }
+    }
+
+    const dueAt = new Date();
+    dueAt.setDate(dueAt.getDate() + Math.max(0, input.offsetDays));
+    dueAt.setHours(9, 0, 0, 0); // normalize to 9am local
+
+    const id = uuid();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO activity_events
+           (id, companyId, actorUserId, actorName, entityType, entityId, action, summary,
+            category, outcome, nextAction, nextActionDueDate, durationMinutes, metadata, createdAt)
+         VALUES
+           (@id, @companyId, NULL, 'System', 'contact', @contactId, 'auto_followup', @summary,
+            @category, NULL, @nextAction, @due, NULL, @metadata, @now)`,
+      )
+      .run({
+        id,
+        companyId: input.companyId,
+        contactId: input.contactId,
+        summary: input.summary,
+        category: input.category ?? 'Follow-up',
+        nextAction: input.nextAction,
+        due: dueAt.toISOString(),
+        metadata: JSON.stringify({
+          trigger: input.trigger,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          auto: true,
+        }),
+        now,
+      });
+
+    const row = this.db.prepare('SELECT * FROM activity_events WHERE id = ?').get(id) as any;
+    return row ? this.decodeActivityEvent(row) : undefined;
+  }
+
+  /**
+   * Sweep for invoices that have crossed dueDate without being fully paid
+   * and create an "InvoiceOverdue" follow-up against each linked contact.
+   * Idempotent — won't create a second follow-up for the same invoice.
+   */
+  sweepOverdueInvoiceFollowups(companyId?: string): number {
+    const now = new Date().toISOString();
+    const sql = companyId
+      ? `SELECT * FROM invoices WHERE companyId = ? AND status != 'Paid' AND status != 'Draft' AND dueDate < ?`
+      : `SELECT * FROM invoices WHERE status != 'Paid' AND status != 'Draft' AND dueDate < ?`;
+    const rows = (companyId
+      ? this.db.prepare(sql).all(companyId, now)
+      : this.db.prepare(sql).all(now)) as any[];
+    let created = 0;
+    for (const row of rows) {
+      const invoice = this.decodeInvoice(row);
+      if (!invoice.contactId && !invoice.clientId) continue;
+      const contactId =
+        invoice.contactId || this.contactIdForClient(invoice.clientId, invoice.companyId);
+      if (!contactId) continue;
+      const result = this.scheduleAutomaticFollowup({
+        companyId: invoice.companyId,
+        contactId,
+        trigger: 'InvoiceOverdue',
+        sourceType: 'invoice',
+        sourceId: invoice.id,
+        summary: `Invoice ${invoice.invoiceNumber} is overdue.`,
+        nextAction: `Chase payment for ${invoice.invoiceNumber}.`,
+        offsetDays: 0,
+        category: 'Follow-up',
+      });
+      if (result) created += 1;
+    }
+    return created;
+  }
+
+  private contactIdForClient(clientId: string, companyId: string): string | undefined {
+    if (!clientId) return undefined;
+    const row = this.db
+      .prepare('SELECT id FROM contacts WHERE companyId = ? AND clientId = ? LIMIT 1')
+      .get(companyId, clientId) as { id?: string } | undefined;
+    return row?.id;
   }
 
   /**

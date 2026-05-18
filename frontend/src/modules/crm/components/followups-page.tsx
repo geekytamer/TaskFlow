@@ -234,6 +234,14 @@ export function FollowupsPage() {
                     <div className="flex items-center gap-2">
                       <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span className="text-sm line-clamp-1">{f.summary}</span>
+                      {f.isAuto && (
+                        <span
+                          className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700"
+                          title={f.trigger || 'Auto-generated follow-up'}
+                        >
+                          {t('crm.autoBadge')}
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">{f.nextAction ?? '—'}</TableCell>
