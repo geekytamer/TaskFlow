@@ -6,6 +6,9 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import {
   LayoutDashboard,
@@ -35,29 +38,72 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 
-const allNavItems = [
-  { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-dashboard' },
-  { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-projects' },
-  { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-tasks' },
-  { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-diagram' },
-  { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-finance' },
-  { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
-  { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
-  { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
-  { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-contacts' },
-  { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
-  { href: '/crm/proposals', labelKey: 'nav.proposals', icon: FileText, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-proposals' },
-  { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
-  { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-vendor-requests' },
-  { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-commissions' },
-  { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
-  { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], tutorial: 'nav-performance' },
-  { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], tutorial: 'nav-whatsapp' },
-  { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-clients' },
-  { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-suppliers' },
-  { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
-  { href: '/companies', labelKey: 'nav.companies', icon: Building, roles: ['Admin'], tutorial: 'nav-companies' },
-  { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
+type NavItem = {
+  href: string;
+  labelKey: string;
+  icon: React.ComponentType<{ className?: string }>;
+  roles: Array<'Admin' | 'Manager' | 'Employee' | 'Accountant'>;
+  tutorial?: string;
+};
+
+type NavSection = {
+  labelKey: string;
+  items: NavItem[];
+};
+
+const sections: NavSection[] = [
+  {
+    labelKey: 'nav.section.workspace',
+    items: [
+      { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-dashboard' },
+      { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-projects' },
+      { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-tasks' },
+      { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-diagram' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.operations',
+    items: [
+      { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
+      { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
+      { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.finance',
+    items: [
+      { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-finance' },
+      { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-commissions' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.crm',
+    items: [
+      { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-contacts' },
+      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], tutorial: 'nav-whatsapp' },
+      { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
+      { href: '/crm/proposals', labelKey: 'nav.proposals', icon: FileText, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-proposals' },
+      { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
+      { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
+      { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-vendor-requests' },
+      { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], tutorial: 'nav-performance' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.directory',
+    items: [
+      { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-clients' },
+      { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-suppliers' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.admin',
+    items: [
+      { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
+      { href: '/companies', labelKey: 'nav.companies', icon: Building, roles: ['Admin'], tutorial: 'nav-companies' },
+      { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
+    ],
+  },
 ];
 
 export function SidebarNav() {
@@ -75,47 +121,52 @@ export function SidebarNav() {
     );
   }
 
-  const navItems = allNavItems.filter(item => {
-    if (item.href === '/companies') {
-      return user.role === 'Admin';
-    }
-
-    if (item.href === '/settings') {
-      return effectiveRole === 'Admin';
-    }
-
+  const canSeeItem = (item: NavItem) => {
+    if (item.href === '/companies') return user.role === 'Admin';
+    if (item.href === '/settings') return effectiveRole === 'Admin';
     if (!effectiveRole) return false;
-    return item.roles.includes(effectiveRole)
-  });
+    return item.roles.includes(effectiveRole);
+  };
 
   return (
-    <SidebarMenu data-tutorial="sidebar-nav">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-
-        let isActive = false;
-        if (item.href === '/') {
-          isActive = pathname === '/';
-        } else {
-          isActive = pathname.startsWith(item.href);
-        }
-
+    <div data-tutorial="sidebar-nav" className="flex flex-col gap-1">
+      {sections.map((section) => {
+        const visible = section.items.filter(canSeeItem);
+        if (!visible.length) return null;
         return (
-          <SidebarMenuItem key={item.href}>
-            <SidebarMenuButton
-              asChild
-              isActive={isActive}
-              tooltip={{ children: t(item.labelKey), side: 'right' }}
-              data-tutorial={item.tutorial}
-            >
-              <a href={item.href}>
-                <Icon />
-                <span>{t(item.labelKey)}</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          <SidebarGroup key={section.labelKey} className="py-1">
+            <SidebarGroupLabel className="px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {t(section.labelKey)}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visible.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    item.href === '/'
+                      ? pathname === '/'
+                      : pathname.startsWith(item.href);
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={{ children: t(item.labelKey), side: 'right' }}
+                        data-tutorial={item.tutorial}
+                      >
+                        <a href={item.href}>
+                          <Icon />
+                          <span>{t(item.labelKey)}</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         );
       })}
-    </SidebarMenu>
+    </div>
   );
 }

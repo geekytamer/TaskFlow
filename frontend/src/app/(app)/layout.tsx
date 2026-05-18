@@ -9,6 +9,7 @@ import {
   SidebarFooter,
   SidebarTrigger,
   SidebarInset,
+  SidebarProvider,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { UserNav } from '@/modules/users/components/user-nav';
@@ -22,6 +23,8 @@ import { useI18n } from '@/context/i18n-context';
 import { TourProvider } from '@/components/tutorial/tour-context';
 import { TourOverlay } from '@/components/tutorial/tour-overlay';
 import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-launcher';
+import { CommandPalette } from '@/modules/layout/components/command-palette';
+import { Search } from 'lucide-react';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading: authLoading } = useAuthGuard();
@@ -44,6 +47,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <SidebarProvider>
     <TourProvider>
       <Sidebar side={isRtl ? 'right' : 'left'}>
         <SidebarHeader className="p-4">
@@ -69,6 +73,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6">
           <SidebarTrigger className="md:hidden" />
+          <button
+            type="button"
+            onClick={() => {
+              const evt = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
+              window.dispatchEvent(evt);
+            }}
+            className="ms-2 hidden items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-muted md:flex"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span>{t('cmdk.button')}</span>
+            <kbd className="ms-2 hidden rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground lg:inline">
+              ⌘K
+            </kbd>
+          </button>
           <div className="flex items-center gap-2 sm:gap-4">
             <LanguageSwitcher />
             <CompanySwitcher />
@@ -78,6 +96,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </SidebarInset>
       <TourOverlay />
       <WelcomeTourModal />
+      <CommandPalette />
     </TourProvider>
+    </SidebarProvider>
   );
 }

@@ -25,6 +25,28 @@ import type {
 } from '@/modules/finance/types';
 import { Download } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
+import Link from 'next/link';
+
+const KpiCardLink: React.FC<
+  React.PropsWithChildren<{ href?: string; tutorial?: string }>
+> = ({ href, tutorial, children }) => {
+  const cardClass =
+    'h-full transition hover:border-primary/50 hover:shadow-sm focus-within:ring-2 focus-within:ring-primary/40';
+  if (!href) {
+    return (
+      <Card data-tutorial={tutorial} className={cardClass}>
+        {children}
+      </Card>
+    );
+  }
+  return (
+    <Link href={href} className="block focus:outline-none">
+      <Card data-tutorial={tutorial} className={cardClass + ' cursor-pointer'}>
+        {children}
+      </Card>
+    </Link>
+  );
+};
 
 const bucketLabel: Record<AgingBucket['bucket'], string> = {
   current: 'Current',
@@ -146,55 +168,55 @@ export function FinanceOverviewPanel() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7" data-tutorial="finance-metrics-grid">
-        <Card data-tutorial="finance-metric-receivables">
+        <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-receivables">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Receivables</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.openReceivables || 0)}</div>
           </CardContent>
-        </Card>
-        <Card data-tutorial="finance-metric-payables">
+        </KpiCardLink>
+        <KpiCardLink href="/finance?tab=payables" tutorial="finance-metric-payables">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Payables</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.openPayables || 0)}</div>
           </CardContent>
-        </Card>
-        <Card data-tutorial="finance-metric-billed">
+        </KpiCardLink>
+        <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-billed">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Billed This Month</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.billedThisMonth || 0)}</div>
           </CardContent>
-        </Card>
-        <Card data-tutorial="finance-metric-collected">
+        </KpiCardLink>
+        <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-collected">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Collected This Month</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.paidThisMonth || 0)}</div>
           </CardContent>
-        </Card>
-        <Card data-tutorial="finance-metric-paid-payables">
+        </KpiCardLink>
+        <KpiCardLink href="/finance?tab=payables" tutorial="finance-metric-paid-payables">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Paid Payables This Month</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.paidPayablesThisMonth || 0)}</div>
           </CardContent>
-        </Card>
-        <Card>
+        </KpiCardLink>
+        <KpiCardLink href="/finance?tab=expenses">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Expense Receipts</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.expenseReceiptsThisMonth || 0)}</div>
           </CardContent>
-        </Card>
-        <Card>
+        </KpiCardLink>
+        <KpiCardLink href="/purchases">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Unbilled POs</CardTitle>
           </CardHeader>
@@ -204,7 +226,7 @@ export function FinanceOverviewPanel() {
               {suppliersWithOpenPayables} suppliers with open payables
             </div>
           </CardContent>
-        </Card>
+        </KpiCardLink>
       </div>
 
       <Card>

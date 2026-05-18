@@ -46,6 +46,7 @@ import { RecordSupportPanel } from '@/modules/shared/components/record-support-p
 import { InvoiceDocument } from './invoice-document';
 import { useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
@@ -68,6 +69,8 @@ export function InvoiceTable() {
   const { toast } = useToast();
   const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
+  const { effectiveRole } = useAuthGuard();
+  const canManageFinance = effectiveRole !== 'Employee';
 
   const fetchData = React.useCallback(async () => {
     if (!selectedCompany) {
@@ -294,20 +297,24 @@ export function InvoiceTable() {
         summary={`${filteredInvoices.length} invoices shown • outstanding ${money(filteredOutstanding)}`}
         actions={(
           <div data-tutorial="invoice-bulk-actions" className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                handleBulkStatus('Sent', 'Draft')
-              }
-            >
-              <ListChecks className="me-2 h-4 w-4" />
-              {t('finance.sendAllDraft')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkStatus('Paid', 'Sent')}>
-              <ListChecks className="me-2 h-4 w-4" />
-              {t('finance.markAllSentPaid')}
-            </Button>
+            {canManageFinance && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    handleBulkStatus('Sent', 'Draft')
+                  }
+                >
+                  <ListChecks className="me-2 h-4 w-4" />
+                  {t('finance.sendAllDraft')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkStatus('Paid', 'Sent')}>
+                  <ListChecks className="me-2 h-4 w-4" />
+                  {t('finance.markAllSentPaid')}
+                </Button>
+              </>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -338,16 +345,18 @@ export function InvoiceTable() {
               <Download className="me-2 h-4 w-4" />
               {t('finance.exportCsv')}
             </Button>
-            <CreateInvoiceSheet
-              open={isSheetOpen}
-              onOpenChange={setIsSheetOpen}
-              onInvoiceCreated={fetchData}
-            >
-              <Button data-tutorial="invoice-create-btn">
-                <PlusCircle className="me-2 h-4 w-4" />
-                {t('finance.createInvoice')}
-              </Button>
-            </CreateInvoiceSheet>
+            {canManageFinance && (
+              <CreateInvoiceSheet
+                open={isSheetOpen}
+                onOpenChange={setIsSheetOpen}
+                onInvoiceCreated={fetchData}
+              >
+                <Button data-tutorial="invoice-create-btn">
+                  <PlusCircle className="me-2 h-4 w-4" />
+                  {t('finance.createInvoice')}
+                </Button>
+              </CreateInvoiceSheet>
+            )}
           </div>
         )}
       />
@@ -381,21 +390,25 @@ export function InvoiceTable() {
                 <TableCell className="text-end">{amount(invoice.outstandingAmount || 0)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <Select
-                      value={invoice.status}
-                      onValueChange={(value) => handleStatusChange(invoice.id, value as InvoiceStatus)}
-                    >
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(['Draft', 'Sent', 'Paid', 'Overdue'] as InvoiceStatus[]).map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {status}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {canManageFinance ? (
+                      <Select
+                        value={invoice.status}
+                        onValueChange={(value) => handleStatusChange(invoice.id, value as InvoiceStatus)}
+                      >
+                        <SelectTrigger className="w-[140px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(['Draft', 'Sent', 'Paid', 'Overdue'] as InvoiceStatus[]).map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {status}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Badge variant="outline">{invoice.status}</Badge>
+                    )}
                     {invoice.status !== 'Paid' && invoice.dueDate < new Date() && (
                       <Badge variant="destructive" className="gap-1">
                         <AlertTriangle className="h-3 w-3" />
@@ -423,6 +436,7 @@ export function InvoiceTable() {
                       <Eye className="me-2 h-4 w-4" />
                       Preview
                     </Button>
+                    {canManageFinance && (
                     <Dialog
                       open={paymentDialog.open && paymentDialog.invoice?.id === invoice.id}
                       onOpenChange={(open) => {
@@ -579,6 +593,7 @@ export function InvoiceTable() {
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>

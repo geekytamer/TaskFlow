@@ -1,8 +1,25 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { getCurrentLocale } from '@/lib/locale';
 import { AlertTriangle, Activity, Zap, Inbox } from 'lucide-react';
+
+const METRIC_ROUTES: Record<string, string> = {
+  'open-receivables': '/finance?tab=invoices',
+  'open-payables': '/finance?tab=payables',
+  'billed-this-month': '/finance?tab=invoices',
+  'collected-this-month': '/finance?tab=invoices',
+  'paid-payables-this-month': '/finance?tab=payables',
+  'open-tasks': '/tasks',
+  'overdue-tasks': '/tasks',
+  'open-projects': '/projects',
+  'active-projects': '/projects',
+  'manager-overdue-tasks': '/tasks',
+  'admin-overdue-tasks': '/tasks',
+  'unbilled-pos': '/purchases',
+  'expense-receipts': '/finance?tab=expenses',
+};
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { getDashboardPayload } from '@/services/dashboardService';
@@ -382,27 +399,55 @@ export function Dashboard() {
           <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
 
           <div className="relative z-10 flex flex-col xl:flex-row items-center gap-8">
-            {primaryMetric && (
-              <div className="w-full xl:w-1/4">
-                <h2 className="text-xl font-bold text-slate-800 mb-1">{primaryMetric.label}</h2>
-                <p className="text-sm text-slate-500 mb-6">{primaryMetric.detail || tr('Primary Indicator', 'المؤشر الرئيسي')}</p>
-                <div className={`text-5xl font-extrabold mb-2 ${TONE_COLORS[primaryMetric.tone || 'default'] || TONE_COLORS.default}`}>
-                  {formatMetricValue(primaryMetric.value, primaryMetric.format, currencyCode)}
-                </div>
-              </div>
-            )}
+            {primaryMetric && (() => {
+              const primaryHref = METRIC_ROUTES[primaryMetric.id];
+              const inner = (
+                <>
+                  <h2 className="text-xl font-bold text-slate-800 mb-1">{primaryMetric.label}</h2>
+                  <p className="text-sm text-slate-500 mb-6">{primaryMetric.detail || tr('Primary Indicator', 'المؤشر الرئيسي')}</p>
+                  <div className={`text-5xl font-extrabold mb-2 ${TONE_COLORS[primaryMetric.tone || 'default'] || TONE_COLORS.default}`}>
+                    {formatMetricValue(primaryMetric.value, primaryMetric.format, currencyCode)}
+                  </div>
+                </>
+              );
+              return primaryHref ? (
+                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 p-2 -m-2">
+                  {inner}
+                </Link>
+              ) : (
+                <div className="w-full xl:w-1/4">{inner}</div>
+              );
+            })()}
 
             {secondaryMetrics.length > 0 && (
               <div className="w-full xl:w-3/4 grid grid-cols-2 md:grid-cols-3 gap-4" data-tutorial="dash-secondary-metrics">
-                {secondaryMetrics.map((item) => (
-                  <div key={item.id} className="bg-white/90 backdrop-blur-md rounded-2xl p-5 shadow-sm flex flex-col justify-center border border-white/60">
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">{item.label}</p>
-                    <div className={`text-2xl font-bold ${TONE_COLORS[item.tone || 'default'] || TONE_COLORS.default}`}>
-                      {formatMetricValue(item.value, item.format, currencyCode)}
+                {secondaryMetrics.map((item) => {
+                  const href = METRIC_ROUTES[item.id];
+                  const inner = (
+                    <>
+                      <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">{item.label}</p>
+                      <div className={`text-2xl font-bold ${TONE_COLORS[item.tone || 'default'] || TONE_COLORS.default}`}>
+                        {formatMetricValue(item.value, item.format, currencyCode)}
+                      </div>
+                      {item.detail && <p className="text-[11px] text-slate-400 mt-1 font-medium">{item.detail}</p>}
+                    </>
+                  );
+                  const cls =
+                    'bg-white/90 backdrop-blur-md rounded-2xl p-5 shadow-sm flex flex-col justify-center border border-white/60 transition';
+                  return href ? (
+                    <Link
+                      key={item.id}
+                      href={href}
+                      className={`${cls} hover:bg-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400/40`}
+                    >
+                      {inner}
+                    </Link>
+                  ) : (
+                    <div key={item.id} className={cls}>
+                      {inner}
                     </div>
-                    {item.detail && <p className="text-[11px] text-slate-400 mt-1 font-medium">{item.detail}</p>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
+import { useAuthGuard } from '@/hooks/use-auth-guard';
 import {
   bulkUpdateVendorBillStatus,
   createVendorBillPayment,
@@ -65,6 +66,8 @@ export function VendorBillTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const { money, amount } = useCompanyCurrency();
+  const { effectiveRole } = useAuthGuard();
+  const canManageFinance = effectiveRole !== 'Employee';
 
   const [bills, setBills] = React.useState<VendorBill[]>([]);
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
@@ -404,10 +407,12 @@ export function VendorBillTable() {
         summary={`${filteredBills.length} vendor bills shown • outstanding ${money(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0))}`}
         actions={(
           <>
+          {canManageFinance && (
           <Button variant="outline" size="sm" onClick={() => bulkUpdate('Approved', 'Draft')}>
             <ListChecks className="me-2 h-4 w-4" />
             Approve All Draft
           </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -440,6 +445,7 @@ export function VendorBillTable() {
             <Download className="me-2 h-4 w-4" />
             Export CSV
           </Button>
+          {canManageFinance && (
           <Dialog open={openCreate} onOpenChange={setOpenCreate}>
             <DialogTrigger asChild>
               <Button>
@@ -640,6 +646,7 @@ export function VendorBillTable() {
             </DialogFooter>
           </DialogContent>
           </Dialog>
+          )}
           </>
         )}
       />
@@ -699,6 +706,7 @@ export function VendorBillTable() {
                   <TableCell>{accountNameMap.get(bill.expenseAccountId || '') || 'Default'}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
+                      {canManageFinance ? (
                       <Select
                         value={bill.status}
                         disabled={bill.status === 'Paid'}
@@ -725,11 +733,12 @@ export function VendorBillTable() {
                           <SelectItem value="Overdue">Overdue</SelectItem>
                         </SelectContent>
                       </Select>
+                      ) : null}
                       <Badge className={statusColor[bill.status]}>{bill.status}</Badge>
                     </div>
                   </TableCell>
                   <TableCell className="text-end">
-                    {bill.status === 'Draft' ? (
+                    {!canManageFinance ? null : bill.status === 'Draft' ? (
                       <Button
                         variant="outline"
                         size="sm"
