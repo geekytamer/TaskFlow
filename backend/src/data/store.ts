@@ -445,6 +445,75 @@ export class DataStore {
     this.ensureFinanceDefaults();
     this.ensureNumberingDefaults();
     this.ensureCompanyFinanceSettings();
+    this.ensureBootstrapAdmin();
+  }
+
+  /**
+   * Production bootstrap: if env vars ADMIN_EMAIL / ADMIN_PASSWORD are set
+   * AND no Admin user exists yet in the DB, create one. Idempotent — never
+   * overwrites an existing admin. Safe to run on every startup.
+   *
+   * Set ADMIN_NAME to control the display name; defaults to "Administrator".
+   * Auto-assigns the new admin to every existing company.
+   */
+  private ensureBootstrapAdmin() {
+    const email = (process.env.ADMIN_EMAIL || '').trim();
+    const password = process.env.ADMIN_PASSWORD || '';
+    if (!email || !password) return; // not configured — nothing to do
+
+    // Already have an admin? Don't touch it.
+    const existingAdmin = this.db
+      .prepare(`SELECT id FROM users WHERE role = 'Admin' LIMIT 1`)
+      .get() as { id?: string } | undefined;
+    if (existingAdmin?.id) return;
+
+    // Already a user with this email? Don't overwrite.
+    const byEmail = this.db
+      .prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
+      .get(email) as { id?: string } | undefined;
+    if (byEmail?.id) return;
+
+    const name = (process.env.ADMIN_NAME || 'Administrator').trim();
+
+    // If there are no companies yet, bootstrap one so the admin has somewhere
+    // to log into. COMPANY_NAME / COMPANY_WEBSITE / COMPANY_ADDRESS env vars
+    // configure it; otherwise sensible defaults are used.
+    let companies = this.db
+      .prepare(`SELECT id FROM companies`)
+      .all() as Array<{ id: string }>;
+    if (companies.length === 0) {
+      const bootstrapCompany = this.createCompany({
+        name: (process.env.COMPANY_NAME || 'My Company').trim(),
+        website: process.env.COMPANY_WEBSITE || undefined,
+        address: process.env.COMPANY_ADDRESS || undefined,
+      });
+      companies = [{ id: bootstrapCompany.id }];
+      this.ensureFinanceDefaults();
+      this.ensureNumberingDefaults();
+      this.ensureCompanyFinanceSettings();
+      console.log(`[bootstrap] Created initial company "${bootstrapCompany.name}"`);
+    }
+    const companyIds = companies.map((c) => c.id);
+    const companyRoles: CompanyRoleAssignment[] = companyIds.map((cid) => ({
+      companyId: cid,
+      role: 'Admin' as UserRole,
+    }));
+
+    try {
+      this.createUser({
+        name,
+        email,
+        password,
+        role: 'Admin' as UserRole,
+        companyIds,
+        companyRoles,
+        avatar: `https://i.pravatar.cc/150?u=${encodeURIComponent(email)}`,
+        commissionEligible: false,
+      });
+      console.log(`[bootstrap] Created admin user ${email} on ${companyIds.length} company(ies)`);
+    } catch (error) {
+      console.error('[bootstrap] Failed to create admin user', error);
+    }
   }
 
   private applyMigrations() {
