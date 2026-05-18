@@ -37,7 +37,31 @@ function RankBadge({ rank }: { rank: number }) {
   return <span className="text-xs text-muted-foreground font-medium ps-1">#{rank}</span>;
 }
 
-type SortKey = 'wonRevenue' | 'wonDeals' | 'openLeads' | 'openOpportunityValue' | 'conversionRate' | 'commissionApproved';
+type SortKey = 'wonRevenue' | 'wonDeals' | 'openLeads' | 'openOpportunityValue' | 'conversionRate' | 'commissionApproved' | 'collectedRevenue';
+
+type PeriodPreset = 'all' | 'mtd' | 'qtd' | 'ytd' | 'last30' | 'last90';
+
+function periodRange(preset: PeriodPreset): { from?: Date; to?: Date } {
+  const now = new Date();
+  if (preset === 'all') return {};
+  if (preset === 'mtd') {
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1) };
+  }
+  if (preset === 'qtd') {
+    const q = Math.floor(now.getMonth() / 3) * 3;
+    return { from: new Date(now.getFullYear(), q, 1) };
+  }
+  if (preset === 'ytd') {
+    return { from: new Date(now.getFullYear(), 0, 1) };
+  }
+  if (preset === 'last30') {
+    return { from: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) };
+  }
+  if (preset === 'last90') {
+    return { from: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) };
+  }
+  return {};
+}
 
 export function PerformanceDashboard() {
   const { selectedCompany } = useCompany();
@@ -48,18 +72,20 @@ export function PerformanceDashboard() {
   const [company, setCompany] = React.useState<CrmDashboardSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [sortBy, setSortBy] = React.useState<SortKey>('wonRevenue');
+  const [period, setPeriod] = React.useState<PeriodPreset>('all');
 
   React.useEffect(() => {
     if (!selectedCompany) { setLoading(false); return; }
     setLoading(true);
-    Promise.all([
-      getCrmPerformance(selectedCompany.id),
+    const range = periodRange(period);
+    Promise.allSettled([
+      getCrmPerformance(selectedCompany.id, range),
       getCrmDashboard(selectedCompany.id),
-    ]).then(([emp, dash]) => {
-      setEmployees(emp);
-      setCompany(dash);
+    ]).then((results) => {
+      if (results[0].status === 'fulfilled') setEmployees(results[0].value);
+      if (results[1].status === 'fulfilled') setCompany(results[1].value);
     }).finally(() => setLoading(false));
-  }, [selectedCompany]);
+  }, [selectedCompany, period]);
 
   const ranked = React.useMemo(() =>
     [...employees].sort((a, b) => b[sortBy] - a[sortBy]),
@@ -68,11 +94,21 @@ export function PerformanceDashboard() {
 
   const SORT_OPTIONS: { key: SortKey; label: string }[] = [
     { key: 'wonRevenue', label: t('perf.sortRevenue') },
+    { key: 'collectedRevenue', label: t('perf.sortCollected') },
     { key: 'wonDeals', label: t('perf.sortDeals') },
     { key: 'openLeads', label: t('perf.sortLeads') },
     { key: 'openOpportunityValue', label: t('perf.sortPipeline') },
     { key: 'conversionRate', label: t('perf.sortConversion') },
     { key: 'commissionApproved', label: t('perf.sortCommission') },
+  ];
+
+  const PERIOD_OPTIONS: { key: PeriodPreset; label: string }[] = [
+    { key: 'all', label: t('perf.periodAll') },
+    { key: 'mtd', label: t('perf.periodMtd') },
+    { key: 'qtd', label: t('perf.periodQtd') },
+    { key: 'ytd', label: t('perf.periodYtd') },
+    { key: 'last30', label: t('perf.periodLast30') },
+    { key: 'last90', label: t('perf.periodLast90') },
   ];
 
   return (
@@ -95,6 +131,24 @@ export function PerformanceDashboard() {
             sub={`${company.openFollowups} ${t('perf.totalFollowups')}`} icon={AlertCircle} color="bg-red-100 text-red-700" />
         </div>
       )}
+
+      {/* Period selector */}
+      <div className="flex flex-wrap gap-2 mb-3" data-tutorial="perf-period">
+        <span className="text-xs text-muted-foreground self-center me-1">{t('perf.period')}</span>
+        {PERIOD_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => setPeriod(opt.key)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+              period === opt.key
+                ? 'bg-primary text-primary-foreground border-transparent'
+                : 'bg-transparent border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       {/* Sort tabs */}
       <div className="flex flex-wrap gap-2 mb-4" data-tutorial="perf-sort">
@@ -122,6 +176,7 @@ export function PerformanceDashboard() {
               <TableHead className="w-8">#</TableHead>
               <TableHead>{t('perf.employee')}</TableHead>
               <TableHead className="text-right">{t('perf.wonRevenue')}</TableHead>
+              <TableHead className="text-right">{t('perf.collected')}</TableHead>
               <TableHead className="text-right">{t('perf.deals')}</TableHead>
               <TableHead className="text-right">{t('perf.pipeline')}</TableHead>
               <TableHead className="text-right">{t('perf.leads')}</TableHead>
@@ -139,6 +194,7 @@ export function PerformanceDashboard() {
                   <div className="text-xs text-muted-foreground">{emp.role}</div>
                 </TableCell>
                 <TableCell className="text-right font-semibold text-green-700">{amount(emp.wonRevenue)}</TableCell>
+                <TableCell className="text-right font-medium text-emerald-700">{amount(emp.collectedRevenue || 0)}</TableCell>
                 <TableCell className="text-right">
                   <span className="text-green-700 font-medium">{emp.wonDeals}W</span>
                   {emp.lostDeals > 0 && <span className="text-red-500 text-xs ms-1">{emp.lostDeals}L</span>}

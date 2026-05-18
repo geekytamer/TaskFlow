@@ -1829,6 +1829,71 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // ─── CRM: Follow-ups ─────────────────────────────────────────────────────
 
+	  // Mark a single follow-up as done. The id is either the activity_event
+	  // id, or the "contact:<id>" synthetic id for contact-level follow-ups.
+	  app.post(
+	    '/followups/:id/done',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const rawId = req.params.id;
+	      if (rawId.startsWith('contact:')) {
+	        const contactId = rawId.slice('contact:'.length);
+	        const contact = store.getContactById(contactId);
+	        if (!contact) throw new HttpError(404, 'Contact not found.');
+	        requireCompanyRoles(req, contact.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	        const updated = store.updateContact(contactId, {
+	          nextFollowupDate: null,
+	          nextFollowupNote: '',
+	        });
+	        res.json(updated);
+	        return;
+	      }
+	      const event = store.getActivityEventById(rawId);
+	      if (!event) throw new HttpError(404, 'Follow-up not found.');
+	      requireCompanyRoles(req, event.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const updated = store.updateActivityFollowup(rawId, {
+	        nextActionDueDate: null,
+	        nextAction: null,
+	      });
+	      res.json(updated);
+	    }),
+	  );
+
+	  // Reschedule a follow-up to a later date.
+	  app.post(
+	    '/followups/:id/reschedule',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const rawId = req.params.id;
+	      const body = asRecord(req.body, 'body');
+	      const dueDateStr = requiredString(body.nextActionDueDate, 'nextActionDueDate');
+	      const dueDate = new Date(dueDateStr);
+	      if (Number.isNaN(dueDate.getTime())) {
+	        throw new HttpError(400, 'Invalid date.');
+	      }
+	      if (rawId.startsWith('contact:')) {
+	        const contactId = rawId.slice('contact:'.length);
+	        const contact = store.getContactById(contactId);
+	        if (!contact) throw new HttpError(404, 'Contact not found.');
+	        requireCompanyRoles(req, contact.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	        const updated = store.updateContact(contactId, {
+	          nextFollowupDate: dueDate,
+	          nextFollowupNote: optionalString(body.nextAction) ?? contact.nextFollowupNote,
+	        });
+	        res.json(updated);
+	        return;
+	      }
+	      const event = store.getActivityEventById(rawId);
+	      if (!event) throw new HttpError(404, 'Follow-up not found.');
+	      requireCompanyRoles(req, event.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const updated = store.updateActivityFollowup(rawId, {
+	        nextActionDueDate: dueDate,
+	        nextAction: optionalString(body.nextAction),
+	      });
+	      res.json(updated);
+	    }),
+	  );
+
 	  app.get(
 	    '/companies/:companyId/followups',
 	    authMiddleware,
@@ -1872,29 +1937,13 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const users = store.getUsersByCompany(req.params.companyId);
-      const results = users.map((user) => {
-        const s = store.getCrmDashboardSummary(req.params.companyId, user.id);
-        return {
-          userId: user.id,
-          userName: user.name,
-          role: user.role,
-          openLeads: s.openLeads,
-          wonDeals: s.wonDeals,
-          lostDeals: s.lostDeals,
-          wonRevenue: s.wonRevenue,
-          openOpportunities: s.openOpportunities,
-          openOpportunityValue: s.openOpportunityValue,
-          openFollowups: s.openFollowups,
-          overdueFollowups: s.overdueFollowups,
-          openTasks: s.openTasks,
-          commissionDraft: s.commissionDraft,
-          commissionApproved: s.commissionApproved,
-          conversionRate: s.openLeads + s.wonDeals > 0
-            ? Math.round((s.wonDeals / (s.openLeads + s.wonDeals)) * 100)
-            : 0,
-        };
-      });
+      const fromRaw = (req.query.from as string | undefined) || undefined;
+      const toRaw = (req.query.to as string | undefined) || undefined;
+      const from = fromRaw ? new Date(fromRaw) : undefined;
+      const to = toRaw ? new Date(toRaw) : undefined;
+      if (from && Number.isNaN(from.getTime())) throw new HttpError(400, 'Invalid `from` date');
+      if (to && Number.isNaN(to.getTime())) throw new HttpError(400, 'Invalid `to` date');
+      const results = store.getCompanyPerformance(req.params.companyId, { from, to });
       res.json(results);
     }),
   );

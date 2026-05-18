@@ -731,6 +731,7 @@ export interface Opportunity {
   expectedCloseDate?: Date;
   notes?: string;
   wonSalesOrderId?: string;
+  closedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }

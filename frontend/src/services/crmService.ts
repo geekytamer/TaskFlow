@@ -397,6 +397,26 @@ export async function getFollowups(companyId: string, options?: {
   return data.map(decodeFollowup);
 }
 
+export async function markFollowupDone(followupId: string): Promise<unknown> {
+  return apiFetch(`/followups/${encodeURIComponent(followupId)}/done`, {
+    method: 'POST',
+  });
+}
+
+export async function rescheduleFollowup(
+  followupId: string,
+  nextActionDueDate: Date,
+  nextAction?: string,
+): Promise<unknown> {
+  return apiFetch(`/followups/${encodeURIComponent(followupId)}/reschedule`, {
+    method: 'POST',
+    body: JSON.stringify({
+      nextActionDueDate: nextActionDueDate.toISOString(),
+      nextAction,
+    }),
+  });
+}
+
 export async function patchContactCrm(contactId: string, updates: {
   leadStatus?: LeadStatus;
   leadSource?: LeadSource;
@@ -841,6 +861,7 @@ export interface EmployeePerformance {
   wonDeals: number;
   lostDeals: number;
   wonRevenue: number;
+  collectedRevenue: number;
   openOpportunities: number;
   openOpportunityValue: number;
   openFollowups: number;
@@ -851,8 +872,17 @@ export interface EmployeePerformance {
   conversionRate: number;
 }
 
-export async function getCrmPerformance(companyId: string): Promise<EmployeePerformance[]> {
-  return apiFetch<EmployeePerformance[]>(`/companies/${companyId}/crm-performance`);
+export async function getCrmPerformance(
+  companyId: string,
+  options: { from?: Date; to?: Date } = {},
+): Promise<EmployeePerformance[]> {
+  const params = new URLSearchParams();
+  if (options.from) params.set('from', options.from.toISOString());
+  if (options.to) params.set('to', options.to.toISOString());
+  const qs = params.toString();
+  return apiFetch<EmployeePerformance[]>(
+    `/companies/${companyId}/crm-performance${qs ? `?${qs}` : ''}`,
+  );
 }
 
 export async function generateCampaignInvoice(companyId: string, campaignId: string): Promise<any> {

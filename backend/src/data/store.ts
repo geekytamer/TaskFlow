@@ -1821,6 +1821,20 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '033_opportunity_closed_at',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(opportunities)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('closedAt')) {
+            this.db.exec(`ALTER TABLE opportunities ADD COLUMN closedAt TEXT;`);
+            this.db.exec(`
+              UPDATE opportunities
+                 SET closedAt = updatedAt
+               WHERE stage IN ('Won','Lost','Cancelled') AND closedAt IS NULL;
+            `);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3078,7 +3092,118 @@ export class DataStore {
 		    };
 		  }
 
-		  getOpportunityById(id: string): Opportunity | undefined {
+		  /**
+   * Period-aware per-user performance snapshot. Returns the same shape as
+   * the leaderboard expects, computed in a single pass over the
+   * relevant tables. Replaces the old N+1 by-user re-scan.
+   */
+  getCompanyPerformance(
+    companyId: string,
+    options: { from?: Date; to?: Date } = {},
+  ): Array<{
+    userId: string;
+    userName: string;
+    role: string;
+    openLeads: number;
+    wonDeals: number;
+    lostDeals: number;
+    wonRevenue: number;
+    collectedRevenue: number;
+    openOpportunities: number;
+    openOpportunityValue: number;
+    openFollowups: number;
+    overdueFollowups: number;
+    openTasks: number;
+    commissionDraft: number;
+    commissionApproved: number;
+    conversionRate: number;
+  }> {
+    const users = this.getUsersByCompany(companyId);
+    const opportunities = this.listOpportunities(companyId);
+    const contacts = this.listContacts(companyId);
+    const followups = this.listFollowups(companyId, { limit: 5000 });
+    const commissions = this.listCommissions(companyId);
+    const tasks = this.listTasks().filter((t) => t.companyId === companyId);
+    const invoices = this.listInvoices(companyId);
+    const now = new Date();
+    const from = options.from;
+    const to = options.to;
+
+    const inPeriod = (d?: Date) => {
+      if (!d) return !from && !to;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    };
+
+    const openStages = new Set<OpportunityStage>(['New', 'Qualified', 'Proposal', 'Negotiation']);
+
+    return users.map((user) => {
+      const userOpps = opportunities.filter((o) => o.ownerUserId === user.id);
+      const userContacts = contacts.filter((c) => c.ownerUserId === user.id);
+      const userTasks = tasks.filter((t) => (t.assignedUserIds || []).includes(user.id));
+      const userFollowups = followups.filter((f) => f.actorUserId === user.id);
+      const userCommissions = commissions.filter((c) => c.userId === user.id);
+
+      const periodWon = userOpps.filter((o) => o.stage === 'Won' && inPeriod(o.closedAt));
+      const periodLost = userOpps.filter((o) => o.stage === 'Lost' && inPeriod(o.closedAt));
+      const periodOpenOpps = userOpps.filter((o) => openStages.has(o.stage));
+      const periodOpenLeads = userContacts.filter(
+        (c) =>
+          (c.roles || []).includes('Lead') &&
+          !['Won', 'Lost', 'Archived'].includes(c.leadStatus || ''),
+      );
+
+      // Collected revenue: sum of payments on invoices linked to this user's
+      // won opportunities, restricted to the period.
+      let collectedRevenue = 0;
+      userOpps
+        .filter((o) => o.stage === 'Won' && o.wonSalesOrderId)
+        .forEach((o) => {
+          const so = this.getSalesOrderById(o.wonSalesOrderId!);
+          if (!so?.invoiceId) return;
+          const invoice = invoices.find((i) => i.id === so.invoiceId);
+          if (!invoice) return;
+          const payments = this.listPayments(invoice.id);
+          payments
+            .filter((p) => inPeriod(p.paidAt))
+            .forEach((p) => {
+              collectedRevenue += p.amount;
+            });
+        });
+
+      const closedTotal = periodWon.length + periodLost.length;
+      const conversionRate =
+        closedTotal > 0 ? Math.round((periodWon.length / closedTotal) * 100) : 0;
+
+      return {
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        openLeads: periodOpenLeads.length,
+        wonDeals: periodWon.length,
+        lostDeals: periodLost.length,
+        wonRevenue: periodWon.reduce((s, o) => s + (o.expectedRevenue || 0), 0),
+        collectedRevenue,
+        openOpportunities: periodOpenOpps.length,
+        openOpportunityValue: periodOpenOpps.reduce((s, o) => s + (o.expectedRevenue || 0), 0),
+        openFollowups: userFollowups.length,
+        overdueFollowups: userFollowups.filter(
+          (f) => f.nextActionDueDate && f.nextActionDueDate < now,
+        ).length,
+        openTasks: userTasks.filter((t) => t.status === 'To Do' || t.status === 'In Progress').length,
+        commissionDraft: userCommissions
+          .filter((c) => c.status === 'Draft' && inPeriod(c.calculatedAt))
+          .reduce((s, c) => s + c.amount, 0),
+        commissionApproved: userCommissions
+          .filter((c) => c.status === 'Approved' && inPeriod(c.calculatedAt))
+          .reduce((s, c) => s + c.amount, 0),
+        conversionRate,
+      };
+    });
+  }
+
+  getOpportunityById(id: string): Opportunity | undefined {
 	    const row = this.db.prepare('SELECT * FROM opportunities WHERE id = ?').get(id) as any;
 	    return row ? this.decodeOpportunity(row) : undefined;
 	  }
@@ -3205,7 +3330,19 @@ export class DataStore {
 		    const existing = this.getOpportunityById(id);
 	    if (!existing) return undefined;
 	    const now = new Date().toISOString();
-	    this.db.prepare('UPDATE opportunities SET stage = ?, updatedAt = ? WHERE id = ?').run(stage, now, id);
+	    const isClosed = stage === 'Won' || stage === 'Lost' || stage === 'Cancelled';
+	    const isReopened = !isClosed && existing.closedAt;
+	    if (isClosed) {
+	      this.db
+	        .prepare('UPDATE opportunities SET stage = ?, closedAt = COALESCE(closedAt, ?), updatedAt = ? WHERE id = ?')
+	        .run(stage, now, now, id);
+	    } else if (isReopened) {
+	      this.db
+	        .prepare('UPDATE opportunities SET stage = ?, closedAt = NULL, updatedAt = ? WHERE id = ?')
+	        .run(stage, now, id);
+	    } else {
+	      this.db.prepare('UPDATE opportunities SET stage = ?, updatedAt = ? WHERE id = ?').run(stage, now, id);
+	    }
 	    if (stage === 'Won') {
 	      this.addContactRole(existing.contactId, existing.companyId, 'Client', 'Manual');
 	      this.updateContact(existing.contactId, {
@@ -4070,9 +4207,89 @@ export class DataStore {
 		    return result;
 		  }
 
+		  /**
+		   * Computes the basis amount for a commission rule applied to an
+		   * opportunity. Handles the three documented basis types instead of
+		   * silently using expectedRevenue for all of them.
+		   *
+		   * - Revenue:     opportunity.expectedRevenue (forecast); falls back to
+		   *                the linked invoice total when a wonSalesOrder is set.
+		   * - Paid Amount: sum of payments on the invoice linked via
+		   *                opportunity.wonSalesOrderId. 0 if not yet invoiced/paid.
+		   * - Profit:      Paid Amount minus campaign expenses & vendor bills
+		   *                linked to the same invoice's campaign. 0 if no costs.
+		   */
+		  private computeCommissionBasisAmount(
+		    opportunity: Opportunity,
+		    basis: CommissionBasis,
+		  ): number {
+		    if (basis === 'Revenue') {
+		      // Prefer the actual invoice total if billed; otherwise use forecast.
+		      const invoice = this.getInvoiceForWonOpportunity(opportunity);
+		      if (invoice) return Number(invoice.total || 0);
+		      return Number(opportunity.expectedRevenue || 0);
+		    }
+
+		    if (basis === 'Paid Amount') {
+		      const invoice = this.getInvoiceForWonOpportunity(opportunity);
+		      if (!invoice) return 0;
+		      return Number(this.getInvoicePaidAmount(invoice.id) || 0);
+		    }
+
+		    if (basis === 'Profit') {
+		      const invoice = this.getInvoiceForWonOpportunity(opportunity);
+		      if (!invoice) return 0;
+		      const paid = Number(this.getInvoicePaidAmount(invoice.id) || 0);
+		      const cost = this.getOpportunityCost(opportunity, invoice);
+		      return Math.max(0, paid - cost);
+		    }
+
+		    return Number(opportunity.expectedRevenue || 0);
+		  }
+
+		  private getInvoiceForWonOpportunity(opportunity: Opportunity): Invoice | undefined {
+		    if (!opportunity.wonSalesOrderId) return undefined;
+		    const so = this.getSalesOrderById(opportunity.wonSalesOrderId);
+		    if (!so?.invoiceId) return undefined;
+		    return this.getInvoiceById(so.invoiceId);
+		  }
+
+		  private getOpportunityCost(opportunity: Opportunity, invoice: Invoice): number {
+		    let cost = 0;
+		    if (invoice.campaignId) {
+		      const expenses = this.db
+		        .prepare('SELECT amount FROM campaign_expenses WHERE campaignId = ?')
+		        .all(invoice.campaignId) as Array<{ amount: number }>;
+		      cost += expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+		      const vendorBills = this.db
+		        .prepare('SELECT amount FROM vendor_bills WHERE campaignId = ? AND status != ?')
+		        .all(invoice.campaignId, 'Draft') as Array<{ amount: number }>;
+		      cost += vendorBills.reduce((s, b) => s + Number(b.amount || 0), 0);
+		    }
+		    return cost;
+		  }
+
+		  /**
+		   * Find the opportunity linked to an invoice via the won-SO chain.
+		   * Used by invoice / payment hooks to trigger commission recalc.
+		   */
+		  findOpportunityIdForInvoice(invoice: Invoice): string | undefined {
+		    if (!invoice.salesOrderId) return undefined;
+		    const row = this.db
+		      .prepare('SELECT id FROM opportunities WHERE wonSalesOrderId = ? LIMIT 1')
+		      .get(invoice.salesOrderId) as { id?: string } | undefined;
+		    return row?.id;
+		  }
+
 		  calculateCommissionsForOpportunity(opportunityId: string): Commission[] {
 	    const opportunity = this.getOpportunityById(opportunityId);
-	    if (!opportunity || opportunity.stage !== 'Won') return [];
+	    // Allow recalc beyond stage=Won so that triggers from InvoiceCreated /
+	    // PaymentReceived can still adjust basis-driven amounts on opportunities
+	    // that have already been won and progressed.
+	    if (!opportunity) return [];
+	    if (opportunity.stage !== 'Won') {
+	      return [];
+	    }
 	    const ruleRow =
 	      (this.db
 	        .prepare('SELECT * FROM commission_rules WHERE companyId = ? AND serviceType = ? AND isActive = 1 LIMIT 1')
@@ -4082,7 +4299,7 @@ export class DataStore {
 	        .get(opportunity.companyId, 'Default') as any);
 	    if (!ruleRow || !opportunity.ownerUserId) return [];
 	    const rule = this.decodeCommissionRule(ruleRow);
-	    const basisAmount = Number(opportunity.expectedRevenue || 0);
+	    const basisAmount = this.computeCommissionBasisAmount(opportunity, rule.basis);
 	    const amount =
 	      rule.rateType === 'Fixed'
 	        ? Number(rule.fixedAmount || rule.rate || 0)
@@ -6530,6 +6747,16 @@ export class DataStore {
     } catch (error) {
       console.error('Failed to auto-post invoice journal', error);
     }
+    // Trigger commission recalc for any opportunity linked via the won-SO.
+    // This is the InvoiceCreated trigger: a Revenue-basis commission can now
+    // use the actual invoice total instead of the original forecast.
+    try {
+      const oppId = this.findOpportunityIdForInvoice(newInvoice);
+      if (oppId) this.calculateCommissionsForOpportunity(oppId);
+    } catch (error) {
+      console.error('Failed to recalc commissions on invoice create', error);
+    }
+
     this.createActivityEvent({
       companyId: newInvoice.companyId,
       entityType: 'invoice',
@@ -6803,6 +7030,15 @@ export class DataStore {
     this.refreshInvoicePaymentStatus(newPayment.invoiceId);
     const refreshedInvoice = this.getInvoiceById(newPayment.invoiceId);
     if (refreshedInvoice) {
+      // Trigger commission recalc for any opportunity linked via the won-SO.
+      // This is the PaymentReceived trigger: Paid-Amount and Profit basis
+      // commissions can finally produce non-zero amounts.
+      try {
+        const oppId = this.findOpportunityIdForInvoice(refreshedInvoice);
+        if (oppId) this.calculateCommissionsForOpportunity(oppId);
+      } catch (error) {
+        console.error('Failed to recalc commissions on payment', error);
+      }
       this.createActivityEvent({
         companyId: refreshedInvoice.companyId,
         entityType: 'invoice',
@@ -8796,8 +9032,91 @@ export class DataStore {
     if (options?.overdue === false) { sql += ` AND nextActionDueDate >= ?`; params.push(now); }
     sql += ` ORDER BY nextActionDueDate ASC LIMIT ?`;
     params.push(limit);
-    const rows = this.db.prepare(sql).all(...params) as any[];
-    return rows.map((r) => this.decodeActivityEvent(r));
+    const activityRows = this.db.prepare(sql).all(...params) as any[];
+    const activityFollowups = activityRows.map((r) => this.decodeActivityEvent(r));
+
+    // Also surface contact-level follow-ups (contact.nextFollowupDate). These
+    // are not stored as activity events but appear in the same list so the
+    // user has a single inbox of "things to do".
+    let contactSql = `SELECT * FROM contacts WHERE companyId = ? AND nextFollowupDate IS NOT NULL`;
+    const contactParams: any[] = [companyId];
+    if (options?.contactId) { contactSql += ` AND id = ?`; contactParams.push(options.contactId); }
+    if (options?.ownerUserId) { contactSql += ` AND ownerUserId = ?`; contactParams.push(options.ownerUserId); }
+    if (options?.overdue === true) { contactSql += ` AND nextFollowupDate < ?`; contactParams.push(now); }
+    if (options?.overdue === false) { contactSql += ` AND nextFollowupDate >= ?`; contactParams.push(now); }
+    contactSql += ` ORDER BY nextFollowupDate ASC LIMIT ?`;
+    contactParams.push(limit);
+    const contactRows = this.db.prepare(contactSql).all(...contactParams) as any[];
+
+    // Build pseudo-followup ActivityEvent rows for contact-level entries.
+    // They get a synthetic id prefixed with `contact:` so the frontend can
+    // route Mark Done / Reschedule to the contact-level endpoint.
+    const seenContactIds = new Set(activityFollowups.map((f) => f.entityId));
+    const contactFollowups: ActivityEvent[] = contactRows
+      .filter((r) => !seenContactIds.has(r.id))
+      .map((row) => ({
+        id: `contact:${row.id}`,
+        companyId: row.companyId,
+        actorUserId: row.ownerUserId ?? undefined,
+        actorName: row.ownerName ?? undefined,
+        entityType: 'contact' as const,
+        entityId: row.id,
+        action: 'followup_scheduled',
+        summary: row.nextFollowupNote || 'Follow-up scheduled',
+        category: 'Follow-up' as const,
+        nextAction: row.nextFollowupNote ?? undefined,
+        nextActionDueDate: new Date(row.nextFollowupDate),
+        createdAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
+      }));
+
+    const merged = [...activityFollowups, ...contactFollowups];
+    merged.sort((a, b) => {
+      const ad = a.nextActionDueDate ? a.nextActionDueDate.getTime() : 0;
+      const bd = b.nextActionDueDate ? b.nextActionDueDate.getTime() : 0;
+      return ad - bd;
+    });
+    return merged.slice(0, limit);
+  }
+
+  getActivityEventById(id: string): ActivityEvent | undefined {
+    const row = this.db.prepare('SELECT * FROM activity_events WHERE id = ?').get(id) as any;
+    return row ? this.decodeActivityEvent(row) : undefined;
+  }
+
+  /**
+   * Clears or reschedules the follow-up portion of an activity event.
+   * Passing nextActionDueDate=null removes the follow-up from the queue
+   * without deleting the activity log entry itself.
+   */
+  updateActivityFollowup(
+    activityId: string,
+    updates: { nextActionDueDate?: Date | null; nextAction?: string | null },
+  ): ActivityEvent | undefined {
+    const existing = this.db
+      .prepare('SELECT * FROM activity_events WHERE id = ?')
+      .get(activityId) as any;
+    if (!existing) return undefined;
+    const nextActionDueDate =
+      updates.nextActionDueDate === undefined
+        ? existing.nextActionDueDate
+        : updates.nextActionDueDate === null
+          ? null
+          : updates.nextActionDueDate.toISOString();
+    const nextAction =
+      updates.nextAction === undefined
+        ? existing.nextAction
+        : updates.nextAction === null
+          ? null
+          : updates.nextAction;
+    this.db
+      .prepare(
+        'UPDATE activity_events SET nextActionDueDate = ?, nextAction = ? WHERE id = ?',
+      )
+      .run(nextActionDueDate, nextAction, activityId);
+    const row = this.db
+      .prepare('SELECT * FROM activity_events WHERE id = ?')
+      .get(activityId) as any;
+    return row ? this.decodeActivityEvent(row) : undefined;
   }
 
   private decodeInventoryItem(row: any): InventoryItem {
@@ -9114,6 +9433,7 @@ export class DataStore {
 	      expectedCloseDate: row.expectedCloseDate ? new Date(row.expectedCloseDate) : undefined,
 	      notes: row.notes ?? undefined,
 	      wonSalesOrderId: row.wonSalesOrderId ?? undefined,
+	      closedAt: row.closedAt ? new Date(row.closedAt) : undefined,
 	      createdAt: new Date(row.createdAt),
 	      updatedAt: new Date(row.updatedAt),
 		    };

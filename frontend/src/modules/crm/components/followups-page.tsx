@@ -20,17 +20,22 @@ import { SectionPageShell } from '@/modules/operations/components/section-page-s
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import {
   getFollowups,
-  logActivity,
+  markFollowupDone,
+  rescheduleFollowup,
   type Followup,
-  type ActivityCategory,
-  activityCategories,
 } from '@/services/crmService';
-import { patchContactCrm } from '@/services/crmService';
 import { LogActivityDialog } from './log-activity-dialog';
 import {
   Phone, MessageCircle, Mail, Users, FileText, Clock, StickyNote, Zap,
-  CheckCircle2, CalendarClock, Search,
+  CheckCircle2, CalendarClock, Search, ChevronDown,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import Link from 'next/link';
 
 const CATEGORY_ICON: Record<string, React.ElementType> = {
   'Call': Phone, 'WhatsApp': MessageCircle, 'Email': Mail,
@@ -96,11 +101,32 @@ export function FollowupsPage() {
 
   const handleMarkDone = async (f: Followup) => {
     try {
-      await patchContactCrm(f.entityId, { nextFollowupDate: null, nextFollowupNote: '' });
+      await markFollowupDone(f.id);
       setFollowups(prev => prev.filter(x => x.id !== f.id));
       toast({ title: t('crm.followupDone') });
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
+    } catch (error: any) {
+      toast({
+        title: t('common.error'),
+        description: error?.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleReschedule = async (f: Followup, daysAhead: number) => {
+    const next = new Date();
+    next.setDate(next.getDate() + daysAhead);
+    next.setHours(9, 0, 0, 0);
+    try {
+      await rescheduleFollowup(f.id, next);
+      await load();
+      toast({ title: t('crm.followupRescheduled') });
+    } catch (error: any) {
+      toast({
+        title: t('common.error'),
+        description: error?.message,
+        variant: 'destructive',
+      });
     }
   };
 
@@ -190,7 +216,12 @@ export function FollowupsPage() {
               return (
                 <TableRow key={f.id} className={due && isOverdue(due) ? 'bg-red-50/30' : ''}>
                   <TableCell className="font-medium">
-                    {f.contact?.name ?? f.entityId}
+                    <Link
+                      href={`/contacts/${f.entityId}`}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {f.contact?.name ?? f.entityId}
+                    </Link>
                     {f.contact?.roles && (
                       <div className="flex gap-1 mt-0.5">
                         {f.contact.roles.slice(0, 2).map(r => (
@@ -224,6 +255,25 @@ export function FollowupsPage() {
                       >
                         <Phone className="h-3 w-3" />{t('crm.logActivity')}
                       </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs gap-1"
+                          >
+                            <CalendarClock className="h-3 w-3" />{t('crm.reschedule')}
+                            <ChevronDown className="h-3 w-3 opacity-70" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleReschedule(f, 1)}>{t('crm.tomorrow')}</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleReschedule(f, 3)}>{t('crm.inThreeDays')}</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleReschedule(f, 7)}>{t('crm.nextWeek')}</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleReschedule(f, 14)}>{t('crm.inTwoWeeks')}</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleReschedule(f, 30)}>{t('crm.nextMonth')}</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
                         size="sm"
                         variant="ghost"
