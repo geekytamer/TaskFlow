@@ -2942,6 +2942,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    }),
 		  );
 
+		  // Legacy endpoint (kept for back-compat). Delegates to the explicit
+		  // approve/pay/void endpoints below which post journal entries.
 		  app.patch(
 		    '/commissions/:id/status',
 		    authMiddleware,
@@ -2950,11 +2952,73 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!existing) throw new HttpError(404, 'Commission not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
 		      const body = asRecord(req.body, 'body');
-		      const updated = withActor(req, () =>
-		        store.updateCommissionStatus(req.params.id, enumValue(body.status, 'status', commissionStatuses)),
-		      );
+		      const target = enumValue(body.status, 'status', commissionStatuses);
+		      let updated;
+		      try {
+		        updated = withActor(req, () => {
+		          if (target === 'Approved') return store.approveCommission(req.params.id);
+		          if (target === 'Paid')     return store.payCommission(req.params.id);
+		          return store.updateCommissionStatus(req.params.id, target);
+		        });
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update commission.');
+		      }
 		      if (!updated) throw new HttpError(404, 'Commission not found.');
 		      res.json(updated);
+		    }),
+		  );
+
+		  app.post(
+		    '/commissions/:id/approve',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCommissionById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Commission not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
+		      try {
+		        const updated = withActor(req, () => store.approveCommission(req.params.id));
+		        if (!updated) throw new HttpError(404, 'Commission not found.');
+		        res.json(updated);
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not approve commission.');
+		      }
+		    }),
+		  );
+
+		  app.post(
+		    '/commissions/:id/pay',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCommissionById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Commission not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
+		      try {
+		        const updated = withActor(req, () => store.payCommission(req.params.id));
+		        if (!updated) throw new HttpError(404, 'Commission not found.');
+		        res.json(updated);
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not pay commission.');
+		      }
+		    }),
+		  );
+
+		  app.post(
+		    '/commissions/:id/void',
+		    authMiddleware,
+		    handler((req, res) => {
+		      const existing = store.getCommissionById(req.params.id);
+		      if (!existing) throw new HttpError(404, 'Commission not found.');
+		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Accountant']);
+		      const body = asRecord(req.body ?? {}, 'body');
+		      try {
+		        const updated = withActor(req, () =>
+		          store.voidCommission(req.params.id, optionalString(body.reason) || undefined),
+		        );
+		        if (!updated) throw new HttpError(404, 'Commission not found.');
+		        res.json(updated);
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not void commission.');
+		      }
 		    }),
 		  );
 

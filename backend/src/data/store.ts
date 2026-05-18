@@ -229,6 +229,7 @@ const defaultLedgerAccounts: Array<
   { code: '2000', name: 'Accounts Payable', type: 'Liability', detailType: 'Trade payables', description: 'Outstanding supplier invoices.', isActive: true, isSystem: true },
   { code: '2100', name: 'Accrued Expenses', type: 'Liability', detailType: 'Accruals', description: 'Expenses incurred but not yet invoiced.', isActive: true, isSystem: true },
   { code: '2200', name: 'Sales Tax Payable', type: 'Liability', detailType: 'Tax liability', description: 'Collected VAT and sales tax payable.', isActive: true, isSystem: true },
+  { code: '2300', name: 'Commissions Payable', type: 'Liability', detailType: 'Accrued payroll', description: 'Approved but unpaid sales commissions owed to staff.', isActive: true, isSystem: true },
   { code: '3000', name: "Owner's Capital", type: 'Equity', detailType: 'Capital', description: 'Owner invested capital.', isActive: true, isSystem: true },
   { code: '3100', name: 'Retained Earnings', type: 'Equity', detailType: 'Retained earnings', description: 'Accumulated prior-year earnings.', isActive: true, isSystem: true },
   { code: '3200', name: 'Current Year Earnings', type: 'Equity', detailType: 'Current earnings', description: 'Current period net earnings.', isActive: true, isSystem: true },
@@ -244,6 +245,7 @@ const defaultLedgerAccounts: Array<
   { code: '5600', name: 'Depreciation Expense', type: 'Expense', detailType: 'Depreciation', description: 'Periodic depreciation of fixed assets.', isActive: true, isSystem: true },
   { code: '5700', name: 'Marketing Expense', type: 'Expense', detailType: 'Marketing', description: 'Promotional and campaign spend.', isActive: true, isSystem: true },
   { code: '5800', name: 'Travel Expense', type: 'Expense', detailType: 'Travel', description: 'Business travel and related costs.', isActive: true, isSystem: true },
+  { code: '5900', name: 'Commission Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Sales commissions earned by staff (accrual basis).', isActive: true, isSystem: true },
 ];
 
 const ledgerAccountCodeBases: Record<LedgerAccountType, number> = {
@@ -5105,22 +5107,233 @@ export class DataStore {
 		    return row ? this.decodeCommission(row) : undefined;
 		  }
 
+		  /**
+		   * Legacy v1 entry point. v2 prefers approveCommission / payCommission
+		   * / voidCommission so the journal entries are posted correctly.
+		   * Kept for backwards compat with anything still calling it.
+		   */
 		  updateCommissionStatus(id: string, status: CommissionStatus): Commission | undefined {
+		    if (status === 'Approved') return this.approveCommission(id);
+		    if (status === 'Paid')     return this.payCommission(id);
+		    // Reset to Draft: only clear approval/payment metadata; don't reverse a
+		    // posted journal automatically — caller should use voidCommission.
 		    const existing = this.getCommissionById(id);
 		    if (!existing) return undefined;
-		    this.db.prepare('UPDATE commissions SET status = ? WHERE id = ?').run(status, id);
+		    this.db
+		      .prepare('UPDATE commissions SET status = ? WHERE id = ?')
+		      .run(status, id);
+		    return this.getCommissionById(id);
+		  }
+
+		  /**
+		   * Approve a Draft commission. Posts the accrual journal:
+		   *   DR Commission Expense (5900)
+		   *   CR Commissions Payable (2300)
+		   * Idempotent — re-approving a row that's already Approved is a no-op.
+		   */
+		  approveCommission(id: string): Commission | undefined {
+		    const existing = this.getCommissionById(id);
+		    if (!existing) return undefined;
+		    if (existing.status === 'Approved' || existing.status === 'Paid') {
+		      return existing;
+		    }
+		    if (existing.status === 'Voided') {
+		      throw new Error('Voided commissions cannot be re-approved.');
+		    }
+		    if (!existing.amount || existing.amount <= 0) {
+		      throw new Error('Cannot approve a commission with zero amount.');
+		    }
+
+		    const now = new Date();
+		    const actorUserId = this.currentActor?.userId ?? null;
+		    this.db
+		      .prepare(
+		        `UPDATE commissions
+		           SET status = 'Approved', approvedAt = ?, approvedByUserId = ?
+		           WHERE id = ?`,
+		      )
+		      .run(now.toISOString(), actorUserId, id);
+
+		    try {
+		      this.postCommissionAccrualJournal(existing, now);
+		    } catch (error) {
+		      console.error('Failed to post commission accrual journal', error);
+		    }
+
 		    const result = this.getCommissionById(id);
 		    if (result) {
 		      this.createActivityEvent({
 		        companyId: result.companyId,
 		        entityType: 'commission',
 		        entityId: result.id,
-		        action: 'status_changed',
-		        summary: `Commission ${result.serviceType} marked ${result.status}.`,
-		        metadata: { opportunityId: result.opportunityId, status: result.status, amount: result.amount },
+		        action: 'approved',
+		        summary: `Commission approved for ${result.userName || 'user'} — ${result.amount}.`,
+		        metadata: { amount: result.amount, sourceLabel: result.sourceLabel },
 		      });
 		    }
 		    return result;
+		  }
+
+		  /**
+		   * Mark an Approved commission as Paid. Posts the settlement journal:
+		   *   DR Commissions Payable (2300)
+		   *   CR Cash (1000)
+		   * If called on a Draft row, the accrual is posted first so the books
+		   * stay balanced.
+		   */
+		  payCommission(id: string): Commission | undefined {
+		    const existing = this.getCommissionById(id);
+		    if (!existing) return undefined;
+		    if (existing.status === 'Paid') return existing;
+		    if (existing.status === 'Voided') {
+		      throw new Error('Voided commissions cannot be paid.');
+		    }
+		    if (!existing.amount || existing.amount <= 0) {
+		      throw new Error('Cannot pay a commission with zero amount.');
+		    }
+		    // If somehow paying a Draft directly, post the accrual first.
+		    if (existing.status === 'Draft') {
+		      this.approveCommission(id);
+		    }
+		    const now = new Date();
+		    const actorUserId = this.currentActor?.userId ?? null;
+		    this.db
+		      .prepare(
+		        `UPDATE commissions
+		           SET status = 'Paid', paidAt = ?, paidByUserId = ?
+		           WHERE id = ?`,
+		      )
+		      .run(now.toISOString(), actorUserId, id);
+
+		    try {
+		      this.postCommissionPaymentJournal(existing, now);
+		    } catch (error) {
+		      console.error('Failed to post commission payment journal', error);
+		    }
+
+		    const result = this.getCommissionById(id);
+		    if (result) {
+		      this.createActivityEvent({
+		        companyId: result.companyId,
+		        entityType: 'commission',
+		        entityId: result.id,
+		        action: 'paid',
+		        summary: `Commission paid to ${result.userName || 'user'} — ${result.amount}.`,
+		        metadata: { amount: result.amount, sourceLabel: result.sourceLabel },
+		      });
+		    }
+		    return result;
+		  }
+
+		  /**
+		   * Void a commission. Posts reversing entries if any journals were
+		   * previously posted, so the ledger ends up flat. Paid commissions
+		   * reverse both the accrual and the payment.
+		   */
+		  voidCommission(id: string, reason?: string): Commission | undefined {
+		    const existing = this.getCommissionById(id);
+		    if (!existing) return undefined;
+		    if (existing.status === 'Voided') return existing;
+		    const wasApproved = existing.status === 'Approved' || existing.status === 'Paid';
+		    const wasPaid = existing.status === 'Paid';
+		    const now = new Date();
+		    this.db
+		      .prepare('UPDATE commissions SET status = ?, voidedAt = ? WHERE id = ?')
+		      .run('Voided', now.toISOString(), id);
+
+		    try {
+		      if (wasApproved) {
+		        // Reverse the accrual:  DR Payable / CR Expense
+		        const expenseAcct = this.getSystemAccountId(existing.companyId, '5900');
+		        const payableAcct = this.getSystemAccountId(existing.companyId, '2300');
+		        this.createJournalEntry({
+		          companyId: existing.companyId,
+		          sourceType: 'commission_reversal',
+		          sourceId: existing.id,
+		          memo: `Commission ${existing.sourceLabel || existing.id} reversal (accrual)${reason ? ` — ${reason}` : ''}`,
+		          entryDate: now,
+		          lines: [
+		            { id: uuid(), accountId: payableAcct, description: 'Reverse commission payable', debit: existing.amount, credit: 0 },
+		            { id: uuid(), accountId: expenseAcct, description: 'Reverse commission expense', debit: 0, credit: existing.amount },
+		          ],
+		        });
+		      }
+		      if (wasPaid) {
+		        // Reverse the payment:  DR Cash / CR Payable
+		        const cashAcct = this.getSystemAccountId(existing.companyId, '1000');
+		        const payableAcct = this.getSystemAccountId(existing.companyId, '2300');
+		        this.createJournalEntry({
+		          companyId: existing.companyId,
+		          sourceType: 'commission_reversal',
+		          sourceId: `${existing.id}:payment`,
+		          memo: `Commission ${existing.sourceLabel || existing.id} reversal (payment)${reason ? ` — ${reason}` : ''}`,
+		          entryDate: now,
+		          lines: [
+		            { id: uuid(), accountId: cashAcct, description: 'Reverse cash out', debit: existing.amount, credit: 0 },
+		            { id: uuid(), accountId: payableAcct, description: 'Reverse commission payable', debit: 0, credit: existing.amount },
+		          ],
+		        });
+		      }
+		    } catch (error) {
+		      console.error('Failed to post commission reversal journal', error);
+		    }
+
+		    const result = this.getCommissionById(id);
+		    if (result) {
+		      this.createActivityEvent({
+		        companyId: result.companyId,
+		        entityType: 'commission',
+		        entityId: result.id,
+		        action: 'voided',
+		        summary: `Commission voided for ${result.userName || 'user'} — ${result.amount}.`,
+		        metadata: { amount: result.amount, reason: reason ?? null },
+		      });
+		    }
+		    return result;
+		  }
+
+		  private postCommissionAccrualJournal(commission: Commission, entryDate: Date) {
+		    const existing = this.db
+		      .prepare(
+		        "SELECT id FROM journal_entries WHERE sourceType = 'commission_accrual' AND sourceId = ? LIMIT 1",
+		      )
+		      .get(commission.id) as { id?: string } | undefined;
+		    if (existing?.id) return;
+		    const expenseAcct = this.getSystemAccountId(commission.companyId, '5900');
+		    const payableAcct = this.getSystemAccountId(commission.companyId, '2300');
+		    this.createJournalEntry({
+		      companyId: commission.companyId,
+		      sourceType: 'commission_accrual',
+		      sourceId: commission.id,
+		      memo: `Commission accrual — ${commission.userName || 'user'} on ${commission.sourceLabel || ''}`,
+		      entryDate,
+		      lines: [
+		        { id: uuid(), accountId: expenseAcct, description: 'Commission expense', debit: commission.amount, credit: 0 },
+		        { id: uuid(), accountId: payableAcct, description: 'Commission payable', debit: 0, credit: commission.amount },
+		      ],
+		    });
+		  }
+
+		  private postCommissionPaymentJournal(commission: Commission, entryDate: Date) {
+		    const existing = this.db
+		      .prepare(
+		        "SELECT id FROM journal_entries WHERE sourceType = 'commission_payment' AND sourceId = ? LIMIT 1",
+		      )
+		      .get(commission.id) as { id?: string } | undefined;
+		    if (existing?.id) return;
+		    const cashAcct = this.getSystemAccountId(commission.companyId, '1000');
+		    const payableAcct = this.getSystemAccountId(commission.companyId, '2300');
+		    this.createJournalEntry({
+		      companyId: commission.companyId,
+		      sourceType: 'commission_payment',
+		      sourceId: commission.id,
+		      memo: `Commission payout — ${commission.userName || 'user'} on ${commission.sourceLabel || ''}`,
+		      entryDate,
+		      lines: [
+		        { id: uuid(), accountId: payableAcct, description: 'Clear commission payable', debit: commission.amount, credit: 0 },
+		        { id: uuid(), accountId: cashAcct, description: 'Cash paid out', debit: 0, credit: commission.amount },
+		      ],
+		    });
 		  }
 
 		  /**

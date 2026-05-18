@@ -459,7 +459,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment';
+  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'commission_accrual' | 'commission_payment' | 'commission_reversal';
   sourceId?: string;
   memo?: string;
   entryDate: Date;
