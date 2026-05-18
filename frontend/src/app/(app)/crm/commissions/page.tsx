@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
-import { CommissionsPage } from '@/modules/crm/components/crm-entity-pages';
+import { CommissionsPageV2 as CommissionsPage } from '@/modules/crm/components/commissions-page-v2';
 
 export default function CommissionsRoute() {
   const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant']);

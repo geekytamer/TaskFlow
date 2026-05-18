@@ -195,15 +195,51 @@ export interface CampaignExpense {
   updatedAt: Date;
 }
 
+export type ContributionRole =
+  | 'Sales'
+  | 'Account Manager'
+  | 'Project Lead'
+  | 'Contributor'
+  | 'Other';
+
+export const contributionRoles: ContributionRole[] = [
+  'Sales',
+  'Account Manager',
+  'Project Lead',
+  'Contributor',
+  'Other',
+];
+
+export type ContributionSourceType = 'opportunity' | 'project' | 'task' | 'invoice';
+
+export interface Contribution {
+  id: string;
+  companyId: string;
+  userId: string;
+  userName?: string;
+  sourceType: ContributionSourceType;
+  sourceId: string;
+  role: ContributionRole;
+  roleNote?: string;
+  weightPercent: number;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface CommissionRule {
   id: string;
   companyId: string;
-  serviceType: string;
+  userId?: string;
+  role?: ContributionRole;
+  serviceType?: string;
   basis: CommissionBasis;
   rateType: CommissionRateType;
   rate: number;
   fixedAmount?: number;
+  priority: number;
   isActive: boolean;
+  notes?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -211,15 +247,31 @@ export interface CommissionRule {
 export interface Commission {
   id: string;
   companyId: string;
-  opportunityId: string;
-  contactId: string;
+  opportunityId?: string;
+  contactId?: string;
+  userId?: string;
   userName?: string;
+  contributionId?: string;
+  sourceType?: ContributionSourceType;
+  sourceId?: string;
+  sourceLabel?: string;
+  invoiceId?: string;
+  role?: ContributionRole;
+  ruleId?: string;
   serviceType: string;
   basis: CommissionBasis;
   basisAmount: number;
+  weightPercent?: number;
+  ratePercent?: number;
+  fixedAmount?: number;
   amount: number;
-  status: CommissionStatus;
+  status: CommissionStatus | 'Voided';
   calculatedAt: Date;
+  approvedAt?: Date;
+  paidAt?: Date;
+  voidedAt?: Date;
+  approvedByUserId?: string;
+  paidByUserId?: string;
 }
 
 export interface CrmDashboardSummary {
@@ -845,19 +897,51 @@ export async function getCommissionRules(companyId: string): Promise<CommissionR
   return data.map(decodeCommissionRule);
 }
 
-export async function createCommissionRule(companyId: string, input: {
-  serviceType: string;
+export interface CommissionRuleInput {
+  userId?: string;
+  role?: ContributionRole;
+  serviceType?: string;
   basis: CommissionBasis;
   rateType: CommissionRateType;
   rate: number;
   fixedAmount?: number;
+  priority?: number;
   isActive?: boolean;
-}): Promise<CommissionRule> {
+  notes?: string;
+}
+
+export async function createCommissionRule(
+  companyId: string,
+  input: CommissionRuleInput,
+): Promise<CommissionRule> {
   const data = await apiFetch<any>(`/companies/${companyId}/commission-rules`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
   return decodeCommissionRule(data);
+}
+
+export async function updateCommissionRule(
+  id: string,
+  input: Partial<CommissionRuleInput>,
+): Promise<CommissionRule> {
+  const data = await apiFetch<any>(`/commission-rules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  return decodeCommissionRule(data);
+}
+
+export async function deleteCommissionRule(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/commission-rules/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function recomputeCommissions(companyId: string): Promise<{ recomputed: number }> {
+  return apiFetch<{ recomputed: number }>(`/companies/${companyId}/commissions/recompute`, {
+    method: 'POST',
+  });
 }
 
 export async function getCommissions(companyId: string): Promise<Commission[]> {
@@ -871,6 +955,71 @@ export async function updateCommissionStatus(id: string, status: CommissionStatu
     body: JSON.stringify({ status }),
   });
   return decodeCommission(data);
+}
+
+export async function approveCommission(id: string): Promise<Commission> {
+  const data = await apiFetch<any>(`/commissions/${id}/approve`, { method: 'POST' });
+  return decodeCommission(data);
+}
+
+export async function payCommission(id: string): Promise<Commission> {
+  const data = await apiFetch<any>(`/commissions/${id}/pay`, { method: 'POST' });
+  return decodeCommission(data);
+}
+
+export async function voidCommission(id: string, reason?: string): Promise<Commission> {
+  const data = await apiFetch<any>(`/commissions/${id}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+  return decodeCommission(data);
+}
+
+// ─── Contributions ──────────────────────────────────────────────────────────
+
+const decodeContribution = (raw: any): Contribution => ({
+  ...raw,
+  createdAt: new Date(raw.createdAt),
+  updatedAt: new Date(raw.updatedAt),
+});
+
+export async function getContributions(
+  companyId: string,
+  options: { sourceType?: ContributionSourceType; sourceId?: string; userId?: string } = {},
+): Promise<Contribution[]> {
+  const params = new URLSearchParams();
+  if (options.sourceType) params.set('sourceType', options.sourceType);
+  if (options.sourceId) params.set('sourceId', options.sourceId);
+  if (options.userId) params.set('userId', options.userId);
+  const qs = params.toString();
+  const data = await apiFetch<any[]>(
+    `/companies/${companyId}/contributions${qs ? `?${qs}` : ''}`,
+  );
+  return data.map(decodeContribution);
+}
+
+export async function setContribution(
+  companyId: string,
+  input: {
+    userId: string;
+    userName?: string;
+    sourceType: ContributionSourceType;
+    sourceId: string;
+    role: ContributionRole;
+    roleNote?: string;
+    weightPercent: number;
+    notes?: string;
+  },
+): Promise<Contribution> {
+  const data = await apiFetch<any>(`/companies/${companyId}/contributions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return decodeContribution(data);
+}
+
+export async function deleteContribution(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/contributions/${id}`, { method: 'DELETE' });
 }
 
 export interface EmployeePerformance {

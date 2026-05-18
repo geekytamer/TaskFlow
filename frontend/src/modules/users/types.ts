@@ -6,6 +6,8 @@ export interface CompanyRoleAssignment {
   positionId?: string;
 }
 
+export type CommissionBasis = 'Revenue' | 'Paid Amount' | 'Profit';
+
 export interface User {
   id: string;
   name: string;
@@ -15,4 +17,9 @@ export interface User {
   positionId?: string; // legacy
   companyRoles?: CompanyRoleAssignment[];
   avatar: string;
+  // Commission profile
+  commissionEligible?: boolean;
+  defaultCommissionRate?: number;
+  defaultCommissionBasis?: CommissionBasis;
+  costRatePerHour?: number;
 }
