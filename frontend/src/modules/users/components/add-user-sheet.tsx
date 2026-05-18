@@ -37,7 +37,10 @@ import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
 import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
-import { Building } from 'lucide-react';
+import { Building, BadgeDollarSign } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import type { CommissionBasis } from '@/modules/users/types';
 import { isApiError } from '@/lib/api-client';
 
 const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
@@ -73,6 +76,13 @@ export function AddUserSheet({
   const [companyAssignments, setCompanyAssignments] = React.useState<
     Record<string, { role: UserRole; positionId?: string }>
   >({});
+  // Commission profile (set at creation time by managers)
+  const [commission, setCommission] = React.useState<{
+    eligible: boolean;
+    rate: string;
+    basis: CommissionBasis;
+    costRatePerHour: string;
+  }>({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
   const isEditMode = !!userToEdit;
 
   const form = useForm<AddUserFormValues>({
@@ -169,6 +179,12 @@ export function AddUserSheet({
         companyIds: userToEdit.companyIds,
       });
       setCompanyAssignments(existingAssignments);
+      setCommission({
+        eligible: Boolean(userToEdit.commissionEligible),
+        rate: userToEdit.defaultCommissionRate != null ? String(userToEdit.defaultCommissionRate) : '',
+        basis: userToEdit.defaultCommissionBasis || 'Revenue',
+        costRatePerHour: userToEdit.costRatePerHour != null ? String(userToEdit.costRatePerHour) : '',
+      });
     } else {
       form.reset({
         name: '',
@@ -181,6 +197,7 @@ export function AddUserSheet({
               : [],
       });
       setCompanyAssignments({});
+      setCommission({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
     }
   }, [companyItems, form, selectedCompany, userToEdit]);
 
@@ -199,12 +216,22 @@ export function AddUserSheet({
         positionId: companyAssignments[cid]?.positionId || undefined,
       }));
 
+      const commissionPayload = {
+        commissionEligible: commission.eligible,
+        defaultCommissionRate:
+          commission.rate.trim() === '' ? undefined : Number(commission.rate),
+        defaultCommissionBasis: commission.eligible ? commission.basis : undefined,
+        costRatePerHour:
+          commission.costRatePerHour.trim() === '' ? undefined : Number(commission.costRatePerHour),
+      };
+
       if (isEditMode && userToEdit) {
         await updateUser(userToEdit.id, {
           ...data,
           companyRoles,
           role: companyRoles[0]?.role || 'Employee',
           positionId: undefined,
+          ...commissionPayload,
         });
         toast({
           title: 'User Updated',
@@ -217,7 +244,8 @@ export function AddUserSheet({
           role: companyRoles[0]?.role || 'Employee',
           positionId: undefined,
           avatar: `https://i.pravatar.cc/150?u=${data.email}`,
-        });
+          ...commissionPayload,
+        } as any);
         toast({
           title: 'User Created',
           description: `User "${data.name}" has been created. Temporary password: ${result.password}`,
@@ -366,6 +394,61 @@ export function AddUserSheet({
                 })}
               </div>
             )}
+            <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <BadgeDollarSign className="h-4 w-4 text-emerald-600" />
+                <h4 className="text-sm font-semibold">Commission profile</h4>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Set whether this user is eligible for commissions and what default rate applies when no specific rule matches.
+              </p>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={commission.eligible}
+                  onCheckedChange={(v) => setCommission((c) => ({ ...c, eligible: v }))}
+                />
+                <Label className="cursor-pointer" onClick={() => setCommission((c) => ({ ...c, eligible: !c.eligible }))}>
+                  Eligible for commissions
+                </Label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Default rate (%)</Label>
+                  <Input
+                    type="number" step="0.1" min="0" max="100"
+                    placeholder="e.g. 5"
+                    value={commission.rate}
+                    onChange={(e) => setCommission((c) => ({ ...c, rate: e.target.value }))}
+                    disabled={!commission.eligible}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Default basis</Label>
+                  <Select
+                    value={commission.basis}
+                    onValueChange={(v) => setCommission((c) => ({ ...c, basis: v as CommissionBasis }))}
+                    disabled={!commission.eligible}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Revenue">Revenue</SelectItem>
+                      <SelectItem value="Paid Amount">Paid Amount</SelectItem>
+                      <SelectItem value="Profit">Profit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Cost rate per hour (optional, for Profit basis)</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  placeholder="e.g. 50"
+                  value={commission.costRatePerHour}
+                  onChange={(e) => setCommission((c) => ({ ...c, costRatePerHour: e.target.value }))}
+                />
+              </div>
+            </div>
+
             <SheetFooter className="pt-6">
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                     Cancel
