@@ -692,6 +692,10 @@ export function createServer(options: CreateServerOptions = {}) {
     positionId?: string;
     avatar?: string;
     password: string;
+    commissionEligible?: boolean;
+    defaultCommissionRate?: number;
+    defaultCommissionBasis?: import('./types').CommissionBasis;
+    costRatePerHour?: number;
   }> => {
     const record = asRecord(body, 'body');
     const partial = Boolean(options.partial);
@@ -715,6 +719,22 @@ export function createServer(options: CreateServerOptions = {}) {
           : partial
             ? undefined
             : defaultPassword(),
+      commissionEligible:
+        record.commissionEligible !== undefined
+          ? Boolean(record.commissionEligible)
+          : undefined,
+      defaultCommissionRate:
+        record.defaultCommissionRate !== undefined
+          ? optionalNumber(record.defaultCommissionRate) ?? undefined
+          : undefined,
+      defaultCommissionBasis:
+        record.defaultCommissionBasis !== undefined
+          ? (enumValue(record.defaultCommissionBasis, 'defaultCommissionBasis', commissionBases) as import('./types').CommissionBasis)
+          : undefined,
+      costRatePerHour:
+        record.costRatePerHour !== undefined
+          ? optionalNumber(record.costRatePerHour) ?? undefined
+          : undefined,
     };
 
     if (!partial) {
@@ -1202,6 +1222,10 @@ export function createServer(options: CreateServerOptions = {}) {
         role: payload.role || payload.companyRoles![0].role,
         positionId: payload.positionId,
         avatar: payload.avatar || `https://i.pravatar.cc/150?u=${payload.email!}`,
+        commissionEligible: payload.commissionEligible,
+        defaultCommissionRate: payload.defaultCommissionRate,
+        defaultCommissionBasis: payload.defaultCommissionBasis,
+        costRatePerHour: payload.costRatePerHour,
       });
       sendWelcomeEmail({
         to: user.email,
@@ -2717,6 +2741,76 @@ export function createServer(options: CreateServerOptions = {}) {
 	      }
 	      if (!store.deleteVendorRequest(req.params.id)) throw new HttpError(404, 'Vendor request not found.');
 	      res.status(204).end();
+	    }),
+	  );
+
+	  // ─── Contributions (commission attribution) ──────────────────────────────
+
+	  // List contributions for a single source (e.g. opportunity, project, task, invoice).
+	  // sourceType + sourceId are required so a manager can audit/edit who shares
+	  // the commission on that specific entity.
+	  app.get(
+	    '/companies/:companyId/contributions',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const sourceType = optionalString(req.query.sourceType) as
+	        | import('./types').ContributionSourceType
+	        | undefined;
+	      const sourceId = optionalString(req.query.sourceId);
+	      const userId = optionalString(req.query.userId);
+	      res.json(store.listContributions(req.params.companyId, { sourceType, sourceId, userId }));
+	    }),
+	  );
+
+	  // Add or update a contributor on a source.
+	  app.post(
+	    '/companies/:companyId/contributions',
+	    authMiddleware,
+	    handler((req, res) => {
+	      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+	      const body = asRecord(req.body, 'body');
+	      const sourceTypeValue = enumValue(body.sourceType, 'sourceType', [
+	        'opportunity',
+	        'project',
+	        'task',
+	        'invoice',
+	      ] as const);
+	      const roleValue = enumValue(body.role, 'role', [
+	        'Sales',
+	        'Account Manager',
+	        'Project Lead',
+	        'Contributor',
+	        'Other',
+	      ] as const);
+	      try {
+	        const created = store.setContribution({
+	          companyId: req.params.companyId,
+	          userId: requiredString(body.userId, 'userId'),
+	          userName: optionalString(body.userName) || undefined,
+	          sourceType: sourceTypeValue,
+	          sourceId: requiredString(body.sourceId, 'sourceId'),
+	          role: roleValue,
+	          roleNote: optionalString(body.roleNote) || undefined,
+	          weightPercent: optionalNumber(body.weightPercent) ?? 100,
+	          notes: optionalString(body.notes) || undefined,
+	        });
+	        res.status(201).json(created);
+	      } catch (error) {
+	        throw new HttpError(400, error instanceof Error ? error.message : 'Could not save contribution.');
+	      }
+	    }),
+	  );
+
+	  app.delete(
+	    '/contributions/:id',
+	    authMiddleware,
+	    handler((req, res) => {
+	      const existing = store.getContributionById(req.params.id);
+	      if (!existing) throw new HttpError(404, 'Contribution not found.');
+	      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+	      const removed = store.deleteContribution(req.params.id);
+	      res.json({ success: removed });
 	    }),
 	  );
 

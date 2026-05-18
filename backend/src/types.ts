@@ -58,6 +58,43 @@ export interface User {
   companyRoles?: CompanyRoleAssignment[];
   avatar: string;
   password: string;
+  // Commission profile (configured at user creation / by manager)
+  commissionEligible?: boolean;
+  defaultCommissionRate?: number;            // percentage 0–100
+  defaultCommissionBasis?: CommissionBasis;
+  costRatePerHour?: number;                  // for Profit-basis math
+}
+
+export type ContributionRole =
+  | 'Sales'
+  | 'Account Manager'
+  | 'Project Lead'
+  | 'Contributor'
+  | 'Other';
+
+export const contributionRoles: ContributionRole[] = [
+  'Sales',
+  'Account Manager',
+  'Project Lead',
+  'Contributor',
+  'Other',
+];
+
+export type ContributionSourceType = 'opportunity' | 'project' | 'task' | 'invoice';
+
+export interface Contribution {
+  id: string;
+  companyId: string;
+  userId: string;
+  userName?: string;
+  sourceType: ContributionSourceType;
+  sourceId: string;
+  role: ContributionRole;
+  roleNote?: string;
+  weightPercent: number;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export type TaskStatus = 'To Do' | 'In Progress' | 'Done';

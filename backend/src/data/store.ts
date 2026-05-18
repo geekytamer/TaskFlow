@@ -61,6 +61,10 @@ import {
   WhatsAppMessageType,
   WhatsAppChatSettings,
   WhatsAppChatVisibility,
+  Contribution,
+  ContributionRole,
+  ContributionSourceType,
+  contributionRoles,
   Invoice,
   InvoiceTemplate,
   InvoiceTemplateLayout,
@@ -706,6 +710,21 @@ export class DataStore {
         readAt TEXT,
         receivedAt TEXT,
         createdAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS contributions (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        userName TEXT,
+        sourceType TEXT NOT NULL,
+        sourceId TEXT NOT NULL,
+        role TEXT NOT NULL,
+        roleNote TEXT,
+        weightPercent REAL NOT NULL DEFAULT 100,
+        notes TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        UNIQUE(companyId, sourceType, sourceId, userId, role)
       );
       CREATE TABLE IF NOT EXISTS whatsapp_chat_settings (
         companyId TEXT NOT NULL,
@@ -1835,6 +1854,102 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '034_commissions_v2_foundation',
+        run: () => {
+          // 1. Per-user commission profile fields
+          const userCols = (this.db.prepare(`PRAGMA table_info(users)`).all() as any[]).map((c) => c.name);
+          if (!userCols.includes('commissionEligible')) {
+            this.db.exec(`ALTER TABLE users ADD COLUMN commissionEligible INTEGER NOT NULL DEFAULT 0;`);
+          }
+          if (!userCols.includes('defaultCommissionRate')) {
+            this.db.exec(`ALTER TABLE users ADD COLUMN defaultCommissionRate REAL;`);
+          }
+          if (!userCols.includes('defaultCommissionBasis')) {
+            this.db.exec(`ALTER TABLE users ADD COLUMN defaultCommissionBasis TEXT;`);
+          }
+          if (!userCols.includes('costRatePerHour')) {
+            this.db.exec(`ALTER TABLE users ADD COLUMN costRatePerHour REAL;`);
+          }
+
+          // 2. Contributions table — source-agnostic revenue attribution
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS contributions (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              userName TEXT,
+              sourceType TEXT NOT NULL,
+              sourceId TEXT NOT NULL,
+              role TEXT NOT NULL,
+              roleNote TEXT,
+              weightPercent REAL NOT NULL DEFAULT 100,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              UNIQUE(companyId, sourceType, sourceId, userId, role)
+            );
+            CREATE INDEX IF NOT EXISTS idx_contributions_company_source
+              ON contributions(companyId, sourceType, sourceId);
+            CREATE INDEX IF NOT EXISTS idx_contributions_company_user
+              ON contributions(companyId, userId);
+          `);
+
+          // 3. Backfill: every existing opportunity with an ownerUserId gets a
+          // Sales contribution at 100% so legacy commissions resolve cleanly.
+          const opps = this.db
+            .prepare(`SELECT id, companyId, ownerUserId, ownerName FROM opportunities WHERE ownerUserId IS NOT NULL`)
+            .all() as Array<{ id: string; companyId: string; ownerUserId: string; ownerName: string | null }>;
+          const nowIso = new Date().toISOString();
+          const insertContribution = this.db.prepare(
+            `INSERT OR IGNORE INTO contributions
+               (id, companyId, userId, userName, sourceType, sourceId, role, weightPercent, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, 'opportunity', ?, 'Sales', 100, ?, ?)`,
+          );
+          opps.forEach((opp) => {
+            insertContribution.run(
+              uuid(),
+              opp.companyId,
+              opp.ownerUserId,
+              opp.ownerName ?? null,
+              opp.id,
+              nowIso,
+              nowIso,
+            );
+          });
+
+          // 4. Also backfill projects: clientId-less projects with a memberIds[0]
+          // become Project Lead contributors. Skip if memberIds JSON is empty.
+          const projects = this.db
+            .prepare(`SELECT id, companyId, memberIds FROM projects`)
+            .all() as Array<{ id: string; companyId: string; memberIds: string | null }>;
+          projects.forEach((project) => {
+            try {
+              const members = project.memberIds ? JSON.parse(project.memberIds) : [];
+              if (Array.isArray(members) && members.length > 0 && members[0]) {
+                insertContribution.run(
+                  uuid(),
+                  project.companyId,
+                  members[0],
+                  null,
+                  project.id,
+                  nowIso,
+                  nowIso,
+                );
+                // Adjust to 'Project Lead' role for project contributions
+                this.db
+                  .prepare(
+                    `UPDATE contributions SET role = 'Project Lead'
+                       WHERE companyId = ? AND sourceType = 'project' AND sourceId = ? AND userId = ?`,
+                  )
+                  .run(project.companyId, project.id, members[0]);
+              }
+            } catch {
+              /* skip malformed memberIds */
+            }
+          });
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -2000,6 +2115,7 @@ export class DataStore {
         DELETE FROM ledger_accounts;
         DELETE FROM payments;
         DELETE FROM invoices;
+        DELETE FROM contributions;
         DELETE FROM whatsapp_chat_settings;
         DELETE FROM whatsapp_messages;
         DELETE FROM whatsapp_instances;
@@ -2276,6 +2392,16 @@ export class DataStore {
       positionId: row.positionId || undefined,
       companyRoles,
       avatar: row.avatar || `https://i.pravatar.cc/150?u=${row.email}`,
+      commissionEligible: Boolean(row.commissionEligible),
+      defaultCommissionRate:
+        row.defaultCommissionRate === null || row.defaultCommissionRate === undefined
+          ? undefined
+          : Number(row.defaultCommissionRate),
+      defaultCommissionBasis: row.defaultCommissionBasis ?? undefined,
+      costRatePerHour:
+        row.costRatePerHour === null || row.costRatePerHour === undefined
+          ? undefined
+          : Number(row.costRatePerHour),
     };
   }
 
@@ -2384,7 +2510,7 @@ export class DataStore {
         };
         this.db
           .prepare(
-            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password WHERE id=@id',
+            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
           )
           .run({
             ...updatedUser,
@@ -2392,6 +2518,10 @@ export class DataStore {
             positionId: updatedUser.positionId ?? null,
             companyRoles: JSON.stringify(updatedUser.companyRoles || []),
             avatar: updatedUser.avatar || `https://i.pravatar.cc/150?u=${updatedUser.email}`,
+            commissionEligible: updatedUser.commissionEligible ? 1 : 0,
+            defaultCommissionRate: updatedUser.defaultCommissionRate ?? null,
+            defaultCommissionBasis: updatedUser.defaultCommissionBasis ?? null,
+            costRatePerHour: updatedUser.costRatePerHour ?? null,
           });
         const persisted = this.getUserById(updatedUser.id);
         if (!persisted) {
@@ -2415,7 +2545,7 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password)',
+        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password, commissionEligible, defaultCommissionRate, defaultCommissionBasis, costRatePerHour) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password, @commissionEligible, @defaultCommissionRate, @defaultCommissionBasis, @costRatePerHour)',
       )
       .run({
         ...newUser,
@@ -2423,6 +2553,10 @@ export class DataStore {
         positionId: newUser.positionId ?? null,
         companyRoles: JSON.stringify(newUser.companyRoles || []),
         avatar: newUser.avatar || `https://i.pravatar.cc/150?u=${newUser.email}`,
+        commissionEligible: newUser.commissionEligible ? 1 : 0,
+        defaultCommissionRate: newUser.defaultCommissionRate ?? null,
+        defaultCommissionBasis: newUser.defaultCommissionBasis ?? null,
+        costRatePerHour: newUser.costRatePerHour ?? null,
       });
     const persisted = this.getUserById(newUser.id);
     if (!persisted) {
@@ -2460,10 +2594,26 @@ export class DataStore {
       companyRoles: JSON.stringify(nextCompanyRoles),
       avatar: updates.avatar ?? existing.avatar ?? `https://i.pravatar.cc/150?u=${existing.email}`,
       password: updates.password ?? existing.password,
+      commissionEligible:
+        updates.commissionEligible !== undefined
+          ? (updates.commissionEligible ? 1 : 0)
+          : existing.commissionEligible ?? 0,
+      defaultCommissionRate:
+        updates.defaultCommissionRate !== undefined
+          ? updates.defaultCommissionRate
+          : existing.defaultCommissionRate ?? null,
+      defaultCommissionBasis:
+        updates.defaultCommissionBasis !== undefined
+          ? updates.defaultCommissionBasis
+          : existing.defaultCommissionBasis ?? null,
+      costRatePerHour:
+        updates.costRatePerHour !== undefined
+          ? updates.costRatePerHour
+          : existing.costRatePerHour ?? null,
     };
     this.db
       .prepare(
-        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password WHERE id=@id',
+        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
       )
       .run(updated);
     return this.getUserById(userId);
@@ -2511,6 +2661,20 @@ export class DataStore {
         memberIds: JSON.stringify(newProject.memberIds || []),
         clientId: newProject.clientId,
       });
+    // Auto-seed Project Lead contributor (first member by convention).
+    if (newProject.memberIds && newProject.memberIds.length > 0) {
+      try {
+        this.seedDefaultContributors({
+          companyId: newProject.companyId,
+          sourceType: 'project',
+          sourceId: newProject.id,
+          userIds: [newProject.memberIds[0]],
+          role: 'Project Lead',
+        });
+      } catch (error) {
+        console.error('Failed to seed Project Lead contributor', error);
+      }
+    }
     this.createActivityEvent({
       companyId: newProject.companyId,
       entityType: 'project',
@@ -2651,6 +2815,20 @@ export class DataStore {
         invoiceDate: newTask.invoiceDate ? new Date(newTask.invoiceDate).toISOString() : null,
         generatedInvoiceId: newTask.generatedInvoiceId ?? null,
       });
+    // Auto-seed Contributor rows for each assignee (split evenly).
+    if (newTask.assignedUserIds && newTask.assignedUserIds.length > 0) {
+      try {
+        this.seedDefaultContributors({
+          companyId: newTask.companyId,
+          sourceType: 'task',
+          sourceId: newTask.id,
+          userIds: newTask.assignedUserIds,
+          role: 'Contributor',
+        });
+      } catch (error) {
+        console.error('Failed to seed task contributors', error);
+      }
+    }
     this.createActivityEvent({
       companyId: newTask.companyId,
       entityType: 'task',
@@ -3263,6 +3441,20 @@ export class DataStore {
 	        updatedAt: opportunity.updatedAt.toISOString(),
 	      });
 	    this.addContactRole(input.contactId, input.companyId, 'Lead', 'Manual');
+	    // Auto-seed Sales contributor for commission attribution.
+	    if (opportunity.ownerUserId) {
+	      try {
+	        this.seedDefaultContributors({
+	          companyId: opportunity.companyId,
+	          sourceType: 'opportunity',
+	          sourceId: opportunity.id,
+	          userIds: [opportunity.ownerUserId],
+	          role: 'Sales',
+	        });
+	      } catch (error) {
+	        console.error('Failed to seed Sales contributor on opportunity', error);
+	      }
+	    }
 	    this.createActivityEvent({
 	      companyId: opportunity.companyId,
 	      entityType: 'opportunity',
@@ -4221,6 +4413,204 @@ export class DataStore {
 	      metadata: { status: result.status, contactId: result.contactId },
 	    });
 	    return result;
+	  }
+
+	  // ─────────────────────────────────────────────────────────────────────
+	  // Contributions — source-agnostic revenue attribution. Every commission
+	  // is grounded in a contribution row. See Commissions v2 plan.
+	  // ─────────────────────────────────────────────────────────────────────
+
+	  private decodeContribution(row: any): Contribution {
+	    return {
+	      id: row.id,
+	      companyId: row.companyId,
+	      userId: row.userId,
+	      userName: row.userName ?? undefined,
+	      sourceType: row.sourceType as ContributionSourceType,
+	      sourceId: row.sourceId,
+	      role: row.role as ContributionRole,
+	      roleNote: row.roleNote ?? undefined,
+	      weightPercent: Number(row.weightPercent) || 0,
+	      notes: row.notes ?? undefined,
+	      createdAt: new Date(row.createdAt),
+	      updatedAt: new Date(row.updatedAt),
+	    };
+	  }
+
+	  listContributions(
+	    companyId: string,
+	    options: { sourceType?: ContributionSourceType; sourceId?: string; userId?: string } = {},
+	  ): Contribution[] {
+	    const conditions: string[] = ['companyId = ?'];
+	    const params: any[] = [companyId];
+	    if (options.sourceType) { conditions.push('sourceType = ?'); params.push(options.sourceType); }
+	    if (options.sourceId) { conditions.push('sourceId = ?'); params.push(options.sourceId); }
+	    if (options.userId) { conditions.push('userId = ?'); params.push(options.userId); }
+	    const rows = this.db
+	      .prepare(`SELECT * FROM contributions WHERE ${conditions.join(' AND ')} ORDER BY createdAt ASC`)
+	      .all(...params) as any[];
+	    return rows.map((r) => this.decodeContribution(r));
+	  }
+
+	  private getContributionsSumWeight(
+	    companyId: string,
+	    sourceType: ContributionSourceType,
+	    sourceId: string,
+	    excludeId?: string,
+	  ): number {
+	    const sql = excludeId
+	      ? `SELECT COALESCE(SUM(weightPercent), 0) AS total FROM contributions
+	           WHERE companyId = ? AND sourceType = ? AND sourceId = ? AND id != ?`
+	      : `SELECT COALESCE(SUM(weightPercent), 0) AS total FROM contributions
+	           WHERE companyId = ? AND sourceType = ? AND sourceId = ?`;
+	    const row = excludeId
+	      ? this.db.prepare(sql).get(companyId, sourceType, sourceId, excludeId)
+	      : this.db.prepare(sql).get(companyId, sourceType, sourceId);
+	    return Number((row as { total?: number } | undefined)?.total) || 0;
+	  }
+
+	  /**
+	   * Adds a contributor to a source. Enforces Σweights ≤ 100 per source
+	   * (decision #1 in the v2 plan). If a contribution already exists for the
+	   * same (user, role) on this source, its weight is updated instead.
+	   */
+	  setContribution(input: {
+	    companyId: string;
+	    userId: string;
+	    userName?: string;
+	    sourceType: ContributionSourceType;
+	    sourceId: string;
+	    role: ContributionRole;
+	    roleNote?: string;
+	    weightPercent: number;
+	    notes?: string;
+	  }): Contribution {
+	    if (!contributionRoles.includes(input.role)) {
+	      throw new Error(`Unknown contribution role: ${input.role}`);
+	    }
+	    const weight = Math.max(0, Math.min(100, Number(input.weightPercent) || 0));
+	    // Look for an existing row on the same (source, user, role) tuple.
+	    const existing = this.db
+	      .prepare(
+	        `SELECT * FROM contributions
+	           WHERE companyId = ? AND sourceType = ? AND sourceId = ? AND userId = ? AND role = ?`,
+	      )
+	      .get(
+	        input.companyId,
+	        input.sourceType,
+	        input.sourceId,
+	        input.userId,
+	        input.role,
+	      ) as any;
+
+	    const otherWeights = this.getContributionsSumWeight(
+	      input.companyId,
+	      input.sourceType,
+	      input.sourceId,
+	      existing?.id,
+	    );
+	    if (otherWeights + weight > 100.0001) {
+	      throw new Error(
+	        `Contribution weights would exceed 100% on ${input.sourceType} ${input.sourceId} ` +
+	        `(other contributors total ${otherWeights}%, adding ${weight}%).`,
+	      );
+	    }
+
+	    const now = new Date().toISOString();
+	    if (existing) {
+	      this.db
+	        .prepare(
+	          `UPDATE contributions
+	             SET userName = ?, weightPercent = ?, roleNote = ?, notes = ?, updatedAt = ?
+	             WHERE id = ?`,
+	        )
+	        .run(
+	          input.userName ?? existing.userName ?? null,
+	          weight,
+	          input.roleNote ?? null,
+	          input.notes ?? null,
+	          now,
+	          existing.id,
+	        );
+	      const row = this.db
+	        .prepare('SELECT * FROM contributions WHERE id = ?')
+	        .get(existing.id) as any;
+	      return this.decodeContribution(row);
+	    }
+
+	    const id = uuid();
+	    this.db
+	      .prepare(
+	        `INSERT INTO contributions
+	           (id, companyId, userId, userName, sourceType, sourceId, role, roleNote, weightPercent, notes, createdAt, updatedAt)
+	         VALUES
+	           (@id, @companyId, @userId, @userName, @sourceType, @sourceId, @role, @roleNote, @weightPercent, @notes, @now, @now)`,
+	      )
+	      .run({
+	        id,
+	        companyId: input.companyId,
+	        userId: input.userId,
+	        userName: input.userName ?? null,
+	        sourceType: input.sourceType,
+	        sourceId: input.sourceId,
+	        role: input.role,
+	        roleNote: input.roleNote ?? null,
+	        weightPercent: weight,
+	        notes: input.notes ?? null,
+	        now,
+	      });
+	    const row = this.db.prepare('SELECT * FROM contributions WHERE id = ?').get(id) as any;
+	    return this.decodeContribution(row);
+	  }
+
+	  getContributionById(id: string): Contribution | undefined {
+	    const row = this.db.prepare('SELECT * FROM contributions WHERE id = ?').get(id) as any;
+	    return row ? this.decodeContribution(row) : undefined;
+	  }
+
+	  deleteContribution(id: string): boolean {
+	    const result = this.db.prepare('DELETE FROM contributions WHERE id = ?').run(id);
+	    return result.changes > 0;
+	  }
+
+	  /**
+	   * Auto-seed default contributors for a newly-created source entity.
+	   * - Opportunity: ownerUserId as 'Sales' 100%
+	   * - Project:     first member as 'Project Lead' 100%
+	   * - Task:        assignees split evenly as 'Contributor'
+	   *
+	   * Idempotent — won't add a row that already exists for the same tuple.
+	   */
+	  seedDefaultContributors(input: {
+	    companyId: string;
+	    sourceType: ContributionSourceType;
+	    sourceId: string;
+	    userIds: string[];
+	    role: ContributionRole;
+	  }): void {
+	    const users = input.userIds.filter(Boolean);
+	    if (!users.length) return;
+	    const weight = Math.round((100 / users.length) * 100) / 100; // 33.33 etc.
+	    users.forEach((userId, idx) => {
+	      // Last contributor absorbs the rounding remainder so Σ = 100.00
+	      const w = idx === users.length - 1 ? Number((100 - weight * (users.length - 1)).toFixed(2)) : weight;
+	      try {
+	        const userRow = this.db
+	          .prepare('SELECT name FROM users WHERE id = ?')
+	          .get(userId) as { name?: string } | undefined;
+	        this.setContribution({
+	          companyId: input.companyId,
+	          userId,
+	          userName: userRow?.name,
+	          sourceType: input.sourceType,
+	          sourceId: input.sourceId,
+	          role: input.role,
+	          weightPercent: w,
+	        });
+	      } catch (error) {
+	        console.error('Failed to seed default contributor', error);
+	      }
+	    });
 	  }
 
 	  listCommissionRules(companyId: string): CommissionRule[] {
