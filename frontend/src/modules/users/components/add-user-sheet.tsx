@@ -42,6 +42,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import type { CommissionBasis } from '@/modules/users/types';
 import { isApiError } from '@/lib/api-client';
+import { useI18n } from '@/context/i18n-context';
 
 const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
@@ -71,6 +72,7 @@ export function AddUserSheet({
   currentUserRole,
 }: AddUserSheetProps) {
   const { toast } = useToast();
+  const { t } = useI18n();
   const { companies, currentUser, selectedCompany } = useCompany();
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [companyAssignments, setCompanyAssignments] = React.useState<
@@ -262,10 +264,10 @@ export function AddUserSheet({
     }
   };
   
-  const sheetTitle = isEditMode ? 'Edit User' : 'Add New User';
+  const sheetTitle = isEditMode ? t('userForm.sheetTitleEdit') : t('userForm.sheetTitleAdd');
   const sheetDescription = isEditMode
-    ? "Update the user's details below."
-    : "Fill in the details for the new user. A temporary password will be generated for them.";
+    ? t('userForm.descriptionEdit')
+    : t('userForm.descriptionAdd');
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -397,10 +399,10 @@ export function AddUserSheet({
             <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
               <div className="flex items-center gap-2">
                 <BadgeDollarSign className="h-4 w-4 text-emerald-600" />
-                <h4 className="text-sm font-semibold">Commission profile</h4>
+                <h4 className="text-sm font-semibold">{t('userForm.commissionTitle')}</h4>
               </div>
               <p className="text-xs text-muted-foreground">
-                Set whether this user is eligible for commissions and what default rate applies when no specific rule matches.
+                {t('userForm.commissionDescription')}
               </p>
               <div className="flex items-center gap-2">
                 <Switch
@@ -408,22 +410,22 @@ export function AddUserSheet({
                   onCheckedChange={(v) => setCommission((c) => ({ ...c, eligible: v }))}
                 />
                 <Label className="cursor-pointer" onClick={() => setCommission((c) => ({ ...c, eligible: !c.eligible }))}>
-                  Eligible for commissions
+                  {t('userForm.eligible')}
                 </Label>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Default rate (%)</Label>
+                  <Label className="text-xs">{t('userForm.defaultRateLabel')}</Label>
                   <Input
                     type="number" step="0.1" min="0" max="100"
-                    placeholder="e.g. 5"
+                    placeholder={t('userForm.defaultRatePlaceholder')}
                     value={commission.rate}
                     onChange={(e) => setCommission((c) => ({ ...c, rate: e.target.value }))}
                     disabled={!commission.eligible}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Default basis</Label>
+                  <Label className="text-xs">{t('userForm.defaultBasisLabel')}</Label>
                   <Select
                     value={commission.basis}
                     onValueChange={(v) => setCommission((c) => ({ ...c, basis: v as CommissionBasis }))}
@@ -439,10 +441,10 @@ export function AddUserSheet({
                 </div>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Cost rate per hour (optional, for Profit basis)</Label>
+                <Label className="text-xs">{t('userForm.costRateLabel')}</Label>
                 <Input
                   type="number" step="0.01" min="0"
-                  placeholder="e.g. 50"
+                  placeholder={t('userForm.costRatePlaceholder')}
                   value={commission.costRatePerHour}
                   onChange={(e) => setCommission((c) => ({ ...c, costRatePerHour: e.target.value }))}
                 />
@@ -451,9 +453,9 @@ export function AddUserSheet({
 
             <SheetFooter className="pt-6">
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-                    Cancel
+                    {t('userForm.cancelButton')}
                 </Button>
-                <Button type="submit">Save User</Button>
+                <Button type="submit">{t('userForm.saveButton')}</Button>
             </SheetFooter>
           </form>
         </Form>
