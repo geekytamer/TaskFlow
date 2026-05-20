@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { createPosition } from '@/services/companyService';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 
 const addPositionSchema = z.object({
   title: z.string().min(2, 'Position title must be at least 2 characters.'),
@@ -55,6 +56,7 @@ export function AddPositionDialog({
   onPositionAdded,
 }: AddPositionDialogProps) {
   const { toast } = useToast();
+  const { t } = useI18n();
   const { companies } = useCompany();
 
   const form = useForm<AddPositionFormValues>({
@@ -94,9 +96,9 @@ export function AddPositionDialog({
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add New Position</DialogTitle>
+          <DialogTitle>{t('companiesPage.addNewPosition')}</DialogTitle>
           <DialogDescription>
-            Fill in the details for the new position.
+            {t('companiesPage.addPositionDesc')}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -106,9 +108,9 @@ export function AddPositionDialog({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Position Title</FormLabel>
+                  <FormLabel>{t('companiesPage.positionTitleLabel')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Software Engineer" {...field} />
+                    <Input placeholder={t('companiesPage.positionTitlePH')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -119,11 +121,11 @@ export function AddPositionDialog({
               name="companyId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Company</FormLabel>
+                  <FormLabel>{t('companiesPage.companyLabel')}</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select a company" />
+                          <SelectValue placeholder={t('companiesPage.selectCompanyPH')} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -140,9 +142,9 @@ export function AddPositionDialog({
             />
              <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-                    Cancel
+                    {t('common.cancel')}
                 </Button>
-                <Button type="submit">Create Position</Button>
+                <Button type="submit">{t('companiesPage.createPosition')}</Button>
             </DialogFooter>
           </form>
         </Form>

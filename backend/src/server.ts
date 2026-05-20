@@ -1243,15 +1243,64 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getUserById(req.params.id);
       if (!existing) throw new HttpError(404, 'User not found.');
       const payload = parseUserPayload(req.body, { partial: true });
-      const targetAssignments =
-        payload.companyRoles
-        || existing.companyRoles
+      const existingAssignments =
+        existing.companyRoles
         || existing.companyIds.map((companyId) => ({
           companyId,
           role: existing.role,
           positionId: existing.positionId,
         }));
-      assertUserManagementPermission(req.user!, targetAssignments);
+      const targetAssignments =
+        payload.companyRoles
+        || existingAssignments;
+      if (req.user!.role === 'Admin') {
+        assertUserManagementPermission(req.user!, targetAssignments);
+      } else {
+        const existingByCompany = new Map(
+          existingAssignments.map((assignment) => [assignment.companyId, assignment]),
+        );
+        const targetByCompany = new Map(
+          targetAssignments.map((assignment) => [assignment.companyId, assignment]),
+        );
+        const canManageAssignment = (companyId: string) =>
+          requireCompanyRole(req.user!, companyId, ['Admin', 'Manager']);
+        const changedAssignments = targetAssignments.filter((assignment) => {
+          const existingAssignment = existingByCompany.get(assignment.companyId);
+          return (
+            canManageAssignment(assignment.companyId) &&
+            (
+              !existingAssignment ||
+              existingAssignment.role !== assignment.role ||
+              existingAssignment.positionId !== assignment.positionId
+            )
+          );
+        });
+        const unmanagedTargetChange = targetAssignments.find((assignment) => {
+          if (canManageAssignment(assignment.companyId)) return false;
+          const existingAssignment = existingByCompany.get(assignment.companyId);
+          return (
+            !existingAssignment ||
+            existingAssignment.role !== assignment.role ||
+            existingAssignment.positionId !== assignment.positionId
+          );
+        });
+        const unmanagedRemoval = existingAssignments.find(
+          (assignment) =>
+            !canManageAssignment(assignment.companyId) &&
+            !targetByCompany.has(assignment.companyId),
+        );
+        if (unmanagedTargetChange || unmanagedRemoval) {
+          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.');
+        }
+        const assignmentsToAuthorize =
+          changedAssignments.length > 0
+            ? changedAssignments
+            : targetAssignments.filter((assignment) => canManageAssignment(assignment.companyId));
+        if (!assignmentsToAuthorize.length) {
+          throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
+        }
+        assertUserManagementPermission(req.user!, assignmentsToAuthorize);
+      }
       const updated = store.updateUser(req.params.id, {
         ...payload,
         companyIds: payload.companyIds || targetAssignments.map((assignment) => assignment.companyId),

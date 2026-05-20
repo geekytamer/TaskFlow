@@ -41,10 +41,10 @@ export function ProjectsPage() {
       </div>
 
       <ActivityFeed
-        title="Project Activity"
+        title={t('projects.projectActivity')}
         entityType="project"
         limit={8}
-        emptyMessage="No project activity recorded yet."
+        emptyMessage={t('projects.noActivityYet')}
       />
     </div>
   );

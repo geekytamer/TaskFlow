@@ -62,15 +62,15 @@ export function SettingsPage() {
       
       setAdminPassword(password);
       toast({
-        title: 'Admin User Created',
-        description: 'The admin user has been created in the backend. Save the password shown below.',
+        title: t('settingsPage.adminCreated'),
+        description: t('settingsPage.adminCreatedDesc'),
       });
     } catch (error: any) {
       console.error(error);
-      let description = error?.message || 'Could not create admin user. Check the console for errors.';
+      let description = error?.message || t('settingsPage.couldNotCreateAdmin');
       toast({
         variant: 'destructive',
-        title: 'Admin Creation Failed',
+        title: t('settingsPage.adminCreationFailed'),
         description,
       });
     } finally {
@@ -82,9 +82,8 @@ export function SettingsPage() {
     setIsSeeding(true);
     // Provide immediate feedback to the user
     toast({
-      title: 'Database Seeding Started',
-      description:
-        'Your database is being populated in the background. This may take a moment. See server logs for progress.',
+      title: t('settingsPage.seedingStarted'),
+      description: t('settingsPage.seedingStartedDesc'),
     });
 
     // Asynchronously trigger the server action
@@ -92,14 +91,14 @@ export function SettingsPage() {
       .then(result => {
         if (result?.success) {
           toast({
-            title: 'Database Seeding Completed',
-            description: 'Your database has been populated with placeholder data.',
+            title: t('settingsPage.seedingCompleted'),
+            description: t('settingsPage.seedingCompletedDesc'),
           });
         } else {
           toast({
             variant: 'destructive',
-            title: 'Seeding Failed',
-            description: result?.message || 'The seeding process failed to complete. Check the console for errors.',
+            title: t('settingsPage.seedingFailed'),
+            description: result?.message || t('settingsPage.seedingFailedDesc'),
           });
         }
       })
@@ -107,8 +106,8 @@ export function SettingsPage() {
         console.error(error);
         toast({
           variant: 'destructive',
-          title: 'Seeding Failed to Start',
-          description: 'Could not start the seeding process. Check the console for errors.',
+          title: t('settingsPage.seedingFailedToStart'),
+          description: t('settingsPage.seedingFailedToStartDesc'),
         });
       })
       .finally(() => {
@@ -119,8 +118,8 @@ export function SettingsPage() {
   const copyToClipboard = () => {
     navigator.clipboard.writeText(adminPassword);
     toast({
-        title: 'Copied!',
-        description: 'Password copied to clipboard.',
+        title: t('settingsPage.copied'),
+        description: t('settingsPage.passwordCopied'),
     });
   }
 
@@ -139,25 +138,25 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Database Management</CardTitle>
+          <CardTitle>{t('settingsPage.dbManagement')}</CardTitle>
           <CardDescription>
-            Use the following actions to manage your application data. It is recommended to first create an admin user, then seed the database.
+            {t('settingsPage.dbManagementDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-start gap-4">
             <Button onClick={handleCreateAdmin} variant="outline" disabled={isCreatingAdmin}>
               <UserPlus className="me-2 h-4 w-4" />
-              {isCreatingAdmin ? 'Creating Admin...' : '1. Create Admin User'}
+              {isCreatingAdmin ? t('settingsPage.creatingAdmin') : t('settingsPage.createAdminBtn')}
             </Button>
             <p className="text-sm text-muted-foreground pt-2">
-                Creates a new user with email `admin@taskflow.com` and a random password.
+                {t('settingsPage.createAdminHint')}
             </p>
           </div>
            {adminPassword && (
               <div className="flex items-end gap-2 ps-10">
                 <div className="grid w-full max-w-sm items-center gap-1.5">
-                    <Label htmlFor="password">New Admin Password (save this!)</Label>
+                    <Label htmlFor="password">{t('settingsPage.newAdminPasswordLabel')}</Label>
                     <Input id="password" type="text" readOnly value={adminPassword} />
                 </div>
                 <Button variant="outline" size="icon" onClick={copyToClipboard}>
@@ -170,29 +169,26 @@ export function SettingsPage() {
               <AlertDialogTrigger asChild>
                 <Button variant="outline" disabled={isSeeding}>
                   <Database className="me-2 h-4 w-4" />
-                  {isSeeding ? 'Seeding...' : '2. Seed Database'}
+                  {isSeeding ? t('settingsPage.seedingInProgress') : t('settingsPage.seedDbBtn')}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogTitle>{t('settingsPage.areYouSure')}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will wipe all current data in your backend datastore
-                    (companies, positions, users, projects, tasks, comments) and
-                    replace it with the default placeholder data. This action cannot
-                    be undone.
+                    {t('settingsPage.seedConfirm')}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                   <AlertDialogAction onClick={handleSeedDatabase}>
-                    Continue
+                    {t('common.continue')}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
              <p className="text-sm text-muted-foreground pt-2">
-                Populates your database with the initial set of placeholder data.
+                {t('settingsPage.seedDbHint')}
             </p>
           </div>
         </CardContent>

@@ -124,6 +124,11 @@ export function AddUserSheet({
     manageableCompanies.map(c => ({ value: c.id, label: c.name, icon: Building })),
   [manageableCompanies]);
 
+  const manageableCompanyIds = React.useMemo(
+    () => new Set(manageableCompanies.map((company) => company.id)),
+    [manageableCompanies],
+  );
+
   React.useEffect(() => {
     async function loadPositions() {
       if (currentUser?.role !== 'Admin') {
@@ -175,10 +180,13 @@ export function AddUserSheet({
           existingAssignments[cid] = { role: userToEdit.role, positionId: userToEdit.positionId };
         });
       }
+      const editableCompanyIds = Object.keys(existingAssignments).filter((companyId) =>
+        manageableCompanyIds.has(companyId),
+      );
       form.reset({
         name: userToEdit.name,
         email: userToEdit.email,
-        companyIds: userToEdit.companyIds,
+        companyIds: editableCompanyIds,
       });
       setCompanyAssignments(existingAssignments);
       setCommission({
@@ -201,7 +209,7 @@ export function AddUserSheet({
       setCompanyAssignments({});
       setCommission({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
     }
-  }, [companyItems, form, selectedCompany, userToEdit]);
+  }, [companyItems, form, manageableCompanyIds, selectedCompany, userToEdit]);
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -212,11 +220,23 @@ export function AddUserSheet({
 
   const onSubmit = async (data: AddUserFormValues) => {
     try {
-      const companyRoles = (data.companyIds || []).map((cid) => ({
+      const editableCompanyRoles = (data.companyIds || []).map((cid) => ({
         companyId: cid,
         role: companyAssignments[cid]?.role || 'Employee',
         positionId: companyAssignments[cid]?.positionId || undefined,
       }));
+      const preservedCompanyRoles =
+        isEditMode && userToEdit
+          ? (userToEdit.companyRoles && userToEdit.companyRoles.length > 0
+              ? userToEdit.companyRoles
+              : (userToEdit.companyIds || []).map((companyId) => ({
+                  companyId,
+                  role: userToEdit.role,
+                  positionId: userToEdit.positionId,
+                }))
+            ).filter((assignment) => !manageableCompanyIds.has(assignment.companyId))
+          : [];
+      const companyRoles = [...preservedCompanyRoles, ...editableCompanyRoles];
 
       const commissionPayload = {
         commissionEligible: commission.eligible,
@@ -284,9 +304,9 @@ export function AddUserSheet({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Full Name</FormLabel>
+                  <FormLabel>{t('userForm.fullNameLabel')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Alex Johnson" {...field} />
+                    <Input placeholder={t('userForm.fullNamePlaceholder')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -297,9 +317,9 @@ export function AddUserSheet({
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>{t('userForm.emailLabel')}</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="e.g. alex.j@innovatecorp.com" {...field} disabled={isEditMode} />
+                    <Input type="email" placeholder={t('userForm.emailPlaceholder')} {...field} disabled={isEditMode} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -310,13 +330,13 @@ export function AddUserSheet({
               name="companyIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Companies</FormLabel>
+                  <FormLabel>{t('userForm.companiesLabel')}</FormLabel>
                   <FormControl>
                     <MultiSelect
                         items={companyItems}
                         selected={field.value}
                         onChange={field.onChange}
-                        placeholder="Select companies..."
+                        placeholder={t('userForm.companiesPlaceholder')}
                     />
                   </FormControl>
                   <FormMessage />
@@ -325,7 +345,7 @@ export function AddUserSheet({
             />
             {selectedCompanyIds && selectedCompanyIds.length > 0 && (
               <div className="space-y-3">
-                <FormLabel>Role & Position per company</FormLabel>
+                <FormLabel>{t('userForm.rolePositionLabel')}</FormLabel>
                 {selectedCompanyIds.map((cid) => {
                   const company = companies.find((c) => c.id === cid);
                   const assignment = companyAssignments[cid] || { role: 'Employee', positionId: undefined };
@@ -347,7 +367,7 @@ export function AddUserSheet({
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select a role" />
+                              <SelectValue placeholder={t('userForm.selectRolePlaceholder')} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -360,7 +380,7 @@ export function AddUserSheet({
                         </Select>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">Position (optional)</p>
+                        <p className="text-sm font-medium">{t('userForm.positionOptional')}</p>
                         <Select
                           value={assignment.positionId}
                           disabled={positions.length === 0}
@@ -376,8 +396,8 @@ export function AddUserSheet({
                               <SelectValue
                                 placeholder={
                                   positions.length === 0
-                                    ? 'No positions available for your role'
-                                    : 'Select a position'
+                                    ? t('userForm.noPositionsAvailable')
+                                    : t('userForm.selectPositionPlaceholder')
                                 }
                               />
                             </SelectTrigger>

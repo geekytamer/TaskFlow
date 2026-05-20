@@ -6,7 +6,7 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 
 export default function CompaniesRoute() {
-  const { user, loading } = useAuthGuard();
+  const { user, loading, effectiveRole } = useAuthGuard(['Admin']);
   const { t } = useI18n();
 
   if (loading || !user) {
@@ -17,7 +17,7 @@ export default function CompaniesRoute() {
     );
   }
 
-  if (user.role !== 'Admin') {
+  if (effectiveRole !== 'Admin') {
      return (
       <div className="flex h-full w-full items-center justify-center">
         <p className="text-muted-foreground">{t('auth.adminOnly')}</p>

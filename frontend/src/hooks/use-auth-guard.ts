@@ -14,14 +14,14 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
   const { toast } = useToast();
   const { t } = useI18n();
   const { user, loading } = useCurrentUser();
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, loading: companyLoading } = useCompany();
   const effectiveRole =
     (selectedCompany &&
       user?.companyRoles?.find((c) => c.companyId === selectedCompany.id)?.role) ||
     user?.role;
   
   React.useEffect(() => {
-    if (loading) {
+    if (loading || companyLoading) {
       return; // Wait for the user state to be determined
     }
 
@@ -43,8 +43,8 @@ export function useAuthGuard(allowedRoles?: UserRole[]) {
       });
       router.push('/'); // Redirect to a safe default page
     }
-  }, [user, loading, allowedRoles, router, toast, t]);
+  }, [user, loading, companyLoading, effectiveRole, allowedRoles, router, toast, t]);
 
 
-  return { user, loading, effectiveRole };
+  return { user, loading: loading || companyLoading, effectiveRole };
 }

@@ -25,6 +25,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { createCompany } from '@/services/companyService';
+import { useI18n } from '@/context/i18n-context';
 
 const addCompanySchema = z.object({
   name: z.string().min(2, 'Company name must be at least 2 characters.'),
@@ -48,6 +49,7 @@ export function AddCompanyDialog({
   onCompanyAdded,
 }: AddCompanyDialogProps) {
   const { toast } = useToast();
+  const { t } = useI18n();
   const form = useForm<AddCompanyFormValues>({
     resolver: zodResolver(addCompanySchema),
     defaultValues: {
@@ -87,9 +89,9 @@ export function AddCompanyDialog({
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add New Company</DialogTitle>
+          <DialogTitle>{t('companiesPage.addNewCompany')}</DialogTitle>
           <DialogDescription>
-            Fill in the details for the new company.
+            {t('companiesPage.addCompanyDesc')}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -99,9 +101,9 @@ export function AddCompanyDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Company Name</FormLabel>
+                  <FormLabel>{t('companiesPage.companyNameLabel')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Innovate Corp" {...field} />
+                    <Input placeholder={t('companiesPage.companyNamePH')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -112,9 +114,9 @@ export function AddCompanyDialog({
               name="website"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Website</FormLabel>
+                  <FormLabel>{t('companiesPage.websiteLabel')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. innovatecorp.com" {...field} />
+                    <Input placeholder={t('companiesPage.websitePH')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -125,9 +127,9 @@ export function AddCompanyDialog({
               name="address"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Address</FormLabel>
+                  <FormLabel>{t('companiesPage.addressLabel')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. 123 Tech Ave, Silicon Valley" {...field} />
+                    <Input placeholder={t('companiesPage.addressPH')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -135,9 +137,9 @@ export function AddCompanyDialog({
             />
              <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-                    Cancel
+                    {t('common.cancel')}
                 </Button>
-                <Button type="submit">Create Company</Button>
+                <Button type="submit">{t('companiesPage.createCompany')}</Button>
             </DialogFooter>
           </form>
         </Form>

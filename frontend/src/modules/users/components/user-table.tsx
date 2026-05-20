@@ -159,17 +159,15 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
 
   const canManageUser = (targetUser: User) => {
     if (!currentUserRole) return false;
+    if (currentUser?.role === 'Admin') return true;
     if (!selectedCompany) return false;
     const assignmentCompanyIds =
       targetUser.companyRoles && targetUser.companyRoles.length > 0
         ? targetUser.companyRoles.map((assignment) => assignment.companyId)
         : targetUser.companyIds || [];
-    const isWithinManagedScope = assignmentCompanyIds.every((companyId) =>
-      managedCompanyIds.includes(companyId),
-    );
-    if (!isWithinManagedScope) return false;
+    if (!assignmentCompanyIds.includes(selectedCompany.id)) return false;
+    if (!managedCompanyIds.includes(selectedCompany.id)) return false;
     const targetRole = getRoleForCompany(targetUser);
-    if (currentUser?.role === 'Admin') return true;
     if (currentUserRole === 'Admin') return true;
     if (currentUserRole === 'Manager' && targetRole === 'Employee') return true;
     return false;

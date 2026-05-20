@@ -33,12 +33,14 @@ import {
 import { deleteCompany } from '@/services/companyService';
 import { useToast } from '@/hooks/use-toast';
 import type { Company } from '../types';
+import { useI18n } from '@/context/i18n-context';
 
 export function CompanyTable() {
   const { companies, refreshCompanies } = useCompany();
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
   const [companyToDelete, setCompanyToDelete] = React.useState<Company | null>(null);
   const { toast } = useToast();
+  const { t } = useI18n();
 
   const onCompanyAdded = () => {
     refreshCompanies();
@@ -73,7 +75,7 @@ export function CompanyTable() {
             >
               <Button>
                   <PlusCircle className="me-2 h-4 w-4" />
-                  Add Company
+                  {t('companiesPage.addCompany')}
               </Button>
             </AddCompanyDialog>
         </div>
@@ -81,10 +83,10 @@ export function CompanyTable() {
         <Table>
             <TableHeader>
             <TableRow>
-                <TableHead>Company</TableHead>
-                <TableHead>Website</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead className="text-end">Actions</TableHead>
+                <TableHead>{t('companiesPage.tableCompany')}</TableHead>
+                <TableHead>{t('companiesPage.websiteLabel')}</TableHead>
+                <TableHead>{t('companiesPage.addressLabel')}</TableHead>
+                <TableHead className="text-end">{t('common.actions')}</TableHead>
             </TableRow>
             </TableHeader>
             <TableBody>
@@ -102,15 +104,15 @@ export function CompanyTable() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                           <Button variant="ghost" className="h-8 w-8 p-0">
-                          <span className="sr-only">Open menu</span>
+                          <span className="sr-only">{t('companiesPage.openMenu')}</span>
                           <MoreHorizontal className="h-4 w-4" />
                           </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Edit Company</DropdownMenuItem>
+                          <DropdownMenuItem>{t('companiesPage.editCompany')}</DropdownMenuItem>
                            <AlertDialogTrigger asChild>
                             <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => {e.preventDefault(); setCompanyToDelete(company)}}>
-                              Delete Company
+                              {t('companiesPage.deleteCompany')}
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
                       </DropdownMenuContent>
@@ -118,15 +120,14 @@ export function CompanyTable() {
                     {companyToDelete?.id === company.id && (
                        <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogTitle>{t('companiesPage.areYouSure')}</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This action cannot be undone. This will permanently delete the
-                            company "{companyToDelete.name}".
+                            {t('companiesPage.deleteCompanyConfirm').replace('{name}', companyToDelete.name)}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel onClick={() => setCompanyToDelete(null)}>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                          <AlertDialogCancel onClick={() => setCompanyToDelete(null)}>{t('common.cancel')}</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDelete}>{t('common.continue')}</AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     )}

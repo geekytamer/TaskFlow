@@ -31,6 +31,7 @@ import {
   updateCompanyNumberingSetting,
 } from '@/services/financeService';
 import { LockKeyhole, Save } from 'lucide-react';
+import { useI18n } from '@/context/i18n-context';
 
 const entityLabels: Record<NumberingEntityType, string> = {
   client: 'Clients',
@@ -67,6 +68,16 @@ type EditableSetting = CompanyNumberingSetting & {
 export function NumberingSettingsPanel() {
   const { selectedCompany, currentRole } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
+  const entityLabelKeys: Record<NumberingEntityType, string> = {
+    client: 'settingsPage.entityClients',
+    supplier: 'settingsPage.entitySuppliers',
+    inventory_item: 'settingsPage.entityInventoryItems',
+    purchase_order: 'settingsPage.entityPurchaseOrders',
+    sales_order: 'settingsPage.entitySalesOrders',
+    sales_invoice: 'settingsPage.entitySalesInvoices',
+    vendor_invoice: 'settingsPage.entityVendorInvoices',
+  };
   const [settings, setSettings] = React.useState<EditableSetting[]>([]);
   const [financeSettings, setFinanceSettings] = React.useState<CompanyFinanceSettings | null>(null);
   const [lockedThroughDate, setLockedThroughDate] = React.useState('');
@@ -107,8 +118,8 @@ export function NumberingSettingsPanel() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Settings unavailable',
-        description: error?.message || 'Could not load numbering settings.',
+        title: t('settingsPage.settingsUnavailable'),
+        description: error?.message || t('settingsPage.couldNotLoadNumbering'),
       });
     } finally {
       setLoading(false);
@@ -154,7 +165,7 @@ export function NumberingSettingsPanel() {
             : entry,
         ),
       );
-      toast({ title: 'Numbering updated', description: `${entityLabels[setting.entityType]} now starts from ${updated.sample}.` });
+      toast({ title: t('settingsPage.numberingUpdated'), description: `${entityLabels[setting.entityType]} now starts from ${updated.sample}.` });
     } catch (error: any) {
       setSettings((prev) =>
         prev.map((entry) =>
@@ -163,8 +174,8 @@ export function NumberingSettingsPanel() {
       );
       toast({
         variant: 'destructive',
-        title: 'Numbering update failed',
-        description: error?.message || 'Could not update numbering.',
+        title: t('settingsPage.numberingUpdateFailed'),
+        description: error?.message || t('settingsPage.couldNotUpdateNumbering'),
       });
     }
   };
@@ -179,12 +190,12 @@ export function NumberingSettingsPanel() {
         currencyCode,
       });
       setFinanceSettings(updated);
-      toast({ title: 'Finance controls updated' });
+      toast({ title: t('settingsPage.financeUpdated') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Finance controls update failed',
-        description: error?.message || 'Could not update finance controls.',
+        title: t('settingsPage.financeUpdateFailed'),
+        description: error?.message || t('settingsPage.couldNotUpdateFinance'),
       });
     } finally {
       setSavingFinance(false);
@@ -208,7 +219,7 @@ export function NumberingSettingsPanel() {
     return (
       <Card>
         <CardContent className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-          Select a company to manage numbering and finance controls.
+          {t('settingsPage.selectCompanyToManage')}
         </CardContent>
       </Card>
     );
@@ -219,16 +230,16 @@ export function NumberingSettingsPanel() {
       {!canEdit && (
         <Alert>
           <LockKeyhole className="h-4 w-4" />
-          <AlertTitle>View only</AlertTitle>
-          <AlertDescription>Only admins and managers can change numbering or finance controls.</AlertDescription>
+          <AlertTitle>{t('settingsPage.viewOnly')}</AlertTitle>
+          <AlertDescription>{t('settingsPage.viewOnlyDesc')}</AlertDescription>
         </Alert>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Company Numbering</CardTitle>
+          <CardTitle>{t('settingsPage.companyNumbering')}</CardTitle>
           <CardDescription>
-            Controls automatic references like AR-001, TP-001, INV-0001, VI-0001, PO-0001, and SKU-0001.
+            {t('settingsPage.companyNumberingDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -236,18 +247,18 @@ export function NumberingSettingsPanel() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Document</TableHead>
-                  <TableHead>Prefix</TableHead>
-                  <TableHead>Padding</TableHead>
-                  <TableHead>Next Number</TableHead>
-                  <TableHead>Preview</TableHead>
-                  <TableHead className="text-end">Action</TableHead>
+                  <TableHead>{t('settingsPage.colDocument')}</TableHead>
+                  <TableHead>{t('settingsPage.colPrefix')}</TableHead>
+                  <TableHead>{t('settingsPage.colPadding')}</TableHead>
+                  <TableHead>{t('settingsPage.colNextNumber')}</TableHead>
+                  <TableHead>{t('settingsPage.colPreview')}</TableHead>
+                  <TableHead className="text-end">{t('settingsPage.colAction')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {settings.map((setting) => (
                   <TableRow key={setting.entityType}>
-                    <TableCell className="font-medium">{entityLabels[setting.entityType]}</TableCell>
+                    <TableCell className="font-medium">{t(entityLabelKeys[setting.entityType])}</TableCell>
                     <TableCell>
                       <Input
                         value={setting.draftPrefix}
@@ -289,7 +300,7 @@ export function NumberingSettingsPanel() {
                         onClick={() => saveNumbering(setting)}
                       >
                         <Save className="me-2 h-4 w-4" />
-                        {setting.saving ? 'Saving...' : 'Save'}
+                        {setting.saving ? t('settingsPage.saving') : t('common.save')}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -302,14 +313,14 @@ export function NumberingSettingsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Finance Controls</CardTitle>
+          <CardTitle>{t('settingsPage.financeControls')}</CardTitle>
           <CardDescription>
-            Lock closed accounting periods so old invoices, payments, and journal entries cannot be changed accidentally.
+            {t('settingsPage.financeControlsDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-[220px_220px_220px_auto]">
           <div className="space-y-1">
-            <Label>Platform Currency</Label>
+            <Label>{t('settingsPage.platformCurrency')}</Label>
             <Select
               value={currencyCode}
               onValueChange={setCurrencyCode}
@@ -328,7 +339,7 @@ export function NumberingSettingsPanel() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Fiscal Year Starts</Label>
+            <Label>{t('settingsPage.fiscalYearStarts')}</Label>
             <Select
               value={fiscalYearStartMonth}
               onValueChange={setFiscalYearStartMonth}
@@ -345,7 +356,7 @@ export function NumberingSettingsPanel() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Locked Through Date</Label>
+            <Label>{t('settingsPage.lockedThroughDate')}</Label>
             <Input
               type="date"
               value={lockedThroughDate}
@@ -355,17 +366,17 @@ export function NumberingSettingsPanel() {
           </div>
           <div className="flex items-end">
             <Button onClick={saveFinanceSettings} disabled={!canEdit || savingFinance}>
-              {savingFinance ? 'Saving...' : 'Save Finance Controls'}
+              {savingFinance ? t('settingsPage.saving') : t('settingsPage.saveFinanceControls')}
             </Button>
           </div>
           <p className="text-sm text-muted-foreground md:col-span-4">
-            Currency: {financeSettings?.currencyCode || 'USD'}. OMR will use /currency/omr.svg when that file is available.
+            {t('settingsPage.currencyLabel')}: {financeSettings?.currencyCode || 'USD'}. {t('settingsPage.omrNote')}
           </p>
           <p className="text-sm text-muted-foreground md:col-span-4">
-            Current lock:{' '}
+            {t('settingsPage.currentLock')}:{' '}
             {financeSettings?.lockedThroughDate
-              ? `transactions dated on or before ${format(financeSettings.lockedThroughDate, 'MMM d, yyyy')} are blocked`
-              : 'no locked period set'}
+              ? t('settingsPage.lockBlocked').replace('{date}', format(financeSettings.lockedThroughDate, 'MMM d, yyyy'))
+              : t('settingsPage.noLockSet')}
             .
           </p>
         </CardContent>

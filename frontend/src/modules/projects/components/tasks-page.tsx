@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { getTasks } from '@/services/projectService';
 import { ProjectTable } from './project-table';
 import { CreateTaskSheet } from './create-task-sheet';
@@ -33,6 +34,7 @@ function StatCard({ icon: Icon, label, value, color = 'text-foreground' }: {
 
 export function TasksPage() {
   const { selectedCompany, projects, currentUser, currentRole } = useCompany();
+  const { t } = useI18n();
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -66,8 +68,8 @@ export function TasksPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-headline">Tasks</h1>
-          <p className="text-muted-foreground mt-1">All tasks across every project you have access to.</p>
+          <h1 className="text-3xl font-bold font-headline">{t('tasksPage.title')}</h1>
+          <p className="text-muted-foreground mt-1">{t('tasksPage.subtitle')}</p>
         </div>
         <CreateTaskSheet />
       </div>
@@ -75,10 +77,10 @@ export function TasksPage() {
       {/* Stats */}
       {!loading && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard icon={ListTodo}    label="To Do"       value={todo} />
-          <StatCard icon={TrendingUp}  label="In Progress" value={inProgress} color="text-blue-600" />
-          <StatCard icon={CheckSquare} label="Done"        value={done}        color="text-green-600" />
-          <StatCard icon={AlertCircle} label="Overdue"     value={overdue}     color={overdue > 0 ? 'text-red-600' : 'text-foreground'} />
+          <StatCard icon={ListTodo}    label={t('tasksPage.todo')}       value={todo} />
+          <StatCard icon={TrendingUp}  label={t('tasksPage.inProgress')} value={inProgress} color="text-blue-600" />
+          <StatCard icon={CheckSquare} label={t('tasksPage.done')}       value={done}        color="text-green-600" />
+          <StatCard icon={AlertCircle} label={t('tasksPage.overdue')}    value={overdue}     color={overdue > 0 ? 'text-red-600' : 'text-foreground'} />
         </div>
       )}
 

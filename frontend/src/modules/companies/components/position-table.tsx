@@ -33,6 +33,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useI18n } from '@/context/i18n-context';
 
 export function PositionTable() {
   const [positions, setPositions] = React.useState<Position[]>([]);
@@ -41,6 +42,7 @@ export function PositionTable() {
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
   const [positionToDelete, setPositionToDelete] = React.useState<Position | null>(null);
   const { toast } = useToast();
+  const { t } = useI18n();
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -86,9 +88,9 @@ export function PositionTable() {
               <Table>
                   <TableHeader>
                       <TableRow>
-                          <TableHead>Position Title</TableHead>
-                          <TableHead>Company</TableHead>
-                          <TableHead className="text-end">Actions</TableHead>
+                          <TableHead>{t('companiesPage.positionTitleLabel')}</TableHead>
+                          <TableHead>{t('companiesPage.companyLabel')}</TableHead>
+                          <TableHead className="text-end">{t('common.actions')}</TableHead>
                       </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -116,7 +118,7 @@ export function PositionTable() {
             >
               <Button>
                   <PlusCircle className="me-2 h-4 w-4" />
-                  Add Position
+                  {t('companiesPage.addPosition')}
               </Button>
             </AddPositionDialog>
         </div>
@@ -141,15 +143,15 @@ export function PositionTable() {
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="h-8 w-8 p-0">
-                            <span className="sr-only">Open menu</span>
+                            <span className="sr-only">{t('companiesPage.openMenu')}</span>
                             <MoreHorizontal className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem>Edit Position</DropdownMenuItem>
+                            <DropdownMenuItem>{t('companiesPage.editPosition')}</DropdownMenuItem>
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setPositionToDelete(position); }}>
-                                Delete Position
+                                {t('companiesPage.deletePosition')}
                               </DropdownMenuItem>
                             </AlertDialogTrigger>
                         </DropdownMenuContent>
@@ -157,15 +159,14 @@ export function PositionTable() {
                       {positionToDelete?.id === position.id && (
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogTitle>{t('companiesPage.areYouSure')}</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete the
-                              position "{positionToDelete.title}".
+                              {t('companiesPage.deletePositionConfirm').replace('{title}', positionToDelete.title)}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setPositionToDelete(null)}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                            <AlertDialogCancel onClick={() => setPositionToDelete(null)}>{t('common.cancel')}</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDelete}>{t('common.continue')}</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       )}

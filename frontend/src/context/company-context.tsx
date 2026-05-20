@@ -48,7 +48,11 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         setCompanies(allCompanies);
         return allCompanies;
       } else {
-        const accessibleCompanies = allCompanies.filter(c => currentUser.companyIds?.includes(c.id));
+        const accessibleCompanyIds = new Set([
+          ...(currentUser.companyIds || []),
+          ...(currentUser.companyRoles || []).map((assignment) => assignment.companyId),
+        ]);
+        const accessibleCompanies = allCompanies.filter(c => accessibleCompanyIds.has(c.id));
         setCompanies(accessibleCompanies);
         return accessibleCompanies;
       }
