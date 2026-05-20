@@ -103,13 +103,13 @@ export function InvoiceTable() {
       setTasks([]);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error?.message || 'Could not load invoices.',
+        title: t('invoiceTable.toastErrorTitle'),
+        description: error?.message || t('invoiceTable.toastLoadInvoicesFailed'),
       });
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, toast, t]);
 
   React.useEffect(() => {
     fetchData();
@@ -135,7 +135,7 @@ export function InvoiceTable() {
 
   const getOriginLabel = (invoice: Invoice, item: Invoice['lineItems'][number]) => {
     if (item.taskId) return getTaskTitle(item.taskId);
-    if (invoice.campaignId) return `Campaign: ${getCampaignName(invoice.campaignId)}`;
+    if (invoice.campaignId) return t('invoiceTable.campaignPrefix').replace('{name}', getCampaignName(invoice.campaignId) || '');
     return item.description;
   };
 
@@ -176,8 +176,8 @@ export function InvoiceTable() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Update failed',
-        description: error?.message || 'Could not update invoice status.',
+        title: t('invoiceTable.toastUpdateFailedTitle'),
+        description: error?.message || t('invoiceTable.toastUpdateFailedDesc'),
       });
     }
   };
@@ -190,14 +190,16 @@ export function InvoiceTable() {
       });
       await fetchData();
       toast({
-        title: 'Bulk status update complete',
-        description: `${result.updatedCount} invoices moved to ${targetStatus}.`,
+        title: t('invoiceTable.toastBulkCompleteTitle'),
+        description: t('invoiceTable.toastBulkCompleteDesc')
+          .replace('{count}', String(result.updatedCount))
+          .replace('{status}', targetStatus),
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Bulk update failed',
-        description: error?.message || 'Could not apply status update.',
+        title: t('invoiceTable.toastBulkFailedTitle'),
+        description: error?.message || t('invoiceTable.toastBulkFailedDesc'),
       });
     }
   };
@@ -215,8 +217,8 @@ export function InvoiceTable() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Payments unavailable',
-        description: error?.message || 'Could not load payment history.',
+        title: t('invoiceTable.toastPaymentsUnavailableTitle'),
+        description: error?.message || t('invoiceTable.toastPaymentsUnavailableDesc'),
       });
     } finally {
       setPaymentLoading(false);
@@ -229,13 +231,13 @@ export function InvoiceTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Number</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Issue Date</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead>Template</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t('invoiceTable.colNumber')}</TableHead>
+              <TableHead>{t('invoiceTable.colClient')}</TableHead>
+              <TableHead>{t('invoiceTable.colIssueDate')}</TableHead>
+              <TableHead>{t('invoiceTable.colDueDate')}</TableHead>
+              <TableHead>{t('invoiceTable.colTemplate')}</TableHead>
+              <TableHead>{t('invoiceTable.colTotal')}</TableHead>
+              <TableHead>{t('invoiceTable.colStatus')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -259,7 +261,7 @@ export function InvoiceTable() {
     return (
       <div className="rounded-lg border">
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view invoices.
+          {t('invoiceTable.selectCompany')}
         </div>
       </div>
     );
@@ -273,7 +275,7 @@ export function InvoiceTable() {
             data-tutorial="invoice-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by invoice number, client, or task"
+            placeholder={t('invoiceTable.searchPlaceholder')}
             className="max-w-md"
           />
         )}
@@ -286,16 +288,16 @@ export function InvoiceTable() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="all">{t('invoiceTable.allStatuses')}</SelectItem>
               {(['Draft', 'Sent', 'Paid', 'Overdue'] as InvoiceStatus[]).map((status) => (
                 <SelectItem key={status} value={status}>
-                  {status}
+                  {t(`invoiceTable.status${status}`)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredInvoices.length} invoices shown • outstanding ${money(filteredOutstanding)}`}
+        summary={t('invoiceTable.invoicesSummary').replace('{count}', String(filteredInvoices.length)).replace('{amount}', money(filteredOutstanding))}
         actions={(
           <div data-tutorial="invoice-bulk-actions" className="flex items-center gap-2">
             {canManageFinance && (
@@ -365,17 +367,17 @@ export function InvoiceTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Number</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Issue Date</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead>Template</TableHead>
-              <TableHead className="text-end">Total</TableHead>
-              <TableHead className="text-end">Paid</TableHead>
-              <TableHead className="text-end">Outstanding</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Origin</TableHead>
-              <TableHead className="text-end">Actions</TableHead>
+              <TableHead>{t('invoiceTable.colNumber')}</TableHead>
+              <TableHead>{t('invoiceTable.colClient')}</TableHead>
+              <TableHead>{t('invoiceTable.colIssueDate')}</TableHead>
+              <TableHead>{t('invoiceTable.colDueDate')}</TableHead>
+              <TableHead>{t('invoiceTable.colTemplate')}</TableHead>
+              <TableHead className="text-end">{t('invoiceTable.colTotal')}</TableHead>
+              <TableHead className="text-end">{t('invoiceTable.colPaid')}</TableHead>
+              <TableHead className="text-end">{t('invoiceTable.colOutstanding')}</TableHead>
+              <TableHead>{t('invoiceTable.colStatus')}</TableHead>
+              <TableHead>{t('invoiceTable.colOrigin')}</TableHead>
+              <TableHead className="text-end">{t('invoiceTable.colActions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -402,18 +404,18 @@ export function InvoiceTable() {
                         <SelectContent>
                           {(['Draft', 'Sent', 'Paid', 'Overdue'] as InvoiceStatus[]).map((status) => (
                             <SelectItem key={status} value={status}>
-                              {status}
+                              {t(`invoiceTable.status${status}`)}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Badge variant="outline">{invoice.status}</Badge>
+                      <Badge variant="outline">{t(`invoiceTable.status${invoice.status}`)}</Badge>
                     )}
                     {invoice.status !== 'Paid' && invoice.dueDate < new Date() && (
                       <Badge variant="destructive" className="gap-1">
                         <AlertTriangle className="h-3 w-3" />
-                        Overdue
+                        {t('invoiceTable.overdueBadge')}
                       </Badge>
                     )}
                   </div>
@@ -435,7 +437,7 @@ export function InvoiceTable() {
                       onClick={() => setPreviewInvoice(invoice)}
                     >
                       <Eye className="me-2 h-4 w-4" />
-                      Preview
+                      {t('invoiceTable.previewBtn')}
                     </Button>
                     {canManageFinance && (
                     <Dialog
@@ -455,55 +457,55 @@ export function InvoiceTable() {
                           size="sm"
                           disabled={invoice.status === 'Draft' || (invoice.outstandingAmount || 0) <= 0}
                         >
-                          Record Payment
+                          {t('invoiceTable.recordPaymentBtn')}
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-2xl">
                         <DialogHeader>
-                          <DialogTitle>Record Payment</DialogTitle>
+                          <DialogTitle>{t('invoiceTable.recordPaymentTitle')}</DialogTitle>
                           <p className="text-sm text-muted-foreground">
-                            Invoice {invoice.invoiceNumber} — {getClientName(invoice.clientId, invoice.contactId)}
+                            {invoice.invoiceNumber} — {getClientName(invoice.clientId, invoice.contactId)}
                           </p>
                         </DialogHeader>
                         <div className="space-y-4 py-2">
                           <div className="grid gap-3 sm:grid-cols-3">
                             <div className="rounded-md border p-3 text-sm">
-                              <div className="text-muted-foreground">Invoice Total</div>
+                              <div className="text-muted-foreground">{t('invoiceTable.invoiceTotalLabel')}</div>
                               <div className="text-lg font-semibold">{amount(invoice.total)}</div>
                             </div>
                             <div className="rounded-md border p-3 text-sm">
-                              <div className="text-muted-foreground">Paid</div>
+                              <div className="text-muted-foreground">{t('invoiceTable.paidLabel')}</div>
                               <div className="text-lg font-semibold">{amount(invoice.paidAmount || 0)}</div>
                             </div>
                             <div className="rounded-md border p-3 text-sm">
-                              <div className="text-muted-foreground">Outstanding</div>
+                              <div className="text-muted-foreground">{t('invoiceTable.outstandingLabel')}</div>
                               <div className="text-lg font-semibold">{amount(invoice.outstandingAmount || 0)}</div>
                             </div>
                           </div>
                           <div className="grid gap-3 sm:grid-cols-3">
                             <div className="space-y-1">
-                              <Label>Amount</Label>
+                              <Label>{t('invoiceTable.amountLabel')}</Label>
                               <Input
                                 type="number"
                                 value={paymentAmount}
                                 onChange={(e) => setPaymentAmount(e.target.value)}
-                                placeholder="e.g. 500"
+                                placeholder={t('invoiceTable.amountPlaceholder')}
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label>Method</Label>
+                              <Label>{t('invoiceTable.methodLabel')}</Label>
                               <Input
                                 value={paymentMethod}
                                 onChange={(e) => setPaymentMethod(e.target.value)}
-                                placeholder="e.g. Bank transfer, Cash"
+                                placeholder={t('invoiceTable.methodPlaceholder')}
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label>Note</Label>
+                              <Label>{t('invoiceTable.noteLabel')}</Label>
                               <Input
                                 value={paymentNote}
                                 onChange={(e) => setPaymentNote(e.target.value)}
-                                placeholder="Optional"
+                                placeholder={t('invoiceTable.notePlaceholder')}
                               />
                             </div>
                           </div>
@@ -511,24 +513,24 @@ export function InvoiceTable() {
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead>Date</TableHead>
-                                  <TableHead>Method</TableHead>
-                                  <TableHead>Note</TableHead>
-                                  <TableHead className="text-end">Amount</TableHead>
+                                  <TableHead>{t('invoiceTable.colHistDate')}</TableHead>
+                                  <TableHead>{t('invoiceTable.colHistMethod')}</TableHead>
+                                  <TableHead>{t('invoiceTable.colHistNote')}</TableHead>
+                                  <TableHead className="text-end">{t('invoiceTable.colHistAmount')}</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {paymentLoading && (
                                   <TableRow>
                                     <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
-                                      Loading payment history...
+                                      {t('invoiceTable.loadingPayments')}
                                     </TableCell>
                                   </TableRow>
                                 )}
                                 {!paymentLoading && payments.length === 0 && (
                                   <TableRow>
                                     <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
-                                      No payments recorded yet.
+                                      {t('invoiceTable.noPayments')}
                                     </TableCell>
                                   </TableRow>
                                 )}
@@ -549,7 +551,7 @@ export function InvoiceTable() {
                               companyId={selectedCompany.id}
                               entityType="invoice"
                               entityId={invoice.id}
-                              title="Invoice Attachments & Timeline"
+                              title={t('invoiceTable.attachmentsTitle')}
                               compact
                             />
                           )}
@@ -561,8 +563,8 @@ export function InvoiceTable() {
                               if (!Number.isFinite(amount) || amount <= 0) {
                                 toast({
                                   variant: 'destructive',
-                                  title: 'Invalid payment',
-                                  description: 'Enter a payment amount greater than zero.',
+                                  title: t('invoiceTable.toastInvalidPaymentTitle'),
+                                  description: t('invoiceTable.toastInvalidPaymentDesc'),
                                 });
                                 return;
                               }
@@ -578,18 +580,18 @@ export function InvoiceTable() {
                                 setPaymentMethod('');
                                 setPaymentNote('');
                                 await fetchData();
-                                toast({ title: 'Payment recorded' });
+                                toast({ title: t('invoiceTable.toastPaymentRecorded') });
                               } catch (error: any) {
                                 toast({
                                   variant: 'destructive',
-                                  title: 'Failed',
-                                  description: error?.message || 'Could not record payment.',
+                                  title: t('invoiceTable.toastPaymentFailedTitle'),
+                                  description: error?.message || t('invoiceTable.toastPaymentFailedDesc'),
                                 });
                               }
                             }}
                             disabled={!paymentAmount}
                           >
-                            Save Payment
+                            {t('invoiceTable.savePayment')}
                           </Button>
                         </DialogFooter>
                       </DialogContent>
@@ -603,8 +605,8 @@ export function InvoiceTable() {
               <TableRow>
                 <TableCell colSpan={11} className="h-24 text-center text-sm text-muted-foreground">
                   {invoices.length === 0
-                    ? 'No invoices yet. Create one from project work or manual billing to start collections.'
-                    : 'No invoices match the current search or status filter.'}
+                    ? t('invoiceTable.noInvoicesYet')
+                    : t('invoiceTable.noInvoicesMatch')}
                 </TableCell>
               </TableRow>
             )}
@@ -614,19 +616,21 @@ export function InvoiceTable() {
       <Dialog open={Boolean(previewInvoice)} onOpenChange={(open) => !open && setPreviewInvoice(null)}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Invoice Preview</DialogTitle>
+            <DialogTitle>{t('invoiceTable.previewTitle')}</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              {previewInvoice?.invoiceNumber} uses {getTemplateName(previewInvoice?.templateId)}.
+              {t('invoiceTable.previewSubtitle')
+                .replace('{number}', previewInvoice?.invoiceNumber || '')
+                .replace('{template}', getTemplateName(previewInvoice?.templateId))}
             </p>
           </DialogHeader>
           <div className="invoice-preview-actions flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              For a cleaner PDF, open the print view and disable browser headers/footers in the print dialog.
+              {t('invoiceTable.printHint')}
             </p>
             <Button asChild>
               <a href={`/finance/invoices/${previewInvoice?.id}/print?print=1`} target="_blank" rel="noopener noreferrer">
                 <Printer className="me-2 h-4 w-4" />
-                Download Invoice
+                {t('invoiceTable.downloadInvoice')}
               </a>
             </Button>
           </div>

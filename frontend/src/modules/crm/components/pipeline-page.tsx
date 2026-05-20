@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -105,9 +106,9 @@ const listStageBadge: Record<string, string> = {
   Cancelled: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-function StageBadge({ stage }: { stage: string }) {
+function StageBadge({ stage, label }: { stage: string; label?: string }) {
   const cls = listStageBadge[stage] ?? 'bg-gray-100 text-gray-600 border-gray-200';
-  return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>{stage}</span>;
+  return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>{label ?? stage}</span>;
 }
 
 function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: {
@@ -134,6 +135,11 @@ export function PipelinePage() {
   const { user } = useCurrentUser();
   const { toast } = useToast();
   const { amount } = useCompanyCurrency();
+  const { t } = useI18n();
+  const stageLabel = React.useCallback(
+    (stage: string) => t(`pipelinePage.stage${stage.replace(/\s/g, '')}`, stage),
+    [t],
+  );
 
   const [loading, setLoading] = React.useState(true);
   const [dashboard, setDashboard] = React.useState<CrmDashboardSummary | null>(null);
@@ -169,7 +175,7 @@ export function PipelinePage() {
       setContacts(contactData);
       setOpportunities(oppData);
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'CRM unavailable', description: error?.message });
+      toast({ variant: 'destructive', title: t('crm.toastUnavailableTitle'), description: error?.message });
     } finally { setLoading(false); }
   }, [selectedCompany, toast, user]);
 
@@ -221,17 +227,17 @@ export function PipelinePage() {
       };
       if (editingOpportunity) {
         await updateOpportunity(editingOpportunity.id, payload);
-        toast({ title: 'Opportunity updated' });
+        toast({ title: t('pipelinePage.toastOpportunityUpdated') });
       } else {
         await createOpportunity(selectedCompany.id, payload);
-        toast({ title: 'Opportunity created' });
+        toast({ title: t('pipelinePage.toastOpportunityCreated') });
       }
       setOppDialogOpen(false);
       setEditingOpportunity(null);
       setOppForm(emptyOpportunityForm());
       await load();
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Failed to save', description: error?.message });
+      toast({ variant: 'destructive', title: t('pipelinePage.toastSaveFailed'), description: error?.message });
     } finally { setSubmitting(false); }
   };
 
@@ -257,16 +263,16 @@ export function PipelinePage() {
       });
       setQuickForm(emptyQuickEntryForm());
       setQuickDialogOpen(false);
-      toast({ title: 'Lead added' });
+      toast({ title: t('pipelinePage.toastLeadAdded') });
       await load();
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Failed to add lead', description: error?.message });
+      toast({ variant: 'destructive', title: t('pipelinePage.toastLeadFailed'), description: error?.message });
     } finally { setSubmitting(false); }
   };
 
   if (!selectedCompany) return (
-    <SectionPageShell title="Opportunities" description="Manage your deal pipeline.">
-      <SectionEmptyState title="Choose a company to continue" description="CRM pipeline records are company-specific." />
+    <SectionPageShell title={t('pipelinePage.title')} description={t('pipelinePage.shortDescription')}>
+      <SectionEmptyState title={t('pipelinePage.chooseCompanyTitle')} description={t('pipelinePage.chooseCompanyDesc')} />
     </SectionPageShell>
   );
 
@@ -275,35 +281,35 @@ export function PipelinePage() {
   const forecast = dashboard?.forecastValue ?? openPipeline.reduce((s, o) => s + (o.expectedRevenue * (o.probability / 100)), 0);
 
   return (
-    <SectionPageShell title="Opportunities" description="Track deals through the pipeline from new lead to won.">
+    <SectionPageShell title={t('pipelinePage.title')} description={t('pipelinePage.description')}>
 
       {/* ── Summary stats ─────────────────────────────────────────────────── */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={Target}
-          label="Open Deals"
+          label={t('pipelinePage.statOpenDeals')}
           value={loading ? <Skeleton className="h-6 w-8" /> : dashboard?.openOpportunities ?? openPipeline.length}
-          sub={`${dashboard?.openLeads ?? '–'} active leads`}
+          sub={t('pipelinePage.statActiveLeads').replace('{count}', String(dashboard?.openLeads ?? '–'))}
           color="text-blue-600"
         />
         <StatCard
           icon={DollarSign}
-          label="Pipeline Value"
+          label={t('pipelinePage.statPipelineValue')}
           value={loading ? <Skeleton className="h-6 w-20" /> : amount(dashboard?.openOpportunityValue ?? openPipeline.reduce((s, o) => s + o.expectedRevenue, 0))}
           color="text-violet-600"
         />
         <StatCard
           icon={TrendingUp}
-          label="Weighted Forecast"
+          label={t('pipelinePage.statForecast')}
           value={loading ? <Skeleton className="h-6 w-20" /> : amount(forecast)}
-          sub="probability-adjusted"
+          sub={t('pipelinePage.statForecastSub')}
           color="text-amber-600"
         />
         <StatCard
           icon={CheckCircle2}
-          label="Won Revenue"
+          label={t('pipelinePage.statWonRevenue')}
           value={loading ? <Skeleton className="h-6 w-20" /> : amount(dashboard?.wonRevenue ?? wonRevenue)}
-          sub={`${opportunities.filter((o) => o.stage === 'Won').length} closed deals`}
+          sub={t('pipelinePage.statClosedDeals').replace('{count}', String(opportunities.filter((o) => o.stage === 'Won').length))}
           color="text-green-600"
         />
       </div>
@@ -313,21 +319,21 @@ export function PipelinePage() {
         <div className="rounded-xl border bg-card p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-semibold">My Workload</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Your personal CRM activity</p>
+              <h2 className="font-semibold">{t('pipelinePage.myWorkload')}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('pipelinePage.myWorkloadSub')}</p>
             </div>
             {myDashboard?.openTasks !== undefined && (
               <span className="text-xs rounded-full bg-primary/10 text-primary px-2.5 py-1 font-medium">
-                {myDashboard.openTasks} open task{myDashboard.openTasks !== 1 ? 's' : ''}
+                {(myDashboard.openTasks !== 1 ? t('pipelinePage.openTasks') : t('pipelinePage.openTask')).replace('{count}', String(myDashboard.openTasks))}
               </span>
             )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
-              { label: 'My contacts', value: myDashboard?.activeContacts ?? 0 },
-              { label: 'Won deals', value: myDashboard?.wonDeals ?? 0 },
-              { label: 'Follow-ups due', value: myDashboard?.openFollowups ?? 0 },
-              { label: 'My commission', value: loading ? '–' : amount(myDashboard?.commissionApproved ?? 0) },
+              { label: t('pipelinePage.myContacts'), value: myDashboard?.activeContacts ?? 0 },
+              { label: t('pipelinePage.wonDeals'), value: myDashboard?.wonDeals ?? 0 },
+              { label: t('pipelinePage.followupsDue'), value: myDashboard?.openFollowups ?? 0 },
+              { label: t('pipelinePage.myCommission'), value: loading ? '–' : amount(myDashboard?.commissionApproved ?? 0) },
             ].map(({ label, value }) => (
               <div key={label} className="rounded-lg bg-muted/40 p-3">
                 <p className="text-xs text-muted-foreground">{label}</p>
@@ -338,7 +344,7 @@ export function PipelinePage() {
         </div>
 
         <div className="rounded-xl border bg-card p-5">
-          <h2 className="font-semibold mb-3">Upcoming Follow-ups</h2>
+          <h2 className="font-semibold mb-3">{t('pipelinePage.upcomingFollowups')}</h2>
           <div className="space-y-2">
             {loading && [...Array(3)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
             {!loading && (dashboard?.upcomingFollowups ?? []).slice(0, 4).map((item) => (
@@ -356,7 +362,7 @@ export function PipelinePage() {
               </div>
             ))}
             {!loading && !dashboard?.upcomingFollowups?.length && (
-              <p className="text-sm text-muted-foreground text-center py-4">No upcoming follow-ups 🎉</p>
+              <p className="text-sm text-muted-foreground text-center py-4">{t('pipelinePage.noFollowups')}</p>
             )}
           </div>
         </div>
@@ -372,7 +378,7 @@ export function PipelinePage() {
             }`}
             data-tutorial="opportunities-view-toggle"
           >
-            <LayoutGrid className="h-3.5 w-3.5" /> Kanban
+            <LayoutGrid className="h-3.5 w-3.5" /> {t('pipelinePage.viewKanban')}
           </button>
           <button
             onClick={() => setView('list')}
@@ -380,15 +386,15 @@ export function PipelinePage() {
               view === 'list' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <List className="h-3.5 w-3.5" /> List
+            <List className="h-3.5 w-3.5" /> {t('pipelinePage.viewList')}
           </button>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setQuickDialogOpen(true)}>
-            <Plus className="me-1.5 h-3.5 w-3.5" /> Add Lead
+            <Plus className="me-1.5 h-3.5 w-3.5" /> {t('pipelinePage.addLead')}
           </Button>
           <Button size="sm" onClick={openNewOpp} data-tutorial="pipeline-create-opp">
-            <Plus className="me-1.5 h-3.5 w-3.5" /> New Opportunity
+            <Plus className="me-1.5 h-3.5 w-3.5" /> {t('pipelinePage.newOpportunity')}
           </Button>
         </div>
       </div>
@@ -405,7 +411,7 @@ export function PipelinePage() {
               <div key={stage} className={`rounded-xl border border-t-4 bg-card shrink-0 w-64 flex flex-col ${cfg.topBorder}`}>
                 <div className="px-3 pt-3 pb-2 border-b">
                   <div className="flex items-center justify-between">
-                    <span className={`text-sm font-semibold ${cfg.color}`}>{stage}</span>
+                    <span className={`text-sm font-semibold ${cfg.color}`}>{stageLabel(stage)}</span>
                     <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
                       {items.length}
                     </span>
@@ -459,7 +465,7 @@ export function PipelinePage() {
                             className="mt-2 h-6 w-full text-xs gap-1"
                             onClick={async () => { await updateOpportunityStage(item.id, moveTo); await load(); }}
                           >
-                            Move to {moveTo} <ChevronRight className="h-3 w-3" />
+                            {t('pipelinePage.moveTo').replace('{stage}', stageLabel(moveTo))} <ChevronRight className="h-3 w-3" />
                           </Button>
                         )}
                       </div>
@@ -467,7 +473,7 @@ export function PipelinePage() {
                   })}
                   {!loading && items.length === 0 && (
                     <div className="flex-1 rounded-lg border border-dashed flex items-center justify-center p-4">
-                      <p className="text-xs text-muted-foreground text-center">Drop opportunities here</p>
+                      <p className="text-xs text-muted-foreground text-center">{t('pipelinePage.dropHere')}</p>
                     </div>
                   )}
                 </div>
@@ -483,13 +489,13 @@ export function PipelinePage() {
           <Table>
             <TableHeader>
               <TableRow className="">
-                <TableHead>Deal</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Stage</TableHead>
-                <TableHead className="text-right">Revenue</TableHead>
-                <TableHead>Probability</TableHead>
-                <TableHead>Close Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('pipelinePage.colDeal')}</TableHead>
+                <TableHead>{t('pipelinePage.colContact')}</TableHead>
+                <TableHead>{t('pipelinePage.colStage')}</TableHead>
+                <TableHead className="text-right">{t('pipelinePage.colRevenue')}</TableHead>
+                <TableHead>{t('pipelinePage.colProbability')}</TableHead>
+                <TableHead>{t('pipelinePage.colCloseDate')}</TableHead>
+                <TableHead className="text-right">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -509,7 +515,7 @@ export function PipelinePage() {
                       <div className="text-xs text-muted-foreground">{item.serviceType}</div>
                     </TableCell>
                     <TableCell className="text-sm">{contactName(item.contactId)}</TableCell>
-                    <TableCell><StageBadge stage={item.stage} /></TableCell>
+                    <TableCell><StageBadge stage={item.stage} label={stageLabel(item.stage)} /></TableCell>
                     <TableCell className="text-right font-semibold text-sm">{amount(item.expectedRevenue)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -538,13 +544,13 @@ export function PipelinePage() {
                         {moveTo && (
                           <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
                             onClick={async () => { await updateOpportunityStage(item.id, moveTo); await load(); }}>
-                            {moveTo} <ChevronRight className="h-3 w-3" />
+                            {stageLabel(moveTo)} <ChevronRight className="h-3 w-3" />
                           </Button>
                         )}
                         {item.stage !== 'Won' && (
                           <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white gap-1"
                             onClick={async () => { await updateOpportunityStage(item.id, 'Won'); await load(); }}>
-                            <CheckCircle2 className="h-3 w-3" /> Won
+                            <CheckCircle2 className="h-3 w-3" /> {t('pipelinePage.markWon')}
                           </Button>
                         )}
                         {!['Won', 'Lost', 'Cancelled'].includes(item.stage) && (
@@ -560,7 +566,7 @@ export function PipelinePage() {
               })}
               {!loading && opportunities.length === 0 && (
                 <TableRow><TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                  No opportunities yet. Create your first one.
+                  {t('pipelinePage.emptyList')}
                 </TableCell></TableRow>
               )}
             </TableBody>
@@ -577,42 +583,42 @@ export function PipelinePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Target className="h-5 w-5 text-primary" />
-              {editingOpportunity ? 'Edit Opportunity' : 'New Opportunity'}
+              {editingOpportunity ? t('pipelinePage.editOpportunity') : t('pipelinePage.newOpportunity')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Contact <span className="text-destructive">*</span></Label>
+              <Label>{t('pipelinePage.fieldContact')} <span className="text-destructive">*</span></Label>
               <Select value={oppForm.contactId} onValueChange={(v) => setOppForm((p) => ({ ...p, contactId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select contact or lead" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t('pipelinePage.fieldSelectContact')} /></SelectTrigger>
                 <SelectContent>{contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Opportunity Title <span className="text-destructive">*</span></Label>
-              <Input placeholder="e.g. Q3 Social Media Partnership" value={oppForm.title} onChange={(e) => setOppForm((p) => ({ ...p, title: e.target.value }))} />
+              <Label>{t('pipelinePage.fieldTitle')} <span className="text-destructive">*</span></Label>
+              <Input placeholder={t('pipelinePage.fieldTitlePh')} value={oppForm.title} onChange={(e) => setOppForm((p) => ({ ...p, title: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>Service Type <span className="text-destructive">*</span></Label>
-              <Input placeholder="e.g. Influencer Campaign, Production, Branding" value={oppForm.serviceType} onChange={(e) => setOppForm((p) => ({ ...p, serviceType: e.target.value }))} />
+              <Label>{t('pipelinePage.fieldServiceType')} <span className="text-destructive">*</span></Label>
+              <Input placeholder={t('pipelinePage.fieldServiceTypePh')} value={oppForm.serviceType} onChange={(e) => setOppForm((p) => ({ ...p, serviceType: e.target.value }))} />
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5 col-span-2">
-                <Label>Expected Revenue</Label>
+                <Label>{t('pipelinePage.fieldExpectedRevenue')}</Label>
                 <Input type="number" placeholder="0.00" value={oppForm.expectedRevenue} onChange={(e) => setOppForm((p) => ({ ...p, expectedRevenue: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Probability %</Label>
+                <Label>{t('pipelinePage.fieldProbability')}</Label>
                 <Input type="number" min="0" max="100" placeholder="50" value={oppForm.probability} onChange={(e) => setOppForm((p) => ({ ...p, probability: e.target.value }))} />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Expected Close Date</Label>
+              <Label>{t('pipelinePage.fieldExpectedCloseDate')}</Label>
               <Input type="date" value={oppForm.expectedCloseDate} onChange={(e) => setOppForm((p) => ({ ...p, expectedCloseDate: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea placeholder="Any notes about this deal…" rows={2} value={oppForm.notes} onChange={(e) => setOppForm((p) => ({ ...p, notes: e.target.value }))} />
+              <Label>{t('pipelinePage.fieldNotes')}</Label>
+              <Textarea placeholder={t('pipelinePage.fieldNotesPh')} rows={2} value={oppForm.notes} onChange={(e) => setOppForm((p) => ({ ...p, notes: e.target.value }))} />
             </div>
             {editingOpportunity && selectedCompany && (
               <div className="pt-2 border-t">
@@ -626,9 +632,9 @@ export function PipelinePage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOppDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setOppDialogOpen(false)}>{t('common.cancel')}</Button>
             <Button onClick={saveOpp} disabled={submitting || !oppForm.contactId || !oppForm.title.trim() || !oppForm.serviceType.trim()}>
-              {submitting ? 'Saving…' : editingOpportunity ? 'Save Changes' : 'Create Opportunity'}
+              {submitting ? t('pipelinePage.saving') : editingOpportunity ? t('pipelinePage.saveChanges') : t('pipelinePage.createOpportunity')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -639,60 +645,60 @@ export function PipelinePage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-primary" /> Add Lead / Contact
+              <Plus className="h-5 w-5 text-primary" /> {t('pipelinePage.quickEntryTitle')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Type</Label>
+                <Label>{t('pipelinePage.fieldType')}</Label>
                 <Select value={quickForm.type} onValueChange={(v: ContactRoleType) => setQuickForm((p) => ({ ...p, type: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Lead">Lead</SelectItem>
-                    <SelectItem value="Client">Client</SelectItem>
-                    <SelectItem value="Vendor">Vendor</SelectItem>
-                    <SelectItem value="Influencer">Influencer</SelectItem>
-                    <SelectItem value="Partner">Partner</SelectItem>
+                    <SelectItem value="Lead">{t('pipelinePage.typeLead')}</SelectItem>
+                    <SelectItem value="Client">{t('pipelinePage.typeClient')}</SelectItem>
+                    <SelectItem value="Vendor">{t('pipelinePage.typeVendor')}</SelectItem>
+                    <SelectItem value="Influencer">{t('pipelinePage.typeInfluencer')}</SelectItem>
+                    <SelectItem value="Partner">{t('pipelinePage.typePartner')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Priority</Label>
+                <Label>{t('pipelinePage.fieldPriority')}</Label>
                 <Select value={quickForm.priority} onValueChange={(v: QuickEntryForm['priority']) => setQuickForm((p) => ({ ...p, priority: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="Low">Low</SelectItem>
+                    <SelectItem value="High">{t('pipelinePage.priorityHigh')}</SelectItem>
+                    <SelectItem value="Medium">{t('pipelinePage.priorityMedium')}</SelectItem>
+                    <SelectItem value="Low">{t('pipelinePage.priorityLow')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Name <span className="text-destructive">*</span></Label>
-              <Input placeholder="Contact name" value={quickForm.name} onChange={(e) => setQuickForm((p) => ({ ...p, name: e.target.value }))} />
+              <Label>{t('pipelinePage.fieldName')} <span className="text-destructive">*</span></Label>
+              <Input placeholder={t('pipelinePage.fieldNamePh')} value={quickForm.name} onChange={(e) => setQuickForm((p) => ({ ...p, name: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Phone</Label>
+                <Label>{t('pipelinePage.fieldPhone')}</Label>
                 <Input placeholder="+1 234 567 8900" value={quickForm.phone} onChange={(e) => setQuickForm((p) => ({ ...p, phone: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input placeholder="email@example.com" value={quickForm.email} onChange={(e) => setQuickForm((p) => ({ ...p, email: e.target.value }))} />
+                <Label>{t('pipelinePage.fieldEmail')}</Label>
+                <Input placeholder={t('pipelinePage.fieldEmailPh')} value={quickForm.email} onChange={(e) => setQuickForm((p) => ({ ...p, email: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Lead Status</Label>
+                <Label>{t('pipelinePage.fieldLeadStatus')}</Label>
                 <Select value={quickForm.status} onValueChange={(v: QuickEntryForm['status']) => setQuickForm((p) => ({ ...p, status: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>{leadStatuses.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Lead Source</Label>
+                <Label>{t('pipelinePage.fieldLeadSource')}</Label>
                 <Select value={quickForm.source} onValueChange={(v: QuickEntryForm['source']) => setQuickForm((p) => ({ ...p, source: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>{leadSources.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
@@ -700,18 +706,18 @@ export function PipelinePage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Next Follow-up Date</Label>
+              <Label>{t('pipelinePage.fieldNextFollowup')}</Label>
               <Input type="date" value={quickForm.nextFollowupDate} onChange={(e) => setQuickForm((p) => ({ ...p, nextFollowupDate: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea placeholder="How did you meet them? What do they need?" rows={2} value={quickForm.notes} onChange={(e) => setQuickForm((p) => ({ ...p, notes: e.target.value }))} />
+              <Label>{t('pipelinePage.fieldNotes')}</Label>
+              <Textarea placeholder={t('pipelinePage.fieldQuickNotesPh')} rows={2} value={quickForm.notes} onChange={(e) => setQuickForm((p) => ({ ...p, notes: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setQuickDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setQuickDialogOpen(false)}>{t('common.cancel')}</Button>
             <Button onClick={saveQuickEntry} disabled={submitting || !quickForm.name.trim()}>
-              {submitting ? 'Adding…' : 'Add Lead'}
+              {submitting ? t('pipelinePage.adding') : t('pipelinePage.addLead')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -26,6 +26,7 @@ import type {
 import { Download } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import Link from 'next/link';
+import { useI18n } from '@/context/i18n-context';
 
 const KpiCardLink: React.FC<
   React.PropsWithChildren<{ href?: string; tutorial?: string }>
@@ -48,18 +49,20 @@ const KpiCardLink: React.FC<
   );
 };
 
-const bucketLabel: Record<AgingBucket['bucket'], string> = {
-  current: 'Current',
-  '1_30': '1-30 days',
-  '31_60': '31-60 days',
-  '61_90': '61-90 days',
-  over_90: '> 90 days',
+const bucketLabelKey: Record<AgingBucket['bucket'], string> = {
+  current: 'financeOverview.bucketCurrent',
+  '1_30': 'financeOverview.bucket1_30',
+  '31_60': 'financeOverview.bucket31_60',
+  '61_90': 'financeOverview.bucket61_90',
+  over_90: 'financeOverview.bucketOver90',
 };
 
 export function FinanceOverviewPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
+  const bucketLabel = (bucket: AgingBucket['bucket']) => t(bucketLabelKey[bucket]);
   const [overview, setOverview] = React.useState<FinanceOverview | null>(null);
   const [receivablesAging, setReceivablesAging] = React.useState<AgingBucket[]>([]);
   const [payablesAging, setPayablesAging] = React.useState<AgingBucket[]>([]);
@@ -112,8 +115,8 @@ export function FinanceOverviewPanel() {
       setSupplierPayables([]);
       toast({
         variant: 'destructive',
-        title: 'Finance overview unavailable',
-        description: error?.message || 'Could not load finance analytics.',
+        title: t('financeOverview.toastUnavailableTitle'),
+        description: error?.message || t('financeOverview.toastUnavailableDesc'),
       });
     } finally {
       setLoading(false);
@@ -145,7 +148,7 @@ export function FinanceOverviewPanel() {
     return (
       <Card>
         <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view finance analytics.
+          {t('financeOverview.selectCompany')}
         </CardContent>
       </Card>
     );
@@ -170,7 +173,7 @@ export function FinanceOverviewPanel() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7" data-tutorial="finance-metrics-grid">
         <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-receivables">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Open Receivables</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.openReceivables')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.openReceivables || 0)}</div>
@@ -178,7 +181,7 @@ export function FinanceOverviewPanel() {
         </KpiCardLink>
         <KpiCardLink href="/finance?tab=payables" tutorial="finance-metric-payables">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Open Payables</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.openPayables')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.openPayables || 0)}</div>
@@ -186,7 +189,7 @@ export function FinanceOverviewPanel() {
         </KpiCardLink>
         <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-billed">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Billed This Month</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.billedThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.billedThisMonth || 0)}</div>
@@ -194,7 +197,7 @@ export function FinanceOverviewPanel() {
         </KpiCardLink>
         <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-collected">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Collected This Month</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.collectedThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.paidThisMonth || 0)}</div>
@@ -202,7 +205,7 @@ export function FinanceOverviewPanel() {
         </KpiCardLink>
         <KpiCardLink href="/finance?tab=payables" tutorial="finance-metric-paid-payables">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Paid Payables This Month</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.paidPayablesThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.paidPayablesThisMonth || 0)}</div>
@@ -210,7 +213,7 @@ export function FinanceOverviewPanel() {
         </KpiCardLink>
         <KpiCardLink href="/finance?tab=expenses">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Expense Receipts</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.expenseReceipts')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(overview?.expenseReceiptsThisMonth || 0)}</div>
@@ -218,12 +221,12 @@ export function FinanceOverviewPanel() {
         </KpiCardLink>
         <KpiCardLink href="/purchases">
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Unbilled POs</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.unbilledPos')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(unbilledPurchaseValue)}</div>
             <div className="text-xs text-muted-foreground">
-              {suppliersWithOpenPayables} suppliers with open payables
+              {t('financeOverview.suppliersOpenPayables').replace('{count}', String(suppliersWithOpenPayables))}
             </div>
           </CardContent>
         </KpiCardLink>
@@ -232,9 +235,9 @@ export function FinanceOverviewPanel() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Aging Summary</CardTitle>
+            <CardTitle>{t('financeOverview.agingSummary')}</CardTitle>
             <p className="text-sm text-muted-foreground">
-              {asOf ? `As of ${format(asOf, 'MMM d, yyyy')}` : 'As of today'}.
+              {asOf ? t('financeOverview.agingAsOf').replace('{date}', format(asOf, 'MMM d, yyyy')) : t('financeOverview.agingAsOfToday')}.
             </p>
           </div>
           <Button
@@ -244,12 +247,12 @@ export function FinanceOverviewPanel() {
               downloadCsv(
                 `finance-aging-${format(new Date(), 'yyyy-MM-dd')}.csv`,
                 ['bucket', 'receivables', 'payables'],
-                bucketRows.map((row) => [bucketLabel[row.bucket], row.receivables, row.payables]),
+                bucketRows.map((row) => [bucketLabel(row.bucket), row.receivables, row.payables]),
               )
             }
           >
             <Download className="me-2 h-4 w-4" />
-            Export CSV
+            {t('financeOverview.exportCsv')}
           </Button>
         </CardHeader>
         <CardContent>
@@ -275,7 +278,7 @@ export function FinanceOverviewPanel() {
               <TableBody>
                 {bucketRows.map((row) => (
                   <TableRow key={row.bucket}>
-                    <TableCell>{bucketLabel[row.bucket]}</TableCell>
+                    <TableCell>{bucketLabel(row.bucket)}</TableCell>
                     <TableCell className="text-end">{amount(row.receivables)}</TableCell>
                     <TableCell className="text-end">{amount(row.payables)}</TableCell>
                   </TableRow>

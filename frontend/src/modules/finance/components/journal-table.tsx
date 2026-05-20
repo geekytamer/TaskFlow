@@ -40,6 +40,7 @@ import type { JournalEntry, LedgerAccount, LedgerAccountType } from '@/modules/f
 import { Download, FilePlus2, NotebookPen, Pencil, Trash2 } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
+import { useI18n } from '@/context/i18n-context';
 
 const accountTypeOrder: LedgerAccountType[] = [
   'Asset',
@@ -49,12 +50,12 @@ const accountTypeOrder: LedgerAccountType[] = [
   'Expense',
 ];
 
-const accountTypeDescriptions: Record<LedgerAccountType, string> = {
-  Asset: 'Resources the company owns or controls.',
-  Liability: 'Amounts the company owes to others.',
-  Equity: 'Owner capital and retained earnings.',
-  Revenue: 'Income earned from operations and other activity.',
-  Expense: 'Costs incurred to operate the business.',
+const accountTypeDescriptionKeys: Record<LedgerAccountType, string> = {
+  Asset: 'journal.descAsset',
+  Liability: 'journal.descLiability',
+  Equity: 'journal.descEquity',
+  Revenue: 'journal.descRevenue',
+  Expense: 'journal.descExpense',
 };
 
 type AccountFormState = {
@@ -89,7 +90,10 @@ const accountColumnGroup = (
 export function JournalTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
+  const typeLabel = (type: LedgerAccountType) => t(`journal.type${type}`);
+  const typeDescription = (type: LedgerAccountType) => t(accountTypeDescriptionKeys[type]);
   const [entries, setEntries] = React.useState<JournalEntry[]>([]);
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -129,8 +133,8 @@ export function JournalTable() {
       setAccounts([]);
       toast({
         variant: 'destructive',
-        title: 'Ledger unavailable',
-        description: error?.message || 'Could not load journal entries.',
+        title: t('journal.toastUnavailableTitle'),
+        description: error?.message || t('journal.toastUnavailableDesc'),
       });
     } finally {
       setLoading(false);
@@ -205,8 +209,8 @@ export function JournalTable() {
     if (!accountForm.name.trim()) {
       toast({
         variant: 'destructive',
-        title: 'Missing account details',
-        description: 'Account name is required. Code is generated automatically.',
+        title: t('journal.toastMissingTitle'),
+        description: t('journal.toastMissingDesc'),
       });
       return;
     }
@@ -219,7 +223,7 @@ export function JournalTable() {
           description: accountForm.description.trim() || undefined,
           isActive: accountForm.isActive,
         });
-        toast({ title: 'Ledger account updated' });
+        toast({ title: t('journal.toastAccountUpdated') });
       } else {
         await createLedgerAccount(selectedCompany.id, {
           name: accountForm.name.trim(),
@@ -228,7 +232,7 @@ export function JournalTable() {
           description: accountForm.description.trim() || undefined,
           isActive: accountForm.isActive,
         });
-        toast({ title: 'Ledger account created' });
+        toast({ title: t('journal.toastAccountCreated') });
       }
       setOpenAccount(false);
       resetAccountForm();
@@ -236,8 +240,8 @@ export function JournalTable() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: accountForm.id ? 'Account update failed' : 'Account creation failed',
-        description: error?.message || 'Could not save account.',
+        title: accountForm.id ? t('journal.toastAccountUpdateFailedTitle') : t('journal.toastAccountCreateFailedTitle'),
+        description: error?.message || t('journal.toastAccountSaveFailedDesc'),
       });
     }
   };
@@ -246,12 +250,12 @@ export function JournalTable() {
     try {
       await deleteLedgerAccount(account.id);
       await load();
-      toast({ title: 'Ledger account deleted' });
+      toast({ title: t('journal.toastAccountDeleted') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Delete failed',
-        description: error?.message || 'Could not delete account.',
+        title: t('journal.toastDeleteFailedTitle'),
+        description: error?.message || t('journal.toastDeleteFailedDesc'),
       });
     }
   };
@@ -262,8 +266,8 @@ export function JournalTable() {
     if (!journalForm.debitAccountId || !journalForm.creditAccountId || amount <= 0) {
       toast({
         variant: 'destructive',
-        title: 'Invalid journal',
-        description: 'Debit account, credit account, and amount are required.',
+        title: t('journal.toastInvalidTitle'),
+        description: t('journal.toastInvalidDesc'),
       });
       return;
     }
@@ -298,12 +302,12 @@ export function JournalTable() {
         description: '',
       });
       await load();
-      toast({ title: 'Journal entry posted' });
+      toast({ title: t('journal.toastPosted') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Journal post failed',
-        description: error?.message || 'Could not post journal entry.',
+        title: t('journal.toastPostFailedTitle'),
+        description: error?.message || t('journal.toastPostFailedDesc'),
       });
     }
   };
@@ -329,7 +333,7 @@ export function JournalTable() {
     return (
       <Card>
         <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view the chart of accounts and journal.
+          {t('journal.selectCompany')}
         </CardContent>
       </Card>
     );
@@ -342,7 +346,7 @@ export function JournalTable() {
           <Input
             value={accountSearch}
             onChange={(event) => setAccountSearch(event.target.value)}
-            placeholder="Search by code, name, detail type, or description"
+            placeholder={t('journal.searchPlaceholder')}
             className="max-w-md"
           />
         )}
@@ -355,16 +359,18 @@ export function JournalTable() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All sections</SelectItem>
+              <SelectItem value="all">{t('journal.allSections')}</SelectItem>
               {accountTypeOrder.map((type) => (
                 <SelectItem key={type} value={type}>
-                  {type}
+                  {typeLabel(type)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredAccounts.length} accounts shown • ${accounts.filter((account) => account.isActive !== false).length} active`}
+        summary={t('journal.summaryActive')
+          .replace('{count}', String(filteredAccounts.length))
+          .replace('{active}', String(accounts.filter((account) => account.isActive !== false).length))}
         actions={(
           <>
             <Button
@@ -388,7 +394,7 @@ export function JournalTable() {
               }
             >
               <Download className="me-2 h-4 w-4" />
-              Export Accounts
+              {t('journal.exportAccounts')}
             </Button>
 
             <Dialog
@@ -401,34 +407,34 @@ export function JournalTable() {
               <DialogTrigger asChild>
                 <Button variant="outline" onClick={openCreateAccount} data-tutorial="coa-add-account-btn">
                   <FilePlus2 className="me-2 h-4 w-4" />
-                  Add Account
+                  {t('journal.addAccount')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
-                  <DialogTitle>{accountForm.id ? 'Edit Ledger Account' : 'Create Ledger Account'}</DialogTitle>
+                  <DialogTitle>{accountForm.id ? t('journal.editTitle') : t('journal.createTitle')}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-3 py-2 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>Code</Label>
+                    <Label>{t('journal.codeLabel')}</Label>
                     <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
                       {accountForm.id
-                        ? 'Code is fixed after creation'
-                        : `Auto-generated in ${accountForm.type}`}
+                        ? t('journal.codeFixed')
+                        : t('journal.codeAuto').replace('{type}', typeLabel(accountForm.type))}
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label>Name</Label>
+                    <Label>{t('journal.nameLabel')}</Label>
                     <Input
                       value={accountForm.name}
                       onChange={(event) =>
                         setAccountForm((prev) => ({ ...prev, name: event.target.value }))
                       }
-                      placeholder="e.g. Supplies Expense"
+                      placeholder={t('journal.namePlaceholder')}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Section</Label>
+                    <Label>{t('journal.sectionLabel')}</Label>
                     <Select
                       value={accountForm.type}
                       onValueChange={(value) =>
@@ -441,34 +447,34 @@ export function JournalTable() {
                       <SelectContent>
                         {accountTypeOrder.map((type) => (
                           <SelectItem key={type} value={type}>
-                            {type}
+                            {typeLabel(type)}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label>Detail Type</Label>
+                    <Label>{t('journal.detailTypeLabel')}</Label>
                     <Input
                       value={accountForm.detailType}
                       onChange={(event) =>
                         setAccountForm((prev) => ({ ...prev, detailType: event.target.value }))
                       }
-                      placeholder="e.g. Trade receivables"
+                      placeholder={t('journal.detailTypePlaceholder')}
                     />
                   </div>
                   <div className="space-y-1 sm:col-span-2">
-                    <Label>Description</Label>
+                    <Label>{t('journal.descriptionLabel')}</Label>
                     <Textarea
                       value={accountForm.description}
                       onChange={(event) =>
                         setAccountForm((prev) => ({ ...prev, description: event.target.value }))
                       }
-                      placeholder="Explain what should be posted into this account."
+                      placeholder={t('journal.descriptionPlaceholder')}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Status</Label>
+                    <Label>{t('journal.statusLabel')}</Label>
                     <Select
                       value={accountForm.isActive ? 'active' : 'inactive'}
                       onValueChange={(value) =>
@@ -479,17 +485,17 @@ export function JournalTable() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="inactive">Inactive</SelectItem>
+                        <SelectItem value="active">{t('journal.statusActive')}</SelectItem>
+                        <SelectItem value="inactive">{t('journal.statusInactive')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setOpenAccount(false)}>
-                    Cancel
+                    {t('journal.cancel')}
                   </Button>
-                  <Button onClick={handleSaveAccount}>{accountForm.id ? 'Save Changes' : 'Create Account'}</Button>
+                  <Button onClick={handleSaveAccount}>{accountForm.id ? t('journal.saveChanges') : t('journal.createAccount')}</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -498,26 +504,26 @@ export function JournalTable() {
               <DialogTrigger asChild>
                 <Button data-tutorial="coa-journal-btn">
                   <NotebookPen className="me-2 h-4 w-4" />
-                  Manual Journal
+                  {t('journal.manualJournal')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
-                  <DialogTitle>Post Manual Journal Entry</DialogTitle>
+                  <DialogTitle>{t('journal.postManualTitle')}</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-3 py-2 sm:grid-cols-2">
                   <div className="space-y-1 sm:col-span-2">
-                    <Label>Memo</Label>
+                    <Label>{t('journal.memoLabel')}</Label>
                     <Input
                       value={journalForm.memo}
                       onChange={(event) =>
                         setJournalForm((prev) => ({ ...prev, memo: event.target.value }))
                       }
-                      placeholder="Adjustment / accrual memo"
+                      placeholder={t('journal.memoPlaceholder')}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Entry Date</Label>
+                    <Label>{t('journal.entryDateLabel')}</Label>
                     <Input
                       type="date"
                       value={journalForm.entryDate}
@@ -527,7 +533,7 @@ export function JournalTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Amount</Label>
+                    <Label>{t('journal.amountLabel')}</Label>
                     <Input
                       type="number"
                       value={journalForm.amount}
@@ -537,7 +543,7 @@ export function JournalTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Debit Account</Label>
+                    <Label>{t('journal.debitAccountLabel')}</Label>
                     <Select
                       value={journalForm.debitAccountId}
                       onValueChange={(value) =>
@@ -545,7 +551,7 @@ export function JournalTable() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select account" />
+                        <SelectValue placeholder={t('journal.selectAccount')} />
                       </SelectTrigger>
                       <SelectContent>
                         {accounts
@@ -559,7 +565,7 @@ export function JournalTable() {
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label>Credit Account</Label>
+                    <Label>{t('journal.creditAccountLabel')}</Label>
                     <Select
                       value={journalForm.creditAccountId}
                       onValueChange={(value) =>
@@ -567,7 +573,7 @@ export function JournalTable() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select account" />
+                        <SelectValue placeholder={t('journal.selectAccount')} />
                       </SelectTrigger>
                       <SelectContent>
                         {accounts
@@ -581,7 +587,7 @@ export function JournalTable() {
                     </Select>
                   </div>
                   <div className="space-y-1 sm:col-span-2">
-                    <Label>Line Description</Label>
+                    <Label>{t('journal.lineDescriptionLabel')}</Label>
                     <Textarea
                       value={journalForm.description}
                       onChange={(event) =>
@@ -592,9 +598,9 @@ export function JournalTable() {
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setOpenJournal(false)}>
-                    Cancel
+                    {t('journal.cancel')}
                   </Button>
-                  <Button onClick={handleCreateJournal}>Post Entry</Button>
+                  <Button onClick={handleCreateJournal}>{t('journal.postEntry')}</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -606,12 +612,14 @@ export function JournalTable() {
         {accountStats.map((stat) => (
           <Card key={stat.type}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">{stat.type}</CardTitle>
+              <CardTitle className="text-sm font-medium">{typeLabel(stat.type)}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stat.total}</div>
               <p className="text-xs text-muted-foreground">
-                {stat.active} active • {accountTypeDescriptions[stat.type]}
+                {t('journal.activeDescriptionTail')
+                  .replace('{count}', String(stat.active))
+                  .replace('{description}', typeDescription(stat.type))}
               </p>
             </CardContent>
           </Card>
@@ -620,7 +628,7 @@ export function JournalTable() {
 
       <Card data-tutorial="coa-table">
         <CardHeader>
-          <CardTitle>Chart of Accounts</CardTitle>
+          <CardTitle>{t('journal.chartOfAccountsTitle')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           {accountTypeOrder.map((type) => {
@@ -628,28 +636,28 @@ export function JournalTable() {
             return (
               <div key={type} className="space-y-3">
                 <div>
-                  <h3 className="text-base font-semibold">{type}</h3>
-                  <p className="text-sm text-muted-foreground">{accountTypeDescriptions[type]}</p>
+                  <h3 className="text-base font-semibold">{typeLabel(type)}</h3>
+                  <p className="text-sm text-muted-foreground">{typeDescription(type)}</p>
                 </div>
                 <div className="overflow-x-auto rounded-md border">
                   <Table className="min-w-[1100px] table-fixed">
                     {accountColumnGroup}
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Code</TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Detail Type</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Class</TableHead>
-                        <TableHead className="text-end">Actions</TableHead>
+                        <TableHead>{t('journal.colCode')}</TableHead>
+                        <TableHead>{t('journal.colName')}</TableHead>
+                        <TableHead>{t('journal.colDetailType')}</TableHead>
+                        <TableHead>{t('journal.colDescription')}</TableHead>
+                        <TableHead>{t('journal.colStatus')}</TableHead>
+                        <TableHead>{t('journal.colClass')}</TableHead>
+                        <TableHead className="text-end">{t('journal.colActions')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {typeAccounts.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={7} className="h-16 text-center text-muted-foreground">
-                            No {type.toLowerCase()} accounts match the current filters.
+                            {t('journal.noAccountsMatch').replace('{type}', typeLabel(type))}
                           </TableCell>
                         </TableRow>
                       ) : (
@@ -661,14 +669,14 @@ export function JournalTable() {
                             <TableCell className="truncate">{account.description || '—'}</TableCell>
                             <TableCell>
                               <Badge variant={account.isActive === false ? 'outline' : 'default'}>
-                                {account.isActive === false ? 'Inactive' : 'Active'}
+                                {account.isActive === false ? t('journal.inactiveBadge') : t('journal.activeBadge')}
                               </Badge>
                             </TableCell>
                             <TableCell>
                               {account.isSystem ? (
-                                <Badge>System</Badge>
+                                <Badge>{t('journal.systemBadge')}</Badge>
                               ) : (
-                                <Badge variant="outline">Custom</Badge>
+                                <Badge variant="outline">{t('journal.customBadge')}</Badge>
                               )}
                             </TableCell>
                             <TableCell className="text-end">
@@ -680,7 +688,7 @@ export function JournalTable() {
                                   disabled={account.isSystem}
                                 >
                                   <Pencil className="me-2 h-4 w-4" />
-                                  Edit
+                                  {t('journal.edit')}
                                 </Button>
                                 <Button
                                   variant="outline"
@@ -689,7 +697,7 @@ export function JournalTable() {
                                   disabled={account.isSystem}
                                 >
                                   <Trash2 className="me-2 h-4 w-4" />
-                                  Delete
+                                  {t('journal.delete')}
                                 </Button>
                               </div>
                             </TableCell>
@@ -707,26 +715,26 @@ export function JournalTable() {
 
       <Card data-tutorial="coa-journal-table">
         <CardHeader>
-          <CardTitle>Journal Entries</CardTitle>
+          <CardTitle>{t('journal.journalEntriesTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Memo</TableHead>
-                  <TableHead>Lines</TableHead>
-                  <TableHead className="text-end">Total Debit</TableHead>
-                  <TableHead className="text-end">Total Credit</TableHead>
+                  <TableHead>{t('journal.colDate')}</TableHead>
+                  <TableHead>{t('journal.colSource')}</TableHead>
+                  <TableHead>{t('journal.colMemo')}</TableHead>
+                  <TableHead>{t('journal.colLines')}</TableHead>
+                  <TableHead className="text-end">{t('journal.colTotalDebit')}</TableHead>
+                  <TableHead className="text-end">{t('journal.colTotalCredit')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {entries.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                      No journal entries yet.
+                      {t('journal.noEntries')}
                     </TableCell>
                   </TableRow>
                 ) : (

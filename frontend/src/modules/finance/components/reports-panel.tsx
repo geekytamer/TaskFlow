@@ -13,6 +13,7 @@ import { downloadReportExport, getManagementReportSummary } from '@/services/fin
 import type { ManagementReportSummary } from '@/modules/finance/types';
 import { Download, FileText } from 'lucide-react';
 import { useCompanyCurrency } from '@/lib/currency';
+import { useI18n } from '@/context/i18n-context';
 
 const renderPrintDocument = (
   summary: ManagementReportSummary,
@@ -69,6 +70,7 @@ const renderPrintDocument = (
 export function ReportsPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const [summary, setSummary] = React.useState<ManagementReportSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -87,8 +89,8 @@ export function ReportsPanel() {
       setSummary(null);
       toast({
         variant: 'destructive',
-        title: 'Reports unavailable',
-        description: error?.message || 'Could not load management reports.',
+        title: t('accountActivity.toastUnavailableTitle'),
+        description: error?.message || t('accountActivity.toastUnavailableDesc'),
       });
     } finally {
       setLoading(false);
@@ -108,8 +110,8 @@ export function ReportsPanel() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Export failed',
-        description: error?.message || 'Could not export report.',
+        title: t('accountActivity.toastExportFailedTitle'),
+        description: error?.message || t('accountActivity.toastExportFailedDesc'),
       });
     }
   };
@@ -145,7 +147,7 @@ export function ReportsPanel() {
     return (
       <Card>
         <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view management reports.
+          {t('accountActivity.selectCompany')}
         </CardContent>
       </Card>
     );
@@ -156,30 +158,30 @@ export function ReportsPanel() {
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" size="sm" onClick={() => handleExport('management-kpis')}>
           <Download className="me-2 h-4 w-4" />
-          Export KPIs
+          {t('accountActivity.exportKpis')}
         </Button>
         <Button variant="outline" size="sm" onClick={() => handleExport('clients')}>
           <Download className="me-2 h-4 w-4" />
-          Export Clients
+          {t('accountActivity.exportClients')}
         </Button>
         <Button variant="outline" size="sm" onClick={() => handleExport('suppliers')}>
           <Download className="me-2 h-4 w-4" />
-          Export Suppliers
+          {t('accountActivity.exportSuppliers')}
         </Button>
         <Button variant="outline" size="sm" onClick={() => handleExport('inventory-alerts')}>
           <Download className="me-2 h-4 w-4" />
-          Export Inventory Alerts
+          {t('accountActivity.exportInventoryAlerts')}
         </Button>
         <Button size="sm" onClick={handlePrint}>
           <FileText className="me-2 h-4 w-4" />
-          Print / Save PDF
+          {t('accountActivity.printSavePdf')}
         </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Open Receivables</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.openReceivables')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(summary.finance.openReceivables)}</div>
@@ -187,7 +189,7 @@ export function ReportsPanel() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Open Payables</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.openPayables')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(summary.finance.openPayables)}</div>
@@ -195,34 +197,34 @@ export function ReportsPanel() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Inventory Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.inventoryValue')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(summary.inventory.stockValue)}</div>
-            <div className="text-xs text-muted-foreground">{summary.inventory.totalItems} active items</div>
+            <div className="text-xs text-muted-foreground">{t('accountActivity.activeItems').replace('{count}', String(summary.inventory.totalItems))}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.lowStockAlerts')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{summary.inventory.lowStockCount}</div>
-            <div className="text-xs text-muted-foreground">{summary.inventory.outOfStockCount} out of stock</div>
+            <div className="text-xs text-muted-foreground">{t('accountActivity.outOfStock').replace('{count}', String(summary.inventory.outOfStockCount))}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Open Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.openOrders')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.purchases.openOrders}</div>
-            <div className="text-xs text-muted-foreground">{summary.purchases.awaitingReceiptUnits} units awaiting receipt</div>
+            <div className="text-xs text-muted-foreground">{t('accountActivity.awaitingReceipt').replace('{count}', String(summary.purchases.awaitingReceiptUnits))}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Ordered Spend</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.orderedSpend')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(summary.purchases.orderedSpend)}</div>
@@ -230,7 +232,7 @@ export function ReportsPanel() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Collected This Month</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.collectedThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">{amount(summary.finance.paidThisMonth)}</div>
@@ -238,7 +240,7 @@ export function ReportsPanel() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Paid Payables This Month</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.paidPayablesThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">{amount(summary.finance.paidPayablesThisMonth)}</div>
@@ -246,7 +248,7 @@ export function ReportsPanel() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Unbilled PO Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('accountActivity.unbilledPoValue')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{amount(summary.purchases.unbilledValue)}</div>
@@ -257,17 +259,17 @@ export function ReportsPanel() {
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Top Clients</CardTitle>
+            <CardTitle>{t('accountActivity.topClients')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Client</TableHead>
-                    <TableHead className="text-end">Billed</TableHead>
-                    <TableHead className="text-end">Paid</TableHead>
-                    <TableHead className="text-end">Outstanding</TableHead>
+                    <TableHead>{t('accountActivity.colClient')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colBilled')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colPaid')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colOutstanding')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -282,7 +284,7 @@ export function ReportsPanel() {
                   {summary.topClients.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="h-20 text-center text-sm text-muted-foreground">
-                        No client billing data yet.
+                        {t('accountActivity.noClientData')}
                       </TableCell>
                     </TableRow>
                   )}
@@ -294,17 +296,17 @@ export function ReportsPanel() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Top Suppliers</CardTitle>
+            <CardTitle>{t('accountActivity.topSuppliers')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Supplier</TableHead>
-                    <TableHead className="text-end">Ordered</TableHead>
-                    <TableHead className="text-end">Open Payables</TableHead>
-                    <TableHead className="text-end">Remaining To Bill</TableHead>
+                    <TableHead>{t('accountActivity.colSupplier')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colOrdered')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colOpenPayables')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colRemainingToBill')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -319,7 +321,7 @@ export function ReportsPanel() {
                   {summary.topSuppliers.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="h-20 text-center text-sm text-muted-foreground">
-                        No supplier spend data yet.
+                        {t('accountActivity.noSupplierData')}
                       </TableCell>
                     </TableRow>
                   )}
@@ -333,18 +335,18 @@ export function ReportsPanel() {
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Low Stock Alerts</CardTitle>
+            <CardTitle>{t('accountActivity.lowStockTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-end">On Hand</TableHead>
-                    <TableHead className="text-end">Reorder</TableHead>
-                    <TableHead>Location</TableHead>
+                    <TableHead>{t('accountActivity.colSku')}</TableHead>
+                    <TableHead>{t('accountActivity.colItem')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colOnHand')}</TableHead>
+                    <TableHead className="text-end">{t('accountActivity.colReorder')}</TableHead>
+                    <TableHead>{t('accountActivity.colLocation')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -354,13 +356,13 @@ export function ReportsPanel() {
                       <TableCell>{item.name}</TableCell>
                       <TableCell className="text-end">{item.onHand}</TableCell>
                       <TableCell className="text-end">{item.reorderPoint}</TableCell>
-                      <TableCell>{item.location || 'Unassigned'}</TableCell>
+                      <TableCell>{item.location || t('accountActivity.unassigned')}</TableCell>
                     </TableRow>
                   ))}
                   {summary.lowStockItems.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="h-20 text-center text-sm text-muted-foreground">
-                        No low-stock alerts right now.
+                        {t('accountActivity.noLowStock')}
                       </TableCell>
                     </TableRow>
                   )}
@@ -372,7 +374,7 @@ export function ReportsPanel() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle>{t('accountActivity.recentActivityTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -380,13 +382,13 @@ export function ReportsPanel() {
                 <div key={event.id} className="rounded-lg border p-3">
                   <div className="font-medium">{event.summary}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {(event.actorName || 'System')} • {event.entityType.replace('_', ' ')} • {format(event.createdAt, 'MMM d, yyyy h:mm a')}
+                    {(event.actorName || t('accountActivity.system'))} • {event.entityType.replace('_', ' ')} • {format(event.createdAt, 'MMM d, yyyy h:mm a')}
                   </div>
                 </div>
               ))}
               {summary.recentActivity.length === 0 && (
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  No recent activity recorded yet.
+                  {t('accountActivity.noRecentActivity')}
                 </div>
               )}
             </div>

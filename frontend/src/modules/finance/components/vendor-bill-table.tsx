@@ -52,6 +52,7 @@ import { CircleDollarSign, Download, FilePlus, ListChecks } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
+import { useI18n } from '@/context/i18n-context';
 
 const vendorPaymentMethods = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'] as const;
 
@@ -65,9 +66,22 @@ const statusColor: Record<VendorBillStatus, string> = {
 export function VendorBillTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
   const canManageFinance = effectiveRole !== 'Employee';
+
+  const vendorStatusLabel = (status: VendorBillStatus) => t(`vendorBills.status${status}`);
+  const vendorMethodLabel = (method: string) => {
+    switch (method) {
+      case 'Bank Transfer': return t('vendorBills.payMethodBankTransfer');
+      case 'Cash': return t('vendorBills.payMethodCash');
+      case 'Card': return t('vendorBills.payMethodCard');
+      case 'Cheque': return t('vendorBills.payMethodCheque');
+      case 'Other': return t('vendorBills.payMethodOther');
+      default: return method;
+    }
+  };
 
   const [bills, setBills] = React.useState<VendorBill[]>([]);
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
@@ -133,8 +147,8 @@ export function VendorBillTable() {
       setPurchasePayables([]);
       toast({
         variant: 'destructive',
-        title: 'Vendor bills unavailable',
-        description: error?.message || 'Could not load vendor bills.',
+        title: t('vendorBills.toastUnavailableTitle'),
+        description: error?.message || t('vendorBills.toastUnavailableDesc'),
       });
     } finally {
       setLoading(false);
@@ -221,16 +235,16 @@ export function VendorBillTable() {
     if (!vendorName || !form.issueDate) {
       toast({
         variant: 'destructive',
-        title: 'Missing required fields',
-        description: 'Vendor and issue date are required.',
+        title: t('vendorBills.toastMissingFieldsTitle'),
+        description: t('vendorBills.toastMissingFieldsDesc'),
       });
       return;
     }
     if (!amount || amount <= 0) {
       toast({
         variant: 'destructive',
-        title: 'Invalid amount',
-        description: 'Vendor bill amount must be greater than zero.',
+        title: t('vendorBills.toastInvalidAmountTitle'),
+        description: t('vendorBills.toastInvalidAmountDesc'),
       });
       return;
     }
@@ -250,12 +264,12 @@ export function VendorBillTable() {
       setOpenCreate(false);
       resetForm();
       await load();
-      toast({ title: 'Vendor bill created' });
+      toast({ title: t('vendorBills.toastCreated') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Create failed',
-        description: error?.message || 'Could not create vendor bill.',
+        title: t('vendorBills.toastCreateFailedTitle'),
+        description: error?.message || t('vendorBills.toastCreateFailedDesc'),
       });
     }
   };
@@ -277,8 +291,8 @@ export function VendorBillTable() {
       setBillPayments([]);
       toast({
         variant: 'destructive',
-        title: 'Payments unavailable',
-        description: error?.message || 'Could not load vendor bill payments.',
+        title: t('vendorBills.toastPaymentsUnavailableTitle'),
+        description: error?.message || t('vendorBills.toastPaymentsUnavailableDesc'),
       });
     } finally {
       setPaymentLoading(false);
@@ -291,8 +305,8 @@ export function VendorBillTable() {
     if (!Number.isFinite(amount) || amount <= 0) {
       toast({
         variant: 'destructive',
-        title: 'Invalid payment',
-        description: 'Payment amount must be greater than zero.',
+        title: t('vendorBills.toastInvalidPaymentTitle'),
+        description: t('vendorBills.toastInvalidPaymentDesc'),
       });
       return;
     }
@@ -307,12 +321,12 @@ export function VendorBillTable() {
       setSelectedBill(null);
       setBillPayments([]);
       await load();
-      toast({ title: 'Vendor payment recorded' });
+      toast({ title: t('vendorBills.toastPaymentRecorded') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Payment failed',
-        description: error?.message || 'Could not record vendor bill payment.',
+        title: t('vendorBills.toastPaymentFailedTitle'),
+        description: error?.message || t('vendorBills.toastPaymentFailedDesc'),
       });
     }
   };
@@ -325,14 +339,16 @@ export function VendorBillTable() {
       });
       await load();
       toast({
-        title: 'Bulk update complete',
-        description: `${result.updatedCount} bills moved to ${targetStatus}.`,
+        title: t('vendorBills.toastBulkCompleteTitle'),
+        description: t('vendorBills.toastBulkCompleteDesc')
+          .replace('{count}', String(result.updatedCount))
+          .replace('{status}', targetStatus),
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Bulk update failed',
-        description: error?.message || 'Could not apply bulk status update.',
+        title: t('vendorBills.toastBulkFailedTitle'),
+        description: error?.message || t('vendorBills.toastBulkFailedDesc'),
       });
     }
   };
@@ -343,11 +359,11 @@ export function VendorBillTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Bill #</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t('vendorBills.colBillNumber')}</TableHead>
+              <TableHead>{t('vendorBills.colVendor')}</TableHead>
+              <TableHead>{t('vendorBills.colDueDate')}</TableHead>
+              <TableHead>{t('vendorBills.colAmount')}</TableHead>
+              <TableHead>{t('vendorBills.colStatus')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -370,7 +386,7 @@ export function VendorBillTable() {
     return (
       <div className="rounded-lg border">
         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view vendor bills.
+          {t('vendorBills.selectCompany')}
         </div>
       </div>
     );
@@ -383,7 +399,7 @@ export function VendorBillTable() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by invoice number, vendor, or PO"
+            placeholder={t('vendorBills.searchPlaceholder')}
             className="max-w-md"
           />
         )}
@@ -396,21 +412,23 @@ export function VendorBillTable() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="Draft">Draft</SelectItem>
-              <SelectItem value="Approved">Approved</SelectItem>
-              <SelectItem value="Paid">Paid</SelectItem>
-              <SelectItem value="Overdue">Overdue</SelectItem>
+              <SelectItem value="all">{t('vendorBills.allStatuses')}</SelectItem>
+              <SelectItem value="Draft">{t('vendorBills.statusDraft')}</SelectItem>
+              <SelectItem value="Approved">{t('vendorBills.statusApproved')}</SelectItem>
+              <SelectItem value="Paid">{t('vendorBills.statusPaid')}</SelectItem>
+              <SelectItem value="Overdue">{t('vendorBills.statusOverdue')}</SelectItem>
             </SelectContent>
           </Select>
         )}
-        summary={`${filteredBills.length} vendor bills shown • outstanding ${money(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0))}`}
+        summary={t('vendorBills.summary')
+          .replace('{count}', String(filteredBills.length))
+          .replace('{amount}', money(filteredBills.reduce((sum, bill) => sum + (bill.outstandingAmount || 0), 0)))}
         actions={(
           <>
           {canManageFinance && (
           <Button variant="outline" size="sm" onClick={() => bulkUpdate('Approved', 'Draft')}>
             <ListChecks className="me-2 h-4 w-4" />
-            Approve All Draft
+            {t('vendorBills.approveAllDraft')}
           </Button>
           )}
           <Button
@@ -443,26 +461,26 @@ export function VendorBillTable() {
             }
           >
             <Download className="me-2 h-4 w-4" />
-            Export CSV
+            {t('vendorBills.exportCsv')}
           </Button>
           {canManageFinance && (
           <Dialog open={openCreate} onOpenChange={setOpenCreate}>
             <DialogTrigger asChild>
               <Button>
                 <FilePlus className="me-2 h-4 w-4" />
-                New Vendor Bill
+                {t('vendorBills.newBill')}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Create Vendor Bill</DialogTitle>
+                <DialogTitle>{t('vendorBills.createTitle')}</DialogTitle>
                 <DialogDescription>
-                  Internal invoice number is generated automatically. Use the optional reference field for the supplier-side invoice number.
+                  {t('vendorBills.createDescription')}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 py-2 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label>Supplier</Label>
+                  <Label>{t('vendorBills.supplierLabel')}</Label>
                   <Select
                     value={form.supplierId || 'manual'}
                     onValueChange={(value) => {
@@ -481,10 +499,10 @@ export function VendorBillTable() {
                     }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select supplier or enter manually" />
+                      <SelectValue placeholder={t('vendorBills.supplierPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="manual">Manual vendor entry</SelectItem>
+                      <SelectItem value="manual">{t('vendorBills.manualEntry')}</SelectItem>
                       {suppliers.map((supplier) => (
                         <SelectItem key={supplier.id} value={supplier.id}>
                           {supplier.name}
@@ -494,7 +512,7 @@ export function VendorBillTable() {
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label>Purchase Order</Label>
+                  <Label>{t('vendorBills.purchaseOrderLabel')}</Label>
                   <Select
                     value={form.purchaseOrderId || 'none'}
                     onValueChange={(value) => {
@@ -510,10 +528,10 @@ export function VendorBillTable() {
                     }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Optional linked purchase order" />
+                      <SelectValue placeholder={t('vendorBills.purchaseOrderPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">No linked purchase order</SelectItem>
+                      <SelectItem value="none">{t('vendorBills.noLinkedPo')}</SelectItem>
                       {supplierPurchaseOrders.map((order) => (
                         <SelectItem key={order.id} value={order.id}>
                           {order.orderNumber} - {order.supplierName}
@@ -523,43 +541,42 @@ export function VendorBillTable() {
                   </Select>
                   {form.purchaseOrderId && (
                     <p className="text-xs text-muted-foreground">
-                      Remaining to bill{' '}
-                      {amount(
+                      {t('vendorBills.remainingToBill').replace('{amount}', money(
                         purchasePayablesMap.get(form.purchaseOrderId)?.remainingToBill
                         || purchaseOrderMap.get(form.purchaseOrderId)?.totalAmount
                         || 0,
-                      )}
+                      ))}
                     </p>
                   )}
                 </div>
                 <div className="space-y-1">
-                  <Label>Vendor Name</Label>
+                  <Label>{t('vendorBills.vendorNameLabel')}</Label>
                   <Input
                     value={form.vendorName}
                     onChange={(event) =>
                       setForm((prev) => ({ ...prev, vendorName: event.target.value }))
                     }
-                    placeholder="Vendor name"
+                    placeholder={t('vendorBills.vendorNamePlaceholder')}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Bill Number</Label>
+                  <Label>{t('vendorBills.billNumberLabel')}</Label>
                   <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
-                    Auto-generated when saved
+                    {t('vendorBills.autoGenerated')}
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <Label>Reference Supplier Invoice #</Label>
+                  <Label>{t('vendorBills.referenceLabel')}</Label>
                   <Input
                     value={form.referenceInvoiceNumber}
                     onChange={(event) =>
                       setForm((prev) => ({ ...prev, referenceInvoiceNumber: event.target.value }))
                     }
-                    placeholder="Optional supplier invoice number"
+                    placeholder={t('vendorBills.referencePlaceholder')}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Issue Date</Label>
+                  <Label>{t('vendorBills.issueDateLabel')}</Label>
                   <Input
                     type="date"
                     value={form.issueDate}
@@ -569,7 +586,7 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Due Date</Label>
+                  <Label>{t('vendorBills.dueDateLabel')}</Label>
                   <Input
                     type="date"
                     value={form.dueDate}
@@ -577,7 +594,7 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Amount</Label>
+                  <Label>{t('vendorBills.amountLabel')}</Label>
                   <Input
                     type="number"
                     value={form.amount}
@@ -586,7 +603,7 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Status</Label>
+                  <Label>{t('vendorBills.statusLabel')}</Label>
                   <Select
                     value={form.status}
                     onValueChange={(value) =>
@@ -597,14 +614,14 @@ export function VendorBillTable() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Draft">Draft</SelectItem>
-                      <SelectItem value="Approved">Approved</SelectItem>
-                      <SelectItem value="Overdue">Overdue</SelectItem>
+                      <SelectItem value="Draft">{t('vendorBills.statusDraft')}</SelectItem>
+                      <SelectItem value="Approved">{t('vendorBills.statusApproved')}</SelectItem>
+                      <SelectItem value="Overdue">{t('vendorBills.statusOverdue')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
-                  <Label>Expense Account</Label>
+                  <Label>{t('vendorBills.expenseAccountLabel')}</Label>
                   <Select
                     value={form.expenseAccountId || 'default'}
                     onValueChange={(value) =>
@@ -618,7 +635,7 @@ export function VendorBillTable() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="default">Default (5000 Operating Expense)</SelectItem>
+                      <SelectItem value="default">{t('vendorBills.defaultExpenseAccount')}</SelectItem>
                       {accounts
                         .filter((account) => account.type === 'Expense')
                         .map((account) => (
@@ -630,19 +647,19 @@ export function VendorBillTable() {
                   </Select>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
-                  <Label>Notes</Label>
+                  <Label>{t('vendorBills.notesLabel')}</Label>
                   <Textarea
                     value={form.notes}
                     onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-                    placeholder="Optional notes"
+                    placeholder={t('vendorBills.notesPlaceholder')}
                   />
                 </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>
-                  Cancel
+                  {t('vendorBills.cancel')}
                 </Button>
-            <Button onClick={handleCreate}>Create Bill</Button>
+            <Button onClick={handleCreate}>{t('vendorBills.createBill')}</Button>
             </DialogFooter>
           </DialogContent>
           </Dialog>
@@ -652,24 +669,24 @@ export function VendorBillTable() {
       />
 
       <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-        Approve a vendor bill when it becomes payable. Record cash movement with <span className="font-medium">Record Payment</span>; paid status is set automatically after payments clear the outstanding balance.
+        {t('vendorBills.helperText')} <span className="font-medium">{t('vendorBills.helperRecordPayment')}</span>{t('vendorBills.helperTextSuffix')}
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Bill #</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Issue Date</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead className="text-end">Amount</TableHead>
-              <TableHead className="text-end">Paid</TableHead>
-              <TableHead className="text-end">Outstanding</TableHead>
-              <TableHead>Purchase Order</TableHead>
-              <TableHead>Expense Account</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-end">Payment</TableHead>
+              <TableHead>{t('vendorBills.colBillNumber')}</TableHead>
+              <TableHead>{t('vendorBills.colVendor')}</TableHead>
+              <TableHead>{t('vendorBills.colIssueDate')}</TableHead>
+              <TableHead>{t('vendorBills.colDueDate')}</TableHead>
+              <TableHead className="text-end">{t('vendorBills.colAmount')}</TableHead>
+              <TableHead className="text-end">{t('vendorBills.colPaid')}</TableHead>
+              <TableHead className="text-end">{t('vendorBills.colOutstanding')}</TableHead>
+              <TableHead>{t('vendorBills.colPurchaseOrder')}</TableHead>
+              <TableHead>{t('vendorBills.colExpenseAccount')}</TableHead>
+              <TableHead>{t('vendorBills.colStatus')}</TableHead>
+              <TableHead className="text-end">{t('vendorBills.colPayment')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -677,8 +694,8 @@ export function VendorBillTable() {
               <TableRow>
                 <TableCell colSpan={11} className="h-20 text-center text-muted-foreground">
                   {bills.length === 0
-                    ? 'No vendor bills yet. Create one from purchasing or manual AP entry to start payable tracking.'
-                    : 'No vendor bills match the current search or status filter.'}
+                    ? t('vendorBills.noBillsYet')
+                    : t('vendorBills.noBillsMatch')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -691,8 +708,8 @@ export function VendorBillTable() {
                       {(bill.referenceInvoiceNumber || bill.supplierId) && (
                         <div className="text-xs text-muted-foreground">
                           {bill.referenceInvoiceNumber
-                            ? `Supplier ref ${bill.referenceInvoiceNumber}`
-                            : 'Linked supplier record'}
+                            ? t('vendorBills.supplierRef').replace('{ref}', bill.referenceInvoiceNumber)
+                            : t('vendorBills.linkedSupplier')}
                         </div>
                       )}
                     </div>
@@ -703,7 +720,7 @@ export function VendorBillTable() {
                   <TableCell className="text-end">{amount(bill.paidAmount || 0)}</TableCell>
                   <TableCell className="text-end">{amount(bill.outstandingAmount || 0)}</TableCell>
                   <TableCell>{purchaseOrderMap.get(bill.purchaseOrderId || '')?.orderNumber || '—'}</TableCell>
-                  <TableCell>{accountNameMap.get(bill.expenseAccountId || '') || 'Default'}</TableCell>
+                  <TableCell>{accountNameMap.get(bill.expenseAccountId || '') || t('vendorBills.defaultAccountShort')}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       {canManageFinance ? (
@@ -717,8 +734,8 @@ export function VendorBillTable() {
                           } catch (error: any) {
                             toast({
                               variant: 'destructive',
-                              title: 'Status update failed',
-                              description: error?.message || 'Could not update vendor bill status.',
+                              title: t('vendorBills.toastStatusFailedTitle'),
+                              description: error?.message || t('vendorBills.toastStatusFailedDesc'),
                             });
                           }
                         }}
@@ -727,14 +744,14 @@ export function VendorBillTable() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Draft">Draft</SelectItem>
-                          <SelectItem value="Approved">Approved</SelectItem>
-                          {bill.status === 'Paid' && <SelectItem value="Paid">Paid</SelectItem>}
-                          <SelectItem value="Overdue">Overdue</SelectItem>
+                          <SelectItem value="Draft">{t('vendorBills.statusDraft')}</SelectItem>
+                          <SelectItem value="Approved">{t('vendorBills.statusApproved')}</SelectItem>
+                          {bill.status === 'Paid' && <SelectItem value="Paid">{t('vendorBills.statusPaid')}</SelectItem>}
+                          <SelectItem value="Overdue">{t('vendorBills.statusOverdue')}</SelectItem>
                         </SelectContent>
                       </Select>
                       ) : null}
-                      <Badge className={statusColor[bill.status]}>{bill.status}</Badge>
+                      <Badge className={statusColor[bill.status]}>{vendorStatusLabel(bill.status)}</Badge>
                     </div>
                   </TableCell>
                   <TableCell className="text-end">
@@ -746,27 +763,27 @@ export function VendorBillTable() {
                           try {
                             await updateVendorBillStatus(bill.id, 'Approved');
                             await load();
-                            toast({ title: 'Vendor bill approved' });
+                            toast({ title: t('vendorBills.toastApproved') });
                           } catch (error: any) {
                             toast({
                               variant: 'destructive',
-                              title: 'Approval failed',
-                              description: error?.message || 'Could not approve vendor bill.',
+                              title: t('vendorBills.toastApprovalFailedTitle'),
+                              description: error?.message || t('vendorBills.toastApprovalFailedDesc'),
                             });
                           }
                         }}
                       >
                         <ListChecks className="me-2 h-4 w-4" />
-                        Approve
+                        {t('vendorBills.approveBtn')}
                       </Button>
                     ) : (bill.outstandingAmount || 0) > 0 ? (
                       <Button variant="outline" size="sm" onClick={() => openPaymentDialog(bill)}>
                         <CircleDollarSign className="me-2 h-4 w-4" />
-                        Record Payment
+                        {t('vendorBills.recordPaymentBtn')}
                       </Button>
                     ) : (
                       <span className="text-sm text-muted-foreground">
-                        {(bill.paidAmount || 0) > 0 ? 'Settled' : 'No action'}
+                        {(bill.paidAmount || 0) > 0 ? t('vendorBills.settled') : t('vendorBills.noAction')}
                       </span>
                     )}
                   </TableCell>
@@ -789,31 +806,31 @@ export function VendorBillTable() {
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Record Vendor Payment</DialogTitle>
+            <DialogTitle>{t('vendorBills.recordPaymentTitle')}</DialogTitle>
             <DialogDescription>
-              Apply a partial or full payment against the selected vendor invoice.
+              {t('vendorBills.recordPaymentDesc')}
             </DialogDescription>
           </DialogHeader>
           {selectedBill && (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-md border p-3 text-sm">
-                  <div className="text-muted-foreground">Bill Amount</div>
+                  <div className="text-muted-foreground">{t('vendorBills.billAmount')}</div>
                   <div className="text-lg font-semibold">{amount(selectedBill.amount)}</div>
                 </div>
                 <div className="rounded-md border p-3 text-sm">
-                  <div className="text-muted-foreground">Paid</div>
+                  <div className="text-muted-foreground">{t('vendorBills.colPaid')}</div>
                   <div className="text-lg font-semibold">{amount(selectedBill.paidAmount || 0)}</div>
                 </div>
                 <div className="rounded-md border p-3 text-sm">
-                  <div className="text-muted-foreground">Outstanding</div>
+                  <div className="text-muted-foreground">{t('vendorBills.colOutstanding')}</div>
                   <div className="text-lg font-semibold">{amount(selectedBill.outstandingAmount || 0)}</div>
                 </div>
               </div>
 
               <div className="grid gap-3 py-2 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label>Amount</Label>
+                  <Label>{t('vendorBills.amountLabel')}</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -824,7 +841,7 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Paid Date</Label>
+                  <Label>{t('vendorBills.paidDate')}</Label>
                   <Input
                     type="date"
                     value={paymentForm.paidAt}
@@ -834,7 +851,7 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Payment Method</Label>
+                  <Label>{t('vendorBills.paymentMethod')}</Label>
                   <Select
                     value={paymentForm.method || 'Bank Transfer'}
                     onValueChange={(value) =>
@@ -847,20 +864,20 @@ export function VendorBillTable() {
                     <SelectContent>
                       {vendorPaymentMethods.map((method) => (
                         <SelectItem key={method} value={method}>
-                          {method}
+                          {vendorMethodLabel(method)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
-                  <Label>Note</Label>
+                  <Label>{t('vendorBills.paymentNote')}</Label>
                   <Textarea
                     value={paymentForm.note}
                     onChange={(event) =>
                       setPaymentForm((prev) => ({ ...prev, note: event.target.value }))
                     }
-                    placeholder="Reference number or settlement note"
+                    placeholder={t('vendorBills.paymentNotePlaceholder')}
                   />
                 </div>
               </div>
@@ -869,10 +886,10 @@ export function VendorBillTable() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead>Note</TableHead>
-                      <TableHead className="text-end">Amount</TableHead>
+                      <TableHead>{t('vendorBills.colHistDate')}</TableHead>
+                      <TableHead>{t('vendorBills.colHistMethod')}</TableHead>
+                      <TableHead>{t('vendorBills.colHistNote')}</TableHead>
+                      <TableHead className="text-end">{t('vendorBills.colHistAmount')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -888,7 +905,7 @@ export function VendorBillTable() {
                     {!paymentLoading && billPayments.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
-                          No payments recorded yet.
+                          {t('vendorBills.noPaymentsYet')}
                         </TableCell>
                       </TableRow>
                     )}
@@ -909,7 +926,7 @@ export function VendorBillTable() {
                   companyId={selectedCompany.id}
                   entityType="vendor_bill"
                   entityId={selectedBill.id}
-                  title="Vendor Invoice Attachments & Timeline"
+                  title={t('vendorBills.attachmentsTitle')}
                   compact
                 />
               )}
@@ -917,9 +934,9 @@ export function VendorBillTable() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpenPayment(false)}>
-              Cancel
+              {t('vendorBills.cancel')}
             </Button>
-            <Button onClick={handleCreatePayment}>Record Payment</Button>
+            <Button onClick={handleCreatePayment}>{t('vendorBills.recordPaymentBtn')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

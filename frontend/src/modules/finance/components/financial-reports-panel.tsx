@@ -36,6 +36,7 @@ import {
 } from '@/services/financeService';
 import { Download, FileText, Info } from 'lucide-react';
 import { useCompanyCurrency } from '@/lib/currency';
+import { useI18n } from '@/context/i18n-context';
 
 const toInputDate = (date: Date) => format(date, 'yyyy-MM-dd');
 
@@ -70,6 +71,7 @@ const printableReport = (title: string, body: string) => `
 export function FinancialReportsPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [trialBalance, setTrialBalance] = React.useState<TrialBalanceReport | null>(null);
@@ -115,8 +117,8 @@ export function FinancialReportsPanel() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Accounting reports unavailable',
-        description: error?.message || 'Could not load accounting reports.',
+        title: t('financialReports.toastUnavailableTitle'),
+        description: error?.message || t('financialReports.toastUnavailableDesc'),
       });
     } finally {
       setLoading(false);
@@ -147,8 +149,8 @@ export function FinancialReportsPanel() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Export failed',
-        description: error?.message || 'Could not export report.',
+        title: t('financialReports.toastExportFailedTitle'),
+        description: error?.message || t('financialReports.toastExportFailedDesc'),
       });
     }
   };
@@ -172,7 +174,7 @@ export function FinancialReportsPanel() {
     return (
       <Card>
         <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view accounting reports.
+          {t('financialReports.selectCompany')}
         </CardContent>
       </Card>
     );
@@ -188,56 +190,57 @@ export function FinancialReportsPanel() {
     <div className="space-y-4">
       <Alert>
         <Info className="h-4 w-4" />
-        <AlertTitle>Plain-English guide</AlertTitle>
+        <AlertTitle>{t('financialReports.guideTitle')}</AlertTitle>
         <AlertDescription>
-          Trial Balance checks whether accounting entries balance. Profit & Loss shows income minus expenses.
-          Account Activity is the detailed history for one account, like a statement.
+          {t('financialReports.guideDesc')}
         </AlertDescription>
       </Alert>
 
       <Card>
         <CardHeader>
-          <CardTitle>Report Dates</CardTitle>
-          <CardDescription>Use the same date range for Profit & Loss and Account Activity.</CardDescription>
+          <CardTitle>{t('financialReports.reportDatesTitle')}</CardTitle>
+          <CardDescription>{t('financialReports.reportDatesDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-4">
           <div className="space-y-1">
-            <Label>Trial Balance As Of</Label>
+            <Label>{t('financialReports.asOfLabel')}</Label>
             <Input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} />
           </div>
           <div className="space-y-1">
-            <Label>From</Label>
+            <Label>{t('financialReports.fromLabel')}</Label>
             <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
           </div>
           <div className="space-y-1">
-            <Label>To</Label>
+            <Label>{t('financialReports.toLabel')}</Label>
             <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
           </div>
           <div className="flex items-end">
-            <Button onClick={load} className="w-full">Refresh Reports</Button>
+            <Button onClick={load} className="w-full">{t('financialReports.refreshBtn')}</Button>
           </div>
         </CardContent>
       </Card>
 
       <Tabs defaultValue="trial-balance" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="trial-balance">Trial Balance</TabsTrigger>
-          <TabsTrigger value="profit-loss">Profit & Loss</TabsTrigger>
-          <TabsTrigger value="activity">Account Activity</TabsTrigger>
+          <TabsTrigger value="trial-balance">{t('financialReports.tabTrialBalance')}</TabsTrigger>
+          <TabsTrigger value="profit-loss">{t('financialReports.tabProfitLoss')}</TabsTrigger>
+          <TabsTrigger value="activity">{t('financialReports.tabActivity')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="trial-balance">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <div>
-                <CardTitle>Trial Balance</CardTitle>
+                <CardTitle>{t('financialReports.trialBalanceTitle')}</CardTitle>
                 <CardDescription>
-                  {trialBalance?.isBalanced ? 'Balanced' : 'Needs review'} as of {trialBalance ? format(trialBalance.asOf, 'MMM d, yyyy') : 'selected date'}
+                  {t('financialReports.balanceStatusDesc')
+                    .replace('{status}', trialBalance?.isBalanced ? t('financialReports.balanced') : t('financialReports.needsReview'))
+                    .replace('{date}', trialBalance ? format(trialBalance.asOf, 'MMM d, yyyy') : t('financialReports.selectedDate'))}
                 </CardDescription>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => exportFinance('trial-balance')}>
-                  <Download className="me-2 h-4 w-4" /> Export CSV
+                  <Download className="me-2 h-4 w-4" /> {t('financialReports.exportCsv')}
                 </Button>
                 <Button
                   size="sm"
@@ -248,7 +251,7 @@ export function FinancialReportsPanel() {
                     )
                   }
                 >
-                  <FileText className="me-2 h-4 w-4" /> Print / PDF
+                  <FileText className="me-2 h-4 w-4" /> {t('financialReports.printPdf')}
                 </Button>
               </div>
             </CardHeader>
@@ -257,11 +260,11 @@ export function FinancialReportsPanel() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead className="text-end">Debit Balance</TableHead>
-                      <TableHead className="text-end">Credit Balance</TableHead>
+                      <TableHead>{t('financialReports.colCode')}</TableHead>
+                      <TableHead>{t('financialReports.colName')}</TableHead>
+                      <TableHead>{t('financialReports.colType')}</TableHead>
+                      <TableHead className="text-end">{t('financialReports.colDebitBalance')}</TableHead>
+                      <TableHead className="text-end">{t('financialReports.colCreditBalance')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -275,7 +278,7 @@ export function FinancialReportsPanel() {
                       </TableRow>
                     ))}
                     <TableRow>
-                      <TableCell colSpan={3} className="font-semibold">Totals</TableCell>
+                      <TableCell colSpan={3} className="font-semibold">{t('financialReports.totals')}</TableCell>
                       <TableCell className="text-end font-semibold">{amount(trialBalance?.totalDebit || 0)}</TableCell>
                       <TableCell className="text-end font-semibold">{amount(trialBalance?.totalCredit || 0)}</TableCell>
                     </TableRow>
@@ -290,14 +293,16 @@ export function FinancialReportsPanel() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <div>
-                <CardTitle>Profit & Loss</CardTitle>
+                <CardTitle>{t('financialReports.pnlTitle')}</CardTitle>
                 <CardDescription>
-                  Revenue minus expenses from {profitAndLoss ? format(profitAndLoss.from, 'MMM d, yyyy') : 'start'} to {profitAndLoss ? format(profitAndLoss.to, 'MMM d, yyyy') : 'end'}.
+                  {t('financialReports.pnlDesc')
+                    .replace('{from}', profitAndLoss ? format(profitAndLoss.from, 'MMM d, yyyy') : t('financialReports.start'))
+                    .replace('{to}', profitAndLoss ? format(profitAndLoss.to, 'MMM d, yyyy') : t('financialReports.end'))}
                 </CardDescription>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => exportFinance('profit-and-loss')}>
-                  <Download className="me-2 h-4 w-4" /> Export CSV
+                  <Download className="me-2 h-4 w-4" /> {t('financialReports.exportCsv')}
                 </Button>
                 <Button
                   size="sm"
@@ -308,22 +313,22 @@ export function FinancialReportsPanel() {
                     )
                   }
                 >
-                  <FileText className="me-2 h-4 w-4" /> Print / PDF
+                  <FileText className="me-2 h-4 w-4" /> {t('financialReports.printPdf')}
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Revenue</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.revenue')}</CardTitle></CardHeader>
                   <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.totalRevenue || 0)}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Expenses</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.expenses')}</CardTitle></CardHeader>
                   <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.totalExpenses || 0)}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Net Income</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.netIncome')}</CardTitle></CardHeader>
                   <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.netIncome || 0)}</div></CardContent>
                 </Card>
               </div>
@@ -331,10 +336,10 @@ export function FinancialReportsPanel() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Section</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead className="text-end">Amount</TableHead>
+                      <TableHead>{t('financialReports.colSection')}</TableHead>
+                      <TableHead>{t('financialReports.colCode')}</TableHead>
+                      <TableHead>{t('financialReports.colName')}</TableHead>
+                      <TableHead className="text-end">{t('financialReports.colAmount')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -349,7 +354,7 @@ export function FinancialReportsPanel() {
                     {pnlRows.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
-                          No revenue or expense activity in this period.
+                          {t('financialReports.noPnlData')}
                         </TableCell>
                       </TableRow>
                     )}
@@ -363,15 +368,15 @@ export function FinancialReportsPanel() {
         <TabsContent value="activity">
           <Card>
             <CardHeader>
-              <CardTitle>Account Activity</CardTitle>
-              <CardDescription>Detailed movement for a single ledger account.</CardDescription>
+              <CardTitle>{t('financialReports.activityTitle')}</CardTitle>
+              <CardDescription>{t('financialReports.activityDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="max-w-lg space-y-1">
-                <Label>Account</Label>
+                <Label>{t('financialReports.accountLabel')}</Label>
                 <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select account" />
+                    <SelectValue placeholder={t('financialReports.selectAccount')} />
                   </SelectTrigger>
                   <SelectContent>
                     {accounts.map((account) => (
@@ -384,15 +389,15 @@ export function FinancialReportsPanel() {
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Opening</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.opening')}</CardTitle></CardHeader>
                   <CardContent><div className="text-xl font-bold">{amount(accountActivity?.openingBalance || 0)}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Debits / Credits</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.debitsCredits')}</CardTitle></CardHeader>
                   <CardContent><div className="text-sm">{amount(accountActivity?.debitTotal || 0)} / {amount(accountActivity?.creditTotal || 0)}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Closing</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.closing')}</CardTitle></CardHeader>
                   <CardContent><div className="text-xl font-bold">{amount(accountActivity?.closingBalance || 0)}</div></CardContent>
                 </Card>
               </div>
@@ -400,12 +405,12 @@ export function FinancialReportsPanel() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-end">Debit</TableHead>
-                      <TableHead className="text-end">Credit</TableHead>
-                      <TableHead className="text-end">Running Balance</TableHead>
+                      <TableHead>{t('financialReports.colDate')}</TableHead>
+                      <TableHead>{t('financialReports.colSource')}</TableHead>
+                      <TableHead>{t('financialReports.colDescription')}</TableHead>
+                      <TableHead className="text-end">{t('financialReports.colDebit')}</TableHead>
+                      <TableHead className="text-end">{t('financialReports.colCredit')}</TableHead>
+                      <TableHead className="text-end">{t('financialReports.colRunningBalance')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -422,7 +427,7 @@ export function FinancialReportsPanel() {
                     {!accountActivity?.lines.length && (
                       <TableRow>
                         <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                          No activity for the selected account and date range.
+                          {t('financialReports.noActivity')}
                         </TableCell>
                       </TableRow>
                     )}

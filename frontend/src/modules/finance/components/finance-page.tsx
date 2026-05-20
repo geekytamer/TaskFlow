@@ -48,12 +48,12 @@ export function FinancePage() {
           <TabsList className="flex h-auto min-w-max justify-start gap-1" data-tutorial="finance-tabs">
           <TabsTrigger value="overview" data-tutorial="finance-tab-overview">{t('finance.tabOverview')}</TabsTrigger>
           <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
-          <TabsTrigger value="invoice-templates">Invoice Templates</TabsTrigger>
+          <TabsTrigger value="invoice-templates">{t('finance.tabInvoiceTemplates')}</TabsTrigger>
           <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
           <TabsTrigger value="ledger" data-tutorial="finance-tab-ledger">{t('finance.tabLedger')}</TabsTrigger>
-          <TabsTrigger value="accounting">Accounting Reports</TabsTrigger>
-          <TabsTrigger value="reports" data-tutorial="finance-tab-reports">Reports</TabsTrigger>
-          <TabsTrigger value="activity">Activity Log</TabsTrigger>
+          <TabsTrigger value="accounting">{t('finance.tabAccountingReports')}</TabsTrigger>
+          <TabsTrigger value="reports" data-tutorial="finance-tab-reports">{t('finance.tabReports')}</TabsTrigger>
+          <TabsTrigger value="activity">{t('finance.tabActivity')}</TabsTrigger>
           <TabsTrigger value="expenses" data-tutorial="finance-tab-expenses">{t('finance.tabExpenses')}</TabsTrigger>
           </TabsList>
         </div>

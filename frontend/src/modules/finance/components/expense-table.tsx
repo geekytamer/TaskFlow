@@ -15,12 +15,14 @@ import { Button } from '@/components/ui/button';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
+import { useI18n } from '@/context/i18n-context';
 
 export function ExpenseTable() {
   const { selectedCompany, projects, currentUser } = useCompany();
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
+  const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
 
   React.useEffect(() => {
@@ -38,8 +40,8 @@ export function ExpenseTable() {
         setTasks([]);
         toast({
           variant: 'destructive',
-          title: 'Expenses unavailable',
-          description: error?.message || 'Could not load expense receipts.',
+          title: t('expenseTable.toastUnavailableTitle'),
+          description: error?.message || t('expenseTable.toastUnavailableDesc'),
         });
       } finally {
         setLoading(false);
@@ -62,18 +64,18 @@ export function ExpenseTable() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Expenses</CardTitle>
+          <CardTitle>{t('expenseTable.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Task</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Attachments</TableHead>
+                <TableHead>{t('expenseTable.colTask')}</TableHead>
+                <TableHead>{t('expenseTable.colProject')}</TableHead>
+                <TableHead>{t('expenseTable.colVendor')}</TableHead>
+                <TableHead>{t('expenseTable.colAmount')}</TableHead>
+                <TableHead>{t('expenseTable.colDate')}</TableHead>
+                <TableHead>{t('expenseTable.colAttachments')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -98,7 +100,7 @@ export function ExpenseTable() {
     return (
       <Card>
         <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view expense receipts.
+          {t('expenseTable.selectCompany')}
         </CardContent>
       </Card>
     );
@@ -108,8 +110,8 @@ export function ExpenseTable() {
     <Card>
       <CardHeader className="flex items-center justify-between">
         <div>
-          <CardTitle>Expenses</CardTitle>
-          <p className="text-sm text-muted-foreground">Employee-uploaded receipts linked to tasks.</p>
+          <CardTitle>{t('expenseTable.title')}</CardTitle>
+          <p className="text-sm text-muted-foreground">{t('expenseTable.subtitle')}</p>
         </div>
         <Button
           variant="outline"
@@ -134,27 +136,27 @@ export function ExpenseTable() {
           }
         >
           <Download className="me-2 h-4 w-4" />
-          Export CSV
+          {t('expenseTable.exportCsv')}
         </Button>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Task</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Attachments</TableHead>
-              <TableHead className="text-end">Open</TableHead>
+              <TableHead>{t('expenseTable.colTask')}</TableHead>
+              <TableHead>{t('expenseTable.colProject')}</TableHead>
+              <TableHead>{t('expenseTable.colVendor')}</TableHead>
+              <TableHead>{t('expenseTable.colAmount')}</TableHead>
+              <TableHead>{t('expenseTable.colDate')}</TableHead>
+              <TableHead>{t('expenseTable.colAttachments')}</TableHead>
+              <TableHead className="text-end">{t('expenseTable.colOpen')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {expenses.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground h-24">
-                  No expense receipts found. Add vendor/amount/receipt on a task.
+                  {t('expenseTable.empty')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -195,10 +197,10 @@ export function ExpenseTable() {
                           className="inline-flex items-center gap-1 text-primary hover:underline"
                         >
                           <ImageIcon className="h-4 w-4" />
-                          View
+                          {t('expenseTable.viewBtn')}
                         </a>
                       ) : (
-                        <span className="text-muted-foreground">None</span>
+                        <span className="text-muted-foreground">{t('expenseTable.none')}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-end">
@@ -206,7 +208,7 @@ export function ExpenseTable() {
                         href={`/projects/${task.projectId}`}
                         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                       >
-                        Open task <ExternalLink className="h-3.5 w-3.5" />
+                        {t('expenseTable.openTask')} <ExternalLink className="h-3.5 w-3.5" />
                       </Link>
                     </TableCell>
                   </TableRow>

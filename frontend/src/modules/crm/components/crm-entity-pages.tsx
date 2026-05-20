@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
@@ -117,9 +118,9 @@ const commissionStatusColor: Record<string, string> = {
   Paid: 'bg-green-50 text-green-700 border-green-200',
 };
 
-function ColorBadge({ status, map }: { status: string; map: Record<string, string> }) {
+function ColorBadge({ status, map, label }: { status: string; map: Record<string, string>; label?: string }) {
   const cls = map[status] ?? 'bg-gray-100 text-gray-700 border-gray-200';
-  return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>{status}</span>;
+  return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>{label ?? status}</span>;
 }
 
 function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: {
@@ -144,6 +145,7 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: 
 function useCrmBaseData() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { t } = useI18n();
   const [loading, setLoading] = React.useState(false);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [opportunities, setOpportunities] = React.useState<Opportunity[]>([]);
@@ -159,7 +161,7 @@ function useCrmBaseData() {
       if (contactData.status === 'fulfilled') setContacts(contactData.value);
       if (opportunityData.status === 'fulfilled') setOpportunities(opportunityData.value);
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'CRM unavailable', description: error?.message });
+      toast({ variant: 'destructive', title: t('crm.toastUnavailableTitle'), description: error?.message });
     } finally {
       setLoading(false);
     }
@@ -181,6 +183,8 @@ export function ProposalsPage() {
   const { selectedCompany, loading, opportunities, contactName } = useCrmBaseData();
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
+  const { t } = useI18n();
+  const proposalStatusLabel = (s: string) => t(`proposalsPage.status${s}`, s);
   const [proposals, setProposals] = React.useState<CrmProposal[]>([]);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -191,8 +195,8 @@ export function ProposalsPage() {
   const load = React.useCallback(async () => {
     if (!selectedCompany) return setProposals([]);
     try { setProposals(await getProposals(selectedCompany.id)); }
-    catch (error: any) { toast({ variant: 'destructive', title: 'Could not load proposals', description: error?.message }); }
-  }, [selectedCompany, toast]);
+    catch (error: any) { toast({ variant: 'destructive', title: t('proposalsPage.toastLoadFailed'), description: error?.message }); }
+  }, [selectedCompany, toast, t]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -217,15 +221,15 @@ export function ProposalsPage() {
       resetForm();
       setDialogOpen(false);
       await load();
-      toast({ title: 'Proposal created' });
+      toast({ title: t('proposalsPage.toastCreated') });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Failed to create proposal', description: error?.message });
+      toast({ variant: 'destructive', title: t('proposalsPage.toastCreateFailed'), description: error?.message });
     } finally { setSubmitting(false); }
   };
 
   if (!selectedCompany) return (
-    <SectionPageShell title="Proposals" description="Create and manage client proposals.">
-      <SectionEmptyState title="Choose a company" description="Proposals are company-specific." />
+    <SectionPageShell title={t('proposalsPage.title')} description={t('proposalsPage.shortDescription')}>
+      <SectionEmptyState title={t('crm.chooseCompany')} description={t('proposalsPage.chooseCompanyDesc')} />
     </SectionPageShell>
   );
 
@@ -234,22 +238,22 @@ export function ProposalsPage() {
 
   return (
     <SectionPageShell
-      title="Proposals"
-      description="Create quotes from opportunities and move accepted proposals into delivery."
+      title={t('proposalsPage.title')}
+      description={t('proposalsPage.description')}
     >
       {/* Stats strip */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={FileText} label="Total Proposals" value={proposals.length} />
-        <StatCard icon={Clock} label="Drafts" value={byStatus('Draft')} color="text-gray-600" />
-        <StatCard icon={Send} label="Sent" value={byStatus('Sent')} color="text-blue-600" />
-        <StatCard icon={TrendingUp} label="Total Value" value={amount(total)} color="text-green-600" />
+        <StatCard icon={FileText} label={t('proposalsPage.statTotal')} value={proposals.length} />
+        <StatCard icon={Clock} label={t('proposalsPage.statDrafts')} value={byStatus('Draft')} color="text-gray-600" />
+        <StatCard icon={Send} label={t('proposalsPage.statSent')} value={byStatus('Sent')} color="text-blue-600" />
+        <StatCard icon={TrendingUp} label={t('proposalsPage.statTotalValue')} value={amount(total)} color="text-green-600" />
       </div>
 
       {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{proposals.length} proposal{proposals.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm text-muted-foreground">{(proposals.length !== 1 ? t('proposalsPage.countPlural') : t('proposalsPage.countSingular')).replace('{count}', String(proposals.length))}</p>
         <Button onClick={() => setDialogOpen(true)} data-tutorial="proposals-create">
-          <Plus className="me-2 h-4 w-4" /> New Proposal
+          <Plus className="me-2 h-4 w-4" /> {t('proposalsPage.newProposal')}
         </Button>
       </div>
 
@@ -258,12 +262,12 @@ export function ProposalsPage() {
         <Table>
           <TableHeader>
             <TableRow className="">
-              <TableHead>Proposal</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Valid Until</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('proposalsPage.colProposal')}</TableHead>
+              <TableHead>{t('proposalsPage.colClient')}</TableHead>
+              <TableHead>{t('proposalsPage.colValidUntil')}</TableHead>
+              <TableHead>{t('proposalsPage.colTotal')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead className="text-right">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -286,25 +290,25 @@ export function ProposalsPage() {
                   ) : '-'}
                 </TableCell>
                 <TableCell className="font-medium text-sm">{amount(item.totalAmount)}</TableCell>
-                <TableCell><ColorBadge status={item.status} map={proposalStatusColor} /></TableCell>
+                <TableCell><ColorBadge status={item.status} map={proposalStatusColor} label={proposalStatusLabel(item.status)} /></TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     {item.status === 'Draft' && (
                       <Button size="sm" variant="outline" className="h-7 gap-1 text-xs"
                         onClick={async () => { await updateProposalStatus(item.id, 'Sent'); await load(); }}>
-                        <Send className="h-3 w-3" /> Send
+                        <Send className="h-3 w-3" /> {t('proposalsPage.actionSend')}
                       </Button>
                     )}
                     {item.status === 'Sent' && (
                       <Button size="sm" className="h-7 gap-1 text-xs bg-green-600 hover:bg-green-700 text-white"
                         onClick={async () => { await updateProposalStatus(item.id, 'Accepted'); await load(); }}>
-                        <CheckCircle2 className="h-3 w-3" /> Accept
+                        <CheckCircle2 className="h-3 w-3" /> {t('proposalsPage.actionAccept')}
                       </Button>
                     )}
                     {item.status === 'Sent' && (
                       <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 border-red-200 hover:bg-red-50"
                         onClick={async () => { await updateProposalStatus(item.id, 'Declined'); await load(); }}>
-                        <XCircle className="h-3 w-3" /> Decline
+                        <XCircle className="h-3 w-3" /> {t('proposalsPage.actionDecline')}
                       </Button>
                     )}
                     {item.status !== 'Expired' && (
@@ -319,7 +323,7 @@ export function ProposalsPage() {
             ))}
             {!loading && proposals.length === 0 && (
               <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                No proposals yet. Create your first one.
+                {t('proposalsPage.emptyState')}
               </TableCell></TableRow>
             )}
           </TableBody>
@@ -331,14 +335,14 @@ export function ProposalsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" /> New Proposal
+              <FileText className="h-5 w-5 text-primary" /> {t('proposalsPage.newProposal')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Opportunity <span className="text-destructive">*</span></Label>
+              <Label>{t('proposalsPage.fieldOpportunity')} <span className="text-destructive">*</span></Label>
               <Select value={form.opportunityId} onValueChange={(v) => setForm((p) => ({ ...p, opportunityId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select opportunity" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t('proposalsPage.fieldSelectOpportunity')} /></SelectTrigger>
                 <SelectContent>
                   {opportunities.filter((o) => !['Won', 'Lost', 'Cancelled'].includes(o.stage)).map((o) => (
                     <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>
@@ -347,46 +351,46 @@ export function ProposalsPage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Proposal Title <span className="text-destructive">*</span></Label>
-              <Input placeholder="e.g. Q3 Social Media Package" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
+              <Label>{t('proposalsPage.fieldTitle')} <span className="text-destructive">*</span></Label>
+              <Input placeholder={t('proposalsPage.fieldTitlePh')} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Valid Until</Label>
+                <Label>{t('proposalsPage.fieldValidUntil')}</Label>
                 <Input type="date" value={form.validUntil} onChange={(e) => setForm((p) => ({ ...p, validUntil: e.target.value }))} />
               </div>
             </div>
             <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Line Item</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('proposalsPage.lineItem')}</p>
               <div className="space-y-1.5">
-                <Label>Description <span className="text-destructive">*</span></Label>
-                <Input placeholder="Service or product description" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
+                <Label>{t('proposalsPage.fieldDescription')} <span className="text-destructive">*</span></Label>
+                <Input placeholder={t('proposalsPage.fieldDescriptionPh')} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Quantity</Label>
+                  <Label>{t('proposalsPage.fieldQuantity')}</Label>
                   <Input type="number" min="1" placeholder="1" value={form.quantity} onChange={(e) => setForm((p) => ({ ...p, quantity: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Unit Price</Label>
+                  <Label>{t('proposalsPage.fieldUnitPrice')}</Label>
                   <Input type="number" min="0" placeholder="0.00" value={form.unitPrice} onChange={(e) => setForm((p) => ({ ...p, unitPrice: e.target.value }))} />
                 </div>
               </div>
               {form.quantity && form.unitPrice && (
                 <p className="text-sm font-medium">
-                  Total: {amount(Number(form.quantity) * Number(form.unitPrice))}
+                  {t('proposalsPage.totalLabel')} {amount(Number(form.quantity) * Number(form.unitPrice))}
                 </p>
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea placeholder="Optional notes or terms..." value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} />
+              <Label>{t('proposalsPage.fieldNotes')}</Label>
+              <Textarea placeholder={t('proposalsPage.fieldNotesPh')} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { resetForm(); setDialogOpen(false); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { resetForm(); setDialogOpen(false); }}>{t('common.cancel')}</Button>
             <Button onClick={submit} disabled={submitting || !form.opportunityId || !form.title.trim() || !form.description.trim()}>
-              {submitting ? 'Creating…' : 'Create Proposal'}
+              {submitting ? t('proposalsPage.creating') : t('proposalsPage.createProposal')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -403,6 +407,8 @@ export function CampaignsPage() {
   const canManageFinance = currentRole !== 'Employee';
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
+  const { t } = useI18n();
+  const campaignStatusLabel = (s: string) => t(`campaignsPage.status${s.replace(/\s/g, '')}`, s);
   const [campaigns, setCampaigns] = React.useState<CrmCampaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = React.useState<CrmCampaign | null>(null);
   const [deliverables, setDeliverables] = React.useState<CampaignDeliverable[]>([]);
@@ -428,7 +434,7 @@ export function CampaignsPage() {
       const data = await getCampaigns(selectedCompany.id);
       setCampaigns(data);
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Could not load campaigns', description: error?.message });
+      toast({ variant: 'destructive', title: t('campaignsPage.toastLoadFailed'), description: error?.message });
     } finally {
       setCampaignsLoading(false);
     }
@@ -468,15 +474,15 @@ export function CampaignsPage() {
       setCampaignForm({ name: '', contactId: '', opportunityId: '', startDate: '', endDate: '', budget: '' });
       setDialogOpen(false);
       await loadCampaigns();
-      toast({ title: 'Campaign created' });
+      toast({ title: t('campaignsPage.toastCreated') });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Failed to create campaign', description: error?.message });
+      toast({ variant: 'destructive', title: t('campaignsPage.toastCreateFailed'), description: error?.message });
     } finally { setSubmitting(false); }
   };
 
   if (!selectedCompany) return (
-    <SectionPageShell title="Campaigns" description="Plan and execute client campaigns.">
-      <SectionEmptyState title="Choose a company" description="Campaigns are company-specific." />
+    <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.shortDescription')}>
+      <SectionEmptyState title={t('crm.chooseCompany')} description={t('campaignsPage.chooseCompanyDesc')} />
     </SectionPageShell>
   );
 
@@ -487,31 +493,31 @@ export function CampaignsPage() {
   const payableDeliverables = deliverables.filter((item) => (item.cost ?? 0) > 0 && item.vendorContactId && !item.vendorBillId);
   const missingPayableSetup = deliverables.filter((item) => (item.cost ?? 0) > 0 && !item.vendorContactId && !item.vendorBillId).length;
   const invoiceDisabledReason = !selectedCampaign?.contactId
-    ? 'Choose a campaign client before generating an invoice.'
+    ? t('campaignsPage.invoiceDisabledNoClient')
     : invoiceableDeliverables.length === 0
-      ? 'Add at least one deliverable with a Client Price.'
+      ? t('campaignsPage.invoiceDisabledNoDeliverables')
       : '';
   const vendorBillsDisabledReason = payableDeliverables.length === 0
     ? missingPayableSetup > 0
-      ? 'Add a Vendor / Influencer to deliverables with Vendor Cost.'
-      : 'Add at least one unbilled deliverable with Vendor Cost and Vendor / Influencer.'
+      ? t('campaignsPage.vendorBillsDisabledMissingVendor')
+      : t('campaignsPage.vendorBillsDisabledNoPayable')
     : '';
 
   return (
-    <SectionPageShell title="Campaigns" description="Manage campaign delivery, influencers, vendors, and expenses.">
+    <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.description')}>
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Megaphone} label="Total Campaigns" value={campaigns.length} />
-        <StatCard icon={TrendingUp} label="Active" value={active} color="text-green-600" />
-        <StatCard icon={Clock} label="Planned" value={planned} color="text-purple-600" />
-        <StatCard icon={DollarSign} label="Total Budget" value={amount(totalBudget)} color="text-blue-600" />
+        <StatCard icon={Megaphone} label={t('campaignsPage.statTotal')} value={campaigns.length} />
+        <StatCard icon={TrendingUp} label={t('campaignsPage.statActive')} value={active} color="text-green-600" />
+        <StatCard icon={Clock} label={t('campaignsPage.statPlanned')} value={planned} color="text-purple-600" />
+        <StatCard icon={DollarSign} label={t('campaignsPage.statBudget')} value={amount(totalBudget)} color="text-blue-600" />
       </div>
 
       {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm text-muted-foreground">{(campaigns.length !== 1 ? t('campaignsPage.countPlural') : t('campaignsPage.countSingular')).replace('{count}', String(campaigns.length))}</p>
         <Button onClick={() => setDialogOpen(true)} data-tutorial="campaigns-create">
-          <Plus className="me-2 h-4 w-4" /> New Campaign
+          <Plus className="me-2 h-4 w-4" /> {t('campaignsPage.newCampaign')}
         </Button>
       </div>
 
@@ -520,12 +526,12 @@ export function CampaignsPage() {
         <Table>
           <TableHeader>
             <TableRow className="">
-              <TableHead>Campaign</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Dates</TableHead>
-              <TableHead>Budget</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('campaignsPage.colCampaign')}</TableHead>
+              <TableHead>{t('campaignsPage.colClient')}</TableHead>
+              <TableHead>{t('campaignsPage.colDates')}</TableHead>
+              <TableHead>{t('campaignsPage.colBudget')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead className="text-right">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -540,7 +546,7 @@ export function CampaignsPage() {
               >
                 <TableCell>
                   <div className="font-semibold text-sm">{item.name}</div>
-                  {item.opportunityId && <div className="text-xs text-muted-foreground">Linked to opportunity</div>}
+                  {item.opportunityId && <div className="text-xs text-muted-foreground">{t('campaignsPage.linkedToOpp')}</div>}
                 </TableCell>
                 <TableCell className="text-sm">{contactName(item.contactId)}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">
@@ -549,20 +555,20 @@ export function CampaignsPage() {
                 </TableCell>
                 <TableCell className="text-sm font-medium">{item.budget ? amount(item.budget) : '—'}</TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
-                  <ColorBadge status={item.status} map={campaignStatusColor} />
+                  <ColorBadge status={item.status} map={campaignStatusColor} label={campaignStatusLabel(item.status)} />
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
                     {item.status === 'Planned' && (
                       <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
                         onClick={async (e) => { e.stopPropagation(); await updateCampaign(item.id, { status: 'Active' }); await loadCampaigns(); }}>
-                        Start
+                        {t('campaignsPage.actionStart')}
                       </Button>
                     )}
                     {item.status === 'Active' && (
                       <Button size="sm" variant="outline" className="h-7 text-xs"
                         onClick={async (e) => { e.stopPropagation(); await updateCampaign(item.id, { status: 'Completed' }); await loadCampaigns(); }}>
-                        Complete
+                        {t('campaignsPage.actionComplete')}
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
@@ -575,7 +581,7 @@ export function CampaignsPage() {
             ))}
             {!campaignsLoading && campaigns.length === 0 && (
               <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                No campaigns yet. Create your first one.
+                {t('campaignsPage.emptyState')}
               </TableCell></TableRow>
             )}
           </TableBody>
@@ -588,12 +594,12 @@ export function CampaignsPage() {
           <div className="flex items-center justify-between border-b bg-muted/40 px-5 py-3">
             <div>
               <h3 className="font-semibold">{selectedCampaign.name}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Campaign Execution</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('campaignsPage.execution')}</p>
             </div>
             <div className="flex items-center gap-2">
               {canManageFinance && (selectedCampaign.invoiceId ? (
                 <Badge variant="outline" className="gap-1 text-xs text-green-700 border-green-300 bg-green-50">
-                  <Receipt className="h-3 w-3" /> Invoice Generated
+                  <Receipt className="h-3 w-3" /> {t('campaignsPage.invoiceGenerated')}
                 </Badge>
               ) : (
                 <Button
@@ -601,7 +607,7 @@ export function CampaignsPage() {
                   variant="outline"
                   className="h-7 text-xs gap-1"
                   disabled={generatingInvoice || Boolean(invoiceDisabledReason)}
-                  title={invoiceDisabledReason || 'Generate a draft client invoice from deliverable Client Prices.'}
+                  title={invoiceDisabledReason || t('campaignsPage.invoiceTitleHint')}
                   onClick={async () => {
                     if (!selectedCompany) return;
                     setGeneratingInvoice(true);
@@ -609,15 +615,15 @@ export function CampaignsPage() {
                       const invoice = await generateCampaignInvoice(selectedCompany.id, selectedCampaign.id);
                       await loadCampaigns();
                       setSelectedCampaign((prev) => prev ? { ...prev, invoiceId: invoice?.id ?? prev.invoiceId } : prev);
-                      toast({ title: 'Invoice generated', description: 'A draft invoice has been created from deliverable Client Prices.' });
+                      toast({ title: t('campaignsPage.toastInvoiceGenerated'), description: t('campaignsPage.toastInvoiceGeneratedDesc') });
                     } catch (error: any) {
-                      toast({ variant: 'destructive', title: 'Failed to generate invoice', description: error?.message });
+                      toast({ variant: 'destructive', title: t('campaignsPage.toastInvoiceFailed'), description: error?.message });
                     } finally {
                       setGeneratingInvoice(false);
                     }
                   }}
                 >
-                  <Receipt className="h-3 w-3" /> Generate Invoice
+                  <Receipt className="h-3 w-3" /> {t('campaignsPage.generateInvoice')}
                 </Button>
               ))}
               {canManageFinance && (
@@ -626,7 +632,7 @@ export function CampaignsPage() {
                 variant="outline"
                 className="h-7 text-xs gap-1"
                 disabled={generatingVendorBills || Boolean(vendorBillsDisabledReason)}
-                title={vendorBillsDisabledReason || 'Generate draft vendor bills from Vendor Costs.'}
+                title={vendorBillsDisabledReason || t('campaignsPage.vendorBillsTitleHint')}
                 onClick={async () => {
                   if (!selectedCompany) return;
                   setGeneratingVendorBills(true);
@@ -634,22 +640,22 @@ export function CampaignsPage() {
                     const bills = await generateCampaignVendorBills(selectedCompany.id, selectedCampaign.id);
                     await loadExecution(selectedCampaign.id);
                     if (bills.length === 0) {
-                      toast({ title: 'No bills created', description: 'All deliverables are already billed or are missing Vendor Cost / Vendor.' });
+                      toast({ title: t('campaignsPage.toastBillsNone'), description: t('campaignsPage.toastBillsNoneDesc') });
                     } else {
-                      toast({ title: `${bills.length} vendor bill${bills.length > 1 ? 's' : ''} generated`, description: 'Draft vendor bills were created. Approve them in Finance > Payables to affect Open Payables.' });
+                      toast({ title: (bills.length > 1 ? t('campaignsPage.toastBillsGenerated') : t('campaignsPage.toastBillGenerated')).replace('{count}', String(bills.length)), description: t('campaignsPage.toastBillsGeneratedDesc') });
                     }
                   } catch (error: any) {
-                    toast({ variant: 'destructive', title: 'Failed to generate vendor bills', description: error?.message });
+                    toast({ variant: 'destructive', title: t('campaignsPage.toastBillsFailed'), description: error?.message });
                   } finally {
                     setGeneratingVendorBills(false);
                   }
                 }}
               >
-                <BadgeDollarSign className="h-3 w-3" /> Generate Vendor Bills
+                <BadgeDollarSign className="h-3 w-3" /> {t('campaignsPage.generateVendorBills')}
               </Button>
               )}
               <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setSelectedCampaign(null)}>
-                Close
+                {t('campaignsPage.close')}
               </Button>
             </div>
           </div>
@@ -657,24 +663,24 @@ export function CampaignsPage() {
             <div className="border-b bg-background px-5 py-3">
               <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
                 <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                  <span className="font-medium text-foreground">{invoiceableDeliverables.length}</span> invoiceable deliverable{invoiceableDeliverables.length === 1 ? '' : 's'}
-                  <div>Uses Client Price for draft invoices.</div>
+                  <span className="font-medium text-foreground">{invoiceableDeliverables.length}</span> {invoiceableDeliverables.length === 1 ? t('campaignsPage.invoiceableLabelOne') : t('campaignsPage.invoiceableLabelMany')}
+                  <div>{t('campaignsPage.invoiceableSub')}</div>
                 </div>
                 <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                  <span className="font-medium text-foreground">{payableDeliverables.length}</span> payable deliverable{payableDeliverables.length === 1 ? '' : 's'}
-                  <div>Uses Vendor Cost and Vendor / Influencer.</div>
+                  <span className="font-medium text-foreground">{payableDeliverables.length}</span> {payableDeliverables.length === 1 ? t('campaignsPage.payableLabelOne') : t('campaignsPage.payableLabelMany')}
+                  <div>{t('campaignsPage.payableSub')}</div>
                 </div>
                 <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                  <span className="font-medium text-foreground">Draft</span> finance records
-                  <div>Generated vendor bills affect Open Payables after approval.</div>
+                  <span className="font-medium text-foreground">{t('campaignsPage.draftFinance')}</span> {t('campaignsPage.draftFinanceLabel')}
+                  <div>{t('campaignsPage.draftFinanceSub')}</div>
                 </div>
               </div>
               {(invoiceDisabledReason || vendorBillsDisabledReason) && (
                 <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <div>
-                    {invoiceDisabledReason && <div>Invoice: {invoiceDisabledReason}</div>}
-                    {vendorBillsDisabledReason && <div>Vendor bills: {vendorBillsDisabledReason}</div>}
+                    {invoiceDisabledReason && <div>{t('campaignsPage.invoicePrefix')} {invoiceDisabledReason}</div>}
+                    {vendorBillsDisabledReason && <div>{t('campaignsPage.vendorBillsPrefix')} {vendorBillsDisabledReason}</div>}
                   </div>
                 </div>
               )}
@@ -683,15 +689,15 @@ export function CampaignsPage() {
           <Tabs defaultValue="deliverables" className="p-5">
             <TabsList className="mb-4">
               <TabsTrigger value="deliverables" className="gap-1.5">
-                <ClipboardList className="h-3.5 w-3.5" /> Deliverables
+                <ClipboardList className="h-3.5 w-3.5" /> {t('campaignsPage.tabDeliverables')}
                 {deliverables.length > 0 && <span className="ml-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px]">{deliverables.length}</span>}
               </TabsTrigger>
               <TabsTrigger value="assignments" className="gap-1.5">
-                <Users className="h-3.5 w-3.5" /> Assignments
+                <Users className="h-3.5 w-3.5" /> {t('campaignsPage.tabAssignments')}
                 {assignments.length > 0 && <span className="ml-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px]">{assignments.length}</span>}
               </TabsTrigger>
               <TabsTrigger value="expenses" className="gap-1.5">
-                <DollarSign className="h-3.5 w-3.5" /> Expenses
+                <DollarSign className="h-3.5 w-3.5" /> {t('campaignsPage.tabExpenses')}
                 {expenses.length > 0 && <span className="ml-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px]">{expenses.length}</span>}
               </TabsTrigger>
             </TabsList>
@@ -701,16 +707,16 @@ export function CampaignsPage() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3">
                   <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Add Deliverable</p>
-                    <Input placeholder="Title" value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
-                    <Input placeholder="Platform (Instagram, TikTok…)" value={deliverableForm.platform} onChange={(e) => setDeliverableForm((p) => ({ ...p, platform: e.target.value }))} />
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('campaignsPage.addDeliverable')}</p>
+                    <Input placeholder={t('campaignsPage.deliverableTitlePh')} value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
+                    <Input placeholder={t('campaignsPage.deliverablePlatformPh')} value={deliverableForm.platform} onChange={(e) => setDeliverableForm((p) => ({ ...p, platform: e.target.value }))} />
                     <Input type="date" value={deliverableForm.dueDate} onChange={(e) => setDeliverableForm((p) => ({ ...p, dueDate: e.target.value }))} />
-                    <Input type="number" min="0" step="0.01" placeholder="Client Price (optional)" value={deliverableForm.price} onChange={(e) => setDeliverableForm((p) => ({ ...p, price: e.target.value }))} />
-                    <Input type="number" min="0" step="0.01" placeholder="Vendor Cost (optional)" value={deliverableForm.cost} onChange={(e) => setDeliverableForm((p) => ({ ...p, cost: e.target.value }))} />
+                    <Input type="number" min="0" step="0.01" placeholder={t('campaignsPage.deliverablePricePh')} value={deliverableForm.price} onChange={(e) => setDeliverableForm((p) => ({ ...p, price: e.target.value }))} />
+                    <Input type="number" min="0" step="0.01" placeholder={t('campaignsPage.deliverableCostPh')} value={deliverableForm.cost} onChange={(e) => setDeliverableForm((p) => ({ ...p, cost: e.target.value }))} />
                     <Select value={deliverableForm.vendorContactId || '__none__'} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, vendorContactId: v === '__none__' ? '' : v }))}>
-                      <SelectTrigger><SelectValue placeholder="Vendor / Influencer (optional)" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverableVendorPh')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">None</SelectItem>
+                        <SelectItem value="__none__">{t('campaignsPage.none')}</SelectItem>
                         {contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -727,35 +733,35 @@ export function CampaignsPage() {
                       setDeliverableForm({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '' });
                       await loadExecution(selectedCampaign.id);
                     }}>
-                      <Plus className="me-1.5 h-3.5 w-3.5" /> Add
+                      <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.add')}
                     </Button>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {deliverables.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">No deliverables yet.</p>}
+                  {deliverables.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">{t('campaignsPage.noDeliverables')}</p>}
                   {deliverables.map((item) => (
                     <div key={item.id} className="rounded-lg border bg-card p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">{item.title}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {item.platform || 'No platform'}
-                            {item.dueDate && ` · Due ${new Date(item.dueDate).toLocaleDateString()}`}
-                            {item.price != null && item.price > 0 && ` · Client: ${amount(item.price)}`}
-                            {item.cost != null && item.cost > 0 && ` · Cost: ${amount(item.cost)}`}
-                            {item.vendorContactId && ` · Vendor: ${contactName(item.vendorContactId)}`}
+                            {item.platform || t('campaignsPage.noPlatform')}
+                            {item.dueDate && ` · ${t('campaignsPage.dueLabel')} ${new Date(item.dueDate).toLocaleDateString()}`}
+                            {item.price != null && item.price > 0 && ` · ${t('campaignsPage.clientLabel')}: ${amount(item.price)}`}
+                            {item.cost != null && item.cost > 0 && ` · ${t('campaignsPage.costLabel')}: ${amount(item.cost)}`}
+                            {item.vendorContactId && ` · ${t('campaignsPage.vendorLabel')}: ${contactName(item.vendorContactId)}`}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {item.vendorBillId && (
                             <Badge variant="outline" className="gap-1 text-[10px] h-5 text-blue-700 border-blue-300 bg-blue-50">
-                              <BadgeDollarSign className="h-2.5 w-2.5" /> Bill
+                              <BadgeDollarSign className="h-2.5 w-2.5" /> {t('campaignsPage.billBadge')}
                             </Badge>
                           )}
                           {item.status !== 'Published' && (
                             <Button size="sm" variant="outline" className="h-6 text-xs"
                               onClick={async () => { await updateCampaignDeliverable(item.id, { status: 'Published', publishedAt: new Date() }); await loadExecution(selectedCampaign.id); }}>
-                              Publish
+                              {t('campaignsPage.actionPublish')}
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
@@ -765,7 +771,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Pending: 'bg-yellow-50 text-yellow-700 border-yellow-200', 'In Progress': 'bg-blue-50 text-blue-700 border-blue-200', Published: 'bg-green-50 text-green-700 border-green-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} />
+                        <ColorBadge status={item.status} map={{ Pending: 'bg-yellow-50 text-yellow-700 border-yellow-200', 'In Progress': 'bg-blue-50 text-blue-700 border-blue-200', Published: 'bg-green-50 text-green-700 border-green-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -778,20 +784,20 @@ export function CampaignsPage() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3">
                   <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Add Assignment</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('campaignsPage.addAssignment')}</p>
                     <Select value={assignmentForm.contactId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, contactId: v }))}>
-                      <SelectTrigger><SelectValue placeholder="Select contact" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('campaignsPage.selectContact')} /></SelectTrigger>
                       <SelectContent>{contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                     </Select>
                     <Select value={assignmentForm.role} onValueChange={(v: ContactRoleType) => setAssignmentForm((p) => ({ ...p, role: v }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Influencer">Influencer</SelectItem>
-                        <SelectItem value="Vendor">Vendor</SelectItem>
-                        <SelectItem value="Partner">Partner</SelectItem>
+                        <SelectItem value="Influencer">{t('campaignsPage.roleInfluencer')}</SelectItem>
+                        <SelectItem value="Vendor">{t('campaignsPage.roleVendor')}</SelectItem>
+                        <SelectItem value="Partner">{t('campaignsPage.rolePartner')}</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input type="number" placeholder="Agreed rate" value={assignmentForm.agreedRate} onChange={(e) => setAssignmentForm((p) => ({ ...p, agreedRate: e.target.value }))} />
+                    <Input type="number" placeholder={t('campaignsPage.agreedRatePh')} value={assignmentForm.agreedRate} onChange={(e) => setAssignmentForm((p) => ({ ...p, agreedRate: e.target.value }))} />
                     <Button size="sm" className="w-full" onClick={async () => {
                       if (!assignmentForm.contactId) return;
                       await createCampaignAssignment(selectedCampaign.id, {
@@ -803,12 +809,12 @@ export function CampaignsPage() {
                       setAssignmentForm({ contactId: '', role: 'Influencer', agreedRate: '' });
                       await loadExecution(selectedCampaign.id);
                     }}>
-                      <Plus className="me-1.5 h-3.5 w-3.5" /> Assign
+                      <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.assign')}
                     </Button>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {assignments.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">No assignments yet.</p>}
+                  {assignments.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">{t('campaignsPage.noAssignments')}</p>}
                   {assignments.map((item) => (
                     <div key={item.id} className="rounded-lg border bg-card p-3">
                       <div className="flex items-start justify-between gap-2">
@@ -822,7 +828,7 @@ export function CampaignsPage() {
                           {item.status !== 'Completed' && (
                             <Button size="sm" variant="outline" className="h-6 text-xs"
                               onClick={async () => { await updateCampaignAssignment(item.id, { status: 'Completed' }); await loadExecution(selectedCampaign.id); }}>
-                              Done
+                              {t('campaignsPage.actionDone')}
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
@@ -832,7 +838,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Confirmed: 'bg-green-50 text-green-700 border-green-200', Pending: 'bg-yellow-50 text-yellow-700 border-yellow-200', Completed: 'bg-blue-50 text-blue-700 border-blue-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} />
+                        <ColorBadge status={item.status} map={{ Confirmed: 'bg-green-50 text-green-700 border-green-200', Pending: 'bg-yellow-50 text-yellow-700 border-yellow-200', Completed: 'bg-blue-50 text-blue-700 border-blue-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -845,13 +851,13 @@ export function CampaignsPage() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-3">
                   <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Add Expense</p>
-                    <Input placeholder="Description" value={expenseForm.description} onChange={(e) => setExpenseForm((p) => ({ ...p, description: e.target.value }))} />
-                    <Input type="number" placeholder="Amount" value={expenseForm.amount} onChange={(e) => setExpenseForm((p) => ({ ...p, amount: e.target.value }))} />
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('campaignsPage.addExpense')}</p>
+                    <Input placeholder={t('campaignsPage.expenseDescPh')} value={expenseForm.description} onChange={(e) => setExpenseForm((p) => ({ ...p, description: e.target.value }))} />
+                    <Input type="number" placeholder={t('campaignsPage.expenseAmountPh')} value={expenseForm.amount} onChange={(e) => setExpenseForm((p) => ({ ...p, amount: e.target.value }))} />
                     <Input type="date" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm((p) => ({ ...p, expenseDate: e.target.value }))} />
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={expenseForm.billable} className="rounded" onChange={(e) => setExpenseForm((p) => ({ ...p, billable: e.target.checked }))} />
-                      <span className="text-muted-foreground">Billable to client</span>
+                      <span className="text-muted-foreground">{t('campaignsPage.billableLabel')}</span>
                     </label>
                     <Button size="sm" className="w-full" onClick={async () => {
                       if (!expenseForm.description.trim()) return;
@@ -865,32 +871,32 @@ export function CampaignsPage() {
                       setExpenseForm({ description: '', amount: '', expenseDate: '', billable: false });
                       await loadExecution(selectedCampaign.id);
                     }}>
-                      <Plus className="me-1.5 h-3.5 w-3.5" /> Add Expense
+                      <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.addExpense')}
                     </Button>
                   </div>
                   {expenses.length > 0 && (
                     <div className="rounded-lg border bg-primary/5 p-3 text-sm">
-                      <span className="text-muted-foreground">Total expenses: </span>
+                      <span className="text-muted-foreground">{t('campaignsPage.totalExpenses')} </span>
                       <span className="font-semibold">{amount(expenses.reduce((s, e) => s + e.amount, 0))}</span>
                     </div>
                   )}
                 </div>
                 <div className="space-y-2">
-                  {expenses.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">No expenses yet.</p>}
+                  {expenses.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">{t('campaignsPage.noExpenses')}</p>}
                   {expenses.map((item) => (
                     <div key={item.id} className="rounded-lg border bg-card p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">{item.description}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {amount(item.amount)}{item.billable ? ' · billable' : ''}
+                            {amount(item.amount)}{item.billable ? ` · ${t('campaignsPage.billable')}` : ''}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {item.status !== 'Approved' && (
                             <Button size="sm" variant="outline" className="h-6 text-xs"
                               onClick={async () => { await updateCampaignExpense(item.id, { status: 'Approved' }); await loadExecution(selectedCampaign.id); }}>
-                              Approve
+                              {t('campaignsPage.actionApprove')}
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
@@ -900,7 +906,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-green-50 text-green-700 border-green-200', Rejected: 'bg-red-50 text-red-700 border-red-200' }} />
+                        <ColorBadge status={item.status} map={{ Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-green-50 text-green-700 border-green-200', Rejected: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -916,49 +922,49 @@ export function CampaignsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Megaphone className="h-5 w-5 text-primary" /> New Campaign
+              <Megaphone className="h-5 w-5 text-primary" /> {t('campaignsPage.newCampaign')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Campaign Name <span className="text-destructive">*</span></Label>
-              <Input placeholder="e.g. Ramadan 2025 Campaign" value={campaignForm.name} onChange={(e) => setCampaignForm((p) => ({ ...p, name: e.target.value }))} />
+              <Label>{t('campaignsPage.fieldName')} <span className="text-destructive">*</span></Label>
+              <Input placeholder={t('campaignsPage.fieldNamePh')} value={campaignForm.name} onChange={(e) => setCampaignForm((p) => ({ ...p, name: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Client / Contact</Label>
+                <Label>{t('campaignsPage.fieldClient')}</Label>
                 <Select value={campaignForm.contactId} onValueChange={(v) => setCampaignForm((p) => ({ ...p, contactId: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('campaignsPage.selectPlaceholder')} /></SelectTrigger>
                   <SelectContent>{contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Opportunity</Label>
+                <Label>{t('campaignsPage.fieldOpportunity')}</Label>
                 <Select value={campaignForm.opportunityId} onValueChange={(v) => setCampaignForm((p) => ({ ...p, opportunityId: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('campaignsPage.selectPlaceholder')} /></SelectTrigger>
                   <SelectContent>{opportunities.map((o) => <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Start Date</Label>
+                <Label>{t('campaignsPage.fieldStartDate')}</Label>
                 <Input type="date" value={campaignForm.startDate} onChange={(e) => setCampaignForm((p) => ({ ...p, startDate: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>End Date</Label>
+                <Label>{t('campaignsPage.fieldEndDate')}</Label>
                 <Input type="date" value={campaignForm.endDate} onChange={(e) => setCampaignForm((p) => ({ ...p, endDate: e.target.value }))} />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Budget</Label>
+              <Label>{t('campaignsPage.fieldBudget')}</Label>
               <Input type="number" placeholder="0.00" value={campaignForm.budget} onChange={(e) => setCampaignForm((p) => ({ ...p, budget: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
             <Button onClick={submitCampaign} disabled={submitting || !campaignForm.name.trim()}>
-              {submitting ? 'Creating…' : 'Create Campaign'}
+              {submitting ? t('campaignsPage.creating') : t('campaignsPage.createCampaign')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -973,6 +979,8 @@ export function VendorRequestsPage() {
   const { selectedCompany, loading } = useCrmBaseData();
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
+  const { t } = useI18n();
+  const vendorStatusLabel = (s: string) => t(`vendorRequestsPage.status${s.replace(/\s/g, '')}`, s);
   const [requests, setRequests] = React.useState<VendorRequest[]>([]);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [rejectDialogItem, setRejectDialogItem] = React.useState<VendorRequest | null>(null);
@@ -986,8 +994,8 @@ export function VendorRequestsPage() {
   const load = React.useCallback(async () => {
     if (!selectedCompany) return setRequests([]);
     try { setRequests(await getVendorRequests(selectedCompany.id)); }
-    catch (error: any) { toast({ variant: 'destructive', title: 'Could not load requests', description: error?.message }); }
-  }, [selectedCompany, toast]);
+    catch (error: any) { toast({ variant: 'destructive', title: t('vendorRequestsPage.toastLoadFailed'), description: error?.message }); }
+  }, [selectedCompany, toast, t]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -1010,9 +1018,9 @@ export function VendorRequestsPage() {
       resetForm();
       setDialogOpen(false);
       await load();
-      toast({ title: 'Request submitted' });
+      toast({ title: t('vendorRequestsPage.toastSubmitted') });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Failed to submit request', description: error?.message });
+      toast({ variant: 'destructive', title: t('vendorRequestsPage.toastSubmitFailed'), description: error?.message });
     } finally { setSubmitting(false); }
   };
 
@@ -1025,8 +1033,8 @@ export function VendorRequestsPage() {
   };
 
   if (!selectedCompany) return (
-    <SectionPageShell title="Vendor Requests" description="Request influencers, vendors, and production support.">
-      <SectionEmptyState title="Choose a company" description="Requests are company-specific." />
+    <SectionPageShell title={t('vendorRequestsPage.title')} description={t('vendorRequestsPage.shortDescription')}>
+      <SectionEmptyState title={t('crm.chooseCompany')} description={t('vendorRequestsPage.chooseCompanyDesc')} />
     </SectionPageShell>
   );
 
@@ -1035,19 +1043,19 @@ export function VendorRequestsPage() {
   const rejected = requests.filter((r) => r.status === 'Rejected').length;
 
   return (
-    <SectionPageShell title="Vendor Requests" description="Track influencer and vendor sourcing requests, approvals, and estimated costs.">
+    <SectionPageShell title={t('vendorRequestsPage.title')} description={t('vendorRequestsPage.description')}>
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard icon={AlertCircle} label="Pending Review" value={pending} color={pending > 0 ? 'text-yellow-600' : 'text-foreground'} />
-        <StatCard icon={CheckCircle2} label="Approved" value={approved} color="text-green-600" />
-        <StatCard icon={XCircle} label="Rejected" value={rejected} color="text-red-600" />
+        <StatCard icon={AlertCircle} label={t('vendorRequestsPage.statPending')} value={pending} color={pending > 0 ? 'text-yellow-600' : 'text-foreground'} />
+        <StatCard icon={CheckCircle2} label={t('vendorRequestsPage.statApproved')} value={approved} color="text-green-600" />
+        <StatCard icon={XCircle} label={t('vendorRequestsPage.statRejected')} value={rejected} color="text-red-600" />
       </div>
 
       {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{requests.length} request{requests.length !== 1 ? 's' : ''}</p>
+        <p className="text-sm text-muted-foreground">{(requests.length !== 1 ? t('vendorRequestsPage.countPlural') : t('vendorRequestsPage.countSingular')).replace('{count}', String(requests.length))}</p>
         <Button onClick={() => setDialogOpen(true)} data-tutorial="vendor-requests-create">
-          <Plus className="me-2 h-4 w-4" /> New Request
+          <Plus className="me-2 h-4 w-4" /> {t('vendorRequestsPage.newRequest')}
         </Button>
       </div>
 
@@ -1056,13 +1064,13 @@ export function VendorRequestsPage() {
         <Table>
           <TableHeader>
             <TableRow className="">
-              <TableHead>Request</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Platform / Handle</TableHead>
-              <TableHead>Due</TableHead>
-              <TableHead>Est. Cost</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('vendorRequestsPage.colRequest')}</TableHead>
+              <TableHead>{t('vendorRequestsPage.colType')}</TableHead>
+              <TableHead>{t('vendorRequestsPage.colPlatformHandle')}</TableHead>
+              <TableHead>{t('vendorRequestsPage.colDue')}</TableHead>
+              <TableHead>{t('vendorRequestsPage.colEstCost')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead className="text-right">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1074,7 +1082,7 @@ export function VendorRequestsPage() {
                 <TableCell>
                   <div className="font-semibold text-sm">{item.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {item.role}{item.requestedByName ? ` · by ${item.requestedByName}` : ''}
+                    {item.role}{item.requestedByName ? ` · ${t('vendorRequestsPage.requestedBy').replace('{name}', item.requestedByName)}` : ''}
                   </div>
                 </TableCell>
                 <TableCell className="text-sm">{item.requestType || '—'}</TableCell>
@@ -1087,18 +1095,18 @@ export function VendorRequestsPage() {
                   {item.dueDate ? new Date(item.dueDate).toLocaleDateString() : '—'}
                 </TableCell>
                 <TableCell className="text-sm font-medium">{item.cost ? amount(item.cost) : '—'}</TableCell>
-                <TableCell><ColorBadge status={item.status} map={vendorStatusColor} /></TableCell>
+                <TableCell><ColorBadge status={item.status} map={vendorStatusColor} label={vendorStatusLabel(item.status)} /></TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     {['New', 'Under Review'].includes(item.status) && (
                       <>
                         <Button size="sm" className="h-7 gap-1 text-xs bg-green-600 hover:bg-green-700 text-white"
                           onClick={async () => { await updateVendorRequestStatus(item.id, 'Approved'); await load(); }}>
-                          <CheckCircle2 className="h-3 w-3" /> Approve
+                          <CheckCircle2 className="h-3 w-3" /> {t('vendorRequestsPage.actionApprove')}
                         </Button>
                         <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 border-red-200 hover:bg-red-50"
                           onClick={() => { setRejectDialogItem(item); setRejectNote(''); }}>
-                          <XCircle className="h-3 w-3" /> Reject
+                          <XCircle className="h-3 w-3" /> {t('vendorRequestsPage.actionReject')}
                         </Button>
                       </>
                     )}
@@ -1114,7 +1122,7 @@ export function VendorRequestsPage() {
             ))}
             {!loading && requests.length === 0 && (
               <TableRow><TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                No vendor requests yet.
+                {t('vendorRequestsPage.emptyState')}
               </TableCell></TableRow>
             )}
           </TableBody>
@@ -1126,59 +1134,59 @@ export function VendorRequestsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <UserRoundSearch className="h-5 w-5 text-primary" /> New Vendor Request
+              <UserRoundSearch className="h-5 w-5 text-primary" /> {t('vendorRequestsPage.dialogNewTitle')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Name <span className="text-destructive">*</span></Label>
-                <Input placeholder="Person or company name" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
+                <Label>{t('vendorRequestsPage.fieldName')} <span className="text-destructive">*</span></Label>
+                <Input placeholder={t('vendorRequestsPage.fieldNamePh')} value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Role</Label>
+                <Label>{t('vendorRequestsPage.fieldRole')}</Label>
                 <Select value={form.role} onValueChange={(v: 'Influencer' | 'Vendor') => setForm((p) => ({ ...p, role: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Influencer">Influencer</SelectItem>
-                    <SelectItem value="Vendor">Vendor</SelectItem>
+                    <SelectItem value="Influencer">{t('vendorRequestsPage.roleInfluencer')}</SelectItem>
+                    <SelectItem value="Vendor">{t('vendorRequestsPage.roleVendor')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Platform</Label>
-                <Input placeholder="Instagram, TikTok…" value={form.platform} onChange={(e) => setForm((p) => ({ ...p, platform: e.target.value }))} />
+                <Label>{t('vendorRequestsPage.fieldPlatform')}</Label>
+                <Input placeholder={t('vendorRequestsPage.fieldPlatformPh')} value={form.platform} onChange={(e) => setForm((p) => ({ ...p, platform: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Handle</Label>
-                <Input placeholder="@username" value={form.handle} onChange={(e) => setForm((p) => ({ ...p, handle: e.target.value }))} />
+                <Label>{t('vendorRequestsPage.fieldHandle')}</Label>
+                <Input placeholder={t('vendorRequestsPage.fieldHandlePh')} value={form.handle} onChange={(e) => setForm((p) => ({ ...p, handle: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Type / Category</Label>
-                <Input placeholder="e.g. Lifestyle, Production" value={form.requestType} onChange={(e) => setForm((p) => ({ ...p, requestType: e.target.value }))} />
+                <Label>{t('vendorRequestsPage.fieldType')}</Label>
+                <Input placeholder={t('vendorRequestsPage.fieldTypePh')} value={form.requestType} onChange={(e) => setForm((p) => ({ ...p, requestType: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Estimated Cost</Label>
+                <Label>{t('vendorRequestsPage.fieldEstCost')}</Label>
                 <Input type="number" placeholder="0.00" value={form.cost} onChange={(e) => setForm((p) => ({ ...p, cost: e.target.value }))} />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Due Date</Label>
+              <Label>{t('vendorRequestsPage.fieldDueDate')}</Label>
               <Input type="date" value={form.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>Details / Justification</Label>
-              <Textarea placeholder="Why is this vendor/influencer needed?" value={form.details} onChange={(e) => setForm((p) => ({ ...p, details: e.target.value }))} rows={3} />
+              <Label>{t('vendorRequestsPage.fieldDetails')}</Label>
+              <Textarea placeholder={t('vendorRequestsPage.fieldDetailsPh')} value={form.details} onChange={(e) => setForm((p) => ({ ...p, details: e.target.value }))} rows={3} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { resetForm(); setDialogOpen(false); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { resetForm(); setDialogOpen(false); }}>{t('common.cancel')}</Button>
             <Button onClick={submit} disabled={submitting || !form.name.trim()}>
-              {submitting ? 'Submitting…' : 'Submit Request'}
+              {submitting ? t('vendorRequestsPage.submitting') : t('vendorRequestsPage.submitRequest')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1189,21 +1197,21 @@ export function VendorRequestsPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
-              <XCircle className="h-5 w-5" /> Reject Request
+              <XCircle className="h-5 w-5" /> {t('vendorRequestsPage.rejectTitle')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-sm text-muted-foreground">
-              Rejecting request for <span className="font-medium text-foreground">{rejectDialogItem?.name}</span>.
+              {t('vendorRequestsPage.rejectingFor')} <span className="font-medium text-foreground">{rejectDialogItem?.name}</span>.
             </p>
             <div className="space-y-1.5">
-              <Label>Reason (optional)</Label>
-              <Textarea placeholder="Explain why this request is being rejected…" value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} rows={3} />
+              <Label>{t('vendorRequestsPage.rejectReasonLabel')}</Label>
+              <Textarea placeholder={t('vendorRequestsPage.rejectReasonPh')} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} rows={3} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setRejectDialogItem(null); setRejectNote(''); }}>Cancel</Button>
-            <Button variant="destructive" onClick={handleReject}>Confirm Rejection</Button>
+            <Button variant="outline" onClick={() => { setRejectDialogItem(null); setRejectNote(''); }}>{t('common.cancel')}</Button>
+            <Button variant="destructive" onClick={handleReject}>{t('vendorRequestsPage.confirmRejection')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
