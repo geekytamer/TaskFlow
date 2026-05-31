@@ -930,6 +930,93 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Admin / super-user panel ────────────────────────────────────────────
+
+  app.get('/admin/overview', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json(store.getAdminOverview());
+  }));
+
+  app.get('/admin/companies', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json(store.listAdminCompanies());
+  }));
+
+  app.get('/admin/users', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json(store.listAdminUsers());
+  }));
+
+  app.get('/admin/activity', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    const q = req.query as Record<string, string | undefined>;
+    const from = q.from ? new Date(q.from) : undefined;
+    const to = q.to ? new Date(q.to) : undefined;
+    if (from && Number.isNaN(from.getTime())) throw new HttpError(400, 'Invalid from date');
+    if (to && Number.isNaN(to.getTime())) throw new HttpError(400, 'Invalid to date');
+    res.json(store.listAdminActivity({
+      companyId: q.companyId || undefined,
+      entityType: q.entityType || undefined,
+      actorUserId: q.actorUserId || undefined,
+      action: q.action || undefined,
+      from,
+      to,
+      limit: q.limit ? Number(q.limit) : undefined,
+      offset: q.offset ? Number(q.offset) : undefined,
+    }));
+  }));
+
+  app.get('/admin/health', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json(store.getAdminHealth());
+  }));
+
+  // Tools
+  app.post('/admin/tools/sweep-overdue-all', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json({ created: store.sweepOverdueInvoiceFollowupsAll() });
+  }));
+
+  app.post('/admin/tools/recompute-commissions-all', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json({ recomputed: store.recomputeCommissionsAll() });
+  }));
+
+  app.post('/admin/tools/refresh-invoice-statuses', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    res.json({ refreshed: store.refreshAllInvoiceStatuses() });
+  }));
+
+  app.get('/admin/tools/backup', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    const bytes = store.readDatabaseFile();
+    if (!bytes) throw new HttpError(500, 'Could not read database file.');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="taskflow-${stamp}.db"`);
+    res.send(bytes);
+  }));
+
+  // Impersonation — Admin steps into another user's session.
+  // Frontend stores the original admin token in localStorage and swaps to
+  // the returned token; "Exit" restores the original token client-side.
+  app.post('/admin/impersonate/:userId', authMiddleware, handler((req, res) => {
+    requireAdmin(req);
+    const target = store.getUserById(req.params.userId);
+    if (!target) throw new HttpError(404, 'User not found.');
+    const token = store.issueToken(target.id);
+    // Audit
+    store.createActivityEvent({
+      companyId: target.companyIds[0] ?? 'system',
+      entityType: 'contact',     // no admin entity type; piggyback on contact
+      entityId: target.id,
+      action: 'admin_impersonate_start',
+      summary: `Admin ${req.user!.name} started impersonating ${target.name}.`,
+      metadata: { adminUserId: req.user!.id, targetUserId: target.id },
+    });
+    res.json({ token, user: target });
+  }));
+
   app.get(
     '/companies',
     authMiddleware,

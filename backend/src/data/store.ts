@@ -2476,6 +2476,213 @@ export class DataStore {
     return token;
   }
 
+  // ─── Admin / system-wide ─────────────────────────────────────────────────
+
+  /** Cross-company KPI snapshot for the /admin overview tab. */
+  getAdminOverview() {
+    const row = <T>(sql: string, ...params: any[]): T =>
+      this.db.prepare(sql).get(...params) as T;
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const startOfYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
+
+    return {
+      companies: (row<{ c: number }>('SELECT COUNT(*) AS c FROM companies')).c,
+      users: (row<{ c: number }>('SELECT COUNT(*) AS c FROM users')).c,
+      usersByRole: this.db
+        .prepare(`SELECT role, COUNT(*) AS c FROM users GROUP BY role`)
+        .all() as Array<{ role: string; c: number }>,
+      contacts: (row<{ c: number }>('SELECT COUNT(*) AS c FROM contacts')).c,
+      openOpportunities: (row<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM opportunities WHERE stage NOT IN ('Won','Lost','Cancelled')`,
+      )).c,
+      invoices: (row<{ c: number }>('SELECT COUNT(*) AS c FROM invoices')).c,
+      openReceivables: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(total),0) AS s FROM invoices WHERE status != 'Paid' AND status != 'Draft'`,
+      )).s,
+      openPayables: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM vendor_bills WHERE status != 'Paid' AND status != 'Draft'`,
+      )).s,
+      revenueMtd: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE paidAt >= ?`,
+        startOfMonth,
+      )).s,
+      revenueYtd: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE paidAt >= ?`,
+        startOfYear,
+      )).s,
+      whatsappInstances: (row<{ c: number }>('SELECT COUNT(*) AS c FROM whatsapp_instances')).c,
+      whatsappActive: (row<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM whatsapp_instances WHERE state = 'authorized'`,
+      )).c,
+      tasksOpen: (row<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM tasks WHERE status != 'Done'`,
+      )).c,
+      followupsOpen: (row<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM activity_events WHERE nextActionDueDate IS NOT NULL`,
+      )).c,
+      followupsOverdue: (row<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM activity_events WHERE nextActionDueDate IS NOT NULL AND nextActionDueDate < ?`,
+        new Date().toISOString(),
+      )).c,
+      commissionsDraft: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Draft'`,
+      )).s,
+      commissionsApproved: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Approved'`,
+      )).s,
+      commissionsPaid: (row<{ s: number }>(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Paid'`,
+      )).s,
+    };
+  }
+
+  /** Per-company rollups for the Companies tab. */
+  listAdminCompanies() {
+    const companies = this.db.prepare('SELECT * FROM companies').all() as Array<{ id: string; name: string; website?: string; address?: string }>;
+    return companies.map((c) => {
+      const stats = this.db
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM users WHERE companyIds LIKE ?) AS users,
+             (SELECT COUNT(*) FROM contacts WHERE companyId = ?) AS contacts,
+             (SELECT COUNT(*) FROM invoices WHERE companyId = ?) AS invoices,
+             (SELECT COALESCE(SUM(total),0) FROM invoices WHERE companyId = ?) AS revenue,
+             (SELECT COUNT(*) FROM tasks WHERE companyId = ?) AS tasks,
+             (SELECT MAX(createdAt) FROM activity_events WHERE companyId = ?) AS lastActivity,
+             (SELECT COUNT(*) FROM whatsapp_instances WHERE companyId = ?) AS whatsappLinked`,
+        )
+        .get(`%"${c.id}"%`, c.id, c.id, c.id, c.id, c.id, c.id) as any;
+      return {
+        id: c.id,
+        name: c.name,
+        website: c.website ?? null,
+        address: c.address ?? null,
+        userCount: Number(stats.users) || 0,
+        contactCount: Number(stats.contacts) || 0,
+        invoiceCount: Number(stats.invoices) || 0,
+        revenue: Number(stats.revenue) || 0,
+        taskCount: Number(stats.tasks) || 0,
+        lastActivityAt: stats.lastActivity ?? null,
+        whatsappLinked: Number(stats.whatsappLinked) > 0,
+      };
+    });
+  }
+
+  /** All users system-wide with simple rollups. */
+  listAdminUsers() {
+    const users = this.listUsers();
+    return users.map((u) => {
+      const lastActivity = this.db
+        .prepare(
+          `SELECT MAX(createdAt) AS t FROM activity_events WHERE actorUserId = ?`,
+        )
+        .get(u.id) as { t?: string };
+      return {
+        ...u,
+        lastActivityAt: lastActivity?.t ?? null,
+      };
+    });
+  }
+
+  /** Paginated cross-company activity feed for the Activity tab. */
+  listAdminActivity(options: {
+    companyId?: string;
+    entityType?: string;
+    actorUserId?: string;
+    action?: string;
+    from?: Date;
+    to?: Date;
+    limit?: number;
+    offset?: number;
+  } = {}) {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (options.companyId)    { where.push('companyId = ?');    params.push(options.companyId); }
+    if (options.entityType)   { where.push('entityType = ?');   params.push(options.entityType); }
+    if (options.actorUserId)  { where.push('actorUserId = ?');  params.push(options.actorUserId); }
+    if (options.action)       { where.push('action = ?');       params.push(options.action); }
+    if (options.from)         { where.push('createdAt >= ?');   params.push(options.from.toISOString()); }
+    if (options.to)           { where.push('createdAt <= ?');   params.push(options.to.toISOString()); }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(options.limit ?? 200, 1), 1000);
+    const offset = Math.max(options.offset ?? 0, 0);
+    const rows = this.db
+      .prepare(`SELECT * FROM activity_events ${clause} ORDER BY createdAt DESC LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as any[];
+    const total = (this.db
+      .prepare(`SELECT COUNT(*) AS c FROM activity_events ${clause}`)
+      .get(...params) as { c: number }).c;
+    return {
+      total,
+      offset,
+      limit,
+      rows: rows.map((r) => this.decodeActivityEvent(r)),
+    };
+  }
+
+  /** System health snapshot — version, uptime, DB stats, sweep timestamps. */
+  getAdminHealth() {
+    const tables = ['companies', 'users', 'contacts', 'projects', 'tasks', 'invoices',
+      'vendor_bills', 'payments', 'commissions', 'opportunities', 'whatsapp_messages',
+      'activity_events', 'journal_entries', 'deliveries'];
+    const rowCounts = tables.map((t) => {
+      try {
+        const c = (this.db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
+        return { table: t, rows: c };
+      } catch {
+        return { table: t, rows: 0 };
+      }
+    });
+    let dbSize = 0;
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const path = (this.db as any).name as string | undefined;
+      if (path) dbSize = fs.statSync(path).size;
+    } catch { /* ignore */ }
+    return {
+      version: process.env.npm_package_version || 'unknown',
+      nodeVersion: process.version,
+      uptimeSeconds: Math.round(process.uptime()),
+      dbSizeBytes: dbSize,
+      migrationsApplied: this.getAppliedMigrationIds(),
+      rowCounts,
+    };
+  }
+
+  /** Run sweep for every company. Returns total created across all. */
+  sweepOverdueInvoiceFollowupsAll(): number {
+    return this.sweepOverdueInvoiceFollowups();
+  }
+
+  /** Recompute Draft commissions across every company. */
+  recomputeCommissionsAll(): number {
+    const companyRows = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+    let touched = 0;
+    for (const row of companyRows) {
+      touched += this.recomputeCommissionsForCompany(row.id);
+    }
+    return touched;
+  }
+
+  /** Recompute paid/overdue status for every invoice in every company. */
+  refreshAllInvoiceStatuses(): number {
+    const rows = this.db.prepare(`SELECT id FROM invoices WHERE status != 'Paid' AND status != 'Draft'`).all() as Array<{ id: string }>;
+    rows.forEach((r) => this.refreshInvoicePaymentStatus(r.id));
+    return rows.length;
+  }
+
+  /** Used by /admin/tools/backup — returns the raw bytes of the SQLite file. */
+  readDatabaseFile(): Buffer | undefined {
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const path = (this.db as any).name as string | undefined;
+      if (!path) return undefined;
+      return fs.readFileSync(path);
+    } catch {
+      return undefined;
+    }
+  }
+
   revokeToken(token: string) {
     this.db.prepare('DELETE FROM tokens WHERE token = ?').run(token);
   }
