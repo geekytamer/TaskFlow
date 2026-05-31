@@ -98,6 +98,10 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'nav.companies': 'Companies',
     'nav.settings': 'Settings',
     'nav.admin': 'System',
+    'user.adminPanel': 'Admin panel',
+    'admin.chrome.tag': 'Super Admin',
+    'admin.chrome.switchToApp': 'Switch to app',
+    'admin.chrome.signOut': 'Sign out',
 
     'admin.title': 'System administration',
     'admin.subtitle': 'Cross-company overview, operational controls, and audit feed for the whole installation.',
@@ -2645,6 +2649,10 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'nav.companies': 'الشركات',
     'nav.settings': 'الإعدادات',
     'nav.admin': 'النظام',
+    'user.adminPanel': 'لوحة الإدارة',
+    'admin.chrome.tag': 'مشرف عام',
+    'admin.chrome.switchToApp': 'الانتقال للتطبيق',
+    'admin.chrome.signOut': 'تسجيل الخروج',
 
     'admin.title': 'إدارة النظام',
     'admin.subtitle': 'نظرة شاملة على كل الشركات وأدوات تشغيل وسجل تدقيق للمنصة بأكملها.',

@@ -101,7 +101,6 @@ const sections: NavSection[] = [
   {
     labelKey: 'nav.section.admin',
     items: [
-      { href: '/admin', labelKey: 'nav.admin', icon: Settings, roles: ['Admin'], tutorial: 'nav-admin' },
       { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
       { href: '/companies', labelKey: 'nav.companies', icon: Building, roles: ['Admin'], tutorial: 'nav-companies' },
       { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
@@ -148,7 +147,6 @@ export function SidebarNav() {
   }
 
   const canSeeItem = (item: NavItem) => {
-    if (item.href === '/admin') return user.role === 'Admin';
     if (item.href === '/companies') return user.role === 'Admin';
     if (item.href === '/settings') return effectiveRole === 'Admin';
     if (!effectiveRole) return false;

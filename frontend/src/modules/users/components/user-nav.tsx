@@ -17,6 +17,7 @@ import { logout } from '@/services/authService';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
+import { ShieldCheck } from 'lucide-react';
 
 export function UserNav() {
   const router = useRouter();
@@ -69,6 +70,15 @@ export function UserNav() {
           <DropdownMenuItem>{t('user.profile')}</DropdownMenuItem>
           <DropdownMenuItem>{t('user.settings')}</DropdownMenuItem>
         </DropdownMenuGroup>
+        {user.role === 'Admin' && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push('/admin')}>
+              <ShieldCheck className="me-2 h-4 w-4 text-amber-600" />
+              {t('user.adminPanel')}
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleLogout}>{t('user.logout')}</DropdownMenuItem>
       </DropdownMenuContent>
