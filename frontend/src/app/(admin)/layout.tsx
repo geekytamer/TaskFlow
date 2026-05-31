@@ -33,7 +33,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  if (user.role !== 'Admin') {
+  if (!user.isSuperAdmin) {
     return (
       <div className="flex h-screen w-screen items-center justify-center">
         <p className="text-muted-foreground">{t('common.accessDenied')}</p>

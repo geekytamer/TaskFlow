@@ -17,6 +17,8 @@ export interface User {
   positionId?: string; // legacy
   companyRoles?: CompanyRoleAssignment[];
   avatar: string;
+  // Platform super-admin flag
+  isSuperAdmin?: boolean;
   // Commission profile
   commissionEligible?: boolean;
   defaultCommissionRate?: number;

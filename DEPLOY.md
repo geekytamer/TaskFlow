@@ -72,6 +72,13 @@ COMPANY_WEBSITE=https://alyarubi-group.com
 - `ADMIN_EMAIL`: `admin@alyarubi-group.com`
 - `ADMIN_PASSWORD`: `Admin@IMiC0ITOBxQ`
 
+> **Note on roles:** the bootstrap admin gets `role: 'Admin'` *and*
+> `isSuperAdmin: true`. The first flag is your per-company admin role;
+> the second is what unlocks the `/admin` system panel, impersonation,
+> backups, and cross-tenant data. Any user you add later through the
+> UI is a regular company-Admin by default. Only an existing
+> super-admin can grant the super-admin flag (toggle in the user form).
+
 Save these somewhere safe. The encryption key is unrecoverable; losing it
 means every stored WhatsApp instance token becomes unreadable.
 

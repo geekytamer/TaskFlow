@@ -70,7 +70,7 @@ export function UserNav() {
           <DropdownMenuItem>{t('user.profile')}</DropdownMenuItem>
           <DropdownMenuItem>{t('user.settings')}</DropdownMenuItem>
         </DropdownMenuGroup>
-        {user.role === 'Admin' && (
+        {user.isSuperAdmin && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push('/admin')}>

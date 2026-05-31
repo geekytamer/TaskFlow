@@ -508,6 +508,7 @@ export class DataStore {
         companyIds,
         companyRoles,
         avatar: `https://i.pravatar.cc/150?u=${encodeURIComponent(email)}`,
+        isSuperAdmin: true,
         commissionEligible: false,
       });
       console.log(`[bootstrap] Created admin user ${email} on ${companyIds.length} company(ies)`);
@@ -2079,6 +2080,24 @@ export class DataStore {
           });
         },
       },
+      {
+        id: '036_user_super_admin',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(users)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('isSuperAdmin')) {
+            this.db.exec(`ALTER TABLE users ADD COLUMN isSuperAdmin INTEGER NOT NULL DEFAULT 0;`);
+          }
+          // Backfill: the bootstrap admin (if any) inherits SuperAdmin so we
+          // don't lose access. Any other existing user remains a regular
+          // company-Admin only. Future Super Admins must be explicitly granted.
+          const bootstrapEmail = (process.env.ADMIN_EMAIL || '').trim();
+          if (bootstrapEmail) {
+            this.db
+              .prepare(`UPDATE users SET isSuperAdmin = 1 WHERE LOWER(email) = LOWER(?)`)
+              .run(bootstrapEmail);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -2728,6 +2747,7 @@ export class DataStore {
       positionId: row.positionId || undefined,
       companyRoles,
       avatar: row.avatar || `https://i.pravatar.cc/150?u=${row.email}`,
+      isSuperAdmin: Boolean(row.isSuperAdmin),
       commissionEligible: Boolean(row.commissionEligible),
       defaultCommissionRate:
         row.defaultCommissionRate === null || row.defaultCommissionRate === undefined
@@ -2846,7 +2866,7 @@ export class DataStore {
         };
         this.db
           .prepare(
-            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
+            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
           )
           .run({
             ...updatedUser,
@@ -2854,6 +2874,7 @@ export class DataStore {
             positionId: updatedUser.positionId ?? null,
             companyRoles: JSON.stringify(updatedUser.companyRoles || []),
             avatar: updatedUser.avatar || `https://i.pravatar.cc/150?u=${updatedUser.email}`,
+            isSuperAdmin: updatedUser.isSuperAdmin ? 1 : 0,
             commissionEligible: updatedUser.commissionEligible ? 1 : 0,
             defaultCommissionRate: updatedUser.defaultCommissionRate ?? null,
             defaultCommissionBasis: updatedUser.defaultCommissionBasis ?? null,
@@ -2881,7 +2902,7 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password, commissionEligible, defaultCommissionRate, defaultCommissionBasis, costRatePerHour) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password, @commissionEligible, @defaultCommissionRate, @defaultCommissionBasis, @costRatePerHour)',
+        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password, isSuperAdmin, commissionEligible, defaultCommissionRate, defaultCommissionBasis, costRatePerHour) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password, @isSuperAdmin, @commissionEligible, @defaultCommissionRate, @defaultCommissionBasis, @costRatePerHour)',
       )
       .run({
         ...newUser,
@@ -2889,6 +2910,7 @@ export class DataStore {
         positionId: newUser.positionId ?? null,
         companyRoles: JSON.stringify(newUser.companyRoles || []),
         avatar: newUser.avatar || `https://i.pravatar.cc/150?u=${newUser.email}`,
+        isSuperAdmin: newUser.isSuperAdmin ? 1 : 0,
         commissionEligible: newUser.commissionEligible ? 1 : 0,
         defaultCommissionRate: newUser.defaultCommissionRate ?? null,
         defaultCommissionBasis: newUser.defaultCommissionBasis ?? null,
@@ -2930,6 +2952,10 @@ export class DataStore {
       companyRoles: JSON.stringify(nextCompanyRoles),
       avatar: updates.avatar ?? existing.avatar ?? `https://i.pravatar.cc/150?u=${existing.email}`,
       password: updates.password ?? existing.password,
+      isSuperAdmin:
+        updates.isSuperAdmin !== undefined
+          ? (updates.isSuperAdmin ? 1 : 0)
+          : existing.isSuperAdmin ?? 0,
       commissionEligible:
         updates.commissionEligible !== undefined
           ? (updates.commissionEligible ? 1 : 0)
@@ -2949,7 +2975,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
+        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
       )
       .run(updated);
     return this.getUserById(userId);

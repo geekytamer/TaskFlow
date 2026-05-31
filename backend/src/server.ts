@@ -436,6 +436,15 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
+  // Platform-wide gate. Use for /admin/* routes, impersonation, cross-tenant
+  // operations, and anything that should NEVER be available to a customer's
+  // in-house Admin.
+  const requireSuperAdmin = (req: AuthedRequest) => {
+    if (!req.user || !req.user.isSuperAdmin) {
+      throw new HttpError(403, 'Super-admin access required.');
+    }
+  };
+
   const requireCompanyAccess = (req: AuthedRequest, companyId: string) => {
     if (!req.user || !canAccessCompany(req.user, companyId)) {
       throw new HttpError(403, 'You do not have access to this company.');
@@ -692,6 +701,7 @@ export function createServer(options: CreateServerOptions = {}) {
     positionId?: string;
     avatar?: string;
     password: string;
+    isSuperAdmin?: boolean;
     commissionEligible?: boolean;
     defaultCommissionRate?: number;
     defaultCommissionBasis?: import('./types').CommissionBasis;
@@ -719,6 +729,10 @@ export function createServer(options: CreateServerOptions = {}) {
           : partial
             ? undefined
             : defaultPassword(),
+      isSuperAdmin:
+        record.isSuperAdmin !== undefined
+          ? Boolean(record.isSuperAdmin)
+          : undefined,
       commissionEligible:
         record.commissionEligible !== undefined
           ? Boolean(record.commissionEligible)
@@ -933,22 +947,22 @@ export function createServer(options: CreateServerOptions = {}) {
   // ─── Admin / super-user panel ────────────────────────────────────────────
 
   app.get('/admin/overview', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json(store.getAdminOverview());
   }));
 
   app.get('/admin/companies', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json(store.listAdminCompanies());
   }));
 
   app.get('/admin/users', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json(store.listAdminUsers());
   }));
 
   app.get('/admin/activity', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     const q = req.query as Record<string, string | undefined>;
     const from = q.from ? new Date(q.from) : undefined;
     const to = q.to ? new Date(q.to) : undefined;
@@ -967,28 +981,28 @@ export function createServer(options: CreateServerOptions = {}) {
   }));
 
   app.get('/admin/health', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json(store.getAdminHealth());
   }));
 
   // Tools
   app.post('/admin/tools/sweep-overdue-all', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json({ created: store.sweepOverdueInvoiceFollowupsAll() });
   }));
 
   app.post('/admin/tools/recompute-commissions-all', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json({ recomputed: store.recomputeCommissionsAll() });
   }));
 
   app.post('/admin/tools/refresh-invoice-statuses', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     res.json({ refreshed: store.refreshAllInvoiceStatuses() });
   }));
 
   app.get('/admin/tools/backup', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     const bytes = store.readDatabaseFile();
     if (!bytes) throw new HttpError(500, 'Could not read database file.');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1001,7 +1015,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // Frontend stores the original admin token in localStorage and swaps to
   // the returned token; "Exit" restores the original token client-side.
   app.post('/admin/impersonate/:userId', authMiddleware, handler((req, res) => {
-    requireAdmin(req);
+    requireSuperAdmin(req);
     const target = store.getUserById(req.params.userId);
     if (!target) throw new HttpError(404, 'User not found.');
     const token = store.issueToken(target.id);
@@ -1299,6 +1313,11 @@ export function createServer(options: CreateServerOptions = {}) {
     handler(async (req, res) => {
       const payload = parseUserPayload(req.body);
       assertUserManagementPermission(req.user!, payload.companyRoles!);
+      // Only an existing super-admin may grant the super-admin flag.
+      const isSuperAdmin =
+        payload.isSuperAdmin === true && req.user?.isSuperAdmin === true
+          ? true
+          : false;
       const user = store.createUser({
         id: optionalString(asRecord(req.body, 'body').id),
         name: payload.name!,
@@ -1309,6 +1328,7 @@ export function createServer(options: CreateServerOptions = {}) {
         role: payload.role || payload.companyRoles![0].role,
         positionId: payload.positionId,
         avatar: payload.avatar || `https://i.pravatar.cc/150?u=${payload.email!}`,
+        isSuperAdmin,
         commissionEligible: payload.commissionEligible,
         defaultCommissionRate: payload.defaultCommissionRate,
         defaultCommissionBasis: payload.defaultCommissionBasis,
@@ -1388,8 +1408,13 @@ export function createServer(options: CreateServerOptions = {}) {
         }
         assertUserManagementPermission(req.user!, assignmentsToAuthorize);
       }
+      // isSuperAdmin can only be toggled by an existing super-admin.
+      // For non-super-admin callers, drop the field entirely from the patch.
+      const safePayload = req.user?.isSuperAdmin === true
+        ? payload
+        : { ...payload, isSuperAdmin: undefined };
       const updated = store.updateUser(req.params.id, {
-        ...payload,
+        ...safePayload,
         companyIds: payload.companyIds || targetAssignments.map((assignment) => assignment.companyId),
         companyRoles: targetAssignments,
         role: payload.role || targetAssignments[0]?.role || existing.role,

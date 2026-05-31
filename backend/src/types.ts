@@ -58,6 +58,10 @@ export interface User {
   companyRoles?: CompanyRoleAssignment[];
   avatar: string;
   password: string;
+  // Platform-wide super-admin flag — separate from per-company Admin role.
+  // Grants access to /admin (cross-company KPIs, impersonation, backups,
+  // system tools). Default false. Only granted explicitly.
+  isSuperAdmin?: boolean;
   // Commission profile (configured at user creation / by manager)
   commissionEligible?: boolean;
   defaultCommissionRate?: number;            // percentage 0–100
