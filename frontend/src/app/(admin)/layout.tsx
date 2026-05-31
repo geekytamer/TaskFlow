@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -11,7 +10,7 @@ import { useI18n } from '@/context/i18n-context';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
 import { logout } from '@/services/authService';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { ShieldCheck, LogOut, ArrowRightToLine } from 'lucide-react';
+import { ShieldCheck, LogOut } from 'lucide-react';
 
 /**
  * Minimal chrome for the super-admin surface. No company switcher, no
@@ -62,12 +61,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link href="/">
-            <Button variant="outline" size="sm">
-              <ArrowRightToLine className="me-1.5 h-3.5 w-3.5" />
-              {t('admin.chrome.switchToApp')}
-            </Button>
-          </Link>
           <LanguageSwitcher />
           <div className="hidden items-center gap-2 sm:flex">
             <Avatar className="h-8 w-8">

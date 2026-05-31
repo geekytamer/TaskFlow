@@ -669,6 +669,7 @@ export function createServer(options: CreateServerOptions = {}) {
     actor: SanitizedUser,
     assignments: CompanyRoleAssignment[],
   ) => {
+    if (actor.isSuperAdmin) return;
     if (actor.role === 'Admin') return;
     const invalidCompany = assignments.find(
       (assignment) => !requireCompanyRole(actor, assignment.companyId, ['Admin', 'Manager']),
@@ -1059,7 +1060,7 @@ export function createServer(options: CreateServerOptions = {}) {
     '/companies',
     authMiddleware,
     handler((req, res) => {
-      requireAdmin(req);
+      requireSuperAdmin(req);
       const body = asRecord(req.body, 'body');
       const company = store.createCompany({
         name: requiredString(body.name, 'name', { min: 2 }),
@@ -1074,7 +1075,7 @@ export function createServer(options: CreateServerOptions = {}) {
     '/companies/:id',
     authMiddleware,
     handler((req, res) => {
-      requireAdmin(req);
+      requireSuperAdmin(req);
       store.deleteCompany(req.params.id);
       res.json({ success: true });
     }),

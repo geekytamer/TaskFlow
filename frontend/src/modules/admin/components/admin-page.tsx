@@ -23,6 +23,14 @@ import {
   type AdminActivityRow,
 } from '@/services/adminService';
 import { getStoredToken } from '@/lib/api-client';
+import { createCompany } from '@/services/companyService';
+import { AddUserSheet } from '@/modules/users/components/add-user-sheet';
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader,
+  DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { PlusCircle } from 'lucide-react';
 import {
   Activity,
   BadgeDollarSign,
@@ -83,6 +91,10 @@ export function AdminPage() {
   const [health, setHealth] = React.useState<AdminHealth | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [tab, setTab] = React.useState('overview');
+  const [createUserOpen, setCreateUserOpen] = React.useState(false);
+  const [createCompanyOpen, setCreateCompanyOpen] = React.useState(false);
+  const [companyForm, setCompanyForm] = React.useState({ name: '', website: '', address: '' });
+  const [savingCompany, setSavingCompany] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -195,6 +207,74 @@ export function AdminPage() {
 
         {/* ── Companies ── */}
         <TabsContent value="companies" className="space-y-3 pt-4">
+          <div className="flex justify-end">
+            <Dialog open={createCompanyOpen} onOpenChange={setCreateCompanyOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <PlusCircle className="me-1.5 h-3.5 w-3.5" />
+                  {t('admin.newCompany')}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>{t('admin.newCompany')}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1">
+                    <Label>{t('admin.companyName')}</Label>
+                    <Input
+                      value={companyForm.name}
+                      onChange={(e) => setCompanyForm((f) => ({ ...f, name: e.target.value }))}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t('admin.companyWebsite')}</Label>
+                    <Input
+                      value={companyForm.website}
+                      onChange={(e) => setCompanyForm((f) => ({ ...f, website: e.target.value }))}
+                      placeholder="https://"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t('admin.companyAddress')}</Label>
+                    <Input
+                      value={companyForm.address}
+                      onChange={(e) => setCompanyForm((f) => ({ ...f, address: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCreateCompanyOpen(false)}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button
+                    disabled={!companyForm.name.trim() || savingCompany}
+                    onClick={async () => {
+                      setSavingCompany(true);
+                      try {
+                        await createCompany({
+                          name: companyForm.name.trim(),
+                          website: companyForm.website.trim() || undefined,
+                          address: companyForm.address.trim() || undefined,
+                        });
+                        setCreateCompanyOpen(false);
+                        setCompanyForm({ name: '', website: '', address: '' });
+                        await load();
+                        toast({ title: t('admin.companyCreated') });
+                      } catch (e: any) {
+                        toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
+                      } finally {
+                        setSavingCompany(false);
+                      }
+                    }}
+                  >
+                    {savingCompany ? '...' : t('common.save')}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
           <div className="rounded-xl border overflow-hidden">
             <Table>
               <TableHeader>
@@ -239,6 +319,18 @@ export function AdminPage() {
 
         {/* ── Users ── */}
         <TabsContent value="users" className="space-y-3 pt-4">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setCreateUserOpen(true)}>
+              <PlusCircle className="me-1.5 h-3.5 w-3.5" />
+              {t('admin.newUser')}
+            </Button>
+          </div>
+          <AddUserSheet
+            open={createUserOpen}
+            onOpenChange={setCreateUserOpen}
+            onUserAdded={load}
+            currentUserRole="Admin"
+          />
           <div className="rounded-xl border overflow-hidden">
             <Table>
               <TableHeader>
