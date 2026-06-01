@@ -23,8 +23,8 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const { t } = useI18n();
-  const [email, setEmail] = useState('admin@taskflow.com');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
