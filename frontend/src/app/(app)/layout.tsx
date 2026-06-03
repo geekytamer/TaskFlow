@@ -42,12 +42,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Super-admins never use the company-scoped app directly. They must
   // impersonate a user to see this UI. Bounce them to /admin.
+  // We deliberately exclude `router` from the deps array: Next.js's
+  // useRouter() can return a fresh reference each render, and including
+  // it caused an infinite redirect loop (React error #185).
+  const didRedirectRef = React.useRef(false);
   React.useEffect(() => {
     if (isLoading) return;
+    if (didRedirectRef.current) return;
     if (currentUser?.isSuperAdmin && !isImpersonating()) {
+      didRedirectRef.current = true;
       router.replace('/admin');
     }
-  }, [currentUser, isLoading, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, isLoading]);
 
   if (isLoading) {
     return (
