@@ -27,34 +27,34 @@ import { CommandPalette } from '@/modules/layout/components/command-palette';
 import { NotificationBell } from '@/modules/layout/components/notification-bell';
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
 import { isImpersonating } from '@/services/adminService';
-import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading: authLoading } = useAuthGuard();
   const { currentUser, loading: companyLoading } = useCompany();
   const { t, isRtl } = useI18n();
-  const router = useRouter();
 
   // The main loading condition. We wait for auth to resolve AND the company context to load.
   // We also explicitly check if currentUser exists before showing the app.
   const isLoading = authLoading || companyLoading || !currentUser;
 
   // Super-admins never use the company-scoped app directly. They must
-  // impersonate a user to see this UI. Bounce them to /admin.
-  // We deliberately exclude `router` from the deps array: Next.js's
-  // useRouter() can return a fresh reference each render, and including
-  // it caused an infinite redirect loop (React error #185).
-  const didRedirectRef = React.useRef(false);
-  React.useEffect(() => {
-    if (isLoading) return;
-    if (didRedirectRef.current) return;
-    if (currentUser?.isSuperAdmin && !isImpersonating()) {
-      didRedirectRef.current = true;
-      router.replace('/admin');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, isLoading]);
+  // impersonate a user to see this UI. Force a hard navigation so React
+  // unmounts cleanly and there's no chance of looping.
+  if (
+    !isLoading &&
+    currentUser?.isSuperAdmin &&
+    !isImpersonating() &&
+    typeof window !== 'undefined' &&
+    !window.location.pathname.startsWith('/admin')
+  ) {
+    window.location.replace('/admin');
+    return (
+      <div className="flex h-screen w-screen items-center justify-center">
+        <p className="text-muted-foreground">{t('common.loading')}</p>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -63,15 +63,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Logo className="h-12 w-12 text-primary animate-pulse" />
           <p className="text-muted-foreground">{t('app.loadingTaskflow')}</p>
         </div>
-      </div>
-    );
-  }
-
-  // Short-circuit render for super-admins about to be bounced.
-  if (currentUser?.isSuperAdmin && !isImpersonating()) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center">
-        <p className="text-muted-foreground">{t('common.loading')}</p>
       </div>
     );
   }
