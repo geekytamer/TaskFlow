@@ -48,6 +48,15 @@ PORT=4005
 SEED_ON_EMPTY=false
 ALLOW_SEED_RESET=false
 
+# SQLite DB location — MUST live OUTSIDE the git working tree so deploys
+# (git pull) never overwrite or unlink it. The DB is no longer tracked in git.
+TASKFLOW_DB_PATH=/var/lib/taskflow/taskflow.db
+
+# Welcome-email sender. The domain must be verified in Resend.
+# NOTE: a trailing ".com.com" typo here causes "domain is not verified".
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=TaskFlow <no-reply@alyarubi-group.com>
+
 # CORS — the public origin of the frontend
 ALLOWED_ORIGINS=https://erp.alyarubi-group.com
 
@@ -212,6 +221,28 @@ cd ../frontend && npm ci && npm run build && pm2 restart taskflow-web
 Migrations run automatically on backend startup. New schema additions
 are applied; old data is preserved.
 
+### One-time migration off the in-repo DB (if upgrading an old deploy)
+
+Older deploys kept the database at `backend/taskflow.db`, which was tracked
+in git. That is now removed from the repo, so the **first** `git pull` after
+this change will try to delete your live DB. Relocate it first:
+
+```bash
+pm2 stop taskflow-api                       # release the file handle (flush WAL)
+mkdir -p /var/lib/taskflow
+# copy the DB plus any WAL/SHM sidecars to the new home
+cp backend/taskflow.db*      /var/lib/taskflow/ 2>/dev/null || true
+cp /var/lib/taskflow/taskflow.db /var/backups/taskflow-$(date +%F).db   # extra backup
+
+git checkout -- backend/taskflow.db         # make the working tree clean so pull won't conflict
+git pull                                    # now safely deletes the (untracked-going-forward) file
+
+# set TASKFLOW_DB_PATH=/var/lib/taskflow/taskflow.db in backend/.env  (see Section 2)
+cd backend && npm ci && npm run build && pm2 restart taskflow-api
+```
+
+After this, the DB lives outside the repo and future `git pull`s never touch it.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -221,3 +252,5 @@ are applied; old data is preserved.
 | WhatsApp "Configure webhook" fails | `PUBLIC_BASE_URL` is wrong or the domain isn't yet publicly reachable |
 | Admin login fails after fresh deploy | `ADMIN_PASSWORD` was changed AFTER the user got created — env changes don't update an existing admin, you must reset via the API or wipe the DB and re-bootstrap |
 | Migrations look stuck | Stop the process, back up `taskflow.db`, restart. Migrations are idempotent. |
+| `SQLITE_READONLY_DBMOVED` / login fails after deploy | The DB file was swapped out from under the running process (git pull replaced it). Relocate the DB to `TASKFLOW_DB_PATH` outside the repo (see Section 8) and restart the API. |
+| Welcome emails fail: "domain is not verified" | `RESEND_FROM_EMAIL` has a malformed domain (e.g. `...com.com`) or the domain isn't verified in Resend. Fix the env value and verify the domain. |
