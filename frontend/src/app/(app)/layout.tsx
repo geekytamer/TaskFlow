@@ -39,16 +39,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isLoading = authLoading || companyLoading || !currentUser;
 
   // Super-admins never use the company-scoped app directly. They must
-  // impersonate a user to see this UI. Force a hard navigation so React
-  // unmounts cleanly and there's no chance of looping.
-  if (
+  // impersonate a user to see this UI. Detect this case so we can both
+  // (a) redirect, and (b) AVOID mounting any company-scoped components,
+  // which would otherwise fire 403s and re-render in a loop while the
+  // browser navigates away.
+  const isSuperAdminOutsideAdmin =
     !isLoading &&
-    currentUser?.isSuperAdmin &&
+    !!currentUser?.isSuperAdmin &&
     !isImpersonating() &&
     typeof window !== 'undefined' &&
-    !window.location.pathname.startsWith('/admin')
-  ) {
-    window.location.replace('/admin');
+    !window.location.pathname.startsWith('/admin');
+
+  // Perform the navigation as a side effect (not during render) so it runs
+  // exactly once and never participates in the render cycle.
+  React.useEffect(() => {
+    if (isSuperAdminOutsideAdmin) {
+      window.location.replace('/admin');
+    }
+  }, [isSuperAdminOutsideAdmin]);
+
+  // While we are a super-admin being redirected, render ONLY a static
+  // loading screen. Never mount the sidebar, dashboard, or `children`.
+  if (isSuperAdminOutsideAdmin) {
     return (
       <div className="flex h-screen w-screen items-center justify-center">
         <p className="text-muted-foreground">{t('common.loading')}</p>

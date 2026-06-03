@@ -104,18 +104,18 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser, userLoading]);
 
 
-  const handleSetSelectedCompany = (company: Company | null) => {
+  const handleSetSelectedCompany = React.useCallback((company: Company | null) => {
     setSelectedCompany(company);
     if (company) {
       try { localStorage.setItem('selectedCompanyId', company.id); } catch {}
     } else {
       try { localStorage.removeItem('selectedCompanyId'); } catch {}
     }
-  };
+  }, []);
 
   const isLoading = userLoading || loading;
 
-  const value = {
+  const value = React.useMemo(() => ({
     selectedCompany,
     setSelectedCompany: handleSetSelectedCompany,
     companies,
@@ -125,7 +125,17 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     refreshCompanies: fetchCompanies,
     refreshProjects: fetchProjects,
     loading: isLoading,
-  };
+  }), [
+    selectedCompany,
+    handleSetSelectedCompany,
+    companies,
+    projects,
+    currentUser,
+    currentRole,
+    fetchCompanies,
+    fetchProjects,
+    isLoading,
+  ]);
 
   return (
     <CompanyContext.Provider value={value}>
