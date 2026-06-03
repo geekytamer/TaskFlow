@@ -345,7 +345,9 @@ type CreateActivityEventInput = Omit<ActivityEvent, 'id' | 'createdAt'> & {
   createdAt?: Date | string;
 };
 
-const defaultDbPath = path.join(process.cwd(), 'taskflow.db');
+const defaultDbPath = path.resolve(
+  process.env.TASKFLOW_DB_PATH || path.join(process.cwd(), 'taskflow.db')
+);
 
 const dashboardPalette = {
   slate: '#94a3b8',
@@ -3211,6 +3213,12 @@ export class DataStore {
     const updated = {
       ...existing,
       ...updates,
+      // NOT NULL columns must never be nulled by a partial update that omits
+      // them (or sends an explicit null). Always fall back to the existing row.
+      title: updates.title ?? existing.title,
+      status: updates.status ?? existing.status,
+      priority: updates.priority ?? existing.priority,
+      companyId: updates.companyId ?? existing.companyId,
       createdAt: existing.createdAt,
       dueDate: updates.dueDate ? new Date(updates.dueDate).toISOString() : existing.dueDate,
       assignedUserIds: JSON.stringify(updatedAssigned),

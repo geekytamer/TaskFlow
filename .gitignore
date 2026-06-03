@@ -45,3 +45,10 @@ frontend/.vercel
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sqlite database (never commit — deploys must not overwrite prod data)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
