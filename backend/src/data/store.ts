@@ -4611,6 +4611,8 @@ export class DataStore {
 		           @expenseDate, @status, @billable, @notes, @createdAt, @updatedAt)`,
 		      )
 		      .run(this.serializeCampaignExpense(expense));
+		    // Recognise the cost on the ledger if it was created already approved/paid.
+		    this.syncCampaignExpenseJournal(expense);
 		    return expense;
 		  }
 
@@ -4636,10 +4638,19 @@ export class DataStore {
 		         billable=@billable, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
 		      )
 		      .run(this.serializeCampaignExpense(expense));
-		    return this.getCampaignExpenseById(id);
+		    const saved = this.getCampaignExpenseById(id);
+		    if (saved) {
+		      // Reverse the prior posting (if any) and re-post when still
+		      // approved/paid, so amount/date edits are reflected on the ledger.
+		      this.removeJournalEntriesBySource('campaign_expense', saved.id);
+		      this.syncCampaignExpenseJournal(saved);
+		    }
+		    return saved;
 		  }
 
 		  deleteCampaignExpense(id: string): boolean {
+		    // Reverse any ledger posting before removing the expense.
+		    this.removeJournalEntriesBySource('campaign_expense', id);
 		    return this.db.prepare('DELETE FROM campaign_expenses WHERE id = ?').run(id).changes > 0;
 		  }
 
@@ -5200,7 +5211,7 @@ export class DataStore {
 	      let cost = 0;
 	      if (invoice.campaignId) {
 	        const expenses = this.db
-	          .prepare('SELECT amount FROM campaign_expenses WHERE campaignId = ?')
+	          .prepare("SELECT amount FROM campaign_expenses WHERE campaignId = ? AND status IN ('Approved', 'Paid')")
 	          .all(invoice.campaignId) as Array<{ amount: number }>;
 	        cost += expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 	        const bills = this.db
@@ -5727,17 +5738,32 @@ export class DataStore {
 		  }
 
 		  private getInvoiceForWonOpportunity(opportunity: Opportunity): Invoice | undefined {
-		    if (!opportunity.wonSalesOrderId) return undefined;
-		    const so = this.getSalesOrderById(opportunity.wonSalesOrderId);
-		    if (!so?.invoiceId) return undefined;
-		    return this.getInvoiceById(so.invoiceId);
+		    // Preferred path: opportunity → won sales order → invoice.
+		    if (opportunity.wonSalesOrderId) {
+		      const so = this.getSalesOrderById(opportunity.wonSalesOrderId);
+		      if (so?.invoiceId) {
+		        const invoice = this.getInvoiceById(so.invoiceId);
+		        if (invoice) return invoice;
+		      }
+		    }
+		    // Fallback: a campaign tied to this opportunity may have generated an
+		    // invoice directly (campaign invoices carry no salesOrderId).
+		    const campaignRow = this.db
+		      .prepare('SELECT invoiceId FROM crm_campaigns WHERE opportunityId = ? AND invoiceId IS NOT NULL ORDER BY updatedAt DESC LIMIT 1')
+		      .get(opportunity.id) as { invoiceId?: string } | undefined;
+		    if (campaignRow?.invoiceId) {
+		      return this.getInvoiceById(campaignRow.invoiceId);
+		    }
+		    return undefined;
 		  }
 
 		  private getOpportunityCost(opportunity: Opportunity, invoice: Invoice): number {
 		    let cost = 0;
 		    if (invoice.campaignId) {
+		      // Only count expenses that are actually recognised (Approved/Paid) —
+		      // mirroring what hits the ledger. Draft/Submitted/Rejected don't count.
 		      const expenses = this.db
-		        .prepare('SELECT amount FROM campaign_expenses WHERE campaignId = ?')
+		        .prepare("SELECT amount FROM campaign_expenses WHERE campaignId = ? AND status IN ('Approved', 'Paid')")
 		        .all(invoice.campaignId) as Array<{ amount: number }>;
 		      cost += expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 		      const vendorBills = this.db
@@ -8243,10 +8269,16 @@ export class DataStore {
         .prepare('UPDATE sales_orders SET status = ?, invoiceId = ? WHERE id = ?')
         .run('Invoiced', newInvoice.id, newInvoice.salesOrderId);
     }
-    try {
-      this.postInvoiceJournal(newInvoice);
-    } catch (error) {
-      console.error('Failed to auto-post invoice journal', error);
+    // Only recognise revenue once the invoice leaves Draft. A Draft (e.g. a
+    // freshly generated campaign invoice) is a working document and must not
+    // hit the ledger until it is issued/Sent. postInvoiceJournal is idempotent,
+    // so the posting happens on the Draft→Sent/Paid transition instead.
+    if (newInvoice.status !== 'Draft') {
+      try {
+        this.postInvoiceJournal(newInvoice);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
     }
     // Trigger commission recalc for any opportunity linked via the won-SO.
     // This is the InvoiceCreated trigger: a Revenue-basis commission can now
@@ -8292,6 +8324,13 @@ export class DataStore {
           .run('Paid', existing.paidAt ? existing.paidAt.toISOString() : new Date().toISOString(), invoiceId);
         return this.getInvoiceById(invoiceId);
       }
+      // Moving straight to Paid leaves Draft — recognise revenue before the
+      // payment's cash/AR entry so accounts receivable nets to zero.
+      try {
+        this.postInvoiceJournal(existing);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
       this.createPayment({
         invoiceId: existing.id,
         amount: outstandingAmount,
@@ -8319,6 +8358,14 @@ export class DataStore {
       .run(status, sentAt, paidAt, invoiceId);
     const updated = this.getInvoiceById(invoiceId);
     if (!updated) return undefined;
+    // Recognise revenue when the invoice leaves Draft (idempotent).
+    if (updated.status !== 'Draft') {
+      try {
+        this.postInvoiceJournal(updated);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
+    }
     this.createActivityEvent({
       companyId: updated.companyId,
       entityType: 'invoice',
@@ -8394,7 +8441,16 @@ export class DataStore {
       )
       .run({ ...merged, id: invoiceId, salesOrderId: merged.salesOrderId ?? null, templateId: merged.templateId ?? null });
     this.refreshInvoicePaymentStatus(invoiceId);
-    return this.getInvoiceById(invoiceId);
+    const saved = this.getInvoiceById(invoiceId);
+    // Recognise revenue if the edit moved the invoice out of Draft (idempotent).
+    if (saved && saved.status !== 'Draft') {
+      try {
+        this.postInvoiceJournal(saved);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
+    }
+    return saved;
   }
 
   private decodeInvoice(row: any): Invoice {
@@ -11636,6 +11692,73 @@ export class DataStore {
         },
       ],
     });
+  }
+
+  /**
+   * Removes any journal entries (and their lines) posted from a given source.
+   * Used to reverse a posting when its source is deleted or moves back to an
+   * unposted state.
+   */
+  private removeJournalEntriesBySource(sourceType: string, sourceId: string) {
+    const entries = this.db
+      .prepare('SELECT id FROM journal_entries WHERE sourceType = ? AND sourceId = ?')
+      .all(sourceType, sourceId) as Array<{ id: string }>;
+    if (!entries.length) return;
+    const delLines = this.db.prepare('DELETE FROM journal_lines WHERE entryId = ?');
+    const delEntry = this.db.prepare('DELETE FROM journal_entries WHERE id = ?');
+    const trx = this.db.transaction(() => {
+      for (const entry of entries) {
+        delLines.run(entry.id);
+        delEntry.run(entry.id);
+      }
+    });
+    trx();
+  }
+
+  /**
+   * Posts an approved/paid campaign expense to the ledger as an out-of-pocket
+   * cost: DR 5700 Marketing Expense / CR 1000 Cash. Idempotent. Draft,
+   * Submitted and Rejected expenses are not recognised.
+   */
+  private postCampaignExpenseJournal(expense: CampaignExpense) {
+    if (expense.status !== 'Approved' && expense.status !== 'Paid') return;
+    if (!(expense.amount > 0)) return;
+    const existing = this.db
+      .prepare("SELECT id FROM journal_entries WHERE sourceType = 'campaign_expense' AND sourceId = ? LIMIT 1")
+      .get(expense.id) as { id?: string } | undefined;
+    if (existing?.id) return;
+
+    const expenseAccountId = this.getSystemAccountId(expense.companyId, '5700');
+    const cashAccountId = this.getSystemAccountId(expense.companyId, '1000');
+    this.createJournalEntry({
+      companyId: expense.companyId,
+      sourceType: 'campaign_expense',
+      sourceId: expense.id,
+      memo: `Campaign expense: ${expense.description}`,
+      entryDate: expense.expenseDate ?? expense.createdAt,
+      lines: [
+        { id: uuid(), accountId: expenseAccountId, description: expense.description, debit: expense.amount, credit: 0 },
+        { id: uuid(), accountId: cashAccountId, description: 'Cash paid', debit: 0, credit: expense.amount },
+      ],
+    });
+  }
+
+  /**
+   * Keeps a campaign expense's ledger posting in sync with its status: posts
+   * when Approved/Paid, reverses otherwise. Amount changes after approval are
+   * handled by reversing then re-posting.
+   */
+  private syncCampaignExpenseJournal(expense: CampaignExpense) {
+    const postable = expense.status === 'Approved' || expense.status === 'Paid';
+    if (!postable) {
+      this.removeJournalEntriesBySource('campaign_expense', expense.id);
+      return;
+    }
+    try {
+      this.postCampaignExpenseJournal(expense);
+    } catch (error) {
+      console.error('Failed to post campaign expense journal', error);
+    }
   }
 
   private postVendorBillPaymentJournal(payment: VendorBillPayment) {

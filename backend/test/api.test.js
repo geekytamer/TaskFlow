@@ -2005,6 +2005,12 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(updatedDeliverableResponse.status, 200);
 		  assert.equal(updatedDeliverableResponse.body.status, 'Published');
 
+		  const plRange = 'from=2026-06-01T00:00:00.000Z&to=2026-06-30T23:59:59.999Z';
+		  const plBefore = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plBefore.status, 200);
+
 		  const campaignInvoiceResponse = await request(app)
 		    .post(`/companies/1/campaigns/${campaignId}/generate-invoice`)
 		    .set('Authorization', `Bearer ${token}`);
@@ -2013,6 +2019,25 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(campaignInvoiceResponse.body.contactId, contactId);
 		  assert.equal(campaignInvoiceResponse.body.clientId, contactId);
 		  assert.equal(campaignInvoiceResponse.body.total, 5500);
+		  assert.equal(campaignInvoiceResponse.body.status, 'Draft');
+
+		  // #1: a generated campaign invoice is a Draft and must NOT recognise
+		  // revenue until it is issued.
+		  const plDraft = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plDraft.body.totalRevenue - plBefore.body.totalRevenue, 0);
+
+		  // Issuing the invoice recognises the revenue.
+		  const sendInvoiceResponse = await request(app)
+		    .patch(`/invoices/${campaignInvoiceResponse.body.id}/status`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ status: 'Sent' });
+		  assert.equal(sendInvoiceResponse.status, 200);
+		  const plSent = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plSent.body.totalRevenue - plBefore.body.totalRevenue, 5500);
 
 		  const campaignVendorBillsResponse = await request(app)
 		    .post(`/companies/1/campaigns/${campaignId}/generate-vendor-bills`)
@@ -2048,6 +2073,32 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(expenseResponse.status, 201);
 		  assert.equal(expenseResponse.body.amount, 120);
 		  assert.equal(expenseResponse.body.billable, true);
+
+		  // #2: a Submitted campaign expense is not on the books yet; approving it
+		  // posts to the ledger (DR Marketing Expense / CR Cash).
+		  const plBeforeApprove = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  const approveExpenseResponse = await request(app)
+		    .put(`/campaign-expenses/${expenseResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ status: 'Approved' });
+		  assert.equal(approveExpenseResponse.status, 200);
+		  assert.equal(approveExpenseResponse.body.status, 'Approved');
+		  const plAfterApprove = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plAfterApprove.body.totalExpenses - plBeforeApprove.body.totalExpenses, 120);
+
+		  // Deleting the expense reverses the posting.
+		  const deleteExpenseResponse = await request(app)
+		    .delete(`/campaign-expenses/${expenseResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(deleteExpenseResponse.status, 204);
+		  const plAfterDelete = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plAfterDelete.body.totalExpenses - plBeforeApprove.body.totalExpenses, 0);
 
 		  const campaignExecutionResponse = await request(app)
 		    .get(`/campaigns/${campaignId}/deliverables`)
