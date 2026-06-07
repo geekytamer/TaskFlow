@@ -2802,8 +2802,39 @@ export class DataStore {
     return newCompany;
   }
 
-  deleteCompany(id: string) {
-    this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+  deleteCompany(id: string, options: { cascade?: boolean } = {}) {
+    if (!options.cascade) {
+      // Non-cascade: remove only the company record. Related rows are left in
+      // place (they simply stop appearing once the company is gone).
+      this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+      return;
+    }
+
+    // Cascade: remove every row that belongs to this company across all
+    // company-scoped tables, discovered by introspection so new tables are
+    // covered automatically.
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as Array<{ name: string }>;
+
+    const trx = this.db.transaction(() => {
+      // Journal lines are keyed by entryId (no companyId), so clear them via
+      // their parent entries first to avoid orphaned financial lines.
+      this.db
+        .prepare('DELETE FROM journal_lines WHERE entryId IN (SELECT id FROM journal_entries WHERE companyId = ?)')
+        .run(id);
+
+      for (const { name } of tables) {
+        if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines') continue;
+        const cols = this.db.prepare(`PRAGMA table_info('${name}')`).all() as Array<{ name: string }>;
+        if (cols.some((c) => c.name === 'companyId')) {
+          this.db.prepare(`DELETE FROM ${name} WHERE companyId = ?`).run(id);
+        }
+      }
+
+      this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+    });
+    trx();
   }
 
   listPositions(): Position[] {

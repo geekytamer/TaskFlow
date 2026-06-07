@@ -1077,7 +1077,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireSuperAdmin(req);
-      store.deleteCompany(req.params.id);
+      const cascade = req.query.cascade === 'true' || req.query.cascade === '1';
+      store.deleteCompany(req.params.id, { cascade });
       res.json({ success: true });
     }),
   );

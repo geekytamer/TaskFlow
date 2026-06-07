@@ -6,6 +6,7 @@ const path = require('node:path');
 const request = require('supertest');
 
 const { createServer } = require('../dist/server');
+const { DataStore } = require('../dist/data/store');
 
 const makeApp = () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-api-'));
@@ -27,6 +28,26 @@ const login = async (app, email, password = 'password') => {
   assert.equal(response.status, 200);
   return response.body.token;
 };
+
+test('deleting a company cascades into related data only when requested', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-store-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+
+  // Cascade: company and its related rows are all removed.
+  const cascadeCo = store.createCompany({ name: 'Cascade Co', website: '', address: '' });
+  store.createContact({ companyId: cascadeCo.id, name: 'Acme' });
+  assert.equal(store.listContacts(cascadeCo.id).length, 1);
+  store.deleteCompany(cascadeCo.id, { cascade: true });
+  assert.equal(store.getCompanyById(cascadeCo.id), undefined);
+  assert.equal(store.listContacts(cascadeCo.id).length, 0);
+
+  // Non-cascade: only the company record is removed; related rows remain.
+  const keepCo = store.createCompany({ name: 'Keep Co', website: '', address: '' });
+  store.createContact({ companyId: keepCo.id, name: 'Globex' });
+  store.deleteCompany(keepCo.id);
+  assert.equal(store.getCompanyById(keepCo.id), undefined);
+  assert.equal(store.listContacts(keepCo.id).length, 1);
+});
 
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
