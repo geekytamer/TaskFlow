@@ -64,6 +64,14 @@ test('health endpoint reports status and applied migrations', async () => {
     '027_campaign_execution',
     '028_campaign_invoice_columns',
     '029_deliverable_vendor_bill',
+    '030_deliveries',
+    '031_whatsapp_integration',
+    '032_whatsapp_actor_and_privacy',
+    '033_opportunity_closed_at',
+    '034_commissions_v2_foundation',
+    '035_commissions_v2_engine',
+    '036_user_super_admin',
+    '037_campaign_deliverable_fulfillment',
   ]);
 });
 
@@ -1970,6 +1978,25 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(deliverableResponse.body.vendorContactId, approveResponse.body.contactId);
 		  assert.equal(deliverableResponse.body.price, 5500);
 		  assert.equal(deliverableResponse.body.cost, 900);
+		  // A vendor contact implies an external deliverable.
+		  assert.equal(deliverableResponse.body.fulfillment, 'External');
+
+		  // An internal deliverable carries a cost for margin but no vendor,
+		  // and must never generate a vendor bill.
+		  const internalDeliverableResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/deliverables`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ title: 'In-house edit', fulfillment: 'Internal', price: 0, cost: 400 });
+		  assert.equal(internalDeliverableResponse.status, 201);
+		  assert.equal(internalDeliverableResponse.body.fulfillment, 'Internal');
+		  assert.ok(!internalDeliverableResponse.body.vendorContactId);
+
+		  // An external deliverable with no vendor is rejected.
+		  const badExternalResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/deliverables`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ title: 'No vendor', fulfillment: 'External', cost: 100 });
+		  assert.equal(badExternalResponse.status, 400);
 
 		  const updatedDeliverableResponse = await request(app)
 		    .put(`/campaign-deliverables/${deliverableResponse.body.id}`)

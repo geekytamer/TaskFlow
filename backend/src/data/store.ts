@@ -26,6 +26,7 @@ import {
 	  CampaignStatus,
 	  CampaignDeliverable,
 	  CampaignDeliverableStatus,
+	  CampaignFulfillment,
 	  CampaignAssignment,
 	  CampaignAssignmentStatus,
 	  CampaignExpense,
@@ -2098,6 +2099,25 @@ export class DataStore {
               .prepare(`UPDATE users SET isSuperAdmin = 1 WHERE LOWER(email) = LOWER(?)`)
               .run(bootstrapEmail);
           }
+        },
+      },
+      {
+        id: '037_campaign_deliverable_fulfillment',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(campaign_deliverables)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('fulfillment')) {
+            this.db.exec(`ALTER TABLE campaign_deliverables ADD COLUMN fulfillment TEXT;`);
+          }
+          // Backfill: a deliverable that already has a vendor contact was the
+          // "external" case; everything else becomes "Internal".
+          this.db.exec(`
+            UPDATE campaign_deliverables
+              SET fulfillment = CASE
+                WHEN vendorContactId IS NOT NULL AND vendorContactId != '' THEN 'External'
+                ELSE 'Internal'
+              END
+            WHERE fulfillment IS NULL;
+          `);
         },
       },
     ];
@@ -4348,13 +4368,17 @@ export class DataStore {
 		    const now = new Date();
 		    const dueDate = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30);
 		    for (const d of deliverables) {
-		      // Skip deliverables that already have a bill or have no vendor contact
+		      // Only external deliverables become payables. Skip internal ones,
+		      // those already billed, and anything without a vendor contact.
 		      if (d.vendorBillId) continue;
+		      if ((d.fulfillment ?? 'Internal') !== 'External') continue;
 		      const vendorContactId = d.vendorContactId ?? d.contactId;
 		      if (!vendorContactId) continue;
 		      const contact = this.getContactById(vendorContactId);
 		      if (!contact) continue;
-		      const amount = d.cost ?? d.price ?? 0;
+		      // Bill our cost — never the client price.
+		      const amount = d.cost ?? 0;
+		      if (amount <= 0) continue;
 		      const bill = this.createVendorBill({
 		        companyId,
 		        vendorName: contact.name,
@@ -4397,9 +4421,17 @@ export class DataStore {
 		      if (!contact || contact.companyId !== input.companyId) throw new Error('Deliverable contact must belong to the selected company.');
 		    }
 		    const now = new Date();
+		    // Internal deliverables never carry a vendor (no payable); External
+		    // ones require a vendor contact so a bill can be generated.
+		    const fulfillment: CampaignFulfillment = input.fulfillment ?? (input.vendorContactId ? 'External' : 'Internal');
+		    if (fulfillment === 'External' && !input.vendorContactId) {
+		      throw new Error('An external deliverable needs a vendor contact.');
+		    }
 		    const deliverable: CampaignDeliverable = {
 		      ...input,
 		      id: input.id ?? uuid(),
+		      fulfillment,
+		      vendorContactId: fulfillment === 'Internal' ? undefined : input.vendorContactId,
 		      dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
 		      status: input.status ?? 'Planned',
 		      publishedAt: input.publishedAt ? new Date(input.publishedAt) : undefined,
@@ -4410,10 +4442,10 @@ export class DataStore {
 		      .prepare(
 		        `INSERT INTO campaign_deliverables
 		          (id, companyId, campaignId, contactId, vendorContactId, assignedUserId, assignedUserName, title, platform,
-		           dueDate, status, contentUrl, price, cost, vendorBillId, publishedAt, notes, createdAt, updatedAt)
+		           dueDate, status, contentUrl, price, cost, fulfillment, vendorBillId, publishedAt, notes, createdAt, updatedAt)
 		         VALUES
 		          (@id, @companyId, @campaignId, @contactId, @vendorContactId, @assignedUserId, @assignedUserName, @title, @platform,
-		           @dueDate, @status, @contentUrl, @price, @cost, @vendorBillId, @publishedAt, @notes, @createdAt, @updatedAt)`,
+		           @dueDate, @status, @contentUrl, @price, @cost, @fulfillment, @vendorBillId, @publishedAt, @notes, @createdAt, @updatedAt)`,
 		      )
 		      .run(this.serializeCampaignDeliverable(deliverable));
 		    this.createActivityEvent({
@@ -4434,10 +4466,18 @@ export class DataStore {
 		      const contact = this.getContactById(updates.contactId);
 		      if (!contact || contact.companyId !== existing.companyId) throw new Error('Deliverable contact must belong to the selected company.');
 		    }
+		    const nextFulfillment: CampaignFulfillment =
+		      updates.fulfillment === undefined ? (existing.fulfillment ?? 'Internal') : updates.fulfillment;
+		    const requestedVendor = updates.vendorContactId === undefined ? existing.vendorContactId : updates.vendorContactId;
+		    const nextVendor = nextFulfillment === 'Internal' ? undefined : requestedVendor;
+		    if (nextFulfillment === 'External' && !nextVendor) {
+		      throw new Error('An external deliverable needs a vendor contact.');
+		    }
 		    const deliverable: CampaignDeliverable = {
 		      ...existing,
 		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
-		      vendorContactId: updates.vendorContactId === undefined ? existing.vendorContactId : updates.vendorContactId,
+		      vendorContactId: nextVendor,
+		      fulfillment: nextFulfillment,
 		      assignedUserId: updates.assignedUserId === undefined ? existing.assignedUserId : updates.assignedUserId,
 		      assignedUserName: updates.assignedUserName === undefined ? existing.assignedUserName : updates.assignedUserName,
 		      title: updates.title === undefined ? existing.title : updates.title,
@@ -4457,7 +4497,7 @@ export class DataStore {
 		        `UPDATE campaign_deliverables SET contactId=@contactId, vendorContactId=@vendorContactId,
 		         assignedUserId=@assignedUserId,
 		         assignedUserName=@assignedUserName, title=@title, platform=@platform, dueDate=@dueDate,
-		         status=@status, contentUrl=@contentUrl, price=@price, cost=@cost, vendorBillId=@vendorBillId,
+		         status=@status, contentUrl=@contentUrl, price=@price, cost=@cost, fulfillment=@fulfillment, vendorBillId=@vendorBillId,
 		         publishedAt=@publishedAt, notes=@notes,
 		         updatedAt=@updatedAt WHERE id=@id`,
 		      )
@@ -11142,6 +11182,7 @@ export class DataStore {
 		      contentUrl: deliverable.contentUrl ?? null,
 		      price: deliverable.price ?? null,
 		      cost: deliverable.cost ?? null,
+		      fulfillment: deliverable.fulfillment ?? 'Internal',
 		      vendorBillId: deliverable.vendorBillId ?? null,
 		      publishedAt: deliverable.publishedAt ? deliverable.publishedAt.toISOString() : null,
 		      notes: deliverable.notes ?? null,
@@ -11166,6 +11207,7 @@ export class DataStore {
 		      contentUrl: row.contentUrl ?? undefined,
 		      price: row.price === null || row.price === undefined ? undefined : Number(row.price),
 		      cost: row.cost === null || row.cost === undefined ? undefined : Number(row.cost),
+		      fulfillment: (row.fulfillment as CampaignFulfillment) ?? 'Internal',
 		      vendorBillId: row.vendorBillId ?? undefined,
 		      publishedAt: row.publishedAt ? new Date(row.publishedAt) : undefined,
 		      notes: row.notes ?? undefined,

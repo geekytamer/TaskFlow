@@ -419,7 +419,8 @@ export function CampaignsPage() {
   const [campaignForm, setCampaignForm] = React.useState({
     name: '', contactId: '', opportunityId: '', startDate: '', endDate: '', budget: '',
   });
-  const [deliverableForm, setDeliverableForm] = React.useState({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '' });
+  const [deliverableForm, setDeliverableForm] = React.useState({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '', fulfillment: 'Internal' as 'Internal' | 'External' });
+  const [addingDeliverable, setAddingDeliverable] = React.useState(false);
   const [generatingInvoice, setGeneratingInvoice] = React.useState(false);
   const [generatingVendorBills, setGeneratingVendorBills] = React.useState(false);
   const [assignmentForm, setAssignmentForm] = React.useState({ contactId: '', role: 'Influencer' as ContactRoleType, agreedRate: '' });
@@ -490,8 +491,9 @@ export function CampaignsPage() {
   const planned = campaigns.filter((c) => c.status === 'Planned').length;
   const totalBudget = campaigns.reduce((s, c) => s + (c.budget ?? 0), 0);
   const invoiceableDeliverables = deliverables.filter((item) => (item.price ?? 0) > 0);
-  const payableDeliverables = deliverables.filter((item) => (item.cost ?? 0) > 0 && item.vendorContactId && !item.vendorBillId);
-  const missingPayableSetup = deliverables.filter((item) => (item.cost ?? 0) > 0 && !item.vendorContactId && !item.vendorBillId).length;
+  const payableDeliverables = deliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && item.vendorContactId && !item.vendorBillId);
+  const missingPayableSetup = deliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && !item.vendorContactId && !item.vendorBillId).length;
+  const internalCost = deliverables.filter((item) => item.fulfillment !== 'External').reduce((s, item) => s + (item.cost ?? 0), 0);
   const invoiceDisabledReason = !selectedCampaign?.contactId
     ? t('campaignsPage.invoiceDisabledNoClient')
     : invoiceableDeliverables.length === 0
@@ -669,6 +671,9 @@ export function CampaignsPage() {
                 <div className="rounded-lg border bg-muted/20 px-3 py-2">
                   <span className="font-medium text-foreground">{payableDeliverables.length}</span> {payableDeliverables.length === 1 ? t('campaignsPage.payableLabelOne') : t('campaignsPage.payableLabelMany')}
                   <div>{t('campaignsPage.payableSub')}</div>
+                  {internalCost > 0 && (
+                    <div className="mt-1 text-[11px]">+ {amount(internalCost)} {t('campaignsPage.internalCostNote')}</div>
+                  )}
                 </div>
                 <div className="rounded-lg border bg-muted/20 px-3 py-2">
                   <span className="font-medium text-foreground">{t('campaignsPage.draftFinance')}</span> {t('campaignsPage.draftFinanceLabel')}
@@ -711,27 +716,61 @@ export function CampaignsPage() {
                     <Input placeholder={t('campaignsPage.deliverableTitlePh')} value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
                     <Input placeholder={t('campaignsPage.deliverablePlatformPh')} value={deliverableForm.platform} onChange={(e) => setDeliverableForm((p) => ({ ...p, platform: e.target.value }))} />
                     <Input type="date" value={deliverableForm.dueDate} onChange={(e) => setDeliverableForm((p) => ({ ...p, dueDate: e.target.value }))} />
-                    <Input type="number" min="0" step="0.01" placeholder={t('campaignsPage.deliverablePricePh')} value={deliverableForm.price} onChange={(e) => setDeliverableForm((p) => ({ ...p, price: e.target.value }))} />
-                    <Input type="number" min="0" step="0.01" placeholder={t('campaignsPage.deliverableCostPh')} value={deliverableForm.cost} onChange={(e) => setDeliverableForm((p) => ({ ...p, cost: e.target.value }))} />
-                    <Select value={deliverableForm.vendorContactId || '__none__'} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, vendorContactId: v === '__none__' ? '' : v }))}>
-                      <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverableVendorPh')} /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">{t('campaignsPage.none')}</SelectItem>
-                        {contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" className="w-full" onClick={async () => {
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{t('campaignsPage.deliverablePriceLabel')}</Label>
+                        <Input type="number" min="0" step="0.01" placeholder="0.00" value={deliverableForm.price} onChange={(e) => setDeliverableForm((p) => ({ ...p, price: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{t('campaignsPage.deliverableCostLabel')}</Label>
+                        <Input type="number" min="0" step="0.01" placeholder="0.00" value={deliverableForm.cost} onChange={(e) => setDeliverableForm((p) => ({ ...p, cost: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">{t('campaignsPage.fulfilledByLabel')}</Label>
+                      <Select value={deliverableForm.fulfillment} onValueChange={(v: 'Internal' | 'External') => setDeliverableForm((p) => ({ ...p, fulfillment: v, vendorContactId: v === 'Internal' ? '' : p.vendorContactId }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Internal">{t('campaignsPage.fulfillmentInternal')}</SelectItem>
+                          <SelectItem value="External">{t('campaignsPage.fulfillmentExternal')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {deliverableForm.fulfillment === 'External' && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{t('campaignsPage.deliverableVendorPh')}</Label>
+                        <Select value={deliverableForm.vendorContactId} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, vendorContactId: v }))}>
+                          <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverableVendorPh')} /></SelectTrigger>
+                          <SelectContent>
+                            {contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <Button size="sm" className="w-full" disabled={addingDeliverable || !deliverableForm.title.trim() || (deliverableForm.fulfillment === 'External' && !deliverableForm.vendorContactId)} onClick={async () => {
                       if (!deliverableForm.title.trim()) return;
-                      await createCampaignDeliverable(selectedCampaign.id, {
-                        title: deliverableForm.title.trim(),
-                        platform: deliverableForm.platform || undefined,
-                        dueDate: deliverableForm.dueDate ? new Date(deliverableForm.dueDate) : undefined,
-                        price: deliverableForm.price ? Number(deliverableForm.price) : undefined,
-                        cost: deliverableForm.cost ? Number(deliverableForm.cost) : undefined,
-                        vendorContactId: deliverableForm.vendorContactId || undefined,
-                      });
-                      setDeliverableForm({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '' });
-                      await loadExecution(selectedCampaign.id);
+                      if (deliverableForm.fulfillment === 'External' && !deliverableForm.vendorContactId) {
+                        toast({ variant: 'destructive', title: t('campaignsPage.vendorRequiredTitle'), description: t('campaignsPage.vendorRequiredDesc') });
+                        return;
+                      }
+                      setAddingDeliverable(true);
+                      try {
+                        await createCampaignDeliverable(selectedCampaign.id, {
+                          title: deliverableForm.title.trim(),
+                          platform: deliverableForm.platform || undefined,
+                          dueDate: deliverableForm.dueDate ? new Date(deliverableForm.dueDate) : undefined,
+                          price: deliverableForm.price ? Number(deliverableForm.price) : undefined,
+                          cost: deliverableForm.cost ? Number(deliverableForm.cost) : undefined,
+                          fulfillment: deliverableForm.fulfillment,
+                          vendorContactId: deliverableForm.fulfillment === 'External' ? (deliverableForm.vendorContactId || undefined) : undefined,
+                        });
+                        setDeliverableForm({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '', fulfillment: 'Internal' });
+                        await loadExecution(selectedCampaign.id);
+                      } catch (error: any) {
+                        toast({ variant: 'destructive', title: t('campaignsPage.toastCreateFailed'), description: error?.message });
+                      } finally {
+                        setAddingDeliverable(false);
+                      }
                     }}>
                       <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.add')}
                     </Button>
@@ -749,7 +788,9 @@ export function CampaignsPage() {
                             {item.dueDate && ` · ${t('campaignsPage.dueLabel')} ${new Date(item.dueDate).toLocaleDateString()}`}
                             {item.price != null && item.price > 0 && ` · ${t('campaignsPage.clientLabel')}: ${amount(item.price)}`}
                             {item.cost != null && item.cost > 0 && ` · ${t('campaignsPage.costLabel')}: ${amount(item.cost)}`}
-                            {item.vendorContactId && ` · ${t('campaignsPage.vendorLabel')}: ${contactName(item.vendorContactId)}`}
+                            {item.fulfillment === 'External'
+                              ? (item.vendorContactId ? ` · ${t('campaignsPage.vendorLabel')}: ${contactName(item.vendorContactId)}` : '')
+                              : ` · ${t('campaignsPage.fulfillmentInternalShort')}`}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
@@ -771,7 +812,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Pending: 'bg-yellow-50 text-yellow-700 border-yellow-200', 'In Progress': 'bg-blue-50 text-blue-700 border-blue-200', Published: 'bg-green-50 text-green-700 border-green-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
+                        <ColorBadge status={item.status} map={{ Planned: 'bg-slate-50 text-slate-700 border-slate-200', 'In Progress': 'bg-blue-50 text-blue-700 border-blue-200', Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200', Published: 'bg-green-50 text-green-700 border-green-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -838,7 +879,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Confirmed: 'bg-green-50 text-green-700 border-green-200', Pending: 'bg-yellow-50 text-yellow-700 border-yellow-200', Completed: 'bg-blue-50 text-blue-700 border-blue-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
+                        <ColorBadge status={item.status} map={{ Planned: 'bg-slate-50 text-slate-700 border-slate-200', Contacted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Confirmed: 'bg-green-50 text-green-700 border-green-200', Completed: 'bg-blue-50 text-blue-700 border-blue-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -906,7 +947,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-green-50 text-green-700 border-green-200', Rejected: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
+                        <ColorBadge status={item.status} map={{ Draft: 'bg-slate-50 text-slate-700 border-slate-200', Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-green-50 text-green-700 border-green-200', Rejected: 'bg-red-50 text-red-700 border-red-200', Paid: 'bg-blue-50 text-blue-700 border-blue-200' }} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}

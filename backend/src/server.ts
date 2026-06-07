@@ -38,6 +38,7 @@ import {
 		  campaignDeliverableStatuses,
 		  campaignAssignmentStatuses,
 		  campaignExpenseStatuses,
+		  campaignFulfillments,
 		} from './types';
 import {
   HttpError,
@@ -2593,6 +2594,10 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      const campaign = requireCampaignAccess(req, req.params.id, 'edit');
 		      const body = asRecord(req.body, 'body');
+		      const createFulfillment = body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined;
+		      if (createFulfillment === 'External' && !optionalString(body.vendorContactId)) {
+		        throw new HttpError(400, 'An external deliverable needs a vendor contact.');
+		      }
 		      const deliverable = withActor(req, () =>
 		        store.createCampaignDeliverable({
 		          companyId: campaign.companyId,
@@ -2610,6 +2615,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		          notes: optionalString(body.notes),
 		          price: optionalNumber(body.price),
 		          cost: optionalNumber(body.cost),
+		          fulfillment: body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined,
 		        }),
 		      );
 		      res.status(201).json(deliverable);
@@ -2624,6 +2630,12 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!existing) throw new HttpError(404, 'Deliverable not found.');
 		      requireCampaignAccess(req, existing.campaignId, 'edit');
 		      const body = asRecord(req.body, 'body');
+		      const updateFulfillment = body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined;
+		      const effectiveFulfillment = updateFulfillment ?? existing.fulfillment ?? 'Internal';
+		      const effectiveVendor = body.vendorContactId !== undefined ? optionalString(body.vendorContactId) : existing.vendorContactId;
+		      if (effectiveFulfillment === 'External' && !effectiveVendor) {
+		        throw new HttpError(400, 'An external deliverable needs a vendor contact.');
+		      }
 		      const updated = withActor(req, () =>
 		        store.updateCampaignDeliverable(req.params.id, {
 		          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
@@ -2639,6 +2651,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
 		          price: body.price !== undefined ? optionalNumber(body.price) : undefined,
 		          cost: body.cost !== undefined ? optionalNumber(body.cost) : undefined,
+		          fulfillment: body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined,
 		        }),
 		      );
 		      if (!updated) throw new HttpError(404, 'Deliverable not found.');
