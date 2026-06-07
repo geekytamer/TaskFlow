@@ -49,6 +49,44 @@ test('deleting a company cascades into related data only when requested', () => 
   assert.equal(store.listContacts(keepCo.id).length, 1);
 });
 
+test('a super-admin (role Employee) can edit and delete users', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-su-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  // Seed demo data, then add a super-admin whose company role is Employee —
+  // the exact shape that previously got blocked by PUT /users/:id.
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  store.createUser({
+    name: 'Root', email: 'root@taskflow.com', role: 'Employee',
+    companyIds: [], companyRoles: [], password: 'password', isSuperAdmin: true,
+  });
+  const target = store.findUserByEmail('samantha.b@innovatecorp.com');
+  assert.ok(target);
+
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const token = await login(app, 'root@taskflow.com');
+
+  const editResponse = await request(app)
+    .put(`/users/${target.id}`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ name: 'Samantha Renamed' });
+  assert.equal(editResponse.status, 200);
+  assert.equal(editResponse.body.name, 'Samantha Renamed');
+
+  const deleteResponse = await request(app)
+    .delete(`/users/${target.id}`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(deleteResponse.status, 200);
+
+  // Deleting again proves the user is gone.
+  const secondDelete = await request(app)
+    .delete(`/users/${target.id}`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(secondDelete.status, 404);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');

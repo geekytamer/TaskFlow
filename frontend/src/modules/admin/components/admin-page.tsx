@@ -24,6 +24,9 @@ import {
 } from '@/services/adminService';
 import { getStoredToken } from '@/lib/api-client';
 import { createCompany, deleteCompany } from '@/services/companyService';
+import { getUserById, deleteUser } from '@/services/userService';
+import type { User } from '@/lib/types';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { AddUserSheet } from '@/modules/users/components/add-user-sheet';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader,
@@ -47,6 +50,7 @@ import {
   ListChecks,
   LogIn,
   MessageSquare,
+  Pencil,
   PlayCircle,
   RefreshCw,
   Server,
@@ -103,6 +107,9 @@ export function AdminPage() {
   const [companyToDelete, setCompanyToDelete] = React.useState<AdminCompanyRow | null>(null);
   const [cascadeDelete, setCascadeDelete] = React.useState(false);
   const [deletingCompany, setDeletingCompany] = React.useState(false);
+  const [editingUser, setEditingUser] = React.useState<User | null>(null);
+  const [loadingUserEdit, setLoadingUserEdit] = React.useState<string | null>(null);
+  const confirm = useConfirm();
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -349,6 +356,15 @@ export function AdminPage() {
             onUserAdded={load}
             currentUserRole="Admin"
           />
+          {editingUser && (
+            <AddUserSheet
+              open={!!editingUser}
+              onOpenChange={(isOpen) => { if (!isOpen) setEditingUser(null); }}
+              onUserAdded={() => { setEditingUser(null); load(); }}
+              userToEdit={editingUser}
+              currentUserRole="Admin"
+            />
+          )}
           <div className="rounded-xl border overflow-hidden">
             <Table>
               <TableHeader>
@@ -375,23 +391,70 @@ export function AdminPage() {
                     }</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatRelative(u.lastActivityAt)}</TableCell>
                     <TableCell className="text-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          if (!window.confirm(t('admin.impersonateConfirm').replace('{name}', u.name))) return;
-                          try {
-                            const token = await adminService.impersonate(u.id);
-                            const original = getStoredToken();
-                            if (original) startImpersonation(token, original);
-                          } catch (e: any) {
-                            toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
-                          }
-                        }}
-                      >
-                        <LogIn className="me-1 h-3.5 w-3.5" />
-                        {t('admin.impersonate')}
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            if (!window.confirm(t('admin.impersonateConfirm').replace('{name}', u.name))) return;
+                            try {
+                              const token = await adminService.impersonate(u.id);
+                              const original = getStoredToken();
+                              if (original) startImpersonation(token, original);
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
+                            }
+                          }}
+                        >
+                          <LogIn className="me-1 h-3.5 w-3.5" />
+                          {t('admin.impersonate')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          disabled={loadingUserEdit === u.id}
+                          title={t('admin.editUser')}
+                          onClick={async () => {
+                            setLoadingUserEdit(u.id);
+                            try {
+                              const full = await getUserById(u.id);
+                              if (full) setEditingUser(full);
+                              else toast({ variant: 'destructive', title: t('common.error') });
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
+                            } finally {
+                              setLoadingUserEdit(null);
+                            }
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          title={t('admin.deleteUser')}
+                          onClick={async () => {
+                            if (!(await confirm({
+                              title: t('admin.deleteUserTitle'),
+                              description: t('admin.deleteUserDesc').replace('{name}', u.name),
+                              confirmText: t('common.delete'),
+                              cancelText: t('common.cancel'),
+                              destructive: true,
+                            }))) return;
+                            try {
+                              await deleteUser(u.id);
+                              toast({ title: t('admin.deleteUserDone').replace('{name}', u.name) });
+                              await load();
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('admin.deleteUserFailed'), description: e?.message });
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

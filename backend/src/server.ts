@@ -1363,7 +1363,10 @@ export function createServer(options: CreateServerOptions = {}) {
       const targetAssignments =
         payload.companyRoles
         || existingAssignments;
-      if (req.user!.role === 'Admin') {
+      if (req.user!.role === 'Admin' || req.user!.isSuperAdmin) {
+        // Super-admins have role 'Employee' but full user-management power via
+        // the isSuperAdmin flag, so route them through the simple check (which
+        // early-returns) instead of the per-company branch below.
         assertUserManagementPermission(req.user!, targetAssignments);
       } else {
         const existingByCompany = new Map(
