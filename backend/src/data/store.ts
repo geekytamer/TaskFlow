@@ -2837,6 +2837,43 @@ export class DataStore {
     trx();
   }
 
+  /**
+   * Removes every company-scoped row whose companyId no longer exists in the
+   * companies table. Cleans up orphans left behind by a non-cascade company
+   * deletion. Returns the per-table counts removed.
+   */
+  pruneOrphanedCompanyData(): Array<{ table: string; removed: number }> {
+    const validIds = (this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>).map((r) => r.id);
+    const placeholders = validIds.length ? validIds.map(() => '?').join(',') : null;
+    const notInValid = placeholders ? `companyId NOT IN (${placeholders})` : '1=1';
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as Array<{ name: string }>;
+    const results: Array<{ table: string; removed: number }> = [];
+
+    const trx = this.db.transaction(() => {
+      // Journal lines have no companyId; clear those whose parent entry is orphaned.
+      const orphanLines = placeholders
+        ? this.db
+            .prepare(`DELETE FROM journal_lines WHERE entryId IN (SELECT id FROM journal_entries WHERE companyId NOT IN (${placeholders}))`)
+            .run(...validIds)
+        : this.db.prepare('DELETE FROM journal_lines').run();
+      if (orphanLines.changes) results.push({ table: 'journal_lines', removed: orphanLines.changes });
+
+      for (const { name } of tables) {
+        if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines') continue;
+        const cols = this.db.prepare(`PRAGMA table_info('${name}')`).all() as Array<{ name: string }>;
+        if (!cols.some((c) => c.name === 'companyId')) continue;
+        const res = placeholders
+          ? this.db.prepare(`DELETE FROM ${name} WHERE ${notInValid}`).run(...validIds)
+          : this.db.prepare(`DELETE FROM ${name}`).run();
+        if (res.changes) results.push({ table: name, removed: res.changes });
+      }
+    });
+    trx();
+    return results;
+  }
+
   listPositions(): Position[] {
     return this.db.prepare('SELECT * FROM positions').all() as Position[];
   }
