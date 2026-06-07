@@ -8694,6 +8694,42 @@ export class DataStore {
       .run(status, paidAt, invoiceId);
   }
 
+  /**
+   * Reverses a recorded invoice payment: deletes the payment, removes its
+   * cash/AR journal entry, recomputes the invoice status, and re-runs
+   * commission calculations. Returns the refreshed invoice.
+   */
+  reverseInvoicePayment(paymentId: string): Invoice | undefined {
+    const row = this.db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId) as any;
+    if (!row) return undefined;
+    const invoiceId = row.invoiceId as string;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
+      this.removeJournalEntriesBySource('invoice_payment', paymentId);
+      this.refreshInvoicePaymentStatus(invoiceId);
+    });
+    trx();
+    const invoice = this.getInvoiceById(invoiceId);
+    if (invoice) {
+      try {
+        const oppId = this.findOpportunityIdForInvoice(invoice);
+        if (oppId) this.calculateCommissionsForOpportunity(oppId);
+        this.recomputeCommissionsForInvoice(invoice.id);
+      } catch (error) {
+        console.error('Failed to recalc commissions on payment reversal', error);
+      }
+      this.createActivityEvent({
+        companyId: invoice.companyId,
+        entityType: 'invoice',
+        entityId: invoice.id,
+        action: 'payment_reversed',
+        summary: `Payment reversed for invoice ${invoice.invoiceNumber}.`,
+        metadata: { amount: Number(row.amount), outstandingAmount: invoice.outstandingAmount },
+      });
+    }
+    return invoice;
+  }
+
   listLedgerAccounts(companyId: string): LedgerAccount[] {
     const rows = this.db
       .prepare('SELECT * FROM ledger_accounts WHERE companyId = ? ORDER BY code ASC')
@@ -9462,6 +9498,44 @@ export class DataStore {
     });
 
     return { payment, bill: updatedBill };
+  }
+
+  /**
+   * Reverses a recorded vendor-bill payment: deletes the payment, removes its
+   * AP/cash journal entry, and recomputes the bill status from the remaining
+   * payments. Returns the refreshed bill.
+   */
+  reverseVendorBillPayment(paymentId: string): VendorBill | undefined {
+    const row = this.db.prepare('SELECT * FROM vendor_bill_payments WHERE id = ?').get(paymentId) as any;
+    if (!row) return undefined;
+    const billId = row.billId as string;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM vendor_bill_payments WHERE id = ?').run(paymentId);
+      this.removeJournalEntriesBySource('vendor_bill_payment', paymentId);
+      // Recompute status from the payments that remain.
+      const bill = this.getVendorBillById(billId);
+      if (bill) {
+        const outstanding = bill.outstandingAmount ?? bill.amount;
+        const nextStatus: VendorBillStatus =
+          outstanding <= 0 ? 'Paid' : bill.dueDate < new Date() ? 'Overdue' : 'Approved';
+        this.db
+          .prepare('UPDATE vendor_bills SET status = ?, paidAt = ? WHERE id = ?')
+          .run(nextStatus, outstanding <= 0 ? new Date().toISOString() : null, billId);
+      }
+    });
+    trx();
+    const updated = this.getVendorBillById(billId);
+    if (updated) {
+      this.createActivityEvent({
+        companyId: updated.companyId,
+        entityType: 'vendor_bill',
+        entityId: updated.id,
+        action: 'payment_reversed',
+        summary: `Payment reversed for vendor bill ${updated.billNumber}.`,
+        metadata: { amount: Number(row.amount), outstandingAmount: updated.outstandingAmount },
+      });
+    }
+    return updated;
   }
 
   getReceivablesAging(companyId: string, asOf: Date = new Date()): AgingBucket[] {

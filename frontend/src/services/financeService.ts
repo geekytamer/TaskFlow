@@ -635,6 +635,10 @@ export async function createPayment(invoiceId: string, data: PaymentInput): Prom
   return { ...payment, paidAt: toDate(payment.paidAt) || new Date() };
 }
 
+export async function reversePayment(invoiceId: string, paymentId: string): Promise<void> {
+  await apiFetch(`/invoices/${invoiceId}/payments/${paymentId}`, { method: 'DELETE' });
+}
+
 export async function bulkUpdateInvoiceStatus(
   companyId: string,
   targetStatus: Invoice['status'],
@@ -863,6 +867,10 @@ export async function createVendorBillPayment(
     payment: mapVendorBillPayment(response.payment),
     bill: mapVendorBill(response.bill),
   };
+}
+
+export async function reverseVendorBillPayment(billId: string, paymentId: string): Promise<void> {
+  await apiFetch(`/vendor-bills/${billId}/payments/${paymentId}`, { method: 'DELETE' });
 }
 
 export async function bulkUpdateVendorBillStatus(

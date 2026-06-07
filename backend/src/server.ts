@@ -4547,6 +4547,20 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.delete(
+    '/invoices/:id/payments/:paymentId',
+    authMiddleware,
+    handler((req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
+      const exists = store.listPayments(req.params.id).some((p) => p.id === req.params.paymentId);
+      if (!exists) throw new HttpError(404, 'Payment not found.');
+      const updated = withActor(req, () => store.reverseInvoicePayment(req.params.paymentId));
+      res.json(updated);
+    }),
+  );
+
   app.post(
     '/companies/:companyId/invoices/bulk-status',
     authMiddleware,
@@ -4846,6 +4860,20 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, error?.message || 'Could not create vendor bill payment.');
       }
       res.status(201).json(result);
+    }),
+  );
+
+  app.delete(
+    '/vendor-bills/:id/payments/:paymentId',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      const exists = store.listVendorBillPayments(req.params.id).some((p) => p.id === req.params.paymentId);
+      if (!exists) throw new HttpError(404, 'Payment not found.');
+      const updated = withActor(req, () => store.reverseVendorBillPayment(req.params.paymentId));
+      res.json(updated);
     }),
   );
 

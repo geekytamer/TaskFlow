@@ -87,6 +87,46 @@ test('a super-admin (role Employee) can edit and delete users', async () => {
   assert.equal(secondDelete.status, 404);
 });
 
+test('an invoice payment can be recorded and reversed', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const invoiceResponse = await auth(request(app).post('/invoices')).send({
+    invoiceNumber: 'INV-REV-1',
+    companyId: '1',
+    clientId: 'client-1',
+    issueDate: '2026-04-08T00:00:00.000Z',
+    dueDate: '2026-04-18T00:00:00.000Z',
+    status: 'Sent',
+    lineItems: [{ description: 'Service', quantity: 1, unitPrice: 200, amount: 200, itemType: 'Manual' }],
+  });
+  assert.equal(invoiceResponse.status, 201);
+  const invoiceId = invoiceResponse.body.id;
+
+  const payResponse = await auth(request(app).post(`/invoices/${invoiceId}/payments`)).send({ amount: 200, method: 'Cash' });
+  assert.equal(payResponse.status, 201);
+  const paymentId = payResponse.body.id;
+
+  const paidList = await auth(request(app).get('/companies/1/invoices'));
+  assert.equal(paidList.body.find((i) => i.id === invoiceId).status, 'Paid');
+
+  const reverseResponse = await auth(request(app).delete(`/invoices/${invoiceId}/payments/${paymentId}`));
+  assert.equal(reverseResponse.status, 200);
+
+  const payments = await auth(request(app).get(`/invoices/${invoiceId}/payments`));
+  assert.equal(payments.body.length, 0);
+
+  const revertedList = await auth(request(app).get('/companies/1/invoices'));
+  const reverted = revertedList.body.find((i) => i.id === invoiceId);
+  assert.notEqual(reverted.status, 'Paid');
+  assert.equal(reverted.outstandingAmount, 200);
+
+  // Reversing a payment that no longer exists is a 404.
+  const reverseAgain = await auth(request(app).delete(`/invoices/${invoiceId}/payments/${paymentId}`));
+  assert.equal(reverseAgain.status, 404);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');
