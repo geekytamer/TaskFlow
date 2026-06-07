@@ -2805,8 +2805,13 @@ export class DataStore {
   deleteCompany(id: string, options: { cascade?: boolean } = {}) {
     if (!options.cascade) {
       // Non-cascade: remove only the company record. Related rows are left in
-      // place (they simply stop appearing once the company is gone).
-      this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+      // place (they simply stop appearing once the company is gone). Still
+      // scrub the company id from users so their membership isn't dangling.
+      const trx = this.db.transaction(() => {
+        this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+        this.removeCompanyFromUsers([id]);
+      });
+      trx();
       return;
     }
 
@@ -2833,8 +2838,38 @@ export class DataStore {
       }
 
       this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+      // Users store membership as JSON arrays (companyIds / companyRoles), not
+      // a companyId column, so the loop above doesn't touch them.
+      this.removeCompanyFromUsers([id]);
     });
     trx();
+  }
+
+  /**
+   * Strips the given company ids out of every user's companyIds and
+   * companyRoles JSON arrays. Used when companies are deleted so user
+   * membership never points at a company that no longer exists.
+   * Returns the number of user rows that changed.
+   */
+  private removeCompanyFromUsers(companyIds: string[]): number {
+    if (!companyIds.length) return 0;
+    const remove = new Set(companyIds);
+    const users = this.db
+      .prepare('SELECT id, companyIds, companyRoles FROM users')
+      .all() as Array<{ id: string; companyIds: string; companyRoles: string | null }>;
+    const updateStmt = this.db.prepare('UPDATE users SET companyIds = ?, companyRoles = ? WHERE id = ?');
+    let changed = 0;
+    for (const u of users) {
+      const ids = this.parseJson<string[]>(u.companyIds) || [];
+      const roles = (this.parseJson<Array<{ companyId: string }>>(u.companyRoles) || []) as Array<{ companyId: string }>;
+      const nextIds = ids.filter((cid) => !remove.has(cid));
+      const nextRoles = roles.filter((r) => r && !remove.has(r.companyId));
+      if (nextIds.length !== ids.length || nextRoles.length !== roles.length) {
+        updateStmt.run(JSON.stringify(nextIds), JSON.stringify(nextRoles), u.id);
+        changed += 1;
+      }
+    }
+    return changed;
   }
 
   /**
@@ -2861,7 +2896,7 @@ export class DataStore {
       if (orphanLines.changes) results.push({ table: 'journal_lines', removed: orphanLines.changes });
 
       for (const { name } of tables) {
-        if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines') continue;
+        if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines' || name === 'users') continue;
         const cols = this.db.prepare(`PRAGMA table_info('${name}')`).all() as Array<{ name: string }>;
         if (!cols.some((c) => c.name === 'companyId')) continue;
         const res = placeholders
@@ -2869,6 +2904,26 @@ export class DataStore {
           : this.db.prepare(`DELETE FROM ${name}`).run();
         if (res.changes) results.push({ table: name, removed: res.changes });
       }
+
+      // Scrub dangling company references out of users (membership is stored
+      // as JSON arrays, so the loop above can't reach them).
+      const valid = new Set(validIds);
+      const users = this.db
+        .prepare('SELECT id, companyIds, companyRoles FROM users')
+        .all() as Array<{ id: string; companyIds: string; companyRoles: string | null }>;
+      const updateStmt = this.db.prepare('UPDATE users SET companyIds = ?, companyRoles = ? WHERE id = ?');
+      let usersChanged = 0;
+      for (const u of users) {
+        const ids = this.parseJson<string[]>(u.companyIds) || [];
+        const roles = (this.parseJson<Array<{ companyId: string }>>(u.companyRoles) || []) as Array<{ companyId: string }>;
+        const nextIds = ids.filter((cid) => valid.has(cid));
+        const nextRoles = roles.filter((r) => r && valid.has(r.companyId));
+        if (nextIds.length !== ids.length || nextRoles.length !== roles.length) {
+          updateStmt.run(JSON.stringify(nextIds), JSON.stringify(nextRoles), u.id);
+          usersChanged += 1;
+        }
+      }
+      if (usersChanged) results.push({ table: 'users (company refs)', removed: usersChanged });
     });
     trx();
     return results;
