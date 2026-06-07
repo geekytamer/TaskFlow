@@ -47,6 +47,24 @@ test('deleting a company cascades into related data only when requested', () => 
   store.deleteCompany(keepCo.id);
   assert.equal(store.getCompanyById(keepCo.id), undefined);
   assert.equal(store.listContacts(keepCo.id).length, 1);
+
+  // Deleting a company scrubs it from user membership (companyIds / companyRoles).
+  const memberCo = store.createCompany({ name: 'Member Co', website: '', address: '' });
+  const otherCo = store.createCompany({ name: 'Other Co', website: '', address: '' });
+  const member = store.createUser({
+    name: 'Member', email: 'member@test.com', role: 'Employee',
+    companyIds: [memberCo.id, otherCo.id],
+    companyRoles: [
+      { companyId: memberCo.id, role: 'Employee' },
+      { companyId: otherCo.id, role: 'Employee' },
+    ],
+    password: 'password',
+  });
+  store.deleteCompany(memberCo.id, { cascade: true });
+  const after = store.getUserById(member.id);
+  assert.deepEqual(after.companyIds, [otherCo.id]);
+  assert.equal(after.companyRoles.length, 1);
+  assert.equal(after.companyRoles[0].companyId, otherCo.id);
 });
 
 test('a super-admin (role Employee) can edit and delete users', async () => {
