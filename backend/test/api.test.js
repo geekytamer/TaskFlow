@@ -6,6 +6,7 @@ const path = require('node:path');
 const request = require('supertest');
 
 const { createServer } = require('../dist/server');
+const { DataStore } = require('../dist/data/store');
 
 const makeApp = () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-api-'));
@@ -27,6 +28,104 @@ const login = async (app, email, password = 'password') => {
   assert.equal(response.status, 200);
   return response.body.token;
 };
+
+test('deleting a company cascades into related data only when requested', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-store-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+
+  // Cascade: company and its related rows are all removed.
+  const cascadeCo = store.createCompany({ name: 'Cascade Co', website: '', address: '' });
+  store.createContact({ companyId: cascadeCo.id, name: 'Acme' });
+  assert.equal(store.listContacts(cascadeCo.id).length, 1);
+  store.deleteCompany(cascadeCo.id, { cascade: true });
+  assert.equal(store.getCompanyById(cascadeCo.id), undefined);
+  assert.equal(store.listContacts(cascadeCo.id).length, 0);
+
+  // Non-cascade: only the company record is removed; related rows remain.
+  const keepCo = store.createCompany({ name: 'Keep Co', website: '', address: '' });
+  store.createContact({ companyId: keepCo.id, name: 'Globex' });
+  store.deleteCompany(keepCo.id);
+  assert.equal(store.getCompanyById(keepCo.id), undefined);
+  assert.equal(store.listContacts(keepCo.id).length, 1);
+});
+
+test('a super-admin (role Employee) can edit and delete users', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-su-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  // Seed demo data, then add a super-admin whose company role is Employee —
+  // the exact shape that previously got blocked by PUT /users/:id.
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  store.createUser({
+    name: 'Root', email: 'root@taskflow.com', role: 'Employee',
+    companyIds: [], companyRoles: [], password: 'password', isSuperAdmin: true,
+  });
+  const target = store.findUserByEmail('samantha.b@innovatecorp.com');
+  assert.ok(target);
+
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const token = await login(app, 'root@taskflow.com');
+
+  const editResponse = await request(app)
+    .put(`/users/${target.id}`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ name: 'Samantha Renamed' });
+  assert.equal(editResponse.status, 200);
+  assert.equal(editResponse.body.name, 'Samantha Renamed');
+
+  const deleteResponse = await request(app)
+    .delete(`/users/${target.id}`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(deleteResponse.status, 200);
+
+  // Deleting again proves the user is gone.
+  const secondDelete = await request(app)
+    .delete(`/users/${target.id}`)
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(secondDelete.status, 404);
+});
+
+test('an invoice payment can be recorded and reversed', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const invoiceResponse = await auth(request(app).post('/invoices')).send({
+    invoiceNumber: 'INV-REV-1',
+    companyId: '1',
+    clientId: 'client-1',
+    issueDate: '2026-04-08T00:00:00.000Z',
+    dueDate: '2026-04-18T00:00:00.000Z',
+    status: 'Sent',
+    lineItems: [{ description: 'Service', quantity: 1, unitPrice: 200, amount: 200, itemType: 'Manual' }],
+  });
+  assert.equal(invoiceResponse.status, 201);
+  const invoiceId = invoiceResponse.body.id;
+
+  const payResponse = await auth(request(app).post(`/invoices/${invoiceId}/payments`)).send({ amount: 200, method: 'Cash' });
+  assert.equal(payResponse.status, 201);
+  const paymentId = payResponse.body.id;
+
+  const paidList = await auth(request(app).get('/companies/1/invoices'));
+  assert.equal(paidList.body.find((i) => i.id === invoiceId).status, 'Paid');
+
+  const reverseResponse = await auth(request(app).delete(`/invoices/${invoiceId}/payments/${paymentId}`));
+  assert.equal(reverseResponse.status, 200);
+
+  const payments = await auth(request(app).get(`/invoices/${invoiceId}/payments`));
+  assert.equal(payments.body.length, 0);
+
+  const revertedList = await auth(request(app).get('/companies/1/invoices'));
+  const reverted = revertedList.body.find((i) => i.id === invoiceId);
+  assert.notEqual(reverted.status, 'Paid');
+  assert.equal(reverted.outstandingAmount, 200);
+
+  // Reversing a payment that no longer exists is a 404.
+  const reverseAgain = await auth(request(app).delete(`/invoices/${invoiceId}/payments/${paymentId}`));
+  assert.equal(reverseAgain.status, 404);
+});
 
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
@@ -64,6 +163,14 @@ test('health endpoint reports status and applied migrations', async () => {
     '027_campaign_execution',
     '028_campaign_invoice_columns',
     '029_deliverable_vendor_bill',
+    '030_deliveries',
+    '031_whatsapp_integration',
+    '032_whatsapp_actor_and_privacy',
+    '033_opportunity_closed_at',
+    '034_commissions_v2_foundation',
+    '035_commissions_v2_engine',
+    '036_user_super_admin',
+    '037_campaign_deliverable_fulfillment',
   ]);
 });
 
@@ -1970,6 +2077,25 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(deliverableResponse.body.vendorContactId, approveResponse.body.contactId);
 		  assert.equal(deliverableResponse.body.price, 5500);
 		  assert.equal(deliverableResponse.body.cost, 900);
+		  // A vendor contact implies an external deliverable.
+		  assert.equal(deliverableResponse.body.fulfillment, 'External');
+
+		  // An internal deliverable carries a cost for margin but no vendor,
+		  // and must never generate a vendor bill.
+		  const internalDeliverableResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/deliverables`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ title: 'In-house edit', fulfillment: 'Internal', price: 0, cost: 400 });
+		  assert.equal(internalDeliverableResponse.status, 201);
+		  assert.equal(internalDeliverableResponse.body.fulfillment, 'Internal');
+		  assert.ok(!internalDeliverableResponse.body.vendorContactId);
+
+		  // An external deliverable with no vendor is rejected.
+		  const badExternalResponse = await request(app)
+		    .post(`/campaigns/${campaignId}/deliverables`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ title: 'No vendor', fulfillment: 'External', cost: 100 });
+		  assert.equal(badExternalResponse.status, 400);
 
 		  const updatedDeliverableResponse = await request(app)
 		    .put(`/campaign-deliverables/${deliverableResponse.body.id}`)
@@ -1977,6 +2103,12 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		    .send({ status: 'Published', contentUrl: 'https://example.com/reel' });
 		  assert.equal(updatedDeliverableResponse.status, 200);
 		  assert.equal(updatedDeliverableResponse.body.status, 'Published');
+
+		  const plRange = 'from=2026-06-01T00:00:00.000Z&to=2026-06-30T23:59:59.999Z';
+		  const plBefore = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plBefore.status, 200);
 
 		  const campaignInvoiceResponse = await request(app)
 		    .post(`/companies/1/campaigns/${campaignId}/generate-invoice`)
@@ -1986,6 +2118,25 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(campaignInvoiceResponse.body.contactId, contactId);
 		  assert.equal(campaignInvoiceResponse.body.clientId, contactId);
 		  assert.equal(campaignInvoiceResponse.body.total, 5500);
+		  assert.equal(campaignInvoiceResponse.body.status, 'Draft');
+
+		  // #1: a generated campaign invoice is a Draft and must NOT recognise
+		  // revenue until it is issued.
+		  const plDraft = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plDraft.body.totalRevenue - plBefore.body.totalRevenue, 0);
+
+		  // Issuing the invoice recognises the revenue.
+		  const sendInvoiceResponse = await request(app)
+		    .patch(`/invoices/${campaignInvoiceResponse.body.id}/status`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ status: 'Sent' });
+		  assert.equal(sendInvoiceResponse.status, 200);
+		  const plSent = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plSent.body.totalRevenue - plBefore.body.totalRevenue, 5500);
 
 		  const campaignVendorBillsResponse = await request(app)
 		    .post(`/companies/1/campaigns/${campaignId}/generate-vendor-bills`)
@@ -2021,6 +2172,32 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(expenseResponse.status, 201);
 		  assert.equal(expenseResponse.body.amount, 120);
 		  assert.equal(expenseResponse.body.billable, true);
+
+		  // #2: a Submitted campaign expense is not on the books yet; approving it
+		  // posts to the ledger (DR Marketing Expense / CR Cash).
+		  const plBeforeApprove = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  const approveExpenseResponse = await request(app)
+		    .put(`/campaign-expenses/${expenseResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`)
+		    .send({ status: 'Approved' });
+		  assert.equal(approveExpenseResponse.status, 200);
+		  assert.equal(approveExpenseResponse.body.status, 'Approved');
+		  const plAfterApprove = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plAfterApprove.body.totalExpenses - plBeforeApprove.body.totalExpenses, 120);
+
+		  // Deleting the expense reverses the posting.
+		  const deleteExpenseResponse = await request(app)
+		    .delete(`/campaign-expenses/${expenseResponse.body.id}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(deleteExpenseResponse.status, 204);
+		  const plAfterDelete = await request(app)
+		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
+		    .set('Authorization', `Bearer ${token}`);
+		  assert.equal(plAfterDelete.body.totalExpenses - plBeforeApprove.body.totalExpenses, 0);
 
 		  const campaignExecutionResponse = await request(app)
 		    .get(`/campaigns/${campaignId}/deliverables`)

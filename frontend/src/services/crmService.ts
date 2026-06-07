@@ -161,10 +161,13 @@ export interface CampaignDeliverable {
   notes?: string;
   price?: number;
   cost?: number;
+  fulfillment?: CampaignFulfillment;
   vendorBillId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type CampaignFulfillment = 'Internal' | 'External';
 
 export interface CampaignAssignment {
   id: string;
@@ -704,6 +707,7 @@ export async function createCampaignDeliverable(campaignId: string, input: {
   notes?: string;
   price?: number;
   cost?: number;
+  fulfillment?: CampaignFulfillment;
 }): Promise<CampaignDeliverable> {
   const data = await apiFetch<any>(`/campaigns/${campaignId}/deliverables`, {
     method: 'POST',
@@ -730,6 +734,7 @@ export async function updateCampaignDeliverable(id: string, input: Partial<{
   notes: string;
   price: number;
   cost: number;
+  fulfillment: CampaignFulfillment;
   vendorBillId: string;
 }>): Promise<CampaignDeliverable> {
   const data = await apiFetch<any>(`/campaign-deliverables/${id}`, {

@@ -463,7 +463,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'commission_accrual' | 'commission_payment' | 'commission_reversal';
+  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense';
   sourceId?: string;
   memo?: string;
   entryDate: Date;
@@ -742,6 +742,9 @@ export const proposalStatuses: ProposalStatus[] = ['Draft', 'Sent', 'Accepted', 
 export type CampaignStatus = 'Planned' | 'Active' | 'On Hold' | 'Completed' | 'Cancelled' | 'Archived';
 export const campaignStatuses: CampaignStatus[] = ['Planned', 'Active', 'On Hold', 'Completed', 'Cancelled', 'Archived'];
 
+export type CampaignFulfillment = 'Internal' | 'External';
+export const campaignFulfillments: CampaignFulfillment[] = ['Internal', 'External'];
+
 export type CampaignDeliverableStatus = 'Planned' | 'In Progress' | 'Submitted' | 'Approved' | 'Published' | 'Cancelled';
 export const campaignDeliverableStatuses: CampaignDeliverableStatus[] = ['Planned', 'In Progress', 'Submitted', 'Approved', 'Published', 'Cancelled'];
 
@@ -842,6 +845,9 @@ export interface CampaignDeliverable {
   notes?: string;
   price?: number;
   cost?: number;
+  // 'External' costs are paid to a vendor and generate a vendor bill;
+  // 'Internal' costs count toward campaign margin but never become a payable.
+  fulfillment?: CampaignFulfillment;
   vendorBillId?: string;
   createdAt: Date;
   updatedAt: Date;

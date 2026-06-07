@@ -25,8 +25,12 @@ export async function createCompany(companyData: Omit<Company, 'id'>): Promise<C
   });
 }
 
-export async function deleteCompany(companyId: string): Promise<void> {
-  await apiFetch(`/companies/${companyId}`, { method: 'DELETE' });
+export async function deleteCompany(
+  companyId: string,
+  options: { cascade?: boolean } = {},
+): Promise<void> {
+  const query = options.cascade ? '?cascade=true' : '';
+  await apiFetch(`/companies/${companyId}${query}`, { method: 'DELETE' });
 }
 
 export async function getPositions(): Promise<Position[]> {

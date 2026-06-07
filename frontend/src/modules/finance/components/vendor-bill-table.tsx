@@ -32,6 +32,7 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import {
   bulkUpdateVendorBillStatus,
   createVendorBillPayment,
+  reverseVendorBillPayment,
   createVendorBill,
   getLedgerAccounts,
   getPurchaseOrderPayables,
@@ -39,6 +40,7 @@ import {
   getVendorBills,
   updateVendorBillStatus,
 } from '@/services/financeService';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import type {
   LedgerAccount,
   PurchaseOrderPayableSummary,
@@ -48,7 +50,7 @@ import type {
 } from '@/modules/finance/types';
 import { getPurchaseOrders, getSuppliers } from '@/services/operationsService';
 import type { PurchaseOrder, Supplier } from '@/modules/operations/types';
-import { CircleDollarSign, Download, FilePlus, ListChecks } from 'lucide-react';
+import { CircleDollarSign, Download, FilePlus, ListChecks, Undo2 } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
@@ -66,6 +68,7 @@ const statusColor: Record<VendorBillStatus, string> = {
 export function VendorBillTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
@@ -310,6 +313,14 @@ export function VendorBillTable() {
       });
       return;
     }
+    if (!(await confirm({
+      title: t('vendorBills.confirmPaymentTitle'),
+      description: t('vendorBills.confirmPaymentDesc')
+        .replace('{amount}', String(amount))
+        .replace('{number}', selectedBill.billNumber),
+      confirmText: t('vendorBills.recordPaymentBtn'),
+      cancelText: t('common.cancel'),
+    }))) return;
     try {
       await createVendorBillPayment(selectedBill.id, {
         amount,
@@ -890,6 +901,7 @@ export function VendorBillTable() {
                       <TableHead>{t('vendorBills.colHistMethod')}</TableHead>
                       <TableHead>{t('vendorBills.colHistNote')}</TableHead>
                       <TableHead className="text-end">{t('vendorBills.colHistAmount')}</TableHead>
+                      <TableHead className="text-end" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -900,11 +912,12 @@ export function VendorBillTable() {
                           <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                           <TableCell><Skeleton className="h-5 w-32" /></TableCell>
                           <TableCell><Skeleton className="ms-auto h-5 w-16" /></TableCell>
+                          <TableCell />
                         </TableRow>
                       ))}
                     {!paymentLoading && billPayments.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
+                        <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
                           {t('vendorBills.noPaymentsYet')}
                         </TableCell>
                       </TableRow>
@@ -916,6 +929,41 @@ export function VendorBillTable() {
                           <TableCell>{payment.method || '—'}</TableCell>
                           <TableCell>{payment.note || '—'}</TableCell>
                           <TableCell className="text-end">{amount(payment.amount)}</TableCell>
+                          <TableCell className="text-end">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                              onClick={async () => {
+                                if (!selectedBill) return;
+                                if (!(await confirm({
+                                  title: t('vendorBills.reversePaymentTitle'),
+                                  description: t('vendorBills.reversePaymentDesc')
+                                    .replace('{amount}', String(payment.amount))
+                                    .replace('{number}', selectedBill.billNumber),
+                                  confirmText: t('vendorBills.reversePaymentConfirm'),
+                                  cancelText: t('common.cancel'),
+                                  destructive: true,
+                                }))) return;
+                                try {
+                                  await reverseVendorBillPayment(selectedBill.id, payment.id);
+                                  const refreshed = await getVendorBillPayments(selectedBill.id);
+                                  setBillPayments(refreshed);
+                                  await load();
+                                  toast({ title: t('vendorBills.toastPaymentReversed') });
+                                } catch (error: any) {
+                                  toast({
+                                    variant: 'destructive',
+                                    title: t('vendorBills.toastPaymentReverseFailed'),
+                                    description: error?.message,
+                                  });
+                                }
+                              }}
+                            >
+                              <Undo2 className="h-3.5 w-3.5" />
+                              {t('vendorBills.reversePaymentBtn')}
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                   </TableBody>

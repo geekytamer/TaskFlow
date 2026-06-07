@@ -23,12 +23,19 @@ import {
   type AdminActivityRow,
 } from '@/services/adminService';
 import { getStoredToken } from '@/lib/api-client';
-import { createCompany } from '@/services/companyService';
+import { createCompany, deleteCompany } from '@/services/companyService';
+import { getUserById, deleteUser } from '@/services/userService';
+import type { User } from '@/lib/types';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { AddUserSheet } from '@/modules/users/components/add-user-sheet';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader,
   DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { PlusCircle } from 'lucide-react';
 import {
@@ -43,9 +50,11 @@ import {
   ListChecks,
   LogIn,
   MessageSquare,
+  Pencil,
   PlayCircle,
   RefreshCw,
   Server,
+  Trash2,
   Users as UsersIcon,
 } from 'lucide-react';
 
@@ -95,6 +104,12 @@ export function AdminPage() {
   const [createCompanyOpen, setCreateCompanyOpen] = React.useState(false);
   const [companyForm, setCompanyForm] = React.useState({ name: '', website: '', address: '' });
   const [savingCompany, setSavingCompany] = React.useState(false);
+  const [companyToDelete, setCompanyToDelete] = React.useState<AdminCompanyRow | null>(null);
+  const [cascadeDelete, setCascadeDelete] = React.useState(false);
+  const [deletingCompany, setDeletingCompany] = React.useState(false);
+  const [editingUser, setEditingUser] = React.useState<User | null>(null);
+  const [loadingUserEdit, setLoadingUserEdit] = React.useState<string | null>(null);
+  const confirm = useConfirm();
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -305,10 +320,20 @@ export function AdminPage() {
                     }</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatRelative(c.lastActivityAt)}</TableCell>
                     <TableCell className="text-end">
-                      <Button size="sm" variant="outline" onClick={() => handleHopIntoCompany(c.id)}>
-                        <LogIn className="me-1 h-3.5 w-3.5" />
-                        {t('admin.hopIn')}
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button size="sm" variant="outline" onClick={() => handleHopIntoCompany(c.id)}>
+                          <LogIn className="me-1 h-3.5 w-3.5" />
+                          {t('admin.hopIn')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => { setCompanyToDelete(c); setCascadeDelete(false); }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -331,6 +356,15 @@ export function AdminPage() {
             onUserAdded={load}
             currentUserRole="Admin"
           />
+          {editingUser && (
+            <AddUserSheet
+              open={!!editingUser}
+              onOpenChange={(isOpen) => { if (!isOpen) setEditingUser(null); }}
+              onUserAdded={() => { setEditingUser(null); load(); }}
+              userToEdit={editingUser}
+              currentUserRole="Admin"
+            />
+          )}
           <div className="rounded-xl border overflow-hidden">
             <Table>
               <TableHeader>
@@ -357,23 +391,70 @@ export function AdminPage() {
                     }</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatRelative(u.lastActivityAt)}</TableCell>
                     <TableCell className="text-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          if (!window.confirm(t('admin.impersonateConfirm').replace('{name}', u.name))) return;
-                          try {
-                            const token = await adminService.impersonate(u.id);
-                            const original = getStoredToken();
-                            if (original) startImpersonation(token, original);
-                          } catch (e: any) {
-                            toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
-                          }
-                        }}
-                      >
-                        <LogIn className="me-1 h-3.5 w-3.5" />
-                        {t('admin.impersonate')}
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            if (!window.confirm(t('admin.impersonateConfirm').replace('{name}', u.name))) return;
+                            try {
+                              const token = await adminService.impersonate(u.id);
+                              const original = getStoredToken();
+                              if (original) startImpersonation(token, original);
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
+                            }
+                          }}
+                        >
+                          <LogIn className="me-1 h-3.5 w-3.5" />
+                          {t('admin.impersonate')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          disabled={loadingUserEdit === u.id}
+                          title={t('admin.editUser')}
+                          onClick={async () => {
+                            setLoadingUserEdit(u.id);
+                            try {
+                              const full = await getUserById(u.id);
+                              if (full) setEditingUser(full);
+                              else toast({ variant: 'destructive', title: t('common.error') });
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
+                            } finally {
+                              setLoadingUserEdit(null);
+                            }
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          title={t('admin.deleteUser')}
+                          onClick={async () => {
+                            if (!(await confirm({
+                              title: t('admin.deleteUserTitle'),
+                              description: t('admin.deleteUserDesc').replace('{name}', u.name),
+                              confirmText: t('common.delete'),
+                              cancelText: t('common.cancel'),
+                              destructive: true,
+                            }))) return;
+                            try {
+                              await deleteUser(u.id);
+                              toast({ title: t('admin.deleteUserDone').replace('{name}', u.name) });
+                              await load();
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('admin.deleteUserFailed'), description: e?.message });
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -531,6 +612,58 @@ export function AdminPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Delete company confirmation (super-admin only) with optional cascade */}
+      <AlertDialog open={!!companyToDelete} onOpenChange={(open) => { if (!open) setCompanyToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('admin.deleteCompanyTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('admin.deleteCompanyDesc').replace('{name}', companyToDelete?.name ?? '')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded"
+              checked={cascadeDelete}
+              onChange={(e) => setCascadeDelete(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-amber-900">{t('admin.deleteCompanyCascadeLabel')}</span>
+              <span className="block text-xs text-amber-800">{t('admin.deleteCompanyCascadeHint')}</span>
+            </span>
+          </label>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setCompanyToDelete(null)} disabled={deletingCompany}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deletingCompany}
+              onClick={async () => {
+                if (!companyToDelete) return;
+                setDeletingCompany(true);
+                try {
+                  await deleteCompany(companyToDelete.id, { cascade: cascadeDelete });
+                  toast({
+                    title: t('admin.deleteCompanyDoneTitle'),
+                    description: t('admin.deleteCompanyDoneDesc').replace('{name}', companyToDelete.name),
+                  });
+                  setCompanyToDelete(null);
+                  await load();
+                } catch (error: any) {
+                  toast({ variant: 'destructive', title: t('admin.deleteCompanyFailed'), description: error?.message });
+                } finally {
+                  setDeletingCompany(false);
+                }
+              }}
+            >
+              {deletingCompany ? '…' : (cascadeDelete ? t('admin.deleteCompanyConfirmCascade') : t('admin.deleteCompanyConfirm'))}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

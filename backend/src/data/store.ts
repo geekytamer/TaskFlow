@@ -26,6 +26,7 @@ import {
 	  CampaignStatus,
 	  CampaignDeliverable,
 	  CampaignDeliverableStatus,
+	  CampaignFulfillment,
 	  CampaignAssignment,
 	  CampaignAssignmentStatus,
 	  CampaignExpense,
@@ -2100,6 +2101,25 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '037_campaign_deliverable_fulfillment',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(campaign_deliverables)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('fulfillment')) {
+            this.db.exec(`ALTER TABLE campaign_deliverables ADD COLUMN fulfillment TEXT;`);
+          }
+          // Backfill: a deliverable that already has a vendor contact was the
+          // "external" case; everything else becomes "Internal".
+          this.db.exec(`
+            UPDATE campaign_deliverables
+              SET fulfillment = CASE
+                WHEN vendorContactId IS NOT NULL AND vendorContactId != '' THEN 'External'
+                ELSE 'Internal'
+              END
+            WHERE fulfillment IS NULL;
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -2782,8 +2802,76 @@ export class DataStore {
     return newCompany;
   }
 
-  deleteCompany(id: string) {
-    this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+  deleteCompany(id: string, options: { cascade?: boolean } = {}) {
+    if (!options.cascade) {
+      // Non-cascade: remove only the company record. Related rows are left in
+      // place (they simply stop appearing once the company is gone).
+      this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+      return;
+    }
+
+    // Cascade: remove every row that belongs to this company across all
+    // company-scoped tables, discovered by introspection so new tables are
+    // covered automatically.
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as Array<{ name: string }>;
+
+    const trx = this.db.transaction(() => {
+      // Journal lines are keyed by entryId (no companyId), so clear them via
+      // their parent entries first to avoid orphaned financial lines.
+      this.db
+        .prepare('DELETE FROM journal_lines WHERE entryId IN (SELECT id FROM journal_entries WHERE companyId = ?)')
+        .run(id);
+
+      for (const { name } of tables) {
+        if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines') continue;
+        const cols = this.db.prepare(`PRAGMA table_info('${name}')`).all() as Array<{ name: string }>;
+        if (cols.some((c) => c.name === 'companyId')) {
+          this.db.prepare(`DELETE FROM ${name} WHERE companyId = ?`).run(id);
+        }
+      }
+
+      this.db.prepare('DELETE FROM companies WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  /**
+   * Removes every company-scoped row whose companyId no longer exists in the
+   * companies table. Cleans up orphans left behind by a non-cascade company
+   * deletion. Returns the per-table counts removed.
+   */
+  pruneOrphanedCompanyData(): Array<{ table: string; removed: number }> {
+    const validIds = (this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>).map((r) => r.id);
+    const placeholders = validIds.length ? validIds.map(() => '?').join(',') : null;
+    const notInValid = placeholders ? `companyId NOT IN (${placeholders})` : '1=1';
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as Array<{ name: string }>;
+    const results: Array<{ table: string; removed: number }> = [];
+
+    const trx = this.db.transaction(() => {
+      // Journal lines have no companyId; clear those whose parent entry is orphaned.
+      const orphanLines = placeholders
+        ? this.db
+            .prepare(`DELETE FROM journal_lines WHERE entryId IN (SELECT id FROM journal_entries WHERE companyId NOT IN (${placeholders}))`)
+            .run(...validIds)
+        : this.db.prepare('DELETE FROM journal_lines').run();
+      if (orphanLines.changes) results.push({ table: 'journal_lines', removed: orphanLines.changes });
+
+      for (const { name } of tables) {
+        if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines') continue;
+        const cols = this.db.prepare(`PRAGMA table_info('${name}')`).all() as Array<{ name: string }>;
+        if (!cols.some((c) => c.name === 'companyId')) continue;
+        const res = placeholders
+          ? this.db.prepare(`DELETE FROM ${name} WHERE ${notInValid}`).run(...validIds)
+          : this.db.prepare(`DELETE FROM ${name}`).run();
+        if (res.changes) results.push({ table: name, removed: res.changes });
+      }
+    });
+    trx();
+    return results;
   }
 
   listPositions(): Position[] {
@@ -4348,13 +4436,17 @@ export class DataStore {
 		    const now = new Date();
 		    const dueDate = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30);
 		    for (const d of deliverables) {
-		      // Skip deliverables that already have a bill or have no vendor contact
+		      // Only external deliverables become payables. Skip internal ones,
+		      // those already billed, and anything without a vendor contact.
 		      if (d.vendorBillId) continue;
+		      if ((d.fulfillment ?? 'Internal') !== 'External') continue;
 		      const vendorContactId = d.vendorContactId ?? d.contactId;
 		      if (!vendorContactId) continue;
 		      const contact = this.getContactById(vendorContactId);
 		      if (!contact) continue;
-		      const amount = d.cost ?? d.price ?? 0;
+		      // Bill our cost — never the client price.
+		      const amount = d.cost ?? 0;
+		      if (amount <= 0) continue;
 		      const bill = this.createVendorBill({
 		        companyId,
 		        vendorName: contact.name,
@@ -4397,9 +4489,17 @@ export class DataStore {
 		      if (!contact || contact.companyId !== input.companyId) throw new Error('Deliverable contact must belong to the selected company.');
 		    }
 		    const now = new Date();
+		    // Internal deliverables never carry a vendor (no payable); External
+		    // ones require a vendor contact so a bill can be generated.
+		    const fulfillment: CampaignFulfillment = input.fulfillment ?? (input.vendorContactId ? 'External' : 'Internal');
+		    if (fulfillment === 'External' && !input.vendorContactId) {
+		      throw new Error('An external deliverable needs a vendor contact.');
+		    }
 		    const deliverable: CampaignDeliverable = {
 		      ...input,
 		      id: input.id ?? uuid(),
+		      fulfillment,
+		      vendorContactId: fulfillment === 'Internal' ? undefined : input.vendorContactId,
 		      dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
 		      status: input.status ?? 'Planned',
 		      publishedAt: input.publishedAt ? new Date(input.publishedAt) : undefined,
@@ -4410,10 +4510,10 @@ export class DataStore {
 		      .prepare(
 		        `INSERT INTO campaign_deliverables
 		          (id, companyId, campaignId, contactId, vendorContactId, assignedUserId, assignedUserName, title, platform,
-		           dueDate, status, contentUrl, price, cost, vendorBillId, publishedAt, notes, createdAt, updatedAt)
+		           dueDate, status, contentUrl, price, cost, fulfillment, vendorBillId, publishedAt, notes, createdAt, updatedAt)
 		         VALUES
 		          (@id, @companyId, @campaignId, @contactId, @vendorContactId, @assignedUserId, @assignedUserName, @title, @platform,
-		           @dueDate, @status, @contentUrl, @price, @cost, @vendorBillId, @publishedAt, @notes, @createdAt, @updatedAt)`,
+		           @dueDate, @status, @contentUrl, @price, @cost, @fulfillment, @vendorBillId, @publishedAt, @notes, @createdAt, @updatedAt)`,
 		      )
 		      .run(this.serializeCampaignDeliverable(deliverable));
 		    this.createActivityEvent({
@@ -4434,10 +4534,18 @@ export class DataStore {
 		      const contact = this.getContactById(updates.contactId);
 		      if (!contact || contact.companyId !== existing.companyId) throw new Error('Deliverable contact must belong to the selected company.');
 		    }
+		    const nextFulfillment: CampaignFulfillment =
+		      updates.fulfillment === undefined ? (existing.fulfillment ?? 'Internal') : updates.fulfillment;
+		    const requestedVendor = updates.vendorContactId === undefined ? existing.vendorContactId : updates.vendorContactId;
+		    const nextVendor = nextFulfillment === 'Internal' ? undefined : requestedVendor;
+		    if (nextFulfillment === 'External' && !nextVendor) {
+		      throw new Error('An external deliverable needs a vendor contact.');
+		    }
 		    const deliverable: CampaignDeliverable = {
 		      ...existing,
 		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
-		      vendorContactId: updates.vendorContactId === undefined ? existing.vendorContactId : updates.vendorContactId,
+		      vendorContactId: nextVendor,
+		      fulfillment: nextFulfillment,
 		      assignedUserId: updates.assignedUserId === undefined ? existing.assignedUserId : updates.assignedUserId,
 		      assignedUserName: updates.assignedUserName === undefined ? existing.assignedUserName : updates.assignedUserName,
 		      title: updates.title === undefined ? existing.title : updates.title,
@@ -4457,7 +4565,7 @@ export class DataStore {
 		        `UPDATE campaign_deliverables SET contactId=@contactId, vendorContactId=@vendorContactId,
 		         assignedUserId=@assignedUserId,
 		         assignedUserName=@assignedUserName, title=@title, platform=@platform, dueDate=@dueDate,
-		         status=@status, contentUrl=@contentUrl, price=@price, cost=@cost, vendorBillId=@vendorBillId,
+		         status=@status, contentUrl=@contentUrl, price=@price, cost=@cost, fulfillment=@fulfillment, vendorBillId=@vendorBillId,
 		         publishedAt=@publishedAt, notes=@notes,
 		         updatedAt=@updatedAt WHERE id=@id`,
 		      )
@@ -4571,6 +4679,8 @@ export class DataStore {
 		           @expenseDate, @status, @billable, @notes, @createdAt, @updatedAt)`,
 		      )
 		      .run(this.serializeCampaignExpense(expense));
+		    // Recognise the cost on the ledger if it was created already approved/paid.
+		    this.syncCampaignExpenseJournal(expense);
 		    return expense;
 		  }
 
@@ -4596,10 +4706,19 @@ export class DataStore {
 		         billable=@billable, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
 		      )
 		      .run(this.serializeCampaignExpense(expense));
-		    return this.getCampaignExpenseById(id);
+		    const saved = this.getCampaignExpenseById(id);
+		    if (saved) {
+		      // Reverse the prior posting (if any) and re-post when still
+		      // approved/paid, so amount/date edits are reflected on the ledger.
+		      this.removeJournalEntriesBySource('campaign_expense', saved.id);
+		      this.syncCampaignExpenseJournal(saved);
+		    }
+		    return saved;
 		  }
 
 		  deleteCampaignExpense(id: string): boolean {
+		    // Reverse any ledger posting before removing the expense.
+		    this.removeJournalEntriesBySource('campaign_expense', id);
 		    return this.db.prepare('DELETE FROM campaign_expenses WHERE id = ?').run(id).changes > 0;
 		  }
 
@@ -5160,7 +5279,7 @@ export class DataStore {
 	      let cost = 0;
 	      if (invoice.campaignId) {
 	        const expenses = this.db
-	          .prepare('SELECT amount FROM campaign_expenses WHERE campaignId = ?')
+	          .prepare("SELECT amount FROM campaign_expenses WHERE campaignId = ? AND status IN ('Approved', 'Paid')")
 	          .all(invoice.campaignId) as Array<{ amount: number }>;
 	        cost += expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 	        const bills = this.db
@@ -5687,17 +5806,32 @@ export class DataStore {
 		  }
 
 		  private getInvoiceForWonOpportunity(opportunity: Opportunity): Invoice | undefined {
-		    if (!opportunity.wonSalesOrderId) return undefined;
-		    const so = this.getSalesOrderById(opportunity.wonSalesOrderId);
-		    if (!so?.invoiceId) return undefined;
-		    return this.getInvoiceById(so.invoiceId);
+		    // Preferred path: opportunity → won sales order → invoice.
+		    if (opportunity.wonSalesOrderId) {
+		      const so = this.getSalesOrderById(opportunity.wonSalesOrderId);
+		      if (so?.invoiceId) {
+		        const invoice = this.getInvoiceById(so.invoiceId);
+		        if (invoice) return invoice;
+		      }
+		    }
+		    // Fallback: a campaign tied to this opportunity may have generated an
+		    // invoice directly (campaign invoices carry no salesOrderId).
+		    const campaignRow = this.db
+		      .prepare('SELECT invoiceId FROM crm_campaigns WHERE opportunityId = ? AND invoiceId IS NOT NULL ORDER BY updatedAt DESC LIMIT 1')
+		      .get(opportunity.id) as { invoiceId?: string } | undefined;
+		    if (campaignRow?.invoiceId) {
+		      return this.getInvoiceById(campaignRow.invoiceId);
+		    }
+		    return undefined;
 		  }
 
 		  private getOpportunityCost(opportunity: Opportunity, invoice: Invoice): number {
 		    let cost = 0;
 		    if (invoice.campaignId) {
+		      // Only count expenses that are actually recognised (Approved/Paid) —
+		      // mirroring what hits the ledger. Draft/Submitted/Rejected don't count.
 		      const expenses = this.db
-		        .prepare('SELECT amount FROM campaign_expenses WHERE campaignId = ?')
+		        .prepare("SELECT amount FROM campaign_expenses WHERE campaignId = ? AND status IN ('Approved', 'Paid')")
 		        .all(invoice.campaignId) as Array<{ amount: number }>;
 		      cost += expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 		      const vendorBills = this.db
@@ -8203,10 +8337,16 @@ export class DataStore {
         .prepare('UPDATE sales_orders SET status = ?, invoiceId = ? WHERE id = ?')
         .run('Invoiced', newInvoice.id, newInvoice.salesOrderId);
     }
-    try {
-      this.postInvoiceJournal(newInvoice);
-    } catch (error) {
-      console.error('Failed to auto-post invoice journal', error);
+    // Only recognise revenue once the invoice leaves Draft. A Draft (e.g. a
+    // freshly generated campaign invoice) is a working document and must not
+    // hit the ledger until it is issued/Sent. postInvoiceJournal is idempotent,
+    // so the posting happens on the Draft→Sent/Paid transition instead.
+    if (newInvoice.status !== 'Draft') {
+      try {
+        this.postInvoiceJournal(newInvoice);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
     }
     // Trigger commission recalc for any opportunity linked via the won-SO.
     // This is the InvoiceCreated trigger: a Revenue-basis commission can now
@@ -8252,6 +8392,13 @@ export class DataStore {
           .run('Paid', existing.paidAt ? existing.paidAt.toISOString() : new Date().toISOString(), invoiceId);
         return this.getInvoiceById(invoiceId);
       }
+      // Moving straight to Paid leaves Draft — recognise revenue before the
+      // payment's cash/AR entry so accounts receivable nets to zero.
+      try {
+        this.postInvoiceJournal(existing);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
       this.createPayment({
         invoiceId: existing.id,
         amount: outstandingAmount,
@@ -8279,6 +8426,14 @@ export class DataStore {
       .run(status, sentAt, paidAt, invoiceId);
     const updated = this.getInvoiceById(invoiceId);
     if (!updated) return undefined;
+    // Recognise revenue when the invoice leaves Draft (idempotent).
+    if (updated.status !== 'Draft') {
+      try {
+        this.postInvoiceJournal(updated);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
+    }
     this.createActivityEvent({
       companyId: updated.companyId,
       entityType: 'invoice',
@@ -8354,7 +8509,16 @@ export class DataStore {
       )
       .run({ ...merged, id: invoiceId, salesOrderId: merged.salesOrderId ?? null, templateId: merged.templateId ?? null });
     this.refreshInvoicePaymentStatus(invoiceId);
-    return this.getInvoiceById(invoiceId);
+    const saved = this.getInvoiceById(invoiceId);
+    // Recognise revenue if the edit moved the invoice out of Draft (idempotent).
+    if (saved && saved.status !== 'Draft') {
+      try {
+        this.postInvoiceJournal(saved);
+      } catch (error) {
+        console.error('Failed to auto-post invoice journal', error);
+      }
+    }
+    return saved;
   }
 
   private decodeInvoice(row: any): Invoice {
@@ -8565,6 +8729,42 @@ export class DataStore {
     this.db
       .prepare('UPDATE invoices SET status = ?, paidAt = ? WHERE id = ?')
       .run(status, paidAt, invoiceId);
+  }
+
+  /**
+   * Reverses a recorded invoice payment: deletes the payment, removes its
+   * cash/AR journal entry, recomputes the invoice status, and re-runs
+   * commission calculations. Returns the refreshed invoice.
+   */
+  reverseInvoicePayment(paymentId: string): Invoice | undefined {
+    const row = this.db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId) as any;
+    if (!row) return undefined;
+    const invoiceId = row.invoiceId as string;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
+      this.removeJournalEntriesBySource('invoice_payment', paymentId);
+      this.refreshInvoicePaymentStatus(invoiceId);
+    });
+    trx();
+    const invoice = this.getInvoiceById(invoiceId);
+    if (invoice) {
+      try {
+        const oppId = this.findOpportunityIdForInvoice(invoice);
+        if (oppId) this.calculateCommissionsForOpportunity(oppId);
+        this.recomputeCommissionsForInvoice(invoice.id);
+      } catch (error) {
+        console.error('Failed to recalc commissions on payment reversal', error);
+      }
+      this.createActivityEvent({
+        companyId: invoice.companyId,
+        entityType: 'invoice',
+        entityId: invoice.id,
+        action: 'payment_reversed',
+        summary: `Payment reversed for invoice ${invoice.invoiceNumber}.`,
+        metadata: { amount: Number(row.amount), outstandingAmount: invoice.outstandingAmount },
+      });
+    }
+    return invoice;
   }
 
   listLedgerAccounts(companyId: string): LedgerAccount[] {
@@ -9335,6 +9535,44 @@ export class DataStore {
     });
 
     return { payment, bill: updatedBill };
+  }
+
+  /**
+   * Reverses a recorded vendor-bill payment: deletes the payment, removes its
+   * AP/cash journal entry, and recomputes the bill status from the remaining
+   * payments. Returns the refreshed bill.
+   */
+  reverseVendorBillPayment(paymentId: string): VendorBill | undefined {
+    const row = this.db.prepare('SELECT * FROM vendor_bill_payments WHERE id = ?').get(paymentId) as any;
+    if (!row) return undefined;
+    const billId = row.billId as string;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM vendor_bill_payments WHERE id = ?').run(paymentId);
+      this.removeJournalEntriesBySource('vendor_bill_payment', paymentId);
+      // Recompute status from the payments that remain.
+      const bill = this.getVendorBillById(billId);
+      if (bill) {
+        const outstanding = bill.outstandingAmount ?? bill.amount;
+        const nextStatus: VendorBillStatus =
+          outstanding <= 0 ? 'Paid' : bill.dueDate < new Date() ? 'Overdue' : 'Approved';
+        this.db
+          .prepare('UPDATE vendor_bills SET status = ?, paidAt = ? WHERE id = ?')
+          .run(nextStatus, outstanding <= 0 ? new Date().toISOString() : null, billId);
+      }
+    });
+    trx();
+    const updated = this.getVendorBillById(billId);
+    if (updated) {
+      this.createActivityEvent({
+        companyId: updated.companyId,
+        entityType: 'vendor_bill',
+        entityId: updated.id,
+        action: 'payment_reversed',
+        summary: `Payment reversed for vendor bill ${updated.billNumber}.`,
+        metadata: { amount: Number(row.amount), outstandingAmount: updated.outstandingAmount },
+      });
+    }
+    return updated;
   }
 
   getReceivablesAging(companyId: string, asOf: Date = new Date()): AgingBucket[] {
@@ -11142,6 +11380,7 @@ export class DataStore {
 		      contentUrl: deliverable.contentUrl ?? null,
 		      price: deliverable.price ?? null,
 		      cost: deliverable.cost ?? null,
+		      fulfillment: deliverable.fulfillment ?? 'Internal',
 		      vendorBillId: deliverable.vendorBillId ?? null,
 		      publishedAt: deliverable.publishedAt ? deliverable.publishedAt.toISOString() : null,
 		      notes: deliverable.notes ?? null,
@@ -11166,6 +11405,7 @@ export class DataStore {
 		      contentUrl: row.contentUrl ?? undefined,
 		      price: row.price === null || row.price === undefined ? undefined : Number(row.price),
 		      cost: row.cost === null || row.cost === undefined ? undefined : Number(row.cost),
+		      fulfillment: (row.fulfillment as CampaignFulfillment) ?? 'Internal',
 		      vendorBillId: row.vendorBillId ?? undefined,
 		      publishedAt: row.publishedAt ? new Date(row.publishedAt) : undefined,
 		      notes: row.notes ?? undefined,
@@ -11594,6 +11834,73 @@ export class DataStore {
         },
       ],
     });
+  }
+
+  /**
+   * Removes any journal entries (and their lines) posted from a given source.
+   * Used to reverse a posting when its source is deleted or moves back to an
+   * unposted state.
+   */
+  private removeJournalEntriesBySource(sourceType: string, sourceId: string) {
+    const entries = this.db
+      .prepare('SELECT id FROM journal_entries WHERE sourceType = ? AND sourceId = ?')
+      .all(sourceType, sourceId) as Array<{ id: string }>;
+    if (!entries.length) return;
+    const delLines = this.db.prepare('DELETE FROM journal_lines WHERE entryId = ?');
+    const delEntry = this.db.prepare('DELETE FROM journal_entries WHERE id = ?');
+    const trx = this.db.transaction(() => {
+      for (const entry of entries) {
+        delLines.run(entry.id);
+        delEntry.run(entry.id);
+      }
+    });
+    trx();
+  }
+
+  /**
+   * Posts an approved/paid campaign expense to the ledger as an out-of-pocket
+   * cost: DR 5700 Marketing Expense / CR 1000 Cash. Idempotent. Draft,
+   * Submitted and Rejected expenses are not recognised.
+   */
+  private postCampaignExpenseJournal(expense: CampaignExpense) {
+    if (expense.status !== 'Approved' && expense.status !== 'Paid') return;
+    if (!(expense.amount > 0)) return;
+    const existing = this.db
+      .prepare("SELECT id FROM journal_entries WHERE sourceType = 'campaign_expense' AND sourceId = ? LIMIT 1")
+      .get(expense.id) as { id?: string } | undefined;
+    if (existing?.id) return;
+
+    const expenseAccountId = this.getSystemAccountId(expense.companyId, '5700');
+    const cashAccountId = this.getSystemAccountId(expense.companyId, '1000');
+    this.createJournalEntry({
+      companyId: expense.companyId,
+      sourceType: 'campaign_expense',
+      sourceId: expense.id,
+      memo: `Campaign expense: ${expense.description}`,
+      entryDate: expense.expenseDate ?? expense.createdAt,
+      lines: [
+        { id: uuid(), accountId: expenseAccountId, description: expense.description, debit: expense.amount, credit: 0 },
+        { id: uuid(), accountId: cashAccountId, description: 'Cash paid', debit: 0, credit: expense.amount },
+      ],
+    });
+  }
+
+  /**
+   * Keeps a campaign expense's ledger posting in sync with its status: posts
+   * when Approved/Paid, reverses otherwise. Amount changes after approval are
+   * handled by reversing then re-posting.
+   */
+  private syncCampaignExpenseJournal(expense: CampaignExpense) {
+    const postable = expense.status === 'Approved' || expense.status === 'Paid';
+    if (!postable) {
+      this.removeJournalEntriesBySource('campaign_expense', expense.id);
+      return;
+    }
+    try {
+      this.postCampaignExpenseJournal(expense);
+    } catch (error) {
+      console.error('Failed to post campaign expense journal', error);
+    }
   }
 
   private postVendorBillPaymentJournal(payment: VendorBillPayment) {

@@ -16,9 +16,11 @@ Usage:
   npm run ops -- <command> [--force]
 
 Commands:
-  status   Show database path, migration status, and basic record counts
-  migrate  Apply pending schema migrations explicitly
-  seed     Reset and reseed demo data (requires --force)
+  status                       Show database path, migration status, and basic record counts
+  migrate                      Apply pending schema migrations explicitly
+  seed                         Reset and reseed demo data (requires --force)
+  prune-orphans                Delete every row whose company no longer exists (requires --force)
+  delete-company <id>          Delete a company and all its data (requires --force)
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
@@ -90,6 +92,48 @@ function seed() {
   );
 }
 
+function pruneOrphans() {
+  if (!force) {
+    console.error('Refusing to prune orphaned data without --force.');
+    process.exitCode = 1;
+    return;
+  }
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const results = store.pruneOrphanedCompanyData();
+  console.log(`Database: ${dbPath}`);
+  if (!results.length) {
+    console.log('No orphaned company data found.');
+    return;
+  }
+  const total = results.reduce((sum, r) => sum + r.removed, 0);
+  console.log(`Pruned ${total} orphaned row(s):`);
+  results.forEach((r) => console.log(`  ${r.table}: ${r.removed}`));
+}
+
+function deleteCompany() {
+  const id = args.find((a) => !a.startsWith('--'));
+  if (!id) {
+    console.error('Usage: npm run ops -- delete-company <companyId> --force');
+    process.exitCode = 1;
+    return;
+  }
+  if (!force) {
+    console.error('Refusing to delete a company without --force.');
+    process.exitCode = 1;
+    return;
+  }
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const company = store.getCompanyById(id);
+  if (!company) {
+    console.error(`Company ${id} not found. (If its data is orphaned, run: prune-orphans --force)`);
+    process.exitCode = 1;
+    return;
+  }
+  store.deleteCompany(id, { cascade: true });
+  console.log(`Database: ${dbPath}`);
+  console.log(`Deleted company "${company.name}" (${id}) and all its related data.`);
+}
+
 switch (command) {
   case 'status':
     showStatus();
@@ -99,6 +143,12 @@ switch (command) {
     break;
   case 'seed':
     seed();
+    break;
+  case 'prune-orphans':
+    pruneOrphans();
+    break;
+  case 'delete-company':
+    deleteCompany();
     break;
   case 'help':
   case '--help':

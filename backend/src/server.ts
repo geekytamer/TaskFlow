@@ -38,6 +38,7 @@ import {
 		  campaignDeliverableStatuses,
 		  campaignAssignmentStatuses,
 		  campaignExpenseStatuses,
+		  campaignFulfillments,
 		} from './types';
 import {
   HttpError,
@@ -1076,7 +1077,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireSuperAdmin(req);
-      store.deleteCompany(req.params.id);
+      const cascade = req.query.cascade === 'true' || req.query.cascade === '1';
+      store.deleteCompany(req.params.id, { cascade });
       res.json({ success: true });
     }),
   );
@@ -1361,7 +1363,10 @@ export function createServer(options: CreateServerOptions = {}) {
       const targetAssignments =
         payload.companyRoles
         || existingAssignments;
-      if (req.user!.role === 'Admin') {
+      if (req.user!.role === 'Admin' || req.user!.isSuperAdmin) {
+        // Super-admins have role 'Employee' but full user-management power via
+        // the isSuperAdmin flag, so route them through the simple check (which
+        // early-returns) instead of the per-company branch below.
         assertUserManagementPermission(req.user!, targetAssignments);
       } else {
         const existingByCompany = new Map(
@@ -2593,6 +2598,10 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      const campaign = requireCampaignAccess(req, req.params.id, 'edit');
 		      const body = asRecord(req.body, 'body');
+		      const createFulfillment = body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined;
+		      if (createFulfillment === 'External' && !optionalString(body.vendorContactId)) {
+		        throw new HttpError(400, 'An external deliverable needs a vendor contact.');
+		      }
 		      const deliverable = withActor(req, () =>
 		        store.createCampaignDeliverable({
 		          companyId: campaign.companyId,
@@ -2610,6 +2619,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		          notes: optionalString(body.notes),
 		          price: optionalNumber(body.price),
 		          cost: optionalNumber(body.cost),
+		          fulfillment: body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined,
 		        }),
 		      );
 		      res.status(201).json(deliverable);
@@ -2624,6 +2634,12 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!existing) throw new HttpError(404, 'Deliverable not found.');
 		      requireCampaignAccess(req, existing.campaignId, 'edit');
 		      const body = asRecord(req.body, 'body');
+		      const updateFulfillment = body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined;
+		      const effectiveFulfillment = updateFulfillment ?? existing.fulfillment ?? 'Internal';
+		      const effectiveVendor = body.vendorContactId !== undefined ? optionalString(body.vendorContactId) : existing.vendorContactId;
+		      if (effectiveFulfillment === 'External' && !effectiveVendor) {
+		        throw new HttpError(400, 'An external deliverable needs a vendor contact.');
+		      }
 		      const updated = withActor(req, () =>
 		        store.updateCampaignDeliverable(req.params.id, {
 		          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
@@ -2639,6 +2655,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
 		          price: body.price !== undefined ? optionalNumber(body.price) : undefined,
 		          cost: body.cost !== undefined ? optionalNumber(body.cost) : undefined,
+		          fulfillment: body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined,
 		        }),
 		      );
 		      if (!updated) throw new HttpError(404, 'Deliverable not found.');
@@ -4530,6 +4547,20 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.delete(
+    '/invoices/:id/payments/:paymentId',
+    authMiddleware,
+    handler((req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
+      const exists = store.listPayments(req.params.id).some((p) => p.id === req.params.paymentId);
+      if (!exists) throw new HttpError(404, 'Payment not found.');
+      const updated = withActor(req, () => store.reverseInvoicePayment(req.params.paymentId));
+      res.json(updated);
+    }),
+  );
+
   app.post(
     '/companies/:companyId/invoices/bulk-status',
     authMiddleware,
@@ -4829,6 +4860,20 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, error?.message || 'Could not create vendor bill payment.');
       }
       res.status(201).json(result);
+    }),
+  );
+
+  app.delete(
+    '/vendor-bills/:id/payments/:paymentId',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      const exists = store.listVendorBillPayments(req.params.id).some((p) => p.id === req.params.paymentId);
+      if (!exists) throw new HttpError(404, 'Payment not found.');
+      const updated = withActor(req, () => store.reverseVendorBillPayment(req.params.paymentId));
+      res.json(updated);
     }),
   );
 

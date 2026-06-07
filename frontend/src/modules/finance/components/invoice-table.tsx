@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Printer } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Printer, Undo2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -25,11 +25,13 @@ import { useToast } from '@/hooks/use-toast';
 import {
   bulkUpdateInvoiceStatus,
   createPayment,
+  reversePayment,
   getInvoices,
   getInvoiceTemplates,
   getPayments,
   updateInvoiceStatus,
 } from '@/services/financeService';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { Client, Invoice, InvoiceStatus, InvoiceTemplate, Payment } from '../types';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -68,6 +70,7 @@ export function InvoiceTable() {
   const [payments, setPayments] = React.useState<Payment[]>([]);
   const [paymentLoading, setPaymentLoading] = React.useState(false);
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { t } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
@@ -517,19 +520,20 @@ export function InvoiceTable() {
                                   <TableHead>{t('invoiceTable.colHistMethod')}</TableHead>
                                   <TableHead>{t('invoiceTable.colHistNote')}</TableHead>
                                   <TableHead className="text-end">{t('invoiceTable.colHistAmount')}</TableHead>
+                                  <TableHead className="text-end" />
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {paymentLoading && (
                                   <TableRow>
-                                    <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
+                                    <TableCell colSpan={5} className="h-16 text-center text-sm text-muted-foreground">
                                       {t('invoiceTable.loadingPayments')}
                                     </TableCell>
                                   </TableRow>
                                 )}
                                 {!paymentLoading && payments.length === 0 && (
                                   <TableRow>
-                                    <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
+                                    <TableCell colSpan={5} className="h-16 text-center text-sm text-muted-foreground">
                                       {t('invoiceTable.noPayments')}
                                     </TableCell>
                                   </TableRow>
@@ -541,6 +545,40 @@ export function InvoiceTable() {
                                       <TableCell>{payment.method || '—'}</TableCell>
                                       <TableCell>{payment.note || '—'}</TableCell>
                                       <TableCell className="text-end">{amount(payment.amount)}</TableCell>
+                                      <TableCell className="text-end">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                                          onClick={async () => {
+                                            if (!(await confirm({
+                                              title: t('invoiceTable.reversePaymentTitle'),
+                                              description: t('invoiceTable.reversePaymentDesc')
+                                                .replace('{amount}', String(payment.amount))
+                                                .replace('{number}', invoice.invoiceNumber),
+                                              confirmText: t('invoiceTable.reversePaymentConfirm'),
+                                              cancelText: t('common.cancel'),
+                                              destructive: true,
+                                            }))) return;
+                                            try {
+                                              await reversePayment(invoice.id, payment.id);
+                                              const refreshed = await getPayments(invoice.id);
+                                              setPayments(refreshed);
+                                              await fetchData();
+                                              toast({ title: t('invoiceTable.toastPaymentReversed') });
+                                            } catch (error: any) {
+                                              toast({
+                                                variant: 'destructive',
+                                                title: t('invoiceTable.toastPaymentReverseFailed'),
+                                                description: error?.message,
+                                              });
+                                            }
+                                          }}
+                                        >
+                                          <Undo2 className="h-3.5 w-3.5" />
+                                          {t('invoiceTable.reversePaymentBtn')}
+                                        </Button>
+                                      </TableCell>
                                     </TableRow>
                                   ))}
                               </TableBody>
@@ -568,6 +606,14 @@ export function InvoiceTable() {
                                 });
                                 return;
                               }
+                              if (!(await confirm({
+                                title: t('invoiceTable.confirmPaymentTitle'),
+                                description: t('invoiceTable.confirmPaymentDesc')
+                                  .replace('{amount}', String(amount))
+                                  .replace('{number}', invoice.invoiceNumber),
+                                confirmText: t('invoiceTable.savePayment'),
+                                cancelText: t('common.cancel'),
+                              }))) return;
                               try {
                                 await createPayment(invoice.id, {
                                   amount,
