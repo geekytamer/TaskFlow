@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Combobox } from '@/components/ui/combobox';
+import { CreatableCombobox } from '@/components/ui/creatable-combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
@@ -148,6 +149,11 @@ export function PipelinePage() {
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [opportunities, setOpportunities] = React.useState<Opportunity[]>([]);
   const [view, setView] = React.useState<'kanban' | 'list'>('kanban');
+
+  const serviceTypeOptions = React.useMemo(
+    () => Array.from(new Set(opportunities.map((o) => o.serviceType).filter(Boolean))) as string[],
+    [opportunities],
+  );
 
   // dialogs
   const [oppDialogOpen, setOppDialogOpen] = React.useState(false);
@@ -604,7 +610,13 @@ export function PipelinePage() {
             </div>
             <div className="space-y-1.5">
               <Label>{t('pipelinePage.fieldServiceType')} <span className="text-destructive">*</span></Label>
-              <Input placeholder={t('pipelinePage.fieldServiceTypePh')} value={oppForm.serviceType} onChange={(e) => setOppForm((p) => ({ ...p, serviceType: e.target.value }))} />
+              <CreatableCombobox
+                options={serviceTypeOptions}
+                value={oppForm.serviceType}
+                onValueChange={(v) => setOppForm((p) => ({ ...p, serviceType: v }))}
+                placeholder={t('pipelinePage.fieldServiceTypePh')}
+                searchPlaceholder={t('pipelinePage.fieldServiceTypePh')}
+              />
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5 col-span-2">
