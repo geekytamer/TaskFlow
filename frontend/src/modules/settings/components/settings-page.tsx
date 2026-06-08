@@ -30,10 +30,13 @@ import { runSeedDatabase } from '@/actions/seedActions';
 import { useI18n } from '@/context/i18n-context';
 import { NumberingSettingsPanel } from './numbering-settings-panel';
 import { WhatsappSettingsPanel } from './whatsapp-settings-panel';
+import { PositionTable } from '@/modules/companies/components/position-table';
+import { useCompany } from '@/context/company-context';
 
 export function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
+  const { selectedCompany } = useCompany();
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
   const [adminPassword, setAdminPassword] = React.useState('');
@@ -133,6 +136,20 @@ export function SettingsPage() {
       </div>
 
       <NumberingSettingsPanel />
+
+      {selectedCompany && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('settingsPage.positionsTitle')}</CardTitle>
+            <CardDescription>
+              {t('settingsPage.positionsDesc').replace('{company}', selectedCompany.name)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PositionTable companyId={selectedCompany.id} />
+          </CardContent>
+        </Card>
+      )}
 
       <WhatsappSettingsPanel />
 

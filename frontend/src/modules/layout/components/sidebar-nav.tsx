@@ -147,7 +147,10 @@ export function SidebarNav() {
   }
 
   const canSeeItem = (item: NavItem) => {
-    if (item.href === '/companies') return user.role === 'Admin';
+    // Company management is a platform super-admin concern (handled in /admin).
+    // Company admins manage users/positions within their own company, not the
+    // roster of companies.
+    if (item.href === '/companies') return !!user.isSuperAdmin;
     if (item.href === '/settings') return effectiveRole === 'Admin';
     if (!effectiveRole) return false;
     return item.roles.includes(effectiveRole);

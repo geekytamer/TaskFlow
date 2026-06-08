@@ -37,7 +37,7 @@ import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
 import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
-import { Building, BadgeDollarSign, ShieldCheck } from 'lucide-react';
+import { Building, BadgeDollarSign } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import type { CommissionBasis } from '@/modules/users/types';
@@ -78,8 +78,6 @@ export function AddUserSheet({
   const [companyAssignments, setCompanyAssignments] = React.useState<
     Record<string, { role: UserRole; positionId?: string }>
   >({});
-  // Platform super-admin flag (granting / revoking gated to existing SuperAdmins)
-  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
   // Commission profile (set at creation time by managers)
   const [commission, setCommission] = React.useState<{
     eligible: boolean;
@@ -111,9 +109,13 @@ export function AddUserSheet({
     return [];
   }, [currentUserRole]);
 
+  // Only platform super-admins manage users across companies. A company admin
+  // manages users only within the company they administer.
+  const canChooseCompanies = !!currentUser?.isSuperAdmin;
+
   const manageableCompanies = React.useMemo(() => {
     if (!currentUser) return [];
-    if (currentUser.role === 'Admin') return companies;
+    if (currentUser.isSuperAdmin) return companies;
     const managedIds = new Set(
       (currentUser.companyRoles || [])
         .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
@@ -197,7 +199,6 @@ export function AddUserSheet({
         basis: userToEdit.defaultCommissionBasis || 'Revenue',
         costRatePerHour: userToEdit.costRatePerHour != null ? String(userToEdit.costRatePerHour) : '',
       });
-      setIsSuperAdmin(Boolean(userToEdit.isSuperAdmin));
     } else {
       form.reset({
         name: '',
@@ -211,7 +212,6 @@ export function AddUserSheet({
       });
       setCompanyAssignments({});
       setCommission({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
-      setIsSuperAdmin(false);
     }
   }, [companyItems, form, manageableCompanyIds, selectedCompany, userToEdit]);
 
@@ -250,12 +250,6 @@ export function AddUserSheet({
         costRatePerHour:
           commission.costRatePerHour.trim() === '' ? undefined : Number(commission.costRatePerHour),
       };
-      // Only send isSuperAdmin field when the current user is themselves
-      // a SuperAdmin (the backend will ignore it otherwise).
-      const superAdminPayload = currentUser?.isSuperAdmin
-        ? { isSuperAdmin }
-        : {};
-
       if (isEditMode && userToEdit) {
         await updateUser(userToEdit.id, {
           ...data,
@@ -263,7 +257,6 @@ export function AddUserSheet({
           role: companyRoles[0]?.role || 'Employee',
           positionId: undefined,
           ...commissionPayload,
-          ...superAdminPayload,
         });
         toast({
           title: 'User Updated',
@@ -277,7 +270,6 @@ export function AddUserSheet({
           positionId: undefined,
           avatar: `https://i.pravatar.cc/150?u=${data.email}`,
           ...commissionPayload,
-          ...superAdminPayload,
         } as any);
         toast({
           title: 'User Created',
@@ -336,24 +328,37 @@ export function AddUserSheet({
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="companyIds"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('userForm.companiesLabel')}</FormLabel>
-                  <FormControl>
-                    <MultiSelect
-                        items={companyItems}
-                        selected={field.value}
-                        onChange={field.onChange}
-                        placeholder={t('userForm.companiesPlaceholder')}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {canChooseCompanies ? (
+              <FormField
+                control={form.control}
+                name="companyIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('userForm.companiesLabel')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                          items={companyItems}
+                          selected={field.value}
+                          onChange={field.onChange}
+                          placeholder={t('userForm.companiesPlaceholder')}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              // Company admins create users only within their own company.
+              <FormItem>
+                <FormLabel>{t('userForm.companyLabel')}</FormLabel>
+                <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                  <Building className="h-4 w-4 text-muted-foreground" />
+                  {companies.find((c) => c.id === selectedCompanyIds?.[0])?.name
+                    || selectedCompany?.name
+                    || '—'}
+                </div>
+              </FormItem>
+            )}
             {selectedCompanyIds && selectedCompanyIds.length > 0 && (
               <div className="space-y-3">
                 <FormLabel>{t('userForm.rolePositionLabel')}</FormLabel>
@@ -425,28 +430,6 @@ export function AddUserSheet({
                     </div>
                   );
                 })}
-              </div>
-            )}
-            {currentUser?.isSuperAdmin && (
-              <div className="rounded-lg border bg-amber-50/40 border-amber-200 p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-amber-700" />
-                  <h4 className="text-sm font-semibold text-amber-900">
-                    {t('userForm.superAdminTitle')}
-                  </h4>
-                </div>
-                <p className="text-xs text-amber-900/80">
-                  {t('userForm.superAdminDescription')}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={isSuperAdmin}
-                    onCheckedChange={(v) => setIsSuperAdmin(v)}
-                  />
-                  <Label className="cursor-pointer" onClick={() => setIsSuperAdmin((v) => !v)}>
-                    {t('userForm.superAdminToggle')}
-                  </Label>
-                </div>
               </div>
             )}
             <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
