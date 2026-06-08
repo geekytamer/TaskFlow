@@ -3,6 +3,7 @@ export interface Company {
   name: string;
   website?: string;
   address?: string;
+  logoUrl?: string;
 }
 
 export interface Position {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronsUpDown, Building, Check } from 'lucide-react';
+import { ChevronsUpDown, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -19,6 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { CompanyMark } from './company-mark';
 
 export function CompanySwitcher() {
   const [open, setOpen] = useState(false);
@@ -39,7 +40,7 @@ export function CompanySwitcher() {
           className="w-[250px] justify-between"
         >
           <div className="flex items-center gap-2">
-            <Building className="h-4 w-4" />
+            <CompanyMark company={selectedCompany} className="h-6 w-6" />
             <span className="truncate">{selectedCompany.name}</span>
           </div>
           <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" />
@@ -68,7 +69,8 @@ export function CompanySwitcher() {
                         : 'opacity-0'
                     )}
                   />
-                  {company.name}
+                  <CompanyMark company={company} className="me-2 h-6 w-6" />
+                  <span className="truncate">{company.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

@@ -58,7 +58,7 @@ export function SettingsPage() {
           id: adminId,
           email: adminEmail,
           name: 'Admin User',
-          avatar: `https://i.pravatar.cc/150?u=${adminEmail}`
+          avatar: undefined
       };
 
       await createUserWithId(adminId, { ...firestoreUserData, password });
