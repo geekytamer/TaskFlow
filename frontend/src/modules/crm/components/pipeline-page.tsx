@@ -46,9 +46,11 @@ import {
   BadgeDollarSign,
   Calendar,
   ChevronRight,
+  ChevronLeft,
   AlertCircle,
   User,
 } from 'lucide-react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -136,6 +138,7 @@ export function PipelinePage() {
   const { selectedCompany } = useCompany();
   const { user } = useCurrentUser();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { amount } = useCompanyCurrency();
   const { t } = useI18n();
   const stageLabel = React.useCallback(
@@ -193,10 +196,31 @@ export function PipelinePage() {
     [contacts],
   );
 
+  const stageFlow: Opportunity['stage'][] = ['New', 'Qualified', 'Proposal', 'Negotiation', 'Won'];
   const nextStage = (stage: Opportunity['stage']): Opportunity['stage'] | null => {
-    const flow: Opportunity['stage'][] = ['New', 'Qualified', 'Proposal', 'Negotiation', 'Won'];
-    const i = flow.indexOf(stage);
-    return i >= 0 && i < flow.length - 1 ? flow[i + 1] : null;
+    const i = stageFlow.indexOf(stage);
+    return i >= 0 && i < stageFlow.length - 1 ? stageFlow[i + 1] : null;
+  };
+  const prevStage = (stage: Opportunity['stage']): Opportunity['stage'] | null => {
+    const i = stageFlow.indexOf(stage);
+    return i > 0 ? stageFlow[i - 1] : null;
+  };
+  // Moving a deal backwards out of a closed stage is a real reversal, so confirm.
+  const moveStage = async (item: Opportunity, to: Opportunity['stage']) => {
+    const reopening = item.stage === 'Won' || item.stage === 'Lost' || item.stage === 'Cancelled';
+    if (reopening) {
+      const ok = await confirm({
+        title: t('pipelinePage.reopenTitle'),
+        description: t('pipelinePage.reopenDesc')
+          .replace('{title}', item.title)
+          .replace('{stage}', stageLabel(to)),
+        confirmText: t('pipelinePage.reopenConfirm'),
+        cancelText: t('common.cancel'),
+      });
+      if (!ok) return;
+    }
+    await updateOpportunityStage(item.id, to);
+    await load();
   };
 
   const openNewOpp = () => {
@@ -430,6 +454,7 @@ export function PipelinePage() {
                   {loading && <Skeleton className="h-20 w-full" />}
                   {!loading && items.map((item) => {
                     const moveTo = nextStage(item.stage);
+                    const moveBack = prevStage(item.stage);
                     const isOverdue = item.expectedCloseDate
                       && new Date(item.expectedCloseDate) < new Date()
                       && !['Won', 'Lost', 'Cancelled'].includes(item.stage);
@@ -465,15 +490,30 @@ export function PipelinePage() {
                           </div>
                         )}
 
-                        {moveTo && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="mt-2 h-6 w-full text-xs gap-1"
-                            onClick={async () => { await updateOpportunityStage(item.id, moveTo); await load(); }}
-                          >
-                            {t('pipelinePage.moveTo').replace('{stage}', stageLabel(moveTo))} <ChevronRight className="h-3 w-3" />
-                          </Button>
+                        {(moveTo || moveBack) && (
+                          <div className="mt-2 flex items-center gap-1">
+                            {moveBack && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-1.5 text-xs text-muted-foreground"
+                                title={t('pipelinePage.moveBack').replace('{stage}', stageLabel(moveBack))}
+                                onClick={() => moveStage(item, moveBack)}
+                              >
+                                <ChevronLeft className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {moveTo && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 flex-1 text-xs gap-1"
+                                onClick={() => moveStage(item, moveTo)}
+                              >
+                                {t('pipelinePage.moveTo').replace('{stage}', stageLabel(moveTo))} <ChevronRight className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
                     );
@@ -511,6 +551,7 @@ export function PipelinePage() {
               ))}
               {!loading && opportunities.map((item) => {
                 const moveTo = nextStage(item.stage);
+                const moveBack = prevStage(item.stage);
                 const isOverdue = item.expectedCloseDate
                   && new Date(item.expectedCloseDate) < new Date()
                   && !['Won', 'Lost', 'Cancelled'].includes(item.stage);
@@ -548,9 +589,16 @@ export function PipelinePage() {
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEditOpp(item)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
+                        {moveBack && (
+                          <Button size="sm" variant="ghost" className="h-7 px-1.5 text-xs text-muted-foreground gap-1"
+                            title={t('pipelinePage.moveBack').replace('{stage}', stageLabel(moveBack))}
+                            onClick={() => moveStage(item, moveBack)}>
+                            <ChevronLeft className="h-3 w-3" /> {stageLabel(moveBack)}
+                          </Button>
+                        )}
                         {moveTo && (
                           <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                            onClick={async () => { await updateOpportunityStage(item.id, moveTo); await load(); }}>
+                            onClick={() => moveStage(item, moveTo)}>
                             {stageLabel(moveTo)} <ChevronRight className="h-3 w-3" />
                           </Button>
                         )}

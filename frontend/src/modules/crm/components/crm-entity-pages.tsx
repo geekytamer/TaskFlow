@@ -77,6 +77,7 @@ import {
   Send,
   XCircle,
   ChevronRight,
+  ChevronLeft,
   Calendar,
   DollarSign,
   Users,
@@ -570,6 +571,14 @@ export function CampaignsPage() {
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
+                    {(item.status === 'Active' || item.status === 'Completed') && (
+                      <Button size="sm" variant="ghost" className="h-7 px-1.5 text-xs text-muted-foreground gap-1"
+                        title={t('campaignsPage.actionBack')}
+                        onClick={async (e) => { e.stopPropagation(); await updateCampaign(item.id, { status: item.status === 'Completed' ? 'Active' : 'Planned' }); await loadCampaigns(); }}>
+                        <ChevronLeft className="h-3 w-3" />
+                        {campaignStatusLabel(item.status === 'Completed' ? 'Active' : 'Planned')}
+                      </Button>
+                    )}
                     {item.status === 'Planned' && (
                       <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
                         onClick={async (e) => { e.stopPropagation(); await updateCampaign(item.id, { status: 'Active' }); await loadCampaigns(); }}>
