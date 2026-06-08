@@ -414,7 +414,9 @@ export function createServer(options: CreateServerOptions = {}) {
       credentials: true,
     }),
   );
-  app.use(express.json());
+  // Uploaded images are sent as base64 data URLs. A 2 MB image expands to
+  // roughly 2.7 MB in JSON, so the parser must allow more than the file limit.
+  app.use(express.json({ limit: '4mb' }));
 
   app.use((req, res, next) => {
     const startedAt = Date.now();
@@ -5351,6 +5353,14 @@ export function createServer(options: CreateServerOptions = {}) {
   app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
+    }
+    if (
+      error
+      && typeof error === 'object'
+      && 'type' in error
+      && error.type === 'entity.too.large'
+    ) {
+      return res.status(413).json({ message: 'Request is too large. Uploaded images must be 2 MB or smaller.' });
     }
     logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);
     res.status(500).json({ message: 'Internal server error.' });

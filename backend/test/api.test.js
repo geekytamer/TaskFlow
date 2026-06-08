@@ -216,6 +216,25 @@ test('users can update their own profile and admins can update company branding'
   assert.equal(company.body.logoUrl, 'data:image/png;base64,logo');
 });
 
+test('profile uploads accept valid base64 payloads and reject oversized requests clearly', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (requestBuilder) => requestBuilder.set('Authorization', `Bearer ${token}`);
+
+  const validImage = `data:image/png;base64,${'a'.repeat(600_000)}`;
+  const accepted = await auth(request(app).put('/auth/me')).send({ avatar: validImage });
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.user.avatar.length, validImage.length);
+
+  const oversizedImage = `data:image/png;base64,${'a'.repeat(4_300_000)}`;
+  const rejected = await auth(request(app).put('/auth/me')).send({ avatar: oversizedImage });
+  assert.equal(rejected.status, 413);
+  assert.equal(
+    rejected.body.message,
+    'Request is too large. Uploaded images must be 2 MB or smaller.',
+  );
+});
+
 test('protected routes require authentication', async () => {
   const app = makeApp();
   const response = await request(app).get('/companies');
