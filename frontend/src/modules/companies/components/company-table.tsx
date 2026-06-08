@@ -34,11 +34,14 @@ import { deleteCompany } from '@/services/companyService';
 import { useToast } from '@/hooks/use-toast';
 import type { Company } from '../types';
 import { useI18n } from '@/context/i18n-context';
+import { EditCompanyDialog } from './edit-company-dialog';
+import { CompanyMark } from './company-mark';
 
 export function CompanyTable() {
   const { companies, refreshCompanies } = useCompany();
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
   const [companyToDelete, setCompanyToDelete] = React.useState<Company | null>(null);
+  const [companyToEdit, setCompanyToEdit] = React.useState<Company | null>(null);
   const { toast } = useToast();
   const { t } = useI18n();
 
@@ -92,7 +95,12 @@ export function CompanyTable() {
             <TableBody>
             {companies.map((company) => (
                 <TableRow key={company.id}>
-                <TableCell className="font-medium">{company.name}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-2">
+                    <CompanyMark company={company} />
+                    {company.name}
+                  </div>
+                </TableCell>
                 <TableCell>
                     <a href={`http://${company.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                         {company.website}
@@ -109,7 +117,9 @@ export function CompanyTable() {
                           </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                          <DropdownMenuItem>{t('companiesPage.editCompany')}</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setCompanyToEdit(company)}>
+                            {t('companiesPage.editCompany')}
+                          </DropdownMenuItem>
                            <AlertDialogTrigger asChild>
                             <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => {e.preventDefault(); setCompanyToDelete(company)}}>
                               {t('companiesPage.deleteCompany')}
@@ -138,6 +148,15 @@ export function CompanyTable() {
             </TableBody>
         </Table>
         </div>
+        <EditCompanyDialog
+          company={companyToEdit}
+          open={!!companyToEdit}
+          onOpenChange={(open) => { if (!open) setCompanyToEdit(null); }}
+          onSaved={() => {
+            refreshCompanies();
+            setCompanyToEdit(null);
+          }}
+        />
     </div>
   );
 }

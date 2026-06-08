@@ -25,7 +25,7 @@ import {
   type AdminActivityRow,
 } from '@/services/adminService';
 import { getStoredToken } from '@/lib/api-client';
-import { createCompany, deleteCompany } from '@/services/companyService';
+import { createCompany, deleteCompany, getCompanyById } from '@/services/companyService';
 import { getUserById, deleteUser } from '@/services/userService';
 import type { User } from '@/lib/types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -40,6 +40,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { PlusCircle } from 'lucide-react';
+import { EditCompanyDialog } from '@/modules/companies/components/edit-company-dialog';
+import { CompanyMark } from '@/modules/companies/components/company-mark';
+import type { Company } from '@/modules/companies/types';
 import {
   Activity,
   BadgeDollarSign,
@@ -115,6 +118,8 @@ export function AdminPage() {
   const [companyForm, setCompanyForm] = React.useState({ name: '', website: '', address: '' });
   const [savingCompany, setSavingCompany] = React.useState(false);
   const [companyToDelete, setCompanyToDelete] = React.useState<AdminCompanyRow | null>(null);
+  const [companyToEdit, setCompanyToEdit] = React.useState<Company | null>(null);
+  const [loadingCompanyEdit, setLoadingCompanyEdit] = React.useState<string | null>(null);
   const [cascadeDelete, setCascadeDelete] = React.useState(false);
   const [deletingCompany, setDeletingCompany] = React.useState(false);
   const [editingUser, setEditingUser] = React.useState<User | null>(null);
@@ -318,7 +323,12 @@ export function AdminPage() {
               <TableBody>
                 {adminCompanies.map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <CompanyMark company={companies.find((company) => company.id === c.id) || { name: c.name }} />
+                        {c.name}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-end">{c.userCount}</TableCell>
                     <TableCell className="text-end">{c.contactCount}</TableCell>
                     <TableCell className="text-end">{c.invoiceCount}</TableCell>
@@ -334,6 +344,23 @@ export function AdminPage() {
                         <Button size="sm" variant="outline" onClick={() => handleHopIntoCompany(c.id)}>
                           <LogIn className="me-1 h-3.5 w-3.5" />
                           {t('admin.hopIn')}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={loadingCompanyEdit === c.id}
+                          onClick={async () => {
+                            setLoadingCompanyEdit(c.id);
+                            try {
+                              const company = await getCompanyById(c.id);
+                              if (company) setCompanyToEdit(company);
+                            } finally {
+                              setLoadingCompanyEdit(null);
+                            }
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span className="sr-only">Edit company</span>
                         </Button>
                         <Button
                           size="sm"
@@ -634,6 +661,19 @@ export function AdminPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Delete company confirmation (super-admin only) with optional cascade */}
+      <EditCompanyDialog
+        company={companyToEdit}
+        open={!!companyToEdit}
+        onOpenChange={(open) => { if (!open) setCompanyToEdit(null); }}
+        onSaved={async (company) => {
+          setCompanyToEdit(null);
+          await load();
+          const selected = companies.find((item) => item.id === company.id);
+          if (selected) setSelectedCompany(company);
+        }}
+      />
 
       {/* Delete company confirmation (super-admin only) with optional cascade */}
       <AlertDialog open={!!companyToDelete} onOpenChange={(open) => { if (!open) setCompanyToDelete(null); }}>

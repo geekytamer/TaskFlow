@@ -25,6 +25,16 @@ export async function createCompany(companyData: Omit<Company, 'id'>): Promise<C
   });
 }
 
+export async function updateCompany(
+  companyId: string,
+  companyData: Partial<Omit<Company, 'id'>>,
+): Promise<Company> {
+  return apiFetch<Company>(`/companies/${companyId}`, {
+    method: 'PUT',
+    body: JSON.stringify(companyData),
+  });
+}
+
 export async function deleteCompany(
   companyId: string,
   options: { cascade?: boolean } = {},

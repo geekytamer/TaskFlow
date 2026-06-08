@@ -5,6 +5,7 @@ export interface Company {
   name: string;
   website?: string;
   address?: string;
+  logoUrl?: string;
 }
 
 export type NumberingEntityType =
@@ -56,7 +57,7 @@ export interface User {
   companyIds: string[];
   positionId?: string;
   companyRoles?: CompanyRoleAssignment[];
-  avatar: string;
+  avatar?: string;
   password: string;
   // Platform-wide super-admin flag — separate from per-company Admin role.
   // Grants access to /admin (cross-company KPIs, impersonation, backups,

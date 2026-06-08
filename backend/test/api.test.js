@@ -190,7 +190,30 @@ test('health endpoint reports status and applied migrations', async () => {
     '036_user_super_admin',
     '037_campaign_deliverable_fulfillment',
     '038_influencer_accounts',
+    '039_company_logo_and_avatar_cleanup',
   ]);
+});
+
+test('users can update their own profile and admins can update company branding', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (requestBuilder) => requestBuilder.set('Authorization', `Bearer ${token}`);
+
+  const profile = await auth(request(app).put('/auth/me')).send({
+    name: 'Admin Updated',
+    avatar: 'data:image/png;base64,profile',
+  });
+  assert.equal(profile.status, 200);
+  assert.equal(profile.body.user.name, 'Admin Updated');
+  assert.equal(profile.body.user.avatar, 'data:image/png;base64,profile');
+
+  const company = await auth(request(app).put('/companies/1')).send({
+    name: 'Innovate Branded',
+    logoUrl: 'data:image/png;base64,logo',
+  });
+  assert.equal(company.status, 200);
+  assert.equal(company.body.name, 'Innovate Branded');
+  assert.equal(company.body.logoUrl, 'data:image/png;base64,logo');
 });
 
 test('protected routes require authentication', async () => {

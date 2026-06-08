@@ -268,7 +268,7 @@ export function AddUserSheet({
           companyRoles,
           role: companyRoles[0]?.role || 'Employee',
           positionId: undefined,
-          avatar: `https://i.pravatar.cc/150?u=${data.email}`,
+          avatar: undefined,
           ...commissionPayload,
         } as any);
         toast({

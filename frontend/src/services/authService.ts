@@ -64,3 +64,12 @@ export async function fetchCurrentUser(): Promise<User | null> {
     return null;
   }
 }
+
+export async function updateCurrentUser(input: { name?: string; avatar?: string }): Promise<User> {
+  const { user } = await apiFetch<{ user: User }>('/auth/me', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+  window.dispatchEvent(new Event('taskflow-token-changed'));
+  return user;
+}

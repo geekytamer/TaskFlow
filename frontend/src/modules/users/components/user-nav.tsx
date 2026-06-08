@@ -18,11 +18,29 @@ import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { ShieldCheck } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ImageUpload } from '@/components/ui/image-upload';
+import { updateCurrentUser } from '@/services/authService';
+import { useToast } from '@/hooks/use-toast';
 
 export function UserNav() {
   const router = useRouter();
   const { currentUser: user, loading } = useCompany();
   const { t } = useI18n();
+  const { toast } = useToast();
+  const [profileOpen, setProfileOpen] = React.useState(false);
+  const [profileName, setProfileName] = React.useState('');
+  const [profileAvatar, setProfileAvatar] = React.useState<string | undefined>();
+  const [savingProfile, setSavingProfile] = React.useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -36,6 +54,26 @@ export function UserNav() {
   if (!user) {
     return null;
   }
+
+  const openProfile = () => {
+    setProfileName(user.name);
+    setProfileAvatar(user.avatar);
+    setProfileOpen(true);
+  };
+
+  const saveProfile = async () => {
+    if (profileName.trim().length < 2) return;
+    setSavingProfile(true);
+    try {
+      await updateCurrentUser({ name: profileName.trim(), avatar: profileAvatar || '' });
+      setProfileOpen(false);
+      toast({ title: t('profile.updated') });
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: t('profile.updateFailed'), description: error?.message });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   return (
     <DropdownMenu>
@@ -67,7 +105,7 @@ export function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>{t('user.profile')}</DropdownMenuItem>
+          <DropdownMenuItem onClick={openProfile}>{t('user.profile')}</DropdownMenuItem>
           <DropdownMenuItem>{t('user.settings')}</DropdownMenuItem>
         </DropdownMenuGroup>
         {user.isSuperAdmin && (
@@ -82,6 +120,41 @@ export function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleLogout}>{t('user.logout')}</DropdownMenuItem>
       </DropdownMenuContent>
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('user.profile')}</DialogTitle>
+            <DialogDescription>{t('profile.description')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-16 w-16">
+                <AvatarImage src={profileAvatar} alt={profileName} />
+                <AvatarFallback>{profileName.trim().charAt(0).toUpperCase() || 'U'}</AvatarFallback>
+              </Avatar>
+              <ImageUpload
+                value={profileAvatar}
+                onChange={setProfileAvatar}
+                label={t('profile.uploadPhoto')}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>{t('profile.name')}</Label>
+              <Input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>{t('profile.email')}</Label>
+              <Input value={user.email} disabled />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProfileOpen(false)}>{t('common.cancel')}</Button>
+            <Button disabled={savingProfile || profileName.trim().length < 2} onClick={saveProfile}>
+              {savingProfile ? t('companyEdit.saving') : t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DropdownMenu>
   );
 }

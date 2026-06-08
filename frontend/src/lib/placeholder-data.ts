@@ -29,7 +29,7 @@ export const placeholderUsers: User[] = [
       { companyId: '2', role: 'Admin', positionId: 'pos-4' },
       { companyId: '3', role: 'Admin', positionId: 'pos-6' },
     ],
-    avatar: 'https://i.pravatar.cc/150?u=user-1',
+    avatar: undefined,
   },
   {
     id: 'user-2',
@@ -38,7 +38,7 @@ export const placeholderUsers: User[] = [
     role: 'Manager',
     companyIds: ['1'],
     companyRoles: [{ companyId: '1', role: 'Manager', positionId: 'pos-1' }],
-    avatar: 'https://i.pravatar.cc/150?u=user-2',
+    avatar: undefined,
   },
   {
     id: 'user-3',
@@ -47,7 +47,7 @@ export const placeholderUsers: User[] = [
     role: 'Employee',
     companyIds: ['1'],
     companyRoles: [{ companyId: '1', role: 'Employee', positionId: 'pos-3' }],
-    avatar: 'https://i.pravatar.cc/150?u=user-3',
+    avatar: undefined,
   },
   {
     id: 'user-4',
@@ -56,7 +56,7 @@ export const placeholderUsers: User[] = [
     role: 'Manager',
     companyIds: ['2'],
     companyRoles: [{ companyId: '2', role: 'Manager', positionId: 'pos-4' }],
-    avatar: 'https://i.pravatar.cc/150?u=user-4',
+    avatar: undefined,
   },
   {
     id: 'user-5',
@@ -68,7 +68,7 @@ export const placeholderUsers: User[] = [
       { companyId: '1', role: 'Employee', positionId: 'pos-3' },
       { companyId: '2', role: 'Manager', positionId: 'pos-5' },
     ],
-    avatar: 'https://i.pravatar.cc/150?u=user-5',
+    avatar: undefined,
   },
 ];
 

@@ -511,7 +511,7 @@ export class DataStore {
         role: 'Admin' as UserRole,
         companyIds,
         companyRoles,
-        avatar: `https://i.pravatar.cc/150?u=${encodeURIComponent(email)}`,
+        avatar: undefined,
         isSuperAdmin: true,
         commissionEligible: false,
       });
@@ -2130,6 +2130,20 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '039_company_logo_and_avatar_cleanup',
+        run: () => {
+          const companyColumns = this.db.prepare(`PRAGMA table_info('companies')`).all() as any[];
+          if (!companyColumns.some((column) => column.name === 'logoUrl')) {
+            this.db.exec(`ALTER TABLE companies ADD COLUMN logoUrl TEXT;`);
+          }
+          this.db.exec(`
+            UPDATE users
+            SET avatar = NULL
+            WHERE avatar LIKE 'https://i.pravatar.cc/%';
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -2778,7 +2792,7 @@ export class DataStore {
       companyIds,
       positionId: row.positionId || undefined,
       companyRoles,
-      avatar: row.avatar || `https://i.pravatar.cc/150?u=${row.email}`,
+      avatar: row.avatar || undefined,
       isSuperAdmin: Boolean(row.isSuperAdmin),
       commissionEligible: Boolean(row.commissionEligible),
       defaultCommissionRate:
@@ -2804,12 +2818,43 @@ export class DataStore {
   createCompany(company: Omit<Company, 'id'>): Company {
     const newCompany = { ...company, id: uuid() };
     this.db
-      .prepare('INSERT INTO companies (id, name, website, address) VALUES (@id, @name, @website, @address)')
-      .run(newCompany);
+      .prepare(
+        'INSERT INTO companies (id, name, website, address, logoUrl) VALUES (@id, @name, @website, @address, @logoUrl)',
+      )
+      .run({
+        ...newCompany,
+        website: newCompany.website ?? null,
+        address: newCompany.address ?? null,
+        logoUrl: newCompany.logoUrl ?? null,
+      });
     this.ensureFinanceDefaults();
     this.ensureNumberingDefaults();
     this.ensureCompanyFinanceSettings();
     return newCompany;
+  }
+
+  updateCompany(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
+    const existing = this.getCompanyById(id);
+    if (!existing) return undefined;
+    const updated: Company = {
+      ...existing,
+      ...updates,
+      name: updates.name ?? existing.name,
+      website: updates.website ?? existing.website,
+      address: updates.address ?? existing.address,
+      logoUrl: updates.logoUrl ?? existing.logoUrl,
+    };
+    this.db
+      .prepare(
+        'UPDATE companies SET name=@name, website=@website, address=@address, logoUrl=@logoUrl WHERE id=@id',
+      )
+      .run({
+        ...updated,
+        website: updated.website ?? null,
+        address: updated.address ?? null,
+        logoUrl: updated.logoUrl ?? null,
+      });
+    return this.getCompanyById(id);
   }
 
   deleteCompany(id: string, options: { cascade?: boolean } = {}) {
@@ -3017,7 +3062,7 @@ export class DataStore {
           companyRoles: normalizedCompanyRoles.length > 0 ? normalizedCompanyRoles : existingByEmail.companyRoles,
           role: user.role || normalizedCompanyRoles[0]?.role || existingByEmail.role || 'Employee',
           positionId: user.positionId ?? existingByEmail.positionId,
-          avatar: user.avatar || existingByEmail.avatar || `https://i.pravatar.cc/150?u=${user.email}`,
+          avatar: user.avatar ?? existingByEmail.avatar,
         };
         this.db
           .prepare(
@@ -3028,7 +3073,7 @@ export class DataStore {
             companyIds: JSON.stringify(updatedUser.companyIds || []),
             positionId: updatedUser.positionId ?? null,
             companyRoles: JSON.stringify(updatedUser.companyRoles || []),
-            avatar: updatedUser.avatar || `https://i.pravatar.cc/150?u=${updatedUser.email}`,
+            avatar: updatedUser.avatar ?? null,
             isSuperAdmin: updatedUser.isSuperAdmin ? 1 : 0,
             commissionEligible: updatedUser.commissionEligible ? 1 : 0,
             defaultCommissionRate: updatedUser.defaultCommissionRate ?? null,
@@ -3052,7 +3097,7 @@ export class DataStore {
       companyRoles: normalizedCompanyRoles,
       role: user.role || normalizedCompanyRoles[0]?.role || 'Employee',
       positionId: user.positionId,
-      avatar: user.avatar || `https://i.pravatar.cc/150?u=${user.email}`,
+      avatar: user.avatar,
     };
 
     this.db
@@ -3064,7 +3109,7 @@ export class DataStore {
         companyIds: JSON.stringify(newUser.companyIds || []),
         positionId: newUser.positionId ?? null,
         companyRoles: JSON.stringify(newUser.companyRoles || []),
-        avatar: newUser.avatar || `https://i.pravatar.cc/150?u=${newUser.email}`,
+        avatar: newUser.avatar ?? null,
         isSuperAdmin: newUser.isSuperAdmin ? 1 : 0,
         commissionEligible: newUser.commissionEligible ? 1 : 0,
         defaultCommissionRate: newUser.defaultCommissionRate ?? null,
@@ -3105,7 +3150,7 @@ export class DataStore {
       positionId: updates.positionId ?? existing.positionId ?? null,
       companyIds: JSON.stringify(updatedCompanyIds),
       companyRoles: JSON.stringify(nextCompanyRoles),
-      avatar: updates.avatar ?? existing.avatar ?? `https://i.pravatar.cc/150?u=${existing.email}`,
+      avatar: updates.avatar ?? existing.avatar ?? null,
       password: updates.password ?? existing.password,
       isSuperAdmin:
         updates.isSuperAdmin !== undefined

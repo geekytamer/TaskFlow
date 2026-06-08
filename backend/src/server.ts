@@ -783,6 +783,18 @@ export function createServer(options: CreateServerOptions = {}) {
     return payload;
   };
 
+  const uploadedImage = (value: unknown, fieldName: string): string => {
+    const image = String(value || '');
+    if (!image) return '';
+    if (!image.startsWith('data:image/')) {
+      throw new HttpError(400, `${fieldName} must be an uploaded image.`);
+    }
+    if (image.length > 2_800_000) {
+      throw new HttpError(400, `${fieldName} exceeds the 2 MB upload limit.`);
+    }
+    return image;
+  };
+
   const parseProjectPayload = (body: unknown, options: { partial?: boolean } = {}) => {
     const record = asRecord(body, 'body');
     const partial = Boolean(options.partial);
@@ -968,6 +980,20 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.put(
+    '/auth/me',
+    authMiddleware,
+    handler((req, res) => {
+      const body = asRecord(req.body, 'body');
+      const user = store.updateUser(req.user!.id, {
+        name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+        avatar: body.avatar !== undefined ? uploadedImage(body.avatar, 'avatar') : undefined,
+      });
+      if (!user) throw new HttpError(404, 'User not found.');
+      res.json({ user });
+    }),
+  );
+
   // ─── Admin / super-user panel ────────────────────────────────────────────
 
   app.get('/admin/overview', authMiddleware, handler((req, res) => {
@@ -1089,8 +1115,26 @@ export function createServer(options: CreateServerOptions = {}) {
         name: requiredString(body.name, 'name', { min: 2 }),
         website: optionalString(body.website),
         address: optionalString(body.address),
+        logoUrl: optionalString(body.logoUrl),
       });
       res.status(201).json(company);
+    }),
+  );
+
+  app.put(
+    '/companies/:id',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.id, ['Admin']);
+      const body = asRecord(req.body, 'body');
+      const company = store.updateCompany(req.params.id, {
+        name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+        website: body.website !== undefined ? String(body.website || '') : undefined,
+        address: body.address !== undefined ? String(body.address || '') : undefined,
+        logoUrl: body.logoUrl !== undefined ? uploadedImage(body.logoUrl, 'logoUrl') : undefined,
+      });
+      if (!company) throw new HttpError(404, 'Company not found.');
+      res.json(company);
     }),
   );
 
@@ -1352,7 +1396,7 @@ export function createServer(options: CreateServerOptions = {}) {
         companyRoles: payload.companyRoles!,
         role: payload.role || payload.companyRoles![0].role,
         positionId: payload.positionId,
-        avatar: payload.avatar || `https://i.pravatar.cc/150?u=${payload.email!}`,
+        avatar: payload.avatar,
         isSuperAdmin,
         commissionEligible: payload.commissionEligible,
         defaultCommissionRate: payload.defaultCommissionRate,
