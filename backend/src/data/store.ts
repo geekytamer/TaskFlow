@@ -108,6 +108,7 @@ import {
   TrialBalanceReport,
   ProfitAndLossReport,
   CompanyFinanceSettings,
+  InfluencerAccount,
 } from '../types';
 
 type CreateUserInput = Omit<User, 'id'> & { id?: string };
@@ -2120,6 +2121,15 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '038_influencer_accounts',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(contacts)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('influencerAccounts')) {
+            this.db.exec(`ALTER TABLE contacts ADD COLUMN influencerAccounts TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3508,17 +3518,18 @@ export class DataStore {
 		    location?: string;
 		    languages?: string[];
 		    availabilityStatus?: string;
+		    influencerAccounts?: InfluencerAccount[];
 		  }): Contact {
     const id = uuid();
     const now = new Date().toISOString();
 	  this.db.prepare(
 		      `INSERT INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, address, taxNumber, tags, notes, clientId, supplierId,
 		         leadStatus, leadSource, priority, ownerUserId, ownerName, nextFollowupDate, nextFollowupNote,
-		         influencerPlatform, influencerHandle, influencerNiche, followerCount, engagementRate, rateCardAmount, location, languages, availabilityStatus,
+		         influencerPlatform, influencerHandle, influencerNiche, followerCount, engagementRate, rateCardAmount, location, languages, availabilityStatus, influencerAccounts,
 		         createdAt, updatedAt)
 		       VALUES (@id, @companyId, @kind, @name, @legalName, @contactPerson, @email, @phone, @address, @taxNumber, @tags, @notes, @clientId, @supplierId,
 		         @leadStatus, @leadSource, @priority, @ownerUserId, @ownerName, @nextFollowupDate, @nextFollowupNote,
-		         @influencerPlatform, @influencerHandle, @influencerNiche, @followerCount, @engagementRate, @rateCardAmount, @location, @languages, @availabilityStatus,
+		         @influencerPlatform, @influencerHandle, @influencerNiche, @followerCount, @engagementRate, @rateCardAmount, @location, @languages, @availabilityStatus, @influencerAccounts,
 		         @now, @now)`,
 	    ).run({
       id,
@@ -3551,6 +3562,7 @@ export class DataStore {
 		      location: input.location ?? null,
 		      languages: input.languages ? JSON.stringify(input.languages) : null,
 		      availabilityStatus: input.availabilityStatus ?? null,
+		      influencerAccounts: input.influencerAccounts ? JSON.stringify(input.influencerAccounts) : null,
 		      now,
 	    });
 
@@ -3596,7 +3608,7 @@ export class DataStore {
 	       influencerPlatform=@influencerPlatform, influencerHandle=@influencerHandle,
 	       influencerNiche=@influencerNiche, followerCount=@followerCount,
 	       engagementRate=@engagementRate, rateCardAmount=@rateCardAmount,
-	       location=@location, languages=@languages, availabilityStatus=@availabilityStatus,
+	       location=@location, languages=@languages, availabilityStatus=@availabilityStatus, influencerAccounts=@influencerAccounts,
 	       visibility=@visibility, updatedAt=@now
        WHERE id=@id`,
     ).run({
@@ -3634,6 +3646,7 @@ export class DataStore {
 	        ? (updates.languages ? JSON.stringify(updates.languages) : null)
 	        : (existing.languages ? JSON.stringify(existing.languages) : null),
 	      availabilityStatus: updates.availabilityStatus !== undefined ? (updates.availabilityStatus ?? null) : (existing.availabilityStatus ?? null),
+	      influencerAccounts: updates.influencerAccounts !== undefined ? (updates.influencerAccounts ? JSON.stringify(updates.influencerAccounts) : null) : (existing.influencerAccounts ? JSON.stringify(existing.influencerAccounts) : null),
 	      // Auto-promote to Public when leadStatus becomes Won, or when explicitly set
 	      visibility: (updates.leadStatus === 'Won' || updates.visibility === 'Public')
 	        ? 'Public'
@@ -3709,6 +3722,7 @@ export class DataStore {
 	      location: row.location ?? undefined,
 	      languages: row.languages ? this.parseJson<string[]>(row.languages) : undefined,
 	      availabilityStatus: row.availabilityStatus ?? undefined,
+	      influencerAccounts: row.influencerAccounts ? this.parseJson<InfluencerAccount[]>(row.influencerAccounts) : undefined,
 	      visibility: (row.visibility as 'Public' | 'Private') ?? 'Public',
 	      createdAt: new Date(row.createdAt),
 	      updatedAt: new Date(row.updatedAt),
