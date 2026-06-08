@@ -1088,7 +1088,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       const companies = store.listCompanies();
-      if (req.user!.role === 'Admin') {
+      if (req.user!.isSuperAdmin) {
         return res.json(companies);
       }
       const accessible = new Set(getAccessibleCompanyIds(req.user!));
@@ -1127,7 +1127,7 @@ export function createServer(options: CreateServerOptions = {}) {
     '/companies/:id',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyRoles(req, req.params.id, ['Admin']);
+      requireSuperAdmin(req);
       const body = asRecord(req.body, 'body');
       const company = store.updateCompany(req.params.id, {
         name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,

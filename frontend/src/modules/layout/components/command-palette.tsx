@@ -70,7 +70,6 @@ const navTargets: PaletteNavItem[] = [
   { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'] },
-  { href: '/companies', labelKey: 'nav.companies', icon: Building, roles: ['Admin'] },
   { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'] },
 ];
 
@@ -111,7 +110,6 @@ export function CommandPalette() {
   const visibleNav = React.useMemo(
     () =>
       navTargets.filter((item) => {
-        if (item.href === '/companies') return effectiveRole === 'Admin';
         if (item.href === '/settings') return effectiveRole === 'Admin';
         return effectiveRole ? item.roles.includes(effectiveRole) : false;
       }),

@@ -15,7 +15,6 @@ import {
   Users,
   Network,
   FolderKanban,
-  Building,
   Settings,
   Banknote,
   ReceiptText,
@@ -102,7 +101,6 @@ const sections: NavSection[] = [
     labelKey: 'nav.section.admin',
     items: [
       { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
-      { href: '/companies', labelKey: 'nav.companies', icon: Building, roles: ['Admin'], tutorial: 'nav-companies' },
       { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
     ],
   },
@@ -147,10 +145,6 @@ export function SidebarNav() {
   }
 
   const canSeeItem = (item: NavItem) => {
-    // Company management is a platform super-admin concern (handled in /admin).
-    // Company admins manage users/positions within their own company, not the
-    // roster of companies.
-    if (item.href === '/companies') return !!user.isSuperAdmin;
     if (item.href === '/settings') return effectiveRole === 'Admin';
     if (!effectiveRole) return false;
     return item.roles.includes(effectiveRole);

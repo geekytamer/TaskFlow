@@ -44,7 +44,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     if (!currentUser) return [];
     try {
       const allCompanies = await getCompanies();
-      if (currentUser.role === 'Admin') {
+      if (currentUser.isSuperAdmin) {
         setCompanies(allCompanies);
         return allCompanies;
       } else {

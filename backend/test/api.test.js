@@ -194,7 +194,7 @@ test('health endpoint reports status and applied migrations', async () => {
   ]);
 });
 
-test('users can update their own profile and admins can update company branding', async () => {
+test('users can update their own profile without gaining company-management access', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
   const auth = (requestBuilder) => requestBuilder.set('Authorization', `Bearer ${token}`);
@@ -211,6 +211,37 @@ test('users can update their own profile and admins can update company branding'
     name: 'Innovate Branded',
     logoUrl: 'data:image/png;base64,logo',
   });
+  assert.equal(company.status, 403);
+  assert.equal(company.body.message, 'Super-admin access required.');
+});
+
+test('super-admins can update company branding', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-company-branding-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  store.createUser({
+    name: 'Root',
+    email: 'branding.root@taskflow.com',
+    role: 'Employee',
+    companyIds: [],
+    companyRoles: [],
+    password: 'password',
+    isSuperAdmin: true,
+  });
+  const app = createServer({
+    dbPath,
+    seedOnEmpty: false,
+    allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const token = await login(app, 'branding.root@taskflow.com');
+  const company = await request(app)
+    .put('/companies/1')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      name: 'Innovate Branded',
+      logoUrl: 'data:image/png;base64,logo',
+    });
   assert.equal(company.status, 200);
   assert.equal(company.body.name, 'Innovate Branded');
   assert.equal(company.body.logoUrl, 'data:image/png;base64,logo');
@@ -253,6 +284,36 @@ test('non-admin users only see accessible companies', async () => {
   assert.equal(response.status, 200);
   assert.equal(response.body.length, 1);
   assert.equal(response.body[0].id, '1');
+});
+
+test('company admins only see assigned companies and cannot edit company records', async () => {
+  const app = makeApp();
+  const superAdminToken = await login(app, 'admin@taskflow.com');
+  const created = await request(app)
+    .post('/users')
+    .set('Authorization', `Bearer ${superAdminToken}`)
+    .send({
+      name: 'Single Company Admin',
+      email: 'single.company.admin@taskflow.com',
+      password: 'password',
+      role: 'Admin',
+      companyRoles: [{ companyId: '2', role: 'Admin' }],
+    });
+  assert.equal(created.status, 201);
+
+  const companyAdminToken = await login(app, 'single.company.admin@taskflow.com');
+  const companies = await request(app)
+    .get('/companies')
+    .set('Authorization', `Bearer ${companyAdminToken}`);
+  assert.equal(companies.status, 200);
+  assert.deepEqual(companies.body.map((company) => company.id), ['2']);
+
+  const editCompany = await request(app)
+    .put('/companies/2')
+    .set('Authorization', `Bearer ${companyAdminToken}`)
+    .send({ name: 'Unauthorized Rename' });
+  assert.equal(editCompany.status, 403);
+  assert.equal(editCompany.body.message, 'Super-admin access required.');
 });
 
 test('company scoping blocks access outside a manager company', async () => {

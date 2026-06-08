@@ -10583,7 +10583,6 @@ export class DataStore {
 
     const quickActions: DashboardQuickAction[] = [
       { id: 'open-users', label: 'Users', route: '/users' },
-      { id: 'open-companies', label: 'Companies', route: '/companies' },
       { id: 'open-finance', label: 'Finance', route: '/finance' },
       { id: 'open-projects', label: 'Projects', route: '/projects' },
     ];
