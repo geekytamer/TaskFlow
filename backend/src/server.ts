@@ -10,6 +10,8 @@ import {
   type Invoice,
   type InvoiceTemplate,
   type InvoiceTemplateLayout,
+  type InvoiceColumn,
+  type InvoiceBankAccount,
   type InvoiceLineItem,
   type JournalEntryLine,
 	  type Project,
@@ -82,6 +84,40 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
       engagementRate: optionalNumber(a.engagementRate),
       estimatedAvg: optionalNumber(a.estimatedAvg),
       notes: optionalString(a.notes),
+    }));
+}
+
+const invoiceColumnKeys: InvoiceColumn['key'][] = ['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom'];
+const invoiceColumnAligns: NonNullable<InvoiceColumn['align']>[] = ['left', 'center', 'right'];
+
+function parseInvoiceColumns(raw: unknown): InvoiceColumn[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+    .map((c) => ({
+      id: typeof c.id === 'string' && c.id ? c.id : randomUUID(),
+      key: invoiceColumnKeys.includes(c.key as any) ? (c.key as InvoiceColumn['key']) : 'custom',
+      label: optionalString(c.label) ?? '',
+      visible: c.visible === undefined ? true : Boolean(c.visible),
+      width: optionalNumber(c.width),
+      align: invoiceColumnAligns.includes(c.align as any) ? (c.align as InvoiceColumn['align']) : undefined,
+    }));
+}
+
+function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
+    .map((b) => ({
+      id: typeof b.id === 'string' && b.id ? b.id : randomUUID(),
+      bankName: optionalString(b.bankName),
+      accountHolder: optionalString(b.accountHolder),
+      accountNumber: optionalString(b.accountNumber),
+      iban: optionalString(b.iban),
+      swift: optionalString(b.swift),
+      currency: optionalString(b.currency),
     }));
 }
 
@@ -915,6 +951,11 @@ export function createServer(options: CreateServerOptions = {}) {
       footerImageUrl: record.footerImageUrl !== undefined ? optionalString(record.footerImageUrl) : undefined,
       letterheadPdfUrl:
         record.letterheadPdfUrl !== undefined ? optionalString(record.letterheadPdfUrl) : undefined,
+      stampUrl: record.stampUrl !== undefined ? optionalString(record.stampUrl) : undefined,
+      signatureUrl: record.signatureUrl !== undefined ? optionalString(record.signatureUrl) : undefined,
+      signatureLabel: record.signatureLabel !== undefined ? optionalString(record.signatureLabel) : undefined,
+      columns: record.columns !== undefined ? parseInvoiceColumns(record.columns) : undefined,
+      bankAccounts: record.bankAccounts !== undefined ? parseBankAccounts(record.bankAccounts) : undefined,
       paymentInstructions:
         record.paymentInstructions !== undefined ? optionalString(record.paymentInstructions) : undefined,
       terms: record.terms !== undefined ? optionalString(record.terms) : undefined,
@@ -1253,6 +1294,11 @@ export function createServer(options: CreateServerOptions = {}) {
             headerImageUrl: payload.headerImageUrl,
             footerImageUrl: payload.footerImageUrl,
             letterheadPdfUrl: payload.letterheadPdfUrl,
+            stampUrl: payload.stampUrl,
+            signatureUrl: payload.signatureUrl,
+            signatureLabel: payload.signatureLabel,
+            columns: payload.columns,
+            bankAccounts: payload.bankAccounts,
             paymentInstructions: payload.paymentInstructions,
             terms: payload.terms,
             footerNote: payload.footerNote,

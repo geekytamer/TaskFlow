@@ -2,8 +2,17 @@
 
 import { format } from 'date-fns';
 import type { Company } from '@/modules/companies/types';
-import type { Client, Invoice, InvoiceTemplate } from '../types';
+import type { Client, Invoice, InvoiceTemplate, InvoiceColumn, InvoiceLineItem } from '../types';
 import { CurrencyAmount } from '@/lib/currency';
+
+const DEFAULT_COLUMNS: InvoiceColumn[] = [
+  { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
+  { id: 'quantity', key: 'quantity', label: 'Qty', visible: true, width: 15, align: 'right' },
+  { id: 'unitPrice', key: 'unitPrice', label: 'Unit', visible: true, width: 15, align: 'right' },
+  { id: 'amount', key: 'amount', label: 'Amount', visible: true, width: 15, align: 'right' },
+];
+
+const alignClass: Record<string, string> = { left: 'text-left', center: 'text-center', right: 'text-right' };
 
 interface InvoiceDocumentProps {
   invoice: Invoice;
@@ -45,6 +54,22 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
   const modern = activeTemplate.layout === 'modern';
   const letterhead = activeTemplate.layout === 'letterhead';
   const amount = (value: number) => <CurrencyAmount value={value} currencyCode={invoice.currency || 'USD'} />;
+
+  const columns = (template?.columns?.length ? template.columns : DEFAULT_COLUMNS).filter((c) => c.visible);
+  const cellValue = (col: InvoiceColumn, line: InvoiceLineItem) => {
+    switch (col.key) {
+      case 'sku': return line.sku ?? '';
+      case 'description': return line.description;
+      case 'quantity': return line.quantity;
+      case 'unitPrice': return amount(line.unitPrice);
+      case 'amount': return amount(line.amount);
+      case 'custom': return line.custom?.[col.id] ?? '';
+      default: return '';
+    }
+  };
+  const bankAccounts = (template?.bankAccounts ?? []).filter(
+    (b) => b.bankName || b.accountHolder || b.accountNumber || b.iban || b.swift,
+  );
 
   return (
     <div
@@ -140,6 +165,33 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
         <img src={template.headerImageUrl} alt="" className="h-20 w-full object-cover" />
       )}
 
+      {/* Letterhead band: tall, centered logo */}
+      {letterhead && (
+        <div
+          className="relative z-20 flex flex-col items-center justify-center gap-3 px-10 pb-8 pt-14"
+          style={{ borderBottom: `2px solid ${activeTemplate.primaryColor}` }}
+        >
+          {template?.logoUrl ? (
+            <img src={template.logoUrl} alt="" className="h-28 max-w-[280px] object-contain" />
+          ) : (
+            <div
+              className="flex h-24 w-24 items-center justify-center rounded-full text-2xl font-bold text-white"
+              style={{ backgroundColor: activeTemplate.primaryColor }}
+            >
+              {(company?.name || 'CO').slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <div className="text-center">
+            <div className="text-xl font-bold" style={{ color: activeTemplate.primaryColor }}>
+              {company?.name || 'Company'}
+            </div>
+            {activeTemplate.showCompanyAddress && company?.address && (
+              <div className="mt-1 whitespace-pre-line text-sm text-slate-500">{company.address}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className={`${compact ? 'p-8' : 'p-10'} relative z-20`}>
         <div
           className={`flex gap-6 ${
@@ -147,6 +199,7 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
           }`}
           style={{ borderColor: activeTemplate.accentColor }}
         >
+          {!letterhead && (
           <div className="min-w-0">
             {template?.logoUrl ? (
               <img
@@ -174,6 +227,7 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
               <div className="mt-1 text-sm text-slate-500">Tax ID</div>
             )}
           </div>
+          )}
 
           <div
             className={modern ? 'rounded-sm px-5 py-4 text-right text-white' : 'text-right'}
@@ -232,20 +286,20 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
         <div className={compact ? 'mt-8' : 'mt-10'}>
           <table className="invoice-line-items w-full border-collapse text-sm">
             <colgroup>
-              <col style={{ width: '55%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '15%' }} />
+              {columns.map((col) => (
+                <col key={col.id} style={col.width ? { width: `${col.width}%` } : undefined} />
+              ))}
             </colgroup>
             <thead>
-              <tr
-                className="text-white"
-                style={{ backgroundColor: activeTemplate.primaryColor }}
-              >
-                <th className="rounded-tl px-4 py-3 text-left font-semibold">Description</th>
-                <th className="px-4 py-3 text-right font-semibold">Qty</th>
-                <th className="px-4 py-3 text-right font-semibold">Unit</th>
-                <th className="rounded-tr px-4 py-3 text-right font-semibold">Amount</th>
+              <tr className="text-white" style={{ backgroundColor: activeTemplate.primaryColor }}>
+                {columns.map((col, i) => (
+                  <th
+                    key={col.id}
+                    className={`px-4 py-3 font-semibold ${alignClass[col.align || (col.key === 'description' || col.key === 'sku' ? 'left' : 'right')]} ${i === 0 ? 'rounded-tl' : ''} ${i === columns.length - 1 ? 'rounded-tr' : ''}`}
+                  >
+                    {col.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -254,10 +308,14 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
                   key={`${line.description}-${index}`}
                   className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
                 >
-                  <td className="border-x border-b px-4 py-3">{line.description}</td>
-                  <td className="border-b px-4 py-3 text-right">{line.quantity}</td>
-                  <td className="border-b px-4 py-3 text-right">{amount(line.unitPrice)}</td>
-                  <td className="border-r border-b px-4 py-3 text-right font-medium">{amount(line.amount)}</td>
+                  {columns.map((col, i) => (
+                    <td
+                      key={col.id}
+                      className={`border-b px-4 py-3 ${i === 0 ? 'border-x' : ''} ${i === columns.length - 1 ? 'border-r' : ''} ${alignClass[col.align || (col.key === 'description' || col.key === 'sku' ? 'left' : 'right')]} ${col.key === 'amount' ? 'font-medium' : ''}`}
+                    >
+                      {cellValue(col, line)}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -290,9 +348,29 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
               <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
                 Payment
               </div>
-              <p className="mt-2 text-slate-600">
-                {activeTemplate.paymentInstructions || 'Payment instructions will appear here.'}
-              </p>
+              {activeTemplate.paymentInstructions && (
+                <p className="mt-2 text-slate-600">{activeTemplate.paymentInstructions}</p>
+              )}
+              {bankAccounts.length > 0 && (
+                <div className="mt-3 space-y-3">
+                  {bankAccounts.map((bank) => (
+                    <div key={bank.id} className="rounded border border-slate-200 p-3">
+                      {bank.bankName && (
+                        <div className="font-medium text-slate-700">{bank.bankName}{bank.currency ? ` · ${bank.currency}` : ''}</div>
+                      )}
+                      <div className="mt-1 grid gap-0.5 text-xs text-slate-600">
+                        {bank.accountHolder && <div><span className="text-slate-400">Account holder: </span>{bank.accountHolder}</div>}
+                        {bank.accountNumber && <div><span className="text-slate-400">Account no.: </span>{bank.accountNumber}</div>}
+                        {bank.iban && <div><span className="text-slate-400">IBAN: </span>{bank.iban}</div>}
+                        {bank.swift && <div><span className="text-slate-400">SWIFT/BIC: </span>{bank.swift}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!activeTemplate.paymentInstructions && bankAccounts.length === 0 && (
+                <p className="mt-2 text-slate-600">Payment instructions will appear here.</p>
+              )}
             </div>
             <div>
               <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
@@ -311,6 +389,22 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
               Notes
             </div>
             <p className="mt-2">{invoice.notes}</p>
+          </div>
+        )}
+
+        {(template?.stampUrl || template?.signatureUrl) && (
+          <div className="mt-10 flex items-end justify-end gap-12">
+            {template?.stampUrl && (
+              <img src={template.stampUrl} alt="" className="h-24 w-24 object-contain" />
+            )}
+            {template?.signatureUrl && (
+              <div className="text-center">
+                <img src={template.signatureUrl} alt="" className="mx-auto h-16 object-contain" />
+                <div className="mt-1 border-t border-slate-300 pt-1 text-xs text-slate-500">
+                  {template?.signatureLabel || 'Authorized signature'}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

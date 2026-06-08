@@ -191,6 +191,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '037_campaign_deliverable_fulfillment',
     '038_influencer_accounts',
     '039_company_logo_and_avatar_cleanup',
+    '040_invoice_template_customization',
   ]);
 });
 

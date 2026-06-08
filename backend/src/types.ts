@@ -317,6 +317,8 @@ export interface InvoiceLineItem {
   quantity: number;
   unitPrice: number;
   amount: number;
+  /** Values for template-defined custom columns, keyed by column id. */
+  custom?: Record<string, string>;
 }
 
 export interface Invoice {
@@ -401,6 +403,28 @@ export interface Delivery {
 
 export type InvoiceTemplateLayout = 'classic' | 'modern' | 'compact' | 'letterhead';
 
+export type InvoiceColumnKey = 'sku' | 'description' | 'quantity' | 'unitPrice' | 'amount' | 'custom';
+export type InvoiceColumnAlign = 'left' | 'center' | 'right';
+
+export interface InvoiceColumn {
+  id: string;
+  key: InvoiceColumnKey;
+  label: string;
+  visible: boolean;
+  width?: number; // percentage of table width
+  align?: InvoiceColumnAlign;
+}
+
+export interface InvoiceBankAccount {
+  id: string;
+  bankName?: string;
+  accountHolder?: string;
+  accountNumber?: string;
+  iban?: string;
+  swift?: string;
+  currency?: string;
+}
+
 export interface InvoiceTemplate {
   id: string;
   companyId: string;
@@ -413,6 +437,9 @@ export interface InvoiceTemplate {
   headerImageUrl?: string;
   footerImageUrl?: string;
   letterheadPdfUrl?: string;
+  stampUrl?: string;
+  signatureUrl?: string;
+  signatureLabel?: string;
   paymentInstructions?: string;
   terms?: string;
   footerNote?: string;
@@ -421,6 +448,8 @@ export interface InvoiceTemplate {
   watermarkOpacity?: number;
   showCompanyAddress: boolean;
   showTaxId: boolean;
+  columns?: InvoiceColumn[];
+  bankAccounts?: InvoiceBankAccount[];
   createdAt: Date;
   updatedAt: Date;
 }

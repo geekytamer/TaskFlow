@@ -69,6 +69,8 @@ import {
   Invoice,
   InvoiceTemplate,
   InvoiceTemplateLayout,
+  InvoiceColumn,
+  InvoiceBankAccount,
   InvoiceStatus,
   SanitizedUser,
   UserRole,
@@ -2142,6 +2144,20 @@ export class DataStore {
             SET avatar = NULL
             WHERE avatar LIKE 'https://i.pravatar.cc/%';
           `);
+        },
+      },
+      {
+        id: '040_invoice_template_customization',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info('invoice_templates')`).all() as any[]).map((c) => c.name);
+          const add = (name: string) => {
+            if (!cols.includes(name)) this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN ${name} TEXT;`);
+          };
+          add('stampUrl');
+          add('signatureUrl');
+          add('signatureLabel');
+          add('invoiceColumns');
+          add('bankAccounts');
         },
       },
     ];
@@ -6313,6 +6329,9 @@ export class DataStore {
       headerImageUrl: row.headerImageUrl ?? undefined,
       footerImageUrl: row.footerImageUrl ?? undefined,
       letterheadPdfUrl: row.letterheadPdfUrl ?? undefined,
+      stampUrl: row.stampUrl ?? undefined,
+      signatureUrl: row.signatureUrl ?? undefined,
+      signatureLabel: row.signatureLabel ?? undefined,
       paymentInstructions: row.paymentInstructions ?? undefined,
       terms: row.terms ?? undefined,
       footerNote: row.footerNote ?? undefined,
@@ -6321,6 +6340,8 @@ export class DataStore {
       watermarkOpacity: Number.isFinite(Number(row.watermarkOpacity)) ? Number(row.watermarkOpacity) : 0.12,
       showCompanyAddress: row.showCompanyAddress === undefined ? true : Boolean(row.showCompanyAddress),
       showTaxId: row.showTaxId === undefined ? true : Boolean(row.showTaxId),
+      columns: row.invoiceColumns ? this.parseJson<InvoiceColumn[]>(row.invoiceColumns) ?? undefined : undefined,
+      bankAccounts: row.bankAccounts ? this.parseJson<InvoiceBankAccount[]>(row.bankAccounts) ?? undefined : undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -6369,11 +6390,13 @@ export class DataStore {
           `INSERT INTO invoice_templates (
             id, companyId, name, layout, isDefault, primaryColor, accentColor,
             logoUrl, headerImageUrl, footerImageUrl, letterheadPdfUrl,
+            stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts,
             paymentInstructions, terms, footerNote, watermarkEnabled, watermarkText, watermarkOpacity, showCompanyAddress, showTaxId,
             createdAt, updatedAt
           ) VALUES (
             @id, @companyId, @name, @layout, @isDefault, @primaryColor, @accentColor,
             @logoUrl, @headerImageUrl, @footerImageUrl, @letterheadPdfUrl,
+            @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts,
             @paymentInstructions, @terms, @footerNote, @watermarkEnabled, @watermarkText, @watermarkOpacity, @showCompanyAddress, @showTaxId,
             @createdAt, @updatedAt
           )`,
@@ -6385,6 +6408,11 @@ export class DataStore {
           headerImageUrl: newTemplate.headerImageUrl ?? null,
           footerImageUrl: newTemplate.footerImageUrl ?? null,
           letterheadPdfUrl: newTemplate.letterheadPdfUrl ?? null,
+          stampUrl: newTemplate.stampUrl ?? null,
+          signatureUrl: newTemplate.signatureUrl ?? null,
+          signatureLabel: newTemplate.signatureLabel ?? null,
+          invoiceColumns: newTemplate.columns ? JSON.stringify(newTemplate.columns) : null,
+          bankAccounts: newTemplate.bankAccounts ? JSON.stringify(newTemplate.bankAccounts) : null,
           paymentInstructions: newTemplate.paymentInstructions ?? null,
           terms: newTemplate.terms ?? null,
           footerNote: newTemplate.footerNote ?? null,
@@ -6437,6 +6465,8 @@ export class DataStore {
             name=@name, layout=@layout, isDefault=@isDefault, primaryColor=@primaryColor,
             accentColor=@accentColor, logoUrl=@logoUrl, headerImageUrl=@headerImageUrl,
             footerImageUrl=@footerImageUrl, letterheadPdfUrl=@letterheadPdfUrl,
+            stampUrl=@stampUrl, signatureUrl=@signatureUrl, signatureLabel=@signatureLabel,
+            invoiceColumns=@invoiceColumns, bankAccounts=@bankAccounts,
             paymentInstructions=@paymentInstructions, terms=@terms, footerNote=@footerNote, watermarkEnabled=@watermarkEnabled,
             watermarkText=@watermarkText, watermarkOpacity=@watermarkOpacity,
             showCompanyAddress=@showCompanyAddress, showTaxId=@showTaxId, updatedAt=@updatedAt
@@ -6450,6 +6480,11 @@ export class DataStore {
           headerImageUrl: merged.headerImageUrl ?? null,
           footerImageUrl: merged.footerImageUrl ?? null,
           letterheadPdfUrl: merged.letterheadPdfUrl ?? null,
+          stampUrl: merged.stampUrl ?? null,
+          signatureUrl: merged.signatureUrl ?? null,
+          signatureLabel: merged.signatureLabel ?? null,
+          invoiceColumns: merged.columns ? JSON.stringify(merged.columns) : null,
+          bankAccounts: merged.bankAccounts ? JSON.stringify(merged.bankAccounts) : null,
           paymentInstructions: merged.paymentInstructions ?? null,
           terms: merged.terms ?? null,
           footerNote: merged.footerNote ?? null,
@@ -8678,6 +8713,11 @@ export class DataStore {
           quantity: Number.isFinite(quantity) ? quantity : 1,
           unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
           amount: Number.isFinite(amount) ? amount : 0,
+          custom: item?.custom && typeof item.custom === 'object'
+            ? Object.fromEntries(
+                Object.entries(item.custom as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]),
+              )
+            : undefined,
         };
       })
       .filter((item) => item.description && item.amount >= 0)

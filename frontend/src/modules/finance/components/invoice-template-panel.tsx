@@ -25,8 +25,23 @@ import {
   updateInvoiceTemplate,
 } from '@/services/financeService';
 import type { InvoiceTemplateInput } from '@/services/financeService';
-import type { InvoiceTemplate, InvoiceTemplateLayout } from '../types';
+import type { InvoiceTemplate, InvoiceTemplateLayout, InvoiceColumn, InvoiceColumnAlign, InvoiceBankAccount, Invoice, Client } from '../types';
+import type { Company } from '@/modules/companies/types';
+import { InvoiceDocument } from './invoice-document';
 import { useCompanyCurrency } from '@/lib/currency';
+import { ArrowUp, ArrowDown } from 'lucide-react';
+
+const makeId = () =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? crypto.randomUUID()
+    : `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const defaultColumns = (): InvoiceColumn[] => [
+  { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
+  { id: 'quantity', key: 'quantity', label: 'Qty', visible: true, width: 15, align: 'right' },
+  { id: 'unitPrice', key: 'unitPrice', label: 'Unit', visible: true, width: 15, align: 'right' },
+  { id: 'amount', key: 'amount', label: 'Amount', visible: true, width: 15, align: 'right' },
+];
 
 const emptyForm: InvoiceTemplateInput = {
   name: '',
@@ -38,6 +53,9 @@ const emptyForm: InvoiceTemplateInput = {
   headerImageUrl: '',
   footerImageUrl: '',
   letterheadPdfUrl: '',
+  stampUrl: '',
+  signatureUrl: '',
+  signatureLabel: '',
   paymentInstructions: '',
   terms: '',
   footerNote: '',
@@ -46,6 +64,8 @@ const emptyForm: InvoiceTemplateInput = {
   watermarkOpacity: 0.12,
   showCompanyAddress: true,
   showTaxId: true,
+  columns: undefined,
+  bankAccounts: undefined,
 };
 
 const layoutLabels: Record<InvoiceTemplateLayout, string> = {
@@ -65,6 +85,11 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   headerImageUrl: template.headerImageUrl || '',
   footerImageUrl: template.footerImageUrl || '',
   letterheadPdfUrl: template.letterheadPdfUrl || '',
+  stampUrl: template.stampUrl || '',
+  signatureUrl: template.signatureUrl || '',
+  signatureLabel: template.signatureLabel || '',
+  columns: template.columns,
+  bankAccounts: template.bankAccounts,
   paymentInstructions: template.paymentInstructions || '',
   terms: template.terms || '',
   footerNote: template.footerNote || '',
@@ -82,6 +107,11 @@ const cleanForm = (form: InvoiceTemplateInput): InvoiceTemplateInput => ({
   headerImageUrl: form.headerImageUrl?.trim() || undefined,
   footerImageUrl: form.footerImageUrl?.trim() || undefined,
   letterheadPdfUrl: form.letterheadPdfUrl?.trim() || undefined,
+  stampUrl: form.stampUrl?.trim() || undefined,
+  signatureUrl: form.signatureUrl?.trim() || undefined,
+  signatureLabel: form.signatureLabel?.trim() || undefined,
+  columns: form.columns && form.columns.length > 0 ? form.columns : undefined,
+  bankAccounts: form.bankAccounts && form.bankAccounts.length > 0 ? form.bankAccounts : undefined,
   paymentInstructions: form.paymentInstructions?.trim() || undefined,
   terms: form.terms?.trim() || undefined,
   footerNote: form.footerNote?.trim() || undefined,
@@ -162,239 +192,31 @@ function AssetUploadField({
   );
 }
 
-const sampleInvoice = {
-  number: 'INV-0042',
-  issueDate: 'Apr 19, 2026',
-  dueDate: 'May 19, 2026',
-  client: {
-    name: 'Acme Trading LLC',
-    address: 'Muscat Business District\nSultanate of Oman',
-  },
-  company: {
-    name: 'Your Company',
-    address: 'Company address line\nCity, Country',
-    taxId: 'VAT / Tax ID: OM1234567',
-  },
-  lines: [
-    { description: 'Project implementation', quantity: 1, unitPrice: 1200, amount: 1200 },
-    { description: 'Support retainer', quantity: 2, unitPrice: 250, amount: 500 },
-    { description: 'On-site consultation', quantity: 3, unitPrice: 150, amount: 450 },
-  ],
-};
+const samplePreviewLines = [
+  { itemType: 'Manual' as const, sku: 'SKU-001', description: 'Project implementation', quantity: 1, unitPrice: 1200, amount: 1200 },
+  { itemType: 'Manual' as const, sku: 'SKU-002', description: 'Support retainer', quantity: 2, unitPrice: 250, amount: 500 },
+  { itemType: 'Manual' as const, sku: 'SKU-003', description: 'On-site consultation', quantity: 3, unitPrice: 150, amount: 450 },
+];
 
 function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }) {
-  const { money, amount } = useCompanyCurrency();
-  const subtotal = sampleInvoice.lines.reduce((sum, line) => sum + line.amount, 0);
-  const tax = Number((subtotal * 0.05).toFixed(2));
-  const total = subtotal + tax;
-  const compact = template.layout === 'compact';
-  const modern = template.layout === 'modern';
-  const letterhead = template.layout === 'letterhead';
-
+  const now = new Date();
+  const previewInvoice = {
+    id: 'preview', invoiceNumber: 'INV-0042', companyId: 'preview', clientId: 'preview',
+    issueDate: now, dueDate: new Date(now.getTime() + 30 * 86400000),
+    lineItems: samplePreviewLines, total: 2257.5, status: 'Draft' as const, currency: 'USD', taxRate: 5,
+  } as unknown as Invoice;
+  const previewClient = { id: 'preview', name: 'Acme Trading LLC', address: 'Muscat Business District\nSultanate of Oman', email: 'accounts@acme.example' } as unknown as Client;
+  const previewCompany = { id: 'preview', name: 'Your Company', address: 'Company address line\nCity, Country' } as unknown as Company;
+  const previewTemplate = { ...template, id: 'preview', companyId: 'preview', createdAt: now, updatedAt: now } as unknown as InvoiceTemplate;
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Eye className="h-4 w-4 text-muted-foreground" />
         <h3 className="font-semibold">Preview</h3>
-        <Badge variant="outline">{layoutLabels[template.layout]}</Badge>
       </div>
-      <div className="overflow-x-auto rounded-lg border bg-muted/30 p-3">
-        <div
-          className="relative mx-auto min-h-[760px] w-full max-w-[720px] overflow-hidden rounded-sm bg-white text-slate-950 shadow-sm"
-          style={{
-            borderTop: letterhead ? `10px solid ${template.primaryColor}` : undefined,
-            backgroundImage: template.letterheadPdfUrl
-              ? `linear-gradient(rgba(255,255,255,0.86), rgba(255,255,255,0.86)), url("${template.letterheadPdfUrl}")`
-              : undefined,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center top',
-          }}
-        >
-          {template.watermarkEnabled && template.watermarkText && (
-            <div
-              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
-            >
-              <span
-                className="select-none text-7xl font-extrabold uppercase"
-                style={{
-                  color: template.primaryColor,
-                  opacity: template.watermarkOpacity ?? 0.12,
-                  transform: 'rotate(-30deg)',
-                }}
-              >
-                {template.watermarkText}
-              </span>
-            </div>
-          )}
-          {template.headerImageUrl && (
-            <img
-              src={template.headerImageUrl}
-              alt=""
-              className="h-20 w-full object-cover"
-            />
-          )}
-
-          <div className={compact ? 'p-8' : 'p-10'}>
-            <div
-              className={`flex gap-6 ${modern ? 'items-start justify-between border-b pb-8' : 'items-start justify-between'}`}
-              style={{ borderColor: template.accentColor }}
-            >
-              <div className="min-w-0">
-                {template.logoUrl ? (
-                  <img
-                    src={template.logoUrl}
-                    alt=""
-                    className="mb-4 h-14 max-w-44 object-contain object-left"
-                  />
-                ) : (
-                  <div
-                    className="mb-4 flex h-14 w-40 items-center justify-center rounded border text-sm font-semibold"
-                    style={{ borderColor: template.accentColor, color: template.primaryColor }}
-                  >
-                    LOGO
-                  </div>
-                )}
-                <div className="font-semibold" style={{ color: template.primaryColor }}>
-                  {sampleInvoice.company.name}
-                </div>
-                {template.showCompanyAddress && (
-                  <div className="mt-1 whitespace-pre-line text-sm text-slate-500">
-                    {sampleInvoice.company.address}
-                  </div>
-                )}
-                {template.showTaxId && (
-                  <div className="mt-1 text-sm text-slate-500">{sampleInvoice.company.taxId}</div>
-                )}
-              </div>
-
-              <div
-                className={modern ? 'rounded-sm px-5 py-4 text-right text-white' : 'text-right'}
-                style={modern ? { backgroundColor: template.primaryColor } : undefined}
-              >
-                <div
-                  className="text-3xl font-bold tracking-normal"
-                  style={modern ? undefined : { color: template.primaryColor }}
-                >
-                  INVOICE
-                </div>
-                <div className={modern ? 'mt-2 text-sm text-white/85' : 'mt-2 text-sm text-slate-500'}>
-                  {sampleInvoice.number}
-                </div>
-              </div>
-            </div>
-
-            <div
-              className={`grid gap-6 ${compact ? 'mt-8 grid-cols-3 text-sm' : 'mt-10 grid-cols-2'}`}
-            >
-              <div>
-                <div className="text-xs font-semibold uppercase text-slate-400">Bill To</div>
-                <div className="mt-2 font-semibold">{sampleInvoice.client.name}</div>
-                <div className="mt-1 whitespace-pre-line text-sm text-slate-500">
-                  {sampleInvoice.client.address}
-                </div>
-              </div>
-              <div className={compact ? 'text-left' : 'text-right'}>
-                <div className="grid gap-1 text-sm">
-                  <div>
-                    <span className="text-slate-500">Issue date: </span>
-                    <span className="font-medium">{sampleInvoice.issueDate}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Due date: </span>
-                    <span className="font-medium">{sampleInvoice.dueDate}</span>
-                  </div>
-                </div>
-              </div>
-              {compact && (
-                <div>
-                  <div className="text-xs font-semibold uppercase text-slate-400">Terms</div>
-                  <div className="mt-2 text-sm text-slate-600">
-                    {template.terms || 'Standard payment terms apply.'}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className={compact ? 'mt-8' : 'mt-10'}>
-              <div
-                className="grid grid-cols-[1fr_80px_110px_110px] gap-3 rounded-t px-4 py-3 text-sm font-semibold text-white"
-                style={{ backgroundColor: template.primaryColor }}
-              >
-                <div>Description</div>
-                <div className="text-right">Qty</div>
-                <div className="text-right">Unit</div>
-                <div className="text-right">Amount</div>
-              </div>
-              <div className="border-x border-b">
-                {sampleInvoice.lines.map((line, index) => (
-                  <div
-                    key={line.description}
-                    className={`grid grid-cols-[1fr_80px_110px_110px] gap-3 px-4 py-3 text-sm ${
-                      index % 2 === 0 ? 'bg-white' : 'bg-slate-50'
-                    }`}
-                  >
-                    <div>{line.description}</div>
-                    <div className="text-right">{line.quantity}</div>
-                    <div className="text-right">{amount(line.unitPrice)}</div>
-                    <div className="text-right font-medium">{amount(line.amount)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-8 flex justify-end">
-              <div className="w-full max-w-xs space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Subtotal</span>
-                  <span>{amount(subtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Tax 5%</span>
-                  <span>{amount(tax)}</span>
-                </div>
-                <div
-                  className="flex justify-between border-t pt-3 text-lg font-bold"
-                  style={{ borderColor: template.accentColor, color: template.primaryColor }}
-                >
-                  <span>Total</span>
-                  <span>{amount(total)}</span>
-                </div>
-              </div>
-            </div>
-
-            {!compact && (
-              <div className="mt-10 grid gap-6 text-sm md:grid-cols-2">
-                <div>
-                  <div className="font-semibold" style={{ color: template.primaryColor }}>
-                    Payment
-                  </div>
-                  <p className="mt-2 text-slate-600">
-                    {template.paymentInstructions || 'Payment instructions will appear here.'}
-                  </p>
-                </div>
-                <div>
-                  <div className="font-semibold" style={{ color: template.primaryColor }}>
-                    Terms
-                  </div>
-                  <p className="mt-2 text-slate-600">
-                    {template.terms || 'Terms and conditions will appear here.'}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-10 border-t pt-4 text-center text-xs text-slate-500">
-              {template.footerNote || 'Footer note appears here.'}
-            </div>
-          </div>
-
-          {template.footerImageUrl && (
-            <img
-              src={template.footerImageUrl}
-              alt=""
-              className="h-16 w-full object-cover"
-            />
-          )}
+      <div className="overflow-x-auto rounded-lg border bg-muted/30 p-4">
+        <div className="mx-auto w-[760px] max-w-full origin-top">
+          <InvoiceDocument invoice={previewInvoice} client={previewClient} company={previewCompany} template={previewTemplate} />
         </div>
       </div>
     </div>
@@ -444,6 +266,30 @@ export function InvoiceTemplatePanel() {
   const updateForm = <K extends keyof InvoiceTemplateInput>(key: K, value: InvoiceTemplateInput[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
+
+  // ─── Column manager ───────────────────────────────────────────────────────
+  const columns = form.columns ?? defaultColumns();
+  const setColumns = (next: InvoiceColumn[]) => updateForm('columns', next);
+  const updateColumn = (id: string, patch: Partial<InvoiceColumn>) =>
+    setColumns(columns.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const moveColumn = (index: number, dir: -1 | 1) => {
+    const next = [...columns];
+    const target = index + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setColumns(next);
+  };
+  const addCustomColumn = () =>
+    setColumns([...columns, { id: makeId(), key: 'custom', label: 'New column', visible: true, width: 15, align: 'left' }]);
+  const removeColumn = (id: string) => setColumns(columns.filter((c) => c.id !== id));
+
+  // ─── Bank accounts ────────────────────────────────────────────────────────
+  const bankAccounts = form.bankAccounts ?? [];
+  const setBankAccounts = (next: InvoiceBankAccount[]) => updateForm('bankAccounts', next);
+  const addBankAccount = () => setBankAccounts([...bankAccounts, { id: makeId() }]);
+  const updateBankAccount = (id: string, patch: Partial<InvoiceBankAccount>) =>
+    setBankAccounts(bankAccounts.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  const removeBankAccount = (id: string) => setBankAccounts(bankAccounts.filter((b) => b.id !== id));
 
   const selectTemplate = (template: InvoiceTemplate) => {
     setSelectedTemplateId(template.id);
@@ -512,7 +358,7 @@ export function InvoiceTemplatePanel() {
   };
 
   const handleAssetUpload = async (
-    field: 'logoUrl' | 'headerImageUrl' | 'footerImageUrl' | 'letterheadPdfUrl',
+    field: 'logoUrl' | 'headerImageUrl' | 'footerImageUrl' | 'letterheadPdfUrl' | 'stampUrl' | 'signatureUrl',
     file: File | null,
   ) => {
     if (!file) return;
@@ -696,6 +542,30 @@ export function InvoiceTemplatePanel() {
               onClear={() => updateForm('letterheadPdfUrl', '')}
               hint="Use image files for visible preview background."
             />
+            <AssetUploadField
+              label="Stamp"
+              value={form.stampUrl || ''}
+              accept="image/*"
+              onFileSelected={(file) => handleAssetUpload('stampUrl', file)}
+              onClear={() => updateForm('stampUrl', '')}
+              hint="Shown near the signature on the invoice."
+            />
+            <AssetUploadField
+              label="Signature"
+              value={form.signatureUrl || ''}
+              accept="image/*"
+              onFileSelected={(file) => handleAssetUpload('signatureUrl', file)}
+              onClear={() => updateForm('signatureUrl', '')}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label>Signature label</Label>
+            <Input
+              value={form.signatureLabel || ''}
+              onChange={(event) => updateForm('signatureLabel', event.target.value)}
+              placeholder="Authorized signature"
+            />
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -722,6 +592,82 @@ export function InvoiceTemplatePanel() {
                 onChange={(event) => updateForm('footerNote', event.target.value)}
                 rows={4}
               />
+            </div>
+          </div>
+
+          {/* Line-item columns */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-semibold">Line-item columns</Label>
+                <p className="text-xs text-muted-foreground">Show/hide, reorder, rename and add custom columns.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => setColumns(defaultColumns())}>Reset</Button>
+                <Button type="button" size="sm" variant="outline" onClick={addCustomColumn}>
+                  <PlusCircle className="me-1 h-3.5 w-3.5" /> Custom column
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {columns.map((col, index) => (
+                <div key={col.id} className="flex flex-wrap items-center gap-2 rounded border bg-muted/20 p-2">
+                  <div className="flex flex-col">
+                    <button type="button" className="text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={index === 0} onClick={() => moveColumn(index, -1)}><ArrowUp className="h-3.5 w-3.5" /></button>
+                    <button type="button" className="text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={index === columns.length - 1} onClick={() => moveColumn(index, 1)}><ArrowDown className="h-3.5 w-3.5" /></button>
+                  </div>
+                  <Switch checked={col.visible} onCheckedChange={(v) => updateColumn(col.id, { visible: v })} />
+                  <Input className="h-8 w-40" value={col.label} onChange={(e) => updateColumn(col.id, { label: e.target.value })} placeholder="Header" />
+                  <Badge variant="outline" className="text-[10px]">{col.key === 'custom' ? 'custom' : col.key}</Badge>
+                  <Input className="h-8 w-20" type="number" min="5" max="80" value={col.width ?? ''} onChange={(e) => updateColumn(col.id, { width: e.target.value ? Number(e.target.value) : undefined })} placeholder="width%" />
+                  <Select value={col.align ?? 'left'} onValueChange={(v) => updateColumn(col.id, { align: v as InvoiceColumnAlign })}>
+                    <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="left">Left</SelectItem>
+                      <SelectItem value="center">Center</SelectItem>
+                      <SelectItem value="right">Right</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {col.key === 'custom' && (
+                    <Button type="button" size="sm" variant="ghost" className="h-8 px-2 text-muted-foreground hover:text-destructive" onClick={() => removeColumn(col.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Payment / bank accounts */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-semibold">Bank accounts</Label>
+                <p className="text-xs text-muted-foreground">Shown in the payment section of the invoice.</p>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={addBankAccount}>
+                <PlusCircle className="me-1 h-3.5 w-3.5" /> Add account
+              </Button>
+            </div>
+            {bankAccounts.length === 0 && <p className="text-xs text-muted-foreground">No bank accounts added.</p>}
+            <div className="space-y-3">
+              {bankAccounts.map((bank) => (
+                <div key={bank.id} className="rounded border bg-muted/20 p-3 space-y-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input className="h-8" value={bank.bankName ?? ''} onChange={(e) => updateBankAccount(bank.id, { bankName: e.target.value })} placeholder="Bank name" />
+                    <Input className="h-8" value={bank.accountHolder ?? ''} onChange={(e) => updateBankAccount(bank.id, { accountHolder: e.target.value })} placeholder="Account holder" />
+                    <Input className="h-8" value={bank.accountNumber ?? ''} onChange={(e) => updateBankAccount(bank.id, { accountNumber: e.target.value })} placeholder="Account number" />
+                    <Input className="h-8" value={bank.iban ?? ''} onChange={(e) => updateBankAccount(bank.id, { iban: e.target.value })} placeholder="IBAN" />
+                    <Input className="h-8" value={bank.swift ?? ''} onChange={(e) => updateBankAccount(bank.id, { swift: e.target.value })} placeholder="SWIFT / BIC" />
+                    <Input className="h-8" value={bank.currency ?? ''} onChange={(e) => updateBankAccount(bank.id, { currency: e.target.value })} placeholder="Currency (e.g. USD)" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-destructive gap-1" onClick={() => removeBankAccount(bank.id)}>
+                      <Trash2 className="h-3.5 w-3.5" /> Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
