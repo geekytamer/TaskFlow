@@ -71,6 +71,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [manualQuantity, setManualQuantity] = React.useState('1');
   const [manualUnitPrice, setManualUnitPrice] = React.useState('');
   const [manualSku, setManualSku] = React.useState('');
+  const [manualCustom, setManualCustom] = React.useState<Record<string, string>>({});
   const [manualLines, setManualLines] = React.useState<InvoiceLineItem[]>([]);
 
   React.useEffect(() => {
@@ -166,6 +167,18 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     [taskLineItems, manualLines],
   );
 
+  // Custom columns defined on the chosen template; their per-line values are
+  // entered alongside each manual line item.
+  const customColumns = React.useMemo(() => {
+    const tmpl = templates.find((t) => t.id === selectedTemplateId);
+    return (tmpl?.columns ?? []).filter((c) => c.key === 'custom' && c.visible);
+  }, [templates, selectedTemplateId]);
+
+  const updateManualLineCustom = (index: number, colId: string, value: string) => {
+    setManualLines((prev) => prev.map((line, i) =>
+      i === index ? { ...line, custom: { ...(line.custom || {}), [colId]: value } } : line));
+  };
+
   const invoiceTotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
@@ -205,6 +218,11 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     }
 
     const amount = Number((quantity * unitPrice).toFixed(2));
+    const custom: Record<string, string> = {};
+    customColumns.forEach((col) => {
+      const v = manualCustom[col.id]?.trim();
+      if (v) custom[col.id] = v;
+    });
     setManualLines((prev) => [
       ...prev,
       {
@@ -214,12 +232,14 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         quantity,
         unitPrice,
         amount,
+        custom: Object.keys(custom).length ? custom : undefined,
       },
     ]);
     setManualDescription('');
     setManualQuantity('1');
     setManualUnitPrice('');
     setManualSku('');
+    setManualCustom({});
   };
 
   const removeManualLine = (index: number) => {
@@ -460,6 +480,20 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                   />
                 </div>
               </div>
+              {customColumns.length > 0 && (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {customColumns.map((col) => (
+                    <div key={col.id} className="space-y-1">
+                      <Label>{col.label || 'Custom'}</Label>
+                      <Input
+                        placeholder={col.label}
+                        value={manualCustom[col.id] ?? ''}
+                        onChange={(e) => setManualCustom((prev) => ({ ...prev, [col.id]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-end">
                 <Button type="button" variant="outline" onClick={addManualLine}>
                   Add Manual Line
@@ -515,6 +549,9 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                         <TableRow>
                           <TableHead>Manual Item</TableHead>
                           <TableHead>SKU</TableHead>
+                          {customColumns.map((col) => (
+                            <TableHead key={col.id}>{col.label || 'Custom'}</TableHead>
+                          ))}
                           <TableHead className="text-end">Qty</TableHead>
                           <TableHead className="text-end">Unit Price</TableHead>
                           <TableHead className="text-end">Amount</TableHead>
@@ -526,6 +563,16 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                           <TableRow key={`${line.description}-${index}`}>
                             <TableCell>{line.description}</TableCell>
                             <TableCell>{line.sku || '—'}</TableCell>
+                            {customColumns.map((col) => (
+                              <TableCell key={col.id}>
+                                <Input
+                                  className="h-8 w-32"
+                                  value={line.custom?.[col.id] ?? ''}
+                                  placeholder={col.label}
+                                  onChange={(e) => updateManualLineCustom(index, col.id, e.target.value)}
+                                />
+                              </TableCell>
+                            ))}
                             <TableCell className="text-end">{line.quantity}</TableCell>
                             <TableCell className="text-end">{amount(line.unitPrice)}</TableCell>
                             <TableCell className="text-end">{amount(line.amount)}</TableCell>
