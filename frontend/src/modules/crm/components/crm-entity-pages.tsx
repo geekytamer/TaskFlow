@@ -135,7 +135,7 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: 
       </div>
       <div>
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`mt-0.5 text-xl font-bold ${color}`}>{value}</p>
+        <div className={`mt-0.5 text-xl font-bold ${color}`}>{value}</div>
         {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       </div>
     </div>
