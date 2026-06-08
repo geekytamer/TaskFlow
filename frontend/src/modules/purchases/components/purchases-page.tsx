@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
@@ -540,26 +541,13 @@ export function PurchasesPage() {
               </div>
                 <div className="space-y-1">
                   <Label>Supplier</Label>
-                  <Select
+                  <Combobox
+                    options={suppliers.map((c: Contact) => ({ value: c.id, label: c.name }))}
                     value={form.contactId}
-                    onValueChange={(value) => {
-                      setForm((prev) => ({
-                        ...prev,
-                        contactId: value,
-                      }));
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select supplier" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {suppliers.map((c: Contact) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
+                    placeholder="Select supplier"
+                    searchPlaceholder="Select supplier"
+                  />
                 </div>
               <div className="space-y-1">
                 <Label>Order Date</Label>

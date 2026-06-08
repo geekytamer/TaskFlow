@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -59,6 +61,14 @@ import {
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+
+// Entity types that can appear in the activity log (matches the backend union).
+const ADMIN_ENTITY_TYPES = [
+  'contact', 'opportunity', 'proposal', 'campaign', 'campaign_deliverable',
+  'campaign_assignment', 'campaign_expense', 'vendor_request', 'commission',
+  'client', 'project', 'task', 'supplier', 'inventory_item', 'purchase_order',
+  'sales_order', 'delivery', 'invoice', 'vendor_bill', 'whatsapp_message',
+] as const;
 
 function formatBytes(b: number) {
   if (!b) return '0 B';
@@ -466,18 +476,30 @@ export function AdminPage() {
         {/* ── Activity ── */}
         <TabsContent value="activity" className="space-y-3 pt-4">
           <div className="flex flex-wrap gap-2">
-            <Input
-              placeholder={t('admin.activityFilterCompany')}
-              className="max-w-xs"
-              value={activityFilter.companyId ?? ''}
-              onChange={(e) => setActivityFilter((f) => ({ ...f, companyId: e.target.value || undefined }))}
-            />
-            <Input
-              placeholder={t('admin.activityFilterEntity')}
-              className="max-w-xs"
-              value={activityFilter.entityType ?? ''}
-              onChange={(e) => setActivityFilter((f) => ({ ...f, entityType: e.target.value || undefined }))}
-            />
+            <div className="w-56">
+              <Combobox
+                options={adminCompanies.map((c) => ({ value: c.id, label: c.name }))}
+                value={activityFilter.companyId ?? ''}
+                onValueChange={(v) => setActivityFilter((f) => ({ ...f, companyId: v || undefined }))}
+                placeholder={t('admin.activityFilterCompany')}
+                searchPlaceholder={t('admin.activityFilterCompany')}
+                clearLabel={t('admin.activityAllCompanies')}
+              />
+            </div>
+            <Select
+              value={activityFilter.entityType ?? '__all__'}
+              onValueChange={(v) => setActivityFilter((f) => ({ ...f, entityType: v === '__all__' ? undefined : v }))}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder={t('admin.activityFilterEntity')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">{t('admin.activityAllEntities')}</SelectItem>
+                {ADMIN_ENTITY_TYPES.map((e) => (
+                  <SelectItem key={e} value={e}>{e}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" size="sm" onClick={() => reloadActivity()}>
               <Activity className="me-1 h-3.5 w-3.5" />{t('admin.activityApply')}
             </Button>

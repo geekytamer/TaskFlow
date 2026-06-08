@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
@@ -361,14 +362,13 @@ export function SalesPage() {
                 </div>
                 <div className="space-y-1">
                   <Label>{t('sales.client')}</Label>
-                  <Select value={form.contactId} onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}>
-                    <SelectTrigger><SelectValue placeholder={t('sales.selectClient')} /></SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c: Contact) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+                    options={clients.map((c: Contact) => ({ value: c.id, label: c.name }))}
+                    value={form.contactId}
+                    onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
+                    placeholder={t('sales.selectClient')}
+                    searchPlaceholder={t('sales.selectClient')}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label>{t('sales.orderDate')}</Label>

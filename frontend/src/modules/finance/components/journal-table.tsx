@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
@@ -544,47 +545,27 @@ export function JournalTable() {
                   </div>
                   <div className="space-y-1">
                     <Label>{t('journal.debitAccountLabel')}</Label>
-                    <Select
+                    <Combobox
+                      options={accounts
+                        .filter((account) => account.isActive !== false)
+                        .map((account) => ({ value: account.id, label: `${account.code} - ${account.name}`, keywords: account.name }))}
                       value={journalForm.debitAccountId}
-                      onValueChange={(value) =>
-                        setJournalForm((prev) => ({ ...prev, debitAccountId: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('journal.selectAccount')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {accounts
-                          .filter((account) => account.isActive !== false)
-                          .map((account) => (
-                            <SelectItem key={account.id} value={account.id}>
-                              {account.code} - {account.name}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                      onValueChange={(value) => setJournalForm((prev) => ({ ...prev, debitAccountId: value }))}
+                      placeholder={t('journal.selectAccount')}
+                      searchPlaceholder={t('journal.selectAccount')}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label>{t('journal.creditAccountLabel')}</Label>
-                    <Select
+                    <Combobox
+                      options={accounts
+                        .filter((account) => account.isActive !== false)
+                        .map((account) => ({ value: account.id, label: `${account.code} - ${account.name}`, keywords: account.name }))}
                       value={journalForm.creditAccountId}
-                      onValueChange={(value) =>
-                        setJournalForm((prev) => ({ ...prev, creditAccountId: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('journal.selectAccount')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {accounts
-                          .filter((account) => account.isActive !== false)
-                          .map((account) => (
-                            <SelectItem key={account.id} value={account.id}>
-                              {account.code} - {account.name}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                      onValueChange={(value) => setJournalForm((prev) => ({ ...prev, creditAccountId: value }))}
+                      placeholder={t('journal.selectAccount')}
+                      searchPlaceholder={t('journal.selectAccount')}
+                    />
                   </div>
                   <div className="space-y-1 sm:col-span-2">
                     <Label>{t('journal.lineDescriptionLabel')}</Label>

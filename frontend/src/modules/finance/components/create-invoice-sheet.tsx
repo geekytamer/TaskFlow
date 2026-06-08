@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
   TableBody,
@@ -327,18 +328,14 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         </SheetHeader>
         <div className="flex-1 flex flex-col gap-4 py-4 overflow-y-auto">
             <div className="pe-6" data-tutorial="invoice-form-client">
-                <Select onValueChange={setSelectedClient} value={selectedClient} disabled={loading}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select a client..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {clients.map(client => (
-                            <SelectItem key={client.id} value={client.id}>
-                                {client.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <Combobox
+                    options={clients.map((client) => ({ value: client.id, label: client.name }))}
+                    value={selectedClient}
+                    onValueChange={setSelectedClient}
+                    disabled={loading}
+                    placeholder={t('finance.selectClient')}
+                    searchPlaceholder={t('finance.selectClient')}
+                />
             </div>
 
             <div className="pe-6" data-tutorial="invoice-form-sales-order">
