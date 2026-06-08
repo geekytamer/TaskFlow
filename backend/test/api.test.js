@@ -853,6 +853,10 @@ test('partial payment keeps invoice sent and final payment marks it paid', async
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
 
+  // Use a future due date so the invoice is not auto-classified as Overdue.
+  const issueDate = new Date();
+  const dueDate = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
   const invoiceResponse = await request(app)
     .post('/invoices')
     .set('Authorization', `Bearer ${token}`)
@@ -860,8 +864,8 @@ test('partial payment keeps invoice sent and final payment marks it paid', async
       invoiceNumber: 'INV-PAY-1',
       companyId: '1',
       clientId: 'client-1',
-      issueDate: '2026-04-08T00:00:00.000Z',
-      dueDate: '2026-05-18T00:00:00.000Z',
+      issueDate: issueDate.toISOString(),
+      dueDate: dueDate.toISOString(),
       status: 'Sent',
       lineItems: [
         {
@@ -1283,7 +1287,9 @@ test('chart of accounts supports rich custom account CRUD while protecting syste
       isActive: true,
     });
   assert.equal(createResponse.status, 201);
-  assert.equal(createResponse.body.code, '5810');
+  // Next available Expense code after the seeded defaults (…, 5700 Marketing,
+  // 5900 Commission Expense) is 5910.
+  assert.equal(createResponse.body.code, '5910');
   assert.equal(createResponse.body.detailType, 'Staff development');
   const accountId = createResponse.body.id;
 
@@ -1297,7 +1303,8 @@ test('chart of accounts supports rich custom account CRUD while protecting syste
       isActive: false,
     });
   assert.equal(updateResponse.status, 200);
-  assert.equal(updateResponse.body.code, '5810');
+  // Code is immutable — the attempted change to 9999 is ignored.
+  assert.equal(updateResponse.body.code, '5910');
   assert.equal(updateResponse.body.name, 'Learning and Training Expense');
   assert.equal(updateResponse.body.isActive, false);
 
