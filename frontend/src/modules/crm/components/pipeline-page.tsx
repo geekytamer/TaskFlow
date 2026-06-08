@@ -123,7 +123,7 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: 
       </div>
       <div>
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`mt-0.5 text-xl font-bold leading-none ${color}`}>{value}</p>
+        <div className={`mt-0.5 text-xl font-bold leading-none ${color}`}>{value}</div>
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
       </div>
     </div>
@@ -344,7 +344,7 @@ export function PipelinePage() {
             ].map(({ label, value }) => (
               <div key={label} className="rounded-lg bg-muted/40 p-3">
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-1 text-lg font-bold">{loading ? <Skeleton className="h-5 w-8" /> : value}</p>
+                <div className="mt-1 text-lg font-bold">{loading ? <Skeleton className="h-5 w-8" /> : value}</div>
               </div>
             ))}
           </div>
