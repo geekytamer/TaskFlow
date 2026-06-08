@@ -192,6 +192,8 @@ export interface InvoiceTemplate {
   showTaxId: boolean;
   columns?: InvoiceColumn[];
   bankAccounts?: InvoiceBankAccount[];
+  qrEnabled?: boolean;
+  qrPosition?: 'left' | 'center' | 'right';
   createdAt: Date;
   updatedAt: Date;
 }

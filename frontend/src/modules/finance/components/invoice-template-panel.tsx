@@ -66,6 +66,8 @@ const emptyForm: InvoiceTemplateInput = {
   showTaxId: true,
   columns: undefined,
   bankAccounts: undefined,
+  qrEnabled: true,
+  qrPosition: 'center',
 };
 
 const layoutLabels: Record<InvoiceTemplateLayout, string> = {
@@ -90,6 +92,8 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   signatureLabel: template.signatureLabel || '',
   columns: template.columns,
   bankAccounts: template.bankAccounts,
+  qrEnabled: template.qrEnabled !== false,
+  qrPosition: template.qrPosition || 'center',
   paymentInstructions: template.paymentInstructions || '',
   terms: template.terms || '',
   footerNote: template.footerNote || '',
@@ -112,6 +116,8 @@ const cleanForm = (form: InvoiceTemplateInput): InvoiceTemplateInput => ({
   signatureLabel: form.signatureLabel?.trim() || undefined,
   columns: form.columns && form.columns.length > 0 ? form.columns : undefined,
   bankAccounts: form.bankAccounts && form.bankAccounts.length > 0 ? form.bankAccounts : undefined,
+  qrEnabled: form.qrEnabled !== false,
+  qrPosition: form.qrPosition || 'center',
   paymentInstructions: form.paymentInstructions?.trim() || undefined,
   terms: form.terms?.trim() || undefined,
   footerNote: form.footerNote?.trim() || undefined,
@@ -669,6 +675,30 @@ export function InvoiceTemplatePanel() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* QR code */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label className="text-sm font-semibold">QR code</Label>
+                <p className="text-xs text-muted-foreground">A scannable code linking to a public, downloadable copy of the invoice.</p>
+              </div>
+              <Switch checked={form.qrEnabled !== false} onCheckedChange={(v) => updateForm('qrEnabled', v)} />
+            </div>
+            {form.qrEnabled !== false && (
+              <div className="space-y-1 max-w-[200px]">
+                <Label className="text-xs">Footer position</Label>
+                <Select value={form.qrPosition || 'center'} onValueChange={(v) => updateForm('qrPosition', v as 'left' | 'center' | 'right')}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="left">Left</SelectItem>
+                    <SelectItem value="center">Center</SelectItem>
+                    <SelectItem value="right">Right</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-6">

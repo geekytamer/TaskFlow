@@ -1,9 +1,11 @@
 'use client';
 
 import { format } from 'date-fns';
+import { QRCodeSVG } from 'qrcode.react';
 import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice, InvoiceTemplate, InvoiceColumn, InvoiceLineItem } from '../types';
 import { CurrencyAmount } from '@/lib/currency';
+import { publicInvoiceUrl } from '@/services/publicService';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -408,7 +410,24 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
           </div>
         )}
 
-        <div className="mt-10 border-t pt-4 text-center text-xs text-slate-500">
+        {(template?.qrEnabled ?? true) && (
+          <div
+            className={`mt-8 flex ${
+              (template?.qrPosition ?? 'center') === 'center'
+                ? 'justify-center'
+                : (template?.qrPosition ?? 'center') === 'right'
+                  ? 'justify-end'
+                  : 'justify-start'
+            }`}
+          >
+            <div className="text-center">
+              <QRCodeSVG value={publicInvoiceUrl(invoice.id)} size={92} level="M" />
+              <div className="mt-1 text-[10px] text-slate-400">Scan to view &amp; download</div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 border-t pt-4 text-center text-xs text-slate-500">
           {activeTemplate.footerNote || 'Footer note appears here.'}
         </div>
       </div>

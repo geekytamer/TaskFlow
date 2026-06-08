@@ -956,6 +956,11 @@ export function createServer(options: CreateServerOptions = {}) {
       signatureLabel: record.signatureLabel !== undefined ? optionalString(record.signatureLabel) : undefined,
       columns: record.columns !== undefined ? parseInvoiceColumns(record.columns) : undefined,
       bankAccounts: record.bankAccounts !== undefined ? parseBankAccounts(record.bankAccounts) : undefined,
+      qrEnabled: record.qrEnabled !== undefined ? optionalBoolean(record.qrEnabled) : undefined,
+      qrPosition:
+        record.qrPosition !== undefined
+          ? enumValue(record.qrPosition, 'qrPosition', ['left', 'center', 'right'] as const)
+          : undefined,
       paymentInstructions:
         record.paymentInstructions !== undefined ? optionalString(record.paymentInstructions) : undefined,
       terms: record.terms !== undefined ? optionalString(record.terms) : undefined,
@@ -987,6 +992,36 @@ export function createServer(options: CreateServerOptions = {}) {
         seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
         allowSeedReset,
         migrations: store.getAppliedMigrationIds(),
+      });
+    }),
+  );
+
+  // Public, unauthenticated read-only view of an invoice (the QR code target).
+  // Invoice ids are random UUIDs, so they're not enumerable.
+  app.get(
+    '/public/invoices/:id',
+    handler((req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      const companyRecord = store.getCompanyById(invoice.companyId);
+      const templates = store.listInvoiceTemplates(invoice.companyId);
+      const template =
+        (invoice.templateId ? store.getInvoiceTemplateById(invoice.templateId) : undefined) ||
+        templates.find((t) => t.isDefault) ||
+        templates[0] ||
+        undefined;
+      const client =
+        (invoice.clientId ? store.getClientById(invoice.clientId) : undefined) ||
+        (invoice.contactId ? store.getClientById(invoice.contactId) : undefined);
+      res.json({
+        invoice,
+        template,
+        company: companyRecord
+          ? { id: companyRecord.id, name: companyRecord.name, address: companyRecord.address, logoUrl: companyRecord.logoUrl }
+          : undefined,
+        client: client
+          ? { id: client.id, name: client.name, address: client.address, email: client.email }
+          : undefined,
       });
     }),
   );
@@ -1299,6 +1334,8 @@ export function createServer(options: CreateServerOptions = {}) {
             signatureLabel: payload.signatureLabel,
             columns: payload.columns,
             bankAccounts: payload.bankAccounts,
+            qrEnabled: payload.qrEnabled ?? true,
+            qrPosition: payload.qrPosition ?? 'center',
             paymentInstructions: payload.paymentInstructions,
             terms: payload.terms,
             footerNote: payload.footerNote,

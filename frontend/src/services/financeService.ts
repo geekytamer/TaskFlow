@@ -136,6 +136,8 @@ const mapDelivery = (delivery: any): import('@/modules/finance/types').Delivery 
 const mapInvoiceTemplate = (template: any): InvoiceTemplate => ({
   ...template,
   isDefault: Boolean(template.isDefault),
+  qrEnabled: template.qrEnabled === undefined ? true : Boolean(template.qrEnabled),
+  qrPosition: (['left', 'center', 'right'].includes(template.qrPosition) ? template.qrPosition : 'center'),
   watermarkEnabled: template.watermarkEnabled === true,
   watermarkText: template.watermarkText || 'DRAFT',
   watermarkOpacity: Number.isFinite(Number(template.watermarkOpacity))

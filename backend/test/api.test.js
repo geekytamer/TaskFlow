@@ -105,6 +105,33 @@ test('a super-admin (role Employee) can edit and delete users', async () => {
   assert.equal(secondDelete.status, 404);
 });
 
+test('a public invoice view is available without authentication', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const created = await request(app)
+    .post('/invoices')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      invoiceNumber: 'INV-PUB-1',
+      companyId: '1',
+      clientId: 'client-1',
+      issueDate: '2026-04-08T00:00:00.000Z',
+      dueDate: '2026-05-18T00:00:00.000Z',
+      status: 'Sent',
+      lineItems: [{ description: 'Public item', quantity: 1, unitPrice: 100, amount: 100, itemType: 'Manual' }],
+    });
+  assert.equal(created.status, 201);
+
+  // No Authorization header — the QR target is publicly readable.
+  const pub = await request(app).get(`/public/invoices/${created.body.id}`);
+  assert.equal(pub.status, 200);
+  assert.equal(pub.body.invoice.invoiceNumber, 'INV-PUB-1');
+  assert.ok(pub.body.company && pub.body.company.name);
+
+  const missing = await request(app).get('/public/invoices/does-not-exist');
+  assert.equal(missing.status, 404);
+});
+
 test('an invoice payment can be recorded and reversed', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
@@ -192,6 +219,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '038_influencer_accounts',
     '039_company_logo_and_avatar_cleanup',
     '040_invoice_template_customization',
+    '041_invoice_template_qr',
   ]);
 });
 

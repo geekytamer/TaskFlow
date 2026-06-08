@@ -2160,6 +2160,18 @@ export class DataStore {
           add('bankAccounts');
         },
       },
+      {
+        id: '041_invoice_template_qr',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info('invoice_templates')`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('qrEnabled')) {
+            this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN qrEnabled INTEGER NOT NULL DEFAULT 1;`);
+          }
+          if (!cols.includes('qrPosition')) {
+            this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN qrPosition TEXT NOT NULL DEFAULT 'center';`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6342,6 +6354,8 @@ export class DataStore {
       showTaxId: row.showTaxId === undefined ? true : Boolean(row.showTaxId),
       columns: row.invoiceColumns ? this.parseJson<InvoiceColumn[]>(row.invoiceColumns) ?? undefined : undefined,
       bankAccounts: row.bankAccounts ? this.parseJson<InvoiceBankAccount[]>(row.bankAccounts) ?? undefined : undefined,
+      qrEnabled: row.qrEnabled === undefined ? true : Boolean(row.qrEnabled),
+      qrPosition: (['left', 'center', 'right'].includes(row.qrPosition) ? row.qrPosition : 'center') as InvoiceTemplate['qrPosition'],
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -6390,13 +6404,13 @@ export class DataStore {
           `INSERT INTO invoice_templates (
             id, companyId, name, layout, isDefault, primaryColor, accentColor,
             logoUrl, headerImageUrl, footerImageUrl, letterheadPdfUrl,
-            stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts,
+            stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts, qrEnabled, qrPosition,
             paymentInstructions, terms, footerNote, watermarkEnabled, watermarkText, watermarkOpacity, showCompanyAddress, showTaxId,
             createdAt, updatedAt
           ) VALUES (
             @id, @companyId, @name, @layout, @isDefault, @primaryColor, @accentColor,
             @logoUrl, @headerImageUrl, @footerImageUrl, @letterheadPdfUrl,
-            @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts,
+            @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts, @qrEnabled, @qrPosition,
             @paymentInstructions, @terms, @footerNote, @watermarkEnabled, @watermarkText, @watermarkOpacity, @showCompanyAddress, @showTaxId,
             @createdAt, @updatedAt
           )`,
@@ -6413,6 +6427,8 @@ export class DataStore {
           signatureLabel: newTemplate.signatureLabel ?? null,
           invoiceColumns: newTemplate.columns ? JSON.stringify(newTemplate.columns) : null,
           bankAccounts: newTemplate.bankAccounts ? JSON.stringify(newTemplate.bankAccounts) : null,
+          qrEnabled: newTemplate.qrEnabled === false ? 0 : 1,
+          qrPosition: newTemplate.qrPosition ?? 'center',
           paymentInstructions: newTemplate.paymentInstructions ?? null,
           terms: newTemplate.terms ?? null,
           footerNote: newTemplate.footerNote ?? null,
@@ -6466,7 +6482,7 @@ export class DataStore {
             accentColor=@accentColor, logoUrl=@logoUrl, headerImageUrl=@headerImageUrl,
             footerImageUrl=@footerImageUrl, letterheadPdfUrl=@letterheadPdfUrl,
             stampUrl=@stampUrl, signatureUrl=@signatureUrl, signatureLabel=@signatureLabel,
-            invoiceColumns=@invoiceColumns, bankAccounts=@bankAccounts,
+            invoiceColumns=@invoiceColumns, bankAccounts=@bankAccounts, qrEnabled=@qrEnabled, qrPosition=@qrPosition,
             paymentInstructions=@paymentInstructions, terms=@terms, footerNote=@footerNote, watermarkEnabled=@watermarkEnabled,
             watermarkText=@watermarkText, watermarkOpacity=@watermarkOpacity,
             showCompanyAddress=@showCompanyAddress, showTaxId=@showTaxId, updatedAt=@updatedAt
@@ -6485,6 +6501,8 @@ export class DataStore {
           signatureLabel: merged.signatureLabel ?? null,
           invoiceColumns: merged.columns ? JSON.stringify(merged.columns) : null,
           bankAccounts: merged.bankAccounts ? JSON.stringify(merged.bankAccounts) : null,
+          qrEnabled: merged.qrEnabled === false ? 0 : 1,
+          qrPosition: merged.qrPosition ?? 'center',
           paymentInstructions: merged.paymentInstructions ?? null,
           terms: merged.terms ?? null,
           footerNote: merged.footerNote ?? null,
