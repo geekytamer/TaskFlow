@@ -22,6 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CreatableCombobox } from '@/components/ui/creatable-combobox';
+import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
@@ -123,6 +125,15 @@ export function InventoryPage() {
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [movements, setMovements] = React.useState<StockMovement[]>([]);
   const [balances, setBalances] = React.useState<InventoryLocationBalance[]>([]);
+
+  const categoryOptions = React.useMemo(
+    () => Array.from(new Set(items.map((i) => i.category).filter(Boolean))) as string[],
+    [items],
+  );
+  const locationOptions = React.useMemo(
+    () => Array.from(new Set(balances.map((b) => b.location).filter(Boolean))) as string[],
+    [balances],
+  );
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [openCreate, setOpenCreate] = React.useState(false);
@@ -588,12 +599,13 @@ export function InventoryPage() {
               </div>
               <div className="space-y-1">
                 <Label>{tr('Category', 'الفئة')}</Label>
-                <Input
+                <CreatableCombobox
+                  options={categoryOptions}
                   value={form.category}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, category: event.target.value }))
-                  }
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, category: value }))}
                   placeholder={tr('Category', 'الفئة')}
+                  searchPlaceholder={tr('Search or add category…', 'ابحث أو أضف فئة…')}
+                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
                 />
               </div>
               <div className="space-y-1">
@@ -689,30 +701,27 @@ export function InventoryPage() {
               </div>
               <div className="space-y-1">
                 <Label>{tr('Preferred Supplier', 'المورد المفضل')}</Label>
-                <Select
+                <Combobox
+                  options={suppliers.map((supplier) => ({
+                    value: supplier.id,
+                    label: `${supplier.reference} - ${supplier.name}`,
+                    keywords: supplier.name,
+                  }))}
                   value={form.preferredSupplierId}
                   onValueChange={(value) => setForm((prev) => ({ ...prev, preferredSupplierId: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={tr('Select supplier', 'اختر المورد')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suppliers.map((supplier) => (
-                      <SelectItem key={supplier.id} value={supplier.id}>
-                        {supplier.reference} - {supplier.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder={tr('Select supplier', 'اختر المورد')}
+                  searchPlaceholder={tr('Select supplier', 'اختر المورد')}
+                />
               </div>
               <div className="space-y-1">
                 <Label>{tr('Location', 'الموقع')}</Label>
-                <Input
+                <CreatableCombobox
+                  options={locationOptions}
                   value={form.location}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, location: event.target.value }))
-                  }
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, location: value }))}
                   placeholder={tr('Warehouse A', 'المستودع أ')}
+                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
+                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
                 />
               </div>
             </div>
@@ -839,12 +848,13 @@ export function InventoryPage() {
                             <div className="space-y-3 py-2">
                               <div className="space-y-1">
                                 <Label>{tr('Location', 'الموقع')}</Label>
-                                <Input
+                                <CreatableCombobox
+                                  options={locationOptions}
                                   value={adjustment.location}
-                                  onChange={(event) =>
-                                    setAdjustment((prev) => ({ ...prev, location: event.target.value }))
-                                  }
+                                  onValueChange={(value) => setAdjustment((prev) => ({ ...prev, location: value }))}
                                   placeholder={tr('Warehouse A', 'المستودع أ')}
+                                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
+                                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
                                 />
                               </div>
                               <div className="space-y-1">
@@ -1036,21 +1046,24 @@ export function InventoryPage() {
                             <div className="grid gap-3 py-2 sm:grid-cols-2">
                               <div className="space-y-1">
                                 <Label>{tr('From Location', 'من موقع')}</Label>
-                                <Input
+                                <CreatableCombobox
+                                  options={locationOptions}
                                   value={transfer.fromLocation}
-                                  onChange={(event) =>
-                                    setTransfer((prev) => ({ ...prev, fromLocation: event.target.value }))
-                                  }
+                                  onValueChange={(value) => setTransfer((prev) => ({ ...prev, fromLocation: value }))}
+                                  placeholder={tr('Warehouse A', 'المستودع أ')}
+                                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
+                                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
                                 />
                               </div>
                               <div className="space-y-1">
                                 <Label>{tr('To Location', 'إلى موقع')}</Label>
-                                <Input
+                                <CreatableCombobox
+                                  options={locationOptions}
                                   value={transfer.toLocation}
-                                  onChange={(event) =>
-                                    setTransfer((prev) => ({ ...prev, toLocation: event.target.value }))
-                                  }
+                                  onValueChange={(value) => setTransfer((prev) => ({ ...prev, toLocation: value }))}
                                   placeholder={tr('Warehouse B', 'المستودع ب')}
+                                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
+                                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
                                 />
                               </div>
                               <div className="space-y-1">
