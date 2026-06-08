@@ -47,6 +47,8 @@ interface AddPositionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPositionAdded: () => void;
+  /** When set, the position is locked to this company (company select hidden). */
+  companyId?: string;
 }
 
 export function AddPositionDialog({
@@ -54,6 +56,7 @@ export function AddPositionDialog({
   open,
   onOpenChange,
   onPositionAdded,
+  companyId,
 }: AddPositionDialogProps) {
   const { toast } = useToast();
   const { t } = useI18n();
@@ -63,8 +66,13 @@ export function AddPositionDialog({
     resolver: zodResolver(addPositionSchema),
     defaultValues: {
       title: '',
+      companyId: companyId,
     },
   });
+
+  React.useEffect(() => {
+    if (companyId) form.setValue('companyId', companyId);
+  }, [companyId, form, open]);
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
@@ -116,30 +124,32 @@ export function AddPositionDialog({
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="companyId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('companiesPage.companyLabel')}</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('companiesPage.selectCompanyPH')} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {companies.map((company) => (
-                          <SelectItem key={company.id} value={company.id}>
-                            {company.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!companyId && (
+              <FormField
+                control={form.control}
+                name="companyId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('companiesPage.companyLabel')}</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('companiesPage.selectCompanyPH')} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {companies.map((company) => (
+                            <SelectItem key={company.id} value={company.id}>
+                              {company.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
              <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                     {t('common.cancel')}

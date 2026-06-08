@@ -714,8 +714,26 @@ export interface Contact {
   location?: string;
   languages?: string[];
   availabilityStatus?: string;
+  // Per-platform social accounts for an influencer contact.
+  influencerAccounts?: InfluencerAccount[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type InfluencerPlatform = 'Instagram' | 'TikTok' | 'Snapchat' | 'Facebook' | 'YouTube' | 'X' | 'Other';
+export const influencerPlatforms: InfluencerPlatform[] = ['Instagram', 'TikTok', 'Snapchat', 'Facebook', 'YouTube', 'X', 'Other'];
+
+export interface InfluencerAccount {
+  id: string;
+  platform: InfluencerPlatform;
+  handle?: string;
+  url?: string;
+  followers?: number;
+  avgViews?: number;
+  engagementRate?: number;
+  /** Manual estimate of average reach/impressions, set by the employee. */
+  estimatedAvg?: number;
+  notes?: string;
 }
 
 export interface ContactRole {

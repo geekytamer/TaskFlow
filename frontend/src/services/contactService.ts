@@ -3,6 +3,22 @@ import { apiFetch } from '@/lib/api-client';
 export type ContactKind = 'Organization' | 'Person';
 export type ContactRoleType = 'Lead' | 'Client' | 'Vendor' | 'Influencer' | 'Partner';
 
+export type InfluencerPlatform = 'Instagram' | 'TikTok' | 'Snapchat' | 'Facebook' | 'YouTube' | 'X' | 'Other';
+export const influencerPlatforms: InfluencerPlatform[] = ['Instagram', 'TikTok', 'Snapchat', 'Facebook', 'YouTube', 'X', 'Other'];
+
+export interface InfluencerAccount {
+  id: string;
+  platform: InfluencerPlatform;
+  handle?: string;
+  url?: string;
+  followers?: number;
+  avgViews?: number;
+  engagementRate?: number;
+  /** Manual estimate of average reach/impressions, set by the employee. */
+  estimatedAvg?: number;
+  notes?: string;
+}
+
 export interface Contact {
   id: string;
   companyId: string;
@@ -28,6 +44,7 @@ export interface Contact {
   location?: string;
   languages?: string[];
   availabilityStatus?: string;
+  influencerAccounts?: InfluencerAccount[];
   // CRM fields
   leadStatus?: 'New' | 'Qualified' | 'Follow-up' | 'Proposal' | 'Won' | 'Lost' | 'Archived';
   leadSource?: 'Instagram' | 'TikTok' | 'WhatsApp' | 'Referral' | 'Website' | 'Campaign' | 'Former Client' | 'Other';
@@ -121,6 +138,7 @@ export async function createContact(input: {
 	  location?: string;
 	  languages?: string[];
 	  availabilityStatus?: string;
+	  influencerAccounts?: InfluencerAccount[];
 	}): Promise<Contact> {
 	  const data = await apiFetch<any>(`/companies/${input.companyId}/contacts`, {
 	    method: 'POST',

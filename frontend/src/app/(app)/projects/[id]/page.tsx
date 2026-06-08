@@ -300,7 +300,7 @@ export default function ProjectDetailsPage() {
               </SheetContent>
             </Sheet>
           )}
-          <CreateTaskSheet />
+          <CreateTaskSheet lockedProjectId={project.id} />
         </div>
       </div>
 

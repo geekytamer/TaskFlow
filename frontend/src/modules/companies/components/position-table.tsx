@@ -35,7 +35,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/i18n-context';
 
-export function PositionTable() {
+export function PositionTable({ companyId }: { companyId?: string } = {}) {
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -50,10 +50,11 @@ export function PositionTable() {
         getPositions(),
         getCompanies(),
     ]);
-    setPositions(positionsData);
+    // When scoped to a company, only show that company's positions.
+    setPositions(companyId ? positionsData.filter((p) => p.companyId === companyId) : positionsData);
     setCompanies(companiesData);
     setLoading(false);
-  }, []);
+  }, [companyId]);
 
   React.useEffect(() => {
     fetchData();
@@ -115,6 +116,7 @@ export function PositionTable() {
               open={isAddDialogOpen}
               onOpenChange={setIsAddDialogOpen}
               onPositionAdded={onPositionAdded}
+              companyId={companyId}
             >
               <Button>
                   <PlusCircle className="me-2 h-4 w-4" />

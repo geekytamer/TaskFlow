@@ -1,8 +1,11 @@
 import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
+import { randomUUID } from 'node:crypto';
 import { DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail } from './email';
 import {
+  influencerPlatforms,
+  type InfluencerAccount,
   type CompanyRoleAssignment,
   type Invoice,
   type InvoiceTemplate,
@@ -62,6 +65,25 @@ import {
 } from './validation';
 
 type AuthedRequest = Request & { user?: SanitizedUser };
+
+// Sanitizes the influencer social accounts array from a request body.
+function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+    .map((a) => ({
+      id: typeof a.id === 'string' && a.id ? a.id : randomUUID(),
+      platform: enumValue(a.platform, 'platform', influencerPlatforms),
+      handle: optionalString(a.handle),
+      url: optionalString(a.url),
+      followers: optionalNumber(a.followers),
+      avgViews: optionalNumber(a.avgViews),
+      engagementRate: optionalNumber(a.engagementRate),
+      estimatedAvg: optionalNumber(a.estimatedAvg),
+      notes: optionalString(a.notes),
+    }));
+}
 
 export interface CreateServerOptions extends DataStoreOptions {
   allowSeedReset?: boolean;
@@ -1785,6 +1807,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        location: optionalString(body.location),
 	        languages: Array.isArray(body.languages) ? body.languages.map((item, index) => requiredString(item, `languages[${index}]`)) : undefined,
 	        availabilityStatus: optionalString(body.availabilityStatus),
+	        influencerAccounts: parseInfluencerAccounts(body.influencerAccounts),
 	      });
       res.status(201).json(contact);
     }),
@@ -1831,6 +1854,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          ? requiredArray(body.languages, 'languages').map((item, index) => requiredString(item, `languages[${index}]`))
 	          : undefined,
 	        availabilityStatus: body.availabilityStatus !== undefined ? optionalString(body.availabilityStatus) : undefined,
+	        influencerAccounts: body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined,
 	      });
       res.json(contact);
     }),

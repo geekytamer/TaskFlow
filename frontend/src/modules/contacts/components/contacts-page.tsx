@@ -45,9 +45,16 @@ import {
   getContacts,
   updateContact,
   deleteContact,
+  influencerPlatforms,
   type Contact,
   type ContactRoleType,
+  type InfluencerAccount,
 } from '@/services/contactService';
+
+const makeId = () =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? crypto.randomUUID()
+    : `acct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 import {
   patchContactCrm,
   getContactActivities,
@@ -236,6 +243,11 @@ export function ContactsPage() {
     followerCount: '', engagementRate: '', rateCardAmount: '', location: '', availabilityStatus: '',
     visibility: 'Public' as 'Public' | 'Private',
   });
+  const [accounts, setAccounts] = React.useState<InfluencerAccount[]>([]);
+  const addAccount = () => setAccounts(prev => [...prev, { id: makeId(), platform: 'Instagram' }]);
+  const updateAccount = (id: string, patch: Partial<InfluencerAccount>) =>
+    setAccounts(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+  const removeAccount = (id: string) => setAccounts(prev => prev.filter(a => a.id !== id));
 
   React.useEffect(() => {
     let cancelled = false;
@@ -272,6 +284,7 @@ export function ContactsPage() {
       location: c.location ?? '',
       availabilityStatus: c.availabilityStatus ?? '',
     });
+    setAccounts(c.influencerAccounts ?? []);
     setCrmLoading(true);
     try {
       const activities = await getContactActivities(c.id, 30);
@@ -309,6 +322,7 @@ export function ContactsPage() {
         rateCardAmount: crmForm.rateCardAmount ? Number(crmForm.rateCardAmount) : undefined,
         location: crmForm.location || undefined,
         availabilityStatus: crmForm.availabilityStatus || undefined,
+        influencerAccounts: accounts,
       } : {};
       const updated = await updateContact(crmContact.id, influencerUpdate);
       setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
@@ -724,6 +738,72 @@ export function ContactsPage() {
                         onChange={e => setCrmForm(f => ({ ...f, location: e.target.value }))}
                         placeholder="City, Country" />
                     </div>
+                  </div>
+
+                  {/* Per-platform social accounts */}
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('crm.accountsTitle')}</p>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={addAccount}>
+                        <Plus className="h-3 w-3" /> {t('crm.addAccount')}
+                      </Button>
+                    </div>
+                    {accounts.length === 0 && (
+                      <p className="text-xs text-muted-foreground">{t('crm.noAccounts')}</p>
+                    )}
+                    {accounts.map((acc) => (
+                      <div key={acc.id} className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">{t('crm.platform')}</Label>
+                            <Select value={acc.platform} onValueChange={(v) => updateAccount(acc.id, { platform: v as InfluencerAccount['platform'] })}>
+                              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {influencerPlatforms.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">{t('crm.handle')}</Label>
+                            <Input className="h-8 text-sm" value={acc.handle ?? ''} placeholder="@username"
+                              onChange={(e) => updateAccount(acc.id, { handle: e.target.value })} />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground">{t('crm.accountUrl')}</Label>
+                          <Input className="h-8 text-sm" value={acc.url ?? ''} placeholder="https://…"
+                            onChange={(e) => updateAccount(acc.id, { url: e.target.value })} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">{t('crm.followers')}</Label>
+                            <Input type="number" className="h-8 text-sm" value={acc.followers ?? ''} placeholder="0"
+                              onChange={(e) => updateAccount(acc.id, { followers: e.target.value ? Number(e.target.value) : undefined })} />
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">{t('crm.avgViews')}</Label>
+                            <Input type="number" className="h-8 text-sm" value={acc.avgViews ?? ''} placeholder="0"
+                              onChange={(e) => updateAccount(acc.id, { avgViews: e.target.value ? Number(e.target.value) : undefined })} />
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">{t('crm.engagementRate')} (%)</Label>
+                            <Input type="number" step="0.1" className="h-8 text-sm" value={acc.engagementRate ?? ''} placeholder="0.0"
+                              onChange={(e) => updateAccount(acc.id, { engagementRate: e.target.value ? Number(e.target.value) : undefined })} />
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">{t('crm.estimatedAvg')}</Label>
+                            <Input type="number" className="h-8 text-sm" value={acc.estimatedAvg ?? ''} placeholder="0"
+                              onChange={(e) => updateAccount(acc.id, { estimatedAvg: e.target.value ? Number(e.target.value) : undefined })} />
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button type="button" size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-destructive gap-1"
+                            onClick={() => removeAccount(acc.id)}>
+                            <Trash2 className="h-3 w-3" /> {t('common.delete')}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

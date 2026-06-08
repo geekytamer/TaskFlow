@@ -189,6 +189,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '035_commissions_v2_engine',
     '036_user_super_admin',
     '037_campaign_deliverable_fulfillment',
+    '038_influencer_accounts',
   ]);
 });
 
