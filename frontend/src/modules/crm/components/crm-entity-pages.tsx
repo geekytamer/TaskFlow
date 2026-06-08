@@ -17,6 +17,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Combobox } from '@/components/ui/combobox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
@@ -177,6 +178,9 @@ function useCrmBaseData() {
 
   return { selectedCompany, loading, contacts, opportunities, contactName, loadBase };
 }
+
+// Social platforms used by campaign deliverables and vendor/influencer requests.
+const CAMPAIGN_PLATFORMS = ['Instagram', 'TikTok', 'YouTube', 'LinkedIn', 'Snapchat', 'Twitter/X', 'Facebook', 'Other'] as const;
 
 // ─── Proposals Page ──────────────────────────────────────────────────────────
 
@@ -885,17 +889,25 @@ export function CampaignsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>{t('campaignsPage.fieldClient')}</Label>
-                <Select value={campaignForm.contactId} onValueChange={(v) => setCampaignForm((p) => ({ ...p, contactId: v }))}>
-                  <SelectTrigger><SelectValue placeholder={t('campaignsPage.selectPlaceholder')} /></SelectTrigger>
-                  <SelectContent>{contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                </Select>
+                <Combobox
+                  options={contacts.map((c) => ({ value: c.id, label: c.name }))}
+                  value={campaignForm.contactId}
+                  onValueChange={(v) => setCampaignForm((p) => ({ ...p, contactId: v }))}
+                  placeholder={t('campaignsPage.selectPlaceholder')}
+                  searchPlaceholder={t('campaignsPage.selectPlaceholder')}
+                  clearLabel="—"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>{t('campaignsPage.fieldOpportunity')}</Label>
-                <Select value={campaignForm.opportunityId} onValueChange={(v) => setCampaignForm((p) => ({ ...p, opportunityId: v }))}>
-                  <SelectTrigger><SelectValue placeholder={t('campaignsPage.selectPlaceholder')} /></SelectTrigger>
-                  <SelectContent>{opportunities.map((o) => <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>)}</SelectContent>
-                </Select>
+                <Combobox
+                  options={opportunities.map((o) => ({ value: o.id, label: o.title }))}
+                  value={campaignForm.opportunityId}
+                  onValueChange={(v) => setCampaignForm((p) => ({ ...p, opportunityId: v }))}
+                  placeholder={t('campaignsPage.selectPlaceholder')}
+                  searchPlaceholder={t('campaignsPage.selectPlaceholder')}
+                  clearLabel="—"
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -935,7 +947,13 @@ export function CampaignsPage() {
               <Label>{t('campaignsPage.fieldName')} <span className="text-destructive">*</span></Label>
               <Input placeholder={t('campaignsPage.deliverableTitlePh')} value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
             </div>
-            <Input placeholder={t('campaignsPage.deliverablePlatformPh')} value={deliverableForm.platform} onChange={(e) => setDeliverableForm((p) => ({ ...p, platform: e.target.value }))} />
+            <Select value={deliverableForm.platform || '__none__'} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, platform: v === '__none__' ? '' : v }))}>
+              <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverablePlatformPh')} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">—</SelectItem>
+                {CAMPAIGN_PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Input type="date" value={deliverableForm.dueDate} onChange={(e) => setDeliverableForm((p) => ({ ...p, dueDate: e.target.value }))} />
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -960,12 +978,13 @@ export function CampaignsPage() {
             {deliverableForm.fulfillment === 'External' && (
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{t('campaignsPage.deliverableVendorPh')}</Label>
-                <Select value={deliverableForm.vendorContactId} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, vendorContactId: v }))}>
-                  <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverableVendorPh')} /></SelectTrigger>
-                  <SelectContent>
-                    {contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <Combobox
+                  options={contacts.map((c) => ({ value: c.id, label: c.name }))}
+                  value={deliverableForm.vendorContactId}
+                  onValueChange={(v) => setDeliverableForm((p) => ({ ...p, vendorContactId: v }))}
+                  placeholder={t('campaignsPage.deliverableVendorPh')}
+                  searchPlaceholder={t('campaignsPage.deliverableVendorPh')}
+                />
               </div>
             )}
           </div>
@@ -1014,10 +1033,13 @@ export function CampaignsPage() {
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
               <Label>{t('campaignsPage.selectContact')} <span className="text-destructive">*</span></Label>
-              <Select value={assignmentForm.contactId} onValueChange={(v) => setAssignmentForm((p) => ({ ...p, contactId: v }))}>
-                <SelectTrigger><SelectValue placeholder={t('campaignsPage.selectContact')} /></SelectTrigger>
-                <SelectContent>{contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
+              <Combobox
+                options={contacts.map((c) => ({ value: c.id, label: c.name }))}
+                value={assignmentForm.contactId}
+                onValueChange={(v) => setAssignmentForm((p) => ({ ...p, contactId: v }))}
+                placeholder={t('campaignsPage.selectContact')}
+                searchPlaceholder={t('campaignsPage.selectContact')}
+              />
             </div>
             <Select value={assignmentForm.role} onValueChange={(v: ContactRoleType) => setAssignmentForm((p) => ({ ...p, role: v }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1277,7 +1299,13 @@ export function VendorRequestsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>{t('vendorRequestsPage.fieldPlatform')}</Label>
-                <Input placeholder={t('vendorRequestsPage.fieldPlatformPh')} value={form.platform} onChange={(e) => setForm((p) => ({ ...p, platform: e.target.value }))} />
+                <Select value={form.platform || '__none__'} onValueChange={(v) => setForm((p) => ({ ...p, platform: v === '__none__' ? '' : v }))}>
+                  <SelectTrigger><SelectValue placeholder={t('vendorRequestsPage.fieldPlatformPh')} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    {CAMPAIGN_PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>{t('vendorRequestsPage.fieldHandle')}</Label>

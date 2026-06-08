@@ -497,11 +497,18 @@ export function InvoiceTable() {
                             </div>
                             <div className="space-y-1">
                               <Label>{t('invoiceTable.methodLabel')}</Label>
-                              <Input
-                                value={paymentMethod}
-                                onChange={(e) => setPaymentMethod(e.target.value)}
-                                placeholder={t('invoiceTable.methodPlaceholder')}
-                              />
+                              <Select value={paymentMethod || undefined} onValueChange={setPaymentMethod}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('invoiceTable.methodPlaceholder')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Bank Transfer">{t('vendorBills.payMethodBankTransfer')}</SelectItem>
+                                  <SelectItem value="Cash">{t('vendorBills.payMethodCash')}</SelectItem>
+                                  <SelectItem value="Card">{t('vendorBills.payMethodCard')}</SelectItem>
+                                  <SelectItem value="Cheque">{t('vendorBills.payMethodCheque')}</SelectItem>
+                                  <SelectItem value="Other">{t('vendorBills.payMethodOther')}</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
                             <div className="space-y-1">
                               <Label>{t('invoiceTable.noteLabel')}</Label>

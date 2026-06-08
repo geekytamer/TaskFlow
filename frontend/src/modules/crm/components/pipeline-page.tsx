@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
@@ -589,10 +590,13 @@ export function PipelinePage() {
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>{t('pipelinePage.fieldContact')} <span className="text-destructive">*</span></Label>
-              <Select value={oppForm.contactId} onValueChange={(v) => setOppForm((p) => ({ ...p, contactId: v }))}>
-                <SelectTrigger><SelectValue placeholder={t('pipelinePage.fieldSelectContact')} /></SelectTrigger>
-                <SelectContent>{contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
+              <Combobox
+                options={contacts.map((c) => ({ value: c.id, label: c.name }))}
+                value={oppForm.contactId}
+                onValueChange={(v) => setOppForm((p) => ({ ...p, contactId: v }))}
+                placeholder={t('pipelinePage.fieldSelectContact')}
+                searchPlaceholder={t('pipelinePage.fieldSelectContact')}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>{t('pipelinePage.fieldTitle')} <span className="text-destructive">*</span></Label>
