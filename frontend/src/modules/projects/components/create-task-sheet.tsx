@@ -67,7 +67,7 @@ const createTaskSchema = z.object({
 
 type CreateTaskFormValues = z.infer<typeof createTaskSchema>;
 
-export function CreateTaskSheet() {
+export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string } = {}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [tagInput, setTagInput] = React.useState('');
@@ -83,7 +83,7 @@ export function CreateTaskSheet() {
   const form = useForm<CreateTaskFormValues>({
     resolver: zodResolver(createTaskSchema),
     defaultValues: {
-        projectId: '',
+        projectId: lockedProjectId ?? '',
         title: '',
         description: '',
         assignedUserIds: [],
@@ -121,6 +121,11 @@ export function CreateTaskSheet() {
       loadData();
     }
   }, [selectedCompany, open, currentUser, currentRole, projects]);
+
+  // When opened from inside a project, the task belongs to that project.
+  React.useEffect(() => {
+    if (open && lockedProjectId) form.setValue('projectId', lockedProjectId);
+  }, [open, lockedProjectId, form]);
 
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];
@@ -203,35 +208,52 @@ export function CreateTaskSheet() {
             </SheetHeader>
             <div className="flex-1 overflow-y-auto pe-6 -me-6">
               <div className="grid gap-4 py-4">
-                <FormField
-                  control={form.control}
-                  name="projectId"
-                  render={({ field }) => (
-                    <FormItem className="grid grid-cols-4 items-center gap-4">
-                      <FormLabel className="text-end">Project</FormLabel>
-                      <div className="col-span-3">
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a project" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {visibleProjects.map((project) => (
-                              <SelectItem key={project.id} value={project.id}>
-                                <div className="flex items-center gap-2">
-                                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
-                                  {project.name}
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </div>
-                    </FormItem>
-                  )}
-                />
+                {lockedProjectId ? (
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <FormLabel className="text-end">Project</FormLabel>
+                    <div className="col-span-3 flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                      {(() => {
+                        const p = projects.find((pr) => pr.id === lockedProjectId);
+                        return (
+                          <>
+                            {p && <span className="h-3 w-3 rounded-full" style={{ backgroundColor: p.color }} />}
+                            {p?.name ?? '—'}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <FormField
+                    control={form.control}
+                    name="projectId"
+                    render={({ field }) => (
+                      <FormItem className="grid grid-cols-4 items-center gap-4">
+                        <FormLabel className="text-end">Project</FormLabel>
+                        <div className="col-span-3">
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a project" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {visibleProjects.map((project) => (
+                                <SelectItem key={project.id} value={project.id}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
+                                    {project.name}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                )}
                  <FormField
                   control={form.control}
                   name="title"
