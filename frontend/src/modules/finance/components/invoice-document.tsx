@@ -145,6 +145,20 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
+          /* CSS grid containers do not fragment across printed pages in most
+             engines, so long content (terms, payment) gets stuck on one page.
+             Flow these as single-column blocks while printing so they paginate. */
+          .invoice-flow-block {
+            display: block !important;
+          }
+          .invoice-flow-block > * + * {
+            margin-top: 1.5rem !important;
+          }
+          .invoice-flow-block,
+          .invoice-flow-block * {
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
         }
       `}</style>
 
@@ -345,7 +359,7 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
         </div>
 
         {!compact && (
-          <div className="mt-10 grid gap-6 text-sm md:grid-cols-2">
+          <div className="invoice-flow-block mt-10 grid gap-6 text-sm md:grid-cols-2">
             <div>
               <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
                 Payment
