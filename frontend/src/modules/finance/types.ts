@@ -194,9 +194,23 @@ export interface InvoiceTemplate {
   bankAccounts?: InvoiceBankAccount[];
   qrEnabled?: boolean;
   qrPosition?: 'left' | 'center' | 'right';
+  /** Section keys that should start on a new printed page. */
+  sectionBreaks?: InvoiceSectionKey[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type InvoiceSectionKey = 'billing' | 'items' | 'payment' | 'terms' | 'notes' | 'signature' | 'qr';
+
+export const invoiceSections: { key: InvoiceSectionKey; label: string }[] = [
+  { key: 'billing', label: 'Bill to / dates' },
+  { key: 'items', label: 'Line items' },
+  { key: 'payment', label: 'Payment & bank details' },
+  { key: 'terms', label: 'Terms' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'signature', label: 'Stamp & signature' },
+  { key: 'qr', label: 'QR code' },
+];
 
 export interface Payment {
   id: string;

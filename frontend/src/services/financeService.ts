@@ -138,6 +138,7 @@ const mapInvoiceTemplate = (template: any): InvoiceTemplate => ({
   isDefault: Boolean(template.isDefault),
   qrEnabled: template.qrEnabled === undefined ? true : Boolean(template.qrEnabled),
   qrPosition: (['left', 'center', 'right'].includes(template.qrPosition) ? template.qrPosition : 'center'),
+  sectionBreaks: Array.isArray(template.sectionBreaks) ? template.sectionBreaks : undefined,
   watermarkEnabled: template.watermarkEnabled === true,
   watermarkText: template.watermarkText || 'DRAFT',
   watermarkOpacity: Number.isFinite(Number(template.watermarkOpacity))

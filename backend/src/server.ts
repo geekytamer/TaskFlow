@@ -12,6 +12,8 @@ import {
   type InvoiceTemplateLayout,
   type InvoiceColumn,
   type InvoiceBankAccount,
+  type InvoiceSectionKey,
+  invoiceSectionKeys,
   type InvoiceLineItem,
   type JournalEntryLine,
 	  type Project,
@@ -103,6 +105,12 @@ function parseInvoiceColumns(raw: unknown): InvoiceColumn[] | undefined {
       width: optionalNumber(c.width),
       align: invoiceColumnAligns.includes(c.align as any) ? (c.align as InvoiceColumn['align']) : undefined,
     }));
+}
+
+function parseSectionBreaks(raw: unknown): InvoiceSectionKey[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((k): k is InvoiceSectionKey => invoiceSectionKeys.includes(k as InvoiceSectionKey));
 }
 
 function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
@@ -961,6 +969,7 @@ export function createServer(options: CreateServerOptions = {}) {
         record.qrPosition !== undefined
           ? enumValue(record.qrPosition, 'qrPosition', ['left', 'center', 'right'] as const)
           : undefined,
+      sectionBreaks: record.sectionBreaks !== undefined ? parseSectionBreaks(record.sectionBreaks) : undefined,
       paymentInstructions:
         record.paymentInstructions !== undefined ? optionalString(record.paymentInstructions) : undefined,
       terms: record.terms !== undefined ? optionalString(record.terms) : undefined,
@@ -1336,6 +1345,7 @@ export function createServer(options: CreateServerOptions = {}) {
             bankAccounts: payload.bankAccounts,
             qrEnabled: payload.qrEnabled ?? true,
             qrPosition: payload.qrPosition ?? 'center',
+            sectionBreaks: payload.sectionBreaks,
             paymentInstructions: payload.paymentInstructions,
             terms: payload.terms,
             footerNote: payload.footerNote,

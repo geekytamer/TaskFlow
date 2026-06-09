@@ -73,6 +73,19 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
     (b) => b.bankName || b.accountHolder || b.accountNumber || b.iban || b.swift,
   );
 
+  // Sections the template marks to start on a fresh printed page.
+  const sectionBreaks = new Set<string>(template?.sectionBreaks ?? []);
+  const pb = (id: string) => (sectionBreaks.has(id) ? 'invoice-page-break ' : '');
+  const pbMark = (id: string) =>
+    sectionBreaks.has(id) ? (
+      <div className="my-5 flex items-center gap-2 text-[10px] uppercase tracking-wide text-slate-400 print:hidden">
+        <div className="h-px flex-1 border-t border-dashed border-slate-300" />
+        Page break
+        <div className="h-px flex-1 border-t border-dashed border-slate-300" />
+      </div>
+    ) : null;
+  const splitPaymentTerms = sectionBreaks.has('payment') || sectionBreaks.has('terms');
+
   return (
     <div
       className="invoice-print-area relative mx-auto min-h-[760px] w-full rounded-sm bg-white text-slate-950 shadow-sm"
@@ -158,6 +171,11 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
           .invoice-flow-block * {
             break-inside: auto !important;
             page-break-inside: auto !important;
+          }
+          /* Sections the template pushes onto their own page. */
+          .invoice-page-break {
+            break-before: page !important;
+            page-break-before: always !important;
           }
         }
       `}</style>
@@ -264,7 +282,8 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
           </div>
         </div>
 
-        <div className={`grid gap-6 ${compact ? 'mt-8 grid-cols-3 text-sm' : 'mt-10 grid-cols-2'}`}>
+        {pbMark('billing')}
+        <div className={`${pb('billing')}grid gap-6 ${compact ? 'mt-8 grid-cols-3 text-sm' : 'mt-10 grid-cols-2'}`}>
           <div>
             <div className="text-xs font-semibold uppercase text-slate-400">Bill To</div>
             <div className="mt-2 font-semibold">{client?.name || 'Client'}</div>
@@ -299,7 +318,8 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
           )}
         </div>
 
-        <div className={compact ? 'mt-8' : 'mt-10'}>
+        {pbMark('items')}
+        <div className={`${pb('items')}${compact ? 'mt-8' : 'mt-10'}`}>
           <table className="invoice-line-items w-full border-collapse text-sm">
             <colgroup>
               {columns.map((col) => (
@@ -358,9 +378,9 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
           </div>
         </div>
 
-        {!compact && (
-          <div className="invoice-flow-block mt-10 grid gap-6 text-sm md:grid-cols-2">
-            <div>
+        {!compact && (() => {
+          const paymentInner = (
+            <>
               <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
                 Payment
               </div>
@@ -387,29 +407,54 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
               {!activeTemplate.paymentInstructions && bankAccounts.length === 0 && (
                 <p className="mt-2 text-slate-600">Payment instructions will appear here.</p>
               )}
-            </div>
-            <div>
+            </>
+          );
+          const termsInner = (
+            <>
               <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
                 Terms
               </div>
               <p className="mt-2 text-slate-600">
                 {activeTemplate.terms || 'Terms and conditions will appear here.'}
               </p>
-            </div>
-          </div>
-        )}
+            </>
+          );
+          // Keep the side-by-side layout unless either section is pushed to its
+          // own page, in which case render them as separate stacked sections.
+          if (!splitPaymentTerms) {
+            return (
+              <div className="invoice-flow-block mt-10 grid gap-6 text-sm md:grid-cols-2">
+                <div>{paymentInner}</div>
+                <div>{termsInner}</div>
+              </div>
+            );
+          }
+          return (
+            <>
+              {pbMark('payment')}
+              <div className={`${pb('payment')}mt-10 text-sm`}>{paymentInner}</div>
+              {pbMark('terms')}
+              <div className={`${pb('terms')}mt-8 text-sm`}>{termsInner}</div>
+            </>
+          );
+        })()}
 
         {invoice.notes && (
-          <div className="mt-8 rounded border p-4 text-sm text-slate-600">
-            <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
-              Notes
+          <>
+            {pbMark('notes')}
+            <div className={`${pb('notes')}mt-8 rounded border p-4 text-sm text-slate-600`}>
+              <div className="font-semibold" style={{ color: activeTemplate.primaryColor }}>
+                Notes
+              </div>
+              <p className="mt-2">{invoice.notes}</p>
             </div>
-            <p className="mt-2">{invoice.notes}</p>
-          </div>
+          </>
         )}
 
         {(template?.stampUrl || template?.signatureUrl) && (
-          <div className="mt-10 flex items-end justify-end gap-12">
+          <>
+          {pbMark('signature')}
+          <div className={`${pb('signature')}mt-10 flex items-end justify-end gap-12`}>
             {template?.stampUrl && (
               <img src={template.stampUrl} alt="" className="h-24 w-24 object-contain" />
             )}
@@ -422,11 +467,14 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
               </div>
             )}
           </div>
+          </>
         )}
 
         {(template?.qrEnabled ?? true) && (
+          <>
+          {pbMark('qr')}
           <div
-            className={`mt-8 flex ${
+            className={`${pb('qr')}mt-8 flex ${
               (template?.qrPosition ?? 'center') === 'center'
                 ? 'justify-center'
                 : (template?.qrPosition ?? 'center') === 'right'
@@ -439,6 +487,7 @@ export function InvoiceDocument({ invoice, client, company, template }: InvoiceD
               <div className="mt-1 text-[10px] text-slate-400">Scan to view &amp; download</div>
             </div>
           </div>
+          </>
         )}
 
         <div className="mt-6 border-t pt-4 text-center text-xs text-slate-500">

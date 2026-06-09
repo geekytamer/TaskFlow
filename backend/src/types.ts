@@ -452,9 +452,13 @@ export interface InvoiceTemplate {
   bankAccounts?: InvoiceBankAccount[];
   qrEnabled?: boolean;
   qrPosition?: 'left' | 'center' | 'right';
+  sectionBreaks?: InvoiceSectionKey[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type InvoiceSectionKey = 'billing' | 'items' | 'payment' | 'terms' | 'notes' | 'signature' | 'qr';
+export const invoiceSectionKeys: InvoiceSectionKey[] = ['billing', 'items', 'payment', 'terms', 'notes', 'signature', 'qr'];
 
 export interface Payment {
   id: string;

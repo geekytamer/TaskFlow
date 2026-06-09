@@ -25,7 +25,8 @@ import {
   updateInvoiceTemplate,
 } from '@/services/financeService';
 import type { InvoiceTemplateInput } from '@/services/financeService';
-import type { InvoiceTemplate, InvoiceTemplateLayout, InvoiceColumn, InvoiceColumnAlign, InvoiceBankAccount, Invoice, Client } from '../types';
+import type { InvoiceTemplate, InvoiceTemplateLayout, InvoiceColumn, InvoiceColumnAlign, InvoiceBankAccount, InvoiceSectionKey, Invoice, Client } from '../types';
+import { invoiceSections } from '../types';
 import type { Company } from '@/modules/companies/types';
 import { InvoiceDocument } from './invoice-document';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -68,6 +69,7 @@ const emptyForm: InvoiceTemplateInput = {
   bankAccounts: undefined,
   qrEnabled: true,
   qrPosition: 'center',
+  sectionBreaks: undefined,
 };
 
 const layoutLabels: Record<InvoiceTemplateLayout, string> = {
@@ -94,6 +96,7 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   bankAccounts: template.bankAccounts,
   qrEnabled: template.qrEnabled !== false,
   qrPosition: template.qrPosition || 'center',
+  sectionBreaks: template.sectionBreaks,
   paymentInstructions: template.paymentInstructions || '',
   terms: template.terms || '',
   footerNote: template.footerNote || '',
@@ -118,6 +121,7 @@ const cleanForm = (form: InvoiceTemplateInput): InvoiceTemplateInput => ({
   bankAccounts: form.bankAccounts && form.bankAccounts.length > 0 ? form.bankAccounts : undefined,
   qrEnabled: form.qrEnabled !== false,
   qrPosition: form.qrPosition || 'center',
+  sectionBreaks: form.sectionBreaks && form.sectionBreaks.length > 0 ? form.sectionBreaks : undefined,
   paymentInstructions: form.paymentInstructions?.trim() || undefined,
   terms: form.terms?.trim() || undefined,
   footerNote: form.footerNote?.trim() || undefined,
@@ -296,6 +300,11 @@ export function InvoiceTemplatePanel() {
   const updateBankAccount = (id: string, patch: Partial<InvoiceBankAccount>) =>
     setBankAccounts(bankAccounts.map((b) => (b.id === id ? { ...b, ...patch } : b)));
   const removeBankAccount = (id: string) => setBankAccounts(bankAccounts.filter((b) => b.id !== id));
+
+  // ─── Section page placement ───────────────────────────────────────────────
+  const sectionBreaks = form.sectionBreaks ?? [];
+  const toggleSectionBreak = (key: InvoiceSectionKey, on: boolean) =>
+    updateForm('sectionBreaks', on ? [...sectionBreaks, key] : sectionBreaks.filter((k) => k !== key));
 
   const selectTemplate = (template: InvoiceTemplate) => {
     setSelectedTemplateId(template.id);
@@ -699,6 +708,25 @@ export function InvoiceTemplatePanel() {
                 </Select>
               </div>
             )}
+          </div>
+
+          {/* Page placement */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <div>
+              <Label className="text-sm font-semibold">Page placement</Label>
+              <p className="text-xs text-muted-foreground">Push a section onto its own page when printing. Everything from that section onward starts on a new page.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {invoiceSections.map((section) => (
+                <label key={section.key} className="flex items-center justify-between gap-2 rounded border bg-muted/20 px-3 py-2 text-sm">
+                  <span>{section.label}</span>
+                  <Switch
+                    checked={(form.sectionBreaks ?? []).includes(section.key)}
+                    onCheckedChange={(v) => toggleSectionBreak(section.key, v)}
+                  />
+                </label>
+              ))}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-6">

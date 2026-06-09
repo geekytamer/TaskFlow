@@ -2172,6 +2172,15 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '042_invoice_template_section_breaks',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info('invoice_templates')`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('sectionBreaks')) {
+            this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN sectionBreaks TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6356,6 +6365,7 @@ export class DataStore {
       bankAccounts: row.bankAccounts ? this.parseJson<InvoiceBankAccount[]>(row.bankAccounts) ?? undefined : undefined,
       qrEnabled: row.qrEnabled === undefined ? true : Boolean(row.qrEnabled),
       qrPosition: (['left', 'center', 'right'].includes(row.qrPosition) ? row.qrPosition : 'center') as InvoiceTemplate['qrPosition'],
+      sectionBreaks: row.sectionBreaks ? this.parseJson<InvoiceTemplate['sectionBreaks']>(row.sectionBreaks) ?? undefined : undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -6404,13 +6414,13 @@ export class DataStore {
           `INSERT INTO invoice_templates (
             id, companyId, name, layout, isDefault, primaryColor, accentColor,
             logoUrl, headerImageUrl, footerImageUrl, letterheadPdfUrl,
-            stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts, qrEnabled, qrPosition,
+            stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts, qrEnabled, qrPosition, sectionBreaks,
             paymentInstructions, terms, footerNote, watermarkEnabled, watermarkText, watermarkOpacity, showCompanyAddress, showTaxId,
             createdAt, updatedAt
           ) VALUES (
             @id, @companyId, @name, @layout, @isDefault, @primaryColor, @accentColor,
             @logoUrl, @headerImageUrl, @footerImageUrl, @letterheadPdfUrl,
-            @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts, @qrEnabled, @qrPosition,
+            @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts, @qrEnabled, @qrPosition, @sectionBreaks,
             @paymentInstructions, @terms, @footerNote, @watermarkEnabled, @watermarkText, @watermarkOpacity, @showCompanyAddress, @showTaxId,
             @createdAt, @updatedAt
           )`,
@@ -6429,6 +6439,7 @@ export class DataStore {
           bankAccounts: newTemplate.bankAccounts ? JSON.stringify(newTemplate.bankAccounts) : null,
           qrEnabled: newTemplate.qrEnabled === false ? 0 : 1,
           qrPosition: newTemplate.qrPosition ?? 'center',
+          sectionBreaks: newTemplate.sectionBreaks ? JSON.stringify(newTemplate.sectionBreaks) : null,
           paymentInstructions: newTemplate.paymentInstructions ?? null,
           terms: newTemplate.terms ?? null,
           footerNote: newTemplate.footerNote ?? null,
@@ -6482,7 +6493,7 @@ export class DataStore {
             accentColor=@accentColor, logoUrl=@logoUrl, headerImageUrl=@headerImageUrl,
             footerImageUrl=@footerImageUrl, letterheadPdfUrl=@letterheadPdfUrl,
             stampUrl=@stampUrl, signatureUrl=@signatureUrl, signatureLabel=@signatureLabel,
-            invoiceColumns=@invoiceColumns, bankAccounts=@bankAccounts, qrEnabled=@qrEnabled, qrPosition=@qrPosition,
+            invoiceColumns=@invoiceColumns, bankAccounts=@bankAccounts, qrEnabled=@qrEnabled, qrPosition=@qrPosition, sectionBreaks=@sectionBreaks,
             paymentInstructions=@paymentInstructions, terms=@terms, footerNote=@footerNote, watermarkEnabled=@watermarkEnabled,
             watermarkText=@watermarkText, watermarkOpacity=@watermarkOpacity,
             showCompanyAddress=@showCompanyAddress, showTaxId=@showTaxId, updatedAt=@updatedAt
@@ -6503,6 +6514,7 @@ export class DataStore {
           bankAccounts: merged.bankAccounts ? JSON.stringify(merged.bankAccounts) : null,
           qrEnabled: merged.qrEnabled === false ? 0 : 1,
           qrPosition: merged.qrPosition ?? 'center',
+          sectionBreaks: merged.sectionBreaks ? JSON.stringify(merged.sectionBreaks) : null,
           paymentInstructions: merged.paymentInstructions ?? null,
           terms: merged.terms ?? null,
           footerNote: merged.footerNote ?? null,
