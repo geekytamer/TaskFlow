@@ -29,6 +29,7 @@ import type { InvoiceTemplate, InvoiceTemplateLayout, InvoiceColumn, InvoiceColu
 import { invoiceSections } from '../types';
 import type { Company } from '@/modules/companies/types';
 import { InvoiceDocument } from './invoice-document';
+import { InvoiceDesigner } from './invoice-designer';
 import { useCompanyCurrency } from '@/lib/currency';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 
@@ -240,6 +241,7 @@ export function InvoiceTemplatePanel() {
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | undefined>();
   const [form, setForm] = React.useState<InvoiceTemplateInput>(emptyForm);
   const [loading, setLoading] = React.useState(true);
+  const [designing, setDesigning] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
   const loadTemplates = React.useCallback(async () => {
@@ -407,6 +409,18 @@ export function InvoiceTemplatePanel() {
     );
   }
 
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
+  if (designing && selectedTemplate) {
+    return (
+      <InvoiceDesigner
+        template={selectedTemplate}
+        company={selectedCompany}
+        onClose={() => setDesigning(false)}
+        onSaved={() => { setDesigning(false); loadTemplates(); }}
+      />
+    );
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
       <div className="space-y-3">
@@ -453,6 +467,11 @@ export function InvoiceTemplatePanel() {
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle>{selectedTemplateId ? 'Edit Invoice Template' : 'New Invoice Template'}</CardTitle>
           <div className="flex gap-2">
+            {selectedTemplateId && (
+              <Button type="button" variant="secondary" size="sm" onClick={() => setDesigning(true)}>
+                Design visually (beta)
+              </Button>
+            )}
             {selectedTemplateId && (
               <Button
                 type="button"
