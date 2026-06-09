@@ -970,6 +970,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ? enumValue(record.qrPosition, 'qrPosition', ['left', 'center', 'right'] as const)
           : undefined,
       sectionBreaks: record.sectionBreaks !== undefined ? parseSectionBreaks(record.sectionBreaks) : undefined,
+      doc: record.doc !== undefined ? (record.doc === null ? undefined : record.doc) : undefined,
       paymentInstructions:
         record.paymentInstructions !== undefined ? optionalString(record.paymentInstructions) : undefined,
       terms: record.terms !== undefined ? optionalString(record.terms) : undefined,
@@ -1346,6 +1347,7 @@ export function createServer(options: CreateServerOptions = {}) {
             qrEnabled: payload.qrEnabled ?? true,
             qrPosition: payload.qrPosition ?? 'center',
             sectionBreaks: payload.sectionBreaks,
+            doc: payload.doc,
             paymentInstructions: payload.paymentInstructions,
             terms: payload.terms,
             footerNote: payload.footerNote,

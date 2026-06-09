@@ -196,6 +196,9 @@ export interface InvoiceTemplate {
   qrPosition?: 'left' | 'center' | 'right';
   /** Section keys that should start on a new printed page. */
   sectionBreaks?: InvoiceSectionKey[];
+  /** New document-builder model. When present, it drives rendering instead of
+   *  the legacy fixed layout. */
+  doc?: import('./doc/types').InvoiceDoc;
   createdAt: Date;
   updatedAt: Date;
 }

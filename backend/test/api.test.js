@@ -221,6 +221,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '040_invoice_template_customization',
     '041_invoice_template_qr',
     '042_invoice_template_section_breaks',
+    '043_invoice_template_doc',
   ]);
 });
 

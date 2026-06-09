@@ -453,6 +453,8 @@ export interface InvoiceTemplate {
   qrEnabled?: boolean;
   qrPosition?: 'left' | 'center' | 'right';
   sectionBreaks?: InvoiceSectionKey[];
+  /** Document-builder model (opaque JSON owned by the frontend engine). */
+  doc?: unknown;
   createdAt: Date;
   updatedAt: Date;
 }

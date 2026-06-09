@@ -6,6 +6,7 @@ import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice, InvoiceTemplate, InvoiceColumn, InvoiceLineItem } from '../types';
 import { CurrencyAmount } from '@/lib/currency';
 import { publicInvoiceUrl } from '@/services/publicService';
+import { DocRenderer } from '../doc/doc-renderer';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -47,6 +48,12 @@ const fallbackTemplate: Pick<
 };
 
 export function InvoiceDocument({ invoice, client, company, template }: InvoiceDocumentProps) {
+  // New document-builder engine: when a template carries a `doc`, render it
+  // through the generic renderer. Legacy templates keep the fixed layout below.
+  if (template?.doc) {
+    return <DocRenderer doc={template.doc} invoice={invoice} client={client} company={company} template={template} />;
+  }
+
   const activeTemplate = { ...fallbackTemplate, ...template };
   const subtotal = invoice.lineItems.reduce((sum, item) => sum + item.amount, 0);
   const taxRate = invoice.taxRate || 0;
