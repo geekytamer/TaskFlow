@@ -7,6 +7,7 @@ import type { Client, Invoice, InvoiceTemplate, InvoiceColumn, InvoiceLineItem }
 import { CurrencyAmount } from '@/lib/currency';
 import { publicInvoiceUrl } from '@/services/publicService';
 import { DocRenderer } from '../doc/doc-renderer';
+import { isInvoiceDoc } from '../doc/validation';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -50,7 +51,7 @@ const fallbackTemplate: Pick<
 export function InvoiceDocument({ invoice, client, company, template }: InvoiceDocumentProps) {
   // New document-builder engine: when a template carries a `doc`, render it
   // through the generic renderer. Legacy templates keep the fixed layout below.
-  if (template?.doc) {
+  if (isInvoiceDoc(template?.doc)) {
     return <DocRenderer doc={template.doc} invoice={invoice} client={client} company={company} template={template} />;
   }
 

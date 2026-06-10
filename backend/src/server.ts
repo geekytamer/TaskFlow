@@ -67,6 +67,7 @@ import {
   requiredString,
   stringArray,
 } from './validation';
+import { validateInvoiceDoc } from './invoice-doc';
 
 type AuthedRequest = Request & { user?: SanitizedUser };
 
@@ -990,7 +991,16 @@ export function createServer(options: CreateServerOptions = {}) {
     ) {
       throw new HttpError(400, 'name, layout, primaryColor, and accentColor are required.');
     }
-    return payload;
+    if (payload.doc !== undefined) {
+      const docErrors = validateInvoiceDoc(payload.doc);
+      if (docErrors.length > 0) {
+        throw new HttpError(400, `Invalid invoice document: ${docErrors.join(' ')}`);
+      }
+    }
+    if (!partial) return payload;
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined),
+    ) as typeof payload;
   };
 
   app.get(

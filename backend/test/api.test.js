@@ -172,6 +172,73 @@ test('an invoice payment can be recorded and reversed', async () => {
   assert.equal(reverseAgain.status, 404);
 });
 
+test('invoice document designs are validated and partial saves preserve template settings', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const templatesResponse = await auth(request(app).get('/companies/1/invoice-templates'));
+  assert.equal(templatesResponse.status, 200);
+  const template = templatesResponse.body[0];
+  assert.ok(template);
+
+  const doc = {
+    version: 1,
+    page: {
+      size: 'A4',
+      orientation: 'landscape',
+      margin: { top: 10, right: 12, bottom: 10, left: 12 },
+    },
+    theme: {
+      fontFamily: 'Arial, sans-serif',
+      primaryColor: '#111827',
+      accentColor: '#2563eb',
+      textColor: '#0f172a',
+    },
+    body: [
+      {
+        id: 'group-1',
+        type: 'container',
+        layout: 'row',
+        gap: 16,
+        children: [
+          { id: 'heading-1', type: 'heading', level: 1, content: 'INVOICE' },
+          { id: 'number-1', type: 'text', content: '{{invoice.number}}' },
+        ],
+      },
+      {
+        id: 'totals-1',
+        type: 'totals',
+        showSubtotal: false,
+        showTax: true,
+        showTotal: true,
+      },
+    ],
+  };
+
+  const saved = await auth(request(app).put(`/invoice-templates/${template.id}`)).send({ doc });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.doc, doc);
+  assert.equal(saved.body.name, template.name);
+  assert.equal(saved.body.layout, template.layout);
+  assert.equal(saved.body.primaryColor, template.primaryColor);
+  assert.equal(saved.body.paymentInstructions, template.paymentInstructions);
+
+  const invalid = await auth(request(app).put(`/invoice-templates/${template.id}`)).send({
+    doc: {
+      ...doc,
+      body: [{ id: 'bad-1', type: 'script', content: 'unsupported' }],
+    },
+  });
+  assert.equal(invalid.status, 400);
+  assert.match(invalid.body.message, /Invalid invoice document/);
+
+  const after = await auth(request(app).get('/companies/1/invoice-templates'));
+  assert.equal(after.status, 200);
+  const persisted = after.body.find((item) => item.id === template.id);
+  assert.deepEqual(persisted.doc, doc);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');

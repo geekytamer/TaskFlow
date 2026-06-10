@@ -96,6 +96,10 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
     publicUrl: publicInvoiceUrl(invoice.id),
   };
   const theme = doc.theme;
+  const portrait = doc.page.orientation === 'portrait';
+  const pageWidth = doc.page.size === 'A4' ? (portrait ? 210 : 297) : (portrait ? 216 : 279);
+  const pageHeight = doc.page.size === 'A4' ? (portrait ? 297 : 210) : (portrait ? 279 : 216);
+  const pagePadding = `${doc.page.margin.top ?? 10}mm ${doc.page.margin.right ?? 10}mm ${doc.page.margin.bottom ?? 10}mm ${doc.page.margin.left ?? 10}mm`;
 
   const renderBlock = (block: Block): React.ReactNode => {
     if (!isVisible(block, ctx, template)) return null;
@@ -195,12 +199,19 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
   return (
     <div
       className="invoice-print-area doc-render relative mx-auto w-full bg-white text-slate-950"
-      style={{ fontFamily: theme.fontFamily, color: theme.textColor, padding: '40px' }}
+      style={{
+        fontFamily: theme.fontFamily,
+        color: theme.textColor,
+        padding: pagePadding,
+        width: `${pageWidth}mm`,
+        minHeight: `${pageHeight}mm`,
+        maxWidth: '100%',
+      }}
     >
       <style>{`
         @media print {
-          @page { size: ${doc.page.size}; margin: ${doc.page.margin.top ?? 10}mm ${doc.page.margin.right ?? 10}mm ${doc.page.margin.bottom ?? 10}mm ${doc.page.margin.left ?? 10}mm; }
-          .doc-render { padding: 0 !important; }
+          @page { size: ${doc.page.size} ${doc.page.orientation}; margin: ${doc.page.margin.top ?? 10}mm ${doc.page.margin.right ?? 10}mm ${doc.page.margin.bottom ?? 10}mm ${doc.page.margin.left ?? 10}mm; }
+          .doc-render { width: 100% !important; max-width: none !important; min-height: auto !important; padding: 0 !important; }
           .doc-page-break { break-before: page; page-break-before: always; }
           .doc-line-items tr { break-inside: avoid; page-break-inside: avoid; }
           .doc-line-items thead { display: table-header-group; }
@@ -251,14 +262,17 @@ function LineItemsView({ block, ctx, theme, money, template, style }: {
   );
 }
 
-function TotalsView({ ctx, theme, money, style }: { block: TotalsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; money: (v: number) => React.ReactNode; style: React.CSSProperties }) {
+function TotalsView({ block, ctx, theme, money, style }: { block: TotalsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; money: (v: number) => React.ReactNode; style: React.CSSProperties }) {
   const taxRate = ctx.invoice.taxRate || 0;
+  const showSubtotal = block.showSubtotal !== false;
+  const showTax = block.showTax !== false;
+  const showTotal = block.showTotal !== false;
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', ...style }}>
       <div style={{ width: '100%', maxWidth: 280, fontSize: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>Subtotal</span><span>{money(ctx.subtotal)}</span></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>Tax {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>Total</span><span>{money(ctx.total)}</span></div>
+        {showSubtotal && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>Subtotal</span><span>{money(ctx.subtotal)}</span></div>}
+        {showTax && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>Tax {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>}
+        {showTotal && <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>Total</span><span>{money(ctx.total)}</span></div>}
       </div>
     </div>
   );

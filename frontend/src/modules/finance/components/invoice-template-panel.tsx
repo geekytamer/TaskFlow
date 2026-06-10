@@ -98,6 +98,7 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   qrEnabled: template.qrEnabled !== false,
   qrPosition: template.qrPosition || 'center',
   sectionBreaks: template.sectionBreaks,
+  doc: template.doc,
   paymentInstructions: template.paymentInstructions || '',
   terms: template.terms || '',
   footerNote: template.footerNote || '',
@@ -469,7 +470,7 @@ export function InvoiceTemplatePanel() {
           <div className="flex gap-2">
             {selectedTemplateId && (
               <Button type="button" variant="secondary" size="sm" onClick={() => setDesigning(true)}>
-                Design visually (beta)
+                Design visually
               </Button>
             )}
             {selectedTemplateId && (

@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,37 +8,92 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { updateInvoiceTemplate } from '@/services/financeService';
-import type { InvoiceTemplate, Invoice, Client } from '../types';
+import type { InvoiceTemplate, Invoice, Client, InvoiceColumn } from '../types';
 import type { Company } from '@/modules/companies/types';
 import { DocRenderer } from '../doc/doc-renderer';
 import { templateToDoc } from '../doc/template-to-doc';
 import { TOKEN_GROUPS } from '../doc/tokens';
-import type { Block, BlockStyle, InvoiceDoc } from '../doc/types';
+import type {
+  Block,
+  BlockStyle,
+  ContainerBlock,
+  DetailsBlock,
+  ImageBlock,
+  InvoiceDoc,
+  TotalsBlock,
+} from '../doc/types';
+import { cloneInvoiceDoc, countBlocks, isInvoiceDoc, validateInvoiceDoc } from '../doc/validation';
 import {
-  ArrowLeft, GripVertical, Trash2, Type, Heading1, Image as ImageIcon, Minus, MoveVertical,
-  Table2, Calculator, ListTree, Banknote, PenLine, QrCode, FileText, Square,
+  ArrowLeft,
+  Banknote,
+  Calculator,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  FileText,
+  FolderTree,
+  Heading1,
+  Image as ImageIcon,
+  ListTree,
+  Minus,
+  MoveVertical,
+  PenLine,
+  QrCode,
+  Redo2,
+  RotateCcw,
+  Square,
+  Table2,
+  Trash2,
+  Type,
+  Undo2,
 } from 'lucide-react';
 
 const makeId = () =>
-  (typeof crypto !== 'undefined' && 'randomUUID' in crypto) ? crypto.randomUUID() : `b-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `b-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+const DEFAULT_COLUMNS: InvoiceColumn[] = [
+  { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
+  { id: 'quantity', key: 'quantity', label: 'Qty', visible: true, width: 15, align: 'right' },
+  { id: 'unitPrice', key: 'unitPrice', label: 'Unit', visible: true, width: 15, align: 'right' },
+  { id: 'amount', key: 'amount', label: 'Amount', visible: true, width: 15, align: 'right' },
+];
 
 const BLOCK_DEFAULTS: Record<string, () => Block> = {
+  container: () => ({ id: makeId(), type: 'container', layout: 'stack', gap: 12, children: [] }),
   heading: () => ({ id: makeId(), type: 'heading', level: 2, content: 'Heading' }),
-  text: () => ({ id: makeId(), type: 'text', content: 'Text — use {{invoice.number}} tokens.' }),
+  text: () => ({ id: makeId(), type: 'text', content: 'Text - use {{invoice.number}} tokens.' }),
   image: () => ({ id: makeId(), type: 'image', binding: 'logo', height: 56 }),
   divider: () => ({ id: makeId(), type: 'divider', style: { margin: { top: 12, bottom: 12 } } }),
   spacer: () => ({ id: makeId(), type: 'spacer', height: 24 }),
   shape: () => ({ id: makeId(), type: 'shape', height: 8 }),
   lineItems: () => ({ id: makeId(), type: 'lineItems', style: { margin: { top: 16 } } }),
-  totals: () => ({ id: makeId(), type: 'totals', style: { margin: { top: 16 } } }),
-  details: () => ({ id: makeId(), type: 'details', title: 'Bill To', fields: [{ label: '', value: '{{client.name}}' }, { label: '', value: '{{client.address}}' }] }),
-  payment: () => ({ id: makeId(), type: 'payment', style: { margin: { top: 24 } } }),
+  totals: () => ({
+    id: makeId(),
+    type: 'totals',
+    showSubtotal: true,
+    showTax: true,
+    showTotal: true,
+    style: { margin: { top: 16 } },
+  }),
+  details: () => ({
+    id: makeId(),
+    type: 'details',
+    title: 'Bill To',
+    fields: [
+      { label: '', value: '{{client.name}}' },
+      { label: '', value: '{{client.address}}' },
+    ],
+  }),
+  payment: () => ({ id: makeId(), type: 'payment', title: 'Payment', style: { margin: { top: 24 } } }),
   signature: () => ({ id: makeId(), type: 'signature', style: { margin: { top: 32 } } }),
   qr: () => ({ id: makeId(), type: 'qr', style: { align: 'center', margin: { top: 24 } } }),
   pageBreak: () => ({ id: makeId(), type: 'pageBreak' }),
 };
 
 const PALETTE: { type: string; label: string; icon: React.ElementType }[] = [
+  { type: 'container', label: 'Group', icon: FolderTree },
   { type: 'heading', label: 'Heading', icon: Heading1 },
   { type: 'text', label: 'Text', icon: Type },
   { type: 'image', label: 'Image', icon: ImageIcon },
@@ -55,28 +109,29 @@ const PALETTE: { type: string; label: string; icon: React.ElementType }[] = [
   { type: 'pageBreak', label: 'Page break', icon: FileText },
 ];
 
-const blockSummary = (b: Block): string => {
-  switch (b.type) {
-    case 'heading': return `Heading — “${b.content}”`;
-    case 'text': return `Text — “${b.content.slice(0, 28)}${b.content.length > 28 ? '…' : ''}”`;
-    case 'image': return `Image (${b.binding || 'custom'})`;
-    case 'details': return `Details — ${b.title || 'fields'}`;
-    case 'container': return `Group (${b.layout}, ${b.children.length})`;
-    default: return b.type.charAt(0).toUpperCase() + b.type.slice(1);
-  }
-};
-
-// Sample data so the preview shows a realistic invoice.
 const sampleInvoice = {
-  id: 'preview', invoiceNumber: 'INV-0042', companyId: 'p', clientId: 'p',
-  issueDate: new Date(), dueDate: new Date(Date.now() + 30 * 86400000),
-  status: 'Sent', currency: 'USD', taxRate: 5, total: 2257.5,
+  id: 'preview',
+  invoiceNumber: 'INV-0042',
+  companyId: 'preview',
+  clientId: 'preview',
+  issueDate: new Date(),
+  dueDate: new Date(Date.now() + 30 * 86400000),
+  status: 'Sent',
+  currency: 'USD',
+  taxRate: 5,
+  total: 2362.5,
+  notes: 'Thank you for your business.',
   lineItems: [
     { itemType: 'Manual', sku: 'A-1', description: 'Design & build', quantity: 1, unitPrice: 1500, amount: 1500 },
     { itemType: 'Manual', sku: 'A-2', description: 'Support retainer', quantity: 3, unitPrice: 250, amount: 750 },
   ],
 } as unknown as Invoice;
-const sampleClient = { id: 'p', name: 'Acme Trading LLC', address: 'Business Bay\nDubai, UAE', email: 'pay@acme.example' } as unknown as Client;
+const sampleClient = {
+  id: 'preview',
+  name: 'Acme Trading LLC',
+  address: 'Business Bay\nDubai, UAE',
+  email: 'pay@acme.example',
+} as unknown as Client;
 
 interface InvoiceDesignerProps {
   template: InvoiceTemplate;
@@ -85,135 +140,322 @@ interface InvoiceDesignerProps {
   onSaved: () => void;
 }
 
+function blockSummary(block: Block): string {
+  switch (block.type) {
+    case 'heading':
+      return `Heading - "${block.content}"`;
+    case 'text':
+      return `Text - "${block.content.slice(0, 28)}${block.content.length > 28 ? '...' : ''}"`;
+    case 'image':
+      return `Image (${block.binding || 'custom'})`;
+    case 'details':
+      return `Details - ${block.title || 'fields'}`;
+    case 'container':
+      return `Group (${block.layout}, ${block.children.length})`;
+    default:
+      return block.type.charAt(0).toUpperCase() + block.type.slice(1);
+  }
+}
+
+function findBlock(blocks: Block[], id: string | null): Block | undefined {
+  if (!id) return undefined;
+  for (const block of blocks) {
+    if (block.id === id) return block;
+    if (block.type === 'container') {
+      const found = findBlock(block.children, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function updateBlockInTree(blocks: Block[], id: string, patch: Partial<Block>): Block[] {
+  return blocks.map((block) => {
+    if (block.id === id) return { ...block, ...patch } as Block;
+    if (block.type === 'container') {
+      return { ...block, children: updateBlockInTree(block.children, id, patch) };
+    }
+    return block;
+  });
+}
+
+function removeBlockFromTree(blocks: Block[], id: string): Block[] {
+  return blocks
+    .filter((block) => block.id !== id)
+    .map((block) =>
+      block.type === 'container'
+        ? { ...block, children: removeBlockFromTree(block.children, id) }
+        : block,
+    );
+}
+
+function moveBlockInTree(blocks: Block[], id: string, direction: -1 | 1): Block[] {
+  const index = blocks.findIndex((block) => block.id === id);
+  if (index >= 0) {
+    const target = index + direction;
+    if (target < 0 || target >= blocks.length) return blocks;
+    const next = [...blocks];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  }
+  return blocks.map((block) =>
+    block.type === 'container'
+      ? { ...block, children: moveBlockInTree(block.children, id, direction) }
+      : block,
+  );
+}
+
+function cloneBlockWithIds(block: Block): Block {
+  const cloned = JSON.parse(JSON.stringify(block)) as Block;
+  const assignIds = (item: Block): Block => {
+    if (item.type === 'container') {
+      return { ...item, id: makeId(), children: item.children.map(assignIds) };
+    }
+    return { ...item, id: makeId() };
+  };
+  return assignIds(cloned);
+}
+
+function duplicateBlockInTree(blocks: Block[], id: string): Block[] {
+  const index = blocks.findIndex((block) => block.id === id);
+  if (index >= 0) {
+    const next = [...blocks];
+    next.splice(index + 1, 0, cloneBlockWithIds(blocks[index]));
+    return next;
+  }
+  return blocks.map((block) =>
+    block.type === 'container'
+      ? { ...block, children: duplicateBlockInTree(block.children, id) }
+      : block,
+  );
+}
+
 export function InvoiceDesigner({ template, company, onClose, onSaved }: InvoiceDesignerProps) {
   const { toast } = useToast();
-  const [doc, setDoc] = React.useState<InvoiceDoc>(() => template.doc ?? templateToDoc(template));
+  const initialDoc = React.useMemo(
+    () => isInvoiceDoc(template.doc) ? template.doc : templateToDoc(template),
+    [template],
+  );
+  const [doc, setDoc] = React.useState<InvoiceDoc>(() => cloneInvoiceDoc(initialDoc));
   const [selectedId, setSelectedId] = React.useState<string | null>(doc.body[0]?.id ?? null);
+  const [history, setHistory] = React.useState<InvoiceDoc[]>([]);
+  const [future, setFuture] = React.useState<InvoiceDoc[]>([]);
   const [saving, setSaving] = React.useState(false);
+  const savedSnapshot = React.useRef(JSON.stringify(initialDoc));
+  const dirty = JSON.stringify(doc) !== savedSnapshot.current;
+  const errors = React.useMemo(() => validateInvoiceDoc(doc), [doc]);
+  const selected = findBlock(doc.body, selectedId);
 
-  const body = doc.body;
-  const findBlock = (id: string | null): Block | undefined => {
-    if (!id) return undefined;
-    const walk = (blocks: Block[]): Block | undefined => {
-      for (const b of blocks) {
-        if (b.id === id) return b;
-        if (b.type === 'container') { const f = walk(b.children); if (f) return f; }
-      }
-      return undefined;
+  React.useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = '';
     };
-    return walk(body);
-  };
-  const selected = findBlock(selectedId);
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const commit = React.useCallback((updater: (current: InvoiceDoc) => InvoiceDoc) => {
+    const next = updater(doc);
+    if (JSON.stringify(next) === JSON.stringify(doc)) return;
+    setHistory((items) => [...items.slice(-49), cloneInvoiceDoc(doc)]);
+    setFuture([]);
+    setDoc(next);
+  }, [doc]);
 
   const updateBlock = (id: string, patch: Partial<Block>) => {
-    const walk = (blocks: Block[]): Block[] => blocks.map((b) => {
-      if (b.id === id) return { ...b, ...patch } as Block;
-      if (b.type === 'container') return { ...b, children: walk(b.children) };
-      return b;
-    });
-    setDoc((d) => ({ ...d, body: walk(d.body) }));
+    commit((current) => ({ ...current, body: updateBlockInTree(current.body, id, patch) }));
   };
+
   const updateStyle = (id: string, patch: BlockStyle) => {
-    const cur = findBlock(id);
-    updateBlock(id, { style: { ...(cur?.style || {}), ...patch } } as Partial<Block>);
+    const current = findBlock(doc.body, id)?.style;
+    updateBlock(id, {
+      style: {
+        ...current,
+        ...patch,
+        margin: patch.margin ? { ...current?.margin, ...patch.margin } : current?.margin,
+        padding: patch.padding ? { ...current?.padding, ...patch.padding } : current?.padding,
+        border: patch.border ? { ...current?.border, ...patch.border } : current?.border,
+      },
+    } as Partial<Block>);
   };
+
   const addBlock = (type: string) => {
     const block = BLOCK_DEFAULTS[type]?.();
     if (!block) return;
-    setDoc((d) => ({ ...d, body: [...d.body, block] }));
+    commit((current) => {
+      const selectedBlock = findBlock(current.body, selectedId);
+      if (selectedBlock?.type === 'container') {
+        return {
+          ...current,
+          body: updateBlockInTree(current.body, selectedBlock.id, {
+            children: [...selectedBlock.children, block],
+          } as Partial<ContainerBlock>),
+        };
+      }
+      return { ...current, body: [...current.body, block] };
+    });
     setSelectedId(block.id);
   };
+
   const removeBlock = (id: string) => {
-    setDoc((d) => ({ ...d, body: d.body.filter((b) => b.id !== id) }));
+    commit((current) => ({ ...current, body: removeBlockFromTree(current.body, id) }));
     if (selectedId === id) setSelectedId(null);
   };
-  const onDragEnd = (r: DropResult) => {
-    if (!r.destination) return;
-    setDoc((d) => {
-      const next = [...d.body];
-      const [moved] = next.splice(r.source.index, 1);
-      next.splice(r.destination!.index, 0, moved);
-      return { ...d, body: next };
-    });
+
+  const undo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    setFuture((items) => [cloneInvoiceDoc(doc), ...items].slice(0, 50));
+    setHistory((items) => items.slice(0, -1));
+    setDoc(cloneInvoiceDoc(previous));
+  };
+
+  const redo = () => {
+    if (future.length === 0) return;
+    const next = future[0];
+    setHistory((items) => [...items.slice(-49), cloneInvoiceDoc(doc)]);
+    setFuture((items) => items.slice(1));
+    setDoc(cloneInvoiceDoc(next));
+  };
+
+  const close = () => {
+    if (dirty && !window.confirm('Discard your unsaved invoice design changes?')) return;
+    onClose();
+  };
+
+  const reset = () => {
+    if (!window.confirm('Reset this design to the template settings?')) return;
+    commit(() => templateToDoc({ ...template, doc: undefined }));
+    setSelectedId(null);
   };
 
   const save = async () => {
+    const validationErrors = validateInvoiceDoc(doc);
+    if (validationErrors.length > 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Design is invalid',
+        description: validationErrors[0],
+      });
+      return;
+    }
     setSaving(true);
     try {
-      await updateInvoiceTemplate(template.id, { doc } as any);
+      await updateInvoiceTemplate(template.id, { doc });
+      savedSnapshot.current = JSON.stringify(doc);
+      setHistory([]);
+      setFuture([]);
       toast({ title: 'Design saved' });
       onSaved();
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Save failed', description: e?.message });
+    } catch (error: unknown) {
+      toast({
+        variant: 'destructive',
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Could not save the invoice design.',
+      });
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={onClose}><ArrowLeft className="me-1 h-4 w-4" />Back to settings</Button>
-        <div className="text-sm font-medium">Designing: {template.name}</div>
-        <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save design'}</Button>
+    <div className="flex h-[calc(100vh-9rem)] min-h-[640px] flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button variant="ghost" size="sm" onClick={close}>
+          <ArrowLeft className="me-1 h-4 w-4" />
+          Back to settings
+        </Button>
+        <div className="text-sm font-medium">
+          Designing: {template.name}
+          {dirty && <span className="ms-2 text-amber-600">Unsaved changes</span>}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={undo} disabled={history.length === 0} title="Undo">
+            <Undo2 className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={redo} disabled={future.length === 0} title="Redo">
+            <Redo2 className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={reset}>
+            <RotateCcw className="me-1 h-4 w-4" />
+            Reset
+          </Button>
+          <Button size="sm" onClick={save} disabled={saving || errors.length > 0 || !dirty}>
+            {saving ? 'Saving...' : 'Save design'}
+          </Button>
+        </div>
       </div>
 
-      <div className="grid flex-1 gap-3 overflow-hidden lg:grid-cols-[180px_260px_1fr]">
-        {/* Palette */}
+      {errors.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {errors[0]} {errors.length > 1 ? `(${errors.length - 1} more)` : ''}
+        </div>
+      )}
+
+      <div className="grid flex-1 gap-3 overflow-hidden lg:grid-cols-[190px_300px_1fr]">
         <div className="overflow-y-auto rounded-lg border p-2">
           <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add block</p>
           <div className="grid grid-cols-2 gap-1.5">
-            {PALETTE.map((p) => (
-              <button key={p.type} onClick={() => addBlock(p.type)}
-                className="flex flex-col items-center gap-1 rounded-md border p-2 text-[11px] hover:bg-muted">
-                <p.icon className="h-4 w-4 text-muted-foreground" />{p.label}
+            {PALETTE.map((item) => (
+              <button
+                key={item.type}
+                type="button"
+                onClick={() => addBlock(item.type)}
+                className="flex flex-col items-center gap-1 rounded-md border p-2 text-[11px] hover:bg-muted"
+                title={selected?.type === 'container' ? `Add ${item.label} inside selected group` : `Add ${item.label}`}
+              >
+                <item.icon className="h-4 w-4 text-muted-foreground" />
+                {item.label}
               </button>
             ))}
           </div>
+          <p className="mt-3 px-1 text-[11px] text-muted-foreground">
+            Select a group before adding to place the new block inside it.
+          </p>
         </div>
 
-        {/* Block list (reorder) */}
         <div className="overflow-y-auto rounded-lg border p-2">
-          <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layout</p>
-          <DragDropContext onDragEnd={onDragEnd}>
-            <Droppable droppableId="body">
-              {(prov) => (
-                <div ref={prov.innerRef} {...prov.droppableProps} className="space-y-1.5">
-                  {body.map((b, i) => (
-                    <Draggable key={b.id} draggableId={b.id} index={i}>
-                      {(p) => (
-                        <div ref={p.innerRef} {...p.draggableProps}
-                          onClick={() => setSelectedId(b.id)}
-                          className={`flex items-center gap-1.5 rounded-md border p-2 text-xs ${selectedId === b.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
-                          <span {...p.dragHandleProps}><GripVertical className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                          <span className="flex-1 truncate">{blockSummary(b)}</span>
-                          <button onClick={(e) => { e.stopPropagation(); removeBlock(b.id); }} className="text-muted-foreground hover:text-destructive">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {prov.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </DragDropContext>
-          {body.length === 0 && <p className="px-1 text-xs text-muted-foreground">Add blocks from the left.</p>}
+          <div className="flex items-center justify-between px-1 pb-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layout</p>
+            <span className="text-[11px] text-muted-foreground">{countBlocks(doc.body)} blocks</span>
+          </div>
+          <BlockTree
+            blocks={doc.body}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onMove={(id, direction) => commit((current) => ({
+              ...current,
+              body: moveBlockInTree(current.body, id, direction),
+            }))}
+            onDuplicate={(id) => commit((current) => ({
+              ...current,
+              body: duplicateBlockInTree(current.body, id),
+            }))}
+            onRemove={removeBlock}
+          />
+          {doc.body.length === 0 && <p className="px-1 text-xs text-muted-foreground">Add blocks from the left.</p>}
         </div>
 
-        {/* Preview + properties */}
-        <div className="grid gap-3 overflow-hidden xl:grid-cols-[1fr_280px]">
-          <div className="overflow-y-auto rounded-lg border bg-muted/30 p-4">
-            <div className="mx-auto w-[760px] max-w-full bg-white shadow-sm">
+        <div className="grid gap-3 overflow-hidden xl:grid-cols-[minmax(520px,1fr)_320px]">
+          <div className="overflow-auto rounded-lg border bg-muted/30 p-4">
+            <div className="mx-auto w-fit max-w-full bg-white shadow-sm">
               <DocRenderer doc={doc} invoice={sampleInvoice} client={sampleClient} company={company} template={template} />
             </div>
           </div>
           <div className="overflow-y-auto rounded-lg border p-3">
+            <DocumentProperties doc={doc} onChange={(patch) => commit((current) => ({ ...current, ...patch }))} />
+            <div className="my-4 border-t" />
             {!selected ? (
               <p className="text-xs text-muted-foreground">Select a block to edit its content and style.</p>
             ) : (
-              <BlockProperties block={selected} onChange={(patch) => updateBlock(selected.id, patch)} onStyle={(s) => updateStyle(selected.id, s)} />
+              <BlockProperties
+                block={selected}
+                templateColumns={template.columns}
+                onChange={(patch) => updateBlock(selected.id, patch)}
+                onStyle={(style) => updateStyle(selected.id, style)}
+              />
             )}
           </div>
         </div>
@@ -222,98 +464,525 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   );
 }
 
-function BlockProperties({ block, onChange, onStyle }: { block: Block; onChange: (p: Partial<Block>) => void; onStyle: (s: BlockStyle) => void }) {
+function BlockTree({
+  blocks,
+  selectedId,
+  onSelect,
+  onMove,
+  onDuplicate,
+  onRemove,
+  depth = 0,
+}: {
+  blocks: Block[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onMove: (id: string, direction: -1 | 1) => void;
+  onDuplicate: (id: string) => void;
+  onRemove: (id: string) => void;
+  depth?: number;
+}) {
+  return (
+    <div className={depth ? 'mt-1 space-y-1 border-s ps-2' : 'space-y-1.5'}>
+      {blocks.map((block, index) => (
+        <div key={block.id}>
+          <div
+            className={`flex items-center gap-1 rounded-md border p-1.5 text-xs ${
+              selectedId === block.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+            }`}
+          >
+            <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => onSelect(block.id)}>
+              {blockSummary(block)}
+            </button>
+            <button type="button" title="Move up" aria-label="Move block up" disabled={index === 0} onClick={() => onMove(block.id, -1)}>
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" title="Move down" aria-label="Move block down" disabled={index === blocks.length - 1} onClick={() => onMove(block.id, 1)}>
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" title="Duplicate" aria-label="Duplicate block" onClick={() => onDuplicate(block.id)}>
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" title="Delete" aria-label="Delete block" className="text-muted-foreground hover:text-destructive" onClick={() => onRemove(block.id)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {block.type === 'container' && block.children.length > 0 && (
+            <BlockTree
+              blocks={block.children}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              onMove={onMove}
+              onDuplicate={onDuplicate}
+              onRemove={onRemove}
+              depth={depth + 1}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DocumentProperties({
+  doc,
+  onChange,
+}: {
+  doc: InvoiceDoc;
+  onChange: (patch: Partial<InvoiceDoc>) => void;
+}) {
+  const updateMargin = (side: 'top' | 'right' | 'bottom' | 'left', value: number) => {
+    onChange({ page: { ...doc.page, margin: { ...doc.page.margin, [side]: value } } });
+  };
+  return (
+    <details open>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Document
+      </summary>
+      <div className="mt-3 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Page size">
+            <Select value={doc.page.size} onValueChange={(size) => onChange({ page: { ...doc.page, size: size as InvoiceDoc['page']['size'] } })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="A4">A4</SelectItem>
+                <SelectItem value="Letter">Letter</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Orientation">
+            <Select value={doc.page.orientation} onValueChange={(orientation) => onChange({ page: { ...doc.page, orientation: orientation as InvoiceDoc['page']['orientation'] } })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="portrait">Portrait</SelectItem>
+                <SelectItem value="landscape">Landscape</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+        <div>
+          <Label className="text-xs">Page margins (mm)</Label>
+          <div className="mt-1 grid grid-cols-4 gap-1">
+            {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
+              <Input
+                key={side}
+                className="h-8 px-2"
+                type="number"
+                min={0}
+                max={50}
+                aria-label={`${side} page margin`}
+                title={side}
+                value={doc.page.margin[side] ?? 0}
+                onChange={(event) => updateMargin(side, Number(event.target.value))}
+              />
+            ))}
+          </div>
+        </div>
+        <Field label="Font family">
+          <Input
+            className="h-8"
+            value={doc.theme.fontFamily}
+            onChange={(event) => onChange({ theme: { ...doc.theme, fontFamily: event.target.value } })}
+            placeholder="inherit"
+          />
+        </Field>
+        <div className="grid grid-cols-3 gap-2">
+          <ColorField label="Primary" value={doc.theme.primaryColor} onChange={(primaryColor) => onChange({ theme: { ...doc.theme, primaryColor } })} />
+          <ColorField label="Accent" value={doc.theme.accentColor} onChange={(accentColor) => onChange({ theme: { ...doc.theme, accentColor } })} />
+          <ColorField label="Text" value={doc.theme.textColor} onChange={(textColor) => onChange({ theme: { ...doc.theme, textColor } })} />
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function BlockProperties({
+  block,
+  templateColumns,
+  onChange,
+  onStyle,
+}: {
+  block: Block;
+  templateColumns?: InvoiceColumn[];
+  onChange: (patch: Partial<Block>) => void;
+  onStyle: (style: BlockStyle) => void;
+}) {
   const style = block.style || {};
+  const setNumber = (value: string) => (value === '' ? undefined : Number(value));
+
   return (
     <div className="space-y-3">
       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{block.type}</div>
 
-      {/* Content */}
       {(block.type === 'text' || block.type === 'heading') && (
-        <div className="space-y-1">
-          <Label className="text-xs">Content</Label>
-          <Textarea rows={3} value={(block as any).content}
-            onChange={(e) => onChange({ content: e.target.value } as Partial<Block>)} />
-          <details className="text-[11px] text-muted-foreground">
+        <Field label="Content">
+          <Textarea
+            rows={3}
+            value={block.content}
+            onChange={(event) => onChange({ content: event.target.value } as Partial<Block>)}
+          />
+          <details className="mt-1 text-[11px] text-muted-foreground">
             <summary className="cursor-pointer">Data tokens</summary>
             <div className="mt-1 space-y-1">
-              {TOKEN_GROUPS.map((g) => (
-                <div key={g.group}><span className="font-medium">{g.group}:</span> {g.tokens.map((t) => `{{${t.token}}}`).join(', ')}</div>
+              {TOKEN_GROUPS.map((group) => (
+                <div key={group.group}>
+                  <span className="font-medium">{group.group}:</span>{' '}
+                  {group.tokens.map((token) => `{{${token.token}}}`).join(', ')}
+                </div>
               ))}
             </div>
           </details>
-        </div>
+        </Field>
       )}
+
       {block.type === 'heading' && (
-        <div className="space-y-1">
-          <Label className="text-xs">Level</Label>
-          <Select value={String((block as any).level)} onValueChange={(v) => onChange({ level: Number(v) } as Partial<Block>)}>
-            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-            <SelectContent>{[1, 2, 3].map((l) => <SelectItem key={l} value={String(l)}>H{l}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-      )}
-      {block.type === 'image' && (
-        <div className="space-y-1">
-          <Label className="text-xs">Source</Label>
-          <Select value={(block as any).binding || 'logo'} onValueChange={(v) => onChange({ binding: v } as Partial<Block>)}>
+        <Field label="Level">
+          <Select value={String(block.level)} onValueChange={(value) => onChange({ level: Number(value) } as Partial<Block>)}>
             <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {['logo', 'stamp', 'signature', 'header', 'footer'].map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+              {[1, 2, 3].map((level) => <SelectItem key={level} value={String(level)}>H{level}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Label className="text-xs">Height (px)</Label>
-          <Input className="h-8" type="number" value={(block as any).height ?? 56} onChange={(e) => onChange({ height: Number(e.target.value) } as Partial<Block>)} />
-        </div>
+        </Field>
       )}
-      {block.type === 'spacer' && (
-        <div className="space-y-1">
-          <Label className="text-xs">Height (px)</Label>
-          <Input className="h-8" type="number" value={(block as any).height ?? 24} onChange={(e) => onChange({ height: Number(e.target.value) } as Partial<Block>)} />
-        </div>
-      )}
-      {block.type === 'qr' && (
-        <div className="space-y-1">
-          <Label className="text-xs">Caption</Label>
-          <Input className="h-8" value={(block as any).caption ?? ''} onChange={(e) => onChange({ caption: e.target.value } as Partial<Block>)} placeholder="Scan to view & download" />
+
+      {block.type === 'container' && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Layout">
+            <Select value={block.layout} onValueChange={(layout) => onChange({ layout } as Partial<ContainerBlock>)}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="stack">Stack</SelectItem>
+                <SelectItem value="row">Row</SelectItem>
+                <SelectItem value="grid">Grid</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Gap">
+            <Input className="h-8" type="number" min={0} max={200} value={block.gap ?? 16} onChange={(event) => onChange({ gap: Number(event.target.value) } as Partial<ContainerBlock>)} />
+          </Field>
+          {block.layout === 'grid' && (
+            <Field label="Columns">
+              <Input className="h-8" type="number" min={1} max={6} value={block.columns ?? 2} onChange={(event) => onChange({ columns: Number(event.target.value) } as Partial<ContainerBlock>)} />
+            </Field>
+          )}
         </div>
       )}
 
-      {/* Common style */}
-      <div className="border-t pt-3 space-y-2">
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">Align</Label>
-            <Select value={style.align ?? 'left'} onValueChange={(v) => onStyle({ align: v as BlockStyle['align'] })}>
-              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-              <SelectContent>{['left', 'center', 'right'].map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Font size</Label>
-            <Input className="h-8" type="number" value={style.fontSize ?? ''} placeholder="14" onChange={(e) => onStyle({ fontSize: e.target.value ? Number(e.target.value) : undefined })} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Text color</Label>
-            <Input className="h-8 p-1" type="color" value={style.color ?? '#0f172a'} onChange={(e) => onStyle({ color: e.target.value })} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Background</Label>
-            <Input className="h-8 p-1" type="color" value={style.background ?? '#ffffff'} onChange={(e) => onStyle({ background: e.target.value })} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Margin top</Label>
-            <Input className="h-8" type="number" value={style.margin?.top ?? ''} placeholder="0" onChange={(e) => onStyle({ margin: { ...style.margin, top: Number(e.target.value) } })} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Margin bottom</Label>
-            <Input className="h-8" type="number" value={style.margin?.bottom ?? ''} placeholder="0" onChange={(e) => onStyle({ margin: { ...style.margin, bottom: Number(e.target.value) } })} />
-          </div>
+      {block.type === 'image' && (
+        <ImageProperties block={block} onChange={onChange} />
+      )}
+
+      {(block.type === 'spacer' || block.type === 'shape') && (
+        <Field label="Height (px)">
+          <Input className="h-8" type="number" min={block.type === 'spacer' ? 0 : 1} max={2000} value={block.height ?? 24} onChange={(event) => onChange({ height: Number(event.target.value) } as Partial<Block>)} />
+        </Field>
+      )}
+
+      {block.type === 'details' && (
+        <DetailsProperties block={block} onChange={onChange} />
+      )}
+
+      {block.type === 'lineItems' && (
+        <ColumnsProperties block={block} templateColumns={templateColumns} onChange={onChange} />
+      )}
+
+      {block.type === 'totals' && (
+        <div className="space-y-2">
+          {([
+            ['showSubtotal', 'Show subtotal'],
+            ['showTax', 'Show tax'],
+            ['showTotal', 'Show total'],
+          ] as const).map(([key, label]) => (
+            <Checkbox
+              key={key}
+              label={label}
+              checked={block[key] !== false}
+              onChange={(checked) => onChange({ [key]: checked } as Partial<TotalsBlock>)}
+            />
+          ))}
         </div>
-        <label className="flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={style.fontWeight === 700} onChange={(e) => onStyle({ fontWeight: e.target.checked ? 700 : 400 })} /> Bold
-        </label>
+      )}
+
+      {block.type === 'payment' && (
+        <Field label="Title">
+          <Input className="h-8" value={block.title ?? ''} onChange={(event) => onChange({ title: event.target.value } as Partial<Block>)} />
+        </Field>
+      )}
+
+      {block.type === 'qr' && (
+        <Field label="Caption">
+          <Input className="h-8" value={block.caption ?? ''} onChange={(event) => onChange({ caption: event.target.value } as Partial<Block>)} placeholder="Scan to view & download" />
+        </Field>
+      )}
+
+      <div className="space-y-3 border-t pt-3">
+        <Field label="Show when">
+          <Select value={block.visibleWhen ?? 'always'} onValueChange={(visibleWhen) => onChange({ visibleWhen } as Partial<Block>)}>
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="always">Always</SelectItem>
+              <SelectItem value="hasNotes">Invoice has notes</SelectItem>
+              <SelectItem value="hasBankAccounts">Bank accounts exist</SelectItem>
+              <SelectItem value="hasLogo">Logo exists</SelectItem>
+              <SelectItem value="hasStamp">Stamp exists</SelectItem>
+              <SelectItem value="hasSignature">Signature exists</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Align">
+            <Select value={style.align ?? 'left'} onValueChange={(align) => onStyle({ align: align as BlockStyle['align'] })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="left">Left</SelectItem>
+                <SelectItem value="center">Center</SelectItem>
+                <SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Width">
+            <Input className="h-8" value={style.width ?? ''} placeholder="100%" onChange={(event) => onStyle({ width: event.target.value || undefined })} />
+          </Field>
+          <Field label="Font size">
+            <Input className="h-8" type="number" min={1} max={500} value={style.fontSize ?? ''} onChange={(event) => onStyle({ fontSize: setNumber(event.target.value) })} />
+          </Field>
+          <Field label="Line height">
+            <Input className="h-8" type="number" min={0} max={20} step={0.1} value={style.lineHeight ?? ''} onChange={(event) => onStyle({ lineHeight: setNumber(event.target.value) })} />
+          </Field>
+        </div>
+
+        <Field label="Font family">
+          <Input className="h-8" value={style.fontFamily ?? ''} placeholder="Use document font" onChange={(event) => onStyle({ fontFamily: event.target.value || undefined })} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <ColorField label="Text color" value={style.color ?? '#0f172a'} onChange={(color) => onStyle({ color })} />
+          <ColorField label="Background" value={style.background ?? '#ffffff'} onChange={(background) => onStyle({ background })} />
+        </div>
+
+        <SpacingProperties label="Margin" value={style.margin} onChange={(margin) => onStyle({ margin })} />
+        <SpacingProperties label="Padding" value={style.padding} onChange={(padding) => onStyle({ padding })} />
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Border width">
+            <Input className="h-8" type="number" min={0} max={20} value={style.border?.width ?? ''} onChange={(event) => onStyle({ border: { ...style.border, width: setNumber(event.target.value) } })} />
+          </Field>
+          <ColorField label="Border color" value={style.border?.color ?? '#e5e7eb'} onChange={(color) => onStyle({ border: { ...style.border, color } })} />
+          <Field label="Border style">
+            <Select value={style.border?.style ?? 'solid'} onValueChange={(borderStyle) => onStyle({ border: { ...style.border, style: borderStyle as NonNullable<BlockStyle['border']>['style'] } })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="solid">Solid</SelectItem>
+                <SelectItem value="dashed">Dashed</SelectItem>
+                <SelectItem value="dotted">Dotted</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Corner radius">
+            <Input className="h-8" type="number" min={0} max={500} value={style.borderRadius ?? ''} onChange={(event) => onStyle({ borderRadius: setNumber(event.target.value) })} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Checkbox label="Bold" checked={(style.fontWeight ?? 400) >= 600} onChange={(checked) => onStyle({ fontWeight: checked ? 700 : 400 })} />
+          <Checkbox label="Italic" checked={style.italic === true} onChange={(italic) => onStyle({ italic })} />
+          <Checkbox label="Uppercase" checked={style.uppercase === true} onChange={(uppercase) => onStyle({ uppercase })} />
+        </div>
       </div>
     </div>
+  );
+}
+
+function ImageProperties({ block, onChange }: { block: ImageBlock; onChange: (patch: Partial<Block>) => void }) {
+  const source = block.binding ? `binding:${block.binding}` : 'custom';
+  return (
+    <div className="space-y-2">
+      <Field label="Source">
+        <Select
+          value={source}
+          onValueChange={(value) => {
+            if (value === 'custom') onChange({ binding: undefined } as Partial<ImageBlock>);
+            else onChange({ binding: value.replace('binding:', '') as ImageBlock['binding'], src: undefined } as Partial<ImageBlock>);
+          }}
+        >
+          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {['logo', 'stamp', 'signature', 'header', 'footer'].map((binding) => (
+              <SelectItem key={binding} value={`binding:${binding}`}>{binding}</SelectItem>
+            ))}
+            <SelectItem value="custom">Custom URL/data URL</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      {!block.binding && (
+        <Field label="Image URL">
+          <Textarea rows={2} value={block.src ?? ''} onChange={(event) => onChange({ src: event.target.value } as Partial<ImageBlock>)} />
+        </Field>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Height (px)">
+          <Input className="h-8" type="number" min={1} max={2000} value={block.height ?? 56} onChange={(event) => onChange({ height: Number(event.target.value) } as Partial<ImageBlock>)} />
+        </Field>
+        <Field label="Fit">
+          <Select value={block.fit ?? 'contain'} onValueChange={(fit) => onChange({ fit } as Partial<ImageBlock>)}>
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="contain">Contain</SelectItem>
+              <SelectItem value="cover">Cover</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+    </div>
+  );
+}
+
+function DetailsProperties({ block, onChange }: { block: DetailsBlock; onChange: (patch: Partial<Block>) => void }) {
+  const updateField = (index: number, patch: Partial<DetailsBlock['fields'][number]>) => {
+    onChange({ fields: block.fields.map((field, itemIndex) => itemIndex === index ? { ...field, ...patch } : field) } as Partial<DetailsBlock>);
+  };
+  return (
+    <div className="space-y-2">
+      <Field label="Title">
+        <Input className="h-8" value={block.title ?? ''} onChange={(event) => onChange({ title: event.target.value } as Partial<DetailsBlock>)} />
+      </Field>
+      <Label className="text-xs">Fields</Label>
+      {block.fields.map((field, index) => (
+        <div key={index} className="grid grid-cols-[1fr_1.4fr_auto] gap-1">
+          <Input className="h-8" value={field.label} placeholder="Label" onChange={(event) => updateField(index, { label: event.target.value })} />
+          <Input className="h-8" value={field.value} placeholder="{{client.name}}" onChange={(event) => updateField(index, { value: event.target.value })} />
+          <Button type="button" variant="ghost" size="icon" onClick={() => onChange({ fields: block.fields.filter((_, itemIndex) => itemIndex !== index) } as Partial<DetailsBlock>)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange({ fields: [...block.fields, { label: '', value: '' }] } as Partial<DetailsBlock>)}>
+        Add field
+      </Button>
+    </div>
+  );
+}
+
+function ColumnsProperties({
+  block,
+  templateColumns,
+  onChange,
+}: {
+  block: Extract<Block, { type: 'lineItems' }>;
+  templateColumns?: InvoiceColumn[];
+  onChange: (patch: Partial<Block>) => void;
+}) {
+  const inherited = block.columns === undefined;
+  const columns = block.columns ?? templateColumns ?? DEFAULT_COLUMNS;
+  const setColumns = (next: InvoiceColumn[] | undefined) => onChange({ columns: next } as Partial<Block>);
+  const updateColumn = (id: string, patch: Partial<InvoiceColumn>) => {
+    setColumns(columns.map((column) => column.id === id ? { ...column, ...patch } : column));
+  };
+  return (
+    <div className="space-y-2">
+      <Checkbox
+        label="Use template columns"
+        checked={inherited}
+        onChange={(checked) => setColumns(checked ? undefined : JSON.parse(JSON.stringify(columns)))}
+      />
+      {!inherited && columns.map((column, index) => (
+        <div key={column.id} className="rounded border p-2">
+          <div className="flex items-center gap-1">
+            <Input className="h-8 flex-1" value={column.label} onChange={(event) => updateColumn(column.id, { label: event.target.value })} />
+            <Button type="button" variant="ghost" size="icon" disabled={index === 0} onClick={() => {
+              const next = [...columns];
+              [next[index - 1], next[index]] = [next[index], next[index - 1]];
+              setColumns(next);
+            }}><ChevronUp className="h-3.5 w-3.5" /></Button>
+            <Button type="button" variant="ghost" size="icon" disabled={index === columns.length - 1} onClick={() => {
+              const next = [...columns];
+              [next[index + 1], next[index]] = [next[index], next[index + 1]];
+              setColumns(next);
+            }}><ChevronDown className="h-3.5 w-3.5" /></Button>
+            <Button type="button" variant="ghost" size="icon" onClick={() => setColumns(columns.filter((item) => item.id !== column.id))}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1">
+            <Checkbox label="Visible" checked={column.visible} onChange={(visible) => updateColumn(column.id, { visible })} />
+            <Input className="h-8" type="number" min={1} max={100} value={column.width ?? ''} placeholder="Width %" onChange={(event) => updateColumn(column.id, { width: event.target.value ? Number(event.target.value) : undefined })} />
+            <Select value={column.align ?? 'left'} onValueChange={(align) => updateColumn(column.id, { align: align as InvoiceColumn['align'] })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="left">Left</SelectItem>
+                <SelectItem value="center">Center</SelectItem>
+                <SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ))}
+      {!inherited && (
+        <Button type="button" variant="outline" size="sm" onClick={() => setColumns([
+          ...columns,
+          { id: makeId(), key: 'custom', label: 'Custom', visible: true, width: 15, align: 'left' },
+        ])}>
+          Add custom column
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function SpacingProperties({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: BlockStyle['margin'];
+  onChange: (value: NonNullable<BlockStyle['margin']>) => void;
+}) {
+  return (
+    <div>
+      <Label className="text-xs">{label} (px)</Label>
+      <div className="mt-1 grid grid-cols-4 gap-1">
+        {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
+          <Input
+            key={side}
+            className="h-8 px-2"
+            type="number"
+            min={-200}
+            max={500}
+            title={side}
+            aria-label={`${label} ${side}`}
+            value={value?.[side] ?? ''}
+            onChange={(event) => onChange({ ...value, [side]: event.target.value === '' ? undefined : Number(event.target.value) })}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <Field label={label}>
+      <Input className="h-8 p-1" type="color" value={value} onChange={(event) => onChange(event.target.value)} />
+    </Field>
+  );
+}
+
+function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 text-xs">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
   );
 }
