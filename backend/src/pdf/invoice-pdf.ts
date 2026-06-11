@@ -12,8 +12,12 @@ import puppeteer, { type Browser } from 'puppeteer';
 let browserPromise: Promise<Browser> | null = null;
 
 function launch(): Promise<Browser> {
+  // On servers, skip puppeteer's bundled Chromium download (PUPPETEER_SKIP_DOWNLOAD=true
+  // at install time) and point this at the system browser instead.
+  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
   return puppeteer.launch({
     headless: true,
+    executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
 }
