@@ -269,7 +269,11 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
             <SheetHeader>
               <SheetTitle>{editableTask?.title || "Task Details"}</SheetTitle>
               <SheetDescription>
-                In project <span className="font-semibold text-foreground">{project?.name}</span>
+                {project ? (
+                  <>In project <span className="font-semibold text-foreground">{project.name}</span></>
+                ) : (
+                  <span className="text-muted-foreground">No project</span>
+                )}
               </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto pe-6 -me-6 ps-1 -ms-1">

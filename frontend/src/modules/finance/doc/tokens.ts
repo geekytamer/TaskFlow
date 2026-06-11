@@ -1,6 +1,6 @@
-import { format } from 'date-fns';
 import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice } from '../types';
+import { getCurrentLocale } from '@/lib/locale';
 
 export interface DocDataContext {
   invoice: Invoice;
@@ -14,7 +14,10 @@ export interface DocDataContext {
   publicUrl: string;
 }
 
-const fmtDate = (d?: Date) => (d ? format(new Date(d), 'MMM d, yyyy') : '');
+const fmtDate = (d?: Date) =>
+  d
+    ? new Date(d).toLocaleDateString(getCurrentLocale(), { year: 'numeric', month: 'short', day: 'numeric' })
+    : '';
 
 /** Available binding tokens shown in the editor's data picker. */
 export const TOKEN_GROUPS: { group: string; tokens: { token: string; label: string }[] }[] = [

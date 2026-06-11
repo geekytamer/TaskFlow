@@ -3,6 +3,7 @@ import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import { DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail } from './email';
+import { renderInvoicePdf } from './pdf/invoice-pdf';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -546,13 +547,23 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
+  // A task without a project is a general company task: visible to anyone with
+  // company access. A task attached to a project inherits that project's visibility.
+  const canViewTask = (
+    user: SanitizedUser,
+    task: { projectId?: string | null },
+  ): boolean => {
+    if (!task.projectId) return true;
+    const project = store.getProjectById(task.projectId);
+    return Boolean(project && canViewProject(user, project));
+  };
+
   const requireTaskViewAccess = (
     req: AuthedRequest,
-    task: { companyId: string; projectId: string },
+    task: { companyId: string; projectId?: string | null },
   ) => {
     requireCompanyAccess(req, task.companyId);
-    const project = store.getProjectById(task.projectId);
-    if (!project || !canViewProject(req.user!, project)) {
+    if (!canViewTask(req.user!, task)) {
       throw new HttpError(403, 'You do not have access to this task.');
     }
   };
@@ -899,8 +910,8 @@ export function createServer(options: CreateServerOptions = {}) {
       generatedInvoiceId:
         record.generatedInvoiceId !== undefined ? optionalString(record.generatedInvoiceId) : undefined,
     };
-    if (!partial && (!payload.title || !payload.priority || !payload.companyId || !payload.projectId)) {
-      throw new HttpError(400, 'title, priority, companyId, and projectId are required.');
+    if (!partial && (!payload.title || !payload.priority || !payload.companyId)) {
+      throw new HttpError(400, 'title, priority, and companyId are required.');
     }
     return payload;
   };
@@ -1025,7 +1036,10 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!invoice) throw new HttpError(404, 'Invoice not found.');
       const companyRecord = store.getCompanyById(invoice.companyId);
       const templates = store.listInvoiceTemplates(invoice.companyId);
+      // Prefer the snapshot frozen at issue time so the public copy never drifts
+      // from what the customer was originally sent.
       const template =
+        invoice.templateSnapshot ||
         (invoice.templateId ? store.getInvoiceTemplateById(invoice.templateId) : undefined) ||
         templates.find((t) => t.isDefault) ||
         templates[0] ||
@@ -1043,6 +1057,45 @@ export function createServer(options: CreateServerOptions = {}) {
           ? { id: client.id, name: client.name, address: client.address, email: client.email }
           : undefined,
       });
+    }),
+  );
+
+  app.get(
+    '/invoices/:id/pdf',
+    authMiddleware,
+    handler(async (req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyAccess(req, invoice.companyId);
+
+      // Page geometry follows the frozen template's document settings when present.
+      const docPage = (invoice.templateSnapshot as any)?.doc?.page as
+        | { size?: string; orientation?: string }
+        | undefined;
+      const format: 'A4' | 'Letter' = docPage?.size === 'Letter' ? 'Letter' : 'A4';
+      const landscape = docPage?.orientation === 'landscape';
+
+      // Render the same public page a customer would see (snapshot-aware, no auth).
+      // Forward the caller's language so the PDF matches the on-screen language/RTL.
+      const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
+      const lang = typeof req.query.lang === 'string' && /^[a-z-]{2,8}$/i.test(req.query.lang) ? req.query.lang : '';
+      const url = `${appUrl}/invoice/${invoice.id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`;
+
+      let pdf: Buffer;
+      try {
+        pdf = await renderInvoicePdf({ url, format, landscape });
+      } catch (err) {
+        throw new HttpError(
+          503,
+          'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.',
+        );
+      }
+
+      const safeNumber = invoice.invoiceNumber.replace(/[^a-zA-Z0-9._-]+/g, '-');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="Invoice-${safeNumber}.pdf"`);
+      res.setHeader('Content-Length', pdf.length);
+      res.end(pdf);
     }),
   );
 
@@ -1745,10 +1798,7 @@ export function createServer(options: CreateServerOptions = {}) {
         store
           .listTasks()
           .filter((task) => accessible.has(task.companyId))
-          .filter((task) => {
-            const project = store.getProjectById(task.projectId);
-            return Boolean(project && canViewProject(req.user!, project));
-          }),
+          .filter((task) => canViewTask(req.user!, task)),
       );
     }),
   );
@@ -1786,7 +1836,9 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const payload = parseTaskPayload(req.body);
       requireCompanyAccess(req, payload.companyId!);
-      ensureProjectBelongsToCompany(payload.projectId!, payload.companyId!);
+      if (payload.projectId) {
+        ensureProjectBelongsToCompany(payload.projectId, payload.companyId!);
+      }
       ensureUsersBelongToCompany(payload.assignedUserIds || [], payload.companyId!, 'assignedUserIds');
       ensureTaskIdsBelongToCompany(payload.dependencies || [], payload.companyId!);
       const task = withActor(req, () =>
@@ -1800,7 +1852,7 @@ export function createServer(options: CreateServerOptions = {}) {
           assignedUserIds: payload.assignedUserIds || [],
           tags: payload.tags || [],
           companyId: payload.companyId!,
-          projectId: payload.projectId!,
+          projectId: payload.projectId ?? '',
           color: payload.color,
           dependencies: payload.dependencies || [],
           parentTaskId: payload.parentTaskId,
@@ -1831,7 +1883,9 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       const targetAssignedUserIds = payload.assignedUserIds ?? existing.assignedUserIds ?? [];
       const targetDependencies = payload.dependencies ?? existing.dependencies ?? [];
-      ensureProjectBelongsToCompany(targetProjectId, targetCompanyId);
+      if (targetProjectId) {
+        ensureProjectBelongsToCompany(targetProjectId, targetCompanyId);
+      }
       ensureUsersBelongToCompany(
         targetAssignedUserIds,
         targetCompanyId,
@@ -4731,7 +4785,16 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
       const exists = store.listPayments(req.params.id).some((p) => p.id === req.params.paymentId);
       if (!exists) throw new HttpError(404, 'Payment not found.');
-      const updated = withActor(req, () => store.reverseInvoicePayment(req.params.paymentId));
+      let updated;
+      try {
+        updated = withActor(req, () => store.reverseInvoicePayment(req.params.paymentId));
+      } catch (error) {
+        throw new HttpError(
+          400,
+          error instanceof Error ? error.message : 'Could not reverse payment.',
+        );
+      }
+      if (!updated) throw new HttpError(404, 'Payment not found.');
       res.json(updated);
     }),
   );
@@ -5047,7 +5110,16 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, bill.companyId, companyManagementRoles);
       const exists = store.listVendorBillPayments(req.params.id).some((p) => p.id === req.params.paymentId);
       if (!exists) throw new HttpError(404, 'Payment not found.');
-      const updated = withActor(req, () => store.reverseVendorBillPayment(req.params.paymentId));
+      let updated;
+      try {
+        updated = withActor(req, () => store.reverseVendorBillPayment(req.params.paymentId));
+      } catch (error) {
+        throw new HttpError(
+          400,
+          error instanceof Error ? error.message : 'Could not reverse vendor bill payment.',
+        );
+      }
+      if (!updated) throw new HttpError(404, 'Payment not found.');
       res.json(updated);
     }),
   );

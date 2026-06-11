@@ -42,9 +42,12 @@ export default function PrintInvoicePage() {
         const c = clients.find(c => c.id === inv.clientId) || null;
         setClient(c);
 
-        const t = templates.find(t => t.id === inv.templateId) || 
-                  templates.find(t => t.isDefault) || 
-                  templates[0] || 
+        // Prefer the frozen snapshot captured when the invoice was issued, so
+        // later edits to the live template never alter an already-issued invoice.
+        const t = inv.templateSnapshot ||
+                  templates.find(t => t.id === inv.templateId) ||
+                  templates.find(t => t.isDefault) ||
+                  templates[0] ||
                   null;
         setTemplate(t);
       } catch (err: any) {

@@ -1,5 +1,6 @@
 import type { InvoiceTemplate, InvoiceSectionKey } from '../types';
 import type { Block, InvoiceDoc } from './types';
+import { docStrings } from './strings';
 
 let n = 0;
 const id = (p: string) => `${p}-${n++}`;
@@ -11,12 +12,16 @@ const id = (p: string) => `${p}-${n++}`;
  */
 export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   n = 0;
+  const s = docStrings();
   const primary = template?.primaryColor || '#111827';
   const accent = template?.accentColor || '#2563eb';
   const breaks = new Set<InvoiceSectionKey>(template?.sectionBreaks ?? []);
   const pageBreak = (): Block => ({ id: id('pb'), type: 'pageBreak' });
 
   const body: Block[] = [];
+
+  // Full-bleed header image (renders only when the template has one).
+  body.push({ id: id('headerImg'), type: 'image', binding: 'header', fit: 'cover', style: { width: '100%', fullBleed: true, margin: { bottom: 16 } } });
 
   // Header: logo + company name on the left, INVOICE + number on the right.
   body.push({
@@ -41,7 +46,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
         layout: 'stack',
         style: { align: 'right' },
         children: [
-          { id: id('inv'), type: 'heading', level: 1, content: 'INVOICE', style: { align: 'right', color: primary } },
+          { id: id('inv'), type: 'heading', level: 1, content: s.invoice, style: { align: 'right', color: primary } },
           { id: id('num'), type: 'text', content: '{{invoice.number}}', style: { align: 'right', fontSize: 13, color: '#64748b', margin: { top: 8 } } },
           { id: id('st'), type: 'text', content: '{{invoice.status}}', style: { align: 'right', fontSize: 13, color: '#64748b' } },
         ],
@@ -57,15 +62,15 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
     layout: 'row',
     style: { margin: { top: 16, bottom: 8 } },
     children: [
-      { id: id('billto'), type: 'details', title: 'Bill To', fields: [
+      { id: id('billto'), type: 'details', title: s.billTo, fields: [
         { label: '', value: '{{client.name}}' },
         { label: '', value: '{{client.address}}' },
         { label: '', value: '{{client.email}}' },
       ] },
       { id: id('dates'), type: 'details', title: '', style: { align: 'right' }, fields: [
-        { label: 'Issue date', value: '{{invoice.issueDate}}' },
-        { label: 'Due date', value: '{{invoice.dueDate}}' },
-        { label: 'Currency', value: '{{invoice.currency}}' },
+        { label: s.issueDate, value: '{{invoice.issueDate}}' },
+        { label: s.dueDate, value: '{{invoice.dueDate}}' },
+        { label: s.currency, value: '{{invoice.currency}}' },
       ] },
     ],
   });
@@ -86,7 +91,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
       layout: 'stack',
       style: { margin: { top: 24 } },
       children: [
-        { id: id('tt'), type: 'text', content: 'Terms', style: { fontWeight: 600, color: primary } },
+        { id: id('tt'), type: 'text', content: s.terms, style: { fontWeight: 600, color: primary } },
         { id: id('tv'), type: 'text', content: template.terms, style: { margin: { top: 8 }, color: '#475569' } },
       ],
     });
@@ -101,7 +106,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
     visibleWhen: 'hasNotes',
     style: { margin: { top: 24 }, border: { width: 1, color: '#e5e7eb' }, borderRadius: 6, padding: { top: 16, right: 16, bottom: 16, left: 16 } },
     children: [
-      { id: id('nt'), type: 'text', content: 'Notes', style: { fontWeight: 600, color: primary } },
+      { id: id('nt'), type: 'text', content: s.notes, style: { fontWeight: 600, color: primary } },
       { id: id('nv'), type: 'text', content: '{{invoice.notes}}', style: { margin: { top: 8 } } },
     ],
   });
@@ -116,8 +121,11 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
     body.push({ id: id('qr'), type: 'qr', style: { margin: { top: 32 }, align: template?.qrPosition ?? 'center' } });
   }
 
-  // Footer
+  // Footer note
   body.push({ id: id('foot'), type: 'text', content: template?.footerNote || '', style: { margin: { top: 24 }, align: 'center', fontSize: 12, color: '#64748b', border: { width: 1, color: '#e5e7eb', sides: ['top'] }, padding: { top: 16 } } });
+
+  // Full-bleed footer image (renders only when the template has one).
+  body.push({ id: id('footerImg'), type: 'image', binding: 'footer', fit: 'cover', style: { width: '100%', fullBleed: true, margin: { top: 16 } } });
 
   return {
     version: 1,

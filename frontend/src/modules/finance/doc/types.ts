@@ -25,6 +25,9 @@ export interface BlockStyle {
   margin?: BoxSpacing;
   padding?: BoxSpacing;
   background?: string;
+  /** Data URL or URL of an image painted behind the block's content. */
+  backgroundImage?: string;
+  backgroundSize?: 'cover' | 'contain' | 'auto';
   border?: BlockBorder;
   borderRadius?: number;
   align?: DocAlign;
@@ -37,6 +40,8 @@ export interface BlockStyle {
   lineHeight?: number;
   italic?: boolean;
   uppercase?: boolean;
+  /** Break out of the page margins to span the full page width, edge to edge. */
+  fullBleed?: boolean;
 }
 
 /** Condition that controls whether a block renders for a given invoice. */

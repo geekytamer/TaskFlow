@@ -26,6 +26,7 @@ import {
   bulkUpdateInvoiceStatus,
   createPayment,
   reversePayment,
+  downloadInvoicePdf,
   getInvoices,
   getInvoiceTemplates,
   getPayments,
@@ -64,14 +65,16 @@ export function InvoiceTable() {
   const [statusFilter, setStatusFilter] = React.useState<'all' | InvoiceStatus>('all');
   const [paymentDialog, setPaymentDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
   const [previewInvoice, setPreviewInvoice] = React.useState<Invoice | null>(null);
+  const [pdfPending, setPdfPending] = React.useState(false);
   const [paymentAmount, setPaymentAmount] = React.useState('');
   const [paymentMethod, setPaymentMethod] = React.useState('');
   const [paymentNote, setPaymentNote] = React.useState('');
   const [payments, setPayments] = React.useState<Payment[]>([]);
   const [paymentLoading, setPaymentLoading] = React.useState(false);
+  const [reversingPaymentId, setReversingPaymentId] = React.useState<string | null>(null);
   const { toast } = useToast();
   const confirm = useConfirm();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
   const canManageFinance = effectiveRole !== 'Employee';
@@ -135,6 +138,21 @@ export function InvoiceTable() {
 
   const getCampaignName = (campaignId?: string) =>
     campaignId ? campaigns.find((campaign) => campaign.id === campaignId)?.name || campaignId : undefined;
+
+  const handleDownloadPdf = async (invoice: Invoice) => {
+    setPdfPending(true);
+    try {
+      await downloadInvoicePdf(invoice.id, invoice.invoiceNumber, language);
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: t('invoiceTable.pdfErrorTitle'),
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setPdfPending(false);
+    }
+  };
 
   const getOriginLabel = (invoice: Invoice, item: Invoice['lineItems'][number]) => {
     if (item.taskId) return getTaskTitle(item.taskId);
@@ -213,6 +231,7 @@ export function InvoiceTable() {
     setPaymentMethod('');
     setPaymentNote('');
     setPayments([]);
+    setReversingPaymentId(null);
     setPaymentLoading(true);
     try {
       const paymentHistory = await getPayments(invoice.id);
@@ -458,67 +477,85 @@ export function InvoiceTable() {
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={invoice.status === 'Draft' || (invoice.outstandingAmount || 0) <= 0}
+                          disabled={
+                            invoice.status === 'Draft'
+                            || ((invoice.outstandingAmount || 0) <= 0 && (invoice.paidAmount || 0) <= 0)
+                          }
                         >
-                          {t('invoiceTable.recordPaymentBtn')}
+                          {(invoice.paidAmount || 0) > 0
+                            ? t('invoiceTable.managePaymentsBtn')
+                            : t('invoiceTable.recordPaymentBtn')}
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-2xl">
                         <DialogHeader>
-                          <DialogTitle>{t('invoiceTable.recordPaymentTitle')}</DialogTitle>
+                          <DialogTitle>
+                            {(invoice.paidAmount || 0) > 0
+                              ? t('invoiceTable.managePaymentsTitle')
+                              : t('invoiceTable.recordPaymentTitle')}
+                          </DialogTitle>
                           <p className="text-sm text-muted-foreground">
                             {invoice.invoiceNumber} — {getClientName(invoice.clientId, invoice.contactId)}
                           </p>
                         </DialogHeader>
                         <div className="space-y-4 py-2">
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-md border p-3 text-sm">
-                              <div className="text-muted-foreground">{t('invoiceTable.invoiceTotalLabel')}</div>
-                              <div className="text-lg font-semibold">{amount(invoice.total)}</div>
-                            </div>
-                            <div className="rounded-md border p-3 text-sm">
-                              <div className="text-muted-foreground">{t('invoiceTable.paidLabel')}</div>
-                              <div className="text-lg font-semibold">{amount(invoice.paidAmount || 0)}</div>
-                            </div>
-                            <div className="rounded-md border p-3 text-sm">
-                              <div className="text-muted-foreground">{t('invoiceTable.outstandingLabel')}</div>
-                              <div className="text-lg font-semibold">{amount(invoice.outstandingAmount || 0)}</div>
-                            </div>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="space-y-1">
-                              <Label>{t('invoiceTable.amountLabel')}</Label>
-                              <Input
-                                type="number"
-                                value={paymentAmount}
-                                onChange={(e) => setPaymentAmount(e.target.value)}
-                                placeholder={t('invoiceTable.amountPlaceholder')}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label>{t('invoiceTable.methodLabel')}</Label>
-                              <Select value={paymentMethod || undefined} onValueChange={setPaymentMethod}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder={t('invoiceTable.methodPlaceholder')} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Bank Transfer">{t('vendorBills.payMethodBankTransfer')}</SelectItem>
-                                  <SelectItem value="Cash">{t('vendorBills.payMethodCash')}</SelectItem>
-                                  <SelectItem value="Card">{t('vendorBills.payMethodCard')}</SelectItem>
-                                  <SelectItem value="Cheque">{t('vendorBills.payMethodCheque')}</SelectItem>
-                                  <SelectItem value="Other">{t('vendorBills.payMethodOther')}</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label>{t('invoiceTable.noteLabel')}</Label>
-                              <Input
-                                value={paymentNote}
-                                onChange={(e) => setPaymentNote(e.target.value)}
-                                placeholder={t('invoiceTable.notePlaceholder')}
-                              />
-                            </div>
-                          </div>
+                          {(invoice.outstandingAmount || 0) > 0 && (
+                            <>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <div className="rounded-md border p-3 text-sm">
+                                  <div className="text-muted-foreground">{t('invoiceTable.invoiceTotalLabel')}</div>
+                                  <div className="text-lg font-semibold">{amount(invoice.total)}</div>
+                                </div>
+                                <div className="rounded-md border p-3 text-sm">
+                                  <div className="text-muted-foreground">{t('invoiceTable.paidLabel')}</div>
+                                  <div className="text-lg font-semibold">{amount(invoice.paidAmount || 0)}</div>
+                                </div>
+                                <div className="rounded-md border p-3 text-sm">
+                                  <div className="text-muted-foreground">{t('invoiceTable.outstandingLabel')}</div>
+                                  <div className="text-lg font-semibold">{amount(invoice.outstandingAmount || 0)}</div>
+                                </div>
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <div className="space-y-1">
+                                  <Label>{t('invoiceTable.amountLabel')}</Label>
+                                  <Input
+                                    type="number"
+                                    value={paymentAmount}
+                                    onChange={(e) => setPaymentAmount(e.target.value)}
+                                    placeholder={t('invoiceTable.amountPlaceholder')}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label>{t('invoiceTable.methodLabel')}</Label>
+                                  <Select value={paymentMethod || undefined} onValueChange={setPaymentMethod}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder={t('invoiceTable.methodPlaceholder')} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="Bank Transfer">{t('vendorBills.payMethodBankTransfer')}</SelectItem>
+                                      <SelectItem value="Cash">{t('vendorBills.payMethodCash')}</SelectItem>
+                                      <SelectItem value="Card">{t('vendorBills.payMethodCard')}</SelectItem>
+                                      <SelectItem value="Cheque">{t('vendorBills.payMethodCheque')}</SelectItem>
+                                      <SelectItem value="Other">{t('vendorBills.payMethodOther')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label>{t('invoiceTable.noteLabel')}</Label>
+                                  <Input
+                                    value={paymentNote}
+                                    onChange={(e) => setPaymentNote(e.target.value)}
+                                    placeholder={t('invoiceTable.notePlaceholder')}
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          {(invoice.outstandingAmount || 0) <= 0 && payments.length > 0 && (
+                            <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                              {t('invoiceTable.fullyPaidManageHelp')}
+                            </p>
+                          )}
                           <div className="rounded-lg border">
                             <Table>
                               <TableHeader>
@@ -557,6 +594,7 @@ export function InvoiceTable() {
                                           variant="ghost"
                                           size="sm"
                                           className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                                          disabled={reversingPaymentId === payment.id}
                                           onClick={async () => {
                                             if (!(await confirm({
                                               title: t('invoiceTable.reversePaymentTitle'),
@@ -567,10 +605,13 @@ export function InvoiceTable() {
                                               cancelText: t('common.cancel'),
                                               destructive: true,
                                             }))) return;
+                                            setReversingPaymentId(payment.id);
                                             try {
-                                              await reversePayment(invoice.id, payment.id);
+                                              const updatedInvoice = await reversePayment(invoice.id, payment.id);
                                               const refreshed = await getPayments(invoice.id);
                                               setPayments(refreshed);
+                                              setPaymentDialog({ open: true, invoice: updatedInvoice });
+                                              setPaymentAmount(String(updatedInvoice.outstandingAmount || 0));
                                               await fetchData();
                                               toast({ title: t('invoiceTable.toastPaymentReversed') });
                                             } catch (error: any) {
@@ -579,6 +620,8 @@ export function InvoiceTable() {
                                                 title: t('invoiceTable.toastPaymentReverseFailed'),
                                                 description: error?.message,
                                               });
+                                            } finally {
+                                              setReversingPaymentId(null);
                                             }
                                           }}
                                         >
@@ -601,6 +644,7 @@ export function InvoiceTable() {
                             />
                           )}
                         </div>
+                        {(invoice.outstandingAmount || 0) > 0 && (
                         <DialogFooter>
                           <Button
                             onClick={async () => {
@@ -647,6 +691,7 @@ export function InvoiceTable() {
                             {t('invoiceTable.savePayment')}
                           </Button>
                         </DialogFooter>
+                        )}
                       </DialogContent>
                     </Dialog>
                     )}
@@ -680,12 +725,21 @@ export function InvoiceTable() {
             <p className="text-sm text-muted-foreground">
               {t('invoiceTable.printHint')}
             </p>
-            <Button asChild>
-              <a href={`/finance/invoices/${previewInvoice?.id}/print?print=1`} target="_blank" rel="noopener noreferrer">
-                <Printer className="me-2 h-4 w-4" />
-                {t('invoiceTable.downloadInvoice')}
-              </a>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild variant="outline">
+                <a href={`/finance/invoices/${previewInvoice?.id}/print?print=1`} target="_blank" rel="noopener noreferrer">
+                  <Printer className="me-2 h-4 w-4" />
+                  {t('invoiceTable.downloadInvoice')}
+                </a>
+              </Button>
+              <Button
+                onClick={() => previewInvoice && handleDownloadPdf(previewInvoice)}
+                disabled={pdfPending}
+              >
+                <Download className="me-2 h-4 w-4" />
+                {pdfPending ? t('invoiceTable.pdfPending') : t('invoiceTable.downloadPdf')}
+              </Button>
+            </div>
           </div>
           {previewInvoice && (
             <div className="space-y-3">
@@ -694,7 +748,7 @@ export function InvoiceTable() {
                   invoice={previewInvoice}
                   client={clients.find((client) => client.id === previewInvoice.clientId)}
                   company={selectedCompany}
-                  template={getTemplate(previewInvoice.templateId)}
+                  template={previewInvoice.templateSnapshot || getTemplate(previewInvoice.templateId)}
                 />
               </div>
               {selectedCompany && (

@@ -136,40 +136,300 @@ test('an invoice payment can be recorded and reversed', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
   const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+  const now = new Date();
+  const issueDate = new Date(now.getFullYear(), now.getMonth(), 1, 12);
+  const dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 15, 12);
 
   const invoiceResponse = await auth(request(app).post('/invoices')).send({
     invoiceNumber: 'INV-REV-1',
     companyId: '1',
     clientId: 'client-1',
-    issueDate: '2026-04-08T00:00:00.000Z',
-    dueDate: '2026-04-18T00:00:00.000Z',
+    issueDate: issueDate.toISOString(),
+    dueDate: dueDate.toISOString(),
     status: 'Sent',
     lineItems: [{ description: 'Service', quantity: 1, unitPrice: 200, amount: 200, itemType: 'Manual' }],
   });
   assert.equal(invoiceResponse.status, 201);
   const invoiceId = invoiceResponse.body.id;
 
-  const payResponse = await auth(request(app).post(`/invoices/${invoiceId}/payments`)).send({ amount: 200, method: 'Cash' });
+  const overviewBeforePayment = await auth(request(app).get('/companies/1/finance/overview'));
+  const agingBeforePayment = await auth(request(app).get('/companies/1/finance/aging'));
+  const receivablesBeforePayment = agingBeforePayment.body.receivables.reduce(
+    (sum, bucket) => sum + bucket.amount,
+    0,
+  );
+
+  const payResponse = await auth(request(app).post(`/invoices/${invoiceId}/payments`)).send({
+    amount: 200,
+    method: 'Cash',
+    note: 'Mistaken receipt',
+    paidAt: now.toISOString(),
+  });
   assert.equal(payResponse.status, 201);
   const paymentId = payResponse.body.id;
 
   const paidList = await auth(request(app).get('/companies/1/invoices'));
-  assert.equal(paidList.body.find((i) => i.id === invoiceId).status, 'Paid');
+  const paidInvoice = paidList.body.find((i) => i.id === invoiceId);
+  assert.equal(paidInvoice.status, 'Paid');
+  assert.equal(paidInvoice.paidAmount, 200);
+  assert.equal(paidInvoice.outstandingAmount, 0);
+
+  const journalAfterPayment = await auth(request(app).get('/companies/1/finance/journal?limit=500'));
+  const paymentJournal = journalAfterPayment.body.find(
+    (entry) => entry.sourceType === 'invoice_payment' && entry.sourceId === paymentId,
+  );
+  assert.ok(paymentJournal);
+  assert.equal(paymentJournal.lines.reduce((sum, line) => sum + line.debit, 0), 200);
+  assert.equal(paymentJournal.lines.reduce((sum, line) => sum + line.credit, 0), 200);
+
+  const overviewAfterPayment = await auth(request(app).get('/companies/1/finance/overview'));
+  assert.equal(
+    overviewAfterPayment.body.paidThisMonth,
+    overviewBeforePayment.body.paidThisMonth + 200,
+  );
+  assert.equal(
+    overviewAfterPayment.body.openReceivables,
+    overviewBeforePayment.body.openReceivables - 200,
+  );
+
+  const agingAfterPayment = await auth(request(app).get('/companies/1/finance/aging'));
+  const receivablesAfterPayment = agingAfterPayment.body.receivables.reduce(
+    (sum, bucket) => sum + bucket.amount,
+    0,
+  );
+  assert.equal(receivablesAfterPayment, receivablesBeforePayment - 200);
 
   const reverseResponse = await auth(request(app).delete(`/invoices/${invoiceId}/payments/${paymentId}`));
   assert.equal(reverseResponse.status, 200);
+  assert.equal(reverseResponse.body.id, invoiceId);
+  assert.equal(reverseResponse.body.status, 'Sent');
+  assert.equal(reverseResponse.body.paidAmount, 0);
+  assert.equal(reverseResponse.body.outstandingAmount, 200);
 
   const payments = await auth(request(app).get(`/invoices/${invoiceId}/payments`));
   assert.equal(payments.body.length, 0);
 
   const revertedList = await auth(request(app).get('/companies/1/invoices'));
   const reverted = revertedList.body.find((i) => i.id === invoiceId);
-  assert.notEqual(reverted.status, 'Paid');
+  assert.equal(reverted.status, 'Sent');
+  assert.equal(reverted.paidAmount, 0);
   assert.equal(reverted.outstandingAmount, 200);
+
+  const journalAfterReversal = await auth(request(app).get('/companies/1/finance/journal?limit=500'));
+  assert.equal(
+    journalAfterReversal.body.some(
+      (entry) => entry.sourceType === 'invoice_payment' && entry.sourceId === paymentId,
+    ),
+    false,
+  );
+
+  const overviewAfterReversal = await auth(request(app).get('/companies/1/finance/overview'));
+  assert.deepEqual(overviewAfterReversal.body, overviewBeforePayment.body);
+
+  const agingAfterReversal = await auth(request(app).get('/companies/1/finance/aging'));
+  const receivablesAfterReversal = agingAfterReversal.body.receivables.reduce(
+    (sum, bucket) => sum + bucket.amount,
+    0,
+  );
+  assert.equal(receivablesAfterReversal, receivablesBeforePayment);
+
+  const activity = await auth(
+    request(app).get(`/companies/1/activity-events?entityType=invoice&entityId=${invoiceId}&limit=50`),
+  );
+  const recordedEvent = activity.body.find((event) => event.action === 'payment_recorded');
+  const reversedEvent = activity.body.find((event) => event.action === 'payment_reversed');
+  assert.equal(recordedEvent.metadata.paymentId, paymentId);
+  assert.equal(reversedEvent.metadata.paymentId, paymentId);
+  assert.equal(reversedEvent.metadata.amount, 200);
+  assert.equal(reversedEvent.metadata.method, 'Cash');
+  assert.equal(reversedEvent.metadata.note, 'Mistaken receipt');
 
   // Reversing a payment that no longer exists is a 404.
   const reverseAgain = await auth(request(app).delete(`/invoices/${invoiceId}/payments/${paymentId}`));
   assert.equal(reverseAgain.status, 404);
+});
+
+test('reversing an invoice payment rolls back payment-based commissions', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-commission-reversal-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: true });
+  const admin = store.listUsers().find((user) => user.email === 'admin@taskflow.com');
+  assert.ok(admin);
+  store.updateUser(admin.id, {
+    commissionEligible: true,
+    defaultCommissionRate: 10,
+    defaultCommissionBasis: 'Paid Amount',
+  });
+  const revenueUser = store.createUser({
+    name: 'Revenue Commission User',
+    email: 'revenue-commission@example.com',
+    role: 'Employee',
+    companyIds: ['1'],
+    companyRoles: [{ companyId: '1', role: 'Employee' }],
+    password: 'password',
+    commissionEligible: true,
+    defaultCommissionRate: 10,
+    defaultCommissionBasis: 'Revenue',
+  });
+
+  const now = new Date();
+  const invoice = store.createInvoice({
+    companyId: '1',
+    clientId: 'client-1',
+    issueDate: new Date(now.getFullYear(), now.getMonth(), 1, 12),
+    dueDate: new Date(now.getFullYear(), now.getMonth() + 1, 15, 12),
+    status: 'Sent',
+    total: 200,
+    lineItems: [
+      {
+        description: 'Commission reversal service',
+        quantity: 1,
+        unitPrice: 200,
+        amount: 200,
+        itemType: 'Manual',
+      },
+    ],
+  });
+  store.setContribution({
+    companyId: '1',
+    userId: admin.id,
+    userName: admin.name,
+    sourceType: 'invoice',
+    sourceId: invoice.id,
+    role: 'Sales',
+    weightPercent: 50,
+  });
+  store.setContribution({
+    companyId: '1',
+    userId: revenueUser.id,
+    userName: revenueUser.name,
+    sourceType: 'invoice',
+    sourceId: invoice.id,
+    role: 'Sales',
+    weightPercent: 50,
+  });
+
+  const payment = store.createPayment({
+    invoiceId: invoice.id,
+    amount: 200,
+    method: 'Cash',
+    note: 'Mistaken receipt',
+    paidAt: now,
+  });
+  let commission = store
+    .listCommissions('1')
+    .find((item) => item.invoiceId === invoice.id && item.basis === 'Paid Amount');
+  assert.ok(commission);
+  assert.equal(commission.basisAmount, 100);
+  assert.equal(commission.amount, 10);
+  assert.equal(commission.status, 'Draft');
+  let revenueCommission = store
+    .listCommissions('1')
+    .find((item) => item.invoiceId === invoice.id && item.basis === 'Revenue');
+  assert.ok(revenueCommission);
+  assert.equal(revenueCommission.amount, 10);
+
+  store.approveCommission(commission.id);
+  store.payCommission(commission.id);
+  store.approveCommission(revenueCommission.id);
+  store.payCommission(revenueCommission.id);
+  commission = store.getCommissionById(commission.id);
+  revenueCommission = store.getCommissionById(revenueCommission.id);
+  assert.equal(commission.status, 'Paid');
+  assert.equal(revenueCommission.status, 'Paid');
+  assert.ok(
+    store.listJournalEntries('1', 500).some(
+      (entry) => entry.sourceType === 'commission_accrual' && entry.sourceId === commission.id,
+    ),
+  );
+  assert.ok(
+    store.listJournalEntries('1', 500).some(
+      (entry) => entry.sourceType === 'commission_payment' && entry.sourceId === commission.id,
+    ),
+  );
+
+  const reversedInvoice = store.reverseInvoicePayment(payment.id);
+  assert.equal(reversedInvoice.status, 'Sent');
+  commission = store.getCommissionById(commission.id);
+  assert.equal(commission.status, 'Draft');
+  assert.equal(commission.basisAmount, 0);
+  assert.equal(commission.amount, 0);
+  assert.equal(commission.approvedAt, undefined);
+  assert.equal(commission.paidAt, undefined);
+  assert.equal(commission.approvedByUserId, undefined);
+  assert.equal(commission.paidByUserId, undefined);
+  assert.equal(
+    store.listJournalEntries('1', 500).some(
+      (entry) =>
+        (entry.sourceType === 'commission_accrual' || entry.sourceType === 'commission_payment')
+        && entry.sourceId === commission.id,
+    ),
+    false,
+  );
+  revenueCommission = store.getCommissionById(revenueCommission.id);
+  assert.equal(revenueCommission.status, 'Paid');
+  assert.equal(revenueCommission.basisAmount, 100);
+  assert.equal(revenueCommission.amount, 10);
+  assert.ok(
+    store.listJournalEntries('1', 500).some(
+      (entry) =>
+        entry.sourceType === 'commission_payment'
+        && entry.sourceId === revenueCommission.id,
+    ),
+  );
+});
+
+test('invoice payments in locked periods cannot be reversed', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const invoiceResponse = await auth(request(app).post('/invoices')).send({
+    invoiceNumber: 'INV-REV-LOCKED',
+    companyId: '1',
+    clientId: 'client-1',
+    issueDate: '2026-05-01T12:00:00.000Z',
+    dueDate: '2026-05-31T12:00:00.000Z',
+    status: 'Sent',
+    lineItems: [{ description: 'Locked receipt', quantity: 1, unitPrice: 125, amount: 125, itemType: 'Manual' }],
+  });
+  assert.equal(invoiceResponse.status, 201);
+
+  const paymentResponse = await auth(
+    request(app).post(`/invoices/${invoiceResponse.body.id}/payments`),
+  ).send({
+    amount: 125,
+    method: 'Bank Transfer',
+    paidAt: '2026-05-10T12:00:00.000Z',
+  });
+  assert.equal(paymentResponse.status, 201);
+
+  const lockResponse = await auth(request(app).put('/companies/1/finance/settings')).send({
+    lockedThroughDate: '2026-05-31T23:59:59.999Z',
+  });
+  assert.equal(lockResponse.status, 200);
+
+  const reverseResponse = await auth(
+    request(app).delete(
+      `/invoices/${invoiceResponse.body.id}/payments/${paymentResponse.body.id}`,
+    ),
+  );
+  assert.equal(reverseResponse.status, 400);
+  assert.match(reverseResponse.body.message, /locked accounting period/i);
+
+  const payments = await auth(
+    request(app).get(`/invoices/${invoiceResponse.body.id}/payments`),
+  );
+  assert.equal(payments.body.length, 1);
+
+  const journal = await auth(request(app).get('/companies/1/finance/journal?limit=500'));
+  assert.equal(
+    journal.body.some(
+      (entry) =>
+        entry.sourceType === 'invoice_payment'
+        && entry.sourceId === paymentResponse.body.id,
+    ),
+    true,
+  );
 });
 
 test('invoice document designs are validated and partial saves preserve template settings', async () => {
@@ -239,6 +499,51 @@ test('invoice document designs are validated and partial saves preserve template
   assert.deepEqual(persisted.doc, doc);
 });
 
+test('issued invoices freeze a template snapshot that survives later template edits', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const templatesResponse = await auth(request(app).get('/companies/1/invoice-templates'));
+  const template = templatesResponse.body.find((t) => t.isDefault) || templatesResponse.body[0];
+  assert.ok(template);
+
+  const created = await auth(request(app).post('/invoices')).send({
+    invoiceNumber: 'INV-SNAP-1',
+    companyId: '1',
+    clientId: 'client-1',
+    templateId: template.id,
+    issueDate: new Date('2026-01-15').toISOString(),
+    dueDate: new Date('2026-02-15').toISOString(),
+    status: 'Sent',
+    lineItems: [{ description: 'Service', quantity: 1, unitPrice: 100, amount: 100, itemType: 'Manual' }],
+  });
+  assert.equal(created.status, 201);
+  const invoiceId = created.body.id;
+  // The snapshot is captured at creation, mirroring the template's appearance.
+  assert.ok(created.body.templateSnapshot);
+  assert.equal(created.body.templateSnapshot.primaryColor, template.primaryColor);
+
+  // Edit the live template after the invoice was issued.
+  const edited = await auth(request(app).put(`/invoice-templates/${template.id}`)).send({
+    primaryColor: '#ff0000',
+    name: 'Renamed Template',
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.primaryColor, '#ff0000');
+
+  // The issued invoice keeps its original frozen appearance.
+  const fetched = await auth(request(app).get(`/invoices/${invoiceId}`));
+  assert.equal(fetched.status, 200);
+  assert.equal(fetched.body.templateSnapshot.primaryColor, template.primaryColor);
+  assert.notEqual(fetched.body.templateSnapshot.primaryColor, '#ff0000');
+
+  // The public copy resolves the frozen snapshot too.
+  const publicCopy = await request(app).get(`/public/invoices/${invoiceId}`);
+  assert.equal(publicCopy.status, 200);
+  assert.equal(publicCopy.body.template.primaryColor, template.primaryColor);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');
@@ -289,6 +594,8 @@ test('health endpoint reports status and applied migrations', async () => {
     '041_invoice_template_qr',
     '042_invoice_template_section_breaks',
     '043_invoice_template_doc',
+    '044_commission_nullable_source_links',
+    '045_invoice_template_snapshot',
   ]);
 });
 
@@ -748,6 +1055,32 @@ test('task creation rejects projects from another company', async () => {
 
   assert.equal(response.status, 400);
   assert.match(response.body.message, /project/i);
+});
+
+test('task creation allows an optional (empty) project', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const created = await auth(request(app).post('/tasks')).send({
+    title: 'General company task',
+    priority: 'Medium',
+    companyId: '1',
+  });
+
+  assert.equal(created.status, 201);
+  assert.equal(created.body.projectId, '');
+  const taskId = created.body.id;
+
+  // It shows up in the company-wide task list (the list filter used to drop it).
+  const list = await auth(request(app).get('/tasks'));
+  assert.equal(list.status, 200);
+  assert.ok(list.body.some((task) => task.id === taskId));
+
+  // It is retrievable directly even though it has no project.
+  const fetched = await auth(request(app).get(`/tasks/${taskId}`));
+  assert.equal(fetched.status, 200);
+  assert.equal(fetched.body.title, 'General company task');
 });
 
 test('purchase order creation rejects unknown inventory references', async () => {
@@ -1378,77 +1711,83 @@ test('vendor bill approval and payment post journal entries without duplicates',
 test('vendor bill payments support partial settlement and update balances', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+  const now = new Date();
+  const issueDate = new Date(now.getFullYear(), now.getMonth(), 1, 12);
+  const dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 15, 12);
 
-  const billResponse = await request(app)
+  const billResponse = await auth(request(app)
     .post('/companies/1/finance/vendor-bills')
-    .set('Authorization', `Bearer ${token}`)
+  )
     .send({
       vendorName: 'Partial Pay Vendor',
-      issueDate: '2026-04-08T00:00:00.000Z',
-      dueDate: '2026-04-22T00:00:00.000Z',
+      issueDate: issueDate.toISOString(),
+      dueDate: dueDate.toISOString(),
       amount: 180,
       status: 'Approved',
     });
   assert.equal(billResponse.status, 201);
   assert.match(billResponse.body.billNumber, /^VI-\d{4}$/);
   const billId = billResponse.body.id;
+  const overviewBeforePayment = await auth(request(app).get('/companies/1/finance/overview'));
+  const agingBeforePayment = await auth(request(app).get('/companies/1/finance/aging'));
+  const payablesBeforePayment = agingBeforePayment.body.payables.reduce(
+    (sum, bucket) => sum + bucket.amount,
+    0,
+  );
 
-  const firstPaymentResponse = await request(app)
+  const firstPaymentResponse = await auth(request(app)
     .post(`/vendor-bills/${billId}/payments`)
-    .set('Authorization', `Bearer ${token}`)
+  )
     .send({
       amount: 70,
       method: 'Bank Transfer',
       note: 'First settlement',
+      paidAt: now.toISOString(),
     });
   assert.equal(firstPaymentResponse.status, 201);
   assert.equal(firstPaymentResponse.body.bill.status, 'Approved');
   assert.equal(firstPaymentResponse.body.bill.paidAmount, 70);
   assert.equal(firstPaymentResponse.body.bill.outstandingAmount, 110);
 
-  let paymentsResponse = await request(app)
-    .get(`/vendor-bills/${billId}/payments`)
-    .set('Authorization', `Bearer ${token}`);
+  const firstPaymentId = firstPaymentResponse.body.payment.id;
+  let paymentsResponse = await auth(request(app).get(`/vendor-bills/${billId}/payments`));
   assert.equal(paymentsResponse.status, 200);
   assert.equal(paymentsResponse.body.length, 1);
 
-  let billsResponse = await request(app)
-    .get('/companies/1/finance/vendor-bills')
-    .set('Authorization', `Bearer ${token}`);
+  let billsResponse = await auth(request(app).get('/companies/1/finance/vendor-bills'));
   assert.equal(billsResponse.status, 200);
   let bill = billsResponse.body.find((entry) => entry.id === billId);
   assert.ok(bill);
   assert.equal(bill.paidAmount, 70);
   assert.equal(bill.outstandingAmount, 110);
 
-  const overPaymentResponse = await request(app)
+  const overPaymentResponse = await auth(request(app)
     .post(`/vendor-bills/${billId}/payments`)
-    .set('Authorization', `Bearer ${token}`)
+  )
     .send({ amount: 120 });
   assert.equal(overPaymentResponse.status, 400);
   assert.match(overPaymentResponse.body.message, /outstanding amount/i);
 
-  const finalPaymentResponse = await request(app)
+  const finalPaymentResponse = await auth(request(app)
     .post(`/vendor-bills/${billId}/payments`)
-    .set('Authorization', `Bearer ${token}`)
+  )
     .send({
       amount: 110,
       method: 'Bank Transfer',
       note: 'Final settlement',
+      paidAt: now.toISOString(),
     });
   assert.equal(finalPaymentResponse.status, 201);
   assert.equal(finalPaymentResponse.body.bill.status, 'Paid');
   assert.equal(finalPaymentResponse.body.bill.outstandingAmount, 0);
+  const finalPaymentId = finalPaymentResponse.body.payment.id;
 
-  paymentsResponse = await request(app)
-    .get(`/vendor-bills/${billId}/payments`)
-    .set('Authorization', `Bearer ${token}`);
+  paymentsResponse = await auth(request(app).get(`/vendor-bills/${billId}/payments`));
   assert.equal(paymentsResponse.status, 200);
   assert.equal(paymentsResponse.body.length, 2);
 
-  const journalResponse = await request(app)
-    .get('/companies/1/finance/journal')
-    .set('Authorization', `Bearer ${token}`);
+  const journalResponse = await auth(request(app).get('/companies/1/finance/journal'));
   assert.equal(journalResponse.status, 200);
   const paymentEntries = journalResponse.body.filter((entry) => entry.sourceType === 'vendor_bill_payment');
   assert.equal(paymentEntries.length, 2);
@@ -1460,11 +1799,138 @@ test('vendor bill payments support partial settlement and update balances', asyn
     180,
   );
 
-  const overviewResponse = await request(app)
-    .get('/companies/1/finance/overview')
-    .set('Authorization', `Bearer ${token}`);
+  const overviewResponse = await auth(request(app).get('/companies/1/finance/overview'));
   assert.equal(overviewResponse.status, 200);
-  assert.equal(overviewResponse.body.paidPayablesThisMonth, 180);
+  assert.equal(
+    overviewResponse.body.paidPayablesThisMonth,
+    overviewBeforePayment.body.paidPayablesThisMonth + 180,
+  );
+  assert.equal(
+    overviewResponse.body.openPayables,
+    overviewBeforePayment.body.openPayables - 180,
+  );
+
+  const agingAfterPayment = await auth(request(app).get('/companies/1/finance/aging'));
+  const payablesAfterPayment = agingAfterPayment.body.payables.reduce(
+    (sum, bucket) => sum + bucket.amount,
+    0,
+  );
+  assert.equal(payablesAfterPayment, payablesBeforePayment - 180);
+
+  const reverseFinal = await auth(
+    request(app).delete(`/vendor-bills/${billId}/payments/${finalPaymentId}`),
+  );
+  assert.equal(reverseFinal.status, 200);
+  assert.equal(reverseFinal.body.status, 'Approved');
+  assert.equal(reverseFinal.body.paidAmount, 70);
+  assert.equal(reverseFinal.body.outstandingAmount, 110);
+
+  paymentsResponse = await auth(request(app).get(`/vendor-bills/${billId}/payments`));
+  assert.equal(paymentsResponse.body.length, 1);
+  assert.equal(paymentsResponse.body[0].id, firstPaymentId);
+
+  const journalAfterFinalReversal = await auth(
+    request(app).get('/companies/1/finance/journal?limit=500'),
+  );
+  assert.equal(
+    journalAfterFinalReversal.body.some(
+      (entry) => entry.sourceType === 'vendor_bill_payment' && entry.sourceId === finalPaymentId,
+    ),
+    false,
+  );
+  assert.equal(
+    journalAfterFinalReversal.body.some(
+      (entry) => entry.sourceType === 'vendor_bill_payment' && entry.sourceId === firstPaymentId,
+    ),
+    true,
+  );
+
+  const reverseFirst = await auth(
+    request(app).delete(`/vendor-bills/${billId}/payments/${firstPaymentId}`),
+  );
+  assert.equal(reverseFirst.status, 200);
+  assert.equal(reverseFirst.body.status, 'Approved');
+  assert.equal(reverseFirst.body.paidAmount, 0);
+  assert.equal(reverseFirst.body.outstandingAmount, 180);
+
+  const overviewAfterReversal = await auth(request(app).get('/companies/1/finance/overview'));
+  assert.equal(
+    overviewAfterReversal.body.paidPayablesThisMonth,
+    overviewBeforePayment.body.paidPayablesThisMonth,
+  );
+  assert.equal(
+    overviewAfterReversal.body.openPayables,
+    overviewBeforePayment.body.openPayables,
+  );
+  const agingAfterReversal = await auth(request(app).get('/companies/1/finance/aging'));
+  const payablesAfterReversal = agingAfterReversal.body.payables.reduce(
+    (sum, bucket) => sum + bucket.amount,
+    0,
+  );
+  assert.equal(payablesAfterReversal, payablesBeforePayment);
+
+  const activity = await auth(
+    request(app).get(`/companies/1/activity-events?entityType=vendor_bill&entityId=${billId}&limit=50`),
+  );
+  const recordedEvents = activity.body.filter((event) => event.action === 'payment_recorded');
+  const reversedEvents = activity.body.filter((event) => event.action === 'payment_reversed');
+  assert.equal(recordedEvents.length, 2);
+  assert.equal(reversedEvents.length, 2);
+  assert.ok(recordedEvents.some((event) => event.metadata.paymentId === firstPaymentId));
+  assert.ok(reversedEvents.some((event) => event.metadata.paymentId === finalPaymentId));
+
+  const reverseAgain = await auth(
+    request(app).delete(`/vendor-bills/${billId}/payments/${firstPaymentId}`),
+  );
+  assert.equal(reverseAgain.status, 404);
+});
+
+test('vendor bill payments in locked periods cannot be reversed', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const billResponse = await auth(request(app).post('/companies/1/finance/vendor-bills')).send({
+    vendorName: 'Locked Payable Vendor',
+    issueDate: '2026-05-01T12:00:00.000Z',
+    dueDate: '2026-06-15T12:00:00.000Z',
+    amount: 90,
+    status: 'Approved',
+  });
+  assert.equal(billResponse.status, 201);
+  const billId = billResponse.body.id;
+
+  const paymentResponse = await auth(request(app).post(`/vendor-bills/${billId}/payments`)).send({
+    amount: 40,
+    method: 'Cash',
+    note: 'Locked period payment',
+    paidAt: '2026-05-10T12:00:00.000Z',
+  });
+  assert.equal(paymentResponse.status, 201);
+  const paymentId = paymentResponse.body.payment.id;
+
+  const lockResponse = await auth(request(app).put('/companies/1/finance/settings')).send({
+    lockedThroughDate: '2026-05-31T23:59:59.999Z',
+  });
+  assert.equal(lockResponse.status, 200);
+
+  const reverseResponse = await auth(
+    request(app).delete(`/vendor-bills/${billId}/payments/${paymentId}`),
+  );
+  assert.equal(reverseResponse.status, 400);
+  assert.match(reverseResponse.body.message, /locked accounting period/i);
+
+  const payments = await auth(request(app).get(`/vendor-bills/${billId}/payments`));
+  assert.equal(payments.body.length, 1);
+  assert.equal(payments.body[0].id, paymentId);
+
+  const journal = await auth(request(app).get('/companies/1/finance/journal?limit=500'));
+  assert.equal(
+    journal.body.some(
+      (entry) => entry.sourceType === 'vendor_bill_payment' && entry.sourceId === paymentId,
+    ),
+    true,
+  );
 });
 
 test('chart of accounts supports rich custom account CRUD while protecting system accounts', async () => {

@@ -89,12 +89,15 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
     
     const filteredTasks = React.useMemo(() => {
         const visibleProjectIds = visibleProjects.map(p => p.id);
-        return tasks.filter(task => 
+        return tasks.filter(task =>
             (!projectId || task.projectId === projectId) &&
             (selectedStatus === 'all' || task.status === selectedStatus) &&
-            visibleProjectIds.includes(task.projectId)
+            (visibleProjectIds.includes(task.projectId) ||
+                // Project-less tasks aren't tied to any project; show them in the
+                // company-wide view (no projectId prop) as long as they're in this company.
+                (!task.projectId && task.companyId === selectedCompany?.id))
         );
-    }, [tasks, projectId, selectedStatus, visibleProjects]);
+    }, [tasks, projectId, selectedStatus, visibleProjects, selectedCompany]);
 
     const handleTaskClick = (task: Task) => {
         setSelectedTask(task);
@@ -183,8 +186,14 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell>
                             <div className="flex items-center gap-2">
-                                {project && <span className="h-2 w-2 rounded-full" style={{backgroundColor: task.color || project.color}} />}
-                                {project?.name}
+                                {project ? (
+                                    <>
+                                        <span className="h-2 w-2 rounded-full" style={{backgroundColor: task.color || project.color}} />
+                                        {project.name}
+                                    </>
+                                ) : (
+                                    <span className="text-muted-foreground">No project</span>
+                                )}
                             </div>
                         </TableCell>
                         <TableCell>{client?.name || 'Unlinked'}</TableCell>

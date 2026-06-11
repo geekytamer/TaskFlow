@@ -53,8 +53,11 @@ import { canViewProject } from '@/modules/projects/lib/access';
 
 const priorityValues = ['Low', 'Medium', 'High'] as const;
 
+// Sentinel for the "No project" option — Radix Select items can't use an empty value.
+const NO_PROJECT = 'none';
+
 const createTaskSchema = z.object({
-  projectId: z.string({ required_error: 'Please select a project.' }),
+  projectId: z.string().optional(),
   title: z.string().min(3, 'Title must be at least 3 characters.'),
   description: z.string().optional(),
   assignedUserIds: z.array(z.string()).optional(),
@@ -172,12 +175,13 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
             ...data,
             companyId: selectedCompany.id,
             description: data.description || '',
+            projectId: data.projectId && data.projectId !== NO_PROJECT ? data.projectId : '',
             tags: data.tags || [],
             parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
         });
         toast({
         title: 'Task Created',
-        description: `Task "${data.title}" has been added to the project.`,
+        description: `Task "${data.title}" has been created.`,
         });
         form.reset();
         setOpen(false);
@@ -231,13 +235,19 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                       <FormItem className="grid grid-cols-4 items-center gap-4">
                         <FormLabel className="text-end">Project</FormLabel>
                         <div className="col-span-3">
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select
+                            onValueChange={(v) => field.onChange(v === NO_PROJECT ? '' : v)}
+                            value={field.value || NO_PROJECT}
+                          >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select a project" />
+                                <SelectValue placeholder="No project (optional)" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
+                              <SelectItem value={NO_PROJECT}>
+                                <span className="text-muted-foreground">No project</span>
+                              </SelectItem>
                               {visibleProjects.map((project) => (
                                 <SelectItem key={project.id} value={project.id}>
                                   <div className="flex items-center gap-2">

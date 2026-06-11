@@ -329,6 +329,8 @@ export interface Invoice {
   contactId?: string;
   salesOrderId?: string;
   templateId?: string;
+  /** Frozen copy of the template used at issue time, so edits never change issued invoices. */
+  templateSnapshot?: InvoiceTemplate;
   issueDate: Date;
   dueDate: Date;
   lineItems: InvoiceLineItem[];

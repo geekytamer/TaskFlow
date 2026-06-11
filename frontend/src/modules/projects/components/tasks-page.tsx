@@ -48,7 +48,14 @@ export function TasksPage() {
             .filter((p) => p.companyId === selectedCompany.id && canViewProject(p, currentUser.id, currentRole))
             .map((p) => p.id),
         );
-        setTasks(all.filter((t) => visibleProjectIds.has(t.projectId)));
+        setTasks(
+          all.filter(
+            (t) =>
+              // Project-less tasks belong to the company directly; keep them too.
+              (!t.projectId && t.companyId === selectedCompany.id) ||
+              visibleProjectIds.has(t.projectId),
+          ),
+        );
       })
       .finally(() => setLoading(false));
   }, [selectedCompany, projects, currentUser, currentRole]);

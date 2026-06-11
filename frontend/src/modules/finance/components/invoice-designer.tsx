@@ -12,6 +12,7 @@ import type { InvoiceTemplate, Invoice, Client, InvoiceColumn } from '../types';
 import type { Company } from '@/modules/companies/types';
 import { DocRenderer } from '../doc/doc-renderer';
 import { templateToDoc } from '../doc/template-to-doc';
+import { invoicePresets } from '../doc/presets';
 import { TOKEN_GROUPS } from '../doc/tokens';
 import type {
   Block,
@@ -28,6 +29,7 @@ import {
   Banknote,
   Calculator,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Copy,
   FileText,
@@ -46,12 +48,19 @@ import {
   Trash2,
   Type,
   Undo2,
+  Upload,
+  X,
 } from 'lucide-react';
 
 const makeId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `b-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+// Embedded images live inside the document JSON, which is validated with a
+// ~2,000,000-character cap per field. A base64 data URL is ~1.34× the file
+// size, so ~1.4 MB keeps it comfortably under the cap (and the 4 MB API limit).
+const MAX_IMAGE_BYTES = 1_400_000;
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -230,6 +239,34 @@ function duplicateBlockInTree(blocks: Block[], id: string): Block[] {
   );
 }
 
+/**
+ * Move `draggedId` to sit before/after `targetId` within the SAME parent.
+ * Cross-parent drops are ignored so the flow layout stays predictable.
+ */
+function reorderBlockInTree(
+  blocks: Block[],
+  draggedId: string,
+  targetId: string,
+  place: 'before' | 'after',
+): Block[] {
+  const di = blocks.findIndex((b) => b.id === draggedId);
+  const ti = blocks.findIndex((b) => b.id === targetId);
+  if (di >= 0 && ti >= 0) {
+    if (draggedId === targetId) return blocks;
+    const next = [...blocks];
+    const [dragged] = next.splice(di, 1);
+    let insertAt = next.findIndex((b) => b.id === targetId);
+    if (place === 'after') insertAt += 1;
+    next.splice(insertAt, 0, dragged);
+    return next;
+  }
+  return blocks.map((block) =>
+    block.type === 'container'
+      ? { ...block, children: reorderBlockInTree(block.children, draggedId, targetId, place) }
+      : block,
+  );
+}
+
 export function InvoiceDesigner({ template, company, onClose, onSaved }: InvoiceDesignerProps) {
   const { toast } = useToast();
   const initialDoc = React.useMemo(
@@ -241,6 +278,13 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const [history, setHistory] = React.useState<InvoiceDoc[]>([]);
   const [future, setFuture] = React.useState<InvoiceDoc[]>([]);
   const [saving, setSaving] = React.useState(false);
+  const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(new Set());
+  const toggleCollapsed = (id: string) =>
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   const savedSnapshot = React.useRef(JSON.stringify(initialDoc));
   const dirty = JSON.stringify(doc) !== savedSnapshot.current;
   const errors = React.useMemo(() => validateInvoiceDoc(doc), [doc]);
@@ -302,6 +346,22 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const removeBlock = (id: string) => {
     commit((current) => ({ ...current, body: removeBlockFromTree(current.body, id) }));
     if (selectedId === id) setSelectedId(null);
+  };
+
+  const reorder = (draggedId: string, targetId: string, place: 'before' | 'after') => {
+    commit((current) => ({
+      ...current,
+      body: reorderBlockInTree(current.body, draggedId, targetId, place),
+    }));
+    setSelectedId(draggedId);
+  };
+
+  const applyPreset = (presetId: string) => {
+    const preset = invoicePresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    if (dirty && !window.confirm(`Replace the current design with the "${preset.name}" preset?`)) return;
+    commit(() => preset.build({ ...template, doc: undefined }));
+    setSelectedId(null);
   };
 
   const undo = () => {
@@ -396,7 +456,23 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
 
       <div className="grid flex-1 gap-3 overflow-hidden lg:grid-cols-[190px_300px_1fr]">
         <div className="overflow-y-auto rounded-lg border p-2">
-          <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add block</p>
+          <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start from a preset</p>
+          <div className="grid gap-1.5">
+            {invoicePresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyPreset(preset.id)}
+                className="rounded-md border p-2 text-left hover:bg-muted"
+                title={preset.description}
+              >
+                <span className="block text-[12px] font-medium">{preset.name}</span>
+                <span className="block text-[10px] leading-tight text-muted-foreground">{preset.description}</span>
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add block</p>
           <div className="grid grid-cols-2 gap-1.5">
             {PALETTE.map((item) => (
               <button
@@ -425,6 +501,8 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
             blocks={doc.body}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            collapsedIds={collapsedIds}
+            onToggleCollapsed={toggleCollapsed}
             onMove={(id, direction) => commit((current) => ({
               ...current,
               body: moveBlockInTree(current.body, id, direction),
@@ -434,6 +512,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
               body: duplicateBlockInTree(current.body, id),
             }))}
             onRemove={removeBlock}
+            onReorder={reorder}
           />
           {doc.body.length === 0 && <p className="px-1 text-xs text-muted-foreground">Add blocks from the left.</p>}
         </div>
@@ -441,8 +520,21 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
         <div className="grid gap-3 overflow-hidden xl:grid-cols-[minmax(520px,1fr)_320px]">
           <div className="overflow-auto rounded-lg border bg-muted/30 p-4">
             <div className="mx-auto w-fit max-w-full bg-white shadow-sm">
-              <DocRenderer doc={doc} invoice={sampleInvoice} client={sampleClient} company={company} template={template} />
+              <DocRenderer
+                doc={doc}
+                invoice={sampleInvoice}
+                client={sampleClient}
+                company={company}
+                template={template}
+                editable
+                selectedId={selectedId}
+                onSelectBlock={setSelectedId}
+                onReorderBlock={reorder}
+              />
             </div>
+            <p className="mt-2 text-center text-[11px] text-muted-foreground">
+              Click a block to edit it · drag to reorder
+            </p>
           </div>
           <div className="overflow-y-auto rounded-lg border p-3">
             <DocumentProperties doc={doc} onChange={(patch) => commit((current) => ({ ...current, ...patch }))} />
@@ -468,17 +560,23 @@ function BlockTree({
   blocks,
   selectedId,
   onSelect,
+  collapsedIds,
+  onToggleCollapsed,
   onMove,
   onDuplicate,
   onRemove,
+  onReorder,
   depth = 0,
 }: {
   blocks: Block[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  collapsedIds: Set<string>;
+  onToggleCollapsed: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
   onDuplicate: (id: string) => void;
   onRemove: (id: string) => void;
+  onReorder: (draggedId: string, targetId: string, place: 'before' | 'after') => void;
   depth?: number;
 }) {
   return (
@@ -486,12 +584,45 @@ function BlockTree({
       {blocks.map((block, index) => (
         <div key={block.id}>
           <div
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', block.id);
+              e.dataTransfer.effectAllowed = 'move';
+              e.stopPropagation();
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const draggedId = e.dataTransfer.getData('text/plain');
+              if (!draggedId || draggedId === block.id) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const place = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+              onReorder(draggedId, block.id, place);
+            }}
             className={`flex items-center gap-1 rounded-md border p-1.5 text-xs ${
               selectedId === block.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
             }`}
           >
-            <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => onSelect(block.id)}>
+            {block.type === 'container' && block.children.length > 0 ? (
+              <button
+                type="button"
+                title={collapsedIds.has(block.id) ? 'Expand group' : 'Collapse group'}
+                aria-label={collapsedIds.has(block.id) ? 'Expand group' : 'Collapse group'}
+                aria-expanded={!collapsedIds.has(block.id)}
+                className="shrink-0 text-muted-foreground"
+                onClick={() => onToggleCollapsed(block.id)}
+              >
+                {collapsedIds.has(block.id) ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+            ) : (
+              <span className="w-3.5 shrink-0" />
+            )}
+            <button type="button" className="min-w-0 flex-1 cursor-grab truncate text-left" onClick={() => onSelect(block.id)}>
               {blockSummary(block)}
+              {block.type === 'container' && block.children.length > 0 ? (
+                <span className="ms-1 text-muted-foreground">({block.children.length})</span>
+              ) : null}
             </button>
             <button type="button" title="Move up" aria-label="Move block up" disabled={index === 0} onClick={() => onMove(block.id, -1)}>
               <ChevronUp className="h-3.5 w-3.5" />
@@ -506,13 +637,16 @@ function BlockTree({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
-          {block.type === 'container' && block.children.length > 0 && (
+          {block.type === 'container' && block.children.length > 0 && !collapsedIds.has(block.id) && (
             <BlockTree
               blocks={block.children}
               selectedId={selectedId}
               onSelect={onSelect}
+              collapsedIds={collapsedIds}
+              onToggleCollapsed={onToggleCollapsed}
               onMove={onMove}
               onDuplicate={onDuplicate}
+              onReorder={onReorder}
               onRemove={onRemove}
               depth={depth + 1}
             />
@@ -761,6 +895,25 @@ function BlockProperties({
           <ColorField label="Background" value={style.background ?? '#ffffff'} onChange={(background) => onStyle({ background })} />
         </div>
 
+        <Field label="Background image">
+          <div className="space-y-2">
+            <ImageUploadButton label="Upload background" onUploaded={(dataUrl) => onStyle({ backgroundImage: dataUrl })} />
+            {style.backgroundImage ? (
+              <>
+                <ImagePreview src={style.backgroundImage} onClear={() => onStyle({ backgroundImage: undefined })} />
+                <Select value={style.backgroundSize ?? 'cover'} onValueChange={(size) => onStyle({ backgroundSize: size as NonNullable<BlockStyle['backgroundSize']> })}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cover">Cover (fill)</SelectItem>
+                    <SelectItem value="contain">Contain (fit)</SelectItem>
+                    <SelectItem value="auto">Original size</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            ) : null}
+          </div>
+        </Field>
+
         <SpacingProperties label="Margin" value={style.margin} onChange={(margin) => onStyle({ margin })} />
         <SpacingProperties label="Padding" value={style.padding} onChange={(padding) => onStyle({ padding })} />
 
@@ -789,7 +942,67 @@ function BlockProperties({
           <Checkbox label="Italic" checked={style.italic === true} onChange={(italic) => onStyle({ italic })} />
           <Checkbox label="Uppercase" checked={style.uppercase === true} onChange={(uppercase) => onStyle({ uppercase })} />
         </div>
+
+        <Checkbox
+          label="Full width (ignore page margins)"
+          checked={style.fullBleed === true}
+          onChange={(fullBleed) => onStyle({ fullBleed })}
+        />
+        {style.fullBleed ? (
+          <p className="text-[11px] leading-tight text-muted-foreground">
+            Spans the whole sheet edge to edge. Best on top-level bands, header/footer images, and color bars.
+          </p>
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+function ImageUploadButton({ label, onUploaded }: { label: string; onUploaded: (dataUrl: string) => void }) {
+  const { toast } = useToast();
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const handleFile = (file: File | null) => {
+    if (!file) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast({ variant: 'destructive', title: 'Image too large', description: 'Please use an image under 1.4 MB.' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => onUploaded(String(reader.result));
+    reader.onerror = () => toast({ variant: 'destructive', title: 'Could not read the image' });
+    reader.readAsDataURL(file);
+  };
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          handleFile(event.target.files?.[0] ?? null);
+          event.target.value = '';
+        }}
+      />
+      <Button type="button" variant="outline" size="sm" className="h-8 w-full gap-1" onClick={() => inputRef.current?.click()}>
+        <Upload className="h-3.5 w-3.5" /> {label}
+      </Button>
+    </>
+  );
+}
+
+/** Small thumbnail preview for an uploaded/linked image, with a clear button. */
+function ImagePreview({ src, onClear }: { src: string; onClear: () => void }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-1.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" className="h-9 w-9 rounded object-contain" />
+      <span className="flex-1 truncate text-[11px] text-muted-foreground">
+        {src.startsWith('data:') ? 'Uploaded image' : src}
+      </span>
+      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive" onClick={onClear} aria-label="Remove image">
+        <X className="h-3.5 w-3.5" />
+      </Button>
     </div>
   );
 }
@@ -816,8 +1029,14 @@ function ImageProperties({ block, onChange }: { block: ImageBlock; onChange: (pa
         </Select>
       </Field>
       {!block.binding && (
-        <Field label="Image URL">
-          <Textarea rows={2} value={block.src ?? ''} onChange={(event) => onChange({ src: event.target.value } as Partial<ImageBlock>)} />
+        <Field label="Image">
+          <div className="space-y-2">
+            <ImageUploadButton label="Upload image" onUploaded={(dataUrl) => onChange({ src: dataUrl } as Partial<ImageBlock>)} />
+            {block.src ? (
+              <ImagePreview src={block.src} onClear={() => onChange({ src: undefined } as Partial<ImageBlock>)} />
+            ) : null}
+            <Textarea rows={2} placeholder="…or paste an image URL / data URL" value={block.src ?? ''} onChange={(event) => onChange({ src: event.target.value } as Partial<ImageBlock>)} />
+          </div>
         </Field>
       )}
       <div className="grid grid-cols-2 gap-2">

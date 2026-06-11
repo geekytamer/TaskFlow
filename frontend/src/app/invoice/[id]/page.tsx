@@ -4,15 +4,27 @@ import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { InvoiceDocument } from '@/modules/finance/components/invoice-document';
 import { getPublicInvoice, type PublicInvoicePayload } from '@/services/publicService';
+import { useI18n } from '@/context/i18n-context';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 
 export default function PublicInvoicePage() {
   const params = useParams();
+  const { setLanguage } = useI18n();
   const id = params?.id as string;
   const [data, setData] = React.useState<PublicInvoicePayload | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
+
+  // Honor an explicit ?lang (e.g. from the PDF renderer) so the public copy
+  // and the generated PDF render in the requested language / direction.
+  // Read from location rather than useSearchParams to avoid a Suspense
+  // boundary requirement during the production build.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const lang = new URLSearchParams(window.location.search).get('lang');
+    if (lang === 'ar' || lang === 'en') setLanguage(lang);
+  }, [setLanguage]);
 
   React.useEffect(() => {
     if (!id) return;
@@ -33,7 +45,10 @@ export default function PublicInvoicePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-8 print:bg-white print:p-0">
+    <div
+      className="min-h-screen bg-slate-50 p-4 sm:p-8 print:bg-white print:p-0"
+      data-invoice-rendered="true"
+    >
       <style>{`
         @media print {
           html, body { width: 100% !important; margin: 0 !important; padding: 0 !important; }

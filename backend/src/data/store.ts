@@ -819,6 +819,7 @@ export class DataStore {
         clientId TEXT NOT NULL,
         salesOrderId TEXT,
         templateId TEXT,
+        templateSnapshot TEXT,
         issueDate TEXT NOT NULL,
         dueDate TEXT NOT NULL,
         lineItems TEXT NOT NULL,
@@ -2187,6 +2188,72 @@ export class DataStore {
           const cols = (this.db.prepare(`PRAGMA table_info('invoice_templates')`).all() as any[]).map((c) => c.name);
           if (!cols.includes('doc')) {
             this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN doc TEXT;`);
+          }
+        },
+      },
+      {
+        id: '044_commission_nullable_source_links',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE commissions_rebuilt (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              opportunityId TEXT,
+              contactId TEXT,
+              userId TEXT,
+              userName TEXT,
+              serviceType TEXT NOT NULL,
+              basis TEXT NOT NULL,
+              basisAmount REAL NOT NULL DEFAULT 0,
+              amount REAL NOT NULL DEFAULT 0,
+              status TEXT NOT NULL,
+              calculatedAt TEXT NOT NULL,
+              contributionId TEXT,
+              sourceType TEXT,
+              sourceId TEXT,
+              sourceLabel TEXT,
+              invoiceId TEXT,
+              role TEXT,
+              ruleId TEXT,
+              weightPercent REAL,
+              ratePercent REAL,
+              fixedAmount REAL,
+              approvedAt TEXT,
+              paidAt TEXT,
+              voidedAt TEXT,
+              approvedByUserId TEXT,
+              paidByUserId TEXT,
+              UNIQUE(opportunityId, userId, serviceType)
+            );
+            INSERT INTO commissions_rebuilt (
+              id, companyId, opportunityId, contactId, userId, userName, serviceType,
+              basis, basisAmount, amount, status, calculatedAt, contributionId,
+              sourceType, sourceId, sourceLabel, invoiceId, role, ruleId,
+              weightPercent, ratePercent, fixedAmount, approvedAt, paidAt, voidedAt,
+              approvedByUserId, paidByUserId
+            )
+            SELECT
+              id, companyId, opportunityId, contactId, userId, userName, serviceType,
+              basis, basisAmount, amount, status, calculatedAt, contributionId,
+              sourceType, sourceId, sourceLabel, invoiceId, role, ruleId,
+              weightPercent, ratePercent, fixedAmount, approvedAt, paidAt, voidedAt,
+              approvedByUserId, paidByUserId
+            FROM commissions;
+            DROP TABLE commissions;
+            ALTER TABLE commissions_rebuilt RENAME TO commissions;
+            CREATE INDEX idx_commissions_company_status ON commissions(companyId, status);
+            CREATE INDEX idx_commissions_invoice ON commissions(invoiceId);
+            CREATE INDEX idx_commissions_contribution ON commissions(contributionId);
+            CREATE INDEX idx_commissions_company_user ON commissions(companyId, userId);
+          `);
+        },
+      },
+      {
+        id: '045_invoice_template_snapshot',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info('invoices')`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('templateSnapshot')) {
+            this.db.exec(`ALTER TABLE invoices ADD COLUMN templateSnapshot TEXT;`);
           }
         },
       },
@@ -5455,8 +5522,9 @@ export class DataStore {
 	  /**
 	   * Idempotent v2 engine — for each contributor on the invoice (or upstream
 	   * source linked to it), resolve a rule and upsert a Draft commission row.
-	   * Re-running for the same invoice updates amounts in place. Paid
-	   * commissions are left untouched so they don't get clawed back.
+   * Re-running for the same invoice updates Draft amounts in place. Approved,
+   * Paid, and Voided commissions are immutable unless an explicit accounting
+   * rollback first moves them back to Draft.
 	   */
 	  recomputeCommissionsForInvoice(invoiceId: string): Commission[] {
 	    const invoice = this.getInvoiceById(invoiceId);
@@ -5502,10 +5570,10 @@ export class DataStore {
 	        )
 	        .get(invoice.companyId, contribution.id, invoice.id) as any;
 
-	      const calculatedAt = new Date().toISOString();
-	      if (existing) {
-	        if (existing.status === 'Paid') continue;
-	        this.db
+      const calculatedAt = new Date().toISOString();
+      if (existing) {
+        if (existing.status !== 'Draft') continue;
+        this.db
 	          .prepare(
 	            `UPDATE commissions
 	               SET userId = ?, userName = ?, role = ?, ruleId = ?, sourceType = ?, sourceId = ?,
@@ -5903,7 +5971,7 @@ export class DataStore {
 		    });
 		  }
 
-		  private postCommissionPaymentJournal(commission: Commission, entryDate: Date) {
+  private postCommissionPaymentJournal(commission: Commission, entryDate: Date) {
 		    const existing = this.db
 		      .prepare(
 		        "SELECT id FROM journal_entries WHERE sourceType = 'commission_payment' AND sourceId = ? LIMIT 1",
@@ -5922,11 +5990,55 @@ export class DataStore {
 		        { id: uuid(), accountId: payableAcct, description: 'Clear commission payable', debit: commission.amount, credit: 0 },
 		        { id: uuid(), accountId: cashAcct, description: 'Cash paid out', debit: 0, credit: commission.amount },
 		      ],
-		    });
-		  }
+    });
+  }
 
-		  /**
-		   * Computes the basis amount for a commission rule applied to an
+  private rollbackPaymentSensitiveCommissions(invoice: Invoice, opportunityId?: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM commissions
+           WHERE basis IN ('Paid Amount', 'Profit')
+             AND status != 'Voided'
+             AND (invoiceId = ? OR (? IS NOT NULL AND opportunityId = ?))`,
+      )
+      .all(invoice.id, opportunityId ?? null, opportunityId ?? null) as any[];
+
+    for (const row of rows) {
+      const commission = this.decodeCommission(row);
+      const previousStatus = commission.status;
+      const previousAmount = commission.amount;
+      this.removeJournalEntriesBySource('commission_accrual', commission.id);
+      this.removeJournalEntriesBySource('commission_payment', commission.id);
+      this.db
+        .prepare(
+          `UPDATE commissions
+             SET status = 'Draft',
+                 approvedAt = NULL,
+                 paidAt = NULL,
+                 voidedAt = NULL,
+                 approvedByUserId = NULL,
+                 paidByUserId = NULL
+           WHERE id = ?`,
+        )
+        .run(commission.id);
+      this.createActivityEvent({
+        companyId: commission.companyId,
+        entityType: 'commission',
+        entityId: commission.id,
+        action: 'payment_reversal_adjusted',
+        summary: `Commission adjusted after payment reversal for ${invoice.invoiceNumber}.`,
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          previousAmount,
+          previousStatus,
+        },
+      });
+    }
+  }
+
+  /**
+   * Computes the basis amount for a commission rule applied to an
 		   * opportunity. Handles the three documented basis types instead of
 		   * silently using expectedRevenue for all of them.
 		   *
@@ -6044,9 +6156,10 @@ export class DataStore {
 	          (id, companyId, opportunityId, contactId, userId, userName, serviceType, basis, basisAmount, amount, status, calculatedAt)
 	         VALUES
 	          (@id, @companyId, @opportunityId, @contactId, @userId, @userName, @serviceType, @basis, @basisAmount, @amount, 'Draft', @calculatedAt)
-	         ON CONFLICT(opportunityId, userId, serviceType)
-	         DO UPDATE SET basis=excluded.basis, basisAmount=excluded.basisAmount, amount=excluded.amount,
-	           status='Draft', calculatedAt=excluded.calculatedAt`,
+         ON CONFLICT(opportunityId, userId, serviceType)
+         DO UPDATE SET basis=excluded.basis, basisAmount=excluded.basisAmount, amount=excluded.amount,
+           status='Draft', calculatedAt=excluded.calculatedAt
+         WHERE commissions.status = 'Draft'`,
 	      )
 	      .run({
 	        id: uuid(),
@@ -6392,6 +6505,21 @@ export class DataStore {
   getInvoiceTemplateById(id: string): InvoiceTemplate | undefined {
     const row = this.db.prepare('SELECT * FROM invoice_templates WHERE id = ?').get(id) as any;
     return row ? this.decodeInvoiceTemplate(row) : undefined;
+  }
+
+  /**
+   * Resolve the template an invoice will actually render with, using the same
+   * precedence as the renderer (explicit template → company default → first).
+   * Used to freeze a snapshot onto the invoice so later template edits never
+   * change how an already-issued invoice looks.
+   */
+  resolveInvoiceTemplateSnapshot(companyId: string, templateId?: string): InvoiceTemplate | undefined {
+    const templates = this.listInvoiceTemplates(companyId);
+    return (
+      (templateId ? templates.find((t) => t.id === templateId) : undefined) ??
+      templates.find((t) => t.isDefault) ??
+      templates[0]
+    );
   }
 
   createInvoiceTemplate(template: CreateInvoiceTemplateInput): InvoiceTemplate {
@@ -8500,15 +8628,17 @@ export class DataStore {
     };
     this.assertOpenFinancialDate(newInvoice.companyId, newInvoice.issueDate, 'Invoice issue date');
     this.assertUniqueInvoiceNumber(newInvoice.companyId, newInvoice.invoiceNumber);
+    const snapshot = this.resolveInvoiceTemplateSnapshot(newInvoice.companyId, newInvoice.templateId);
     this.db
       .prepare(
-        'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
+        'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, templateSnapshot, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @templateSnapshot, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
       )
       .run({
         ...newInvoice,
         contactId: newInvoice.contactId ?? null,
         salesOrderId: newInvoice.salesOrderId ?? null,
         templateId: newInvoice.templateId ?? null,
+        templateSnapshot: snapshot ? JSON.stringify(snapshot) : null,
         campaignId: newInvoice.campaignId ?? null,
         issueDate: newInvoice.issueDate.toISOString(),
         dueDate: newInvoice.dueDate.toISOString(),
@@ -8694,11 +8824,28 @@ export class DataStore {
     };
     this.assertOpenFinancialDate(merged.companyId, new Date(merged.issueDate), 'Invoice issue date');
     this.assertUniqueInvoiceNumber(merged.companyId, merged.invoiceNumber, invoiceId);
+    // Re-freeze the appearance snapshot only when the chosen template changes;
+    // otherwise the invoice keeps the look it was issued with.
+    const templateChanged =
+      updates.templateId !== undefined && updates.templateId !== existing.templateId;
+    const nextSnapshot = templateChanged
+      ? this.resolveInvoiceTemplateSnapshot(merged.companyId, merged.templateId ?? undefined)
+      : (existing as any).templateSnapshot;
     this.db
       .prepare(
-        'UPDATE invoices SET invoiceNumber=@invoiceNumber, companyId=@companyId, clientId=@clientId, salesOrderId=@salesOrderId, templateId=@templateId, issueDate=@issueDate, dueDate=@dueDate, lineItems=@lineItems, total=@total, status=@status, notes=@notes, currency=@currency, taxRate=@taxRate, sentAt=@sentAt, paidAt=@paidAt WHERE id=@id',
+        'UPDATE invoices SET invoiceNumber=@invoiceNumber, companyId=@companyId, clientId=@clientId, salesOrderId=@salesOrderId, templateId=@templateId, templateSnapshot=@templateSnapshot, issueDate=@issueDate, dueDate=@dueDate, lineItems=@lineItems, total=@total, status=@status, notes=@notes, currency=@currency, taxRate=@taxRate, sentAt=@sentAt, paidAt=@paidAt WHERE id=@id',
       )
-      .run({ ...merged, id: invoiceId, salesOrderId: merged.salesOrderId ?? null, templateId: merged.templateId ?? null });
+      .run({
+        ...merged,
+        id: invoiceId,
+        salesOrderId: merged.salesOrderId ?? null,
+        templateId: merged.templateId ?? null,
+        templateSnapshot: nextSnapshot
+          ? typeof nextSnapshot === 'string'
+            ? nextSnapshot
+            : JSON.stringify(nextSnapshot)
+          : null,
+      });
     this.refreshInvoicePaymentStatus(invoiceId);
     const saved = this.getInvoiceById(invoiceId);
     // Recognise revenue if the edit moved the invoice out of Draft (idempotent).
@@ -8720,6 +8867,7 @@ export class DataStore {
       contactId: row.contactId ?? undefined,
       salesOrderId: row.salesOrderId ?? undefined,
       templateId: row.templateId ?? undefined,
+      templateSnapshot: this.parseJson(row.templateSnapshot) ?? undefined,
       issueDate: new Date(row.issueDate),
       dueDate: new Date(row.dueDate),
       lineItems: this.normalizeInvoiceLineItems(this.parseJson(row.lineItems) || []),
@@ -8865,31 +9013,24 @@ export class DataStore {
       paidAt: payment.paidAt ? new Date(payment.paidAt) : new Date(),
     };
     this.assertOpenFinancialDate(invoice.companyId, newPayment.paidAt, 'Payment date');
-    this.db
-      .prepare('INSERT INTO payments (id, invoiceId, amount, method, note, paidAt) VALUES (@id, @invoiceId, @amount, @method, @note, @paidAt)')
-      .run({
-        ...newPayment,
-        paidAt: newPayment.paidAt.toISOString(),
-      });
-    try {
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('INSERT INTO payments (id, invoiceId, amount, method, note, paidAt) VALUES (@id, @invoiceId, @amount, @method, @note, @paidAt)')
+        .run({
+          ...newPayment,
+          paidAt: newPayment.paidAt.toISOString(),
+        });
       this.postInvoicePaymentJournal(newPayment);
-    } catch (error) {
-      console.error('Failed to auto-post invoice payment journal', error);
-    }
-    this.refreshInvoicePaymentStatus(newPayment.invoiceId);
-    const refreshedInvoice = this.getInvoiceById(newPayment.invoiceId);
-    if (refreshedInvoice) {
-      // Trigger commission recalc for any opportunity linked via the won-SO.
-      // This is the PaymentReceived trigger: Paid-Amount and Profit basis
-      // commissions can finally produce non-zero amounts.
-      try {
-        const oppId = this.findOpportunityIdForInvoice(refreshedInvoice);
-        if (oppId) this.calculateCommissionsForOpportunity(oppId);
-        // v2 engine: Paid Amount & Profit basis commissions now have a real value
-        this.recomputeCommissionsForInvoice(refreshedInvoice.id);
-      } catch (error) {
-        console.error('Failed to recalc commissions on payment', error);
+      this.refreshInvoicePaymentStatus(newPayment.invoiceId);
+      const refreshedInvoice = this.getInvoiceById(newPayment.invoiceId);
+      if (!refreshedInvoice) {
+        throw new Error('Invoice not found after recording payment.');
       }
+      // Payment-derived commissions and their invoice-level equivalents must
+      // update in the same transaction as cash, AR, and invoice status.
+      const oppId = this.findOpportunityIdForInvoice(refreshedInvoice);
+      if (oppId) this.calculateCommissionsForOpportunity(oppId);
+      this.recomputeCommissionsForInvoice(refreshedInvoice.id);
       this.createActivityEvent({
         companyId: refreshedInvoice.companyId,
         entityType: 'invoice',
@@ -8899,11 +9040,13 @@ export class DataStore {
         metadata: {
           amount: newPayment.amount,
           method: newPayment.method,
+          paymentId: newPayment.id,
           outstandingAmount: refreshedInvoice.outstandingAmount,
         },
       });
-    }
-    return newPayment;
+      return newPayment;
+    });
+    return trx();
   }
 
   private refreshInvoicePaymentStatus(invoiceId: string) {
@@ -8916,7 +9059,7 @@ export class DataStore {
 
     if (paidTotal >= invoice.total - 0.0001) {
       status = 'Paid';
-      paidAt = new Date().toISOString();
+      paidAt = payments[payments.length - 1]?.paidAt.toISOString() ?? new Date().toISOString();
     } else if (paidTotal > 0 || status === 'Paid') {
       status = invoice.dueDate < new Date() ? 'Overdue' : 'Sent';
       paidAt = null;
@@ -8936,31 +9079,42 @@ export class DataStore {
     const row = this.db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId) as any;
     if (!row) return undefined;
     const invoiceId = row.invoiceId as string;
-    const trx = this.db.transaction(() => {
+    const invoiceBeforeReversal = this.getInvoiceById(invoiceId);
+    if (!invoiceBeforeReversal) return undefined;
+    this.assertOpenFinancialDate(
+      invoiceBeforeReversal.companyId,
+      new Date(row.paidAt),
+      'Payment date',
+    );
+    const trx = this.db.transaction((): Invoice => {
       this.db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
       this.removeJournalEntriesBySource('invoice_payment', paymentId);
       this.refreshInvoicePaymentStatus(invoiceId);
-    });
-    trx();
-    const invoice = this.getInvoiceById(invoiceId);
-    if (invoice) {
-      try {
-        const oppId = this.findOpportunityIdForInvoice(invoice);
-        if (oppId) this.calculateCommissionsForOpportunity(oppId);
-        this.recomputeCommissionsForInvoice(invoice.id);
-      } catch (error) {
-        console.error('Failed to recalc commissions on payment reversal', error);
+      const invoice = this.getInvoiceById(invoiceId);
+      if (!invoice) {
+        throw new Error('Invoice not found after reversing payment.');
       }
+      const oppId = this.findOpportunityIdForInvoice(invoice);
+      this.rollbackPaymentSensitiveCommissions(invoice, oppId);
+      if (oppId) this.calculateCommissionsForOpportunity(oppId);
+      this.recomputeCommissionsForInvoice(invoice.id);
       this.createActivityEvent({
         companyId: invoice.companyId,
         entityType: 'invoice',
         entityId: invoice.id,
         action: 'payment_reversed',
         summary: `Payment reversed for invoice ${invoice.invoiceNumber}.`,
-        metadata: { amount: Number(row.amount), outstandingAmount: invoice.outstandingAmount },
+        metadata: {
+          amount: Number(row.amount),
+          method: row.method ?? undefined,
+          note: row.note ?? undefined,
+          paymentId,
+          outstandingAmount: invoice.outstandingAmount,
+        },
       });
-    }
-    return invoice;
+      return invoice;
+    });
+    return trx();
   }
 
   listLedgerAccounts(companyId: string): LedgerAccount[] {
@@ -9707,30 +9861,29 @@ export class DataStore {
           nextOutstandingAmount <= 0 ? payment.paidAt.toISOString() : null,
           bill.id,
         );
-    });
-
-    trx();
-
-    try {
       this.postVendorBillPaymentJournal(payment);
-    } catch (error) {
-      console.error('Failed to auto-post vendor bill payment journal', error);
-    }
-
-    const updatedBill = this.getVendorBillById(bill.id);
-    if (!updatedBill) {
-      throw new Error('Vendor bill not found after payment.');
-    }
-    this.createActivityEvent({
-      companyId: updatedBill.companyId,
-      entityType: 'vendor_bill',
-      entityId: updatedBill.id,
-      action: 'payment_recorded',
-      summary: `Payment recorded for vendor bill ${updatedBill.billNumber}.`,
-      metadata: { amount: payment.amount, method: payment.method, outstandingAmount: updatedBill.outstandingAmount },
+      const updatedBill = this.getVendorBillById(bill.id);
+      if (!updatedBill) {
+        throw new Error('Vendor bill not found after payment.');
+      }
+      this.createActivityEvent({
+        companyId: updatedBill.companyId,
+        entityType: 'vendor_bill',
+        entityId: updatedBill.id,
+        action: 'payment_recorded',
+        summary: `Payment recorded for vendor bill ${updatedBill.billNumber}.`,
+        metadata: {
+          amount: payment.amount,
+          method: payment.method,
+          note: payment.note,
+          paymentId: payment.id,
+          outstandingAmount: updatedBill.outstandingAmount,
+        },
+      });
+      return { payment, bill: updatedBill };
     });
 
-    return { payment, bill: updatedBill };
+    return trx();
   }
 
   /**
@@ -9742,33 +9895,52 @@ export class DataStore {
     const row = this.db.prepare('SELECT * FROM vendor_bill_payments WHERE id = ?').get(paymentId) as any;
     if (!row) return undefined;
     const billId = row.billId as string;
-    const trx = this.db.transaction(() => {
+    const billBeforeReversal = this.getVendorBillById(billId);
+    if (!billBeforeReversal) return undefined;
+    this.assertOpenFinancialDate(
+      billBeforeReversal.companyId,
+      new Date(row.paidAt),
+      'Vendor payment date',
+    );
+    const trx = this.db.transaction((): VendorBill => {
       this.db.prepare('DELETE FROM vendor_bill_payments WHERE id = ?').run(paymentId);
       this.removeJournalEntriesBySource('vendor_bill_payment', paymentId);
-      // Recompute status from the payments that remain.
       const bill = this.getVendorBillById(billId);
-      if (bill) {
-        const outstanding = bill.outstandingAmount ?? bill.amount;
-        const nextStatus: VendorBillStatus =
-          outstanding <= 0 ? 'Paid' : bill.dueDate < new Date() ? 'Overdue' : 'Approved';
-        this.db
-          .prepare('UPDATE vendor_bills SET status = ?, paidAt = ? WHERE id = ?')
-          .run(nextStatus, outstanding <= 0 ? new Date().toISOString() : null, billId);
+      if (!bill) {
+        throw new Error('Vendor bill not found after reversing payment.');
       }
-    });
-    trx();
-    const updated = this.getVendorBillById(billId);
-    if (updated) {
+      const outstanding = bill.outstandingAmount ?? bill.amount;
+      const nextStatus: VendorBillStatus =
+        outstanding <= 0 ? 'Paid' : bill.dueDate < new Date() ? 'Overdue' : 'Approved';
+      const latestPayment = this.listVendorBillPayments(billId).at(-1);
+      this.db
+        .prepare('UPDATE vendor_bills SET status = ?, paidAt = ? WHERE id = ?')
+        .run(
+          nextStatus,
+          outstanding <= 0 && latestPayment ? latestPayment.paidAt.toISOString() : null,
+          billId,
+        );
+      const updated = this.getVendorBillById(billId);
+      if (!updated) {
+        throw new Error('Vendor bill not found after reversing payment.');
+      }
       this.createActivityEvent({
         companyId: updated.companyId,
         entityType: 'vendor_bill',
         entityId: updated.id,
         action: 'payment_reversed',
         summary: `Payment reversed for vendor bill ${updated.billNumber}.`,
-        metadata: { amount: Number(row.amount), outstandingAmount: updated.outstandingAmount },
+        metadata: {
+          amount: Number(row.amount),
+          method: row.method ?? undefined,
+          note: row.note ?? undefined,
+          paymentId,
+          outstandingAmount: updated.outstandingAmount,
+        },
       });
-    }
-    return updated;
+      return updated;
+    });
+    return trx();
   }
 
   getReceivablesAging(companyId: string, asOf: Date = new Date()): AgingBucket[] {

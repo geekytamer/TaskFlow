@@ -99,6 +99,8 @@ export function VendorBillTable() {
   const [selectedBill, setSelectedBill] = React.useState<VendorBill | null>(null);
   const [billPayments, setBillPayments] = React.useState<VendorBillPayment[]>([]);
   const [paymentLoading, setPaymentLoading] = React.useState(false);
+  const [paymentMode, setPaymentMode] = React.useState<'full' | 'partial'>('full');
+  const [reversingPaymentId, setReversingPaymentId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState({
     vendorName: '',
     supplierId: '',
@@ -280,6 +282,8 @@ export function VendorBillTable() {
   const openPaymentDialog = async (bill: VendorBill) => {
     setSelectedBill(bill);
     setOpenPayment(true);
+    setPaymentMode('full');
+    setReversingPaymentId(null);
     setPaymentForm({
       amount: String(bill.outstandingAmount || 0),
       method: 'Bank Transfer',
@@ -304,8 +308,9 @@ export function VendorBillTable() {
 
   const handleCreatePayment = async () => {
     if (!selectedBill) return;
-    const amount = Number(paymentForm.amount || 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const paymentAmount = Number(paymentForm.amount || 0);
+    const outstandingAmount = selectedBill.outstandingAmount || 0;
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       toast({
         variant: 'destructive',
         title: t('vendorBills.toastInvalidPaymentTitle'),
@@ -313,17 +318,31 @@ export function VendorBillTable() {
       });
       return;
     }
+    if (paymentAmount > outstandingAmount + 0.0001) {
+      toast({
+        variant: 'destructive',
+        title: t('vendorBills.toastInvalidPaymentTitle'),
+        description: t('vendorBills.toastPaymentExceedsOutstanding')
+          .replace('{amount}', money(outstandingAmount)),
+      });
+      return;
+    }
+    const remainingAmount = Math.max(0, outstandingAmount - paymentAmount);
     if (!(await confirm({
       title: t('vendorBills.confirmPaymentTitle'),
       description: t('vendorBills.confirmPaymentDesc')
-        .replace('{amount}', String(amount))
-        .replace('{number}', selectedBill.billNumber),
-      confirmText: t('vendorBills.recordPaymentBtn'),
+        .replace('{amount}', money(paymentAmount))
+        .replace('{number}', selectedBill.billNumber)
+        .replace('{type}', remainingAmount > 0 ? t('vendorBills.partialPayment') : t('vendorBills.fullPayment'))
+        .replace('{method}', vendorMethodLabel(paymentForm.method))
+        .replace('{date}', paymentForm.paidAt)
+        .replace('{remaining}', money(remainingAmount)),
+      confirmText: t('vendorBills.confirmRecordPayment'),
       cancelText: t('common.cancel'),
     }))) return;
     try {
       await createVendorBillPayment(selectedBill.id, {
-        amount,
+        amount: paymentAmount,
         method: paymentForm.method || undefined,
         note: paymentForm.note || undefined,
         paidAt: new Date(paymentForm.paidAt),
@@ -787,10 +806,12 @@ export function VendorBillTable() {
                         <ListChecks className="me-2 h-4 w-4" />
                         {t('vendorBills.approveBtn')}
                       </Button>
-                    ) : (bill.outstandingAmount || 0) > 0 ? (
+                    ) : (bill.outstandingAmount || 0) > 0 || (bill.paidAmount || 0) > 0 ? (
                       <Button variant="outline" size="sm" onClick={() => openPaymentDialog(bill)}>
                         <CircleDollarSign className="me-2 h-4 w-4" />
-                        {t('vendorBills.recordPaymentBtn')}
+                        {(bill.paidAmount || 0) > 0
+                          ? t('vendorBills.managePaymentsBtn')
+                          : t('vendorBills.recordPaymentBtn')}
                       </Button>
                     ) : (
                       <span className="text-sm text-muted-foreground">
@@ -817,7 +838,11 @@ export function VendorBillTable() {
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{t('vendorBills.recordPaymentTitle')}</DialogTitle>
+            <DialogTitle>
+              {(selectedBill?.paidAmount || 0) > 0
+                ? t('vendorBills.managePaymentsTitle')
+                : t('vendorBills.recordPaymentTitle')}
+            </DialogTitle>
             <DialogDescription>
               {t('vendorBills.recordPaymentDesc')}
             </DialogDescription>
@@ -839,17 +864,54 @@ export function VendorBillTable() {
                 </div>
               </div>
 
-              <div className="grid gap-3 py-2 sm:grid-cols-2">
+              {(selectedBill.outstandingAmount || 0) > 0 && (
+              <div className="space-y-3 py-2">
                 <div className="space-y-1">
-                  <Label>{t('vendorBills.amountLabel')}</Label>
+                  <Label>{t('vendorBills.paymentType')}</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={paymentMode === 'full' ? 'default' : 'outline'}
+                      onClick={() => {
+                        setPaymentMode('full');
+                        setPaymentForm((prev) => ({
+                          ...prev,
+                          amount: String(selectedBill.outstandingAmount || 0),
+                        }));
+                      }}
+                    >
+                      {t('vendorBills.fullPayment')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={paymentMode === 'partial' ? 'default' : 'outline'}
+                      onClick={() => {
+                        setPaymentMode('partial');
+                        setPaymentForm((prev) => ({ ...prev, amount: '' }));
+                      }}
+                    >
+                      {t('vendorBills.partialPayment')}
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('vendorBills.paymentAmountLabel')}</Label>
                   <Input
                     type="number"
                     step="0.01"
+                    max={selectedBill.outstandingAmount || 0}
                     value={paymentForm.amount}
-                    onChange={(event) =>
-                      setPaymentForm((prev) => ({ ...prev, amount: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      setPaymentMode('partial');
+                      setPaymentForm((prev) => ({ ...prev, amount: event.target.value }));
+                    }}
+                    placeholder={t('vendorBills.paymentAmountPlaceholder')}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {t('vendorBills.paymentAmountHelp')
+                      .replace('{amount}', money(selectedBill.outstandingAmount || 0))}
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <Label>{t('vendorBills.paidDate')}</Label>
@@ -891,7 +953,15 @@ export function VendorBillTable() {
                     placeholder={t('vendorBills.paymentNotePlaceholder')}
                   />
                 </div>
+                </div>
               </div>
+              )}
+
+              {(selectedBill.outstandingAmount || 0) <= 0 && billPayments.length > 0 && (
+                <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                  {t('vendorBills.fullyPaidManageHelp')}
+                </p>
+              )}
 
               <div className="rounded-lg border">
                 <Table>
@@ -934,6 +1004,7 @@ export function VendorBillTable() {
                               variant="ghost"
                               size="sm"
                               className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                              disabled={reversingPaymentId === payment.id}
                               onClick={async () => {
                                 if (!selectedBill) return;
                                 if (!(await confirm({
@@ -945,10 +1016,17 @@ export function VendorBillTable() {
                                   cancelText: t('common.cancel'),
                                   destructive: true,
                                 }))) return;
+                                setReversingPaymentId(payment.id);
                                 try {
-                                  await reverseVendorBillPayment(selectedBill.id, payment.id);
+                                  const updatedBill = await reverseVendorBillPayment(selectedBill.id, payment.id);
                                   const refreshed = await getVendorBillPayments(selectedBill.id);
                                   setBillPayments(refreshed);
+                                  setSelectedBill(updatedBill);
+                                  setPaymentMode('full');
+                                  setPaymentForm((prev) => ({
+                                    ...prev,
+                                    amount: String(updatedBill.outstandingAmount || 0),
+                                  }));
                                   await load();
                                   toast({ title: t('vendorBills.toastPaymentReversed') });
                                 } catch (error: any) {
@@ -957,6 +1035,8 @@ export function VendorBillTable() {
                                     title: t('vendorBills.toastPaymentReverseFailed'),
                                     description: error?.message,
                                   });
+                                } finally {
+                                  setReversingPaymentId(null);
                                 }
                               }}
                             >
@@ -984,7 +1064,9 @@ export function VendorBillTable() {
             <Button variant="outline" onClick={() => setOpenPayment(false)}>
               {t('vendorBills.cancel')}
             </Button>
+            {(selectedBill?.outstandingAmount || 0) > 0 && (
             <Button onClick={handleCreatePayment}>{t('vendorBills.recordPaymentBtn')}</Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

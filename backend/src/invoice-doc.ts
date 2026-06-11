@@ -78,13 +78,18 @@ function style(value: unknown, path: string, errors: string[]) {
   for (const key of ['background', 'width', 'color', 'fontFamily']) {
     stringValue(value[key], `${path}.${key}`, errors, { optional: true, max: 200 });
   }
+  // Background image may be a data URL, so it gets the same generous cap as image src.
+  stringValue(value.backgroundImage, `${path}.backgroundImage`, errors, { optional: true, max: 2_000_000 });
+  if (value.backgroundSize !== undefined && !['cover', 'contain', 'auto'].includes(String(value.backgroundSize))) {
+    errors.push(`${path}.backgroundSize is invalid.`);
+  }
   for (const key of ['borderRadius', 'fontSize', 'fontWeight', 'lineHeight']) {
     finiteNumber(value[key], `${path}.${key}`, errors, { optional: true, min: 0, max: key === 'fontWeight' ? 1000 : 500 });
   }
   if (value.align !== undefined && !['left', 'center', 'right'].includes(String(value.align))) {
     errors.push(`${path}.align is invalid.`);
   }
-  for (const key of ['italic', 'uppercase']) {
+  for (const key of ['italic', 'uppercase', 'fullBleed']) {
     if (value[key] !== undefined && typeof value[key] !== 'boolean') errors.push(`${path}.${key} must be a boolean.`);
   }
   if (value.border !== undefined) {

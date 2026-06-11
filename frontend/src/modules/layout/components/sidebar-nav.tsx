@@ -32,6 +32,7 @@ import {
   BadgeDollarSign,
   CheckSquare,
   MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -81,6 +82,7 @@ const sections: NavSection[] = [
     labelKey: 'nav.section.crm',
     items: [
       { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-contacts' },
+      { href: '/influencers', labelKey: 'nav.influencers', icon: Sparkles, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-influencers' },
       { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], tutorial: 'nav-whatsapp' },
       { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
       { href: '/crm/proposals', labelKey: 'nav.proposals', icon: FileText, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-proposals' },

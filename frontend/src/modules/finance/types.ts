@@ -68,6 +68,8 @@ export interface Invoice {
   contactId?: string;
   salesOrderId?: string;
   templateId?: string;
+  /** Frozen copy of the template captured at issue time; render prefers this over the live template. */
+  templateSnapshot?: InvoiceTemplate;
   campaignId?: string;
   issueDate: Date;
   dueDate: Date;

@@ -19,6 +19,7 @@ import type {
   TotalsBlock,
 } from './types';
 import { resolveTokens, type DocDataContext } from './tokens';
+import { docStrings, isRtlLocale, type DocStrings } from './strings';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -33,16 +34,40 @@ interface DocRendererProps {
   client?: Client | null;
   company?: Company | null;
   template?: InvoiceTemplate;
+  /** Designer-only: make top-level blocks selectable and drag-reorderable on the canvas. */
+  editable?: boolean;
+  selectedId?: string | null;
+  onSelectBlock?: (id: string) => void;
+  onReorderBlock?: (draggedId: string, targetId: string, place: 'before' | 'after') => void;
 }
 
 function px(n?: number) { return n === undefined ? undefined : `${n}px`; }
 
-function styleToCss(style?: BlockStyle): React.CSSProperties {
+/** Mirror physical left/right alignment for RTL documents; center/undefined unchanged. */
+function swapAlign(align?: 'left' | 'center' | 'right', isRtl?: boolean): 'left' | 'center' | 'right' | undefined {
+  if (!isRtl || !align || align === 'center') return align;
+  return align === 'left' ? 'right' : 'left';
+}
+
+function styleToCss(style?: BlockStyle, isRtl?: boolean): React.CSSProperties {
   if (!style) return {};
   const css: React.CSSProperties = {};
-  if (style.margin) css.margin = `${style.margin.top ?? 0}px ${style.margin.right ?? 0}px ${style.margin.bottom ?? 0}px ${style.margin.left ?? 0}px`;
+  if (style.margin) {
+    // Longhand (not the `margin` shorthand) so a full-bleed override can replace
+    // just the horizontal margins without clobbering top/bottom.
+    css.marginTop = `${style.margin.top ?? 0}px`;
+    css.marginRight = `${style.margin.right ?? 0}px`;
+    css.marginBottom = `${style.margin.bottom ?? 0}px`;
+    css.marginLeft = `${style.margin.left ?? 0}px`;
+  }
   if (style.padding) css.padding = `${style.padding.top ?? 0}px ${style.padding.right ?? 0}px ${style.padding.bottom ?? 0}px ${style.padding.left ?? 0}px`;
   if (style.background) css.background = style.background;
+  if (style.backgroundImage) {
+    css.backgroundImage = `url("${style.backgroundImage}")`;
+    css.backgroundSize = style.backgroundSize ?? 'cover';
+    css.backgroundPosition = 'center';
+    css.backgroundRepeat = 'no-repeat';
+  }
   if (style.borderRadius !== undefined) css.borderRadius = px(style.borderRadius);
   if (style.border?.width) {
     const b = `${style.border.width}px ${style.border.style ?? 'solid'} ${style.border.color ?? '#e5e7eb'}`;
@@ -55,7 +80,7 @@ function styleToCss(style?: BlockStyle): React.CSSProperties {
       if (sides.includes('left')) css.borderLeft = b;
     }
   }
-  if (style.align) css.textAlign = style.align;
+  if (style.align) css.textAlign = swapAlign(style.align, isRtl);
   if (style.width) css.width = style.width;
   if (style.color) css.color = style.color;
   if (style.fontFamily) css.fontFamily = style.fontFamily;
@@ -78,7 +103,17 @@ function isVisible(block: Block, ctx: DocDataContext, template?: InvoiceTemplate
   }
 }
 
-export function DocRenderer({ doc, invoice, client, company, template }: DocRendererProps) {
+export function DocRenderer({
+  doc,
+  invoice,
+  client,
+  company,
+  template,
+  editable,
+  selectedId,
+  onSelectBlock,
+  onReorderBlock,
+}: DocRendererProps) {
   const subtotal = invoice.lineItems.reduce((sum, item) => sum + item.amount, 0);
   const taxRate = invoice.taxRate || 0;
   const taxAmount = Number((subtotal * (taxRate / 100)).toFixed(2));
@@ -96,14 +131,29 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
     publicUrl: publicInvoiceUrl(invoice.id),
   };
   const theme = doc.theme;
+  const isRtl = isRtlLocale();
+  const s = docStrings();
   const portrait = doc.page.orientation === 'portrait';
   const pageWidth = doc.page.size === 'A4' ? (portrait ? 210 : 297) : (portrait ? 216 : 279);
   const pageHeight = doc.page.size === 'A4' ? (portrait ? 297 : 210) : (portrait ? 279 : 216);
   const pagePadding = `${doc.page.margin.top ?? 10}mm ${doc.page.margin.right ?? 10}mm ${doc.page.margin.bottom ?? 10}mm ${doc.page.margin.left ?? 10}mm`;
 
+  const marginL = doc.page.margin.left ?? 10;
+  const marginR = doc.page.margin.right ?? 10;
+
   const renderBlock = (block: Block): React.ReactNode => {
     if (!isVisible(block, ctx, template)) return null;
-    const base = styleToCss(block.style);
+    let base = styleToCss(block.style, isRtl);
+    if (block.style?.fullBleed) {
+      // Pull the block out past the page margins so it spans the full sheet width.
+      base = {
+        ...base,
+        marginLeft: `-${marginL}mm`,
+        marginRight: `-${marginR}mm`,
+        width: `calc(100% + ${marginL + marginR}mm)`,
+        maxWidth: 'none',
+      };
+    }
 
     switch (block.type) {
       case 'container': {
@@ -145,8 +195,8 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
           : img.src;
         if (!src) return null;
         return (
-          <div key={block.id} style={{ textAlign: block.style?.align ?? 'left', ...base }}>
-            <img src={src} alt="" style={{ height: px(img.height ?? 56), objectFit: img.fit ?? 'contain', display: 'inline-block', maxWidth: '100%' }} />
+          <div key={block.id} style={{ textAlign: swapAlign(block.style?.align, isRtl) ?? (isRtl ? 'right' : 'left'), ...base }}>
+            <img src={src} alt="" style={{ height: px(img.height ?? 56), width: img.fit === 'cover' ? '100%' : undefined, objectFit: img.fit ?? 'contain', display: 'inline-block', maxWidth: '100%' }} />
           </div>
         );
       }
@@ -161,11 +211,11 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
       case 'lineItems':
         return <LineItemsView key={block.id} block={block as LineItemsBlock} ctx={ctx} theme={theme} money={money} template={template} style={base} />;
       case 'totals':
-        return <TotalsView key={block.id} block={block as TotalsBlock} ctx={ctx} theme={theme} money={money} style={base} />;
+        return <TotalsView key={block.id} block={block as TotalsBlock} ctx={ctx} theme={theme} money={money} style={base} s={s} />;
       case 'details':
         return <DetailsView key={block.id} block={block as DetailsBlock} ctx={ctx} theme={theme} style={base} />;
       case 'payment':
-        return <PaymentView key={block.id} block={block as PaymentBlock} theme={theme} template={template} style={base} />;
+        return <PaymentView key={block.id} block={block as PaymentBlock} theme={theme} template={template} style={base} s={s} />;
       case 'signature':
         return template?.stampUrl || template?.signatureUrl ? (
           <div key={block.id} style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: 48, ...base }}>
@@ -174,7 +224,7 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
               <div style={{ textAlign: 'center' }}>
                 <img src={template.signatureUrl} alt="" style={{ height: 64, objectFit: 'contain', margin: '0 auto' }} />
                 <div style={{ marginTop: 4, borderTop: '1px solid #cbd5e1', paddingTop: 4, fontSize: 12, color: '#64748b' }}>
-                  {template?.signatureLabel || 'Authorized signature'}
+                  {template?.signatureLabel || s.signature}
                 </div>
               </div>
             )}
@@ -182,11 +232,12 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
         ) : null;
       case 'qr': {
         const q = block as QrBlock;
+        const qrAlign = swapAlign(block.style?.align, isRtl);
         return (
-          <div key={block.id} style={{ display: 'flex', justifyContent: block.style?.align === 'right' ? 'flex-end' : block.style?.align === 'left' ? 'flex-start' : 'center', ...base }}>
+          <div key={block.id} style={{ display: 'flex', justifyContent: qrAlign === 'right' ? 'flex-end' : qrAlign === 'left' ? 'flex-start' : 'center', ...base }}>
             <div style={{ textAlign: 'center' }}>
               <QRCodeSVG value={ctx.publicUrl} size={92} level="M" />
-              <div style={{ marginTop: 4, fontSize: 10, color: '#94a3b8' }}>{q.caption ?? 'Scan to view & download'}</div>
+              <div style={{ marginTop: 4, fontSize: 10, color: '#94a3b8' }}>{q.caption ?? s.scan}</div>
             </div>
           </div>
         );
@@ -198,6 +249,7 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
 
   return (
     <div
+      dir={isRtl ? 'rtl' : 'ltr'}
       className="invoice-print-area doc-render relative mx-auto w-full bg-white text-slate-950"
       style={{
         fontFamily: theme.fontFamily,
@@ -217,7 +269,58 @@ export function DocRenderer({ doc, invoice, client, company, template }: DocRend
           .doc-line-items thead { display: table-header-group; }
         }
       `}</style>
-      {doc.body.map((block) => renderBlock(block))}
+      {template?.watermarkEnabled && template?.watermarkText ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <span
+            className="select-none text-8xl font-extrabold uppercase"
+            style={{
+              color: theme.primaryColor,
+              opacity: template.watermarkOpacity ?? 0.12,
+              transform: 'rotate(-30deg)',
+            }}
+          >
+            {template.watermarkText}
+          </span>
+        </div>
+      ) : null}
+      {doc.body.map((block) => {
+        const node = renderBlock(block);
+        if (!editable) return node;
+        // Designer canvas: wrap each top-level block so it can be selected and
+        // dragged to reorder. The drop point (before/after) follows the cursor.
+        return (
+          <div
+            key={block.id}
+            data-doc-block={block.id}
+            draggable
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectBlock?.(block.id);
+            }}
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', block.id);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const draggedId = e.dataTransfer.getData('text/plain');
+              if (!draggedId || draggedId === block.id) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const place = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+              onReorderBlock?.(draggedId, block.id, place);
+            }}
+            style={{
+              outline: selectedId === block.id ? '2px solid #6366f1' : '1px dashed transparent',
+              outlineOffset: 2,
+              cursor: 'grab',
+              borderRadius: 4,
+            }}
+          >
+            {node}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -262,7 +365,7 @@ function LineItemsView({ block, ctx, theme, money, template, style }: {
   );
 }
 
-function TotalsView({ block, ctx, theme, money, style }: { block: TotalsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; money: (v: number) => React.ReactNode; style: React.CSSProperties }) {
+function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; money: (v: number) => React.ReactNode; style: React.CSSProperties; s: DocStrings }) {
   const taxRate = ctx.invoice.taxRate || 0;
   const showSubtotal = block.showSubtotal !== false;
   const showTax = block.showTax !== false;
@@ -270,9 +373,9 @@ function TotalsView({ block, ctx, theme, money, style }: { block: TotalsBlock; c
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', ...style }}>
       <div style={{ width: '100%', maxWidth: 280, fontSize: 14 }}>
-        {showSubtotal && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>Subtotal</span><span>{money(ctx.subtotal)}</span></div>}
-        {showTax && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>Tax {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>}
-        {showTotal && <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>Total</span><span>{money(ctx.total)}</span></div>}
+        {showSubtotal && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>{s.subtotal}</span><span>{money(ctx.subtotal)}</span></div>}
+        {showTax && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>{s.tax} {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>}
+        {showTotal && <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>{s.total}</span><span>{money(ctx.total)}</span></div>}
       </div>
     </div>
   );
@@ -294,20 +397,20 @@ function DetailsView({ block, ctx, theme, style }: { block: DetailsBlock; ctx: D
   );
 }
 
-function PaymentView({ block, theme, template, style }: { block: PaymentBlock; theme: InvoiceDoc['theme']; template?: InvoiceTemplate; style: React.CSSProperties }) {
+function PaymentView({ block, theme, template, style, s }: { block: PaymentBlock; theme: InvoiceDoc['theme']; template?: InvoiceTemplate; style: React.CSSProperties; s: DocStrings }) {
   const banks = (template?.bankAccounts ?? []).filter((b) => b.bankName || b.accountHolder || b.accountNumber || b.iban || b.swift);
   return (
     <div style={{ fontSize: 14, ...style }}>
-      <div style={{ fontWeight: 600, color: theme.primaryColor }}>{block.title ?? 'Payment'}</div>
+      <div style={{ fontWeight: 600, color: theme.primaryColor }}>{block.title ?? s.payment}</div>
       {template?.paymentInstructions && <p style={{ marginTop: 8, color: '#475569' }}>{template.paymentInstructions}</p>}
       {banks.map((b) => (
         <div key={b.id} style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 4, padding: 12 }}>
           {b.bankName && <div style={{ fontWeight: 500, color: '#334155' }}>{b.bankName}{b.currency ? ` · ${b.currency}` : ''}</div>}
           <div style={{ marginTop: 4, fontSize: 12, color: '#475569' }}>
-            {b.accountHolder && <div><span style={{ color: '#94a3b8' }}>Account holder: </span>{b.accountHolder}</div>}
-            {b.accountNumber && <div><span style={{ color: '#94a3b8' }}>Account no.: </span>{b.accountNumber}</div>}
-            {b.iban && <div><span style={{ color: '#94a3b8' }}>IBAN: </span>{b.iban}</div>}
-            {b.swift && <div><span style={{ color: '#94a3b8' }}>SWIFT/BIC: </span>{b.swift}</div>}
+            {b.accountHolder && <div><span style={{ color: '#94a3b8' }}>{s.accountHolder}: </span>{b.accountHolder}</div>}
+            {b.accountNumber && <div><span style={{ color: '#94a3b8' }}>{s.accountNo}: </span>{b.accountNumber}</div>}
+            {b.iban && <div><span style={{ color: '#94a3b8' }}>{s.iban}: </span>{b.iban}</div>}
+            {b.swift && <div><span style={{ color: '#94a3b8' }}>{s.swift}: </span>{b.swift}</div>}
           </div>
         </div>
       ))}
