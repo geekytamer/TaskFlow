@@ -544,6 +544,97 @@ test('issued invoices freeze a template snapshot that survives later template ed
   assert.equal(publicCopy.body.template.primaryColor, template.primaryColor);
 });
 
+test('notifications: task assignment notifies the assignee, supports read + prefs', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const adminAuth = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const created = await adminAuth(request(app).post('/tasks')).send({
+    title: 'Ship the notifications feature',
+    priority: 'High',
+    companyId: '1',
+    assignedUserIds: ['user-3'],
+  });
+  assert.equal(created.status, 201);
+
+  const userToken = await login(app, 'charlie.d@innovatecorp.com');
+  const userAuth = (r) => r.set('Authorization', `Bearer ${userToken}`);
+
+  const list = await userAuth(request(app).get('/notifications'));
+  assert.equal(list.status, 200);
+  const note = list.body.find((n) => n.type === 'task_assigned' && n.entityId === created.body.id);
+  assert.ok(note, 'assignee should receive a task_assigned notification');
+  assert.equal(note.readAt ?? null, null);
+
+  const count = await userAuth(request(app).get('/notifications/unread-count'));
+  assert.ok(count.body.count >= 1);
+
+  // The acting admin should NOT be notified about their own action.
+  const adminList = await adminAuth(request(app).get('/notifications'));
+  assert.equal(adminList.body.some((n) => n.entityId === created.body.id), false);
+
+  // Mark read drops the unread count.
+  const read = await userAuth(request(app).post(`/notifications/${note.id}/read`));
+  assert.equal(read.body.updated, true);
+  const afterRead = await userAuth(request(app).get('/notifications/unread-count'));
+  assert.equal(afterRead.body.count, count.body.count - 1);
+
+  // Preferences round-trip, and muting a category hides it in-app.
+  const prefs = await userAuth(request(app).get('/notifications/preferences'));
+  assert.equal(prefs.body.tasks.inApp, true);
+  const updated = await userAuth(request(app).put('/notifications/preferences')).send({
+    tasks: { inApp: false, email: false },
+    finance: { inApp: true, email: true },
+    crm: { inApp: true, email: true },
+  });
+  assert.equal(updated.body.tasks.inApp, false);
+  const mutedList = await userAuth(request(app).get('/notifications'));
+  assert.equal(mutedList.body.some((n) => n.type === 'task_assigned'), false);
+});
+
+test('task status updates via a partial payload (Kanban drag) preserve project and notify', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const adminAuth = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+  const charlieToken = await login(app, 'charlie.d@innovatecorp.com');
+  const charlieAuth = (r) => r.set('Authorization', `Bearer ${charlieToken}`);
+
+  const created = await adminAuth(request(app).post('/tasks')).send({
+    title: 'Drag me', priority: 'Medium', companyId: '1', projectId: 'proj-1', assignedUserIds: ['user-3'],
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+
+  // Exactly what the Kanban board sends on drag: status only, no projectId.
+  const moved = await adminAuth(request(app).put(`/tasks/${id}`)).send({ status: 'In Progress' });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.status, 'In Progress');
+  assert.equal(moved.body.projectId, 'proj-1'); // project must be preserved, not nulled
+
+  const notes = await charlieAuth(request(app).get('/notifications'));
+  assert.ok(notes.body.some((n) => n.type === 'task_status' && n.entityId === id));
+
+  // A project-less task can also be updated with a partial payload.
+  const noProj = await adminAuth(request(app).post('/tasks')).send({
+    title: 'No project task', priority: 'Low', companyId: '1',
+  });
+  assert.equal(noProj.status, 201);
+  const moved2 = await adminAuth(request(app).put(`/tasks/${noProj.body.id}`)).send({ status: 'Done' });
+  assert.equal(moved2.status, 200);
+  assert.equal(moved2.body.status, 'Done');
+
+  // A task's project can be explicitly cleared and reassigned via the API.
+  const cleared = await adminAuth(request(app).put(`/tasks/${id}`)).send({ projectId: '' });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.projectId, ''); // empty string clears the project
+  const reassigned = await adminAuth(request(app).put(`/tasks/${id}`)).send({ projectId: 'proj-1' });
+  assert.equal(reassigned.status, 200);
+  assert.equal(reassigned.body.projectId, 'proj-1');
+  // ...and a subsequent partial update still preserves it.
+  const kept = await adminAuth(request(app).put(`/tasks/${id}`)).send({ status: 'To Do' });
+  assert.equal(kept.body.projectId, 'proj-1');
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');
@@ -596,6 +687,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '043_invoice_template_doc',
     '044_commission_nullable_source_links',
     '045_invoice_template_snapshot',
+    '046_notifications',
   ]);
 });
 

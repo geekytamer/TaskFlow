@@ -111,7 +111,15 @@ import {
   ProfitAndLossReport,
   CompanyFinanceSettings,
   InfluencerAccount,
+  Notification,
+  NotificationType,
+  NotificationPrefs,
 } from '../types';
+import {
+  NOTIFICATION_META,
+  defaultNotificationPrefs,
+  normalizeNotificationPrefs,
+} from '../notifications';
 
 type CreateUserInput = Omit<User, 'id'> & { id?: string };
 type CreateTaskInput = Omit<Task, 'id' | 'createdAt'> & { createdAt?: Date | string };
@@ -436,14 +444,23 @@ const makeStackedBarChart = (
 export interface DataStoreOptions {
   dbPath?: string;
   seedOnEmpty?: boolean;
+  /** Called after notifications are created, so the server can dispatch emails. */
+  onNotificationsCreated?: (notifications: Notification[]) => void;
+}
+
+/** In-app deep link for a task notification (project board, or the tasks page). */
+function taskLink(projectId?: string | null): string {
+  return projectId ? `/projects/${projectId}` : '/tasks';
 }
 
 export class DataStore {
   private db: Database.Database;
   private currentActor?: { userId?: string; name?: string };
+  private onNotificationsCreated?: (notifications: Notification[]) => void;
 
   constructor(options: DataStoreOptions = {}) {
     this.db = new Database(options.dbPath ?? defaultDbPath);
+    this.onNotificationsCreated = options.onNotificationsCreated;
     this.applyMigrations();
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
@@ -932,6 +949,25 @@ export class DataStore {
         token TEXT PRIMARY KEY,
         userId TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        category TEXT NOT NULL,
+        type TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        link TEXT,
+        entityType TEXT,
+        entityId TEXT,
+        readAt TEXT,
+        emailedAt TEXT,
+        createdAt TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(userId, createdAt);
+      CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(userId, readAt);
+      CREATE INDEX IF NOT EXISTS idx_notifications_dispatch ON notifications(priority, emailedAt);
     `),
       },
       {
@@ -2257,6 +2293,36 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '046_notifications',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS notifications (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              category TEXT NOT NULL,
+              type TEXT NOT NULL,
+              priority TEXT NOT NULL,
+              title TEXT NOT NULL,
+              body TEXT,
+              link TEXT,
+              entityType TEXT,
+              entityId TEXT,
+              readAt TEXT,
+              emailedAt TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(userId, createdAt);
+            CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(userId, readAt);
+            CREATE INDEX IF NOT EXISTS idx_notifications_dispatch ON notifications(priority, emailedAt);
+          `);
+          const userColumns = (this.db.prepare(`PRAGMA table_info('users')`).all() as any[]).map((c) => c.name);
+          if (!userColumns.includes('notificationPrefs')) {
+            this.db.exec(`ALTER TABLE users ADD COLUMN notificationPrefs TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3512,12 +3578,24 @@ export class DataStore {
       summary: `Task ${newTask.title} created.`,
       metadata: { projectId: newTask.projectId, status: newTask.status },
     });
+    this.notify({
+      companyId: newTask.companyId,
+      userIds: newTask.assignedUserIds ?? [],
+      type: 'task_assigned',
+      title: `New task: ${newTask.title}`,
+      body: `You were assigned to "${newTask.title}".`,
+      link: taskLink(newTask.projectId),
+      entityType: 'task',
+      entityId: newTask.id,
+    });
     return newTask;
   }
 
   updateTask(id: string, updates: UpdateTaskInput) {
     const existing = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as any;
     if (!existing) return undefined;
+    const prevAssigned = this.parseJson<string[]>(existing.assignedUserIds) || [];
+    const prevStatus = existing.status as string;
     const updatedAssigned = updates.assignedUserIds ?? (this.parseJson<string[]>(existing.assignedUserIds) || []);
     const updatedTags = updates.tags ?? (this.parseJson<string[]>(existing.tags) || []);
     const updatedDeps = updates.dependencies ?? (this.parseJson<string[]>(existing.dependencies) || []);
@@ -3530,6 +3608,10 @@ export class DataStore {
       status: updates.status ?? existing.status,
       priority: updates.priority ?? existing.priority,
       companyId: updates.companyId ?? existing.companyId,
+      // projectId is NOT NULL. Omitted (undefined) keeps the existing value so a
+      // partial update (e.g. Kanban drag sending only status) doesn't blank it;
+      // an explicit '' clears the project (no project).
+      projectId: updates.projectId !== undefined ? updates.projectId : existing.projectId,
       createdAt: existing.createdAt,
       dueDate: updates.dueDate ? new Date(updates.dueDate).toISOString() : existing.dueDate,
       assignedUserIds: JSON.stringify(updatedAssigned),
@@ -3555,6 +3637,32 @@ export class DataStore {
       summary: `Task ${result.title} updated.`,
       metadata: { projectId: result.projectId, status: result.status },
     });
+    const link = taskLink(result.projectId);
+    const addedAssignees = updatedAssigned.filter((uid) => !prevAssigned.includes(uid));
+    if (addedAssignees.length > 0) {
+      this.notify({
+        companyId: result.companyId,
+        userIds: addedAssignees,
+        type: 'task_assigned',
+        title: `New task: ${result.title}`,
+        body: `You were assigned to "${result.title}".`,
+        link,
+        entityType: 'task',
+        entityId: result.id,
+      });
+    }
+    if (updates.status && updates.status !== prevStatus) {
+      this.notify({
+        companyId: result.companyId,
+        userIds: updatedAssigned,
+        type: 'task_status',
+        title: `${result.title} → ${result.status}`,
+        body: `Status changed from ${prevStatus} to ${result.status}.`,
+        link,
+        entityType: 'task',
+        entityId: result.id,
+      });
+    }
     return result;
   }
 
@@ -3586,6 +3694,20 @@ export class DataStore {
         ...newComment,
         createdAt: newComment.createdAt.toISOString(),
       });
+    const task = this.getTaskById(newComment.taskId);
+    if (task) {
+      this.notify({
+        companyId: task.companyId,
+        // Notify assignees other than the commenter.
+        userIds: (task.assignedUserIds ?? []).filter((uid) => uid !== newComment.userId),
+        type: 'task_comment',
+        title: `New comment on ${task.title}`,
+        body: newComment.content.slice(0, 160),
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
+      });
+    }
     return newComment;
   }
 
@@ -3811,6 +3933,19 @@ export class DataStore {
 	        : (updates.visibility ?? existing.visibility ?? 'Public'),
 	      now,
     });
+    const newOwner = updates.ownerUserId;
+    if (newOwner !== undefined && newOwner && newOwner !== existing.ownerUserId) {
+      this.notify({
+        companyId: existing.companyId,
+        userIds: [newOwner],
+        type: 'lead_assigned',
+        title: `Assigned to you: ${updates.name ?? existing.name}`,
+        body: 'You are now the owner of this contact.',
+        link: `/contacts/${id}`,
+        entityType: 'contact',
+        entityId: id,
+      });
+    }
     return this.getContactById(id)!;
   }
 
@@ -9046,7 +9181,20 @@ export class DataStore {
       });
       return newPayment;
     });
-    return trx();
+    const result = trx();
+    // Notify finance roles that cash came in (outside the DB transaction).
+    const refreshed = this.getInvoiceById(newPayment.invoiceId);
+    this.notify({
+      companyId: invoice.companyId,
+      userIds: this.listUserIdsByCompanyRoles(invoice.companyId, ['Admin', 'Manager', 'Accountant']),
+      type: 'invoice_payment',
+      title: `Payment received: ${refreshed?.invoiceNumber ?? ''}`.trim(),
+      body: `${newPayment.amount} ${refreshed?.currency ?? ''} via ${newPayment.method}. Outstanding: ${(refreshed?.outstandingAmount ?? 0).toFixed(2)}.`,
+      link: '/finance',
+      entityType: 'invoice',
+      entityId: newPayment.invoiceId,
+    });
+    return result;
   }
 
   private refreshInvoicePaymentStatus(invoiceId: string) {
@@ -9751,6 +9899,18 @@ export class DataStore {
       summary: `Vendor bill ${result.billNumber} created.`,
       metadata: { status: result.status, amount: result.amount, purchaseOrderId: result.purchaseOrderId },
     });
+    if (result.status === 'Draft') {
+      this.notify({
+        companyId: result.companyId,
+        userIds: this.listUserIdsByCompanyRoles(result.companyId, ['Admin', 'Manager', 'Accountant']),
+        type: 'vendor_bill_approval',
+        title: `Bill needs approval: ${result.billNumber}`,
+        body: `Amount ${result.amount}. Review and approve in Payables.`,
+        link: '/finance',
+        entityType: 'vendor_bill',
+        entityId: result.id,
+      });
+    }
     return result;
   }
 
@@ -11059,6 +11219,291 @@ export class DataStore {
         createdAt: event.createdAt.toISOString(),
       });
     return event;
+  }
+
+  // ── Notifications ────────────────────────────────────────────────────────
+
+  private decodeNotification(row: any): Notification {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      userId: row.userId,
+      category: row.category,
+      type: row.type,
+      priority: row.priority,
+      title: row.title,
+      body: row.body ?? undefined,
+      link: row.link ?? undefined,
+      entityType: row.entityType ?? undefined,
+      entityId: row.entityId ?? undefined,
+      readAt: row.readAt ? new Date(row.readAt) : undefined,
+      emailedAt: row.emailedAt ? new Date(row.emailedAt) : undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  /** User ids in a company holding any of the given company roles. */
+  listUserIdsByCompanyRoles(companyId: string, roles: string[]): string[] {
+    const rows = this.db.prepare('SELECT * FROM users').all() as any[];
+    const ids: string[] = [];
+    for (const row of rows) {
+      const user = this.sanitizeUser(row);
+      const role =
+        user.companyRoles?.find((assignment) => assignment.companyId === companyId)?.role ??
+        (user.companyIds?.includes(companyId) ? user.role : undefined);
+      if (role && roles.includes(role)) ids.push(user.id);
+    }
+    return ids;
+  }
+
+  getNotificationPrefs(userId: string): NotificationPrefs {
+    const row = this.db.prepare('SELECT notificationPrefs FROM users WHERE id = ?').get(userId) as any;
+    if (!row) return defaultNotificationPrefs();
+    return normalizeNotificationPrefs(this.parseJson(row.notificationPrefs));
+  }
+
+  updateNotificationPrefs(userId: string, prefs: NotificationPrefs): NotificationPrefs {
+    const normalized = normalizeNotificationPrefs(prefs);
+    this.db
+      .prepare('UPDATE users SET notificationPrefs = @prefs WHERE id = @id')
+      .run({ id: userId, prefs: JSON.stringify(normalized) });
+    return normalized;
+  }
+
+  /**
+   * Create a notification for each recipient (minus the acting user). Respects
+   * each recipient's category preferences (skips when both channels are off) and
+   * optional dedupe so reminder sweeps don't pile up duplicates. Returns the
+   * created rows and hands them to the dispatch hook for email.
+   */
+  notify(input: {
+    companyId: string;
+    userIds: string[];
+    type: NotificationType;
+    title: string;
+    body?: string;
+    link?: string;
+    entityType?: string;
+    entityId?: string;
+    /** Skip if a same (user, type, entityId) notification exists within this window. */
+    dedupeWithinMs?: number;
+  }): Notification[] {
+    const meta = NOTIFICATION_META[input.type];
+    if (!meta) return [];
+    const actorId = this.currentActor?.userId;
+    const recipients = Array.from(new Set(input.userIds.filter((id) => id && id !== actorId)));
+    if (recipients.length === 0) return [];
+
+    const now = new Date();
+    const insert = this.db.prepare(
+      `INSERT INTO notifications
+        (id, companyId, userId, category, type, priority, title, body, link, entityType, entityId, readAt, emailedAt, createdAt)
+       VALUES (@id, @companyId, @userId, @category, @type, @priority, @title, @body, @link, @entityType, @entityId, NULL, NULL, @createdAt)`,
+    );
+    const created: Notification[] = [];
+
+    for (const userId of recipients) {
+      const prefs = this.getNotificationPrefs(userId)[meta.category];
+      if (!prefs.inApp && !prefs.email) continue; // category fully muted
+
+      if (input.dedupeWithinMs && input.entityId) {
+        const since = new Date(now.getTime() - input.dedupeWithinMs).toISOString();
+        const existing = this.db
+          .prepare(
+            'SELECT id FROM notifications WHERE userId = ? AND type = ? AND entityId = ? AND createdAt >= ? LIMIT 1',
+          )
+          .get(userId, input.type, input.entityId, since);
+        if (existing) continue;
+      }
+
+      const notification: Notification = {
+        id: uuid(),
+        companyId: input.companyId,
+        userId,
+        category: meta.category,
+        type: input.type,
+        priority: meta.priority,
+        title: input.title,
+        body: input.body,
+        link: input.link,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        createdAt: now,
+      };
+      insert.run({
+        ...notification,
+        body: notification.body ?? null,
+        link: notification.link ?? null,
+        entityType: notification.entityType ?? null,
+        entityId: notification.entityId ?? null,
+        createdAt: now.toISOString(),
+      });
+      created.push(notification);
+    }
+
+    if (created.length > 0 && this.onNotificationsCreated) {
+      try {
+        this.onNotificationsCreated(created);
+      } catch (err) {
+        console.error('onNotificationsCreated hook failed:', err);
+      }
+    }
+    return created;
+  }
+
+  /** List a user's notifications, filtered to categories they keep in-app. */
+  listNotifications(userId: string, options: { limit?: number; unreadOnly?: boolean } = {}): Notification[] {
+    const prefs = this.getNotificationPrefs(userId);
+    const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
+    if (inAppCategories.length === 0) return [];
+    const placeholders = inAppCategories.map(() => '?').join(',');
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    const unreadClause = options.unreadOnly ? 'AND readAt IS NULL' : '';
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM notifications
+         WHERE userId = ? AND category IN (${placeholders}) ${unreadClause}
+         ORDER BY createdAt DESC LIMIT ?`,
+      )
+      .all(userId, ...inAppCategories, limit) as any[];
+    return rows.map((row) => this.decodeNotification(row));
+  }
+
+  unreadNotificationCount(userId: string): number {
+    const prefs = this.getNotificationPrefs(userId);
+    const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
+    if (inAppCategories.length === 0) return 0;
+    const placeholders = inAppCategories.map(() => '?').join(',');
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM notifications WHERE userId = ? AND readAt IS NULL AND category IN (${placeholders})`,
+      )
+      .get(userId, ...inAppCategories) as any;
+    return Number(row?.c ?? 0);
+  }
+
+  markNotificationRead(userId: string, notificationId: string): boolean {
+    const result = this.db
+      .prepare('UPDATE notifications SET readAt = @now WHERE id = @id AND userId = @userId AND readAt IS NULL')
+      .run({ id: notificationId, userId, now: new Date().toISOString() });
+    return result.changes > 0;
+  }
+
+  markAllNotificationsRead(userId: string): number {
+    const result = this.db
+      .prepare('UPDATE notifications SET readAt = @now WHERE userId = @userId AND readAt IS NULL')
+      .run({ userId, now: new Date().toISOString() });
+    return result.changes;
+  }
+
+  markNotificationEmailed(ids: string[]): void {
+    if (ids.length === 0) return;
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare('UPDATE notifications SET emailedAt = ? WHERE id = ?');
+    const tx = this.db.transaction((rows: string[]) => rows.forEach((id) => stmt.run(now, id)));
+    tx(ids);
+  }
+
+  /** Set (or replace) the post-creation hook used to dispatch emails. */
+  setOnNotificationsCreated(fn: (notifications: Notification[]) => void): void {
+    this.onNotificationsCreated = fn;
+  }
+
+  /** Normal-priority, not-yet-emailed notifications — fodder for the daily digest. */
+  listPendingDigestNotifications(): Notification[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM notifications WHERE priority = 'normal' AND emailedAt IS NULL ORDER BY userId, createdAt ASC",
+      )
+      .all() as any[];
+    return rows.map((row) => this.decodeNotification(row));
+  }
+
+  /** Notify assignees of tasks that are due within 24h or already overdue (once/day). */
+  sweepTaskDueReminders(): number {
+    const now = Date.now();
+    const horizon = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+    const rows = this.db
+      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND dueDate IS NOT NULL AND dueDate <= ?")
+      .all(horizon) as any[];
+    let count = 0;
+    for (const row of rows) {
+      const task = this.decodeTask(row);
+      const assignees = task.assignedUserIds ?? [];
+      if (assignees.length === 0) continue;
+      const overdue = task.dueDate ? task.dueDate.getTime() < now : false;
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: assignees,
+        type: 'task_due',
+        title: `${overdue ? 'Overdue' : 'Due soon'}: ${task.title}`,
+        body: task.dueDate ? `Due ${task.dueDate.toISOString().slice(0, 10)}.` : undefined,
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
+        dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
+  }
+
+  /** Notify owners of contacts whose follow-up date has arrived (once/day). */
+  sweepFollowupDueReminders(): number {
+    const nowIso = new Date().toISOString();
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM contacts WHERE nextFollowupDate IS NOT NULL AND nextFollowupDate <= ? AND ownerUserId IS NOT NULL',
+      )
+      .all(nowIso) as any[];
+    let count = 0;
+    for (const row of rows) {
+      const contact = this.decodeContact(row);
+      if (!contact.ownerUserId) continue;
+      count += this.notify({
+        companyId: contact.companyId,
+        userIds: [contact.ownerUserId],
+        type: 'followup_due',
+        title: `Follow-up due: ${contact.name}`,
+        body: contact.nextFollowupNote || undefined,
+        link: `/contacts/${contact.id}`,
+        entityType: 'contact',
+        entityId: contact.id,
+        dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
+  }
+
+  /** Notify finance roles about unpaid invoices past their due date (once/day). */
+  sweepOverdueInvoiceNotifications(): number {
+    const nowIso = new Date().toISOString();
+    const rows = this.db
+      .prepare("SELECT * FROM invoices WHERE status NOT IN ('Paid','Draft') AND dueDate < ?")
+      .all(nowIso) as any[];
+    let count = 0;
+    const financeByCompany = new Map<string, string[]>();
+    for (const row of rows) {
+      const inv = this.decodeInvoice(row);
+      const outstanding = inv.outstandingAmount ?? inv.total;
+      if (outstanding <= 0) continue;
+      let recipients = financeByCompany.get(inv.companyId);
+      if (!recipients) {
+        recipients = this.listUserIdsByCompanyRoles(inv.companyId, ['Admin', 'Manager', 'Accountant']);
+        financeByCompany.set(inv.companyId, recipients);
+      }
+      count += this.notify({
+        companyId: inv.companyId,
+        userIds: recipients,
+        type: 'invoice_overdue',
+        title: `Overdue invoice: ${inv.invoiceNumber}`,
+        body: `Outstanding ${outstanding.toFixed(2)} ${inv.currency ?? ''}, due ${inv.dueDate.toISOString().slice(0, 10)}.`,
+        link: '/finance',
+        entityType: 'invoice',
+        entityId: inv.id,
+        dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
   }
 
   createCrmActivity(input: {

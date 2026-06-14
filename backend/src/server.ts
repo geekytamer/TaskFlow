@@ -2,7 +2,9 @@ import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import { DataStore, type DataStoreOptions } from './data/store';
-import { sendWelcomeEmail } from './email';
+import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
+import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
+import type { Notification, NotificationPrefs } from './types';
 import { renderInvoicePdf } from './pdf/invoice-pdf';
 import {
   influencerPlatforms,
@@ -431,6 +433,62 @@ export function createServer(options: CreateServerOptions = {}) {
     seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
   });
 
+  // Critical notifications email immediately; normal ones wait for the digest.
+  const dispatchCriticalEmails = async (notifications: Notification[]) => {
+    for (const n of notifications) {
+      if (n.priority !== 'critical') continue;
+      try {
+        if (!store.getNotificationPrefs(n.userId)[n.category].email) continue;
+        const user = store.getUserById(n.userId);
+        if (!user?.email) continue;
+        const result = await sendNotificationEmail({
+          to: user.email,
+          name: user.name,
+          title: n.title,
+          body: n.body,
+          link: n.link,
+        });
+        if (result.sent) store.markNotificationEmailed([n.id]);
+      } catch (error) {
+        logger.error('[notifications] critical email failed', error);
+      }
+    }
+  };
+  // Fire-and-forget so notification creation never blocks on email I/O.
+  store.setOnNotificationsCreated((notifications) => {
+    void dispatchCriticalEmails(notifications);
+  });
+
+  // Daily digest: roll each user's unsent normal-priority notifications into one
+  // email, respecting their per-category email preference.
+  const dispatchNotificationDigests = async () => {
+    const pending = store.listPendingDigestNotifications();
+    if (pending.length === 0) return;
+    const byUser = new Map<string, Notification[]>();
+    for (const n of pending) {
+      const arr = byUser.get(n.userId) ?? [];
+      arr.push(n);
+      byUser.set(n.userId, arr);
+    }
+    for (const [userId, items] of byUser) {
+      try {
+        const prefs = store.getNotificationPrefs(userId);
+        const emailable = items.filter((n) => prefs[n.category].email);
+        if (emailable.length === 0) continue;
+        const user = store.getUserById(userId);
+        if (!user?.email) continue;
+        const result = await sendNotificationDigestEmail({
+          to: user.email,
+          name: user.name,
+          items: emailable.map((n) => ({ title: n.title, body: n.body, link: n.link })),
+        });
+        if (result.sent) store.markNotificationEmailed(emailable.map((n) => n.id));
+      } catch (error) {
+        logger.error('[notifications] digest email failed', error);
+      }
+    }
+  };
+
   // Background sweep: every 30 minutes, queue InvoiceOverdue follow-ups for
   // any unpaid invoice past its dueDate. Idempotent — won't duplicate.
   // Disabled in test environment to avoid leaking timers.
@@ -449,6 +507,30 @@ export function createServer(options: CreateServerOptions = {}) {
     };
     setTimeout(runSweep, 30 * 1000).unref?.();
     setInterval(runSweep, sweepIntervalMs).unref?.();
+
+    // Hourly: generate due/overdue task + follow-up reminder notifications
+    // (deduped to once per day per item by the store).
+    const runReminders = () => {
+      try {
+        const tasks = store.sweepTaskDueReminders();
+        const followups = store.sweepFollowupDueReminders();
+        const overdue = store.sweepOverdueInvoiceNotifications();
+        if (tasks + followups + overdue > 0) {
+          logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice`);
+        }
+      } catch (error) {
+        logger.error('[notifications] reminder sweep failed', error);
+      }
+    };
+    setTimeout(runReminders, 60 * 1000).unref?.();
+    setInterval(runReminders, 60 * 60 * 1000).unref?.();
+
+    // Daily: send the digest of normal-priority notifications.
+    const digestIntervalMs =
+      Number(process.env.NOTIFICATION_DIGEST_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    setInterval(() => {
+      void dispatchNotificationDigests();
+    }, digestIntervalMs).unref?.();
   }
 
   const app = express();
@@ -896,7 +978,10 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       tags: record.tags !== undefined ? stringArray(record.tags, 'tags') : undefined,
       companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
-      projectId: record.projectId !== undefined ? requiredString(record.projectId, 'projectId') : undefined,
+      // Optional, three-way: omitted (undefined) keeps the existing project on
+      // update; an explicit empty string/null clears it (no project); otherwise
+      // it's the chosen project id.
+      projectId: record.projectId === undefined ? undefined : (optionalString(record.projectId) ?? ''),
       color: record.color !== undefined ? optionalString(record.color) : undefined,
       dependencies:
         record.dependencies !== undefined ? stringArray(record.dependencies, 'dependencies') : undefined,
@@ -1142,6 +1227,72 @@ export function createServer(options: CreateServerOptions = {}) {
       });
       if (!user) throw new HttpError(404, 'User not found.');
       res.json({ user });
+    }),
+  );
+
+  // ─── Notifications ───────────────────────────────────────────────────────
+
+  app.get(
+    '/notifications',
+    authMiddleware,
+    handler((req, res) => {
+      const unreadOnly = req.query.unreadOnly === 'true' || req.query.unreadOnly === '1';
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      res.json(store.listNotifications(req.user!.id, { unreadOnly, limit }));
+    }),
+  );
+
+  app.get(
+    '/notifications/unread-count',
+    authMiddleware,
+    handler((req, res) => {
+      res.json({ count: store.unreadNotificationCount(req.user!.id) });
+    }),
+  );
+
+  app.post(
+    '/notifications/read-all',
+    authMiddleware,
+    handler((req, res) => {
+      res.json({ updated: store.markAllNotificationsRead(req.user!.id) });
+    }),
+  );
+
+  app.post(
+    '/notifications/:id/read',
+    authMiddleware,
+    handler((req, res) => {
+      const updated = store.markNotificationRead(req.user!.id, req.params.id);
+      res.json({ updated });
+    }),
+  );
+
+  app.get(
+    '/notifications/preferences',
+    authMiddleware,
+    handler((req, res) => {
+      res.json(store.getNotificationPrefs(req.user!.id));
+    }),
+  );
+
+  app.put(
+    '/notifications/preferences',
+    authMiddleware,
+    handler((req, res) => {
+      const body = asRecord(req.body, 'body');
+      const next: Record<string, { inApp: boolean; email: boolean }> = {};
+      for (const category of NOTIFICATION_CATEGORIES) {
+        const entry = asRecord(body[category] ?? {}, category);
+        next[category] = {
+          inApp: entry.inApp !== false,
+          email: entry.email !== false,
+        };
+      }
+      const prefs = store.updateNotificationPrefs(
+        req.user!.id,
+        normalizeNotificationPrefs(next) as NotificationPrefs,
+      );
+      res.json(prefs);
     }),
   );
 

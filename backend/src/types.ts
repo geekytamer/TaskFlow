@@ -1082,6 +1082,47 @@ export interface ActivityEvent {
   createdAt: Date;
 }
 
+// ── Notifications ──────────────────────────────────────────────────────────
+export type NotificationCategory = 'tasks' | 'finance' | 'crm';
+export type NotificationPriority = 'critical' | 'normal';
+export type NotificationType =
+  | 'task_assigned'
+  | 'task_status'
+  | 'task_comment'
+  | 'task_due'
+  | 'invoice_overdue'
+  | 'invoice_payment'
+  | 'vendor_bill_approval'
+  | 'followup_due'
+  | 'lead_assigned';
+
+export interface Notification {
+  id: string;
+  companyId: string;
+  /** Recipient user. */
+  userId: string;
+  category: NotificationCategory;
+  type: NotificationType;
+  priority: NotificationPriority;
+  title: string;
+  body?: string;
+  /** In-app link to the related record. */
+  link?: string;
+  entityType?: string;
+  entityId?: string;
+  readAt?: Date;
+  /** When this was included in a sent email (immediate or digest). */
+  emailedAt?: Date;
+  createdAt: Date;
+}
+
+export interface NotificationChannelPref {
+  inApp: boolean;
+  email: boolean;
+}
+
+export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
+
 export type RecordEntityType =
   | ActivityEvent['entityType']
   | 'company'
