@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api-client';
 
-export type NotificationCategory = 'tasks' | 'finance' | 'crm';
+export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory';
 export type NotificationPriority = 'critical' | 'normal';
 
 export interface AppNotification {
@@ -27,7 +27,7 @@ export interface NotificationChannelPref {
 
 export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
 
-export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm'];
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
 
 const toDate = (v: any) => (v ? new Date(v) : undefined);
 

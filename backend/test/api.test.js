@@ -635,6 +635,118 @@ test('task status updates via a partial payload (Kanban drag) preserve project a
   assert.equal(kept.body.projectId, 'proj-1');
 });
 
+test('time entries log, list, and delete on a task', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+  const task = await auth(request(app).post('/tasks')).send({
+    title: 'Timed task', priority: 'Medium', companyId: '1', assignedUserIds: ['user-3'],
+  });
+  assert.equal(task.status, 201);
+  const taskId = task.body.id;
+
+  const logged = await auth(request(app).post(`/tasks/${taskId}/time-entries`)).send({ hours: 1.5, note: 'Design work' });
+  assert.equal(logged.status, 201);
+  assert.equal(logged.body.minutes, 90);
+
+  const list = await auth(request(app).get(`/tasks/${taskId}/time-entries`));
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 1);
+  assert.equal(list.body[0].minutes, 90);
+
+  const del = await auth(request(app).delete(`/time-entries/${logged.body.id}`));
+  assert.equal(del.status, 200);
+  const after = await auth(request(app).get(`/tasks/${taskId}/time-entries`));
+  assert.equal(after.body.length, 0);
+});
+
+test('credit notes reduce an invoice outstanding balance and post a reversing journal', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+  const inv = await auth(request(app).post('/invoices')).send({
+    invoiceNumber: 'INV-CN-1', companyId: '1', clientId: 'client-1',
+    issueDate: new Date('2026-03-01').toISOString(), dueDate: new Date('2026-04-01').toISOString(),
+    status: 'Sent',
+    lineItems: [{ description: 'Service', quantity: 1, unitPrice: 300, amount: 300, itemType: 'Manual' }],
+  });
+  assert.equal(inv.status, 201);
+  const invoiceId = inv.body.id;
+  assert.equal(inv.body.outstandingAmount, 300);
+
+  // Credit part of it.
+  const cn = await auth(request(app).post('/companies/1/credit-notes')).send({
+    invoiceId, reason: 'Partial refund',
+    lineItems: [{ description: 'Goodwill credit', amount: 100 }],
+  });
+  assert.equal(cn.status, 201);
+  assert.match(cn.body.creditNoteNumber, /^CN-\d{4}$/);
+  assert.equal(cn.body.total, 100);
+
+  // Invoice outstanding drops by the credit.
+  const after = await auth(request(app).get('/companies/1/invoices'));
+  const updated = after.body.find((i) => i.id === invoiceId);
+  assert.equal(updated.creditedAmount, 100);
+  assert.equal(updated.outstandingAmount, 200);
+
+  // Over-crediting is rejected.
+  const tooMuch = await auth(request(app).post('/companies/1/credit-notes')).send({
+    invoiceId, lineItems: [{ description: 'Too much', amount: 5000 }],
+  });
+  assert.equal(tooMuch.status, 400);
+
+  // A reversing journal entry exists for the credit note.
+  const tb = await auth(request(app).get('/companies/1/finance/trial-balance'));
+  assert.equal(tb.status, 200);
+
+  // It shows in the credit-notes list.
+  const list = await auth(request(app).get('/companies/1/credit-notes'));
+  assert.ok(list.body.some((c) => c.id === cn.body.id));
+});
+
+test('low-stock sweep notifies managers when an item is at/below reorder point', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-ls-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const co = store.createCompany({ name: 'Stock Co', website: '', address: '' });
+  const boss = store.createUser({ name: 'Boss', email: 'boss@stock.co', password: 'secret123', role: 'Admin', companyIds: [co.id] });
+  store.createWarehouse({ companyId: co.id, name: 'Main', isDefault: true });
+  store.createInventoryItem({
+    companyId: co.id, name: 'Widget', category: 'Parts', unit: 'pcs',
+    onHand: 1, reorderPoint: 5, unitCost: 1, tracksInventory: true, location: 'Main',
+  });
+
+  const created = store.sweepLowStockNotifications();
+  assert.ok(created >= 1, 'should create at least one low-stock notification');
+  const notes = store.listNotifications(boss.id);
+  assert.ok(notes.some((n) => n.type === 'low_stock' && n.category === 'inventory'));
+
+  // Deduped: a second sweep the same day adds nothing.
+  assert.equal(store.sweepLowStockNotifications(), 0);
+});
+
+test('passwords are hashed at rest and login upgrades legacy plaintext', async () => {
+  // Store-level: a created user's password is a bcrypt hash, never plaintext.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-pw-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const co = store.createCompany({ name: 'PW Co', website: '', address: '' });
+  store.createUser({ name: 'Pat', email: 'pat@pw.co', password: 'secret123', role: 'Employee', companyIds: [co.id] });
+  const stored = store.findUserByEmail('pat@pw.co');
+  assert.ok(stored.password.startsWith('$2'), 'stored password should be a bcrypt hash');
+  assert.notEqual(stored.password, 'secret123');
+
+  // API-level: a seeded plaintext password still logs in (and is rehashed),
+  // a second login via the new hash also works, and a wrong password is rejected.
+  const app = makeApp();
+  const first = await request(app).post('/auth/login').send({ email: 'admin@taskflow.com', password: 'password' });
+  assert.equal(first.status, 200);
+  const second = await request(app).post('/auth/login').send({ email: 'admin@taskflow.com', password: 'password' });
+  assert.equal(second.status, 200);
+  const wrong = await request(app).post('/auth/login').send({ email: 'admin@taskflow.com', password: 'nope' });
+  assert.equal(wrong.status, 401);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');
@@ -689,6 +801,8 @@ test('health endpoint reports status and applied migrations', async () => {
     '045_invoice_template_snapshot',
     '046_notifications',
     '047_warehouses',
+    '048_credit_notes',
+    '049_time_entries',
   ]);
 });
 

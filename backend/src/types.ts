@@ -117,6 +117,20 @@ export interface Project {
   clientId?: string;
 }
 
+export interface TimeEntry {
+  id: string;
+  companyId: string;
+  taskId: string;
+  userId: string;
+  userName?: string;
+  minutes: number;
+  spentOn: Date;
+  note?: string;
+  /** Labor cost = minutes/60 × the user's cost rate at log time (0 if unknown). */
+  cost?: number;
+  createdAt: Date;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -356,7 +370,29 @@ export interface Invoice {
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+  /** Total of issued credit notes applied to this invoice. */
+  creditedAmount?: number;
   campaignId?: string;
+}
+
+export interface CreditNoteLineItem {
+  description: string;
+  amount: number;
+}
+
+export interface CreditNote {
+  id: string;
+  companyId: string;
+  /** Invoice this credit note adjusts (optional — a standalone credit is allowed). */
+  invoiceId?: string;
+  clientId: string;
+  creditNoteNumber: string;
+  issueDate: Date;
+  lineItems: CreditNoteLineItem[];
+  total: number;
+  reason?: string;
+  status: 'Issued' | 'Void';
+  createdAt: Date;
 }
 
 export type SalesOrderStatus = 'Draft' | 'Confirmed' | 'Invoiced' | 'Cancelled';
@@ -516,7 +552,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense';
+  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note';
   sourceId?: string;
   memo?: string;
   entryDate: Date;
@@ -1096,7 +1132,7 @@ export interface ActivityEvent {
 }
 
 // ── Notifications ──────────────────────────────────────────────────────────
-export type NotificationCategory = 'tasks' | 'finance' | 'crm';
+export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory';
 export type NotificationPriority = 'critical' | 'normal';
 export type NotificationType =
   | 'task_assigned'
@@ -1107,7 +1143,8 @@ export type NotificationType =
   | 'invoice_payment'
   | 'vendor_bill_approval'
   | 'followup_due'
-  | 'lead_assigned';
+  | 'lead_assigned'
+  | 'low_stock';
 
 export interface Notification {
   id: string;

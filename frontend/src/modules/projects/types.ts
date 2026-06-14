@@ -51,3 +51,16 @@ export interface Comment {
     content: string;
     createdAt: Date;
 }
+
+export interface TimeEntry {
+    id: string;
+    companyId: string;
+    taskId: string;
+    userId: string;
+    userName?: string;
+    minutes: number;
+    spentOn: Date;
+    note?: string;
+    cost?: number;
+    createdAt: Date;
+}

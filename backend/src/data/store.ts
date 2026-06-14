@@ -115,12 +115,16 @@ import {
   NotificationType,
   NotificationPrefs,
   Warehouse,
+  CreditNote,
+  CreditNoteLineItem,
+  TimeEntry,
 } from '../types';
 import {
   NOTIFICATION_META,
   defaultNotificationPrefs,
   normalizeNotificationPrefs,
 } from '../notifications';
+import { hashPassword, isHashed } from '../password';
 
 type CreateUserInput = Omit<User, 'id'> & { id?: string };
 type CreateTaskInput = Omit<Task, 'id' | 'createdAt'> & { createdAt?: Date | string };
@@ -649,6 +653,20 @@ export class DataStore {
         invoiceDate TEXT,
         generatedInvoiceId TEXT
       );
+      CREATE TABLE IF NOT EXISTS time_entries (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        taskId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        userName TEXT,
+        minutes INTEGER NOT NULL,
+        spentOn TEXT NOT NULL,
+        note TEXT,
+        cost REAL,
+        createdAt TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(taskId);
+      CREATE INDEX IF NOT EXISTS idx_time_entries_company ON time_entries(companyId, spentOn);
       CREATE TABLE IF NOT EXISTS comments (
         id TEXT PRIMARY KEY,
         taskId TEXT NOT NULL,
@@ -891,6 +909,21 @@ export class DataStore {
         sentAt TEXT,
         paidAt TEXT
       );
+      CREATE TABLE IF NOT EXISTS credit_notes (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        invoiceId TEXT,
+        clientId TEXT NOT NULL,
+        creditNoteNumber TEXT NOT NULL,
+        issueDate TEXT NOT NULL,
+        lineItems TEXT NOT NULL,
+        total REAL NOT NULL,
+        reason TEXT,
+        status TEXT NOT NULL,
+        createdAt TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_credit_notes_company ON credit_notes(companyId, issueDate);
+      CREATE INDEX IF NOT EXISTS idx_credit_notes_invoice ON credit_notes(invoiceId);
       CREATE TABLE IF NOT EXISTS invoice_templates (
         id TEXT PRIMARY KEY,
         companyId TEXT NOT NULL,
@@ -2387,6 +2420,49 @@ export class DataStore {
           // which runs after seeding so fresh DBs are covered too.
         },
       },
+      {
+        id: '048_credit_notes',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS credit_notes (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              invoiceId TEXT,
+              clientId TEXT NOT NULL,
+              creditNoteNumber TEXT NOT NULL,
+              issueDate TEXT NOT NULL,
+              lineItems TEXT NOT NULL,
+              total REAL NOT NULL,
+              reason TEXT,
+              status TEXT NOT NULL,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_credit_notes_company ON credit_notes(companyId, issueDate);
+            CREATE INDEX IF NOT EXISTS idx_credit_notes_invoice ON credit_notes(invoiceId);
+          `);
+        },
+      },
+      {
+        id: '049_time_entries',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS time_entries (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              taskId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              userName TEXT,
+              minutes INTEGER NOT NULL,
+              spentOn TEXT NOT NULL,
+              note TEXT,
+              cost REAL,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(taskId);
+            CREATE INDEX IF NOT EXISTS idx_time_entries_company ON time_entries(companyId, spentOn);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3300,7 +3376,7 @@ export class DataStore {
         const updatedUser: User = {
           ...existingByEmail,
           ...user,
-          password: user.password,
+          password: user.password ? hashPassword(user.password) : existingByEmail.password,
           companyIds: normalizedCompanyIds.length > 0 ? normalizedCompanyIds : existingByEmail.companyIds,
           companyRoles: normalizedCompanyRoles.length > 0 ? normalizedCompanyRoles : existingByEmail.companyRoles,
           role: user.role || normalizedCompanyRoles[0]?.role || existingByEmail.role || 'Employee',
@@ -3335,7 +3411,7 @@ export class DataStore {
     const newUser: User = {
       ...user,
       id: user.id ?? uuid(),
-      password: user.password,
+      password: hashPassword(user.password),
       companyIds: normalizedCompanyIds,
       companyRoles: normalizedCompanyRoles,
       role: user.role || normalizedCompanyRoles[0]?.role || 'Employee',
@@ -3394,7 +3470,13 @@ export class DataStore {
       companyIds: JSON.stringify(updatedCompanyIds),
       companyRoles: JSON.stringify(nextCompanyRoles),
       avatar: updates.avatar ?? existing.avatar ?? null,
-      password: updates.password ?? existing.password,
+      // Hash a new password; an already-hashed value (legacy rehash) passes through.
+      password:
+        updates.password !== undefined
+          ? isHashed(updates.password)
+            ? updates.password
+            : hashPassword(updates.password)
+          : existing.password,
       isSuperAdmin:
         updates.isSuperAdmin !== undefined
           ? (updates.isSuperAdmin ? 1 : 0)
@@ -3773,6 +3855,85 @@ export class DataStore {
       });
     }
     return newComment;
+  }
+
+  // ── Task time tracking ─────────────────────────────────────────────────────
+
+  private decodeTimeEntry(row: any): TimeEntry {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      taskId: row.taskId,
+      userId: row.userId,
+      userName: row.userName ?? undefined,
+      minutes: Number(row.minutes) || 0,
+      spentOn: new Date(row.spentOn),
+      note: row.note ?? undefined,
+      cost: row.cost === null || row.cost === undefined ? undefined : Number(row.cost),
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listTimeEntries(taskId: string): TimeEntry[] {
+    const rows = this.db
+      .prepare('SELECT * FROM time_entries WHERE taskId = ? ORDER BY spentOn DESC, createdAt DESC')
+      .all(taskId) as any[];
+    return rows.map((r) => this.decodeTimeEntry(r));
+  }
+
+  getTimeEntryById(id: string): TimeEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM time_entries WHERE id = ?').get(id) as any;
+    return row ? this.decodeTimeEntry(row) : undefined;
+  }
+
+  createTimeEntry(input: {
+    companyId: string;
+    taskId: string;
+    userId: string;
+    minutes: number;
+    spentOn?: Date | string;
+    note?: string;
+  }): TimeEntry {
+    const minutes = Math.round(Number(input.minutes));
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      throw new Error('Logged time must be greater than zero.');
+    }
+    const user = this.getUserById(input.userId);
+    const rate = user?.costRatePerHour;
+    const cost = typeof rate === 'number' ? Number(((minutes / 60) * rate).toFixed(2)) : undefined;
+    const entry: TimeEntry = {
+      id: uuid(),
+      companyId: input.companyId,
+      taskId: input.taskId,
+      userId: input.userId,
+      userName: user?.name,
+      minutes,
+      spentOn: input.spentOn ? new Date(input.spentOn) : new Date(),
+      note: input.note,
+      cost,
+      createdAt: new Date(),
+    };
+    this.db
+      .prepare(
+        `INSERT INTO time_entries (id, companyId, taskId, userId, userName, minutes, spentOn, note, cost, createdAt)
+         VALUES (@id, @companyId, @taskId, @userId, @userName, @minutes, @spentOn, @note, @cost, @createdAt)`,
+      )
+      .run({
+        ...entry,
+        userName: entry.userName ?? null,
+        spentOn: entry.spentOn.toISOString(),
+        note: entry.note ?? null,
+        cost: entry.cost ?? null,
+        createdAt: entry.createdAt.toISOString(),
+      });
+    return entry;
+  }
+
+  deleteTimeEntry(id: string): TimeEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM time_entries WHERE id = ?').get(id) as any;
+    if (!row) return undefined;
+    this.db.prepare('DELETE FROM time_entries WHERE id = ?').run(id);
+    return this.decodeTimeEntry(row);
   }
 
   // ─── Contacts ────────────────────────────────────────────────────────────
@@ -9222,6 +9383,7 @@ export class DataStore {
 
   private decodeInvoice(row: any): Invoice {
     const paidAmount = this.getInvoicePaidAmount(row.id);
+    const creditedAmount = this.getInvoiceCreditedAmount(row.id);
     const total = Number(row.total) || 0;
     return {
       ...row,
@@ -9239,8 +9401,145 @@ export class DataStore {
       sentAt: row.sentAt ? new Date(row.sentAt) : undefined,
       paidAt: row.paidAt ? new Date(row.paidAt) : undefined,
       paidAmount,
-      outstandingAmount: Number(Math.max(0, total - paidAmount).toFixed(2)),
+      creditedAmount,
+      outstandingAmount: Number(Math.max(0, total - paidAmount - creditedAmount).toFixed(2)),
     };
+  }
+
+  // ── Credit notes ───────────────────────────────────────────────────────────
+
+  private decodeCreditNote(row: any): CreditNote {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      invoiceId: row.invoiceId ?? undefined,
+      clientId: row.clientId,
+      creditNoteNumber: row.creditNoteNumber,
+      issueDate: new Date(row.issueDate),
+      lineItems: (this.parseJson<CreditNoteLineItem[]>(row.lineItems) || []).map((l) => ({
+        description: String(l.description ?? ''),
+        amount: Number(l.amount) || 0,
+      })),
+      total: Number(row.total) || 0,
+      reason: row.reason ?? undefined,
+      status: row.status,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  /** Sum of issued (non-void) credit notes applied to an invoice. */
+  getInvoiceCreditedAmount(invoiceId: string): number {
+    const row = this.db
+      .prepare(
+        "SELECT COALESCE(SUM(total),0) AS t FROM credit_notes WHERE invoiceId = ? AND status = 'Issued'",
+      )
+      .get(invoiceId) as any;
+    return Number(row?.t ?? 0);
+  }
+
+  private nextCreditNoteNumber(companyId: string): string {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS c FROM credit_notes WHERE companyId = ?')
+      .get(companyId) as any;
+    const seq = Number(row?.c ?? 0) + 1;
+    return `CN-${String(seq).padStart(4, '0')}`;
+  }
+
+  listCreditNotes(companyId: string): CreditNote[] {
+    const rows = this.db
+      .prepare('SELECT * FROM credit_notes WHERE companyId = ? ORDER BY issueDate DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodeCreditNote(r));
+  }
+
+  getCreditNoteById(id: string): CreditNote | undefined {
+    const row = this.db.prepare('SELECT * FROM credit_notes WHERE id = ?').get(id) as any;
+    return row ? this.decodeCreditNote(row) : undefined;
+  }
+
+  createCreditNote(input: {
+    companyId: string;
+    invoiceId?: string;
+    clientId?: string;
+    issueDate?: Date | string;
+    lineItems: CreditNoteLineItem[];
+    reason?: string;
+  }): CreditNote {
+    const lineItems = (input.lineItems || [])
+      .map((l) => ({ description: String(l.description ?? '').trim(), amount: Number(l.amount) || 0 }))
+      .filter((l) => l.amount !== 0 || l.description);
+    if (lineItems.length === 0) {
+      throw new Error('A credit note needs at least one line.');
+    }
+    const total = Number(lineItems.reduce((sum, l) => sum + l.amount, 0).toFixed(2));
+    if (total <= 0) {
+      throw new Error('Credit note total must be greater than zero.');
+    }
+
+    let clientId = input.clientId;
+    if (input.invoiceId) {
+      const invoice = this.getInvoiceById(input.invoiceId);
+      if (!invoice || invoice.companyId !== input.companyId) {
+        throw new Error('Invoice not found for this company.');
+      }
+      clientId = clientId ?? invoice.clientId;
+      const alreadyCredited = this.getInvoiceCreditedAmount(invoice.id);
+      if (total > invoice.total - alreadyCredited + 0.0001) {
+        throw new Error('Credit note exceeds the invoice amount available to credit.');
+      }
+    }
+    if (!clientId) throw new Error('A client is required.');
+
+    const issueDate = input.issueDate ? new Date(input.issueDate) : new Date();
+    this.assertOpenFinancialDate(input.companyId, issueDate, 'Credit note date');
+
+    const note: CreditNote = {
+      id: uuid(),
+      companyId: input.companyId,
+      invoiceId: input.invoiceId,
+      clientId,
+      creditNoteNumber: this.nextCreditNoteNumber(input.companyId),
+      issueDate,
+      lineItems,
+      total,
+      reason: input.reason,
+      status: 'Issued',
+      createdAt: new Date(),
+    };
+
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO credit_notes (id, companyId, invoiceId, clientId, creditNoteNumber, issueDate, lineItems, total, reason, status, createdAt)
+           VALUES (@id, @companyId, @invoiceId, @clientId, @creditNoteNumber, @issueDate, @lineItems, @total, @reason, @status, @createdAt)`,
+        )
+        .run({
+          ...note,
+          invoiceId: note.invoiceId ?? null,
+          issueDate: note.issueDate.toISOString(),
+          lineItems: JSON.stringify(note.lineItems),
+          reason: note.reason ?? null,
+          createdAt: note.createdAt.toISOString(),
+        });
+      // Reverse the sale: Dr Revenue, Cr Accounts Receivable.
+      const arAccountId = this.getSystemAccountId(input.companyId, '1100');
+      const revenueAccountId = this.getSystemAccountId(input.companyId, '4000');
+      this.createJournalEntry({
+        companyId: input.companyId,
+        sourceType: 'credit_note',
+        sourceId: note.id,
+        memo: `Credit note ${note.creditNoteNumber}${note.invoiceId ? ` for invoice` : ''}`,
+        entryDate: note.issueDate,
+        lines: [
+          { id: uuid(), accountId: revenueAccountId, description: 'Revenue reversal', debit: total, credit: 0 },
+          { id: uuid(), accountId: arAccountId, description: 'Accounts receivable', debit: 0, credit: total },
+        ],
+      });
+    });
+    tx();
+    // Keep the linked invoice's paid/overdue status in sync with the new credit.
+    if (note.invoiceId) this.refreshInvoicePaymentStatus(note.invoiceId);
+    return this.getCreditNoteById(note.id)!;
   }
 
   private normalizeInvoiceLineItems(rawItems: any[]): Invoice['lineItems'] {
@@ -11694,6 +11993,40 @@ export class DataStore {
         link: `/contacts/${contact.id}`,
         entityType: 'contact',
         entityId: contact.id,
+        dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
+  }
+
+  /** Notify Admin/Manager when a tracked item is at or below its reorder point (once/day). */
+  sweepLowStockNotifications(): number {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM inventory_items WHERE tracksInventory = 1 AND reorderPoint > 0 AND onHand <= reorderPoint',
+      )
+      .all() as any[];
+    let count = 0;
+    const recipientsByCompany = new Map<string, string[]>();
+    for (const row of rows) {
+      const companyId = row.companyId as string;
+      let recipients = recipientsByCompany.get(companyId);
+      if (!recipients) {
+        recipients = this.listUserIdsByCompanyRoles(companyId, ['Admin', 'Manager']);
+        recipientsByCompany.set(companyId, recipients);
+      }
+      const onHand = Number(row.onHand) || 0;
+      const reorder = Number(row.reorderPoint) || 0;
+      const suggested = Math.max(Math.ceil(reorder * 2 - onHand), 1);
+      count += this.notify({
+        companyId,
+        userIds: recipients,
+        type: 'low_stock',
+        title: `Low stock: ${row.name}`,
+        body: `On hand ${onHand}, reorder point ${reorder}. Suggested reorder ≈ ${suggested} ${row.unit || ''}.`.trim(),
+        link: '/inventory',
+        entityType: 'inventory_item',
+        entityId: row.id,
         dedupeWithinMs: 20 * 60 * 60 * 1000,
       }).length;
     }

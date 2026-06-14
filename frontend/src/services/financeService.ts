@@ -9,6 +9,8 @@ import type {
   CompanyNumberingSetting,
   FinanceOverview,
   Invoice,
+  CreditNote,
+  CreditNoteLineItem,
   InvoiceTemplate,
   InvoiceLineItem,
   InventoryReportSummary,
@@ -84,6 +86,7 @@ const mapInvoice = (invoice: any): Invoice => ({
   paidAt: toDate(invoice.paidAt),
   paidAmount: Number(invoice.paidAmount || 0),
   outstandingAmount: Number(invoice.outstandingAmount || 0),
+  creditedAmount: Number(invoice.creditedAmount || 0),
 });
 
 const mapSalesOrderLineItem = (item: any): SalesOrderLineItem => {
@@ -426,6 +429,31 @@ export async function getInvoices(companyId: string): Promise<Invoice[]> {
   if (!companyId) return [];
   const invoices = await apiFetch<Invoice[]>(`/companies/${companyId}/invoices`);
   return invoices.map(mapInvoice);
+}
+
+const mapCreditNote = (c: any): CreditNote => ({
+  ...c,
+  issueDate: toDate(c.issueDate) || new Date(),
+  createdAt: toDate(c.createdAt) || new Date(),
+  total: Number(c.total || 0),
+  lineItems: Array.isArray(c.lineItems) ? c.lineItems : [],
+});
+
+export async function getCreditNotes(companyId: string): Promise<CreditNote[]> {
+  if (!companyId) return [];
+  const data = await apiFetch<any[]>(`/companies/${companyId}/credit-notes`);
+  return data.map(mapCreditNote);
+}
+
+export async function createCreditNote(
+  companyId: string,
+  input: { invoiceId?: string; clientId?: string; reason?: string; lineItems: CreditNoteLineItem[] },
+): Promise<CreditNote> {
+  const data = await apiFetch<any>(`/companies/${companyId}/credit-notes`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return mapCreditNote(data);
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';

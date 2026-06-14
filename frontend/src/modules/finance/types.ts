@@ -83,6 +83,26 @@ export interface Invoice {
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+  creditedAmount?: number;
+}
+
+export interface CreditNoteLineItem {
+  description: string;
+  amount: number;
+}
+
+export interface CreditNote {
+  id: string;
+  companyId: string;
+  invoiceId?: string;
+  clientId: string;
+  creditNoteNumber: string;
+  issueDate: Date;
+  lineItems: CreditNoteLineItem[];
+  total: number;
+  reason?: string;
+  status: 'Issued' | 'Void';
+  createdAt: Date;
 }
 
 export type SalesOrderStatus = 'Draft' | 'Confirmed' | 'Invoiced' | 'Cancelled';

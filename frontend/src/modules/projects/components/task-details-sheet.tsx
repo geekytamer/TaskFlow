@@ -27,6 +27,7 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { getProjectById, getCommentsByTaskId, createComment, updateTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
+import { TaskTimePanel } from './task-time-panel';
 import { getUsersByCompany } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
 import type { User } from '@/modules/users/types';
@@ -512,6 +513,10 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                       </div>
                     </div>
                 </div>
+
+                <Separator />
+
+                {editableTask?.id ? <TaskTimePanel taskId={editableTask.id} /> : null}
 
                 <Separator />
 

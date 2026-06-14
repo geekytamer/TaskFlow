@@ -23,9 +23,10 @@ export const NOTIFICATION_META: Record<
   vendor_bill_approval: { category: 'finance', priority: 'critical' },
   followup_due: { category: 'crm', priority: 'critical' },
   lead_assigned: { category: 'crm', priority: 'normal' },
+  low_stock: { category: 'inventory', priority: 'normal' },
 };
 
-export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm'];
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
 
 /** Everything on by default — users opt out in preferences. */
 export function defaultNotificationPrefs(): NotificationPrefs {
@@ -33,6 +34,7 @@ export function defaultNotificationPrefs(): NotificationPrefs {
     tasks: { inApp: true, email: true },
     finance: { inApp: true, email: true },
     crm: { inApp: true, email: true },
+    inventory: { inApp: true, email: true },
   };
 }
 

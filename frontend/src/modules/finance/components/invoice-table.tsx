@@ -27,6 +27,7 @@ import {
   createPayment,
   reversePayment,
   downloadInvoicePdf,
+  createCreditNote,
   getInvoices,
   getInvoiceTemplates,
   getPayments,
@@ -66,6 +67,10 @@ export function InvoiceTable() {
   const [paymentDialog, setPaymentDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
   const [previewInvoice, setPreviewInvoice] = React.useState<Invoice | null>(null);
   const [pdfPending, setPdfPending] = React.useState(false);
+  const [creditDialog, setCreditDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
+  const [creditAmount, setCreditAmount] = React.useState('');
+  const [creditReason, setCreditReason] = React.useState('');
+  const [creditPending, setCreditPending] = React.useState(false);
   const [paymentAmount, setPaymentAmount] = React.useState('');
   const [paymentMethod, setPaymentMethod] = React.useState('');
   const [paymentNote, setPaymentNote] = React.useState('');
@@ -151,6 +156,42 @@ export function InvoiceTable() {
       });
     } finally {
       setPdfPending(false);
+    }
+  };
+
+  const openCreditDialog = (invoice: Invoice) => {
+    const outstanding = invoice.outstandingAmount ?? invoice.total;
+    setCreditDialog({ open: true, invoice });
+    setCreditAmount(outstanding > 0 ? String(outstanding) : '');
+    setCreditReason('');
+  };
+
+  const submitCreditNote = async () => {
+    const invoice = creditDialog.invoice;
+    if (!invoice || !selectedCompany) return;
+    const amount = Number(creditAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({ variant: 'destructive', title: t('invoiceTable.creditInvalid') });
+      return;
+    }
+    setCreditPending(true);
+    try {
+      await createCreditNote(selectedCompany.id, {
+        invoiceId: invoice.id,
+        reason: creditReason.trim() || undefined,
+        lineItems: [{ description: creditReason.trim() || t('invoiceTable.creditDefaultLine'), amount }],
+      });
+      toast({ title: t('invoiceTable.creditCreated') });
+      setCreditDialog({ open: false });
+      await fetchData();
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: t('invoiceTable.creditError'),
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setCreditPending(false);
     }
   };
 
@@ -726,6 +767,11 @@ export function InvoiceTable() {
               {t('invoiceTable.printHint')}
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              {canManageFinance && previewInvoice && previewInvoice.status !== 'Draft' && (previewInvoice.outstandingAmount ?? 0) > 0 ? (
+                <Button variant="outline" onClick={() => previewInvoice && openCreditDialog(previewInvoice)}>
+                  {t('invoiceTable.creditNote')}
+                </Button>
+              ) : null}
               <Button asChild variant="outline">
                 <a href={`/finance/invoices/${previewInvoice?.id}/print?print=1`} target="_blank" rel="noopener noreferrer">
                   <Printer className="me-2 h-4 w-4" />
@@ -759,6 +805,48 @@ export function InvoiceTable() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={creditDialog.open} onOpenChange={(open) => !open && setCreditDialog({ open: false })}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('invoiceTable.creditNoteTitle')}</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {t('invoiceTable.creditNoteSubtitle').replace('{number}', creditDialog.invoice?.invoiceNumber || '')}
+            </p>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label>{t('invoiceTable.creditAmount')}</Label>
+              <Input
+                type="number"
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(e.target.value)}
+                placeholder="0.00"
+              />
+              {creditDialog.invoice ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('invoiceTable.creditOutstanding').replace(
+                    '{amount}',
+                    String(creditDialog.invoice.outstandingAmount ?? creditDialog.invoice.total),
+                  )}
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-1">
+              <Label>{t('invoiceTable.creditReason')}</Label>
+              <Input value={creditReason} onChange={(e) => setCreditReason(e.target.value)} placeholder={t('invoiceTable.creditReasonPh')} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreditDialog({ open: false })}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={submitCreditNote} disabled={creditPending}>
+              {creditPending ? t('common.saving') : t('invoiceTable.creditNote')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

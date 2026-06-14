@@ -1,5 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
 import { DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
@@ -424,6 +426,17 @@ const parseJournalLines = (value: unknown): JournalEntryLine[] => {
 
 const defaultPassword = () => Math.random().toString(36).slice(-8);
 
+// Throttle credential stuffing / brute force on login. Relaxed under tests.
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Only enforce in production so tests and local dev aren't throttled.
+  skip: () => process.env.NODE_ENV !== 'production',
+  message: { message: 'Too many login attempts. Please try again in a few minutes.' },
+});
+
 export function createServer(options: CreateServerOptions = {}) {
   const logger = options.logger ?? console;
   const allowSeedReset =
@@ -515,8 +528,9 @@ export function createServer(options: CreateServerOptions = {}) {
         const tasks = store.sweepTaskDueReminders();
         const followups = store.sweepFollowupDueReminders();
         const overdue = store.sweepOverdueInvoiceNotifications();
-        if (tasks + followups + overdue > 0) {
-          logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice`);
+        const lowStock = store.sweepLowStockNotifications();
+        if (tasks + followups + overdue + lowStock > 0) {
+          logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock`);
         }
       } catch (error) {
         logger.error('[notifications] reminder sweep failed', error);
@@ -1195,13 +1209,22 @@ export function createServer(options: CreateServerOptions = {}) {
 
   app.post(
     '/auth/login',
+    loginRateLimiter,
     handler((req, res) => {
       const body = asRecord(req.body, 'body');
       const email = requiredString(body.email, 'email', { min: 3 });
       const password = requiredString(body.password, 'password', { min: 1 });
       const user = store.findUserByEmail(email);
-      if (!user || user.password !== password) {
+      if (!user || !verifyPassword(password, user.password)) {
         throw new HttpError(401, 'Invalid credentials.');
+      }
+      // Transparently upgrade legacy plaintext passwords to a hash on login.
+      if (!isHashed(user.password)) {
+        try {
+          store.updateUser(user.id, { password });
+        } catch {
+          /* non-fatal: login still succeeds */
+        }
       }
       const token = store.issueToken(user.id);
       res.json({ token, user: store.sanitizeUser(user) });
@@ -2117,6 +2140,61 @@ export function createServer(options: CreateServerOptions = {}) {
         content: requiredString(body.content, 'content', { min: 1 }),
       });
       res.status(201).json(comment);
+    }),
+  );
+
+  // ─── Task time tracking ────────────────────────────────────────────────────
+
+  app.get(
+    '/tasks/:taskId/time-entries',
+    authMiddleware,
+    handler((req, res) => {
+      const task = store.getTaskById(req.params.taskId);
+      if (!task) throw new HttpError(404, 'Task not found.');
+      requireTaskViewAccess(req, task);
+      res.json(store.listTimeEntries(req.params.taskId));
+    }),
+  );
+
+  app.post(
+    '/tasks/:taskId/time-entries',
+    authMiddleware,
+    handler((req, res) => {
+      const task = store.getTaskById(req.params.taskId);
+      if (!task) throw new HttpError(404, 'Task not found.');
+      requireCompanyAccess(req, task.companyId);
+      const body = asRecord(req.body, 'body');
+      const hours = body.hours !== undefined ? requiredNumber(body.hours, 'hours') : undefined;
+      const minutes = hours !== undefined ? Math.round(hours * 60) : requiredNumber(body.minutes, 'minutes');
+      try {
+        const entry = store.createTimeEntry({
+          companyId: task.companyId,
+          taskId: req.params.taskId,
+          userId: req.user!.id,
+          minutes,
+          spentOn: body.spentOn !== undefined ? optionalDateInput(body.spentOn) : undefined,
+          note: optionalString(body.note),
+        });
+        res.status(201).json(entry);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not log time.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/time-entries/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const entry = store.getTimeEntryById(req.params.id);
+      if (!entry) throw new HttpError(404, 'Time entry not found.');
+      // Only the logger, or a manager/admin in the company, may delete.
+      const role = getEffectiveRole(req.user!, entry.companyId);
+      if (entry.userId !== req.user!.id && role !== 'Admin' && role !== 'Manager') {
+        throw new HttpError(403, 'You can only delete your own time entries.');
+      }
+      store.deleteTimeEntry(req.params.id);
+      res.json({ success: true });
     }),
   );
 
@@ -4845,6 +4923,49 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       res.json(store.listInvoices(req.params.companyId));
+    }),
+  );
+
+  // ─── Credit notes ──────────────────────────────────────────────────────────
+
+  app.get(
+    '/companies/:companyId/credit-notes',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listCreditNotes(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/credit-notes',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const rawLines = Array.isArray(body.lineItems) ? body.lineItems : [];
+      const lineItems = rawLines.map((raw) => {
+        const line = asRecord(raw, 'lineItems[]');
+        return {
+          description: optionalString(line.description) ?? '',
+          amount: requiredNumber(line.amount, 'amount'),
+        };
+      });
+      try {
+        const note = withActor(req, () =>
+          store.createCreditNote({
+            companyId: req.params.companyId,
+            invoiceId: optionalString(body.invoiceId),
+            clientId: optionalString(body.clientId),
+            issueDate: body.issueDate !== undefined ? optionalDateInput(body.issueDate) : undefined,
+            lineItems,
+            reason: optionalString(body.reason),
+          }),
+        );
+        res.status(201).json(note);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not create credit note.');
+      }
     }),
   );
 

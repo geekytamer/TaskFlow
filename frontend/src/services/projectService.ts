@@ -1,5 +1,5 @@
 import { apiFetch, isApiError } from '@/lib/api-client';
-import type { Task, Project, Comment } from '@/modules/projects/types';
+import type { Task, Project, Comment, TimeEntry } from '@/modules/projects/types';
 
 const toDate = (value: any) => (value ? new Date(value) : undefined);
 
@@ -130,4 +130,32 @@ export async function createComment(
     body: JSON.stringify(commentData),
   });
   return mapComment(comment);
+}
+
+const mapTimeEntry = (e: any): TimeEntry => ({
+  ...e,
+  minutes: Number(e.minutes) || 0,
+  cost: e.cost === null || e.cost === undefined ? undefined : Number(e.cost),
+  spentOn: e.spentOn ? new Date(e.spentOn) : new Date(),
+  createdAt: e.createdAt ? new Date(e.createdAt) : new Date(),
+});
+
+export async function getTimeEntries(taskId: string): Promise<TimeEntry[]> {
+  const entries = await apiFetch<any[]>(`/tasks/${taskId}/time-entries`);
+  return entries.map(mapTimeEntry);
+}
+
+export async function logTime(
+  taskId: string,
+  input: { hours: number; note?: string; spentOn?: string },
+): Promise<TimeEntry> {
+  const entry = await apiFetch<any>(`/tasks/${taskId}/time-entries`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return mapTimeEntry(entry);
+}
+
+export async function deleteTimeEntry(id: string): Promise<void> {
+  await apiFetch(`/time-entries/${id}`, { method: 'DELETE' });
 }

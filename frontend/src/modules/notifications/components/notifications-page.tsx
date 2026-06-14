@@ -26,6 +26,7 @@ const CATEGORY_BORDER: Record<NotificationCategory, string> = {
   tasks: 'border-l-sky-500',
   finance: 'border-l-emerald-500',
   crm: 'border-l-violet-500',
+  inventory: 'border-l-amber-500',
 };
 
 function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n: AppNotification) => void }) {
