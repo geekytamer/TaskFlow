@@ -50,6 +50,7 @@ import {
 import { getProjects } from '@/services/projectService';
 import type { InventoryItem, InventoryLocationBalance, PurchaseOrder, StockMovement, Supplier, Warehouse } from '@/modules/operations/types';
 import { WarehousesPanel } from './warehouses-panel';
+import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
 import { ArrowRightLeft, PackageMinus, PackagePlus, SlidersHorizontal } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
@@ -569,6 +570,16 @@ export function InventoryPage() {
         )}
         summary={tr(`Showing ${filteredItems.length} of ${items.length} items`, `عرض ${filteredItems.length} من أصل ${items.length} عنصر`)}
         actions={(
+          <div className="flex flex-wrap items-center gap-2">
+          {selectedCompany ? (
+            <CsvImportExport
+              exportPath={`/companies/${selectedCompany.id}/inventory-items/export`}
+              exportFilename="inventory-items.csv"
+              importPath={`/companies/${selectedCompany.id}/inventory-items/import`}
+              onImported={load}
+              labels={{ export: tr('Export', 'تصدير'), import: tr('Import', 'استيراد') }}
+            />
+          ) : null}
           <Dialog
           open={openCreate}
           onOpenChange={(open) => {
@@ -747,9 +758,11 @@ export function InventoryPage() {
                 {tr('Cancel', 'إلغاء')}
               </Button>
             <Button onClick={handleCreate}>{tr('Create Item', 'إنشاء عنصر')}</Button>
+            {/* end create dialog footer */}
           </DialogFooter>
         </DialogContent>
           </Dialog>
+          </div>
         )}
       />
 

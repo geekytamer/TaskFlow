@@ -635,6 +635,39 @@ test('task status updates via a partial payload (Kanban drag) preserve project a
   assert.equal(kept.body.projectId, 'proj-1');
 });
 
+test('contacts and inventory items support CSV export and import', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+  // Contacts: export returns CSV; import creates rows.
+  const exp = await auth(request(app).get('/companies/1/contacts/export'));
+  assert.equal(exp.status, 200);
+  assert.match(String(exp.headers['content-type']), /text\/csv/i);
+  assert.match(exp.text, /^name,kind,email/);
+
+  const imp = await auth(request(app).post('/companies/1/contacts/import')).send({
+    rows: [
+      { name: 'Imported Org', kind: 'Organization', email: 'org@imp.co' },
+      { name: '', email: 'bad@imp.co' }, // missing name -> failure
+    ],
+  });
+  assert.equal(imp.status, 200);
+  assert.equal(imp.body.created, 1);
+  assert.equal(imp.body.failed, 1);
+
+  // Inventory items: needs a warehouse for opening stock.
+  await auth(request(app).post('/companies/1/warehouses')).send({ name: 'Import WH', isDefault: true });
+  const itemImp = await auth(request(app).post('/companies/1/inventory-items/import')).send({
+    rows: [{ name: 'Imported Widget', category: 'Parts', unit: 'pcs', onHand: 4, reorderPoint: 2, unitCost: 5, location: 'Import WH' }],
+  });
+  assert.equal(itemImp.status, 200);
+  assert.equal(itemImp.body.created, 1);
+  const itemExp = await auth(request(app).get('/companies/1/inventory-items/export'));
+  assert.equal(itemExp.status, 200);
+  assert.match(itemExp.text, /Imported Widget/);
+});
+
 test('time entries log, list, and delete on a task', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');

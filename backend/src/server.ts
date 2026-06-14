@@ -2213,6 +2213,57 @@ export function createServer(options: CreateServerOptions = {}) {
 	    }),
 	  );
 
+  app.get(
+    '/companies/:companyId/contacts/export',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      const contacts = store.listContacts(req.params.companyId);
+      const csv = toCsv(
+        ['name', 'kind', 'email', 'phone', 'address', 'taxNumber', 'roles', 'leadStatus', 'ownerName', 'tags'],
+        contacts.map((c) => [
+          c.name, c.kind, c.email ?? '', c.phone ?? '', c.address ?? '', c.taxNumber ?? '',
+          (c.roles ?? []).join('; '), c.leadStatus ?? '', c.ownerName ?? '', (c.tags ?? []).join('; '),
+        ]),
+      );
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="contacts.csv"');
+      res.send(csv);
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/contacts/import',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const body = asRecord(req.body, 'body');
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      let created = 0;
+      const errors: Array<{ row: number; error: string }> = [];
+      rows.forEach((raw, index) => {
+        try {
+          const row = asRecord(raw, `rows[${index}]`);
+          withActor(req, () =>
+            store.createContact({
+              companyId: req.params.companyId,
+              name: requiredString(row.name, 'name', { min: 1 }),
+              kind: (optionalString(row.kind) as any) || 'Organization',
+              email: optionalString(row.email),
+              phone: optionalString(row.phone),
+              address: optionalString(row.address),
+              taxNumber: optionalString(row.taxNumber),
+            }),
+          );
+          created += 1;
+        } catch (error) {
+          errors.push({ row: index + 1, error: error instanceof Error ? error.message : 'Invalid row' });
+        }
+      });
+      res.json({ created, failed: errors.length, errors: errors.slice(0, 50) });
+    }),
+  );
+
   app.post(
     '/companies/:companyId/contacts',
     authMiddleware,
@@ -3968,6 +4019,66 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       res.json(store.listInventoryItems(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/inventory-items/export',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const items = store.listInventoryItems(req.params.companyId);
+      const csv = toCsv(
+        ['sku', 'name', 'category', 'unit', 'onHand', 'reorderPoint', 'unitCost', 'salePrice', 'barcode', 'location'],
+        items.map((i) => [
+          i.sku, i.name, i.category, i.unit, i.onHand, i.reorderPoint, i.unitCost,
+          i.salePrice ?? '', i.barcode ?? '', i.location ?? '',
+        ]),
+      );
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="inventory-items.csv"');
+      res.send(csv);
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items/import',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const body = asRecord(req.body, 'body');
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      let created = 0;
+      const errors: Array<{ row: number; error: string }> = [];
+      rows.forEach((raw, index) => {
+        try {
+          const row = asRecord(raw, `rows[${index}]`);
+          const onHand = row.onHand !== undefined ? requiredNumber(row.onHand, 'onHand') : 0;
+          const csvLocation = optionalString(row.location);
+          // Opening stock lands in a managed warehouse (keeps the enforce rule consistent).
+          const location = onHand > 0 ? store.resolveStockLocation(req.params.companyId, csvLocation) : csvLocation;
+          withActor(req, () =>
+            store.createInventoryItem({
+              companyId: req.params.companyId,
+              name: requiredString(row.name, 'name', { min: 1 }),
+              category: requiredString(row.category, 'category', { min: 1 }),
+              unit: optionalString(row.unit) || 'pcs',
+              barcode: optionalString(row.barcode),
+              vatApplicable: true,
+              tracksInventory: true,
+              onHand,
+              reorderPoint: row.reorderPoint !== undefined ? requiredNumber(row.reorderPoint, 'reorderPoint') : 0,
+              unitCost: row.unitCost !== undefined ? requiredNumber(row.unitCost, 'unitCost') : 0,
+              salePrice: optionalNumber(row.salePrice),
+              location,
+            } as any),
+          );
+          created += 1;
+        } catch (error) {
+          errors.push({ row: index + 1, error: error instanceof Error ? error.message : 'Invalid row' });
+        }
+      });
+      res.json({ created, failed: errors.length, errors: errors.slice(0, 50) });
     }),
   );
 

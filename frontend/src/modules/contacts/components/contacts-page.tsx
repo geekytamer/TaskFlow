@@ -40,6 +40,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
+import { CsvImportExport } from '@/components/ui/csv-import-export';
 import {
   createContact,
   getContacts,
@@ -265,6 +266,11 @@ export function ContactsPage() {
     return () => { cancelled = true; };
   }, [selectedCompany]);
 
+  const reloadContacts = React.useCallback(async () => {
+    if (!selectedCompany) return;
+    setContacts(await getContacts(selectedCompany.id));
+  }, [selectedCompany]);
+
   const openCrmPanel = async (c: Contact) => {
     setCrmContact(c);
     setCrmForm({
@@ -424,6 +430,15 @@ export function ContactsPage() {
       title={t('nav.contacts')}
       description={t('contacts.subtitle')}
       actions={
+        <div className="flex flex-wrap items-center gap-2">
+        {selectedCompany ? (
+          <CsvImportExport
+            exportPath={`/companies/${selectedCompany.id}/contacts/export`}
+            exportFilename="contacts.csv"
+            importPath={`/companies/${selectedCompany.id}/contacts/import`}
+            onImported={reloadContacts}
+          />
+        ) : null}
         <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
             <Button size="sm" data-tutorial="contacts-create"><Plus className="h-4 w-4 me-1" />{t('contacts.create')}</Button>
@@ -437,6 +452,7 @@ export function ContactsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       }
     >
       {/* Search + role filter */}
