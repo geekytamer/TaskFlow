@@ -24,6 +24,8 @@ export const NOTIFICATION_META: Record<
   followup_due: { category: 'crm', priority: 'critical' },
   lead_assigned: { category: 'crm', priority: 'normal' },
   low_stock: { category: 'inventory', priority: 'normal' },
+  po_approval: { category: 'finance', priority: 'critical' },
+  po_approval_result: { category: 'finance', priority: 'normal' },
 };
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];

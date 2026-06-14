@@ -1549,6 +1549,10 @@ export function createServer(options: CreateServerOptions = {}) {
               body.currencyCode !== undefined
                 ? requiredString(body.currencyCode, 'currencyCode', { min: 3 })
                 : undefined,
+            poApprovalThreshold:
+              body.poApprovalThreshold !== undefined
+                ? requiredNumber(body.poApprovalThreshold, 'poApprovalThreshold')
+                : undefined,
           }),
         );
       } catch (error: any) {
@@ -4364,14 +4368,60 @@ export function createServer(options: CreateServerOptions = {}) {
       if (nextStatus === 'Partially Received') {
         throw new HttpError(400, 'Use purchase receipts to mark an order as partially received.');
       }
-      const order = withActor(req, () =>
-        store.updatePurchaseOrderStatus(
-          req.params.id,
-          nextStatus,
-        ),
-      );
+      let order;
+      try {
+        order = withActor(req, () =>
+          store.updatePurchaseOrderStatus(
+            req.params.id,
+            nextStatus,
+          ),
+        );
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not update purchase order status.');
+      }
       if (!order) throw new HttpError(404, 'Purchase order not found.');
       res.json(order);
+    }),
+  );
+
+  app.post(
+    '/purchase-orders/:id/approve',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getPurchaseOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Purchase order not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      const approverName = req.user?.name || req.user?.email || 'Approver';
+      try {
+        const order = withActor(req, () => store.approvePurchaseOrder(req.params.id, approverName));
+        if (!order) throw new HttpError(404, 'Purchase order not found.');
+        res.json(order);
+      } catch (error: any) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error?.message || 'Could not approve purchase order.');
+      }
+    }),
+  );
+
+  app.post(
+    '/purchase-orders/:id/reject',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getPurchaseOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Purchase order not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      const approverName = req.user?.name || req.user?.email || 'Approver';
+      try {
+        const order = withActor(req, () =>
+          store.rejectPurchaseOrder(req.params.id, approverName, optionalString(body.reason)),
+        );
+        if (!order) throw new HttpError(404, 'Purchase order not found.');
+        res.json(order);
+      } catch (error: any) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error?.message || 'Could not reject purchase order.');
+      }
     }),
   );
 

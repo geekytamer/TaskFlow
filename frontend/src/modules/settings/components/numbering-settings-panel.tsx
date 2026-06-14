@@ -68,7 +68,8 @@ type EditableSetting = CompanyNumberingSetting & {
 export function NumberingSettingsPanel() {
   const { selectedCompany, currentRole } = useCompany();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
   const entityLabelKeys: Record<NumberingEntityType, string> = {
     client: 'settingsPage.entityClients',
     supplier: 'settingsPage.entitySuppliers',
@@ -83,6 +84,7 @@ export function NumberingSettingsPanel() {
   const [lockedThroughDate, setLockedThroughDate] = React.useState('');
   const [fiscalYearStartMonth, setFiscalYearStartMonth] = React.useState('1');
   const [currencyCode, setCurrencyCode] = React.useState('USD');
+  const [poApprovalThreshold, setPoApprovalThreshold] = React.useState('0');
   const [loading, setLoading] = React.useState(true);
   const [savingFinance, setSavingFinance] = React.useState(false);
 
@@ -112,6 +114,7 @@ export function NumberingSettingsPanel() {
       setFinanceSettings(financeData);
       setFiscalYearStartMonth(String(financeData?.fiscalYearStartMonth || 1));
       setCurrencyCode(normalizeCurrencyCode(financeData?.currencyCode));
+      setPoApprovalThreshold(String(financeData?.poApprovalThreshold ?? 0));
       setLockedThroughDate(
         financeData?.lockedThroughDate ? format(financeData.lockedThroughDate, 'yyyy-MM-dd') : '',
       );
@@ -188,6 +191,7 @@ export function NumberingSettingsPanel() {
         fiscalYearStartMonth: Number(fiscalYearStartMonth),
         lockedThroughDate: lockedThroughDate ? new Date(lockedThroughDate) : null,
         currencyCode,
+        poApprovalThreshold: Math.max(0, Number(poApprovalThreshold) || 0),
       });
       setFinanceSettings(updated);
       toast({ title: t('settingsPage.financeUpdated') });
@@ -318,7 +322,7 @@ export function NumberingSettingsPanel() {
             {t('settingsPage.financeControlsDesc')}
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[220px_220px_220px_auto]">
+        <CardContent className="grid gap-4 md:grid-cols-[220px_220px_220px_220px_auto]">
           <div className="space-y-1">
             <Label>{t('settingsPage.platformCurrency')}</Label>
             <Select
@@ -364,15 +368,29 @@ export function NumberingSettingsPanel() {
               disabled={!canEdit}
             />
           </div>
+          <div className="space-y-1">
+            <Label>{tr('PO approval threshold', 'حد اعتماد أمر الشراء')}</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={poApprovalThreshold}
+              onChange={(event) => setPoApprovalThreshold(event.target.value)}
+              disabled={!canEdit}
+            />
+            <p className="text-xs text-muted-foreground">
+              {tr('Orders at or above this need approval. 0 disables.', 'الأوامر بهذا المبلغ أو أكثر تتطلب اعتماداً. 0 لتعطيله.')}
+            </p>
+          </div>
           <div className="flex items-end">
             <Button onClick={saveFinanceSettings} disabled={!canEdit || savingFinance}>
               {savingFinance ? t('settingsPage.saving') : t('settingsPage.saveFinanceControls')}
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground md:col-span-4">
+          <p className="text-sm text-muted-foreground md:col-span-5">
             {t('settingsPage.currencyLabel')}: {financeSettings?.currencyCode || 'USD'}. {t('settingsPage.omrNote')}
           </p>
-          <p className="text-sm text-muted-foreground md:col-span-4">
+          <p className="text-sm text-muted-foreground md:col-span-5">
             {t('settingsPage.currentLock')}:{' '}
             {financeSettings?.lockedThroughDate
               ? t('settingsPage.lockBlocked').replace('{date}', format(financeSettings.lockedThroughDate, 'MMM d, yyyy'))

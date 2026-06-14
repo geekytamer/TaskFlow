@@ -41,6 +41,7 @@ export interface CompanyFinanceSettings {
   fiscalYearStartMonth: number;
   lockedThroughDate?: Date;
   currencyCode: string;
+  poApprovalThreshold: number;
   updatedAt: Date;
 }
 

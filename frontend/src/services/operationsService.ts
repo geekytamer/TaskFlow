@@ -70,6 +70,8 @@ const mapPurchaseOrder = (order: any): PurchaseOrder => ({
   orderDate: toDate(order.orderDate) || new Date(),
   expectedDate: toDate(order.expectedDate),
   receivedAt: toDate(order.receivedAt),
+  approvalStatus: order.approvalStatus || 'not_required',
+  approvedAt: toDate(order.approvedAt),
   items: Array.isArray(order.items) ? order.items.map(mapPurchaseLineItem) : [],
   totalAmount: Number(order.totalAmount || 0),
 });
@@ -272,6 +274,22 @@ export async function updatePurchaseOrderStatus(
   const order = await apiFetch<PurchaseOrder>(`/purchase-orders/${orderId}/status`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
+  });
+  return mapPurchaseOrder(order);
+}
+
+export async function approvePurchaseOrder(orderId: string): Promise<PurchaseOrder> {
+  const order = await apiFetch<PurchaseOrder>(`/purchase-orders/${orderId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  return mapPurchaseOrder(order);
+}
+
+export async function rejectPurchaseOrder(orderId: string, reason?: string): Promise<PurchaseOrder> {
+  const order = await apiFetch<PurchaseOrder>(`/purchase-orders/${orderId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
   });
   return mapPurchaseOrder(order);
 }

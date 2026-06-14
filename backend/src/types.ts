@@ -33,6 +33,8 @@ export interface CompanyFinanceSettings {
   fiscalYearStartMonth: number;
   lockedThroughDate?: Date;
   currencyCode: string;
+  /** Purchase orders at or above this amount require approval before ordering. 0 disables the gate. */
+  poApprovalThreshold: number;
   updatedAt: Date;
 }
 
@@ -227,6 +229,12 @@ export interface PurchaseOrderLineItem {
   lineTotal: number;
 }
 
+export type PurchaseOrderApprovalStatus =
+  | 'not_required'
+  | 'pending'
+  | 'approved'
+  | 'rejected';
+
 export interface PurchaseOrder {
   id: string;
   companyId: string;
@@ -241,6 +249,10 @@ export interface PurchaseOrder {
   totalAmount: number;
   notes?: string;
   receivedAt?: Date;
+  approvalStatus: PurchaseOrderApprovalStatus;
+  approvedBy?: string;
+  approvedAt?: Date;
+  rejectionReason?: string;
 }
 
 export interface PurchaseReceiptLine {
@@ -1144,7 +1156,9 @@ export type NotificationType =
   | 'vendor_bill_approval'
   | 'followup_due'
   | 'lead_assigned'
-  | 'low_stock';
+  | 'low_stock'
+  | 'po_approval'
+  | 'po_approval_result';
 
 export interface Notification {
   id: string;

@@ -307,6 +307,7 @@ const purchaseOrders: PurchaseOrder[] = [
     ],
     totalAmount: 400,
     notes: 'Restock before Q2 launch kits.',
+    approvalStatus: 'not_required',
   },
   {
     id: 'po-2',
@@ -330,6 +331,7 @@ const purchaseOrders: PurchaseOrder[] = [
     totalAmount: 250,
     notes: 'March event collateral batch.',
     receivedAt: new Date('2026-02-26'),
+    approvalStatus: 'not_required',
   },
   {
     id: 'po-3',
@@ -352,6 +354,7 @@ const purchaseOrders: PurchaseOrder[] = [
     ],
     totalAmount: 225,
     notes: 'Pending approval from workshop lead.',
+    approvalStatus: 'not_required',
   },
 ];
 

@@ -53,6 +53,12 @@ export interface PurchaseOrderLineItem {
   lineTotal: number;
 }
 
+export type PurchaseOrderApprovalStatus =
+  | 'not_required'
+  | 'pending'
+  | 'approved'
+  | 'rejected';
+
 export interface PurchaseOrder {
   id: string;
   companyId: string;
@@ -67,6 +73,10 @@ export interface PurchaseOrder {
   totalAmount: number;
   notes?: string;
   receivedAt?: Date;
+  approvalStatus: PurchaseOrderApprovalStatus;
+  approvedBy?: string;
+  approvedAt?: Date;
+  rejectionReason?: string;
 }
 
 export interface PurchaseReceiptLine {

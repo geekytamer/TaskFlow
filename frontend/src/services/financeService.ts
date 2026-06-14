@@ -171,6 +171,7 @@ const mapCompanyFinanceSettings = (settings: any): CompanyFinanceSettings => ({
   fiscalYearStartMonth: Number(settings.fiscalYearStartMonth || 1),
   lockedThroughDate: toDate(settings.lockedThroughDate),
   currencyCode: String(settings.currencyCode || 'USD').toUpperCase(),
+  poApprovalThreshold: Number(settings.poApprovalThreshold || 0),
   updatedAt: toDate(settings.updatedAt) || new Date(),
 });
 
@@ -384,6 +385,7 @@ export async function updateCompanyFinanceSettings(
     fiscalYearStartMonth: number;
     lockedThroughDate: Date | null;
     currencyCode: string;
+    poApprovalThreshold: number;
   }>,
 ): Promise<CompanyFinanceSettings> {
   const settings = await apiFetch<CompanyFinanceSettings>(

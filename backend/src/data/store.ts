@@ -212,7 +212,7 @@ type CreateInventoryTransferInput = Omit<InventoryTransfer, 'id' | 'transferredA
 };
 type CreatePurchaseOrderInput = Omit<
   PurchaseOrder,
-  'id' | 'orderNumber' | 'totalAmount' | 'receivedAt'
+  'id' | 'orderNumber' | 'totalAmount' | 'receivedAt' | 'approvalStatus' | 'approvedBy' | 'approvedAt' | 'rejectionReason'
 > & { orderNumber?: string };
 type CreateSalesOrderInput = Omit<
   SalesOrder,
@@ -2461,6 +2461,28 @@ export class DataStore {
             CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(taskId);
             CREATE INDEX IF NOT EXISTS idx_time_entries_company ON time_entries(companyId, spentOn);
           `);
+        },
+      },
+      {
+        id: '050_po_approvals',
+        run: () => {
+          const poCols = this.db.prepare(`PRAGMA table_info('purchase_orders')`).all() as any[];
+          if (!poCols.some((c) => c.name === 'approvalStatus')) {
+            this.db.exec(`ALTER TABLE purchase_orders ADD COLUMN approvalStatus TEXT NOT NULL DEFAULT 'not_required';`);
+          }
+          if (!poCols.some((c) => c.name === 'approvedBy')) {
+            this.db.exec(`ALTER TABLE purchase_orders ADD COLUMN approvedBy TEXT;`);
+          }
+          if (!poCols.some((c) => c.name === 'approvedAt')) {
+            this.db.exec(`ALTER TABLE purchase_orders ADD COLUMN approvedAt TEXT;`);
+          }
+          if (!poCols.some((c) => c.name === 'rejectionReason')) {
+            this.db.exec(`ALTER TABLE purchase_orders ADD COLUMN rejectionReason TEXT;`);
+          }
+          const finCols = this.db.prepare(`PRAGMA table_info('company_finance_settings')`).all() as any[];
+          if (!finCols.some((c) => c.name === 'poApprovalThreshold')) {
+            this.db.exec(`ALTER TABLE company_finance_settings ADD COLUMN poApprovalThreshold REAL NOT NULL DEFAULT 0;`);
+          }
         },
       },
     ];
@@ -6755,6 +6777,7 @@ export class DataStore {
       fiscalYearStartMonth: Math.min(12, Math.max(1, Number(row.fiscalYearStartMonth) || 1)),
       lockedThroughDate: row.lockedThroughDate ? new Date(row.lockedThroughDate) : undefined,
       currencyCode: String(row.currencyCode || 'USD').toUpperCase(),
+      poApprovalThreshold: Math.max(0, Number(row.poApprovalThreshold) || 0),
       updatedAt: new Date(row.updatedAt),
     };
   }
@@ -6775,13 +6798,14 @@ export class DataStore {
       companyId,
       fiscalYearStartMonth: 1,
       currencyCode: 'USD',
+      poApprovalThreshold: 0,
       updatedAt: new Date(nowIso),
     };
   }
 
   updateCompanyFinanceSettings(
     companyId: string,
-    updates: { fiscalYearStartMonth?: number; lockedThroughDate?: Date | null; currencyCode?: string },
+    updates: { fiscalYearStartMonth?: number; lockedThroughDate?: Date | null; currencyCode?: string; poApprovalThreshold?: number },
   ): CompanyFinanceSettings {
     const existing = this.getCompanyFinanceSettings(companyId);
     const fiscalYearStartMonth =
@@ -6805,14 +6829,20 @@ export class DataStore {
       throw new Error('Currency code must be a valid 3-letter ISO code.');
     }
 
+    const poApprovalThreshold =
+      updates.poApprovalThreshold === undefined
+        ? existing.poApprovalThreshold
+        : Math.max(0, Number(updates.poApprovalThreshold) || 0);
+
     this.db
       .prepare(
-        'UPDATE company_finance_settings SET fiscalYearStartMonth = ?, lockedThroughDate = ?, currencyCode = ?, updatedAt = ? WHERE companyId = ?',
+        'UPDATE company_finance_settings SET fiscalYearStartMonth = ?, lockedThroughDate = ?, currencyCode = ?, poApprovalThreshold = ?, updatedAt = ? WHERE companyId = ?',
       )
       .run(
         fiscalYearStartMonth,
         lockedThroughDate ? lockedThroughDate.toISOString() : null,
         currencyCode,
+        poApprovalThreshold,
         new Date().toISOString(),
         companyId,
       );
@@ -7855,14 +7885,23 @@ export class DataStore {
       throw new Error('Purchase order requires at least one line item.');
     }
 
-    const status: PurchaseOrderStatus = input.status ?? 'Draft';
-    if (status === 'Partially Received') {
+    const requestedStatus: PurchaseOrderStatus = input.status ?? 'Draft';
+    if (requestedStatus === 'Partially Received') {
       throw new Error('Purchase orders cannot start as Partially Received.');
     }
     const totalAmount = Number(
       normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2),
     );
-    const shouldAutoReceive = status === 'Received';
+
+    // Approval gate: orders at/above the company threshold start as a pending
+    // Draft and cannot move past Draft until an approver signs off.
+    const threshold = this.getCompanyFinanceSettings(input.companyId).poApprovalThreshold;
+    const requiresApproval = threshold > 0 && totalAmount >= threshold;
+    const approvalStatus: PurchaseOrder['approvalStatus'] = requiresApproval ? 'pending' : 'not_required';
+
+    // A pending order is forced to Draft; auto-receive only runs once approved.
+    const status: PurchaseOrderStatus = requiresApproval ? 'Draft' : requestedStatus;
+    const shouldAutoReceive = !requiresApproval && status === 'Received';
     const order: PurchaseOrder = {
       ...input,
       id: uuid(),
@@ -7875,11 +7914,15 @@ export class DataStore {
       totalAmount,
       notes: input.notes ?? undefined,
       receivedAt: undefined,
+      approvalStatus,
+      approvedBy: undefined,
+      approvedAt: undefined,
+      rejectionReason: undefined,
     };
 
     this.db
       .prepare(
-        'INSERT INTO purchase_orders (id, companyId, orderNumber, supplierName, supplierId, contactId, orderDate, expectedDate, status, items, totalAmount, notes, receivedAt) VALUES (@id, @companyId, @orderNumber, @supplierName, @supplierId, @contactId, @orderDate, @expectedDate, @status, @items, @totalAmount, @notes, @receivedAt)',
+        'INSERT INTO purchase_orders (id, companyId, orderNumber, supplierName, supplierId, contactId, orderDate, expectedDate, status, items, totalAmount, notes, receivedAt, approvalStatus, approvedBy, approvedAt, rejectionReason) VALUES (@id, @companyId, @orderNumber, @supplierName, @supplierId, @contactId, @orderDate, @expectedDate, @status, @items, @totalAmount, @notes, @receivedAt, @approvalStatus, @approvedBy, @approvedAt, @rejectionReason)',
       )
       .run({
         ...order,
@@ -7890,10 +7933,27 @@ export class DataStore {
         items: JSON.stringify(order.items),
         notes: order.notes ?? null,
         receivedAt: null,
+        approvalStatus: order.approvalStatus,
+        approvedBy: null,
+        approvedAt: null,
+        rejectionReason: null,
       });
 
     if (input.contactId) {
       this.addContactRole(input.contactId, input.companyId, 'Vendor', 'PurchaseOrder');
+    }
+
+    if (requiresApproval) {
+      this.notify({
+        companyId: order.companyId,
+        userIds: this.listUserIdsByCompanyRoles(order.companyId, ['Admin', 'Manager']),
+        type: 'po_approval',
+        title: `PO needs approval: ${order.orderNumber}`,
+        body: `${order.supplierName} — ${order.totalAmount}. Review and approve in Purchasing.`,
+        link: '/operations',
+        entityType: 'purchase_order',
+        entityId: order.id,
+      });
     }
 
     if (shouldAutoReceive) {
@@ -7926,6 +7986,13 @@ export class DataStore {
 
     if (status === 'Partially Received') {
       throw new Error('Use purchase receipts to mark an order as partially received.');
+    }
+
+    if ((status === 'Ordered' || status === 'Received') && existing.approvalStatus === 'pending') {
+      throw new Error('Purchase order must be approved before it can be ordered or received.');
+    }
+    if ((status === 'Ordered' || status === 'Received') && existing.approvalStatus === 'rejected') {
+      throw new Error('This purchase order was rejected and cannot be ordered or received.');
     }
 
     if (status === 'Received') {
@@ -7969,6 +8036,52 @@ export class DataStore {
         action: 'status_changed',
         summary: `Purchase order ${result.orderNumber} moved to ${result.status}.`,
         metadata: { status: result.status },
+      });
+    }
+    return result;
+  }
+
+  approvePurchaseOrder(id: string, approverName: string): PurchaseOrder | undefined {
+    const existing = this.getPurchaseOrderById(id);
+    if (!existing) return undefined;
+    if (existing.approvalStatus !== 'pending') {
+      throw new Error('Only purchase orders awaiting approval can be approved.');
+    }
+    this.db
+      .prepare('UPDATE purchase_orders SET approvalStatus = ?, approvedBy = ?, approvedAt = ?, rejectionReason = NULL WHERE id = ?')
+      .run('approved', approverName || 'Approver', new Date().toISOString(), id);
+    const result = this.getPurchaseOrderById(id);
+    if (result) {
+      this.createActivityEvent({
+        companyId: result.companyId,
+        entityType: 'purchase_order',
+        entityId: result.id,
+        action: 'approved',
+        summary: `Purchase order ${result.orderNumber} approved by ${approverName || 'an approver'}.`,
+        metadata: { totalAmount: result.totalAmount },
+      });
+    }
+    return result;
+  }
+
+  rejectPurchaseOrder(id: string, approverName: string, reason?: string): PurchaseOrder | undefined {
+    const existing = this.getPurchaseOrderById(id);
+    if (!existing) return undefined;
+    if (existing.approvalStatus !== 'pending') {
+      throw new Error('Only purchase orders awaiting approval can be rejected.');
+    }
+    this.db
+      .prepare('UPDATE purchase_orders SET approvalStatus = ?, approvedBy = ?, approvedAt = ?, rejectionReason = ? WHERE id = ?')
+      .run('rejected', approverName || 'Approver', new Date().toISOString(), reason ?? null, id);
+    const result = this.getPurchaseOrderById(id);
+    if (result) {
+      this.createActivityEvent({
+        companyId: result.companyId,
+        entityType: 'purchase_order',
+        entityId: result.id,
+        action: 'rejected',
+        summary: `Purchase order ${result.orderNumber} rejected by ${approverName || 'an approver'}.`,
+        metadata: { reason: reason ?? null },
       });
     }
     return result;
@@ -8969,6 +9082,9 @@ export class DataStore {
     }
     if (order.status === 'Cancelled') {
       throw new Error('Cancelled purchase orders cannot be received.');
+    }
+    if (order.approvalStatus === 'pending' || order.approvalStatus === 'rejected') {
+      throw new Error('Purchase order must be approved before it can be received.');
     }
 
     const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
@@ -12440,6 +12556,10 @@ export class DataStore {
       totalAmount: Number(row.totalAmount) || 0,
       notes: row.notes ?? undefined,
       receivedAt: row.receivedAt ? new Date(row.receivedAt) : undefined,
+      approvalStatus: (row.approvalStatus as PurchaseOrder['approvalStatus']) ?? 'not_required',
+      approvedBy: row.approvedBy ?? undefined,
+      approvedAt: row.approvedAt ? new Date(row.approvedAt) : undefined,
+      rejectionReason: row.rejectionReason ?? undefined,
     };
   }
 

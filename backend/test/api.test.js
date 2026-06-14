@@ -836,6 +836,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '047_warehouses',
     '048_credit_notes',
     '049_time_entries',
+    '050_po_approvals',
   ]);
 });
 
@@ -3712,4 +3713,74 @@ test('sales orders confirm and create draft invoices', async () => {
   const order = listResponse.body.find((item) => item.id === orderId);
   assert.equal(order.status, 'Invoiced');
   assert.equal(order.invoiceId, invoiceResponse.body.id);
+});
+
+test('purchase orders above the company threshold require approval before ordering', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  // Set an approval threshold of 1000.
+  const settingsResponse = await auth(request(app).put('/companies/1/finance/settings')).send({
+    poApprovalThreshold: 1000,
+  });
+  assert.equal(settingsResponse.status, 200);
+  assert.equal(settingsResponse.body.poApprovalThreshold, 1000);
+
+  // An order at/above the threshold is forced to a pending Draft, even if Ordered was requested.
+  const bigOrder = await auth(request(app).post('/companies/1/purchase-orders')).send({
+    supplierId: 'supplier-1',
+    orderDate: '2026-04-08T00:00:00.000Z',
+    status: 'Ordered',
+    items: [{ description: 'Bulk supplies', quantity: 100, unitCost: 25, lineTotal: 2500 }],
+  });
+  assert.equal(bigOrder.status, 201);
+  assert.equal(bigOrder.body.approvalStatus, 'pending');
+  assert.equal(bigOrder.body.status, 'Draft');
+
+  // It cannot be moved to Ordered while pending.
+  const blocked = await auth(request(app).patch(`/purchase-orders/${bigOrder.body.id}/status`)).send({
+    status: 'Ordered',
+  });
+  assert.equal(blocked.status, 400);
+
+  // Approve it, then it can advance.
+  const approved = await auth(request(app).post(`/purchase-orders/${bigOrder.body.id}/approve`)).send({});
+  assert.equal(approved.status, 200);
+  assert.equal(approved.body.approvalStatus, 'approved');
+  assert.ok(approved.body.approvedBy);
+
+  const ordered = await auth(request(app).patch(`/purchase-orders/${bigOrder.body.id}/status`)).send({
+    status: 'Ordered',
+  });
+  assert.equal(ordered.status, 200);
+  assert.equal(ordered.body.status, 'Ordered');
+
+  // A small order below the threshold needs no approval and behaves as before.
+  const smallOrder = await auth(request(app).post('/companies/1/purchase-orders')).send({
+    supplierId: 'supplier-1',
+    orderDate: '2026-04-08T00:00:00.000Z',
+    status: 'Ordered',
+    items: [{ description: 'Few supplies', quantity: 2, unitCost: 10, lineTotal: 20 }],
+  });
+  assert.equal(smallOrder.status, 201);
+  assert.equal(smallOrder.body.approvalStatus, 'not_required');
+  assert.equal(smallOrder.body.status, 'Ordered');
+
+  // Rejection blocks the order permanently.
+  const toReject = await auth(request(app).post('/companies/1/purchase-orders')).send({
+    supplierId: 'supplier-1',
+    orderDate: '2026-04-08T00:00:00.000Z',
+    items: [{ description: 'Questionable buy', quantity: 100, unitCost: 50, lineTotal: 5000 }],
+  });
+  assert.equal(toReject.body.approvalStatus, 'pending');
+  const rejected = await auth(request(app).post(`/purchase-orders/${toReject.body.id}/reject`)).send({
+    reason: 'Over budget',
+  });
+  assert.equal(rejected.status, 200);
+  assert.equal(rejected.body.approvalStatus, 'rejected');
+  const stillBlocked = await auth(request(app).patch(`/purchase-orders/${toReject.body.id}/status`)).send({
+    status: 'Ordered',
+  });
+  assert.equal(stillBlocked.status, 400);
 });

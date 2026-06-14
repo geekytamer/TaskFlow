@@ -36,11 +36,13 @@ import { SectionPageShell } from '@/modules/operations/components/section-page-s
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { getPurchaseOrderPayables } from '@/services/financeService';
 import {
+  approvePurchaseOrder,
   createPurchaseOrder,
   getInventoryItems,
   getPurchaseOrders,
   getPurchaseReceipts,
   receivePurchaseOrder,
+  rejectPurchaseOrder,
   updatePurchaseOrderStatus,
 } from '@/services/operationsService';
 import { getContacts, type Contact } from '@/services/contactService';
@@ -93,7 +95,8 @@ const emptyPurchaseForm = (): PurchaseForm => ({
 });
 
 export function PurchasesPage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentRole } = useCompany();
+  const canApprove = currentRole === 'Admin' || currentRole === 'Manager';
   const { toast } = useToast();
   const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
@@ -363,6 +366,35 @@ export function PurchasesPage() {
         variant: 'destructive',
         title: 'Update failed',
         description: error?.message || 'Could not update purchase order status.',
+      });
+    }
+  };
+
+  const handleApprove = async (orderId: string) => {
+    try {
+      await approvePurchaseOrder(orderId);
+      await load();
+      toast({ title: 'Purchase order approved' });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Approval failed',
+        description: error?.message || 'Could not approve purchase order.',
+      });
+    }
+  };
+
+  const handleReject = async (orderId: string) => {
+    const reason = window.prompt('Reason for rejecting this purchase order (optional):') ?? undefined;
+    try {
+      await rejectPurchaseOrder(orderId, reason);
+      await load();
+      toast({ title: 'Purchase order rejected' });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Rejection failed',
+        description: error?.message || 'Could not reject purchase order.',
       });
     }
   };
@@ -853,9 +885,30 @@ export function PurchasesPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={statusStyles[order.status]}>
-                      {order.status}
-                    </Badge>
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge variant="outline" className={statusStyles[order.status]}>
+                        {order.status}
+                      </Badge>
+                      {order.approvalStatus === 'pending' && (
+                        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
+                          Awaiting approval
+                        </Badge>
+                      )}
+                      {order.approvalStatus === 'approved' && (
+                        <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                          Approved{order.approvedBy ? ` · ${order.approvedBy}` : ''}
+                        </Badge>
+                      )}
+                      {order.approvalStatus === 'rejected' && (
+                        <Badge
+                          variant="outline"
+                          className="bg-rose-100 text-rose-800 border-rose-200"
+                          title={order.rejectionReason || undefined}
+                        >
+                          Rejected
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-end">
                     <div className="flex justify-end gap-2">
@@ -866,7 +919,27 @@ export function PurchasesPage() {
                     >
                       Docs
                     </Button>
-                    {order.status === 'Draft' && (
+                    {order.approvalStatus === 'pending' && canApprove && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => handleApprove(order.id)}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                          onClick={() => handleReject(order.id)}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    )}
+                    {order.status === 'Draft' && order.approvalStatus !== 'pending' && order.approvalStatus !== 'rejected' && (
                       <Button
                         variant="outline"
                         size="sm"
