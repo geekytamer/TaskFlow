@@ -15,6 +15,7 @@ export interface InventoryItem {
   preferredVendor?: string;
   preferredSupplierId?: string;
   location?: string;
+  customFields?: Record<string, unknown>;
 }
 
 export interface Supplier {

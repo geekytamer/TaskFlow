@@ -31,6 +31,15 @@ export const optionalString = (value: unknown): string | undefined => {
   return normalized || undefined;
 };
 
+/** A custom-fields map: a plain object of key → primitive value. */
+export const optionalCustomFields = (value: unknown): Record<string, unknown> | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'customFields must be an object.');
+  }
+  return value as Record<string, unknown>;
+};
+
 export const requiredNumber = (value: unknown, name: string): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) {

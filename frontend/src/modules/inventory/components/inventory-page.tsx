@@ -35,6 +35,8 @@ import { getCurrentLocale } from '@/lib/locale';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
+import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
+import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
 import {
   adjustInventoryItem,
   createInventoryItem,
@@ -148,6 +150,8 @@ export function InventoryPage() {
   const [openCreate, setOpenCreate] = React.useState(false);
   const [selectedItemForDocs, setSelectedItemForDocs] = React.useState<InventoryItem | null>(null);
   const [form, setForm] = React.useState<InventoryFormState>(emptyForm);
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
+  const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [search, setSearch] = React.useState('');
   const [stockFilter, setStockFilter] = React.useState<'all' | 'attention' | 'healthy'>('all');
   const [adjustment, setAdjustment] = React.useState<AdjustmentState>({
@@ -215,6 +219,15 @@ export function InventoryPage() {
   React.useEffect(() => {
     load();
   }, [load]);
+
+  React.useEffect(() => {
+    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    let cancelled = false;
+    getCustomFieldDefinitions(selectedCompany.id, 'inventory_item')
+      .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
+      .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
 
   const reloadWarehouses = React.useCallback(async () => {
     if (!selectedCompany) return;
@@ -333,9 +346,11 @@ export function InventoryPage() {
         preferredVendor: selectedSupplier?.name,
         preferredSupplierId: selectedSupplier?.id,
         location: form.location || undefined,
+        customFields: Object.keys(createCustomValues).length > 0 ? createCustomValues : undefined,
       });
       setOpenCreate(false);
       resetForm();
+      setCreateCustomValues({});
       await load();
       toast({ title: tr('Inventory item created', 'تم إنشاء عنصر مخزون') });
     } catch (error: any) {
@@ -753,6 +768,15 @@ export function InventoryPage() {
                 />
               </div>
             </div>
+            {customFieldDefs.length > 0 && (
+              <div className="space-y-2 border-t pt-3">
+                <CustomFieldsForm
+                  definitions={customFieldDefs}
+                  values={createCustomValues}
+                  onChange={setCreateCustomValues}
+                />
+              </div>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>
                 {tr('Cancel', 'إلغاء')}

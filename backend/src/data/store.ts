@@ -110,6 +110,10 @@ import {
   TrialBalanceReport,
   ProfitAndLossReport,
   CompanyFinanceSettings,
+  CustomFieldDefinition,
+  CustomFieldEntityType,
+  CustomFieldType,
+  customFieldTypes,
   InfluencerAccount,
   Notification,
   NotificationType,
@@ -2485,6 +2489,36 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '051_custom_fields',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS custom_field_definitions (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              entityType TEXT NOT NULL,
+              key TEXT NOT NULL,
+              label TEXT NOT NULL,
+              fieldType TEXT NOT NULL,
+              options TEXT,
+              required INTEGER NOT NULL DEFAULT 0,
+              sortOrder INTEGER NOT NULL DEFAULT 0,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_field_defs_key
+              ON custom_field_definitions(companyId, entityType, key);
+          `);
+          const contactCols = this.db.prepare(`PRAGMA table_info('contacts')`).all() as any[];
+          if (!contactCols.some((c) => c.name === 'customFields')) {
+            this.db.exec(`ALTER TABLE contacts ADD COLUMN customFields TEXT;`);
+          }
+          const itemCols = this.db.prepare(`PRAGMA table_info('inventory_items')`).all() as any[];
+          if (!itemCols.some((c) => c.name === 'customFields')) {
+            this.db.exec(`ALTER TABLE inventory_items ADD COLUMN customFields TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4046,17 +4080,19 @@ export class DataStore {
 		    languages?: string[];
 		    availabilityStatus?: string;
 		    influencerAccounts?: InfluencerAccount[];
+		    customFields?: Record<string, unknown>;
 		  }): Contact {
     const id = uuid();
     const now = new Date().toISOString();
+    const customFields = this.normalizeCustomFields(input.companyId, 'contact', input.customFields);
 	  this.db.prepare(
 		      `INSERT INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, address, taxNumber, tags, notes, clientId, supplierId,
 		         leadStatus, leadSource, priority, ownerUserId, ownerName, nextFollowupDate, nextFollowupNote,
-		         influencerPlatform, influencerHandle, influencerNiche, followerCount, engagementRate, rateCardAmount, location, languages, availabilityStatus, influencerAccounts,
+		         influencerPlatform, influencerHandle, influencerNiche, followerCount, engagementRate, rateCardAmount, location, languages, availabilityStatus, influencerAccounts, customFields,
 		         createdAt, updatedAt)
 		       VALUES (@id, @companyId, @kind, @name, @legalName, @contactPerson, @email, @phone, @address, @taxNumber, @tags, @notes, @clientId, @supplierId,
 		         @leadStatus, @leadSource, @priority, @ownerUserId, @ownerName, @nextFollowupDate, @nextFollowupNote,
-		         @influencerPlatform, @influencerHandle, @influencerNiche, @followerCount, @engagementRate, @rateCardAmount, @location, @languages, @availabilityStatus, @influencerAccounts,
+		         @influencerPlatform, @influencerHandle, @influencerNiche, @followerCount, @engagementRate, @rateCardAmount, @location, @languages, @availabilityStatus, @influencerAccounts, @customFields,
 		         @now, @now)`,
 	    ).run({
       id,
@@ -4090,6 +4126,7 @@ export class DataStore {
 		      languages: input.languages ? JSON.stringify(input.languages) : null,
 		      availabilityStatus: input.availabilityStatus ?? null,
 		      influencerAccounts: input.influencerAccounts ? JSON.stringify(input.influencerAccounts) : null,
+		      customFields: customFields ? JSON.stringify(customFields) : null,
 		      now,
 	    });
 
@@ -4136,6 +4173,7 @@ export class DataStore {
 	       influencerNiche=@influencerNiche, followerCount=@followerCount,
 	       engagementRate=@engagementRate, rateCardAmount=@rateCardAmount,
 	       location=@location, languages=@languages, availabilityStatus=@availabilityStatus, influencerAccounts=@influencerAccounts,
+	       customFields=@customFields,
 	       visibility=@visibility, updatedAt=@now
        WHERE id=@id`,
     ).run({
@@ -4174,6 +4212,10 @@ export class DataStore {
 	        : (existing.languages ? JSON.stringify(existing.languages) : null),
 	      availabilityStatus: updates.availabilityStatus !== undefined ? (updates.availabilityStatus ?? null) : (existing.availabilityStatus ?? null),
 	      influencerAccounts: updates.influencerAccounts !== undefined ? (updates.influencerAccounts ? JSON.stringify(updates.influencerAccounts) : null) : (existing.influencerAccounts ? JSON.stringify(existing.influencerAccounts) : null),
+	      customFields: (() => {
+	        const merged = this.normalizeCustomFields(existing.companyId, 'contact', updates.customFields, existing.customFields);
+	        return merged ? JSON.stringify(merged) : null;
+	      })(),
 	      // Auto-promote to Public when leadStatus becomes Won, or when explicitly set
 	      visibility: (updates.leadStatus === 'Won' || updates.visibility === 'Public')
 	        ? 'Public'
@@ -4264,10 +4306,209 @@ export class DataStore {
 	      availabilityStatus: row.availabilityStatus ?? undefined,
 	      influencerAccounts: row.influencerAccounts ? this.parseJson<InfluencerAccount[]>(row.influencerAccounts) : undefined,
 	      visibility: (row.visibility as 'Public' | 'Private') ?? 'Public',
+	      customFields: row.customFields ? this.parseJson<Record<string, unknown>>(row.customFields) ?? undefined : undefined,
 	      createdAt: new Date(row.createdAt),
 	      updatedAt: new Date(row.updatedAt),
 	    };
 	  }
+
+  // ─── Custom Field Definitions ───────────────────────────────────────────
+
+  private decodeCustomFieldDefinition(row: any): CustomFieldDefinition {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      entityType: row.entityType as CustomFieldEntityType,
+      key: row.key,
+      label: row.label,
+      fieldType: row.fieldType as CustomFieldType,
+      options: row.options ? this.parseJson<string[]>(row.options) ?? undefined : undefined,
+      required: Boolean(row.required),
+      sortOrder: Number(row.sortOrder) || 0,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listCustomFieldDefinitions(companyId: string, entityType?: CustomFieldEntityType): CustomFieldDefinition[] {
+    const rows = entityType
+      ? (this.db
+          .prepare('SELECT * FROM custom_field_definitions WHERE companyId = ? AND entityType = ? ORDER BY sortOrder, createdAt')
+          .all(companyId, entityType) as any[])
+      : (this.db
+          .prepare('SELECT * FROM custom_field_definitions WHERE companyId = ? ORDER BY entityType, sortOrder, createdAt')
+          .all(companyId) as any[]);
+    return rows.map((row) => this.decodeCustomFieldDefinition(row));
+  }
+
+  getCustomFieldDefinitionById(id: string): CustomFieldDefinition | undefined {
+    const row = this.db.prepare('SELECT * FROM custom_field_definitions WHERE id = ?').get(id) as any;
+    return row ? this.decodeCustomFieldDefinition(row) : undefined;
+  }
+
+  private slugifyCustomFieldKey(label: string): string {
+    return String(label)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 48) || 'field';
+  }
+
+  createCustomFieldDefinition(input: {
+    companyId: string;
+    entityType: CustomFieldEntityType;
+    label: string;
+    fieldType: CustomFieldType;
+    key?: string;
+    options?: string[];
+    required?: boolean;
+    sortOrder?: number;
+  }): CustomFieldDefinition {
+    const label = String(input.label || '').trim();
+    if (!label) throw new Error('Custom field label is required.');
+    if (!customFieldTypes.includes(input.fieldType)) {
+      throw new Error('Invalid custom field type.');
+    }
+    const options =
+      input.fieldType === 'select'
+        ? (input.options || []).map((o) => String(o).trim()).filter(Boolean)
+        : undefined;
+    if (input.fieldType === 'select' && (!options || options.length === 0)) {
+      throw new Error('A select field requires at least one option.');
+    }
+
+    // Derive a unique key within (company, entity).
+    const base = input.key ? this.slugifyCustomFieldKey(input.key) : this.slugifyCustomFieldKey(label);
+    let key = base;
+    let suffix = 2;
+    while (
+      this.db
+        .prepare('SELECT 1 FROM custom_field_definitions WHERE companyId = ? AND entityType = ? AND key = ? LIMIT 1')
+        .get(input.companyId, input.entityType, key)
+    ) {
+      key = `${base}_${suffix++}`;
+    }
+
+    const now = new Date().toISOString();
+    const def: CustomFieldDefinition = {
+      id: uuid(),
+      companyId: input.companyId,
+      entityType: input.entityType,
+      key,
+      label,
+      fieldType: input.fieldType,
+      options,
+      required: Boolean(input.required),
+      sortOrder: Number.isFinite(input.sortOrder) ? Number(input.sortOrder) : 0,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    };
+    this.db
+      .prepare(
+        'INSERT INTO custom_field_definitions (id, companyId, entityType, key, label, fieldType, options, required, sortOrder, createdAt, updatedAt) VALUES (@id, @companyId, @entityType, @key, @label, @fieldType, @options, @required, @sortOrder, @createdAt, @updatedAt)',
+      )
+      .run({
+        ...def,
+        options: def.options ? JSON.stringify(def.options) : null,
+        required: def.required ? 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    return def;
+  }
+
+  updateCustomFieldDefinition(
+    id: string,
+    updates: { label?: string; options?: string[]; required?: boolean; sortOrder?: number },
+  ): CustomFieldDefinition | undefined {
+    const existing = this.getCustomFieldDefinitionById(id);
+    if (!existing) return undefined;
+    const label = updates.label === undefined ? existing.label : String(updates.label).trim();
+    if (!label) throw new Error('Custom field label is required.');
+    const options =
+      existing.fieldType === 'select'
+        ? (updates.options === undefined ? existing.options : updates.options.map((o) => String(o).trim()).filter(Boolean))
+        : undefined;
+    if (existing.fieldType === 'select' && (!options || options.length === 0)) {
+      throw new Error('A select field requires at least one option.');
+    }
+    const required = updates.required === undefined ? existing.required : Boolean(updates.required);
+    const sortOrder = updates.sortOrder === undefined ? existing.sortOrder : Number(updates.sortOrder) || 0;
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        'UPDATE custom_field_definitions SET label = ?, options = ?, required = ?, sortOrder = ?, updatedAt = ? WHERE id = ?',
+      )
+      .run(label, options ? JSON.stringify(options) : null, required ? 1 : 0, sortOrder, now, id);
+    return this.getCustomFieldDefinitionById(id);
+  }
+
+  deleteCustomFieldDefinition(id: string): boolean {
+    const result = this.db.prepare('DELETE FROM custom_field_definitions WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Validate and coerce a raw customFields map against the definitions for an
+   * entity. Unknown keys are dropped; required fields are enforced; values are
+   * coerced to the field's type. Returns the cleaned map (or undefined if empty).
+   */
+  private normalizeCustomFields(
+    companyId: string,
+    entityType: CustomFieldEntityType,
+    raw: unknown,
+    existing?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    const defs = this.listCustomFieldDefinitions(companyId, entityType);
+    if (defs.length === 0) return existing;
+    const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const provided = raw && typeof raw === 'object';
+    const result: Record<string, unknown> = {};
+    for (const def of defs) {
+      // When no map was provided at all, keep any existing stored value.
+      const hasIncoming = provided && Object.prototype.hasOwnProperty.call(input, def.key);
+      let value = hasIncoming ? input[def.key] : existing?.[def.key];
+
+      if (value === undefined || value === null || value === '') {
+        if (def.required) {
+          throw new Error(`Custom field "${def.label}" is required.`);
+        }
+        continue;
+      }
+
+      switch (def.fieldType) {
+        case 'number': {
+          const num = Number(value);
+          if (!Number.isFinite(num)) throw new Error(`Custom field "${def.label}" must be a number.`);
+          value = num;
+          break;
+        }
+        case 'boolean': {
+          value = value === true || value === 'true' || value === 1 || value === '1';
+          break;
+        }
+        case 'date': {
+          const d = new Date(String(value));
+          if (Number.isNaN(d.getTime())) throw new Error(`Custom field "${def.label}" must be a valid date.`);
+          value = d.toISOString();
+          break;
+        }
+        case 'select': {
+          const str = String(value);
+          if (def.options && !def.options.includes(str)) {
+            throw new Error(`Custom field "${def.label}" must be one of: ${def.options.join(', ')}.`);
+          }
+          value = str;
+          break;
+        }
+        default:
+          value = String(value);
+      }
+      result[def.key] = value;
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
 
 	  // ─── CRM Pipeline / Vendor Requests / Commissions ───────────────────────
 
@@ -7572,11 +7813,12 @@ export class DataStore {
         input.salePrice === undefined || input.salePrice === null
           ? undefined
           : Number(input.salePrice),
+      customFields: this.normalizeCustomFields(input.companyId, 'inventory_item', input.customFields),
     };
 
     this.db
       .prepare(
-        'INSERT INTO inventory_items (id, companyId, sku, barcode, name, category, unit, vatApplicable, tracksInventory, onHand, reorderPoint, unitCost, salePrice, preferredVendor, preferredSupplierId, location) VALUES (@id, @companyId, @sku, @barcode, @name, @category, @unit, @vatApplicable, @tracksInventory, @onHand, @reorderPoint, @unitCost, @salePrice, @preferredVendor, @preferredSupplierId, @location)',
+        'INSERT INTO inventory_items (id, companyId, sku, barcode, name, category, unit, vatApplicable, tracksInventory, onHand, reorderPoint, unitCost, salePrice, preferredVendor, preferredSupplierId, location, customFields) VALUES (@id, @companyId, @sku, @barcode, @name, @category, @unit, @vatApplicable, @tracksInventory, @onHand, @reorderPoint, @unitCost, @salePrice, @preferredVendor, @preferredSupplierId, @location, @customFields)',
       )
       .run({
         ...item,
@@ -7587,6 +7829,7 @@ export class DataStore {
         preferredVendor: item.preferredVendor ?? null,
         preferredSupplierId: item.preferredSupplierId ?? null,
         location: item.location ?? null,
+        customFields: item.customFields ? JSON.stringify(item.customFields) : null,
       });
 
     if (item.tracksInventory && item.onHand !== 0) {
@@ -12489,6 +12732,7 @@ export class DataStore {
       preferredVendor: row.preferredVendor ?? undefined,
       preferredSupplierId: row.preferredSupplierId ?? undefined,
       location: row.location ?? undefined,
+      customFields: row.customFields ? this.parseJson<Record<string, unknown>>(row.customFields) ?? undefined : undefined,
     };
   }
 

@@ -41,6 +41,8 @@ import { useToast } from '@/hooks/use-toast';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
+import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
+import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
 import {
   createContact,
   getContacts,
@@ -219,6 +221,8 @@ export function ContactsPage() {
   // Create / Edit / Delete
   const [openCreate, setOpenCreate] = React.useState(false);
   const [createForm, setCreateForm] = React.useState<ContactForm>(emptyForm());
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
+  const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [saving, setSaving] = React.useState(false);
   const [editingContact, setEditingContact] = React.useState<Contact | null>(null);
   const [editForm, setEditForm] = React.useState<ContactForm>(emptyForm());
@@ -269,6 +273,15 @@ export function ContactsPage() {
   const reloadContacts = React.useCallback(async () => {
     if (!selectedCompany) return;
     setContacts(await getContacts(selectedCompany.id));
+  }, [selectedCompany]);
+
+  React.useEffect(() => {
+    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    let cancelled = false;
+    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+      .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
+      .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
+    return () => { cancelled = true; };
   }, [selectedCompany]);
 
   const openCrmPanel = async (c: Contact) => {
@@ -373,13 +386,15 @@ export function ContactsPage() {
         taxNumber: createForm.taxNumber.trim() || undefined,
         notes: createForm.notes.trim() || undefined,
         roles: createForm.roles.length > 0 ? createForm.roles : undefined,
+        customFields: Object.keys(createCustomValues).length > 0 ? createCustomValues : undefined,
       });
       setContacts(prev => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
       setOpenCreate(false);
       setCreateForm(emptyForm());
+      setCreateCustomValues({});
       toast({ title: t('contacts.created') });
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
+    } catch (error: any) {
+      toast({ title: error?.message || t('common.error'), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -446,6 +461,15 @@ export function ContactsPage() {
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>{t('contacts.createTitle')}</DialogTitle></DialogHeader>
             <ContactFormFields form={createForm} setForm={setCreateForm} />
+            {customFieldDefs.length > 0 && (
+              <div className="space-y-2 border-t pt-3">
+                <CustomFieldsForm
+                  definitions={customFieldDefs}
+                  values={createCustomValues}
+                  onChange={setCreateCustomValues}
+                />
+              </div>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
               <Button onClick={handleCreate} disabled={saving || !createForm.name.trim()}>{t('common.save')}</Button>

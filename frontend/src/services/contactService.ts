@@ -55,6 +55,7 @@ export interface Contact {
   nextFollowupNote?: string;
   convertedToClientAt?: Date;
   visibility?: 'Public' | 'Private';
+  customFields?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -139,6 +140,7 @@ export async function createContact(input: {
 	  languages?: string[];
 	  availabilityStatus?: string;
 	  influencerAccounts?: InfluencerAccount[];
+	  customFields?: Record<string, unknown>;
 	}): Promise<Contact> {
 	  const data = await apiFetch<any>(`/companies/${input.companyId}/contacts`, {
 	    method: 'POST',

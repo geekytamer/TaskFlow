@@ -211,6 +211,29 @@ export interface InventoryItem {
   preferredVendor?: string;
   preferredSupplierId?: string;
   location?: string;
+  customFields?: Record<string, unknown>;
+}
+
+export type CustomFieldEntityType = 'contact' | 'inventory_item';
+export const customFieldEntityTypes: CustomFieldEntityType[] = ['contact', 'inventory_item'];
+
+export type CustomFieldType = 'text' | 'number' | 'date' | 'boolean' | 'select';
+export const customFieldTypes: CustomFieldType[] = ['text', 'number', 'date', 'boolean', 'select'];
+
+export interface CustomFieldDefinition {
+  id: string;
+  companyId: string;
+  entityType: CustomFieldEntityType;
+  /** Stable machine key used in the entity's customFields map. */
+  key: string;
+  label: string;
+  fieldType: CustomFieldType;
+  /** Allowed values for a 'select' field. */
+  options?: string[];
+  required: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export type PurchaseOrderStatus =
@@ -817,6 +840,7 @@ export interface Contact {
   availabilityStatus?: string;
   // Per-platform social accounts for an influencer contact.
   influencerAccounts?: InfluencerAccount[];
+  customFields?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

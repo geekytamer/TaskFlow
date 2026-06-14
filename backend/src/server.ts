@@ -51,6 +51,8 @@ import {
 		  campaignAssignmentStatuses,
 		  campaignExpenseStatuses,
 		  campaignFulfillments,
+		  customFieldEntityTypes,
+		  customFieldTypes,
 		} from './types';
 import {
   HttpError,
@@ -62,6 +64,7 @@ import {
 import {
   asRecord,
   enumValue,
+  optionalCustomFields,
   optionalDateInput,
   optionalBoolean,
   optionalNumber,
@@ -1561,6 +1564,81 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Custom field definitions ───────────────────────────────────────────
+
+  app.get(
+    '/companies/:companyId/custom-fields',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      const entityType =
+        req.query.entityType !== undefined
+          ? enumValue(req.query.entityType, 'entityType', customFieldEntityTypes)
+          : undefined;
+      res.json(store.listCustomFieldDefinitions(req.params.companyId, entityType));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/custom-fields',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      try {
+        const def = store.createCustomFieldDefinition({
+          companyId: req.params.companyId,
+          entityType: enumValue(body.entityType, 'entityType', customFieldEntityTypes),
+          label: requiredString(body.label, 'label', { min: 1 }),
+          fieldType: enumValue(body.fieldType, 'fieldType', customFieldTypes),
+          key: optionalString(body.key),
+          options: Array.isArray(body.options) ? body.options.map((o) => String(o)) : undefined,
+          required: optionalBoolean(body.required) ?? false,
+          sortOrder: optionalNumber(body.sortOrder),
+        });
+        res.status(201).json(def);
+      } catch (error: any) {
+        throw new HttpError(400, error?.message || 'Could not create custom field.');
+      }
+    }),
+  );
+
+  app.put(
+    '/custom-fields/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getCustomFieldDefinitionById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Custom field not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      try {
+        const def = store.updateCustomFieldDefinition(req.params.id, {
+          label: body.label !== undefined ? requiredString(body.label, 'label', { min: 1 }) : undefined,
+          options: Array.isArray(body.options) ? body.options.map((o) => String(o)) : undefined,
+          required: body.required !== undefined ? optionalBoolean(body.required) : undefined,
+          sortOrder: body.sortOrder !== undefined ? optionalNumber(body.sortOrder) : undefined,
+        });
+        if (!def) throw new HttpError(404, 'Custom field not found.');
+        res.json(def);
+      } catch (error: any) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error?.message || 'Could not update custom field.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/custom-fields/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getCustomFieldDefinitionById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Custom field not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      store.deleteCustomFieldDefinition(req.params.id);
+      res.json({ success: true });
+    }),
+  );
+
   app.get(
     '/companies/:companyId/invoice-templates',
     authMiddleware,
@@ -2276,7 +2354,9 @@ export function createServer(options: CreateServerOptions = {}) {
 	      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const body = asRecord(req.body, 'body');
 	      const effectiveRole = getEffectiveRole(req.user!, companyId);
-	      const contact = store.createContact({
+	      let contact;
+	      try {
+	      contact = store.createContact({
         companyId,
         kind: (optionalString(body.kind) as any) ?? 'Organization',
         name: requiredString(body.name, 'name'),
@@ -2306,7 +2386,12 @@ export function createServer(options: CreateServerOptions = {}) {
 	        languages: Array.isArray(body.languages) ? body.languages.map((item, index) => requiredString(item, `languages[${index}]`)) : undefined,
 	        availabilityStatus: optionalString(body.availabilityStatus),
 	        influencerAccounts: parseInfluencerAccounts(body.influencerAccounts),
+	        customFields: optionalCustomFields(body.customFields),
 	      });
+	      } catch (error: any) {
+	        if (error instanceof HttpError) throw error;
+	        throw new HttpError(400, error?.message || 'Could not create contact.');
+	      }
       res.status(201).json(contact);
     }),
   );
@@ -2330,7 +2415,9 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
-      const contact = store.updateContact(req.params.id, {
+      let contact;
+      try {
+      contact = store.updateContact(req.params.id, {
         kind: optionalString(body.kind) as any,
         name: optionalString(body.name),
         legalName: optionalString(body.legalName),
@@ -2353,7 +2440,12 @@ export function createServer(options: CreateServerOptions = {}) {
 	          : undefined,
 	        availabilityStatus: body.availabilityStatus !== undefined ? optionalString(body.availabilityStatus) : undefined,
 	        influencerAccounts: body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined,
+	        customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
 	      });
+	      } catch (error: any) {
+	        if (error instanceof HttpError) throw error;
+	        throw new HttpError(400, error?.message || 'Could not update contact.');
+	      }
       res.json(contact);
     }),
   );
@@ -4107,24 +4199,31 @@ export function createServer(options: CreateServerOptions = {}) {
       } else if (tracks && openingQty > 0) {
         throw new HttpError(400, 'Select a warehouse for the opening stock.');
       }
-      const item = withActor(req, () =>
-        store.createInventoryItem({
-          companyId: req.params.companyId,
-          name,
-          category,
-          unit,
-          barcode: optionalString(body.barcode),
-          vatApplicable: optionalBoolean(body.vatApplicable) ?? true,
-          tracksInventory: tracks,
-          onHand: openingQty,
-          reorderPoint: requiredNumber(body.reorderPoint ?? 0, 'reorderPoint'),
-          unitCost: requiredNumber(body.unitCost ?? 0, 'unitCost'),
-          salePrice: optionalNumber(body.salePrice),
-          preferredVendor: optionalString(body.preferredVendor),
-          preferredSupplierId,
-          location: itemLocation,
-        }),
-      );
+      let item;
+      try {
+        item = withActor(req, () =>
+          store.createInventoryItem({
+            companyId: req.params.companyId,
+            name,
+            category,
+            unit,
+            barcode: optionalString(body.barcode),
+            vatApplicable: optionalBoolean(body.vatApplicable) ?? true,
+            tracksInventory: tracks,
+            onHand: openingQty,
+            reorderPoint: requiredNumber(body.reorderPoint ?? 0, 'reorderPoint'),
+            unitCost: requiredNumber(body.unitCost ?? 0, 'unitCost'),
+            salePrice: optionalNumber(body.salePrice),
+            preferredVendor: optionalString(body.preferredVendor),
+            preferredSupplierId,
+            location: itemLocation,
+            customFields: optionalCustomFields(body.customFields),
+          }),
+        );
+      } catch (error: any) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error?.message || 'Could not create inventory item.');
+      }
       res.status(201).json(item);
     }),
   );

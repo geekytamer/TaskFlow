@@ -837,6 +837,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '048_credit_notes',
     '049_time_entries',
     '050_po_approvals',
+    '051_custom_fields',
   ]);
 });
 
@@ -3783,4 +3784,72 @@ test('purchase orders above the company threshold require approval before orderi
     status: 'Ordered',
   });
   assert.equal(stillBlocked.status, 400);
+});
+
+test('custom field definitions drive validation and storage on contacts and items', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  // Define a required text field and a select field for contacts.
+  const tierField = await auth(request(app).post('/companies/1/custom-fields')).send({
+    entityType: 'contact',
+    label: 'Account Tier',
+    fieldType: 'select',
+    options: ['Gold', 'Silver'],
+    required: true,
+  });
+  assert.equal(tierField.status, 201);
+  assert.equal(tierField.body.entityType, 'contact');
+  assert.equal(tierField.body.key, 'account_tier');
+  assert.deepEqual(tierField.body.options, ['Gold', 'Silver']);
+
+  // Listing returns it.
+  const list = await auth(request(app).get('/companies/1/custom-fields?entityType=contact'));
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 1);
+
+  // Creating a contact without the required field fails.
+  const missing = await auth(request(app).post('/companies/1/contacts')).send({
+    name: 'No Tier Co',
+  });
+  assert.equal(missing.status, 400);
+
+  // An invalid select value fails.
+  const badValue = await auth(request(app).post('/companies/1/contacts')).send({
+    name: 'Bad Tier Co',
+    customFields: { account_tier: 'Platinum' },
+  });
+  assert.equal(badValue.status, 400);
+
+  // A valid value is stored and round-trips.
+  const ok = await auth(request(app).post('/companies/1/contacts')).send({
+    name: 'Gold Co',
+    customFields: { account_tier: 'Gold' },
+  });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.customFields.account_tier, 'Gold');
+
+  // Inventory items get their own namespace; a contact field does not apply.
+  const numberField = await auth(request(app).post('/companies/1/custom-fields')).send({
+    entityType: 'inventory_item',
+    label: 'Shelf Life Days',
+    fieldType: 'number',
+  });
+  assert.equal(numberField.status, 201);
+  const item = await auth(request(app).post('/companies/1/inventory-items')).send({
+    name: 'Yogurt',
+    category: 'Food',
+    unit: 'unit',
+    onHand: 0,
+    customFields: { shelf_life_days: '14' },
+  });
+  assert.equal(item.status, 201);
+  assert.equal(item.body.customFields.shelf_life_days, 14);
+
+  // Deleting a definition works.
+  const del = await auth(request(app).delete(`/custom-fields/${numberField.body.id}`));
+  assert.equal(del.status, 200);
+  const afterDelete = await auth(request(app).get('/companies/1/custom-fields?entityType=inventory_item'));
+  assert.equal(afterDelete.body.length, 0);
 });
