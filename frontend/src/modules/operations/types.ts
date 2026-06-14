@@ -94,6 +94,18 @@ export interface InventoryLocationBalance {
   quantity: number;
 }
 
+export interface Warehouse {
+  id: string;
+  companyId: string;
+  name: string;
+  code?: string;
+  address?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export type StockMovementType =
   | 'Opening'
   | 'Receipt'

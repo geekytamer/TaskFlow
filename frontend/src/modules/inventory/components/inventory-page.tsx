@@ -43,11 +43,13 @@ import {
   getPurchaseOrders,
   getStockMovements,
   getSuppliers,
+  getWarehouses,
   issueInventoryItem,
   transferInventoryItem,
 } from '@/services/operationsService';
 import { getProjects } from '@/services/projectService';
-import type { InventoryItem, InventoryLocationBalance, PurchaseOrder, StockMovement, Supplier } from '@/modules/operations/types';
+import type { InventoryItem, InventoryLocationBalance, PurchaseOrder, StockMovement, Supplier, Warehouse } from '@/modules/operations/types';
+import { WarehousesPanel } from './warehouses-panel';
 import type { Project } from '@/modules/projects/types';
 import { ArrowRightLeft, PackageMinus, PackagePlus, SlidersHorizontal } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
@@ -125,15 +127,21 @@ export function InventoryPage() {
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [movements, setMovements] = React.useState<StockMovement[]>([]);
   const [balances, setBalances] = React.useState<InventoryLocationBalance[]>([]);
+  const [warehouses, setWarehouses] = React.useState<Warehouse[]>([]);
 
   const categoryOptions = React.useMemo(
     () => Array.from(new Set(items.map((i) => i.category).filter(Boolean))) as string[],
     [items],
   );
+  // Stock locations are registered, active warehouses (enforced server-side).
   const locationOptions = React.useMemo(
-    () => Array.from(new Set(balances.map((b) => b.location).filter(Boolean))) as string[],
-    [balances],
+    () => warehouses.filter((w) => w.isActive).map((w) => w.name),
+    [warehouses],
   );
+  const defaultWarehouseName = React.useMemo(() => {
+    const active = warehouses.filter((w) => w.isActive);
+    return (active.find((w) => w.isDefault) ?? active[0])?.name ?? '';
+  }, [warehouses]);
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [openCreate, setOpenCreate] = React.useState(false);
@@ -176,12 +184,13 @@ export function InventoryPage() {
     }
     setLoading(true);
     try {
-      const [itemData, orderData, supplierData, movementData, balanceData, projectData] = await Promise.all([
+      const [itemData, orderData, supplierData, movementData, balanceData, warehouseData, projectData] = await Promise.all([
         getInventoryItems(selectedCompany.id),
         getPurchaseOrders(selectedCompany.id),
         getSuppliers(selectedCompany.id),
         getStockMovements(selectedCompany.id),
         getInventoryLocationBalances(selectedCompany.id),
+        getWarehouses(selectedCompany.id),
         getProjects(),
       ]);
       setItems(itemData);
@@ -189,6 +198,7 @@ export function InventoryPage() {
       setSuppliers(supplierData);
       setMovements(movementData);
       setBalances(balanceData);
+      setWarehouses(warehouseData);
       setProjects(projectData.filter((project) => project.companyId === selectedCompany.id));
     } catch (error: any) {
       toast({
@@ -204,6 +214,11 @@ export function InventoryPage() {
   React.useEffect(() => {
     load();
   }, [load]);
+
+  const reloadWarehouses = React.useCallback(async () => {
+    if (!selectedCompany) return;
+    setWarehouses(await getWarehouses(selectedCompany.id));
+  }, [selectedCompany]);
 
   const incomingMap = React.useMemo(() => {
     const map = new Map<string, number>();
@@ -558,7 +573,8 @@ export function InventoryPage() {
           open={openCreate}
           onOpenChange={(open) => {
             setOpenCreate(open);
-            if (!open) resetForm();
+            if (open) setForm({ ...emptyForm(), location: defaultWarehouseName });
+            else resetForm();
           }}
         >
           <DialogTrigger asChild>
@@ -714,14 +730,15 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>{tr('Location', 'الموقع')}</Label>
-                <CreatableCombobox
-                  options={locationOptions}
+                <Label>{tr('Warehouse', 'المستودع')}</Label>
+                <WarehouseSelect
                   value={form.location}
-                  onValueChange={(value) => setForm((prev) => ({ ...prev, location: value }))}
-                  placeholder={tr('Warehouse A', 'المستودع أ')}
-                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
-                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
+                  onChange={(value) => setForm((prev) => ({ ...prev, location: value }))}
+                  options={locationOptions}
+                  placeholder={tr('Select a warehouse', 'اختر مستودعًا')}
+                  allowNone
+                  noneLabel={tr('No warehouse', 'بدون مستودع')}
+                  emptyLabel={tr('No warehouses yet', 'لا توجد مستودعات بعد')}
                 />
               </div>
             </div>
@@ -773,7 +790,7 @@ export function InventoryPage() {
               const status = getStatus(item);
               const incoming = incomingMap.get(item.id) || incomingMap.get(item.sku) || 0;
               const itemBalances = balancesByItem.get(item.id) || [];
-              const primaryLocation = itemBalances[0]?.location || item.location || tr('Unassigned', 'غير محدد');
+              const primaryLocation = itemBalances[0]?.location || item.location || defaultWarehouseName;
               const locationSummary = itemBalances.length
                 ? itemBalances.map((entry) => `${entry.location}: ${entry.quantity}`).join(' • ')
                 : `${primaryLocation}: ${item.onHand}`;
@@ -847,14 +864,13 @@ export function InventoryPage() {
                             </DialogHeader>
                             <div className="space-y-3 py-2">
                               <div className="space-y-1">
-                                <Label>{tr('Location', 'الموقع')}</Label>
-                                <CreatableCombobox
-                                  options={locationOptions}
+                                <Label>{tr('Warehouse', 'المستودع')}</Label>
+                                <WarehouseSelect
                                   value={adjustment.location}
-                                  onValueChange={(value) => setAdjustment((prev) => ({ ...prev, location: value }))}
-                                  placeholder={tr('Warehouse A', 'المستودع أ')}
-                                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
-                                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
+                                  onChange={(value) => setAdjustment((prev) => ({ ...prev, location: value }))}
+                                  options={locationOptions}
+                                  placeholder={tr('Select a warehouse', 'اختر مستودعًا')}
+                                  emptyLabel={tr('No warehouses yet', 'لا توجد مستودعات بعد')}
                                 />
                               </div>
                               <div className="space-y-1">
@@ -931,12 +947,13 @@ export function InventoryPage() {
                             </DialogHeader>
                             <div className="grid gap-3 py-2 sm:grid-cols-2">
                               <div className="space-y-1">
-                                <Label>{tr('Location', 'الموقع')}</Label>
-                                <Input
+                                <Label>{tr('Warehouse', 'المستودع')}</Label>
+                                <WarehouseSelect
                                   value={issue.location}
-                                  onChange={(event) =>
-                                    setIssue((prev) => ({ ...prev, location: event.target.value }))
-                                  }
+                                  onChange={(value) => setIssue((prev) => ({ ...prev, location: value }))}
+                                  options={locationOptions}
+                                  placeholder={tr('Select a warehouse', 'اختر مستودعًا')}
+                                  emptyLabel={tr('No warehouses yet', 'لا توجد مستودعات بعد')}
                                 />
                               </div>
                               <div className="space-y-1">
@@ -1045,25 +1062,23 @@ export function InventoryPage() {
                             </DialogHeader>
                             <div className="grid gap-3 py-2 sm:grid-cols-2">
                               <div className="space-y-1">
-                                <Label>{tr('From Location', 'من موقع')}</Label>
-                                <CreatableCombobox
-                                  options={locationOptions}
+                                <Label>{tr('From Warehouse', 'من مستودع')}</Label>
+                                <WarehouseSelect
                                   value={transfer.fromLocation}
-                                  onValueChange={(value) => setTransfer((prev) => ({ ...prev, fromLocation: value }))}
-                                  placeholder={tr('Warehouse A', 'المستودع أ')}
-                                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
-                                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
+                                  onChange={(value) => setTransfer((prev) => ({ ...prev, fromLocation: value }))}
+                                  options={locationOptions}
+                                  placeholder={tr('Select a warehouse', 'اختر مستودعًا')}
+                                  emptyLabel={tr('No warehouses yet', 'لا توجد مستودعات بعد')}
                                 />
                               </div>
                               <div className="space-y-1">
-                                <Label>{tr('To Location', 'إلى موقع')}</Label>
-                                <CreatableCombobox
-                                  options={locationOptions}
+                                <Label>{tr('To Warehouse', 'إلى مستودع')}</Label>
+                                <WarehouseSelect
                                   value={transfer.toLocation}
-                                  onValueChange={(value) => setTransfer((prev) => ({ ...prev, toLocation: value }))}
-                                  placeholder={tr('Warehouse B', 'المستودع ب')}
-                                  searchPlaceholder={tr('Search or add location…', 'ابحث أو أضف موقعًا…')}
-                                  createLabel={tr('Create "{value}"', 'إنشاء «{value}»')}
+                                  onChange={(value) => setTransfer((prev) => ({ ...prev, toLocation: value }))}
+                                  options={locationOptions}
+                                  placeholder={tr('Select a warehouse', 'اختر مستودعًا')}
+                                  emptyLabel={tr('No warehouses yet', 'لا توجد مستودعات بعد')}
                                 />
                               </div>
                               <div className="space-y-1">
@@ -1133,6 +1148,17 @@ export function InventoryPage() {
         </Table>
       </div>
 
+      {selectedCompany ? (
+        <WarehousesPanel
+          companyId={selectedCompany.id}
+          warehouses={warehouses}
+          balances={balances}
+          items={items}
+          onChanged={reloadWarehouses}
+          tr={tr}
+        />
+      ) : null}
+
       <Card data-tutorial="inventory-movements">
         <CardHeader>
           <CardTitle>{tr('Recent Stock Movements', 'أحدث حركات المخزون')}</CardTitle>
@@ -1196,5 +1222,48 @@ export function InventoryPage() {
         </DialogContent>
       </Dialog>
     </SectionPageShell>
+  );
+}
+
+/** Strict location picker: only registered, active warehouses (enforce mode). */
+function WarehouseSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  allowNone,
+  noneLabel,
+  emptyLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder: string;
+  allowNone?: boolean;
+  noneLabel?: string;
+  emptyLabel?: string;
+}) {
+  const NONE = '__none__';
+  return (
+    <Select
+      value={value ? value : allowNone ? NONE : undefined}
+      onValueChange={(v) => onChange(v === NONE ? '' : v)}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {allowNone ? <SelectItem value={NONE}>{noneLabel ?? '—'}</SelectItem> : null}
+        {options.length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel ?? 'No warehouses'}</div>
+        ) : (
+          options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))
+        )}
+      </SelectContent>
+    </Select>
   );
 }

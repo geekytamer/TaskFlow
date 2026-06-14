@@ -688,6 +688,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '044_commission_nullable_source_links',
     '045_invoice_template_snapshot',
     '046_notifications',
+    '047_warehouses',
   ]);
 });
 
@@ -2529,6 +2530,8 @@ test('supplier management is company-scoped and inventory can link preferred sup
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
 
+  await request(app).post('/companies/1/warehouses').set('Authorization', `Bearer ${token}`).send({ name: 'Main' });
+
   const createSupplierResponse = await request(app)
     .post('/companies/1/suppliers')
     .set('Authorization', `Bearer ${token}`)
@@ -2559,6 +2562,7 @@ test('supplier management is company-scoped and inventory can link preferred sup
       onHand: 12,
       reorderPoint: 3,
       unitCost: 4.5,
+      location: 'Main',
       preferredSupplierId: supplierId,
     });
   assert.equal(createItemResponse.status, 201);
@@ -3070,6 +3074,8 @@ test('stock movements are recorded for opening balances, receipts, and manual ad
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
 
+  await request(app).post('/companies/1/warehouses').set('Authorization', `Bearer ${token}`).send({ name: 'Main' });
+
   const createItemResponse = await request(app)
     .post('/companies/1/inventory-items')
     .set('Authorization', `Bearer ${token}`)
@@ -3081,6 +3087,7 @@ test('stock movements are recorded for opening balances, receipts, and manual ad
       onHand: 5,
       reorderPoint: 2,
       unitCost: 10,
+      location: 'Main',
     });
   assert.equal(createItemResponse.status, 201);
   const itemId = createItemResponse.body.id;
@@ -3158,6 +3165,10 @@ test('stock movements are recorded for opening balances, receipts, and manual ad
 test('inventory location balances support stock issues and transfers', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
+
+  for (const name of ['Warehouse A', 'Event Cage']) {
+    await request(app).post('/companies/1/warehouses').set('Authorization', `Bearer ${token}`).send({ name });
+  }
 
   const createItemResponse = await request(app)
     .post('/companies/1/inventory-items')
@@ -3245,6 +3256,74 @@ test('inventory location balances support stock issues and transfers', async () 
       (movement) => movement.movementType === 'Transfer In' && movement.quantityChange === 2,
     ),
   );
+});
+
+test('warehouses: CRUD, enforcement, rename cascade, and delete guard', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+  // Create (as default) + duplicate-name rejection.
+  const created = await auth(request(app).post('/companies/1/warehouses')).send({ name: 'Depot North', code: 'DN', isDefault: true });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.name, 'Depot North');
+  assert.equal(created.body.isDefault, true);
+  const whId = created.body.id;
+  const dup = await auth(request(app).post('/companies/1/warehouses')).send({ name: 'Depot North' });
+  assert.equal(dup.status, 400);
+
+  // Stock placed into the warehouse.
+  const item = await auth(request(app).post('/companies/1/inventory-items')).send({
+    sku: 'WH-ITEM', name: 'WH Item', category: 'Testing', unit: 'pcs', onHand: 10, reorderPoint: 1, unitCost: 2, location: 'Depot North',
+  });
+  assert.equal(item.status, 201);
+  const itemId = item.body.id;
+
+  // Enforcement: issuing to an unregistered location is rejected.
+  const badIssue = await auth(request(app).post(`/companies/1/inventory-items/${itemId}/issues`)).send({ quantity: 1, location: 'Nowhere' });
+  assert.equal(badIssue.status, 400);
+  assert.match(badIssue.body.message, /warehouse/i);
+
+  // Rename cascades to the stock balance keyed by the old name.
+  const renamed = await auth(request(app).put(`/warehouses/${whId}`)).send({ name: 'Depot N' });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.name, 'Depot N');
+  const balances = await auth(request(app).get(`/companies/1/inventory-location-balances?inventoryItemId=${itemId}`));
+  assert.ok(balances.body.some((b) => b.location === 'Depot N' && b.quantity === 10));
+
+  // Delete guard: blocked while holding stock; allowed once empty.
+  const blocked = await auth(request(app).delete(`/warehouses/${whId}`));
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.body.message, /stock/i);
+  const empty = await auth(request(app).post('/companies/1/warehouses')).send({ name: 'Empty WH' });
+  const del = await auth(request(app).delete(`/warehouses/${empty.body.id}`));
+  assert.equal(del.status, 200);
+});
+
+test('purchase receipts route stock into the default warehouse when the item has none', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+  await auth(request(app).post('/companies/1/warehouses')).send({ name: 'Receiving Dock', isDefault: true });
+
+  // Item with no location and no opening stock (allowed).
+  const item = await auth(request(app).post('/companies/1/inventory-items')).send({
+    sku: 'RCV-1', name: 'Receive Item', category: 'Testing', unit: 'pcs', onHand: 0, reorderPoint: 1, unitCost: 3,
+  });
+  assert.equal(item.status, 201);
+  const itemId = item.body.id;
+  const itemSku = item.body.sku;
+
+  const order = await auth(request(app).post('/companies/1/purchase-orders')).send({
+    orderNumber: 'PO-RCV-1', supplierId: 'supplier-1', orderDate: '2026-05-01T00:00:00.000Z', status: 'Ordered',
+    items: [{ inventoryItemId: itemId, sku: itemSku, description: 'Receive Item', quantity: 5, unitCost: 3, lineTotal: 15 }],
+  });
+  assert.equal(order.status, 201);
+  await auth(request(app).patch(`/purchase-orders/${order.body.id}/status`)).send({ status: 'Received' });
+
+  const balances = await auth(request(app).get(`/companies/1/inventory-location-balances?inventoryItemId=${itemId}`));
+  assert.ok(balances.body.some((b) => b.location === 'Receiving Dock' && b.quantity === 5));
 });
 
 test('purchase orders support partial receipts with receipt history', async () => {

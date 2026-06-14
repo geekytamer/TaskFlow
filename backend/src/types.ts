@@ -247,6 +247,19 @@ export interface PurchaseReceipt {
   items: PurchaseReceiptLine[];
 }
 
+export interface Warehouse {
+  id: string;
+  companyId: string;
+  /** Display name — also the location key used by stock balances/movements. */
+  name: string;
+  code?: string;
+  address?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface InventoryLocationBalance {
   companyId: string;
   inventoryItemId: string;

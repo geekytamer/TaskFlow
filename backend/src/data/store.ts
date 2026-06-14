@@ -114,6 +114,7 @@ import {
   Notification,
   NotificationType,
   NotificationPrefs,
+  Warehouse,
 } from '../types';
 import {
   NOTIFICATION_META,
@@ -468,7 +469,37 @@ export class DataStore {
     this.ensureFinanceDefaults();
     this.ensureNumberingDefaults();
     this.ensureCompanyFinanceSettings();
+    this.ensureWarehousesFromLocations();
     this.ensureBootstrapAdmin();
+  }
+
+  /**
+   * Idempotent: register a warehouse for any location that currently holds stock
+   * (or is an item's default) but has no warehouse row yet. Runs every startup
+   * so existing data and freshly-seeded DBs both get managed warehouses under
+   * the enforce rule. Only current placements are considered, so deleting an
+   * empty warehouse won't resurrect it from historical issues/transfers.
+   */
+  private ensureWarehousesFromLocations() {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT companyId, location FROM (
+           SELECT companyId, location FROM inventory_location_balances WHERE quantity != 0
+           UNION SELECT companyId, location FROM inventory_items WHERE location IS NOT NULL
+         ) WHERE location IS NOT NULL AND TRIM(location) != ''`,
+      )
+      .all() as Array<{ companyId: string; location: string }>;
+    const now = new Date().toISOString();
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO warehouses (id, companyId, name, code, address, isDefault, isActive, createdAt, updatedAt)
+       VALUES (@id, @companyId, @name, NULL, NULL, 0, 1, @now, @now)`,
+    );
+    const tx = this.db.transaction(() => {
+      for (const row of rows) {
+        insert.run({ id: uuid(), companyId: row.companyId, name: row.location, now });
+      }
+    });
+    tx();
   }
 
   /**
@@ -715,6 +746,18 @@ export class DataStore {
         referenceId TEXT,
         note TEXT,
         createdAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS warehouses (
+        id TEXT PRIMARY KEY,
+        companyId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        code TEXT,
+        address TEXT,
+        isDefault INTEGER NOT NULL DEFAULT 0,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        UNIQUE(companyId, name)
       );
       CREATE TABLE IF NOT EXISTS purchase_orders (
         id TEXT PRIMARY KEY,
@@ -2321,6 +2364,27 @@ export class DataStore {
           if (!userColumns.includes('notificationPrefs')) {
             this.db.exec(`ALTER TABLE users ADD COLUMN notificationPrefs TEXT;`);
           }
+        },
+      },
+      {
+        id: '047_warehouses',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS warehouses (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              code TEXT,
+              address TEXT,
+              isDefault INTEGER NOT NULL DEFAULT 0,
+              isActive INTEGER NOT NULL DEFAULT 1,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              UNIQUE(companyId, name)
+            );
+          `);
+          // Auto-import happens via ensureWarehousesFromLocations() at startup,
+          // which runs after seeding so fresh DBs are covered too.
         },
       },
     ];
@@ -7058,6 +7122,168 @@ export class DataStore {
     return row ? this.decodeInventoryItem(row) : undefined;
   }
 
+  // ── Warehouses ─────────────────────────────────────────────────────────────
+
+  private decodeWarehouse(row: any): Warehouse {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      name: row.name,
+      code: row.code ?? undefined,
+      address: row.address ?? undefined,
+      isDefault: Boolean(row.isDefault),
+      isActive: Boolean(row.isActive),
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listWarehouses(companyId: string): Warehouse[] {
+    const rows = this.db
+      .prepare('SELECT * FROM warehouses WHERE companyId = ? ORDER BY isDefault DESC, name ASC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodeWarehouse(r));
+  }
+
+  getWarehouseById(id: string): Warehouse | undefined {
+    const row = this.db.prepare('SELECT * FROM warehouses WHERE id = ?').get(id) as any;
+    return row ? this.decodeWarehouse(row) : undefined;
+  }
+
+  getWarehouseByName(companyId: string, name: string): Warehouse | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM warehouses WHERE companyId = ? AND name = ?')
+      .get(companyId, String(name || '').trim()) as any;
+    return row ? this.decodeWarehouse(row) : undefined;
+  }
+
+  /** The company's default warehouse (explicit default, else the first active one). */
+  getDefaultWarehouse(companyId: string): Warehouse | undefined {
+    const active = this.listWarehouses(companyId).filter((w) => w.isActive);
+    return active.find((w) => w.isDefault) ?? active[0];
+  }
+
+  /**
+   * Resolve where incoming stock (e.g. a PO receipt) should land: the preferred
+   * location if it's an active warehouse, otherwise the company default. Keeps
+   * received stock inside managed warehouses instead of orphan locations.
+   */
+  resolveStockLocation(companyId: string, preferred?: string | null): string {
+    const value = (preferred ?? '').trim();
+    if (value && this.isActiveWarehouse(companyId, value)) return value;
+    return this.getDefaultWarehouse(companyId)?.name ?? this.normalizeInventoryLocation(preferred);
+  }
+
+  /** Enforcement helper: is this location a registered, active warehouse? */
+  isActiveWarehouse(companyId: string, name: string): boolean {
+    const row = this.db
+      .prepare('SELECT isActive FROM warehouses WHERE companyId = ? AND name = ?')
+      .get(companyId, String(name || '').trim()) as any;
+    return Boolean(row && row.isActive);
+  }
+
+  createWarehouse(input: {
+    companyId: string;
+    name: string;
+    code?: string;
+    address?: string;
+    isDefault?: boolean;
+    isActive?: boolean;
+  }): Warehouse {
+    const name = String(input.name || '').trim();
+    if (!name) throw new Error('Warehouse name is required.');
+    if (this.getWarehouseByName(input.companyId, name)) {
+      throw new Error(`A warehouse named "${name}" already exists.`);
+    }
+    const now = new Date().toISOString();
+    const id = uuid();
+    const tx = this.db.transaction(() => {
+      if (input.isDefault) {
+        this.db.prepare('UPDATE warehouses SET isDefault = 0 WHERE companyId = ?').run(input.companyId);
+      }
+      this.db
+        .prepare(
+          `INSERT INTO warehouses (id, companyId, name, code, address, isDefault, isActive, createdAt, updatedAt)
+           VALUES (@id, @companyId, @name, @code, @address, @isDefault, @isActive, @now, @now)`,
+        )
+        .run({
+          id,
+          companyId: input.companyId,
+          name,
+          code: input.code ?? null,
+          address: input.address ?? null,
+          isDefault: input.isDefault ? 1 : 0,
+          isActive: input.isActive === false ? 0 : 1,
+          now,
+        });
+    });
+    tx();
+    return this.getWarehouseById(id)!;
+  }
+
+  updateWarehouse(
+    id: string,
+    updates: { name?: string; code?: string; address?: string; isDefault?: boolean; isActive?: boolean },
+  ): Warehouse | undefined {
+    const existing = this.getWarehouseById(id);
+    if (!existing) return undefined;
+    const now = new Date().toISOString();
+    const newName = updates.name !== undefined ? String(updates.name).trim() : existing.name;
+    if (!newName) throw new Error('Warehouse name is required.');
+    const renamed = newName !== existing.name;
+    if (renamed) {
+      const clash = this.getWarehouseByName(existing.companyId, newName);
+      if (clash && clash.id !== id) throw new Error(`A warehouse named "${newName}" already exists.`);
+    }
+    const tx = this.db.transaction(() => {
+      if (updates.isDefault === true) {
+        this.db.prepare('UPDATE warehouses SET isDefault = 0 WHERE companyId = ?').run(existing.companyId);
+      }
+      this.db
+        .prepare(
+          `UPDATE warehouses SET name=@name, code=@code, address=@address, isDefault=@isDefault, isActive=@isActive, updatedAt=@now WHERE id=@id`,
+        )
+        .run({
+          id,
+          name: newName,
+          code: updates.code !== undefined ? updates.code || null : existing.code ?? null,
+          address: updates.address !== undefined ? updates.address || null : existing.address ?? null,
+          isDefault: updates.isDefault !== undefined ? (updates.isDefault ? 1 : 0) : existing.isDefault ? 1 : 0,
+          isActive: updates.isActive !== undefined ? (updates.isActive ? 1 : 0) : existing.isActive ? 1 : 0,
+          now,
+        });
+      // A rename cascades to every place the old name is used as a location key.
+      if (renamed) {
+        const p = [newName, existing.companyId, existing.name] as const;
+        this.db.prepare('UPDATE inventory_location_balances SET location = ? WHERE companyId = ? AND location = ?').run(...p);
+        this.db.prepare('UPDATE inventory_issues SET location = ? WHERE companyId = ? AND location = ?').run(...p);
+        this.db.prepare('UPDATE inventory_transfers SET fromLocation = ? WHERE companyId = ? AND fromLocation = ?').run(...p);
+        this.db.prepare('UPDATE inventory_transfers SET toLocation = ? WHERE companyId = ? AND toLocation = ?').run(...p);
+        this.db.prepare('UPDATE inventory_items SET location = ? WHERE companyId = ? AND location = ?').run(...p);
+      }
+    });
+    tx();
+    return this.getWarehouseById(id)!;
+  }
+
+  deleteWarehouse(id: string): boolean {
+    const existing = this.getWarehouseById(id);
+    if (!existing) return false;
+    const stock = this.db
+      .prepare('SELECT COALESCE(SUM(quantity),0) AS q FROM inventory_location_balances WHERE companyId = ? AND location = ?')
+      .get(existing.companyId, existing.name) as any;
+    if (Number(stock?.q || 0) > 0) {
+      throw new Error('Cannot delete a warehouse that still holds stock. Move or issue it first.');
+    }
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM warehouses WHERE id = ?').run(id);
+      // Drop any leftover zero-quantity balance rows for this location.
+      this.db.prepare('DELETE FROM inventory_location_balances WHERE companyId = ? AND location = ?').run(existing.companyId, existing.name);
+    });
+    tx();
+    return true;
+  }
+
   listInventoryLocationBalances(
     companyId: string,
     inventoryItemId?: string,
@@ -8663,7 +8889,7 @@ export class DataStore {
           this.incrementLocationBalance(
             order.companyId,
             inventoryItemId,
-            this.normalizeInventoryLocation(inventoryItem?.location),
+            this.resolveStockLocation(order.companyId, inventoryItem?.location),
             item.quantity,
           );
           this.createStockMovement({

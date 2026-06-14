@@ -8,6 +8,7 @@ import type {
   PurchaseOrderStatus,
   StockMovement,
   Supplier,
+  Warehouse,
 } from '@/modules/operations/types';
 
 export interface CreateInventoryItemInput {
@@ -288,4 +289,50 @@ export async function receivePurchaseOrder(
     body: JSON.stringify(data),
   });
   return mapPurchaseOrder(order);
+}
+
+// ── Warehouses ───────────────────────────────────────────────────────────────
+
+const mapWarehouse = (w: any): Warehouse => ({
+  id: w.id,
+  companyId: w.companyId,
+  name: w.name,
+  code: w.code ?? undefined,
+  address: w.address ?? undefined,
+  isDefault: Boolean(w.isDefault),
+  isActive: Boolean(w.isActive),
+  createdAt: toDate(w.createdAt) || new Date(),
+  updatedAt: toDate(w.updatedAt) || new Date(),
+});
+
+export async function getWarehouses(companyId: string): Promise<Warehouse[]> {
+  if (!companyId) return [];
+  const data = await apiFetch<any[]>(`/companies/${companyId}/warehouses`);
+  return data.map(mapWarehouse);
+}
+
+export async function createWarehouse(
+  companyId: string,
+  input: { name: string; code?: string; address?: string; isDefault?: boolean; isActive?: boolean },
+): Promise<Warehouse> {
+  const data = await apiFetch<any>(`/companies/${companyId}/warehouses`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return mapWarehouse(data);
+}
+
+export async function updateWarehouse(
+  id: string,
+  updates: { name?: string; code?: string; address?: string; isDefault?: boolean; isActive?: boolean },
+): Promise<Warehouse> {
+  const data = await apiFetch<any>(`/warehouses/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+  return mapWarehouse(data);
+}
+
+export async function deleteWarehouse(id: string): Promise<void> {
+  await apiFetch(`/warehouses/${id}`, { method: 'DELETE' });
 }

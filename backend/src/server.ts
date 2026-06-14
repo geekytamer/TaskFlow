@@ -738,6 +738,15 @@ export function createServer(options: CreateServerOptions = {}) {
     return supplier;
   };
 
+  // Stock locations must be a registered, active warehouse (enforce mode).
+  const ensureActiveWarehouse = (companyId: string, name: string | undefined, field = 'location') => {
+    const value = (name ?? '').trim();
+    if (!value) throw new HttpError(400, `A ${field} (warehouse) is required.`);
+    if (!store.isActiveWarehouse(companyId, value)) {
+      throw new HttpError(400, `"${value}" is not an active warehouse. Create it under Warehouses first.`);
+    }
+  };
+
   const ensurePurchaseItemsBelongToCompany = (
     items: PurchaseOrderLineItem[],
     companyId: string,
@@ -3803,6 +3812,78 @@ export function createServer(options: CreateServerOptions = {}) {
 	    }),
 	  );
 
+  // ─── Warehouses ──────────────────────────────────────────────────────────
+
+  app.get(
+    '/companies/:companyId/warehouses',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      res.json(store.listWarehouses(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/warehouses',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      try {
+        const warehouse = store.createWarehouse({
+          companyId: req.params.companyId,
+          name: requiredString(body.name, 'name', { min: 1 }),
+          code: optionalString(body.code),
+          address: optionalString(body.address),
+          isDefault: optionalBoolean(body.isDefault) ?? false,
+          isActive: optionalBoolean(body.isActive) ?? true,
+        });
+        res.status(201).json(warehouse);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not create warehouse.');
+      }
+    }),
+  );
+
+  app.put(
+    '/warehouses/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getWarehouseById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Warehouse not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      try {
+        const warehouse = store.updateWarehouse(req.params.id, {
+          name: body.name !== undefined ? requiredString(body.name, 'name', { min: 1 }) : undefined,
+          code: body.code !== undefined ? optionalString(body.code) : undefined,
+          address: body.address !== undefined ? optionalString(body.address) : undefined,
+          isDefault: body.isDefault !== undefined ? optionalBoolean(body.isDefault) : undefined,
+          isActive: body.isActive !== undefined ? optionalBoolean(body.isActive) : undefined,
+        });
+        res.json(warehouse);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update warehouse.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/warehouses/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getWarehouseById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Warehouse not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      try {
+        store.deleteWarehouse(req.params.id);
+        res.json({ success: true });
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not delete warehouse.');
+      }
+    }),
+  );
+
   app.get(
     '/companies/:companyId/inventory-items',
     authMiddleware,
@@ -3818,24 +3899,37 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
+      // Validate required shape before business rules so missing-field errors win.
+      const name = requiredString(body.name, 'name', { min: 2 });
+      const category = requiredString(body.category, 'category', { min: 2 });
+      const unit = requiredString(body.unit, 'unit', { min: 1 });
       const preferredSupplierId = optionalString(body.preferredSupplierId);
       ensureSupplierBelongsToCompany(preferredSupplierId, req.params.companyId);
+      const itemLocation = optionalString(body.location);
+      const openingQty = requiredNumber(body.onHand ?? 0, 'onHand');
+      const tracks = optionalBoolean(body.tracksInventory) ?? true;
+      // A location, when given, must be a warehouse; opening stock needs one.
+      if (itemLocation) {
+        ensureActiveWarehouse(req.params.companyId, itemLocation, 'location');
+      } else if (tracks && openingQty > 0) {
+        throw new HttpError(400, 'Select a warehouse for the opening stock.');
+      }
       const item = withActor(req, () =>
         store.createInventoryItem({
           companyId: req.params.companyId,
-          name: requiredString(body.name, 'name', { min: 2 }),
-          category: requiredString(body.category, 'category', { min: 2 }),
-          unit: requiredString(body.unit, 'unit', { min: 1 }),
+          name,
+          category,
+          unit,
           barcode: optionalString(body.barcode),
           vatApplicable: optionalBoolean(body.vatApplicable) ?? true,
-          tracksInventory: optionalBoolean(body.tracksInventory) ?? true,
-          onHand: requiredNumber(body.onHand ?? 0, 'onHand'),
+          tracksInventory: tracks,
+          onHand: openingQty,
           reorderPoint: requiredNumber(body.reorderPoint ?? 0, 'reorderPoint'),
           unitCost: requiredNumber(body.unitCost ?? 0, 'unitCost'),
           salePrice: optionalNumber(body.salePrice),
           preferredVendor: optionalString(body.preferredVendor),
           preferredSupplierId,
-          location: optionalString(body.location),
+          location: itemLocation,
         }),
       );
       res.status(201).json(item);
@@ -3897,6 +3991,8 @@ export function createServer(options: CreateServerOptions = {}) {
       if (quantityChange === 0) {
         throw new HttpError(400, 'quantityChange must be non-zero.');
       }
+      const adjustLocation = optionalString(body.location) || item.location || 'Unassigned';
+      ensureActiveWarehouse(req.params.companyId, adjustLocation, 'location');
       let movement;
       try {
         movement = withActor(req, () =>
@@ -3905,7 +4001,7 @@ export function createServer(options: CreateServerOptions = {}) {
             req.params.itemId,
             quantityChange,
             optionalString(body.note),
-            optionalString(body.location),
+            adjustLocation,
           ),
         );
       } catch (error) {
@@ -3931,13 +4027,15 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
       }
       const body = asRecord(req.body, 'body');
+      const issueLocation = optionalString(body.location) || item.location || 'Unassigned';
+      ensureActiveWarehouse(req.params.companyId, issueLocation, 'location');
       try {
         const issue = withActor(req, () =>
           store.createInventoryIssue({
             companyId: req.params.companyId,
             inventoryItemId: req.params.itemId,
             quantity: requiredNumber(body.quantity, 'quantity'),
-            location: optionalString(body.location) || item.location || 'Unassigned',
+            location: issueLocation,
             issuedAt: optionalDateInput(body.issuedAt),
             issuedTo: optionalString(body.issuedTo),
             note: optionalString(body.note),
@@ -3969,14 +4067,19 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
       }
       const body = asRecord(req.body, 'body');
+      const fromLocation = optionalString(body.fromLocation) || item.location || 'Unassigned';
+      const toLocation = requiredString(body.toLocation, 'toLocation', { min: 1 });
+      ensureActiveWarehouse(req.params.companyId, fromLocation, 'fromLocation');
+      ensureActiveWarehouse(req.params.companyId, toLocation, 'toLocation');
+      if (fromLocation === toLocation) throw new HttpError(400, 'Source and destination warehouses must differ.');
       try {
         const transfer = withActor(req, () =>
           store.createInventoryTransfer({
             companyId: req.params.companyId,
             inventoryItemId: req.params.itemId,
             quantity: requiredNumber(body.quantity, 'quantity'),
-            fromLocation: optionalString(body.fromLocation) || item.location || 'Unassigned',
-            toLocation: requiredString(body.toLocation, 'toLocation', { min: 2 }),
+            fromLocation,
+            toLocation,
             transferredAt: optionalDateInput(body.transferredAt),
             note: optionalString(body.note),
           }),
