@@ -3853,3 +3853,55 @@ test('custom field definitions drive validation and storage on contacts and item
   const afterDelete = await auth(request(app).get('/companies/1/custom-fields?entityType=inventory_item'));
   assert.equal(afterDelete.body.length, 0);
 });
+
+test('records delete gracefully: block on dependents, cascade owned children, hard-delete when safe', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-del-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const co = store.createCompany({ name: 'Del Co', website: '', address: '' });
+  const item = (over) => store.createInventoryItem({
+    companyId: co.id, name: 'X', category: 'Gen', unit: 'pcs',
+    vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 1, ...over,
+  });
+
+  // Inventory item: hard-delete when pristine; block when stock on hand.
+  const freeItem = item({ name: 'Widget' });
+  store.deleteInventoryItem(freeItem.id);
+  assert.equal(store.getInventoryItemById(freeItem.id), undefined);
+  const stocked = item({ name: 'Gadget', onHand: 5 });
+  assert.throws(() => store.deleteInventoryItem(stocked.id), /stock on hand/);
+  assert.ok(store.getInventoryItemById(stocked.id));
+
+  // Task: cascades comments + time entries; subtasks are detached, not deleted.
+  const project = store.createProject({ name: 'P', description: '', color: '#fff', companyId: co.id, visibility: 'Public' });
+  const user = store.createUser({
+    name: 'U', email: 'u-del@test.com', password: 'password', role: 'Employee',
+    companyIds: [co.id], companyRoles: [{ companyId: co.id, role: 'Employee' }],
+  });
+  const parent = store.createTask({ title: 'Parent', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: co.id, projectId: project.id });
+  const child = store.createTask({ title: 'Child', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: co.id, projectId: project.id, parentTaskId: parent.id });
+  store.createComment({ taskId: parent.id, userId: user.id, content: 'hi' });
+  store.createTimeEntry({ companyId: co.id, taskId: parent.id, userId: user.id, minutes: 30 });
+  store.deleteTask(parent.id);
+  assert.equal(store.getTaskById(parent.id), undefined);
+  assert.equal(store.listTimeEntries(parent.id).length, 0);
+  const childAfter = store.getTaskById(child.id);
+  assert.ok(childAfter, 'subtask should survive parent deletion');
+  assert.equal(childAfter.parentTaskId ?? null, null, 'subtask should be detached');
+
+  // Contact: deletable when unreferenced; blocked once a campaign assignment uses it.
+  const freeContact = store.createContact({ companyId: co.id, name: 'Free Contact' });
+  store.deleteContact(freeContact.id);
+  assert.equal(store.getContactById(freeContact.id), undefined);
+  const usedContact = store.createContact({ companyId: co.id, name: 'Used Contact' });
+  const campaign = store.createCrmCampaign({
+    companyId: co.id, name: 'C', status: 'Active', visibility: 'Public',
+    proposalId: null, opportunityId: null, contactId: null, projectId: null,
+    startDate: null, endDate: null, budget: null, ownerUserId: null, ownerName: null, notes: null,
+  });
+  store.createCampaignAssignment({
+    companyId: co.id, campaignId: campaign.id, contactId: usedContact.id,
+    role: 'Influencer', agreedRate: null, status: 'Confirmed', notes: null,
+  });
+  assert.throws(() => store.deleteContact(usedContact.id), /referenced by/);
+  assert.ok(store.getContactById(usedContact.id));
+});

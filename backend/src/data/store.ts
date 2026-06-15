@@ -4254,9 +4254,163 @@ export class DataStore {
     this.db.prepare('DELETE FROM contact_roles WHERE contactId = ? AND role = ?').run(contactId, role);
   }
 
+  /**
+   * Throws a descriptive error if `id` is still referenced by any of the given
+   * (table, column) pairs, so callers can block a delete gracefully instead of
+   * orphaning rows or hitting a foreign-key failure.
+   */
+  private assertNotReferenced(
+    checks: Array<{ table: string; column: string; label: string }>,
+    id: string,
+    entityLabel: string,
+  ): void {
+    const blockers: string[] = [];
+    for (const check of checks) {
+      const row = this.db
+        .prepare(`SELECT COUNT(*) AS n FROM ${check.table} WHERE ${check.column} = ?`)
+        .get(id) as { n: number } | undefined;
+      const count = Number(row?.n || 0);
+      if (count > 0) blockers.push(`${count} ${check.label}`);
+    }
+    if (blockers.length > 0) {
+      throw new Error(
+        `Cannot delete this ${entityLabel} because it is still referenced by ${blockers.join(
+          ', ',
+        )}. Remove or reassign those first.`,
+      );
+    }
+  }
+
   deleteContact(id: string): void {
-    this.db.prepare('DELETE FROM contact_roles WHERE contactId = ?').run(id);
-    this.db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
+    this.assertNotReferenced(
+      [
+        { table: 'invoices', column: 'contactId', label: 'invoice(s)' },
+        { table: 'opportunities', column: 'contactId', label: 'opportunity record(s)' },
+        { table: 'crm_proposals', column: 'contactId', label: 'proposal(s)' },
+        { table: 'campaign_assignments', column: 'contactId', label: 'campaign assignment(s)' },
+        { table: 'campaign_deliverables', column: 'vendorContactId', label: 'campaign deliverable(s)' },
+        { table: 'campaign_expenses', column: 'contactId', label: 'campaign expense(s)' },
+      ],
+      id,
+      'contact',
+    );
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM contact_roles WHERE contactId = ?').run(id);
+      this.db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  /** Delete an invoice. Blocks if it has payments or is referenced by a credit note. */
+  deleteInvoice(id: string): void {
+    const invoice = this.getInvoiceById(id);
+    if (!invoice) throw new Error('Invoice not found.');
+    const payment = this.db.prepare('SELECT 1 FROM payments WHERE invoiceId = ? LIMIT 1').get(id);
+    if (payment) {
+      throw new Error('Cannot delete an invoice that has recorded payments. Reverse the payments first.');
+    }
+    this.assertNotReferenced(
+      [{ table: 'credit_notes', column: 'invoiceId', label: 'credit note(s)' }],
+      id,
+      'invoice',
+    );
+    const trx = this.db.transaction(() => {
+      this.removeJournalEntriesBySource('invoice', id);
+      // Release any sales order that was invoiced from this invoice.
+      this.db
+        .prepare(
+          "UPDATE sales_orders SET invoiceId = NULL, status = CASE WHEN status = 'Invoiced' THEN 'Confirmed' ELSE status END WHERE invoiceId = ?",
+        )
+        .run(id);
+      this.db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  /** Delete a sales order. Blocks once it has been invoiced or has deliveries. */
+  deleteSalesOrder(id: string): void {
+    const order = this.getSalesOrderById(id);
+    if (!order) throw new Error('Sales order not found.');
+    if (order.invoiceId || order.status === 'Invoiced') {
+      throw new Error('Cannot delete a sales order that has been invoiced. Delete the invoice first.');
+    }
+    const delivery = this.db.prepare('SELECT 1 FROM deliveries WHERE salesOrderId = ? LIMIT 1').get(id);
+    if (delivery) {
+      throw new Error('Cannot delete a sales order that has recorded deliveries.');
+    }
+    this.db.prepare('DELETE FROM sales_orders WHERE id = ?').run(id);
+  }
+
+  /** Delete a purchase order. Blocks if it has a vendor bill or received stock. */
+  deletePurchaseOrder(id: string): void {
+    const order = this.getPurchaseOrderById(id);
+    if (!order) throw new Error('Purchase order not found.');
+    const bill = this.db.prepare('SELECT 1 FROM vendor_bills WHERE purchaseOrderId = ? LIMIT 1').get(id);
+    if (bill) {
+      throw new Error('Cannot delete a purchase order that is linked to a vendor bill. Delete the vendor bill first.');
+    }
+    const receipt = this.db.prepare('SELECT 1 FROM purchase_receipts WHERE purchaseOrderId = ? LIMIT 1').get(id);
+    if (receipt || order.status === 'Received' || order.status === 'Partially Received') {
+      throw new Error('Cannot delete a purchase order that has received stock.');
+    }
+    this.db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(id);
+  }
+
+  /** Delete a vendor bill. Blocks if it has payments; otherwise reverses its journal entries. */
+  deleteVendorBill(id: string): void {
+    const bill = this.getVendorBillById(id);
+    if (!bill) throw new Error('Vendor bill not found.');
+    const payment = this.db.prepare('SELECT 1 FROM vendor_bill_payments WHERE billId = ? LIMIT 1').get(id);
+    if (payment) {
+      throw new Error('Cannot delete a vendor bill that has recorded payments. Reverse the payments first.');
+    }
+    const trx = this.db.transaction(() => {
+      this.removeJournalEntriesBySource('vendor_bill', id);
+      this.db.prepare('DELETE FROM vendor_bills WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  /** Delete a credit note, reversing its journal entries. */
+  deleteCreditNote(id: string): void {
+    const note = this.getCreditNoteById(id);
+    if (!note) throw new Error('Credit note not found.');
+    const trx = this.db.transaction(() => {
+      this.removeJournalEntriesBySource('credit_note', id);
+      this.db.prepare('DELETE FROM credit_notes WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  /** Delete an inventory item. Blocks if it holds stock or has movement history. */
+  deleteInventoryItem(id: string): void {
+    const item = this.getInventoryItemById(id);
+    if (!item) throw new Error('Inventory item not found.');
+    if (Number(item.onHand || 0) !== 0) {
+      throw new Error('Cannot delete an item that still has stock on hand. Adjust the quantity to zero first.');
+    }
+    const moved = this.db.prepare('SELECT 1 FROM stock_movements WHERE inventoryItemId = ? LIMIT 1').get(id);
+    if (moved) {
+      throw new Error('Cannot delete an item that has stock movement history. It must be kept for audit; stop tracking it instead.');
+    }
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM inventory_location_balances WHERE inventoryItemId = ?').run(id);
+      this.db.prepare('DELETE FROM inventory_items WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  /** Delete a single task, cascading its comments and time entries; subtasks are detached. */
+  deleteTask(id: string): void {
+    const task = this.getTaskById(id);
+    if (!task) throw new Error('Task not found.');
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM time_entries WHERE taskId = ?').run(id);
+      this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(id);
+      this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(id);
+      this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+    });
+    trx();
   }
 
   listContactRoles(contactId: string): ContactRole[] {

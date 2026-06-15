@@ -6158,6 +6158,47 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Graceful record deletion ──────────────────────────────────────────────
+  // Each route loads the record (404 if missing), checks the caller's role, then
+  // delegates to a store method that blocks on dependents, cascades owned
+  // children, or hard-deletes when safe. Dependency conflicts surface as 409.
+  const deleteRoute = <T extends { companyId: string }>(
+    path: string,
+    load: (id: string) => T | undefined,
+    remove: (id: string) => void,
+    notFound: string,
+    failed: string,
+    options?: { anyMember?: boolean },
+  ) => {
+    app.delete(
+      path,
+      authMiddleware,
+      handler((req, res) => {
+        const existing = load(req.params.id);
+        if (!existing) throw new HttpError(404, notFound);
+        if (options?.anyMember) {
+          requireCompanyAccess(req, existing.companyId);
+        } else {
+          requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+        }
+        try {
+          remove(req.params.id);
+        } catch (error) {
+          throw new HttpError(409, error instanceof Error ? error.message : failed);
+        }
+        res.status(204).end();
+      }),
+    );
+  };
+
+  deleteRoute('/invoices/:id', (id) => store.getInvoiceById(id), (id) => store.deleteInvoice(id), 'Invoice not found.', 'Could not delete invoice.');
+  deleteRoute('/sales-orders/:id', (id) => store.getSalesOrderById(id), (id) => store.deleteSalesOrder(id), 'Sales order not found.', 'Could not delete sales order.');
+  deleteRoute('/purchase-orders/:id', (id) => store.getPurchaseOrderById(id), (id) => store.deletePurchaseOrder(id), 'Purchase order not found.', 'Could not delete purchase order.');
+  deleteRoute('/vendor-bills/:id', (id) => store.getVendorBillById(id), (id) => store.deleteVendorBill(id), 'Vendor bill not found.', 'Could not delete vendor bill.');
+  deleteRoute('/credit-notes/:id', (id) => store.getCreditNoteById(id), (id) => store.deleteCreditNote(id), 'Credit note not found.', 'Could not delete credit note.');
+  deleteRoute('/inventory-items/:id', (id) => store.getInventoryItemById(id), (id) => store.deleteInventoryItem(id), 'Inventory item not found.', 'Could not delete inventory item.');
+  deleteRoute('/tasks/:id', (id) => store.getTaskById(id), (id) => store.deleteTask(id), 'Task not found.', 'Could not delete task.', { anyMember: true });
+
   app.use((_req, _res, next) => {
     next(new HttpError(404, 'Route not found.'));
   });
