@@ -60,6 +60,7 @@ export function EmployeesPage() {
   const [departments, setDepartments] = React.useState<Department[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [newDept, setNewDept] = React.useState('');
+  const [deptDialogOpen, setDeptDialogOpen] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Employee | null>(null);
   const [form, setForm] = React.useState<Form>(emptyForm());
@@ -151,6 +152,7 @@ export function EmployeesPage() {
     try {
       await createDepartment(selectedCompany.id, newDept.trim());
       setNewDept('');
+      setDeptDialogOpen(false);
       await load();
     } catch (error: any) {
       toast({ variant: 'destructive', title: tr('Could not add department', 'تعذر إضافة القسم'), description: error?.message });
@@ -194,16 +196,9 @@ export function EmployeesPage() {
                   </button>
                 </Badge>
               ))}
-              <div className="flex items-center gap-2">
-                <Input
-                  value={newDept}
-                  onChange={(e) => setNewDept(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddDept(); }}
-                  placeholder={tr('Add department…', 'أضف قسماً…')}
-                  className="h-8 w-44"
-                />
-                <Button size="sm" variant="outline" onClick={handleAddDept}>{tr('Add', 'إضافة')}</Button>
-              </div>
+              <Button size="sm" variant="outline" onClick={() => { setNewDept(''); setDeptDialogOpen(true); }}>
+                <Plus className="me-1.5 h-3.5 w-3.5" />{tr('Add department', 'أضف قسماً')}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -328,6 +323,26 @@ export function EmployeesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
             <Button onClick={handleSave} disabled={saving || !form.name.trim()}>{tr('Save', 'حفظ')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deptDialogOpen} onOpenChange={setDeptDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>{tr('Add Department', 'إضافة قسم')}</DialogTitle></DialogHeader>
+          <div className="space-y-1">
+            <Label>{tr('Name', 'الاسم')}</Label>
+            <Input
+              autoFocus
+              value={newDept}
+              onChange={(e) => setNewDept(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddDept(); }}
+              placeholder={tr('e.g. Engineering', 'مثال: الهندسة')}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeptDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
+            <Button onClick={handleAddDept} disabled={!newDept.trim()}>{tr('Add', 'إضافة')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -56,6 +56,7 @@ export function LeavePage() {
 
   const [newTypeName, setNewTypeName] = React.useState('');
   const [newTypePaid, setNewTypePaid] = React.useState(true);
+  const [typeDialogOpen, setTypeDialogOpen] = React.useState(false);
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [form, setForm] = React.useState({ employeeId: '', leaveTypeId: '', startDate: '', endDate: '', reason: '' });
@@ -91,6 +92,7 @@ export function LeavePage() {
     try {
       await createLeaveType(selectedCompany.id, newTypeName.trim(), newTypePaid);
       setNewTypeName(''); setNewTypePaid(true);
+      setTypeDialogOpen(false);
       await load();
     } catch (error: any) {
       toast({ variant: 'destructive', title: tr('Could not add leave type', 'تعذر إضافة نوع الإجازة'), description: error?.message });
@@ -242,12 +244,10 @@ export function LeavePage() {
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center gap-2 border-t pt-3">
-                  <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder={tr('e.g. Sick', 'مثال: مرضية')} className="h-8" />
-                  <div className="flex items-center gap-1" title={tr('Paid', 'مدفوعة')}>
-                    <Switch checked={newTypePaid} onCheckedChange={setNewTypePaid} />
-                  </div>
-                  <Button size="sm" variant="outline" onClick={handleAddType}>{tr('Add', 'إضافة')}</Button>
+                <div className="border-t pt-3">
+                  <Button size="sm" variant="outline" onClick={() => { setNewTypeName(''); setNewTypePaid(true); setTypeDialogOpen(true); }}>
+                    <Plus className="me-1.5 h-3.5 w-3.5" />{tr('Add leave type', 'إضافة نوع إجازة')}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -316,6 +316,32 @@ export function LeavePage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
             <Button onClick={handleCreateRequest} disabled={saving || !form.employeeId || !form.startDate || !form.endDate}>{tr('Submit', 'إرسال')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>{tr('Add Leave Type', 'إضافة نوع إجازة')}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>{tr('Name', 'الاسم')}</Label>
+              <Input
+                autoFocus
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddType(); }}
+                placeholder={tr('e.g. Sick', 'مثال: مرضية')}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <Label className="cursor-default">{tr('Paid leave', 'إجازة مدفوعة')}</Label>
+              <Switch checked={newTypePaid} onCheckedChange={setNewTypePaid} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTypeDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
+            <Button onClick={handleAddType} disabled={!newTypeName.trim()}>{tr('Add', 'إضافة')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
