@@ -33,6 +33,8 @@ import {
   CheckSquare,
   MessageSquare,
   Sparkles,
+  Contact2,
+  CalendarOff,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -97,6 +99,13 @@ const sections: NavSection[] = [
     items: [
       { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-clients' },
       { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-suppliers' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.hr',
+    items: [
+      { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-employees' },
+      { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-leave' },
     ],
   },
   {
