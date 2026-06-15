@@ -411,7 +411,7 @@ export function CampaignsPage() {
   const { selectedCompany, loading, contacts, opportunities, contactName } = useCrmBaseData();
   const { currentRole } = useCompany();
   const canManageFinance = currentRole !== 'Employee';
-  const { amount } = useCompanyCurrency();
+  const { amount, money } = useCompanyCurrency();
   const { toast } = useToast();
   const { t } = useI18n();
   const campaignStatusLabel = (s: string) => t(`campaignsPage.status${s.replace(/\s/g, '')}`, s);
@@ -747,8 +747,8 @@ export function CampaignsPage() {
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {item.platform || t('campaignsPage.noPlatform')}
                             {item.dueDate && ` · ${t('campaignsPage.dueLabel')} ${new Date(item.dueDate).toLocaleDateString()}`}
-                            {item.price != null && item.price > 0 && ` · ${t('campaignsPage.clientLabel')}: ${amount(item.price)}`}
-                            {item.cost != null && item.cost > 0 && ` · ${t('campaignsPage.costLabel')}: ${amount(item.cost)}`}
+                            {item.price != null && item.price > 0 && ` · ${t('campaignsPage.clientLabel')}: ${money(item.price)}`}
+                            {item.cost != null && item.cost > 0 && ` · ${t('campaignsPage.costLabel')}: ${money(item.cost)}`}
                             {item.fulfillment === 'External'
                               ? (item.vendorContactId ? ` · ${t('campaignsPage.vendorLabel')}: ${contactName(item.vendorContactId)}` : '')
                               : ` · ${t('campaignsPage.fulfillmentInternalShort')}`}
@@ -801,7 +801,7 @@ export function CampaignsPage() {
                         <div>
                           <p className="text-sm font-medium">{contactName(item.contactId)}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {item.role}{item.agreedRate ? ` · ${amount(item.agreedRate)}` : ''}
+                            {item.role}{item.agreedRate ? ` · ${money(item.agreedRate)}` : ''}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">

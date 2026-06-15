@@ -247,7 +247,7 @@ export function FinancialReportsPanel() {
                   onClick={() =>
                     handlePrint(
                       `${selectedCompany.name} Trial Balance`,
-                      `<table><thead><tr><th>Code</th><th>Name</th><th>Debit</th><th>Credit</th></tr></thead><tbody>${trialRows.map((line) => `<tr><td>${line.code}</td><td>${line.name}</td><td class="right">${amount(line.debitBalance)}</td><td class="right">${amount(line.creditBalance)}</td></tr>`).join('')}<tr class="total"><td colspan="2">Totals</td><td class="right">${amount(trialBalance?.totalDebit || 0)}</td><td class="right">${amount(trialBalance?.totalCredit || 0)}</td></tr></tbody></table>`,
+                      `<table><thead><tr><th>Code</th><th>Name</th><th>Debit</th><th>Credit</th></tr></thead><tbody>${trialRows.map((line) => `<tr><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.debitBalance)}</td><td class="right">${money(line.creditBalance)}</td></tr>`).join('')}<tr class="total"><td colspan="2">Totals</td><td class="right">${money(trialBalance?.totalDebit || 0)}</td><td class="right">${money(trialBalance?.totalCredit || 0)}</td></tr></tbody></table>`,
                     )
                   }
                 >
@@ -309,7 +309,7 @@ export function FinancialReportsPanel() {
                   onClick={() =>
                     handlePrint(
                       `${selectedCompany.name} Profit & Loss`,
-                      `<table><thead><tr><th>Section</th><th>Code</th><th>Name</th><th>Amount</th></tr></thead><tbody>${pnlRows.map((line) => `<tr><td>${line.section}</td><td>${line.code}</td><td>${line.name}</td><td class="right">${amount(line.amount)}</td></tr>`).join('')}<tr class="total"><td colspan="3">Net Income</td><td class="right">${amount(profitAndLoss?.netIncome || 0)}</td></tr></tbody></table>`,
+                      `<table><thead><tr><th>Section</th><th>Code</th><th>Name</th><th>Amount</th></tr></thead><tbody>${pnlRows.map((line) => `<tr><td>${line.section}</td><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.amount)}</td></tr>`).join('')}<tr class="total"><td colspan="3">Net Income</td><td class="right">${money(profitAndLoss?.netIncome || 0)}</td></tr></tbody></table>`,
                     )
                   }
                 >
