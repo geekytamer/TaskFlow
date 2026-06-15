@@ -355,3 +355,11 @@ export async function updateWarehouse(
 export async function deleteWarehouse(id: string): Promise<void> {
   await apiFetch(`/warehouses/${id}`, { method: 'DELETE' });
 }
+
+export async function deleteInventoryItem(id: string): Promise<void> {
+  await apiFetch(`/inventory-items/${id}`, { method: 'DELETE' });
+}
+
+export async function deletePurchaseOrder(id: string): Promise<void> {
+  await apiFetch(`/purchase-orders/${id}`, { method: 'DELETE' });
+}

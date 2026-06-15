@@ -26,7 +26,8 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { getProjectById, getCommentsByTaskId, createComment, updateTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
+import { getProjectById, getCommentsByTaskId, createComment, updateTask, deleteTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { TaskTimePanel } from './task-time-panel';
 import { getUsersByCompany } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
@@ -35,7 +36,7 @@ import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { add, format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2 } from 'lucide-react';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -65,6 +66,7 @@ function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, l
 
 export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: TaskDetailsSheetProps) {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { selectedCompany, currentUser, currentRole } = useCompany();
   const canCreateFinanceInvoice = currentRole && currentRole !== 'Employee';
 
@@ -229,6 +231,24 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         });
     }
   }
+
+  const handleDeleteTask = async () => {
+    if (!(await confirm({
+      title: 'Delete task?',
+      description: `Delete "${editableTask.title}"? Its comments and time entries will be removed. This cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    }))) return;
+    try {
+      await deleteTask(editableTask.id);
+      toast({ title: 'Task deleted' });
+      onTaskUpdate();
+      onOpenChange(false);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Could not delete task', description: error?.message });
+    }
+  };
 
   const handlePostComment = async () => {
     if (!newComment.trim() || !currentUser) return;
@@ -590,6 +610,10 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
               </div>
             )}
             <SheetFooter>
+            <Button variant="outline" className="me-auto text-destructive hover:text-destructive" onClick={handleDeleteTask}>
+                <Trash2 className="me-2 h-4 w-4" />
+                Delete
+            </Button>
             <SheetClose asChild>
                 <Button variant="outline">Cancel</Button>
             </SheetClose>

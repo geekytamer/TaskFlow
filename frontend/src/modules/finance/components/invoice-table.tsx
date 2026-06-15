@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Printer, Undo2 } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Printer, Undo2, Trash2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -32,6 +32,7 @@ import {
   getInvoiceTemplates,
   getPayments,
   updateInvoiceStatus,
+  deleteInvoice,
 } from '@/services/financeService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { Client, Invoice, InvoiceStatus, InvoiceTemplate, Payment } from '../types';
@@ -502,6 +503,31 @@ export function InvoiceTable() {
                       <Eye className="me-2 h-4 w-4" />
                       {t('invoiceTable.previewBtn')}
                     </Button>
+                    {canManageFinance && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={async () => {
+                        if (!(await confirm({
+                          title: t('invoiceTable.deleteInvoiceTitle', 'Delete invoice?'),
+                          description: t('invoiceTable.deleteInvoiceDesc', 'Delete invoice {number}? This cannot be undone.').replace('{number}', invoice.invoiceNumber),
+                          confirmText: t('common.delete'),
+                          cancelText: t('common.cancel'),
+                          destructive: true,
+                        }))) return;
+                        try {
+                          await deleteInvoice(invoice.id);
+                          await fetchData();
+                          toast({ title: t('invoiceTable.toastInvoiceDeleted', 'Invoice deleted') });
+                        } catch (error: any) {
+                          toast({ variant: 'destructive', title: t('invoiceTable.toastInvoiceDeleteFailed', 'Could not delete invoice'), description: error?.message });
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    )}
                     {canManageFinance && (
                     <Dialog
                       open={paymentDialog.open && paymentDialog.invoice?.id === invoice.id}

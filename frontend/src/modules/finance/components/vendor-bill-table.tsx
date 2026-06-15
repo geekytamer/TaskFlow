@@ -39,6 +39,7 @@ import {
   getVendorBillPayments,
   getVendorBills,
   updateVendorBillStatus,
+  deleteVendorBill,
 } from '@/services/financeService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import type {
@@ -50,7 +51,7 @@ import type {
 } from '@/modules/finance/types';
 import { getPurchaseOrders, getSuppliers } from '@/services/operationsService';
 import type { PurchaseOrder, Supplier } from '@/modules/operations/types';
-import { CircleDollarSign, Download, FilePlus, ListChecks, Undo2 } from 'lucide-react';
+import { CircleDollarSign, Download, FilePlus, ListChecks, Undo2, Trash2 } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
@@ -785,6 +786,7 @@ export function VendorBillTable() {
                     </div>
                   </TableCell>
                   <TableCell className="text-end">
+                    <div className="flex items-center justify-end gap-2">
                     {!canManageFinance ? null : bill.status === 'Draft' ? (
                       <Button
                         variant="outline"
@@ -818,6 +820,32 @@ export function VendorBillTable() {
                         {(bill.paidAmount || 0) > 0 ? t('vendorBills.settled') : t('vendorBills.noAction')}
                       </span>
                     )}
+                    {canManageFinance && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={async () => {
+                          if (!(await confirm({
+                            title: t('vendorBills.deleteTitle', 'Delete vendor bill?'),
+                            description: t('vendorBills.deleteDesc', 'Delete bill {number}? This cannot be undone.').replace('{number}', bill.billNumber),
+                            confirmText: t('common.delete'),
+                            cancelText: t('common.cancel'),
+                            destructive: true,
+                          }))) return;
+                          try {
+                            await deleteVendorBill(bill.id);
+                            await load();
+                            toast({ title: t('vendorBills.toastDeleted', 'Vendor bill deleted') });
+                          } catch (error: any) {
+                            toast({ variant: 'destructive', title: t('vendorBills.toastDeleteFailed', 'Could not delete vendor bill'), description: error?.message });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

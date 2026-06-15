@@ -659,6 +659,22 @@ export async function deleteInvoiceTemplate(templateId: string): Promise<void> {
   });
 }
 
+export async function deleteInvoice(invoiceId: string): Promise<void> {
+  await apiFetch(`/invoices/${invoiceId}`, { method: 'DELETE' });
+}
+
+export async function deleteSalesOrder(salesOrderId: string): Promise<void> {
+  await apiFetch(`/sales-orders/${salesOrderId}`, { method: 'DELETE' });
+}
+
+export async function deleteCreditNote(creditNoteId: string): Promise<void> {
+  await apiFetch(`/credit-notes/${creditNoteId}`, { method: 'DELETE' });
+}
+
+export async function deleteVendorBill(billId: string): Promise<void> {
+  await apiFetch(`/vendor-bills/${billId}`, { method: 'DELETE' });
+}
+
 export async function createInvoice(
   invoiceData: Omit<Invoice, 'id' | 'invoiceNumber'> & { invoiceNumber?: string },
 ): Promise<Invoice> {

@@ -44,7 +44,9 @@ import {
   receivePurchaseOrder,
   rejectPurchaseOrder,
   updatePurchaseOrderStatus,
+  deletePurchaseOrder,
 } from '@/services/operationsService';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getContacts, type Contact } from '@/services/contactService';
 import type {
   InventoryItem,
@@ -52,7 +54,7 @@ import type {
   PurchaseOrderStatus,
   PurchaseReceipt,
 } from '@/modules/operations/types';
-import { PackageCheck, ShoppingCart } from 'lucide-react';
+import { PackageCheck, ShoppingCart, Trash2 } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
@@ -98,6 +100,7 @@ export function PurchasesPage() {
   const { selectedCompany, currentRole } = useCompany();
   const canApprove = currentRole === 'Admin' || currentRole === 'Manager';
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
@@ -962,6 +965,31 @@ export function PurchasesPage() {
                           ? `Received ${format(order.receivedAt, 'MMM d')}`
                           : 'No action'}
                       </span>
+                    )}
+                    {canApprove && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={async () => {
+                          if (!(await confirm({
+                            title: 'Delete purchase order?',
+                            description: `Delete order ${order.orderNumber}? This cannot be undone.`,
+                            confirmText: 'Delete',
+                            cancelText: 'Cancel',
+                            destructive: true,
+                          }))) return;
+                          try {
+                            await deletePurchaseOrder(order.id);
+                            await load();
+                            toast({ title: 'Purchase order deleted' });
+                          } catch (error: any) {
+                            toast({ variant: 'destructive', title: 'Could not delete purchase order', description: error?.message });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     )}
                     </div>
                   </TableCell>

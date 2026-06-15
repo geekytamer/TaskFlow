@@ -36,10 +36,11 @@ import { SectionToolbar } from '@/modules/operations/components/section-toolbar'
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import type { InventoryItem } from '@/modules/operations/types';
 import type { SalesOrder, SalesOrderStatus } from '@/modules/finance/types';
-import { createInvoiceFromSalesOrder, createSalesOrder, getInvoices, getSalesOrders, updateSalesOrderStatus } from '@/services/financeService';
+import { createInvoiceFromSalesOrder, createSalesOrder, deleteSalesOrder, getInvoices, getSalesOrders, updateSalesOrderStatus } from '@/services/financeService';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
-import { FileText, PlusCircle, Truck } from 'lucide-react';
+import { FileText, PlusCircle, Truck, Trash2 } from 'lucide-react';
 import { DeliveryManagementDialog } from './delivery-management-dialog';
 
 const formatDisplayDate = (value: Date, locale: string) =>
@@ -79,8 +80,10 @@ const emptyForm = () => ({
 });
 
 export function SalesPage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentRole } = useCompany();
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const canManage = currentRole !== 'Employee';
   const { t, language } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
@@ -565,6 +568,31 @@ export function SalesPage() {
                       <FileText className="me-2 h-4 w-4" />
                       {t('sales.createInvoice')}
                     </Button>
+                    {canManage && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={async () => {
+                          if (!(await confirm({
+                            title: t('sales.deleteTitle', 'Delete sales order?'),
+                            description: t('sales.deleteDesc', 'Delete order {number}? This cannot be undone.').replace('{number}', order.orderNumber),
+                            confirmText: t('common.delete'),
+                            cancelText: t('common.cancel'),
+                            destructive: true,
+                          }))) return;
+                          try {
+                            await deleteSalesOrder(order.id);
+                            await load();
+                            toast({ title: t('sales.toastDeleted', 'Sales order deleted') });
+                          } catch (error: any) {
+                            toast({ variant: 'destructive', title: t('sales.toastDeleteFailed', 'Could not delete sales order'), description: error?.message });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>

@@ -40,6 +40,7 @@ import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/service
 import {
   adjustInventoryItem,
   createInventoryItem,
+  deleteInventoryItem,
   getInventoryItems,
   getInventoryLocationBalances,
   getPurchaseOrders,
@@ -54,7 +55,8 @@ import type { InventoryItem, InventoryLocationBalance, PurchaseOrder, StockMovem
 import { WarehousesPanel } from './warehouses-panel';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
-import { ArrowRightLeft, PackageMinus, PackagePlus, SlidersHorizontal } from 'lucide-react';
+import { ArrowRightLeft, PackageMinus, PackagePlus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
 type InventoryFormState = {
@@ -117,7 +119,9 @@ const emptyForm = (): InventoryFormState => ({
 const inventoryUnitOptions = ['pcs', 'box', 'pack', 'set', 'kg', 'g', 'ltr', 'ml'] as const;
 
 export function InventoryPage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentRole } = useCompany();
+  const confirm = useConfirm();
+  const canManageInventory = currentRole !== 'Employee';
   const { money, amount } = useCompanyCurrency();
   const { language } = useI18n();
   const { toast } = useToast();
@@ -1166,6 +1170,31 @@ export function InventoryPage() {
                           onClick={() => setSelectedItemForDocs(item)}
                         >
                           {tr('Docs', 'ملفات')}
+                        </Button>
+                      )}
+                      {canManageInventory && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ms-1 text-muted-foreground hover:text-destructive"
+                          onClick={async () => {
+                            if (!(await confirm({
+                              title: tr('Delete item?', 'حذف الصنف؟'),
+                              description: tr(`Delete "${item.name}"? This cannot be undone.`, `حذف "${item.name}"؟ لا يمكن التراجع.`),
+                              confirmText: tr('Delete', 'حذف'),
+                              cancelText: tr('Cancel', 'إلغاء'),
+                              destructive: true,
+                            }))) return;
+                            try {
+                              await deleteInventoryItem(item.id);
+                              await load();
+                              toast({ title: tr('Item deleted', 'تم حذف الصنف') });
+                            } catch (error: any) {
+                              toast({ variant: 'destructive', title: tr('Could not delete item', 'تعذر حذف الصنف'), description: error?.message });
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       )}
                     </TableCell>

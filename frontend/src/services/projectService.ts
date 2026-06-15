@@ -109,6 +109,10 @@ export async function updateTask(taskId: string, taskData: Partial<Task>): Promi
   return mapTask(task);
 }
 
+export async function deleteTask(taskId: string): Promise<void> {
+  await apiFetch(`/tasks/${taskId}`, { method: 'DELETE' });
+}
+
 export async function markTasksAsInvoiced(taskIds: string[], invoiceId: string): Promise<void> {
   if (taskIds.length === 0) return;
   await apiFetch('/tasks/mark-invoiced', {
