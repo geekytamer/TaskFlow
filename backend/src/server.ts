@@ -6158,6 +6158,110 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── HR: departments, employees, leave ─────────────────────────────────────
+  app.get('/companies/:companyId/departments', authMiddleware, handler((req, res) => {
+    requireCompanyAccess(req, req.params.companyId);
+    res.json(store.listDepartments(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/departments', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name) throw new HttpError(400, 'Department name is required.');
+    res.status(201).json(store.createDepartment({ companyId: req.params.companyId, name }));
+  }));
+  app.put('/departments/:id', authMiddleware, handler((req, res) => {
+    const dept = store.getDepartmentById(req.params.id);
+    if (!dept) throw new HttpError(404, 'Department not found.');
+    requireCompanyRoles(req, dept.companyId, companyManagementRoles);
+    res.json(store.updateDepartment(req.params.id, { name: typeof req.body?.name === 'string' ? req.body.name.trim() : undefined }));
+  }));
+
+  app.get('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
+    requireCompanyAccess(req, req.params.companyId);
+    res.json(store.listEmployees(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name) throw new HttpError(400, 'Employee name is required.');
+    res.status(201).json(store.createEmployee({ ...req.body, companyId: req.params.companyId, name }));
+  }));
+  app.get('/employees/:id', authMiddleware, handler((req, res) => {
+    const employee = store.getEmployeeById(req.params.id);
+    if (!employee) throw new HttpError(404, 'Employee not found.');
+    requireCompanyAccess(req, employee.companyId);
+    res.json(employee);
+  }));
+  app.put('/employees/:id', authMiddleware, handler((req, res) => {
+    const employee = store.getEmployeeById(req.params.id);
+    if (!employee) throw new HttpError(404, 'Employee not found.');
+    requireCompanyRoles(req, employee.companyId, companyManagementRoles);
+    res.json(store.updateEmployee(req.params.id, req.body || {}));
+  }));
+  app.get('/employees/:id/leave-balance', authMiddleware, handler((req, res) => {
+    const employee = store.getEmployeeById(req.params.id);
+    if (!employee) throw new HttpError(404, 'Employee not found.');
+    requireCompanyAccess(req, employee.companyId);
+    const year = req.query.year ? Number(req.query.year) : undefined;
+    res.json(store.getLeaveBalance(req.params.id, year));
+  }));
+
+  app.get('/companies/:companyId/leave-types', authMiddleware, handler((req, res) => {
+    requireCompanyAccess(req, req.params.companyId);
+    res.json(store.listLeaveTypes(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/leave-types', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name) throw new HttpError(400, 'Leave type name is required.');
+    res.status(201).json(store.createLeaveType({ companyId: req.params.companyId, name, paid: req.body?.paid }));
+  }));
+  app.put('/leave-types/:id', authMiddleware, handler((req, res) => {
+    const leaveType = store.getLeaveTypeById(req.params.id);
+    if (!leaveType) throw new HttpError(404, 'Leave type not found.');
+    requireCompanyRoles(req, leaveType.companyId, companyManagementRoles);
+    res.json(store.updateLeaveType(req.params.id, { name: req.body?.name, paid: req.body?.paid }));
+  }));
+
+  app.get('/companies/:companyId/leave-requests', authMiddleware, handler((req, res) => {
+    requireCompanyAccess(req, req.params.companyId);
+    res.json(store.listLeaveRequests(req.params.companyId, {
+      status: req.query.status as string | undefined,
+      employeeId: req.query.employeeId as string | undefined,
+    }));
+  }));
+  app.post('/companies/:companyId/leave-requests', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = req.body || {};
+    if (!body.employeeId || !body.startDate || !body.endDate) {
+      throw new HttpError(400, 'employeeId, startDate, and endDate are required.');
+    }
+    try {
+      res.status(201).json(store.createLeaveRequest({
+        companyId: req.params.companyId,
+        employeeId: body.employeeId,
+        leaveTypeId: body.leaveTypeId,
+        startDate: body.startDate,
+        endDate: body.endDate,
+        days: body.days,
+        reason: body.reason,
+        status: body.status,
+      }));
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create leave request.');
+    }
+  }));
+  app.put('/leave-requests/:id/status', authMiddleware, handler((req, res) => {
+    const request = store.getLeaveRequestById(req.params.id);
+    if (!request) throw new HttpError(404, 'Leave request not found.');
+    requireCompanyRoles(req, request.companyId, companyManagementRoles);
+    const status = req.body?.status;
+    if (!['Pending', 'Approved', 'Rejected', 'Cancelled'].includes(status)) {
+      throw new HttpError(400, 'Invalid leave request status.');
+    }
+    res.json(store.setLeaveRequestStatus(req.params.id, status, { userId: req.user?.id, name: req.user?.name }, req.body?.reviewNote));
+  }));
+
   // ─── Graceful record deletion ──────────────────────────────────────────────
   // Each route loads the record (404 if missing), checks the caller's role, then
   // delegates to a store method that blocks on dependents, cascades owned
@@ -6198,6 +6302,10 @@ export function createServer(options: CreateServerOptions = {}) {
   deleteRoute('/credit-notes/:id', (id) => store.getCreditNoteById(id), (id) => store.deleteCreditNote(id), 'Credit note not found.', 'Could not delete credit note.');
   deleteRoute('/inventory-items/:id', (id) => store.getInventoryItemById(id), (id) => store.deleteInventoryItem(id), 'Inventory item not found.', 'Could not delete inventory item.');
   deleteRoute('/tasks/:id', (id) => store.getTaskById(id), (id) => store.deleteTask(id), 'Task not found.', 'Could not delete task.', { anyMember: true });
+  deleteRoute('/departments/:id', (id) => store.getDepartmentById(id), (id) => store.deleteDepartment(id), 'Department not found.', 'Could not delete department.');
+  deleteRoute('/employees/:id', (id) => store.getEmployeeById(id), (id) => store.deleteEmployee(id), 'Employee not found.', 'Could not delete employee.');
+  deleteRoute('/leave-types/:id', (id) => store.getLeaveTypeById(id), (id) => store.deleteLeaveType(id), 'Leave type not found.', 'Could not delete leave type.');
+  deleteRoute('/leave-requests/:id', (id) => store.getLeaveRequestById(id), (id) => store.deleteLeaveRequest(id), 'Leave request not found.', 'Could not delete leave request.');
 
   app.use((_req, _res, next) => {
     next(new HttpError(404, 'Route not found.'));

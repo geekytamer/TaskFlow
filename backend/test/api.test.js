@@ -838,6 +838,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '049_time_entries',
     '050_po_approvals',
     '051_custom_fields',
+    '052_hr_module',
   ]);
 });
 
@@ -3904,4 +3905,59 @@ test('records delete gracefully: block on dependents, cascade owned children, ha
   });
   assert.throws(() => store.deleteContact(usedContact.id), /referenced by/);
   assert.ok(store.getContactById(usedContact.id));
+});
+
+test('HR: employee directory, leave requests, approval, and balance', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  // Department + employee with a 20-day annual allowance.
+  const dept = await auth(request(app).post('/companies/1/departments')).send({ name: 'Engineering' });
+  assert.equal(dept.status, 201);
+  const employee = await auth(request(app).post('/companies/1/employees')).send({
+    name: 'Dana Dev', jobTitle: 'Engineer', departmentId: dept.body.id,
+    employmentType: 'Full-time', hireDate: '2025-01-01', annualLeaveAllowance: 20,
+  });
+  assert.equal(employee.status, 201);
+  assert.equal(employee.body.status, 'Active');
+  assert.equal(employee.body.annualLeaveAllowance, 20);
+
+  const list = await auth(request(app).get('/companies/1/employees'));
+  assert.ok(list.body.some((e) => e.id === employee.body.id));
+
+  // Paid leave type + a 5-day request (inclusive Mon–Fri).
+  const annual = await auth(request(app).post('/companies/1/leave-types')).send({ name: 'Annual', paid: true });
+  assert.equal(annual.status, 201);
+  const req1 = await auth(request(app).post('/companies/1/leave-requests')).send({
+    employeeId: employee.body.id, leaveTypeId: annual.body.id,
+    startDate: '2026-03-02', endDate: '2026-03-06',
+  });
+  assert.equal(req1.status, 201);
+  assert.equal(req1.body.days, 5);
+  assert.equal(req1.body.status, 'Pending');
+
+  // Pending leave shows as pending, not yet deducted.
+  let balance = await auth(request(app).get(`/employees/${employee.body.id}/leave-balance?year=2026`));
+  assert.equal(balance.body.allowance, 20);
+  assert.equal(balance.body.pending, 5);
+  assert.equal(balance.body.used, 0);
+  assert.equal(balance.body.remaining, 20);
+
+  // Approving deducts it from the balance.
+  const approved = await auth(request(app).put(`/leave-requests/${req1.body.id}/status`)).send({ status: 'Approved' });
+  assert.equal(approved.status, 200);
+  assert.equal(approved.body.status, 'Approved');
+  assert.ok(approved.body.reviewedByName);
+  balance = await auth(request(app).get(`/employees/${employee.body.id}/leave-balance?year=2026`));
+  assert.equal(balance.body.used, 5);
+  assert.equal(balance.body.remaining, 15);
+
+  // A leave type in use cannot be deleted; an employee with leave cascades it away.
+  const typeDelete = await auth(request(app).delete(`/leave-types/${annual.body.id}`));
+  assert.equal(typeDelete.status, 409);
+  const empDelete = await auth(request(app).delete(`/employees/${employee.body.id}`));
+  assert.equal(empDelete.status, 204);
+  const afterList = await auth(request(app).get('/companies/1/leave-requests'));
+  assert.ok(!afterList.body.some((r) => r.employeeId === employee.body.id));
 });

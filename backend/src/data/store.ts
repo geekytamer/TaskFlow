@@ -122,6 +122,11 @@ import {
   CreditNote,
   CreditNoteLineItem,
   TimeEntry,
+  Department,
+  Employee,
+  LeaveType,
+  LeaveRequest,
+  LeaveBalance,
 } from '../types';
 import {
   NOTIFICATION_META,
@@ -133,6 +138,16 @@ import { hashPassword, isHashed } from '../password';
 type CreateUserInput = Omit<User, 'id'> & { id?: string };
 type CreateTaskInput = Omit<Task, 'id' | 'createdAt'> & { createdAt?: Date | string };
 type UpdateTaskInput = Partial<Omit<Task, 'id'>>;
+type CreateEmployeeInput = Omit<Employee, 'id' | 'status' | 'annualLeaveAllowance' | 'createdAt' | 'updatedAt'> & {
+  status?: Employee['status'];
+  annualLeaveAllowance?: number;
+  hireDate?: Date | string;
+  endDate?: Date | string;
+};
+type UpdateEmployeeInput = Partial<Omit<Employee, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>> & {
+  hireDate?: Date | string;
+  endDate?: Date | string;
+};
 type UpdateContactInput = Partial<
   Omit<Contact, 'id' | 'companyId' | 'createdAt' | 'nextFollowupDate' | 'convertedToClientAt'>
 > & {
@@ -2519,6 +2534,67 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '052_hr_module',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS departments (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS employees (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              userId TEXT,
+              name TEXT NOT NULL,
+              email TEXT,
+              phone TEXT,
+              jobTitle TEXT,
+              departmentId TEXT,
+              managerId TEXT,
+              employmentType TEXT,
+              status TEXT NOT NULL DEFAULT 'Active',
+              hireDate TEXT,
+              endDate TEXT,
+              annualLeaveAllowance REAL NOT NULL DEFAULT 21,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS leave_types (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              paid INTEGER NOT NULL DEFAULT 1,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS leave_requests (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              employeeId TEXT NOT NULL,
+              leaveTypeId TEXT,
+              startDate TEXT NOT NULL,
+              endDate TEXT NOT NULL,
+              days REAL NOT NULL,
+              reason TEXT,
+              status TEXT NOT NULL DEFAULT 'Pending',
+              reviewedByUserId TEXT,
+              reviewedByName TEXT,
+              reviewedAt TEXT,
+              reviewNote TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_employees_company ON employees(companyId);
+            CREATE INDEX IF NOT EXISTS idx_leave_requests_company ON leave_requests(companyId, status);
+            CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests(employeeId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4411,6 +4487,309 @@ export class DataStore {
       this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
     });
     trx();
+  }
+
+  // ─── HR: departments ───────────────────────────────────────────────────────
+  private decodeDepartment(row: any): Department {
+    return { id: row.id, companyId: row.companyId, name: row.name, createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt) };
+  }
+
+  listDepartments(companyId: string): Department[] {
+    return (this.db.prepare('SELECT * FROM departments WHERE companyId = ? ORDER BY name ASC').all(companyId) as any[]).map((r) => this.decodeDepartment(r));
+  }
+
+  getDepartmentById(id: string): Department | undefined {
+    const row = this.db.prepare('SELECT * FROM departments WHERE id = ?').get(id) as any;
+    return row ? this.decodeDepartment(row) : undefined;
+  }
+
+  createDepartment(input: { companyId: string; name: string }): Department {
+    const now = new Date().toISOString();
+    const dept = { id: uuid(), companyId: input.companyId, name: input.name, createdAt: now, updatedAt: now };
+    this.db.prepare('INSERT INTO departments (id, companyId, name, createdAt, updatedAt) VALUES (@id, @companyId, @name, @createdAt, @updatedAt)').run(dept);
+    return this.getDepartmentById(dept.id)!;
+  }
+
+  updateDepartment(id: string, updates: { name?: string }): Department | undefined {
+    const existing = this.getDepartmentById(id);
+    if (!existing) return undefined;
+    this.db.prepare('UPDATE departments SET name = ?, updatedAt = ? WHERE id = ?').run(updates.name ?? existing.name, new Date().toISOString(), id);
+    return this.getDepartmentById(id);
+  }
+
+  deleteDepartment(id: string): void {
+    if (!this.getDepartmentById(id)) throw new Error('Department not found.');
+    this.assertNotReferenced([{ table: 'employees', column: 'departmentId', label: 'employee(s)' }], id, 'department');
+    this.db.prepare('DELETE FROM departments WHERE id = ?').run(id);
+  }
+
+  // ─── HR: employees ─────────────────────────────────────────────────────────
+  private decodeEmployee(row: any): Employee {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      userId: row.userId ?? undefined,
+      name: row.name,
+      email: row.email ?? undefined,
+      phone: row.phone ?? undefined,
+      jobTitle: row.jobTitle ?? undefined,
+      departmentId: row.departmentId ?? undefined,
+      managerId: row.managerId ?? undefined,
+      employmentType: row.employmentType ?? undefined,
+      status: row.status,
+      hireDate: row.hireDate ? new Date(row.hireDate) : undefined,
+      endDate: row.endDate ? new Date(row.endDate) : undefined,
+      annualLeaveAllowance: Number(row.annualLeaveAllowance ?? 0),
+      notes: row.notes ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listEmployees(companyId: string): Employee[] {
+    return (this.db.prepare('SELECT * FROM employees WHERE companyId = ? ORDER BY name ASC').all(companyId) as any[]).map((r) => this.decodeEmployee(r));
+  }
+
+  getEmployeeById(id: string): Employee | undefined {
+    const row = this.db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as any;
+    return row ? this.decodeEmployee(row) : undefined;
+  }
+
+  createEmployee(input: CreateEmployeeInput): Employee {
+    const now = new Date().toISOString();
+    const row = {
+      id: uuid(),
+      companyId: input.companyId,
+      userId: input.userId ?? null,
+      name: input.name,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      jobTitle: input.jobTitle ?? null,
+      departmentId: input.departmentId ?? null,
+      managerId: input.managerId ?? null,
+      employmentType: input.employmentType ?? null,
+      status: input.status ?? 'Active',
+      hireDate: input.hireDate ? new Date(input.hireDate).toISOString() : null,
+      endDate: input.endDate ? new Date(input.endDate).toISOString() : null,
+      annualLeaveAllowance: input.annualLeaveAllowance ?? 21,
+      notes: input.notes ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, createdAt, updatedAt)
+         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @createdAt, @updatedAt)`,
+      )
+      .run(row);
+    return this.getEmployeeById(row.id)!;
+  }
+
+  updateEmployee(id: string, updates: UpdateEmployeeInput): Employee | undefined {
+    const e = this.getEmployeeById(id);
+    if (!e) return undefined;
+    const merged = { ...e, ...updates };
+    this.db
+      .prepare(
+        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
+      )
+      .run({
+        id,
+        userId: merged.userId ?? null,
+        name: merged.name,
+        email: merged.email ?? null,
+        phone: merged.phone ?? null,
+        jobTitle: merged.jobTitle ?? null,
+        departmentId: merged.departmentId ?? null,
+        managerId: merged.managerId ?? null,
+        employmentType: merged.employmentType ?? null,
+        status: merged.status,
+        hireDate: merged.hireDate ? new Date(merged.hireDate).toISOString() : null,
+        endDate: merged.endDate ? new Date(merged.endDate).toISOString() : null,
+        annualLeaveAllowance: merged.annualLeaveAllowance ?? 21,
+        notes: merged.notes ?? null,
+        updatedAt: new Date().toISOString(),
+      });
+    return this.getEmployeeById(id);
+  }
+
+  /** Delete an employee, cascading their leave requests and detaching direct reports. */
+  deleteEmployee(id: string): void {
+    if (!this.getEmployeeById(id)) throw new Error('Employee not found.');
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM leave_requests WHERE employeeId = ?').run(id);
+      this.db.prepare('UPDATE employees SET managerId = NULL WHERE managerId = ?').run(id);
+      this.db.prepare('DELETE FROM employees WHERE id = ?').run(id);
+    });
+    trx();
+  }
+
+  // ─── HR: leave types ───────────────────────────────────────────────────────
+  private decodeLeaveType(row: any): LeaveType {
+    return { id: row.id, companyId: row.companyId, name: row.name, paid: Boolean(row.paid), createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt) };
+  }
+
+  listLeaveTypes(companyId: string): LeaveType[] {
+    return (this.db.prepare('SELECT * FROM leave_types WHERE companyId = ? ORDER BY name ASC').all(companyId) as any[]).map((r) => this.decodeLeaveType(r));
+  }
+
+  getLeaveTypeById(id: string): LeaveType | undefined {
+    const row = this.db.prepare('SELECT * FROM leave_types WHERE id = ?').get(id) as any;
+    return row ? this.decodeLeaveType(row) : undefined;
+  }
+
+  createLeaveType(input: { companyId: string; name: string; paid?: boolean }): LeaveType {
+    const now = new Date().toISOString();
+    const row = { id: uuid(), companyId: input.companyId, name: input.name, paid: input.paid === false ? 0 : 1, createdAt: now, updatedAt: now };
+    this.db.prepare('INSERT INTO leave_types (id, companyId, name, paid, createdAt, updatedAt) VALUES (@id, @companyId, @name, @paid, @createdAt, @updatedAt)').run(row);
+    return this.getLeaveTypeById(row.id)!;
+  }
+
+  updateLeaveType(id: string, updates: { name?: string; paid?: boolean }): LeaveType | undefined {
+    const existing = this.getLeaveTypeById(id);
+    if (!existing) return undefined;
+    const paid = updates.paid === undefined ? (existing.paid ? 1 : 0) : updates.paid ? 1 : 0;
+    this.db.prepare('UPDATE leave_types SET name = ?, paid = ?, updatedAt = ? WHERE id = ?').run(updates.name ?? existing.name, paid, new Date().toISOString(), id);
+    return this.getLeaveTypeById(id);
+  }
+
+  deleteLeaveType(id: string): void {
+    if (!this.getLeaveTypeById(id)) throw new Error('Leave type not found.');
+    this.assertNotReferenced([{ table: 'leave_requests', column: 'leaveTypeId', label: 'leave request(s)' }], id, 'leave type');
+    this.db.prepare('DELETE FROM leave_types WHERE id = ?').run(id);
+  }
+
+  // ─── HR: leave requests ────────────────────────────────────────────────────
+  private decodeLeaveRequest(row: any): LeaveRequest {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      employeeId: row.employeeId,
+      leaveTypeId: row.leaveTypeId ?? undefined,
+      startDate: new Date(row.startDate),
+      endDate: new Date(row.endDate),
+      days: Number(row.days ?? 0),
+      reason: row.reason ?? undefined,
+      status: row.status,
+      reviewedByUserId: row.reviewedByUserId ?? undefined,
+      reviewedByName: row.reviewedByName ?? undefined,
+      reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : undefined,
+      reviewNote: row.reviewNote ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listLeaveRequests(companyId: string, filters?: { status?: string; employeeId?: string }): LeaveRequest[] {
+    let sql = 'SELECT * FROM leave_requests WHERE companyId = ?';
+    const params: any[] = [companyId];
+    if (filters?.status) { sql += ' AND status = ?'; params.push(filters.status); }
+    if (filters?.employeeId) { sql += ' AND employeeId = ?'; params.push(filters.employeeId); }
+    sql += ' ORDER BY startDate DESC';
+    return (this.db.prepare(sql).all(...params) as any[]).map((r) => this.decodeLeaveRequest(r));
+  }
+
+  getLeaveRequestById(id: string): LeaveRequest | undefined {
+    const row = this.db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(id) as any;
+    return row ? this.decodeLeaveRequest(row) : undefined;
+  }
+
+  /** Inclusive whole-day count between two dates. */
+  private leaveDayCount(start: Date, end: Date): number {
+    const ms = new Date(end).setHours(0, 0, 0, 0) - new Date(start).setHours(0, 0, 0, 0);
+    return Math.max(1, Math.round(ms / 86400000) + 1);
+  }
+
+  createLeaveRequest(input: {
+    companyId: string;
+    employeeId: string;
+    leaveTypeId?: string | null;
+    startDate: Date | string;
+    endDate: Date | string;
+    days?: number;
+    reason?: string | null;
+    status?: LeaveRequest['status'];
+  }): LeaveRequest {
+    const employee = this.getEmployeeById(input.employeeId);
+    if (!employee || employee.companyId !== input.companyId) {
+      throw new Error('Leave request employee must belong to the selected company.');
+    }
+    const start = new Date(input.startDate);
+    const end = new Date(input.endDate);
+    if (end < start) throw new Error('Leave end date cannot be before the start date.');
+    const now = new Date().toISOString();
+    const row = {
+      id: uuid(),
+      companyId: input.companyId,
+      employeeId: input.employeeId,
+      leaveTypeId: input.leaveTypeId ?? null,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      days: input.days && input.days > 0 ? Number(input.days) : this.leaveDayCount(start, end),
+      reason: input.reason ?? null,
+      status: input.status ?? 'Pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO leave_requests (id, companyId, employeeId, leaveTypeId, startDate, endDate, days, reason, status, createdAt, updatedAt)
+         VALUES (@id, @companyId, @employeeId, @leaveTypeId, @startDate, @endDate, @days, @reason, @status, @createdAt, @updatedAt)`,
+      )
+      .run(row);
+    return this.getLeaveRequestById(row.id)!;
+  }
+
+  setLeaveRequestStatus(
+    id: string,
+    status: LeaveRequest['status'],
+    reviewer?: { userId?: string; name?: string },
+    note?: string,
+  ): LeaveRequest | undefined {
+    const existing = this.getLeaveRequestById(id);
+    if (!existing) return undefined;
+    this.db
+      .prepare(
+        `UPDATE leave_requests SET status = ?, reviewedByUserId = ?, reviewedByName = ?, reviewedAt = ?, reviewNote = ?, updatedAt = ? WHERE id = ?`,
+      )
+      .run(
+        status,
+        reviewer?.userId ?? null,
+        reviewer?.name ?? null,
+        new Date().toISOString(),
+        note ?? existing.reviewNote ?? null,
+        new Date().toISOString(),
+        id,
+      );
+    return this.getLeaveRequestById(id);
+  }
+
+  deleteLeaveRequest(id: string): void {
+    if (!this.getLeaveRequestById(id)) throw new Error('Leave request not found.');
+    this.db.prepare('DELETE FROM leave_requests WHERE id = ?').run(id);
+  }
+
+  /** Paid-leave balance for an employee in a given year (defaults to current year). */
+  getLeaveBalance(employeeId: string, year?: number): LeaveBalance {
+    const employee = this.getEmployeeById(employeeId);
+    const allowance = employee?.annualLeaveAllowance ?? 0;
+    const targetYear = year ?? new Date().getFullYear();
+    const rows = this.db
+      .prepare(
+        `SELECT lr.status AS status, lr.days AS days, lr.startDate AS startDate, COALESCE(lt.paid, 1) AS paid
+         FROM leave_requests lr LEFT JOIN leave_types lt ON lt.id = lr.leaveTypeId
+         WHERE lr.employeeId = ?`,
+      )
+      .all(employeeId) as any[];
+    let used = 0;
+    let pending = 0;
+    for (const r of rows) {
+      if (new Date(r.startDate).getFullYear() !== targetYear) continue;
+      if (Number(r.paid) !== 1) continue;
+      if (r.status === 'Approved') used += Number(r.days || 0);
+      else if (r.status === 'Pending') pending += Number(r.days || 0);
+    }
+    return { employeeId, year: targetYear, allowance, used, pending, remaining: allowance - used };
   }
 
   listContactRoles(contactId: string): ContactRole[] {

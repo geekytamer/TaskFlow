@@ -1378,3 +1378,73 @@ export interface FinanceOverview {
 }
 
 export interface SanitizedUser extends Omit<User, 'password'> {}
+
+// ─── HR: directory + leave ───────────────────────────────────────────────────
+
+export type EmploymentType = 'Full-time' | 'Part-time' | 'Contractor' | 'Intern';
+export type EmployeeStatus = 'Active' | 'On Leave' | 'Terminated';
+export type LeaveRequestStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+
+export interface Department {
+  id: string;
+  companyId: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Employee {
+  id: string;
+  companyId: string;
+  userId?: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  jobTitle?: string;
+  departmentId?: string;
+  managerId?: string;
+  employmentType?: EmploymentType;
+  status: EmployeeStatus;
+  hireDate?: Date;
+  endDate?: Date;
+  annualLeaveAllowance: number;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeaveType {
+  id: string;
+  companyId: string;
+  name: string;
+  paid: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeaveRequest {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  leaveTypeId?: string;
+  startDate: Date;
+  endDate: Date;
+  days: number;
+  reason?: string;
+  status: LeaveRequestStatus;
+  reviewedByUserId?: string;
+  reviewedByName?: string;
+  reviewedAt?: Date;
+  reviewNote?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeaveBalance {
+  employeeId: string;
+  year: number;
+  allowance: number;
+  used: number;
+  pending: number;
+  remaining: number;
+}
