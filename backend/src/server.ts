@@ -2346,6 +2346,85 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // Influencer CSV columns — shared by export, import, and the download template.
+  const INFLUENCER_CSV_COLUMNS = [
+    'name', 'email', 'phone', 'platform', 'handle', 'niche',
+    'followers', 'engagementRate', 'rateCard', 'location', 'languages', 'availability',
+  ];
+
+  app.get(
+    '/companies/:companyId/influencers/export',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      const influencers = store.listContacts(req.params.companyId, 'Influencer' as any);
+      const csv = toCsv(
+        INFLUENCER_CSV_COLUMNS,
+        influencers.map((c) => [
+          c.name,
+          c.email ?? '',
+          c.phone ?? '',
+          c.influencerPlatform ?? '',
+          c.influencerHandle ?? '',
+          c.influencerNiche ?? '',
+          c.followerCount ?? '',
+          c.engagementRate ?? '',
+          c.rateCardAmount ?? '',
+          c.location ?? '',
+          (c.languages ?? []).join('; '),
+          c.availabilityStatus ?? '',
+        ]),
+      );
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="influencers.csv"');
+      res.send(csv);
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/influencers/import',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const body = asRecord(req.body, 'body');
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      let created = 0;
+      const errors: Array<{ row: number; error: string }> = [];
+      rows.forEach((raw, index) => {
+        try {
+          const row = asRecord(raw, `rows[${index}]`);
+          const languages = optionalString(row.languages)
+            ?.split(/[;,]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          withActor(req, () =>
+            store.createContact({
+              companyId: req.params.companyId,
+              kind: 'Person',
+              name: requiredString(row.name, 'name', { min: 1 }),
+              email: optionalString(row.email),
+              phone: optionalString(row.phone),
+              roles: ['Influencer'],
+              influencerPlatform: optionalString(row.platform),
+              influencerHandle: optionalString(row.handle),
+              influencerNiche: optionalString(row.niche),
+              followerCount: optionalNumber(row.followers),
+              engagementRate: optionalNumber(row.engagementRate),
+              rateCardAmount: optionalNumber(row.rateCard),
+              location: optionalString(row.location),
+              languages: languages && languages.length ? languages : undefined,
+              availabilityStatus: optionalString(row.availability),
+            }),
+          );
+          created += 1;
+        } catch (error) {
+          errors.push({ row: index + 1, error: error instanceof Error ? error.message : 'Invalid row' });
+        }
+      });
+      res.json({ created, failed: errors.length, errors: errors.slice(0, 50) });
+    }),
+  );
+
   app.post(
     '/companies/:companyId/contacts',
     authMiddleware,

@@ -3961,3 +3961,37 @@ test('HR: employee directory, leave requests, approval, and balance', async () =
   const afterList = await auth(request(app).get('/companies/1/leave-requests'));
   assert.ok(!afterList.body.some((r) => r.employeeId === employee.body.id));
 });
+
+test('influencers import from CSV rows and export back out', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const result = await auth(request(app).post('/companies/1/influencers/import')).send({
+    rows: [
+      { name: 'Nova Reels', platform: 'Instagram', handle: '@nova', niche: 'Beauty', followers: '52000', engagementRate: '3.4', rateCard: '1500', location: 'Dubai, UAE', languages: 'English; Arabic', availability: 'Available' },
+      { name: '', platform: 'TikTok' }, // missing name → skipped
+    ],
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.created, 1);
+  assert.equal(result.body.failed, 1);
+
+  // The imported row is a Person contact with the Influencer role and coerced numbers.
+  const influencers = await auth(request(app).get('/companies/1/contacts?role=Influencer'));
+  const nova = influencers.body.find((c) => c.name === 'Nova Reels');
+  assert.ok(nova, 'imported influencer should be listed');
+  assert.equal(nova.kind, 'Person');
+  assert.deepEqual(nova.roles, ['Influencer']);
+  assert.equal(nova.followerCount, 52000);
+  assert.equal(nova.engagementRate, 3.4);
+  assert.equal(nova.influencerHandle, '@nova');
+  assert.deepEqual(nova.languages, ['English', 'Arabic']);
+
+  // Export returns a CSV that includes the imported influencer.
+  const exported = await auth(request(app).get('/companies/1/influencers/export'));
+  assert.equal(exported.status, 200);
+  assert.match(exported.headers['content-type'], /text\/csv/);
+  assert.match(exported.text, /^name,email,phone,platform,handle,niche,followers,engagementRate,rateCard,location,languages,availability/);
+  assert.match(exported.text, /Nova Reels/);
+});

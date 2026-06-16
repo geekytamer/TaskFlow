@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
+import { CsvImportExport } from '@/components/ui/csv-import-export';
 import {
   getContacts,
   influencerPlatforms,
@@ -238,18 +239,25 @@ export function InfluencersPage() {
   const [minFollowers, setMinFollowers] = React.useState('');
   const [sort, setSort] = React.useState<SortKey>('followers');
 
-  React.useEffect(() => {
+  const loadInfluencers = React.useCallback(async () => {
     if (!selectedCompany) {
       setInfluencers([]);
       setLoading(false);
       return;
     }
     setLoading(true);
-    getContacts(selectedCompany.id, 'Influencer')
-      .then(setInfluencers)
-      .catch(() => toast({ title: t('influencers.loadError'), variant: 'destructive' }))
-      .finally(() => setLoading(false));
+    try {
+      setInfluencers(await getContacts(selectedCompany.id, 'Influencer'));
+    } catch {
+      toast({ title: t('influencers.loadError'), variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
   }, [selectedCompany, t, toast]);
+
+  React.useEffect(() => {
+    void loadInfluencers();
+  }, [loadInfluencers]);
 
   const niches = React.useMemo(() => {
     const set = new Set<string>();
@@ -320,7 +328,30 @@ export function InfluencersPage() {
   }, [filtered]);
 
   return (
-    <SectionPageShell title={t('influencers.title')} description={t('influencers.subtitle')}>
+    <SectionPageShell
+      title={t('influencers.title')}
+      description={t('influencers.subtitle')}
+      actions={
+        selectedCompany ? (
+          <CsvImportExport
+            exportPath={`/companies/${selectedCompany.id}/influencers/export`}
+            exportFilename="influencers.csv"
+            importPath={`/companies/${selectedCompany.id}/influencers/import`}
+            onImported={loadInfluencers}
+            template={{
+              filename: 'influencers-template.csv',
+              columns: ['name', 'email', 'phone', 'platform', 'handle', 'niche', 'followers', 'engagementRate', 'rateCard', 'location', 'languages', 'availability'],
+              sample: {
+                name: 'Jane Doe', email: 'jane@example.com', phone: '+971500000000',
+                platform: 'Instagram', handle: '@janedoe', niche: 'Beauty',
+                followers: '52000', engagementRate: '3.4', rateCard: '1500',
+                location: 'Dubai, UAE', languages: 'English; Arabic', availability: 'Available',
+              },
+            }}
+          />
+        ) : undefined
+      }
+    >
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon={Users} label={t('influencers.totalInfluencers')} value={plainNumber(filtered.length)} />
         <StatCard icon={Sparkles} label={t('influencers.combinedReach')} value={compactNumber(stats.reach)} />

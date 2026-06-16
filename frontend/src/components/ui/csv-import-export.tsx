@@ -4,8 +4,8 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api-client';
-import { downloadAuthedFile, parseCsv, readFileText } from '@/lib/csv';
-import { Download, Upload } from 'lucide-react';
+import { buildCsv, downloadAuthedFile, downloadTextFile, parseCsv, readFileText } from '@/lib/csv';
+import { Download, Upload, FileDown } from 'lucide-react';
 
 /**
  * Export + import a list as CSV. Export downloads from `exportPath`; import
@@ -18,12 +18,16 @@ export function CsvImportExport({
   importPath,
   onImported,
   labels,
+  template,
 }: {
   exportPath: string;
   exportFilename: string;
   importPath: string;
   onImported?: () => void | Promise<void>;
-  labels?: { export?: string; import?: string };
+  labels?: { export?: string; import?: string; template?: string };
+  /** When provided, renders a "Template" button that downloads a header-only
+   * (or single sample-row) CSV the user can fill in and import. */
+  template?: { filename: string; columns: string[]; sample?: Record<string, string> };
 }) {
   const { toast } = useToast();
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -35,6 +39,14 @@ export function CsvImportExport({
     } catch (error) {
       toast({ variant: 'destructive', title: 'Export failed', description: error instanceof Error ? error.message : undefined });
     }
+  };
+
+  const handleTemplate = () => {
+    if (!template) return;
+    const sampleRow = template.sample
+      ? [template.columns.map((c) => template.sample![c] ?? '')]
+      : [];
+    downloadTextFile(template.filename, buildCsv(template.columns, sampleRow));
   };
 
   const handleFile = async (file: File | null) => {
@@ -75,6 +87,12 @@ export function CsvImportExport({
           e.target.value = '';
         }}
       />
+      {template && (
+        <Button variant="outline" size="sm" className="gap-1" onClick={handleTemplate}>
+          <FileDown className="h-4 w-4" />
+          {labels?.template ?? 'Template'}
+        </Button>
+      )}
       <Button variant="outline" size="sm" className="gap-1" onClick={handleExport}>
         <Download className="h-4 w-4" />
         {labels?.export ?? 'Export'}

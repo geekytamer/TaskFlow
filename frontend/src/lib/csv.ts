@@ -71,6 +71,25 @@ export function parseCsv(text: string): Record<string, string>[] {
     });
 }
 
+/** Serialize a header row (+ optional data rows) to CSV text. */
+export function buildCsv(columns: string[], rows: string[][] = []): string {
+  const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  return [columns, ...rows].map((r) => r.map((c) => escape(c ?? '')).join(',')).join('\n');
+}
+
+/** Trigger a client-side download of text content (no server round-trip). */
+export function downloadTextFile(filename: string, text: string, type = 'text/csv;charset=utf-8'): void {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function readFileText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
