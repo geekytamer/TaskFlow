@@ -2616,6 +2616,15 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '055_template_doc_type',
+        run: () => {
+          const cols = this.db.prepare(`PRAGMA table_info('invoice_templates')`).all() as Array<{ name: string }>;
+          if (!cols.some((c) => c.name === 'docType')) {
+            this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN docType TEXT NOT NULL DEFAULT 'invoice';`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7670,6 +7679,7 @@ export class DataStore {
       id: row.id,
       companyId: row.companyId,
       name: row.name,
+      docType: row.docType === 'delivery' ? 'delivery' : 'invoice',
       layout: invoiceTemplateLayouts.includes(row.layout) ? row.layout : 'classic',
       isDefault: Boolean(row.isDefault),
       primaryColor: row.primaryColor || '#111827',
@@ -7701,11 +7711,13 @@ export class DataStore {
     };
   }
 
-  listInvoiceTemplates(companyId: string): InvoiceTemplate[] {
+  listInvoiceTemplates(companyId: string, docType: 'invoice' | 'delivery' = 'invoice'): InvoiceTemplate[] {
     this.ensureInvoiceTemplateDefaults();
     const rows = this.db
-      .prepare('SELECT * FROM invoice_templates WHERE companyId = ? ORDER BY isDefault DESC, name ASC')
-      .all(companyId) as any[];
+      .prepare(
+        `SELECT * FROM invoice_templates WHERE companyId = ? AND COALESCE(docType, 'invoice') = ? ORDER BY isDefault DESC, name ASC`,
+      )
+      .all(companyId, docType) as any[];
     return rows.map((row) => this.decodeInvoiceTemplate(row));
   }
 
@@ -7757,13 +7769,13 @@ export class DataStore {
       this.db
         .prepare(
           `INSERT INTO invoice_templates (
-            id, companyId, name, layout, isDefault, primaryColor, accentColor,
+            id, companyId, name, docType, layout, isDefault, primaryColor, accentColor,
             logoUrl, headerImageUrl, footerImageUrl, letterheadPdfUrl, letterheadImageUrl,
             stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts, qrEnabled, qrPosition, sectionBreaks, doc,
             paymentInstructions, terms, footerNote, watermarkEnabled, watermarkText, watermarkOpacity, showCompanyAddress, showTaxId,
             createdAt, updatedAt
           ) VALUES (
-            @id, @companyId, @name, @layout, @isDefault, @primaryColor, @accentColor,
+            @id, @companyId, @name, @docType, @layout, @isDefault, @primaryColor, @accentColor,
             @logoUrl, @headerImageUrl, @footerImageUrl, @letterheadPdfUrl, @letterheadImageUrl,
             @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts, @qrEnabled, @qrPosition, @sectionBreaks, @doc,
             @paymentInstructions, @terms, @footerNote, @watermarkEnabled, @watermarkText, @watermarkOpacity, @showCompanyAddress, @showTaxId,
@@ -7772,6 +7784,7 @@ export class DataStore {
         )
         .run({
           ...newTemplate,
+          docType: newTemplate.docType === 'delivery' ? 'delivery' : 'invoice',
           isDefault: newTemplate.isDefault ? 1 : 0,
           logoUrl: newTemplate.logoUrl ?? null,
           headerImageUrl: newTemplate.headerImageUrl ?? null,

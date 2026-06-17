@@ -841,6 +841,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '052_hr_module',
     '053_company_details',
     '054_template_letterhead_image',
+    '055_template_doc_type',
   ]);
 });
 
@@ -3972,6 +3973,44 @@ test('HR: employee directory, leave requests, approval, and balance', async () =
   assert.equal(empDelete.status, 204);
   const afterList = await auth(request(app).get('/companies/1/leave-requests'));
   assert.ok(!afterList.body.some((r) => r.employeeId === employee.body.id));
+});
+
+test('delivery-note templates are separate and a public delivery payload renders', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  // A delivery-type template is kept apart from invoice templates.
+  const tpl = await auth(request(app).post('/companies/1/invoice-templates')).send({
+    name: 'DN Template', docType: 'delivery', layout: 'classic', primaryColor: '#111827', accentColor: '#2563eb',
+    showCompanyAddress: true, showTaxId: true,
+  });
+  assert.equal(tpl.status, 201);
+  assert.equal(tpl.body.docType, 'delivery');
+  const deliveryList = await auth(request(app).get('/companies/1/invoice-templates?docType=delivery'));
+  assert.ok(deliveryList.body.some((t) => t.id === tpl.body.id));
+  const invoiceList = await auth(request(app).get('/companies/1/invoice-templates'));
+  assert.ok(!invoiceList.body.some((t) => t.id === tpl.body.id), 'delivery template must not show among invoice templates');
+
+  // Build a confirmed sales order and a delivery from it.
+  const so = await auth(request(app).post('/companies/1/sales-orders')).send({
+    clientId: 'client-1', orderDate: '2026-04-08T00:00:00.000Z', status: 'Draft',
+    items: [{ description: 'Widget', quantity: 5, unitPrice: 10 }],
+  });
+  await auth(request(app).patch(`/sales-orders/${so.body.id}/status`)).send({ status: 'Confirmed' });
+  const delivery = await auth(request(app).post(`/sales-orders/${so.body.id}/deliveries`)).send({
+    items: [{ salesOrderLineIndex: 0, quantity: 3 }],
+  });
+  assert.equal(delivery.status, 201);
+
+  // The public delivery payload exposes the delivery, its order, client, company, and a delivery template.
+  const pub = await request(app).get(`/public/deliveries/${delivery.body.id}`);
+  assert.equal(pub.status, 200);
+  assert.equal(pub.body.delivery.id, delivery.body.id);
+  assert.equal(pub.body.salesOrder.id, so.body.id);
+  assert.ok(pub.body.client && pub.body.client.name);
+  assert.equal(pub.body.template.docType, 'delivery');
+  assert.ok(pub.body.company && pub.body.company.id === '1');
 });
 
 test('per-line discounts apply to sales orders and invoices', async () => {

@@ -1074,6 +1074,7 @@ export function createServer(options: CreateServerOptions = {}) {
     const partial = Boolean(options.partial);
     const payload = {
       name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
+      docType: record.docType === 'delivery' ? ('delivery' as const) : record.docType === 'invoice' ? ('invoice' as const) : undefined,
       layout:
         record.layout !== undefined
           ? enumValue(record.layout, 'layout', invoiceTemplateLayouts)
@@ -1174,6 +1175,64 @@ export function createServer(options: CreateServerOptions = {}) {
           ? { id: client.id, name: client.name, address: client.address, email: client.email }
           : undefined,
       });
+    }),
+  );
+
+  // Public delivery-note payload (no auth), mirroring the public invoice route.
+  app.get(
+    '/public/deliveries/:id',
+    handler((req, res) => {
+      const delivery = store.getDeliveryById(req.params.id);
+      if (!delivery) throw new HttpError(404, 'Delivery not found.');
+      const order = delivery.salesOrderId ? store.getSalesOrderById(delivery.salesOrderId) : undefined;
+      const companyRecord = store.getCompanyById(delivery.companyId);
+      const deliveryTemplates = store.listInvoiceTemplates(delivery.companyId, 'delivery');
+      const template = deliveryTemplates.find((t) => t.isDefault) || deliveryTemplates[0] || undefined;
+      const client = order?.clientId ? store.getClientById(order.clientId) : undefined;
+      res.json({
+        delivery,
+        salesOrder: order,
+        template,
+        company: companyRecord,
+        client: client
+          ? {
+              id: client.id,
+              name: client.name,
+              address: client.address,
+              email: client.email,
+              phone: (client as any).phone,
+              vatNumber: (client as any).vatNumber,
+            }
+          : undefined,
+      });
+    }),
+  );
+
+  app.get(
+    '/deliveries/:id/pdf',
+    authMiddleware,
+    handler(async (req, res) => {
+      const delivery = store.getDeliveryById(req.params.id);
+      if (!delivery) throw new HttpError(404, 'Delivery not found.');
+      requireCompanyAccess(req, delivery.companyId);
+      const templates = store.listInvoiceTemplates(delivery.companyId, 'delivery');
+      const tpl = templates.find((t) => t.isDefault) || templates[0];
+      const docPage = (tpl as any)?.doc?.page as { size?: string; orientation?: string } | undefined;
+      const format: 'A4' | 'Letter' = docPage?.size === 'Letter' ? 'Letter' : 'A4';
+      const landscape = docPage?.orientation === 'landscape';
+      const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
+      const lang = typeof req.query.lang === 'string' && /^[a-z-]{2,8}$/i.test(req.query.lang) ? req.query.lang : '';
+      const url = `${appUrl}/delivery/${delivery.id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`;
+      let pdf: Buffer;
+      try {
+        pdf = await renderInvoicePdf({ url, format, landscape });
+      } catch (err) {
+        throw new HttpError(503, 'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.');
+      }
+      const safe = delivery.deliveryNumber.replace(/[^a-zA-Z0-9._-]+/g, '-');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="DeliveryNote-${safe}.pdf"`);
+      res.end(pdf);
     }),
   );
 
@@ -1662,7 +1721,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      res.json(store.listInvoiceTemplates(req.params.companyId));
+      const docType = req.query.docType === 'delivery' ? 'delivery' : 'invoice';
+      res.json(store.listInvoiceTemplates(req.params.companyId, docType));
     }),
   );
 
@@ -1677,6 +1737,7 @@ export function createServer(options: CreateServerOptions = {}) {
           store.createInvoiceTemplate({
             companyId: req.params.companyId,
             name: payload.name!,
+            docType: payload.docType ?? 'invoice',
             layout: payload.layout!,
             isDefault: payload.isDefault ?? false,
             primaryColor: payload.primaryColor!,

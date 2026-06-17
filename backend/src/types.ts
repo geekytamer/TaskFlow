@@ -527,10 +527,14 @@ export interface InvoiceBankAccount {
   currency?: string;
 }
 
+export type TemplateDocType = 'invoice' | 'delivery';
+
 export interface InvoiceTemplate {
   id: string;
   companyId: string;
   name: string;
+  /** Which document this template designs. Defaults to 'invoice'. */
+  docType?: TemplateDocType;
   layout: InvoiceTemplateLayout;
   isDefault: boolean;
   primaryColor: string;
