@@ -50,6 +50,8 @@ export const invoiceStatuses: InvoiceStatus[] = ['Draft', 'Sent', 'Paid', 'Overd
 
 export type InvoiceLineItemType = 'Task' | 'Manual';
 
+export type LineDiscountType = 'percent' | 'amount';
+
 export interface InvoiceLineItem {
   taskId?: string;
   itemType: InvoiceLineItemType;
@@ -57,6 +59,8 @@ export interface InvoiceLineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  discount?: number;
+  discountType?: LineDiscountType;
   amount: number;
   custom?: Record<string, string>;
 }
@@ -115,6 +119,8 @@ export interface SalesOrderLineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  discount?: number;
+  discountType?: LineDiscountType;
   lineTotal: number;
 }
 

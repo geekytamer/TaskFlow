@@ -3973,6 +3973,44 @@ test('HR: employee directory, leave requests, approval, and balance', async () =
   assert.ok(!afterList.body.some((r) => r.employeeId === employee.body.id));
 });
 
+test('per-line discounts apply to sales orders and invoices', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  // Sales order: a 10% line and a fixed-amount line.
+  const so = await auth(request(app).post('/companies/1/sales-orders')).send({
+    clientId: 'client-1',
+    orderDate: '2026-04-08T00:00:00.000Z',
+    status: 'Draft',
+    items: [
+      { description: 'Item A', quantity: 2, unitPrice: 100, discount: 10, discountType: 'percent' }, // 200 - 10% = 180
+      { description: 'Item B', quantity: 1, unitPrice: 100, discount: 25, discountType: 'amount' },   // 100 - 25 = 75
+    ],
+  });
+  assert.equal(so.status, 201);
+  assert.equal(so.body.items[0].lineTotal, 180);
+  assert.equal(so.body.items[0].discount, 10);
+  assert.equal(so.body.items[0].discountType, 'percent');
+  assert.equal(so.body.items[1].lineTotal, 75);
+  assert.equal(so.body.totalAmount, 255);
+
+  // Invoice: a discounted manual line.
+  const inv = await auth(request(app).post('/invoices')).send({
+    companyId: '1',
+    clientId: 'client-1',
+    issueDate: '2026-04-08T00:00:00.000Z',
+    dueDate: '2026-05-08T00:00:00.000Z',
+    lineItems: [
+      { itemType: 'Manual', description: 'Service', quantity: 4, unitPrice: 50, discount: 20, discountType: 'percent' }, // 200 - 20% = 160
+    ],
+  });
+  assert.equal(inv.status, 201);
+  assert.equal(inv.body.lineItems[0].amount, 160);
+  assert.equal(inv.body.lineItems[0].discount, 20);
+  assert.equal(inv.body.total, 160);
+});
+
 test('company tax + details are editable by an admin and persisted', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');

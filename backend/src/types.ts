@@ -380,6 +380,8 @@ export type InvoiceStatus = 'Draft' | 'Sent' | 'Paid' | 'Overdue';
 
 export type InvoiceLineItemType = 'Task' | 'Manual';
 
+export type LineDiscountType = 'percent' | 'amount';
+
 export interface InvoiceLineItem {
   taskId?: string;
   itemType: InvoiceLineItemType;
@@ -387,6 +389,9 @@ export interface InvoiceLineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  /** Optional per-line discount; percent (0–100) or fixed amount off the gross. */
+  discount?: number;
+  discountType?: LineDiscountType;
   amount: number;
   /** Values for template-defined custom columns, keyed by column id. */
   custom?: Record<string, string>;
@@ -448,6 +453,8 @@ export interface SalesOrderLineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  discount?: number;
+  discountType?: LineDiscountType;
   lineTotal: number;
 }
 

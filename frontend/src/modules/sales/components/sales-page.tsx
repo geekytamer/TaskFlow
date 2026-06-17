@@ -68,6 +68,16 @@ type SalesItemForm = {
   description: string;
   quantity: string;
   unitPrice: string;
+  discount: string;
+  discountType: 'percent' | 'amount';
+};
+
+/** Net line total after applying a percent or fixed-amount discount. */
+const lineNet = (quantity: number, unitPrice: number, discount: number, discountType: 'percent' | 'amount') => {
+  const gross = quantity * unitPrice;
+  if (!discount || discount <= 0) return gross;
+  const off = discountType === 'percent' ? gross * (Math.min(discount, 100) / 100) : Math.min(discount, gross);
+  return Math.max(0, gross - off);
 };
 
 const emptyForm = () => ({
@@ -76,7 +86,7 @@ const emptyForm = () => ({
   expectedDate: '',
   status: 'Draft' as SalesOrderStatus,
   notes: '',
-  items: [{ inventoryItemId: '', description: '', quantity: '1', unitPrice: '0' }] as SalesItemForm[],
+  items: [{ inventoryItemId: '', description: '', quantity: '1', unitPrice: '0', discount: '0', discountType: 'percent' }] as SalesItemForm[],
 });
 
 export function SalesPage() {
@@ -175,7 +185,7 @@ export function SalesPage() {
   const estimatedTotal = React.useMemo(
     () =>
       form.items.reduce(
-        (sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0),
+        (sum, item) => sum + lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType),
         0,
       ),
     [form.items],
@@ -210,7 +220,7 @@ export function SalesPage() {
   const addItemRow = () => {
     setForm((prev) => ({
       ...prev,
-      items: [...prev.items, { inventoryItemId: '', description: '', quantity: '1', unitPrice: '0' }],
+      items: [...prev.items, { inventoryItemId: '', description: '', quantity: '1', unitPrice: '0', discount: '0', discountType: 'percent' }],
     }));
   };
 
@@ -232,6 +242,7 @@ export function SalesPage() {
         const inventoryItem = item.inventoryItemId ? inventoryMap.get(item.inventoryItemId) : undefined;
         const quantity = Number(item.quantity || 0);
         const unitPrice = Number(item.unitPrice || inventoryItem?.salePrice || 0);
+        const discount = Number(item.discount || 0);
         const description = inventoryItem?.name || item.description.trim();
         if (!description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) return null;
         return {
@@ -240,7 +251,9 @@ export function SalesPage() {
           description,
           quantity,
           unitPrice,
-          lineTotal: quantity * unitPrice,
+          discount: discount > 0 ? discount : undefined,
+          discountType: discount > 0 ? item.discountType : undefined,
+          lineTotal: lineNet(quantity, unitPrice, discount, item.discountType),
         };
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -413,9 +426,11 @@ export function SalesPage() {
                       <TableRow>
                         <TableHead>{t('sales.inventoryItem')}</TableHead>
                         <TableHead>{t('sales.description')}</TableHead>
-                        <TableHead className="w-24 text-end">{t('sales.qty')}</TableHead>
-                        <TableHead className="w-32 text-end">{t('sales.unitPrice')}</TableHead>
-                        <TableHead className="w-20 text-end">{t('sales.remove')}</TableHead>
+                        <TableHead className="w-20 text-end">{t('sales.qty')}</TableHead>
+                        <TableHead className="w-28 text-end">{t('sales.unitPrice')}</TableHead>
+                        <TableHead className="w-36 text-end">{t('sales.discount', 'Discount')}</TableHead>
+                        <TableHead className="w-28 text-end">{t('sales.lineTotal', 'Total')}</TableHead>
+                        <TableHead className="w-16 text-end">{t('sales.remove')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -456,6 +471,21 @@ export function SalesPage() {
                           </TableCell>
                           <TableCell>
                             <Input className="text-end" type="number" value={item.unitPrice} onChange={(event) => updateItemRow(index, { unitPrice: event.target.value })} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Input className="text-end" type="number" value={item.discount} onChange={(event) => updateItemRow(index, { discount: event.target.value })} />
+                              <Select value={item.discountType} onValueChange={(value) => updateItemRow(index, { discountType: value as 'percent' | 'amount' })}>
+                                <SelectTrigger className="w-16 px-2"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="percent">%</SelectItem>
+                                  <SelectItem value="amount">{t('sales.fixed', 'Fixed')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-end font-medium">
+                            {money(lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType))}
                           </TableCell>
                           <TableCell className="text-end">
                             <Button type="button" variant="ghost" size="sm" onClick={() => removeItemRow(index)} disabled={form.items.length === 1}>{t('sales.remove')}</Button>

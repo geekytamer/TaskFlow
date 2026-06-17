@@ -71,6 +71,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [manualQuantity, setManualQuantity] = React.useState('1');
   const [manualUnitPrice, setManualUnitPrice] = React.useState('');
   const [manualSku, setManualSku] = React.useState('');
+  const [manualDiscount, setManualDiscount] = React.useState('0');
+  const [manualDiscountType, setManualDiscountType] = React.useState<'percent' | 'amount'>('percent');
   const [manualCustom, setManualCustom] = React.useState<Record<string, string>>({});
   const [manualLines, setManualLines] = React.useState<InvoiceLineItem[]>([]);
 
@@ -217,7 +219,12 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       return;
     }
 
-    const amount = Number((quantity * unitPrice).toFixed(2));
+    const discount = Number(manualDiscount || 0);
+    const gross = quantity * unitPrice;
+    const off = discount > 0
+      ? (manualDiscountType === 'percent' ? gross * (Math.min(discount, 100) / 100) : Math.min(discount, gross))
+      : 0;
+    const amount = Number(Math.max(0, gross - off).toFixed(2));
     const custom: Record<string, string> = {};
     customColumns.forEach((col) => {
       const v = manualCustom[col.id]?.trim();
@@ -231,6 +238,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         description,
         quantity,
         unitPrice,
+        discount: discount > 0 ? discount : undefined,
+        discountType: discount > 0 ? manualDiscountType : undefined,
         amount,
         custom: Object.keys(custom).length ? custom : undefined,
       },
@@ -239,6 +248,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     setManualQuantity('1');
     setManualUnitPrice('');
     setManualSku('');
+    setManualDiscount('0');
+    setManualDiscountType('percent');
     setManualCustom({});
   };
 
@@ -329,8 +340,10 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     setManualQuantity('1');
     setManualUnitPrice('');
     setManualSku('');
+    setManualDiscount('0');
+    setManualDiscountType('percent');
   }
-  
+
   const handleOpenChange = (isOpen: boolean) => {
       if(!isOpen) {
           resetState();
@@ -446,7 +459,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
 
             <div className="rounded-lg border p-4 pe-6 space-y-3" data-tutorial="invoice-form-manual-line">
               <p className="text-sm font-semibold">Add Manual Item</p>
-              <div className="grid gap-3 md:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-6">
                 <div className="md:col-span-2 space-y-1">
                   <Label>Description</Label>
                   <Input
@@ -478,6 +491,23 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     value={manualUnitPrice}
                     onChange={(e) => setManualUnitPrice(e.target.value)}
                   />
+                </div>
+                <div className="space-y-1">
+                  <Label>Discount</Label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      value={manualDiscount}
+                      onChange={(e) => setManualDiscount(e.target.value)}
+                    />
+                    <Select value={manualDiscountType} onValueChange={(v) => setManualDiscountType(v as 'percent' | 'amount')}>
+                      <SelectTrigger className="w-16 px-2"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percent">%</SelectItem>
+                        <SelectItem value="amount">Fixed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               {customColumns.length > 0 && (

@@ -10467,14 +10467,43 @@ export class DataStore {
     return this.getCreditNoteById(note.id)!;
   }
 
+  /**
+   * Resolve a per-line discount into a net line value. `percent` is 0–100 of
+   * the gross; `amount` is a fixed currency value subtracted from the gross.
+   */
+  private resolveLineDiscount(
+    gross: number,
+    rawDiscount: unknown,
+    rawType: unknown,
+  ): { discount: number; discountType: 'percent' | 'amount'; net: number } {
+    const discountType = rawType === 'amount' ? 'amount' : 'percent';
+    let discount = Number(rawDiscount ?? 0);
+    if (!Number.isFinite(discount) || discount < 0) discount = 0;
+    let discountValue = 0;
+    if (discountType === 'percent') {
+      discount = Math.min(discount, 100);
+      discountValue = gross * (discount / 100);
+    } else {
+      discount = Math.min(discount, gross);
+      discountValue = discount;
+    }
+    return {
+      discount: Number(discount.toFixed(4)),
+      discountType,
+      net: Number(Math.max(0, gross - discountValue).toFixed(2)),
+    };
+  }
+
   private normalizeInvoiceLineItems(rawItems: any[]): Invoice['lineItems'] {
     return (Array.isArray(rawItems) ? rawItems : [])
       .map((item) => {
         const taskId = item?.taskId ? String(item.taskId) : undefined;
         const quantity = Number(item?.quantity ?? 1);
         const unitPrice = Number(item?.unitPrice ?? item?.amount ?? 0);
-        const fallbackAmount = quantity * unitPrice;
-        const amount = Number(item?.amount ?? fallbackAmount);
+        const gross = (Number.isFinite(quantity) ? quantity : 1) * (Number.isFinite(unitPrice) ? unitPrice : 0);
+        const hasDiscount = item?.discount != null && Number(item.discount) > 0;
+        const { discount, discountType, net } = this.resolveLineDiscount(gross, item?.discount, item?.discountType);
+        const amount = hasDiscount ? net : Number(item?.amount ?? gross);
 
         return {
           taskId,
@@ -10488,6 +10517,8 @@ export class DataStore {
           quantity: Number.isFinite(quantity) ? quantity : 1,
           unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
           amount: Number.isFinite(amount) ? amount : 0,
+          discount: hasDiscount ? discount : undefined,
+          discountType: hasDiscount ? discountType : undefined,
           custom: item?.custom && typeof item.custom === 'object'
             ? Object.fromEntries(
                 Object.entries(item.custom as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]),
@@ -10509,8 +10540,10 @@ export class DataStore {
       .map((item) => {
         const quantity = Number(item?.quantity ?? 0);
         const unitPrice = Number(item?.unitPrice ?? 0);
-        const fallbackLineTotal = quantity * unitPrice;
-        const lineTotal = Number(item?.lineTotal ?? fallbackLineTotal);
+        const gross = (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(unitPrice) ? unitPrice : 0);
+        const hasDiscount = item?.discount != null && Number(item.discount) > 0;
+        const { discount, discountType, net } = this.resolveLineDiscount(gross, item?.discount, item?.discountType);
+        const lineTotal = hasDiscount ? net : Number(item?.lineTotal ?? gross);
 
         return {
           inventoryItemId: item?.inventoryItemId ? String(item.inventoryItemId) : undefined,
@@ -10519,6 +10552,8 @@ export class DataStore {
           quantity: Number.isFinite(quantity) ? quantity : 0,
           unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
           lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+          discount: hasDiscount ? discount : undefined,
+          discountType: hasDiscount ? discountType : undefined,
         };
       })
       .filter((item) => item.description && item.quantity > 0)

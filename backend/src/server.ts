@@ -317,6 +317,8 @@ const parseInvoiceLineItems = (value: unknown): InvoiceLineItem[] => {
       }),
       quantity,
       unitPrice,
+      discount: record.discount != null ? optionalNumber(record.discount) : undefined,
+      discountType: record.discountType === 'amount' ? 'amount' : record.discountType === 'percent' ? 'percent' : undefined,
       amount: requiredNumber(
         record.amount ?? quantity * unitPrice,
         `lineItems[${index}].amount`,
@@ -363,6 +365,8 @@ const parseSalesOrderItems = (value: unknown): SalesOrderLineItem[] => {
       description: requiredString(record.description, `items[${index}].description`, { min: 2 }),
       quantity,
       unitPrice,
+      discount: record.discount != null ? optionalNumber(record.discount) : undefined,
+      discountType: record.discountType === 'amount' ? 'amount' : record.discountType === 'percent' ? 'percent' : undefined,
       lineTotal: requiredNumber(
         record.lineTotal ?? quantity * unitPrice,
         `items[${index}].lineTotal`,
