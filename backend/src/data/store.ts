@@ -2607,6 +2607,15 @@ export class DataStore {
           ['legalName', 'taxNumber', 'registrationNumber', 'phone', 'email', 'city', 'country', 'taxDetails'].forEach(add);
         },
       },
+      {
+        id: '054_template_letterhead_image',
+        run: () => {
+          const cols = this.db.prepare(`PRAGMA table_info('invoice_templates')`).all() as Array<{ name: string }>;
+          if (!cols.some((c) => c.name === 'letterheadImageUrl')) {
+            this.db.exec(`ALTER TABLE invoice_templates ADD COLUMN letterheadImageUrl TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7669,6 +7678,7 @@ export class DataStore {
       headerImageUrl: row.headerImageUrl ?? undefined,
       footerImageUrl: row.footerImageUrl ?? undefined,
       letterheadPdfUrl: row.letterheadPdfUrl ?? undefined,
+      letterheadImageUrl: row.letterheadImageUrl ?? undefined,
       stampUrl: row.stampUrl ?? undefined,
       signatureUrl: row.signatureUrl ?? undefined,
       signatureLabel: row.signatureLabel ?? undefined,
@@ -7748,13 +7758,13 @@ export class DataStore {
         .prepare(
           `INSERT INTO invoice_templates (
             id, companyId, name, layout, isDefault, primaryColor, accentColor,
-            logoUrl, headerImageUrl, footerImageUrl, letterheadPdfUrl,
+            logoUrl, headerImageUrl, footerImageUrl, letterheadPdfUrl, letterheadImageUrl,
             stampUrl, signatureUrl, signatureLabel, invoiceColumns, bankAccounts, qrEnabled, qrPosition, sectionBreaks, doc,
             paymentInstructions, terms, footerNote, watermarkEnabled, watermarkText, watermarkOpacity, showCompanyAddress, showTaxId,
             createdAt, updatedAt
           ) VALUES (
             @id, @companyId, @name, @layout, @isDefault, @primaryColor, @accentColor,
-            @logoUrl, @headerImageUrl, @footerImageUrl, @letterheadPdfUrl,
+            @logoUrl, @headerImageUrl, @footerImageUrl, @letterheadPdfUrl, @letterheadImageUrl,
             @stampUrl, @signatureUrl, @signatureLabel, @invoiceColumns, @bankAccounts, @qrEnabled, @qrPosition, @sectionBreaks, @doc,
             @paymentInstructions, @terms, @footerNote, @watermarkEnabled, @watermarkText, @watermarkOpacity, @showCompanyAddress, @showTaxId,
             @createdAt, @updatedAt
@@ -7767,6 +7777,7 @@ export class DataStore {
           headerImageUrl: newTemplate.headerImageUrl ?? null,
           footerImageUrl: newTemplate.footerImageUrl ?? null,
           letterheadPdfUrl: newTemplate.letterheadPdfUrl ?? null,
+          letterheadImageUrl: newTemplate.letterheadImageUrl ?? null,
           stampUrl: newTemplate.stampUrl ?? null,
           signatureUrl: newTemplate.signatureUrl ?? null,
           signatureLabel: newTemplate.signatureLabel ?? null,
@@ -7827,7 +7838,7 @@ export class DataStore {
           `UPDATE invoice_templates SET
             name=@name, layout=@layout, isDefault=@isDefault, primaryColor=@primaryColor,
             accentColor=@accentColor, logoUrl=@logoUrl, headerImageUrl=@headerImageUrl,
-            footerImageUrl=@footerImageUrl, letterheadPdfUrl=@letterheadPdfUrl,
+            footerImageUrl=@footerImageUrl, letterheadPdfUrl=@letterheadPdfUrl, letterheadImageUrl=@letterheadImageUrl,
             stampUrl=@stampUrl, signatureUrl=@signatureUrl, signatureLabel=@signatureLabel,
             invoiceColumns=@invoiceColumns, bankAccounts=@bankAccounts, qrEnabled=@qrEnabled, qrPosition=@qrPosition, sectionBreaks=@sectionBreaks, doc=@doc,
             paymentInstructions=@paymentInstructions, terms=@terms, footerNote=@footerNote, watermarkEnabled=@watermarkEnabled,
@@ -7843,6 +7854,7 @@ export class DataStore {
           headerImageUrl: merged.headerImageUrl ?? null,
           footerImageUrl: merged.footerImageUrl ?? null,
           letterheadPdfUrl: merged.letterheadPdfUrl ?? null,
+          letterheadImageUrl: merged.letterheadImageUrl ?? null,
           stampUrl: merged.stampUrl ?? null,
           signatureUrl: merged.signatureUrl ?? null,
           signatureLabel: merged.signatureLabel ?? null,

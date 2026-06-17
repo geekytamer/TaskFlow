@@ -208,6 +208,7 @@ export interface InvoiceTemplate {
   headerImageUrl?: string;
   footerImageUrl?: string;
   letterheadPdfUrl?: string;
+  letterheadImageUrl?: string;
   stampUrl?: string;
   signatureUrl?: string;
   signatureLabel?: string;

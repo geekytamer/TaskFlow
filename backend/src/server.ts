@@ -1086,6 +1086,8 @@ export function createServer(options: CreateServerOptions = {}) {
       footerImageUrl: record.footerImageUrl !== undefined ? optionalString(record.footerImageUrl) : undefined,
       letterheadPdfUrl:
         record.letterheadPdfUrl !== undefined ? optionalString(record.letterheadPdfUrl) : undefined,
+      letterheadImageUrl:
+        record.letterheadImageUrl !== undefined ? optionalString(record.letterheadImageUrl) : undefined,
       stampUrl: record.stampUrl !== undefined ? optionalString(record.stampUrl) : undefined,
       signatureUrl: record.signatureUrl !== undefined ? optionalString(record.signatureUrl) : undefined,
       signatureLabel: record.signatureLabel !== undefined ? optionalString(record.signatureLabel) : undefined,
@@ -1683,6 +1685,7 @@ export function createServer(options: CreateServerOptions = {}) {
             headerImageUrl: payload.headerImageUrl,
             footerImageUrl: payload.footerImageUrl,
             letterheadPdfUrl: payload.letterheadPdfUrl,
+            letterheadImageUrl: payload.letterheadImageUrl,
             stampUrl: payload.stampUrl,
             signatureUrl: payload.signatureUrl,
             signatureLabel: payload.signatureLabel,

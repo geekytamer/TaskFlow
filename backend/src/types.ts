@@ -539,6 +539,8 @@ export interface InvoiceTemplate {
   headerImageUrl?: string;
   footerImageUrl?: string;
   letterheadPdfUrl?: string;
+  /** Rasterized first page of the letterhead PDF, used as the page background. */
+  letterheadImageUrl?: string;
   stampUrl?: string;
   signatureUrl?: string;
   signatureLabel?: string;

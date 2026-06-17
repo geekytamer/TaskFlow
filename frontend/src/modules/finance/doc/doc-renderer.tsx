@@ -141,6 +141,18 @@ export function DocRenderer({
   const marginL = doc.page.margin.left ?? 10;
   const marginR = doc.page.margin.right ?? 10;
 
+  // A letterhead backs every page: the image tiles once per sheet-height so it
+  // repeats across multi-page documents, and the sheet keeps a fixed page size.
+  const letterhead = template?.letterheadImageUrl;
+  const letterheadStyle: React.CSSProperties = letterhead
+    ? {
+        backgroundImage: `url("${letterhead}")`,
+        backgroundRepeat: 'repeat-y',
+        backgroundSize: `100% ${pageHeight}mm`,
+        backgroundPosition: 'top center',
+      }
+    : {};
+
   const renderBlock = (block: Block): React.ReactNode => {
     if (!isVisible(block, ctx, template)) return null;
     let base = styleToCss(block.style, isRtl);
@@ -258,6 +270,7 @@ export function DocRenderer({
         width: `${pageWidth}mm`,
         minHeight: `${pageHeight}mm`,
         maxWidth: '100%',
+        ...letterheadStyle,
       }}
     >
       <style>{`

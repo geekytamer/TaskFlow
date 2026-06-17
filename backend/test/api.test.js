@@ -840,6 +840,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '051_custom_fields',
     '052_hr_module',
     '053_company_details',
+    '054_template_letterhead_image',
   ]);
 });
 

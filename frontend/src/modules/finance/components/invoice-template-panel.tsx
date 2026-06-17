@@ -55,6 +55,7 @@ const emptyForm: InvoiceTemplateInput = {
   headerImageUrl: '',
   footerImageUrl: '',
   letterheadPdfUrl: '',
+  letterheadImageUrl: '',
   stampUrl: '',
   signatureUrl: '',
   signatureLabel: '',
@@ -90,6 +91,7 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   headerImageUrl: template.headerImageUrl || '',
   footerImageUrl: template.footerImageUrl || '',
   letterheadPdfUrl: template.letterheadPdfUrl || '',
+  letterheadImageUrl: template.letterheadImageUrl || '',
   stampUrl: template.stampUrl || '',
   signatureUrl: template.signatureUrl || '',
   signatureLabel: template.signatureLabel || '',
@@ -116,6 +118,7 @@ const cleanForm = (form: InvoiceTemplateInput): InvoiceTemplateInput => ({
   headerImageUrl: form.headerImageUrl?.trim() || undefined,
   footerImageUrl: form.footerImageUrl?.trim() || undefined,
   letterheadPdfUrl: form.letterheadPdfUrl?.trim() || undefined,
+  letterheadImageUrl: form.letterheadImageUrl?.trim() || undefined,
   stampUrl: form.stampUrl?.trim() || undefined,
   signatureUrl: form.signatureUrl?.trim() || undefined,
   signatureLabel: form.signatureLabel?.trim() || undefined,
@@ -391,6 +394,26 @@ export function InvoiceTemplatePanel() {
     try {
       const dataUrl = await readFileAsDataUrl(file);
       updateForm(field, dataUrl);
+      // The letterhead backs the page: images are used as-is; a PDF's first
+      // page is rasterized to an image so it can render as the page background.
+      if (field === 'letterheadPdfUrl') {
+        if (dataUrl.startsWith('data:image/')) {
+          updateForm('letterheadImageUrl', dataUrl);
+        } else {
+          try {
+            const { rasterizePdfFirstPage } = await import('@/lib/pdf-raster');
+            const image = await rasterizePdfFirstPage(dataUrl);
+            updateForm('letterheadImageUrl', image);
+            toast({ title: 'Letterhead ready', description: 'First page set as the page background.' });
+          } catch (rasterError: any) {
+            toast({
+              variant: 'destructive',
+              title: 'Could not render letterhead',
+              description: rasterError?.message || 'The PDF could not be converted to a background image.',
+            });
+          }
+        }
+      }
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -574,8 +597,8 @@ export function InvoiceTemplatePanel() {
               value={form.letterheadPdfUrl || ''}
               accept="image/*,application/pdf"
               onFileSelected={(file) => handleAssetUpload('letterheadPdfUrl', file)}
-              onClear={() => updateForm('letterheadPdfUrl', '')}
-              hint="Use image files for visible preview background."
+              onClear={() => { updateForm('letterheadPdfUrl', ''); updateForm('letterheadImageUrl', ''); }}
+              hint="PDF or image. The page is sized to a fixed sheet with this as the background."
             />
             <AssetUploadField
               label="Stamp"
