@@ -2595,6 +2595,18 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '053_company_details',
+        run: () => {
+          const cols = this.db.prepare(`PRAGMA table_info('companies')`).all() as Array<{ name: string }>;
+          const add = (name: string) => {
+            if (!cols.some((c) => c.name === name)) {
+              this.db.exec(`ALTER TABLE companies ADD COLUMN ${name} TEXT;`);
+            }
+          };
+          ['legalName', 'taxNumber', 'registrationNumber', 'phone', 'email', 'city', 'country', 'taxDetails'].forEach(add);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3270,13 +3282,22 @@ export class DataStore {
     const newCompany = { ...company, id: uuid() };
     this.db
       .prepare(
-        'INSERT INTO companies (id, name, website, address, logoUrl) VALUES (@id, @name, @website, @address, @logoUrl)',
+        `INSERT INTO companies (id, name, website, address, logoUrl, legalName, taxNumber, registrationNumber, phone, email, city, country, taxDetails)
+         VALUES (@id, @name, @website, @address, @logoUrl, @legalName, @taxNumber, @registrationNumber, @phone, @email, @city, @country, @taxDetails)`,
       )
       .run({
         ...newCompany,
         website: newCompany.website ?? null,
         address: newCompany.address ?? null,
         logoUrl: newCompany.logoUrl ?? null,
+        legalName: newCompany.legalName ?? null,
+        taxNumber: newCompany.taxNumber ?? null,
+        registrationNumber: newCompany.registrationNumber ?? null,
+        phone: newCompany.phone ?? null,
+        email: newCompany.email ?? null,
+        city: newCompany.city ?? null,
+        country: newCompany.country ?? null,
+        taxDetails: newCompany.taxDetails ?? null,
       });
     this.ensureFinanceDefaults();
     this.ensureNumberingDefaults();
@@ -3297,13 +3318,25 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'UPDATE companies SET name=@name, website=@website, address=@address, logoUrl=@logoUrl WHERE id=@id',
+        `UPDATE companies SET name=@name, website=@website, address=@address, logoUrl=@logoUrl,
+           legalName=@legalName, taxNumber=@taxNumber, registrationNumber=@registrationNumber,
+           phone=@phone, email=@email, city=@city, country=@country, taxDetails=@taxDetails
+         WHERE id=@id`,
       )
       .run({
-        ...updated,
+        id: updated.id,
+        name: updated.name,
         website: updated.website ?? null,
         address: updated.address ?? null,
         logoUrl: updated.logoUrl ?? null,
+        legalName: updated.legalName ?? null,
+        taxNumber: updated.taxNumber ?? null,
+        registrationNumber: updated.registrationNumber ?? null,
+        phone: updated.phone ?? null,
+        email: updated.email ?? null,
+        city: updated.city ?? null,
+        country: updated.country ?? null,
+        taxDetails: updated.taxDetails ?? null,
       });
     return this.getCompanyById(id);
   }

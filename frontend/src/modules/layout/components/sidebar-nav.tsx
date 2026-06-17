@@ -35,6 +35,7 @@ import {
   Sparkles,
   Contact2,
   CalendarOff,
+  Building2,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -111,6 +112,7 @@ const sections: NavSection[] = [
   {
     labelKey: 'nav.section.admin',
     items: [
+      { href: '/company-profile', labelKey: 'nav.companyProfile', icon: Building2, roles: ['Admin', 'Manager'], tutorial: 'nav-company-profile' },
       { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
       { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
     ],

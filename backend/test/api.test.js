@@ -839,6 +839,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '050_po_approvals',
     '051_custom_fields',
     '052_hr_module',
+    '053_company_details',
   ]);
 });
 
@@ -855,12 +856,13 @@ test('users can update their own profile without gaining company-management acce
   assert.equal(profile.body.user.name, 'Admin Updated');
   assert.equal(profile.body.user.avatar, 'data:image/png;base64,profile');
 
+  // A company Admin may now edit their own company's details/branding.
   const company = await auth(request(app).put('/companies/1')).send({
     name: 'Innovate Branded',
     logoUrl: 'data:image/png;base64,logo',
   });
-  assert.equal(company.status, 403);
-  assert.equal(company.body.message, 'Super-admin access required.');
+  assert.equal(company.status, 200);
+  assert.equal(company.body.name, 'Innovate Branded');
 });
 
 test('super-admins can update company branding', async () => {
@@ -934,7 +936,7 @@ test('non-admin users only see accessible companies', async () => {
   assert.equal(response.body[0].id, '1');
 });
 
-test('company admins only see assigned companies and cannot edit company records', async () => {
+test('company admins see and edit only their assigned companies', async () => {
   const app = makeApp();
   const superAdminToken = await login(app, 'admin@taskflow.com');
   const created = await request(app)
@@ -956,12 +958,21 @@ test('company admins only see assigned companies and cannot edit company records
   assert.equal(companies.status, 200);
   assert.deepEqual(companies.body.map((company) => company.id), ['2']);
 
-  const editCompany = await request(app)
+  // They CAN edit their own assigned company...
+  const editOwn = await request(app)
     .put('/companies/2')
     .set('Authorization', `Bearer ${companyAdminToken}`)
+    .send({ name: 'Rebranded Co' });
+  assert.equal(editOwn.status, 200);
+  assert.equal(editOwn.body.name, 'Rebranded Co');
+
+  // ...but not a company they are not a member of.
+  const editOther = await request(app)
+    .put('/companies/1')
+    .set('Authorization', `Bearer ${companyAdminToken}`)
     .send({ name: 'Unauthorized Rename' });
-  assert.equal(editCompany.status, 403);
-  assert.equal(editCompany.body.message, 'Super-admin access required.');
+  assert.equal(editOther.status, 403);
+  assert.equal(editOther.body.message, 'You do not have access to this company.');
 });
 
 test('company scoping blocks access outside a manager company', async () => {
@@ -3960,6 +3971,31 @@ test('HR: employee directory, leave requests, approval, and balance', async () =
   assert.equal(empDelete.status, 204);
   const afterList = await auth(request(app).get('/companies/1/leave-requests'));
   assert.ok(!afterList.body.some((r) => r.employeeId === employee.body.id));
+});
+
+test('company tax + details are editable by an admin and persisted', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const updated = await auth(request(app).put('/companies/1')).send({
+    taxNumber: '100123456700003',
+    registrationNumber: 'CR-99887',
+    phone: '+97142223333',
+    email: 'billing@innovate.test',
+    city: 'Dubai',
+    country: 'UAE',
+    taxDetails: 'VAT registered — 5% standard rate',
+    legalName: 'Innovate Corp LLC',
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.taxNumber, '100123456700003');
+  assert.equal(updated.body.legalName, 'Innovate Corp LLC');
+
+  const fetched = await auth(request(app).get('/companies/1'));
+  assert.equal(fetched.body.taxNumber, '100123456700003');
+  assert.equal(fetched.body.taxDetails, 'VAT registered — 5% standard rate');
+  assert.equal(fetched.body.city, 'Dubai');
 });
 
 test('influencers import from CSV rows and export back out', async () => {

@@ -1462,13 +1462,25 @@ export function createServer(options: CreateServerOptions = {}) {
     '/companies/:id',
     authMiddleware,
     handler((req, res) => {
-      requireSuperAdmin(req);
+      // Super-admins manage any company; company Admins/Managers manage their own.
+      if (!req.user?.isSuperAdmin) {
+        requireCompanyRoles(req, req.params.id, ['Admin', 'Manager']);
+      }
       const body = asRecord(req.body, 'body');
+      const optionalText = (value: unknown) => (value !== undefined ? String(value || '') : undefined);
       const company = store.updateCompany(req.params.id, {
         name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
-        website: body.website !== undefined ? String(body.website || '') : undefined,
-        address: body.address !== undefined ? String(body.address || '') : undefined,
+        website: optionalText(body.website),
+        address: optionalText(body.address),
         logoUrl: body.logoUrl !== undefined ? uploadedImage(body.logoUrl, 'logoUrl') : undefined,
+        legalName: optionalText(body.legalName),
+        taxNumber: optionalText(body.taxNumber),
+        registrationNumber: optionalText(body.registrationNumber),
+        phone: optionalText(body.phone),
+        email: optionalText(body.email),
+        city: optionalText(body.city),
+        country: optionalText(body.country),
+        taxDetails: optionalText(body.taxDetails),
       });
       if (!company) throw new HttpError(404, 'Company not found.');
       res.json(company);
