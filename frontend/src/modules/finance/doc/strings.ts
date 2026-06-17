@@ -23,6 +23,10 @@ export interface DocStrings {
   swift: string;
   signature: string;
   scan: string;
+  deliveryNote: string;
+  sku: string;
+  description: string;
+  quantity: string;
 }
 
 const EN: DocStrings = {
@@ -43,6 +47,10 @@ const EN: DocStrings = {
   swift: 'SWIFT/BIC',
   signature: 'Authorized signature',
   scan: 'Scan to view & download',
+  deliveryNote: 'Delivery Note',
+  sku: 'SKU',
+  description: 'Description',
+  quantity: 'Quantity',
 };
 
 const AR: DocStrings = {
@@ -63,6 +71,10 @@ const AR: DocStrings = {
   swift: 'سويفت/BIC',
   signature: 'التوقيع المعتمد',
   scan: 'امسح للعرض والتحميل',
+  deliveryNote: 'إشعار تسليم',
+  sku: 'الرمز',
+  description: 'الوصف',
+  quantity: 'الكمية',
 };
 
 export function isRtlLocale(locale: string = getCurrentLocale()): boolean {

@@ -37,7 +37,8 @@ import {
   getDeliveriesForSalesOrder,
   updateDeliveryStatus,
 } from '@/services/financeService';
-import { PackageCheck, Truck, X } from 'lucide-react';
+import { publicDeliveryUrl } from '@/services/publicService';
+import { PackageCheck, Truck, X, FileText } from 'lucide-react';
 
 const statusStyles: Record<DeliveryStatus, string> = {
   Pending: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -264,6 +265,15 @@ export function DeliveryManagementDialog({
                       </TableCell>
                       <TableCell className="text-end">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => window.open(publicDeliveryUrl(delivery.id), '_blank', 'noopener')}
+                            title={t('deliveries.openNote', 'Open delivery note')}
+                          >
+                            <FileText className="me-1 h-3 w-3" />
+                            {t('deliveries.note', 'Note')}
+                          </Button>
                           {delivery.status === 'Pending' && (
                             <Button
                               size="sm"

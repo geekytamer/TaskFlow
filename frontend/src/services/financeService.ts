@@ -556,9 +556,13 @@ export async function getInvoice(invoiceId: string): Promise<Invoice | null> {
   return mapInvoice(invoice);
 }
 
-export async function getInvoiceTemplates(companyId: string): Promise<InvoiceTemplate[]> {
+export async function getInvoiceTemplates(
+  companyId: string,
+  docType: 'invoice' | 'delivery' = 'invoice',
+): Promise<InvoiceTemplate[]> {
   if (!companyId) return [];
-  const templates = await apiFetch<InvoiceTemplate[]>(`/companies/${companyId}/invoice-templates`);
+  const query = docType === 'delivery' ? '?docType=delivery' : '';
+  const templates = await apiFetch<InvoiceTemplate[]>(`/companies/${companyId}/invoice-templates${query}`);
   return templates.map(mapInvoiceTemplate);
 }
 

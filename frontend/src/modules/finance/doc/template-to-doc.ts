@@ -17,6 +17,14 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   const accent = template?.accentColor || '#2563eb';
   const breaks = new Set<InvoiceSectionKey>(template?.sectionBreaks ?? []);
   const pageBreak = (): Block => ({ id: id('pb'), type: 'pageBreak' });
+  // A delivery note is the same engine without the money side: a quantity-only
+  // items table, a "Delivery Note" heading, and no totals/payment sections.
+  const isDelivery = template?.docType === 'delivery';
+  const deliveryColumns = [
+    { id: 'dn-sku', key: 'sku' as const, label: s.sku ?? 'SKU', visible: true, width: 22, align: 'left' as const },
+    { id: 'dn-desc', key: 'description' as const, label: s.description ?? 'Description', visible: true, align: 'left' as const },
+    { id: 'dn-qty', key: 'quantity' as const, label: s.quantity ?? 'Quantity', visible: true, width: 20, align: 'right' as const },
+  ];
 
   const body: Block[] = [];
 
@@ -46,7 +54,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
         layout: 'stack',
         style: { align: 'right' },
         children: [
-          { id: id('inv'), type: 'heading', level: 1, content: s.invoice, style: { align: 'right', color: primary } },
+          { id: id('inv'), type: 'heading', level: 1, content: isDelivery ? (s.deliveryNote ?? 'Delivery Note') : s.invoice, style: { align: 'right', color: primary } },
           { id: id('num'), type: 'text', content: '{{invoice.number}}', style: { align: 'right', fontSize: 13, color: '#64748b', margin: { top: 8 } } },
           { id: id('st'), type: 'text', content: '{{invoice.status}}', style: { align: 'right', fontSize: 13, color: '#64748b' } },
         ],
@@ -67,22 +75,24 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
         { label: '', value: '{{client.address}}' },
         { label: '', value: '{{client.email}}' },
       ] },
-      { id: id('dates'), type: 'details', title: '', style: { align: 'right' }, fields: [
-        { label: s.issueDate, value: '{{invoice.issueDate}}' },
-        { label: s.dueDate, value: '{{invoice.dueDate}}' },
-        { label: s.currency, value: '{{invoice.currency}}' },
-      ] },
+      { id: id('dates'), type: 'details', title: '', style: { align: 'right' }, fields: isDelivery
+        ? [{ label: s.issueDate, value: '{{invoice.issueDate}}' }]
+        : [
+            { label: s.issueDate, value: '{{invoice.issueDate}}' },
+            { label: s.dueDate, value: '{{invoice.dueDate}}' },
+            { label: s.currency, value: '{{invoice.currency}}' },
+          ] },
     ],
   });
 
-  // Line items + totals
+  // Line items (+ totals/payment only for invoices)
   if (breaks.has('items')) body.push(pageBreak());
-  body.push({ id: id('items'), type: 'lineItems', style: { margin: { top: 24 } } });
-  body.push({ id: id('totals'), type: 'totals', style: { margin: { top: 24 } } });
-
-  // Payment + terms
-  if (breaks.has('payment')) body.push(pageBreak());
-  body.push({ id: id('payment'), type: 'payment', style: { margin: { top: 32 } } });
+  body.push({ id: id('items'), type: 'lineItems', columns: isDelivery ? deliveryColumns : undefined, style: { margin: { top: 24 } } });
+  if (!isDelivery) {
+    body.push({ id: id('totals'), type: 'totals', style: { margin: { top: 24 } } });
+    if (breaks.has('payment')) body.push(pageBreak());
+    body.push({ id: id('payment'), type: 'payment', style: { margin: { top: 32 } } });
+  }
   if (breaks.has('terms')) body.push(pageBreak());
   if (template?.terms) {
     body.push({

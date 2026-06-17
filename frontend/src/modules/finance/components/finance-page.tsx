@@ -19,6 +19,7 @@ const VALID_TABS = new Set([
   'overview',
   'invoices',
   'invoice-templates',
+  'delivery-templates',
   'payables',
   'ledger',
   'accounting',
@@ -49,6 +50,7 @@ export function FinancePage() {
           <TabsTrigger value="overview" data-tutorial="finance-tab-overview">{t('finance.tabOverview')}</TabsTrigger>
           <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
           <TabsTrigger value="invoice-templates">{t('finance.tabInvoiceTemplates')}</TabsTrigger>
+          <TabsTrigger value="delivery-templates">{t('finance.tabDeliveryTemplates', 'Delivery Notes')}</TabsTrigger>
           <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
           <TabsTrigger value="ledger" data-tutorial="finance-tab-ledger">{t('finance.tabLedger')}</TabsTrigger>
           <TabsTrigger value="accounting">{t('finance.tabAccountingReports')}</TabsTrigger>
@@ -65,6 +67,9 @@ export function FinancePage() {
         </TabsContent>
         <TabsContent value="invoice-templates">
           <InvoiceTemplatePanel />
+        </TabsContent>
+        <TabsContent value="delivery-templates">
+          <InvoiceTemplatePanel docType="delivery" />
         </TabsContent>
         <TabsContent value="payables">
           <VendorBillTable />

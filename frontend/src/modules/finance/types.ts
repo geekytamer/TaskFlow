@@ -207,6 +207,7 @@ export interface InvoiceTemplate {
   logoUrl?: string;
   headerImageUrl?: string;
   footerImageUrl?: string;
+  docType?: 'invoice' | 'delivery';
   letterheadPdfUrl?: string;
   letterheadImageUrl?: string;
   stampUrl?: string;

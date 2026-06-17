@@ -47,6 +47,7 @@ const defaultColumns = (): InvoiceColumn[] => [
 
 const emptyForm: InvoiceTemplateInput = {
   name: '',
+  docType: 'invoice',
   layout: 'classic',
   isDefault: false,
   primaryColor: '#111827',
@@ -83,6 +84,7 @@ const layoutLabels: Record<InvoiceTemplateLayout, string> = {
 
 const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
   name: template.name,
+  docType: template.docType ?? 'invoice',
   layout: template.layout,
   isDefault: template.isDefault,
   primaryColor: template.primaryColor,
@@ -238,12 +240,13 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
   );
 }
 
-export function InvoiceTemplatePanel() {
+export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoice' | 'delivery' } = {}) {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const newTemplateForm = React.useMemo(() => ({ ...emptyForm, docType }), [docType]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | undefined>();
-  const [form, setForm] = React.useState<InvoiceTemplateInput>(emptyForm);
+  const [form, setForm] = React.useState<InvoiceTemplateInput>(newTemplateForm);
   const [loading, setLoading] = React.useState(true);
   const [designing, setDesigning] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -252,17 +255,17 @@ export function InvoiceTemplatePanel() {
     if (!selectedCompany) {
       setTemplates([]);
       setSelectedTemplateId(undefined);
-      setForm(emptyForm);
+      setForm(newTemplateForm);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const data = await getInvoiceTemplates(selectedCompany.id);
+      const data = await getInvoiceTemplates(selectedCompany.id, docType);
       setTemplates(data);
       const nextSelected = data.find((template) => template.isDefault) || data[0];
       setSelectedTemplateId(nextSelected?.id);
-      setForm(nextSelected ? toForm(nextSelected) : emptyForm);
+      setForm(nextSelected ? toForm(nextSelected) : newTemplateForm);
     } catch (error: any) {
       setTemplates([]);
       toast({
@@ -273,7 +276,7 @@ export function InvoiceTemplatePanel() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, toast, docType, newTemplateForm]);
 
   React.useEffect(() => {
     loadTemplates();
@@ -319,7 +322,7 @@ export function InvoiceTemplatePanel() {
 
   const startNewTemplate = () => {
     setSelectedTemplateId(undefined);
-    setForm({ ...emptyForm, name: `Template ${templates.length + 1}` });
+    setForm({ ...newTemplateForm, name: `Template ${templates.length + 1}` });
   };
 
   const handleSave = async () => {
@@ -338,7 +341,7 @@ export function InvoiceTemplatePanel() {
       const saved = selectedTemplateId
         ? await updateInvoiceTemplate(selectedTemplateId, payload)
         : await createInvoiceTemplate(selectedCompany.id, payload);
-      const data = await getInvoiceTemplates(selectedCompany.id);
+      const data = await getInvoiceTemplates(selectedCompany.id, docType);
       setTemplates(data);
       setSelectedTemplateId(saved.id);
       setForm(toForm(saved));
