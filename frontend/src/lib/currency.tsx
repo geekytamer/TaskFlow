@@ -11,16 +11,25 @@ export type SupportedCurrencyCode = 'USD' | 'OMR' | 'AED' | 'SAR' | 'EUR' | 'GBP
 export const supportedCurrencies: Array<{
   code: SupportedCurrencyCode;
   label: string;
+  labelAr: string;
   decimals: number;
   symbolAsset?: string;
 }> = [
-  { code: 'USD', label: 'US Dollar', decimals: 2 },
-  { code: 'OMR', label: 'Omani Rial', decimals: 3, symbolAsset: '/currency/omr.svg' },
-  { code: 'AED', label: 'UAE Dirham', decimals: 2 },
-  { code: 'SAR', label: 'Saudi Riyal', decimals: 2 },
-  { code: 'EUR', label: 'Euro', decimals: 2 },
-  { code: 'GBP', label: 'British Pound', decimals: 2 },
+  { code: 'USD', label: 'US Dollar', labelAr: 'دولار أمريكي', decimals: 2 },
+  { code: 'OMR', label: 'Omani Rial', labelAr: 'ريال عماني', decimals: 3, symbolAsset: '/currency/omr.svg' },
+  { code: 'AED', label: 'UAE Dirham', labelAr: 'درهم إماراتي', decimals: 2 },
+  { code: 'SAR', label: 'Saudi Riyal', labelAr: 'ريال سعودي', decimals: 2 },
+  { code: 'EUR', label: 'Euro', labelAr: 'يورو', decimals: 2 },
+  { code: 'GBP', label: 'British Pound', labelAr: 'جنيه إسترليني', decimals: 2 },
 ];
+
+/** Localized display label for a currency (falls back to the English label). */
+export function currencyLabel(
+  currency: { label: string; labelAr: string },
+  language?: string,
+): string {
+  return language === 'ar' ? currency.labelAr : currency.label;
+}
 
 export const defaultCurrencyCode: SupportedCurrencyCode = 'USD';
 

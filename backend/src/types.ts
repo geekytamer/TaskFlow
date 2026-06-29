@@ -1369,6 +1369,8 @@ export interface Notification {
   link?: string;
   entityType?: string;
   entityId?: string;
+  /** Structured params for client-side localization; title/body are the fallback. */
+  data?: Record<string, string | number>;
   readAt?: Date;
   /** When this was included in a sent email (immediate or digest). */
   emailedAt?: Date;

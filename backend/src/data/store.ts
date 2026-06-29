@@ -2890,6 +2890,18 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Structured params for notifications so the frontend can render them in
+        // the user's language. The English title/body stay as the fallback, so
+        // existing rows and any untemplated type keep working unchanged.
+        id: '061_notification_data',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(notifications)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('data')) {
+            this.db.exec(`ALTER TABLE notifications ADD COLUMN data TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4178,6 +4190,7 @@ export class DataStore {
       type: 'task_assigned',
       title: `New task: ${newTask.title}`,
       body: `You were assigned to "${newTask.title}".`,
+      data: { tKey: 'notif.taskAssigned.t', bKey: 'notif.taskAssigned.b', title: newTask.title },
       link: taskLink(newTask.projectId),
       entityType: 'task',
       entityId: newTask.id,
@@ -4240,6 +4253,7 @@ export class DataStore {
         type: 'task_assigned',
         title: `New task: ${result.title}`,
         body: `You were assigned to "${result.title}".`,
+        data: { tKey: 'notif.taskAssigned.t', bKey: 'notif.taskAssigned.b', title: result.title },
         link,
         entityType: 'task',
         entityId: result.id,
@@ -4252,6 +4266,7 @@ export class DataStore {
         type: 'task_status',
         title: `${result.title} → ${result.status}`,
         body: `Status changed from ${prevStatus} to ${result.status}.`,
+        data: { tKey: 'notif.taskStatus.t', bKey: 'notif.taskStatus.b', title: result.title, status: result.status, prev: prevStatus },
         link,
         entityType: 'task',
         entityId: result.id,
@@ -4297,6 +4312,7 @@ export class DataStore {
         type: 'task_comment',
         title: `New comment on ${task.title}`,
         body: newComment.content.slice(0, 160),
+        data: { tKey: 'notif.taskComment.t', title: task.title },
         link: taskLink(task.projectId),
         entityType: 'task',
         entityId: task.id,
@@ -4625,6 +4641,7 @@ export class DataStore {
         type: 'lead_assigned',
         title: `Assigned to you: ${updates.name ?? existing.name}`,
         body: 'You are now the owner of this contact.',
+        data: { tKey: 'notif.leadAssigned.t', bKey: 'notif.leadAssigned.b', name: updates.name ?? existing.name },
         link: `/contacts/${id}`,
         entityType: 'contact',
         entityId: id,
@@ -9109,6 +9126,7 @@ export class DataStore {
         type: 'po_approval',
         title: `PO needs approval: ${order.orderNumber}`,
         body: `${order.supplierName} — ${order.totalAmount}. Review and approve in Purchasing.`,
+        data: { tKey: 'notif.poApproval.t', bKey: 'notif.poApproval.b', number: order.orderNumber, supplier: order.supplierName, amount: order.totalAmount },
         link: '/operations',
         entityType: 'purchase_order',
         entityId: order.id,
@@ -11376,6 +11394,7 @@ export class DataStore {
       type: 'invoice_payment',
       title: `Payment received: ${refreshed?.invoiceNumber ?? ''}`.trim(),
       body: `${newPayment.amount} ${refreshed?.currency ?? ''} via ${newPayment.method}. Outstanding: ${(refreshed?.outstandingAmount ?? 0).toFixed(2)}.`,
+      data: { tKey: 'notif.invoicePayment.t', bKey: 'notif.invoicePayment.b', number: refreshed?.invoiceNumber ?? '', amount: newPayment.amount, currency: refreshed?.currency ?? '', method: newPayment.method ?? '', outstanding: (refreshed?.outstandingAmount ?? 0).toFixed(2) },
       link: '/finance',
       entityType: 'invoice',
       entityId: newPayment.invoiceId,
@@ -12092,6 +12111,7 @@ export class DataStore {
         type: 'vendor_bill_approval',
         title: `Bill needs approval: ${result.billNumber}`,
         body: `Amount ${result.amount}. Review and approve in Payables.`,
+        data: { tKey: 'notif.vendorBillApproval.t', bKey: 'notif.vendorBillApproval.b', number: result.billNumber, amount: result.amount },
         link: '/finance',
         entityType: 'vendor_bill',
         entityId: result.id,
@@ -13608,6 +13628,7 @@ export class DataStore {
       link: row.link ?? undefined,
       entityType: row.entityType ?? undefined,
       entityId: row.entityId ?? undefined,
+      data: this.parseJson<Record<string, string | number>>(row.data),
       readAt: row.readAt ? new Date(row.readAt) : undefined,
       emailedAt: row.emailedAt ? new Date(row.emailedAt) : undefined,
       createdAt: new Date(row.createdAt),
@@ -13657,6 +13678,8 @@ export class DataStore {
     link?: string;
     entityType?: string;
     entityId?: string;
+    /** Structured params for client-side localization (the title/body remain the fallback). */
+    data?: Record<string, string | number>;
     /** Skip if a same (user, type, entityId) notification exists within this window. */
     dedupeWithinMs?: number;
   }): Notification[] {
@@ -13669,8 +13692,8 @@ export class DataStore {
     const now = new Date();
     const insert = this.db.prepare(
       `INSERT INTO notifications
-        (id, companyId, userId, category, type, priority, title, body, link, entityType, entityId, readAt, emailedAt, createdAt)
-       VALUES (@id, @companyId, @userId, @category, @type, @priority, @title, @body, @link, @entityType, @entityId, NULL, NULL, @createdAt)`,
+        (id, companyId, userId, category, type, priority, title, body, link, entityType, entityId, data, readAt, emailedAt, createdAt)
+       VALUES (@id, @companyId, @userId, @category, @type, @priority, @title, @body, @link, @entityType, @entityId, @data, NULL, NULL, @createdAt)`,
     );
     const created: Notification[] = [];
 
@@ -13700,6 +13723,7 @@ export class DataStore {
         link: input.link,
         entityType: input.entityType,
         entityId: input.entityId,
+        data: input.data,
         createdAt: now,
       };
       insert.run({
@@ -13708,6 +13732,7 @@ export class DataStore {
         link: notification.link ?? null,
         entityType: notification.entityType ?? null,
         entityId: notification.entityId ?? null,
+        data: notification.data ? JSON.stringify(notification.data) : null,
         createdAt: now.toISOString(),
       });
       created.push(notification);
@@ -13810,6 +13835,11 @@ export class DataStore {
         type: 'task_due',
         title: `${overdue ? 'Overdue' : 'Due soon'}: ${task.title}`,
         body: task.dueDate ? `Due ${task.dueDate.toISOString().slice(0, 10)}.` : undefined,
+        data: {
+          tKey: overdue ? 'notif.taskOverdue.t' : 'notif.taskDueSoon.t',
+          title: task.title,
+          ...(task.dueDate ? { bKey: 'notif.taskDue.b', due: task.dueDate.toISOString().slice(0, 10) } : {}),
+        },
         link: taskLink(task.projectId),
         entityType: 'task',
         entityId: task.id,
@@ -13848,6 +13878,7 @@ export class DataStore {
         type: 'followup_due',
         title: `Follow-up due: ${name}`,
         body: f.title || f.notes || undefined,
+        data: { tKey: 'notif.followupDue.t', name },
         link,
         entityType: 'follow_up',
         entityId: f.id,
@@ -13893,6 +13924,7 @@ export class DataStore {
         type: 'low_stock',
         title: `Low stock: ${row.name}`,
         body: `On hand ${onHand}, reorder point ${reorder}. Suggested reorder ≈ ${suggested} ${row.unit || ''}.`.trim(),
+        data: { tKey: 'notif.lowStock.t', bKey: 'notif.lowStock.b', name: row.name, onHand, reorder, suggested, unit: row.unit || '' },
         link: '/inventory',
         entityType: 'inventory_item',
         entityId: row.id,
@@ -13925,6 +13957,7 @@ export class DataStore {
         type: 'invoice_overdue',
         title: `Overdue invoice: ${inv.invoiceNumber}`,
         body: `Outstanding ${outstanding.toFixed(2)} ${inv.currency ?? ''}, due ${inv.dueDate.toISOString().slice(0, 10)}.`,
+        data: { tKey: 'notif.invoiceOverdue.t', bKey: 'notif.invoiceOverdue.b', number: inv.invoiceNumber, outstanding: outstanding.toFixed(2), currency: inv.currency ?? '', due: inv.dueDate.toISOString().slice(0, 10) },
         link: '/finance',
         entityType: 'invoice',
         entityId: inv.id,
@@ -14265,6 +14298,7 @@ export class DataStore {
         type: 'followup_assigned',
         title: `You were added to a follow-up: ${name}`,
         body: existing.title || existing.notes || undefined,
+        data: { tKey: 'notif.followupAssigned.t', name },
         link,
         entityType: 'follow_up',
         entityId: existing.id,
@@ -14541,6 +14575,7 @@ export class DataStore {
         userIds: [userId],
         type: 'followup_assigned',
         title: count === 1 ? 'A follow-up was assigned to you' : `${count} follow-ups were assigned to you`,
+        data: count === 1 ? { tKey: 'notif.followupAssignedOne.t' } : { tKey: 'notif.followupAssignedMany.t', count },
         link: '/crm/followups',
       });
     }
@@ -15197,6 +15232,12 @@ export class DataStore {
           body: `${lot.quantity} ${item.unit} ${
             expired ? `expired ${Math.abs(days)} day(s) ago` : `expire in ${days} day(s)`
           } on ${expiry.toISOString().slice(0, 10)}.`,
+          data: {
+            tKey: expired ? 'notif.expired.t' : 'notif.expiringSoon.t',
+            bKey: expired ? 'notif.expiry.bExpired' : 'notif.expiry.bSoon',
+            name: item.name, lot: lot.lotNumber, qty: lot.quantity, unit: item.unit ?? '',
+            days: Math.abs(days), date: expiry.toISOString().slice(0, 10),
+          },
           link: '/inventory',
           entityType: 'inventory_lot',
           entityId: lot.id,

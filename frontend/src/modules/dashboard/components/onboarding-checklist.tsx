@@ -21,7 +21,7 @@ const DISMISS_KEY_PREFIX = 'taskflow_onboarding_dismissed_';
 
 export function OnboardingChecklist() {
   const { selectedCompany } = useCompany();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [counts, setCounts] = React.useState<{
     contacts: number;
     inventory: number;
@@ -117,7 +117,7 @@ export function OnboardingChecklist() {
     <div className="relative rounded-2xl border bg-gradient-to-br from-indigo-50 via-white to-emerald-50 p-5 shadow-sm">
       <button
         type="button"
-        aria-label="Dismiss"
+        aria-label={language === 'ar' ? 'تجاهل' : 'Dismiss'}
         onClick={handleDismiss}
         className="absolute end-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-white/60"
       >

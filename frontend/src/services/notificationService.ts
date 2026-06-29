@@ -15,9 +15,26 @@ export interface AppNotification {
   link?: string;
   entityType?: string;
   entityId?: string;
+  /** Structured params for client-side localization (title/body are the fallback). */
+  data?: Record<string, string | number> & { tKey?: string; bKey?: string };
   readAt?: Date;
   emailedAt?: Date;
   createdAt: Date;
+}
+
+/**
+ * Localized title/body for a notification. Uses the structured `data` (a `tKey`/
+ * `bKey` plus interpolation params) when present, falling back to the stored
+ * English title/body for older rows or untemplated types.
+ */
+export function localizeNotification(
+  n: AppNotification,
+  t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+): { title: string; body?: string } {
+  const d = n.data;
+  const title = d?.tKey ? t(d.tKey, n.title, d) : n.title;
+  const body = d?.bKey ? t(d.bKey, n.body ?? '', d) : n.body;
+  return { title, body };
 }
 
 export interface NotificationChannelPref {

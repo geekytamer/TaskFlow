@@ -16,6 +16,7 @@ import {
   getUnreadCount,
   markAllNotificationsRead,
   markNotificationRead,
+  localizeNotification,
   NOTIFICATIONS_CHANGED_EVENT,
   type AppNotification,
   type NotificationCategory,
@@ -161,13 +162,14 @@ export function NotificationBell() {
           )}
 
           {notifications.map((n) => {
+            const { title, body } = localizeNotification(n, t);
             const inner = (
               <>
                 <div className="flex items-start justify-between gap-2">
-                  <div className={`font-medium ${n.readAt ? 'text-muted-foreground' : ''}`}>{n.title}</div>
+                  <div className={`font-medium ${n.readAt ? 'text-muted-foreground' : ''}`}>{title}</div>
                   <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
                 </div>
-                {n.body ? <div className="line-clamp-2 text-xs text-muted-foreground">{n.body}</div> : null}
+                {body ? <div className="line-clamp-2 text-xs text-muted-foreground">{body}</div> : null}
               </>
             );
             const cls = `block border-b border-l-4 ${CATEGORY_BORDER[n.category] ?? 'border-l-slate-300'} px-3 py-2.5 text-sm transition hover:bg-muted/50 ${n.readAt ? '' : 'bg-primary/5'}`;

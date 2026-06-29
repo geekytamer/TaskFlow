@@ -60,6 +60,36 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'notifPage.filterAll': 'All',
     'notifPage.filterUnread': 'Unread',
     'notifPage.prefsTitle': 'Notification preferences',
+
+    // Notification templates (rendered from notification.data on the client).
+    'notif.taskAssigned.t': 'New task: {{title}}',
+    'notif.taskAssigned.b': 'You were assigned to "{{title}}".',
+    'notif.taskStatus.t': '{{title}} → {{status}}',
+    'notif.taskStatus.b': 'Status changed from {{prev}} to {{status}}.',
+    'notif.taskComment.t': 'New comment on {{title}}',
+    'notif.taskOverdue.t': 'Overdue: {{title}}',
+    'notif.taskDueSoon.t': 'Due soon: {{title}}',
+    'notif.taskDue.b': 'Due {{due}}.',
+    'notif.leadAssigned.t': 'Assigned to you: {{name}}',
+    'notif.leadAssigned.b': 'You are now the owner of this contact.',
+    'notif.poApproval.t': 'PO needs approval: {{number}}',
+    'notif.poApproval.b': '{{supplier}} — {{amount}}. Review and approve in Purchasing.',
+    'notif.invoicePayment.t': 'Payment received: {{number}}',
+    'notif.invoicePayment.b': '{{amount}} {{currency}} via {{method}}. Outstanding: {{outstanding}}.',
+    'notif.vendorBillApproval.t': 'Bill needs approval: {{number}}',
+    'notif.vendorBillApproval.b': 'Amount {{amount}}. Review and approve in Payables.',
+    'notif.followupDue.t': 'Follow-up due: {{name}}',
+    'notif.followupAssigned.t': 'You were added to a follow-up: {{name}}',
+    'notif.followupAssignedOne.t': 'A follow-up was assigned to you',
+    'notif.followupAssignedMany.t': '{{count}} follow-ups were assigned to you',
+    'notif.lowStock.t': 'Low stock: {{name}}',
+    'notif.lowStock.b': 'On hand {{onHand}}, reorder point {{reorder}}. Suggested reorder ≈ {{suggested}} {{unit}}.',
+    'notif.invoiceOverdue.t': 'Overdue invoice: {{number}}',
+    'notif.invoiceOverdue.b': 'Outstanding {{outstanding}} {{currency}}, due {{due}}.',
+    'notif.expired.t': 'Expired: {{name}} (lot {{lot}})',
+    'notif.expiringSoon.t': 'Expiring soon: {{name}} (lot {{lot}})',
+    'notif.expiry.bExpired': '{{qty}} {{unit}} expired {{days}} day(s) ago on {{date}}.',
+    'notif.expiry.bSoon': '{{qty}} {{unit}} expire in {{days}} day(s) on {{date}}.',
     'notifPage.prefsSubtitle': 'Choose what reaches you in-app and by email.',
     'notifPage.prefsHint': 'Critical alerts are emailed immediately; everything else is sent as a daily digest.',
     'notifPage.prefsSaved': 'Preferences saved.',
@@ -1007,6 +1037,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
 
     // finance.page extra tabs
     'finance.tabInvoiceTemplates': 'Invoice Templates',
+    'finance.tabDeliveryTemplates': 'Delivery Notes',
     'finance.tabAccountingReports': 'Accounting Reports',
     'finance.tabReports': 'Reports',
     'finance.tabActivity': 'Activity Log',
@@ -2785,6 +2816,36 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'notifPage.filterAll': 'الكل',
     'notifPage.filterUnread': 'غير مقروء',
     'notifPage.prefsTitle': 'تفضيلات الإشعارات',
+
+    // قوالب الإشعارات (تُعرض من notification.data في الواجهة).
+    'notif.taskAssigned.t': 'مهمة جديدة: {{title}}',
+    'notif.taskAssigned.b': 'تم إسنادك إلى "{{title}}".',
+    'notif.taskStatus.t': '{{title}} ← {{status}}',
+    'notif.taskStatus.b': 'تغيّرت الحالة من {{prev}} إلى {{status}}.',
+    'notif.taskComment.t': 'تعليق جديد على {{title}}',
+    'notif.taskOverdue.t': 'متأخرة: {{title}}',
+    'notif.taskDueSoon.t': 'مستحقة قريبًا: {{title}}',
+    'notif.taskDue.b': 'تستحق في {{due}}.',
+    'notif.leadAssigned.t': 'تم إسناده إليك: {{name}}',
+    'notif.leadAssigned.b': 'أنت الآن مالك جهة الاتصال هذه.',
+    'notif.poApproval.t': 'أمر شراء يحتاج موافقة: {{number}}',
+    'notif.poApproval.b': '{{supplier}} — {{amount}}. راجِع ووافِق في المشتريات.',
+    'notif.invoicePayment.t': 'تم استلام دفعة: {{number}}',
+    'notif.invoicePayment.b': '{{amount}} {{currency}} عبر {{method}}. المتبقّي: {{outstanding}}.',
+    'notif.vendorBillApproval.t': 'فاتورة مورّد تحتاج موافقة: {{number}}',
+    'notif.vendorBillApproval.b': 'المبلغ {{amount}}. راجِع ووافِق في الذمم الدائنة.',
+    'notif.followupDue.t': 'متابعة مستحقة: {{name}}',
+    'notif.followupAssigned.t': 'تمت إضافتك إلى متابعة: {{name}}',
+    'notif.followupAssignedOne.t': 'تم إسناد متابعة إليك',
+    'notif.followupAssignedMany.t': 'تم إسناد {{count}} متابعات إليك',
+    'notif.lowStock.t': 'مخزون منخفض: {{name}}',
+    'notif.lowStock.b': 'المتوفّر {{onHand}}، نقطة إعادة الطلب {{reorder}}. الكمية المقترحة لإعادة الطلب ≈ {{suggested}} {{unit}}.',
+    'notif.invoiceOverdue.t': 'فاتورة متأخرة: {{number}}',
+    'notif.invoiceOverdue.b': 'المتبقّي {{outstanding}} {{currency}}، تستحق في {{due}}.',
+    'notif.expired.t': 'منتهية الصلاحية: {{name}} (دفعة {{lot}})',
+    'notif.expiringSoon.t': 'قاربت على الانتهاء: {{name}} (دفعة {{lot}})',
+    'notif.expiry.bExpired': '{{qty}} {{unit}} انتهت صلاحيتها منذ {{days}} يوم في {{date}}.',
+    'notif.expiry.bSoon': '{{qty}} {{unit}} تنتهي صلاحيتها خلال {{days}} يوم في {{date}}.',
     'notifPage.prefsSubtitle': 'اختر ما يصلك داخل النظام وعبر البريد.',
     'notifPage.prefsHint': 'تُرسل التنبيهات الحرجة بالبريد فورًا، والبقية في ملخص يومي.',
     'notifPage.prefsSaved': 'تم حفظ التفضيلات.',
@@ -3729,6 +3790,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
 
     // finance.page extra tabs
     'finance.tabInvoiceTemplates': 'قوالب الفواتير',
+    'finance.tabDeliveryTemplates': 'سندات التسليم',
     'finance.tabAccountingReports': 'تقارير المحاسبة',
     'finance.tabReports': 'التقارير',
     'finance.tabActivity': 'سجل النشاط',
@@ -5462,7 +5524,7 @@ interface I18nContextValue {
   language: AppLanguage;
   setLanguage: (language: AppLanguage) => void;
   isRtl: boolean;
-  t: (key: string, fallback?: string) => string;
+  t: (key: string, fallback?: string, params?: Record<string, string | number>) => string;
 }
 
 const I18nContext = React.createContext<I18nContextValue | undefined>(undefined);
@@ -5489,12 +5551,13 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const t = React.useCallback(
-    (key: string, fallback?: string) => {
-      const fromLang = dictionaries[language]?.[key];
-      if (fromLang) return fromLang;
-      const fromEnglish = dictionaries.en[key];
-      if (fromEnglish) return fromEnglish;
-      return fallback ?? key;
+    (key: string, fallback?: string, params?: Record<string, string | number>) => {
+      const resolved = dictionaries[language]?.[key] ?? dictionaries.en[key] ?? fallback ?? key;
+      if (!params) return resolved;
+      // Interpolate {{name}} placeholders from params (used for notifications).
+      return resolved.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) =>
+        params[k] !== undefined ? String(params[k]) : m,
+      );
     },
     [language],
   );

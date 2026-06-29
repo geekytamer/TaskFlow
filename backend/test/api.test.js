@@ -847,6 +847,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '058_expenses',
     '059_followups',
     '060_followup_assignees',
+    '061_notification_data',
   ]);
 });
 

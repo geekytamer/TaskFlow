@@ -18,7 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
-import { supportedCurrencies, normalizeCurrencyCode } from '@/lib/currency';
+import { supportedCurrencies, normalizeCurrencyCode, currencyLabel } from '@/lib/currency';
 import type {
   CompanyFinanceSettings,
   CompanyNumberingSetting,
@@ -336,7 +336,7 @@ export function NumberingSettingsPanel() {
               <SelectContent>
                 {supportedCurrencies.map((currency) => (
                   <SelectItem key={currency.code} value={currency.code}>
-                    {currency.code} - {currency.label}
+                    {currency.code} - {currencyLabel(currency, language)}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -16,6 +16,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   updateNotificationPrefs,
+  localizeNotification,
   NOTIFICATION_CATEGORIES,
   type AppNotification,
   type NotificationCategory,
@@ -30,14 +31,16 @@ const CATEGORY_BORDER: Record<NotificationCategory, string> = {
 };
 
 function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n: AppNotification) => void }) {
+  const { t } = useI18n();
   const when = n.createdAt.toLocaleString();
+  const { title, body } = localizeNotification(n, t);
   const inner = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <span className={`font-medium ${n.readAt ? 'text-muted-foreground' : ''}`}>{n.title}</span>
+        <span className={`font-medium ${n.readAt ? 'text-muted-foreground' : ''}`}>{title}</span>
         <span className="shrink-0 text-xs text-muted-foreground">{when}</span>
       </div>
-      {n.body ? <p className="mt-1 text-sm text-muted-foreground">{n.body}</p> : null}
+      {body ? <p className="mt-1 text-sm text-muted-foreground">{body}</p> : null}
     </>
   );
   const cls = `block rounded-lg border border-l-4 ${CATEGORY_BORDER[n.category] ?? 'border-l-slate-300'} p-3 transition hover:bg-muted/40 ${n.readAt ? '' : 'bg-primary/5'}`;
