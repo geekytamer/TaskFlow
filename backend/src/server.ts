@@ -3562,46 +3562,14 @@ export function createServer(options: CreateServerOptions = {}) {
 		        const existing = store.getInvoiceById(campaign.invoiceId);
 		        if (existing) { res.json(existing); return; }
 		      }
-		      const deliverables = store.listCampaignDeliverables(campaign.id);
-		      const lineItems = deliverables.map((d) => ({
-		        itemType: 'Manual' as const,
-		        description: d.title,
-		        quantity: 1,
-		        unitPrice: d.price || 0,
-		        amount: d.price || 0,
-		      }));
-		      // Resolve clientId — campaigns use contactId; find or create the linked client
-		      let clientId: string | undefined;
-		      if (campaign.contactId) {
-		        const contact = store.getContactById(campaign.contactId);
-		        if (contact) {
-		          store.addContactRole(contact.id, req.params.companyId, 'Client', 'Invoice');
-		          clientId = contact.id;
-		        }
+		      try {
+		        const invoice = withActor(req, () =>
+		          store.generateCampaignInvoice(req.params.companyId, campaign.id),
+		        );
+		        res.status(201).json(invoice);
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not generate the campaign invoice.');
 		      }
-		      if (!clientId) {
-		        // No contactId on campaign — throw a helpful error
-		        throw new HttpError(400, 'Please select a client contact for this campaign before generating an invoice.');
-		      }
-		      const now = new Date();
-		      const invoice = withActor(req, () =>
-		        store.createInvoice({
-		          companyId: campaign.companyId,
-		          clientId,
-		          contactId: campaign.contactId ?? undefined,
-		          campaignId: campaign.id,
-		          issueDate: now,
-		          dueDate: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30),
-		          lineItems: lineItems.length > 0 ? lineItems : [{ itemType: 'Manual' as const, description: `Campaign: ${campaign.name}`, quantity: 1, unitPrice: 0, amount: 0 }],
-		          total: 0,
-		          status: 'Draft',
-		          notes: `Generated from campaign: ${campaign.name}`,
-		          currency: undefined,
-		          taxRate: undefined,
-		        }),
-		      );
-		      store.updateCrmCampaign(campaign.id, { invoiceId: invoice.id });
-		      res.status(201).json(invoice);
 		    }),
 		  );
 

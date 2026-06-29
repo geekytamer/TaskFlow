@@ -4128,3 +4128,31 @@ test('influencers import from CSV rows and export back out', async () => {
   assert.match(exported.text, /^name,email,phone,platform,handle,niche,followers,engagementRate,rateCard,location,languages,availability/);
   assert.match(exported.text, /Nova Reels/);
 });
+
+test('syncing a campaign invoice self-heals when the linked invoice was deleted', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-store-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+
+  const co = store.createCompany({ name: 'Sync Co', website: '', address: '' });
+  const client = store.createContact({ companyId: co.id, name: 'Acme Client' });
+  const campaign = store.createCrmCampaign({ companyId: co.id, name: 'Spring Push', contactId: client.id });
+  store.createCampaignDeliverable({ companyId: co.id, campaignId: campaign.id, title: 'Reel', status: 'Planned', price: 5500 });
+
+  // Generate the draft invoice and confirm it is linked.
+  const invoice = store.generateCampaignInvoice(co.id, campaign.id);
+  assert.equal(invoice.campaignId, campaign.id);
+  assert.equal(invoice.total, 5500);
+  assert.equal(store.getCrmCampaignById(campaign.id).invoiceId, invoice.id);
+
+  // Delete the invoice out from under the campaign — the reference is cleared.
+  store.deleteInvoice(invoice.id);
+  assert.ok(!store.getCrmCampaignById(campaign.id).invoiceId);
+
+  // Syncing must NOT throw — it regenerates a fresh draft mirroring deliverables.
+  const result = store.syncCampaignInvoice(co.id, campaign.id);
+  assert.equal(result.status, 'resynced');
+  assert.ok(result.invoice);
+  assert.notEqual(result.invoice.id, invoice.id);
+  assert.equal(result.invoice.total, 5500);
+  assert.equal(store.getCrmCampaignById(campaign.id).invoiceId, result.invoice.id);
+});

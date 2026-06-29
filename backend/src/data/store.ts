@@ -4754,6 +4754,9 @@ export class DataStore {
           "UPDATE sales_orders SET invoiceId = NULL, status = CASE WHEN status = 'Invoiced' THEN 'Confirmed' ELSE status END WHERE invoiceId = ?",
         )
         .run(id);
+      // Release any campaign that pointed at this invoice, so a later sync
+      // regenerates cleanly instead of chasing a dangling reference.
+      this.db.prepare('UPDATE crm_campaigns SET invoiceId = NULL WHERE invoiceId = ?').run(id);
       this.db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
     });
     trx();
@@ -12314,6 +12317,59 @@ export class DataStore {
   }
 
   /**
+   * Generate (or return the existing) draft invoice for a campaign from its
+   * current deliverables, and link it back onto the campaign. A dangling
+   * invoiceId (the linked invoice was deleted) is treated as "no invoice" so a
+   * fresh one is created. Throws if the campaign has no client contact.
+   */
+  generateCampaignInvoice(companyId: string, campaignId: string): Invoice {
+    const campaign = this.getCrmCampaignById(campaignId);
+    if (!campaign || campaign.companyId !== companyId) throw new Error('Campaign not found.');
+
+    if (campaign.invoiceId) {
+      const existing = this.getInvoiceById(campaign.invoiceId);
+      if (existing) return existing;
+    }
+
+    if (!campaign.contactId) {
+      throw new Error('Please select a client contact for this campaign before generating an invoice.');
+    }
+    const contact = this.getContactById(campaign.contactId);
+    if (!contact) {
+      throw new Error('Please select a client contact for this campaign before generating an invoice.');
+    }
+    this.addContactRole(contact.id, companyId, 'Client', 'Invoice');
+
+    const deliverables = this.listCampaignDeliverables(campaignId);
+    const lineItems = deliverables.map((d) => ({
+      itemType: 'Manual' as const,
+      description: d.title,
+      quantity: 1,
+      unitPrice: d.price || 0,
+      amount: d.price || 0,
+    }));
+    const now = new Date();
+    const invoice = this.createInvoice({
+      companyId,
+      clientId: contact.id,
+      contactId: campaign.contactId ?? undefined,
+      campaignId,
+      issueDate: now,
+      dueDate: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30),
+      lineItems: lineItems.length > 0
+        ? lineItems
+        : [{ itemType: 'Manual' as const, description: `Campaign: ${campaign.name}`, quantity: 1, unitPrice: 0, amount: 0 }],
+      total: 0,
+      status: 'Draft',
+      notes: `Generated from campaign: ${campaign.name}`,
+      currency: undefined,
+      taxRate: undefined,
+    });
+    this.updateCrmCampaign(campaignId, { invoiceId: invoice.id });
+    return invoice;
+  }
+
+  /**
    * Re-reconcile a campaign's generated invoice with the campaign's current
    * deliverables.
    *  - If the linked invoice is still Draft (a working document, not yet on the
@@ -12336,11 +12392,22 @@ export class DataStore {
   } {
     const campaign = this.getCrmCampaignById(campaignId);
     if (!campaign || campaign.companyId !== companyId) throw new Error('Campaign not found.');
-    if (!campaign.invoiceId) {
-      throw new Error('No invoice has been generated for this campaign yet.');
+
+    const primary = campaign.invoiceId ? this.getInvoiceById(campaign.invoiceId) : undefined;
+    if (!primary) {
+      // The campaign has no live invoice (never generated, or the linked one was
+      // deleted). Self-heal: adopt the most recent surviving campaign invoice as
+      // the primary, or regenerate a fresh draft from the current deliverables.
+      const survivors = this.listInvoices(companyId)
+        .filter((i) => i.campaignId === campaignId)
+        .sort((a, b) => +new Date(b.issueDate) - +new Date(a.issueDate));
+      if (survivors.length > 0) {
+        this.updateCrmCampaign(campaignId, { invoiceId: survivors[0].id });
+        return this.syncCampaignInvoice(companyId, campaignId, confirm);
+      }
+      const invoice = this.generateCampaignInvoice(companyId, campaignId);
+      return { status: 'resynced', invoice };
     }
-    const primary = this.getInvoiceById(campaign.invoiceId);
-    if (!primary) throw new Error('The linked invoice could not be found.');
 
     const deliverables = this.listCampaignDeliverables(campaignId);
     const desiredLines = deliverables.map((d) => ({
