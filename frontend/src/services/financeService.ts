@@ -8,6 +8,7 @@ import type {
   CompanyFinanceSettings,
   CompanyNumberingSetting,
   FinanceOverview,
+  Expense,
   Invoice,
   CreditNote,
   CreditNoteLineItem,
@@ -199,6 +200,9 @@ const mapManagementReportSummary = (summary: any): ManagementReportSummary => ({
     paidPayablesThisMonth: Number(summary?.finance?.paidPayablesThisMonth || 0),
     billedThisMonth: Number(summary?.finance?.billedThisMonth || 0),
     expenseReceiptsThisMonth: Number(summary?.finance?.expenseReceiptsThisMonth || 0),
+    revenueThisMonth: Number(summary?.finance?.revenueThisMonth || 0),
+    expensesThisMonth: Number(summary?.finance?.expensesThisMonth || 0),
+    netProfitThisMonth: Number(summary?.finance?.netProfitThisMonth || 0),
   },
   inventory: {
     totalItems: Number(summary?.inventory?.totalItems || 0),
@@ -992,6 +996,43 @@ export async function bulkUpdateVendorBillStatus(
 
 export async function getFinanceOverview(companyId: string): Promise<FinanceOverview> {
   return apiFetch<FinanceOverview>(`/companies/${companyId}/finance/overview`);
+}
+
+const mapExpense = (e: any): Expense => ({
+  ...e,
+  amount: Number(e.amount || 0),
+  expenseDate: e.expenseDate ? new Date(e.expenseDate) : new Date(),
+  createdAt: e.createdAt ? new Date(e.createdAt) : new Date(),
+  updatedAt: e.updatedAt ? new Date(e.updatedAt) : new Date(),
+});
+
+export interface CreateExpenseInput {
+  category: string;
+  amount: number;
+  expenseDate?: string;
+  vendor?: string;
+  description?: string;
+  paymentMethod?: string;
+  reference?: string;
+  projectId?: string;
+}
+
+export async function getExpenses(companyId: string): Promise<Expense[]> {
+  if (!companyId) return [];
+  const rows = await apiFetch<Expense[]>(`/companies/${companyId}/expenses`);
+  return rows.map(mapExpense);
+}
+
+export async function createExpense(companyId: string, data: CreateExpenseInput): Promise<Expense> {
+  const created = await apiFetch<Expense>(`/companies/${companyId}/expenses`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return mapExpense(created);
+}
+
+export async function deleteExpense(expenseId: string): Promise<void> {
+  await apiFetch(`/expenses/${expenseId}`, { method: 'DELETE' });
 }
 
 export interface FinanceAgingResponse {

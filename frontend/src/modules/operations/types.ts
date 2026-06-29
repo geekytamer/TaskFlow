@@ -87,6 +87,9 @@ export interface PurchaseReceiptLine {
   description: string;
   quantity: number;
   unitCost: number;
+  lotNumber?: string;
+  expiryDate?: Date;
+  manufactureDate?: Date;
 }
 
 export interface PurchaseReceipt {
@@ -137,8 +140,31 @@ export interface StockMovement {
     | 'purchase_order'
     | 'manual_adjustment'
     | 'inventory_issue'
-    | 'inventory_transfer';
+    | 'inventory_transfer'
+    | 'inventory_lot';
   referenceId?: string;
+  lotId?: string;
   note?: string;
   createdAt: Date;
+}
+
+export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired';
+
+export interface InventoryLot {
+  id: string;
+  companyId: string;
+  inventoryItemId: string;
+  lotNumber: string;
+  location: string;
+  quantity: number;
+  initialQuantity: number;
+  unitCost: number;
+  expiryDate?: Date;
+  manufactureDate?: Date;
+  supplierId?: string;
+  receivedAt: Date;
+  status: InventoryLotStatus;
+  note?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }

@@ -28,25 +28,15 @@ import { getSupplierPayables } from '@/services/financeService';
 import { getPurchaseOrders } from '@/services/operationsService';
 import type { PurchaseOrder } from '@/modules/operations/types';
 import type { SupplierPayablesSummary } from '@/modules/finance/types';
+import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
+import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
+import {
+  ContactFormFields,
+  emptyContactForm,
+  buildContactPayload,
+  type ContactForm,
+} from '@/modules/contacts/components/contact-form-fields';
 import { Building2, User, Plus, Search } from 'lucide-react';
-
-type SupplierForm = {
-  name: string;
-  contactPerson: string;
-  email: string;
-  phone: string;
-  address: string;
-  notes: string;
-};
-
-const emptyForm = (): SupplierForm => ({
-  name: '',
-  contactPerson: '',
-  email: '',
-  phone: '',
-  address: '',
-  notes: '',
-});
 
 export function SuppliersPage() {
   const { selectedCompany } = useCompany();
@@ -59,8 +49,19 @@ export function SuppliersPage() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [openCreate, setOpenCreate] = React.useState(false);
-  const [form, setForm] = React.useState<SupplierForm>(emptyForm());
+  const [form, setForm] = React.useState<ContactForm>(emptyContactForm());
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
+  const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    let cancelled = false;
+    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+      .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
+      .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -132,18 +133,12 @@ export function SuppliersPage() {
     try {
       const contact = await createContact({
         companyId: selectedCompany.id,
-        kind: 'Organization',
-        name: form.name.trim(),
-        contactPerson: form.contactPerson.trim() || undefined,
-        email: form.email.trim() || undefined,
-        phone: form.phone.trim() || undefined,
-        address: form.address.trim() || undefined,
-        notes: form.notes.trim() || undefined,
-        roles: ['Vendor'],
+        ...buildContactPayload(form, { customFields: createCustomValues, lockedRole: 'Vendor' }),
       });
       setContacts((prev: Contact[]) => [...prev, contact]);
       setOpenCreate(false);
-      setForm(emptyForm());
+      setForm(emptyContactForm());
+      setCreateCustomValues({});
       toast({ title: t('contacts.created') });
     } catch {
       toast({ title: t('common.error'), variant: 'destructive' });
@@ -161,38 +156,20 @@ export function SuppliersPage() {
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 me-1" />{t('suppliers.addSupplier')}</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t('suppliers.createTitle')}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div>
-                <Label>{t('contacts.name')} *</Label>
-                <Input value={form.name} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, name: e.target.value }))} />
+            <ContactFormFields form={form} setForm={setForm} lockedRole="Vendor" />
+            {customFieldDefs.length > 0 && (
+              <div className="border-t pt-3">
+                <CustomFieldsForm
+                  definitions={customFieldDefs}
+                  values={createCustomValues}
+                  onChange={setCreateCustomValues}
+                />
               </div>
-              <div>
-                <Label>{t('contacts.contactPerson')}</Label>
-                <Input value={form.contactPerson} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, contactPerson: e.target.value }))} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>{t('contacts.email')}</Label>
-                  <Input type="email" value={form.email} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, email: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>{t('contacts.phone')}</Label>
-                  <Input value={form.phone} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, phone: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <Label>{t('contacts.address')}</Label>
-                <Input value={form.address} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, address: e.target.value }))} />
-              </div>
-              <div>
-                <Label>{t('contacts.notes')}</Label>
-                <Textarea value={form.notes} rows={2} onChange={(e) => setForm((f: SupplierForm) => ({ ...f, notes: e.target.value }))} />
-              </div>
-            </div>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
               <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>

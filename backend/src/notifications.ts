@@ -22,8 +22,10 @@ export const NOTIFICATION_META: Record<
   invoice_payment: { category: 'finance', priority: 'normal' },
   vendor_bill_approval: { category: 'finance', priority: 'critical' },
   followup_due: { category: 'crm', priority: 'critical' },
+  followup_assigned: { category: 'crm', priority: 'normal' },
   lead_assigned: { category: 'crm', priority: 'normal' },
   low_stock: { category: 'inventory', priority: 'normal' },
+  expiry_warning: { category: 'inventory', priority: 'normal' },
   po_approval: { category: 'finance', priority: 'critical' },
   po_approval_result: { category: 'finance', priority: 'normal' },
 };

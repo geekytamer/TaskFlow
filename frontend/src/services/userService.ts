@@ -23,6 +23,19 @@ export async function getUsersByCompany(companyId: string): Promise<User[]> {
   return apiFetch<User[]>(`/companies/${companyId}/users`);
 }
 
+export interface CompanyMember {
+  id: string;
+  name: string;
+  avatar?: string | null;
+}
+
+/** Minimal member directory (id/name/avatar) readable by ANY company member —
+ *  use for assignee pickers so employees can assign people too. */
+export async function getCompanyMembers(companyId: string): Promise<CompanyMember[]> {
+  if (!companyId) return [];
+  return apiFetch<CompanyMember[]>(`/companies/${companyId}/members`);
+}
+
 export async function createUser(
   userData: Omit<User, 'id'>,
 ): Promise<{ user: User; password: string }> {

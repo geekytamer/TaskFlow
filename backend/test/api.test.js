@@ -842,6 +842,11 @@ test('health endpoint reports status and applied migrations', async () => {
     '053_company_details',
     '054_template_letterhead_image',
     '055_template_doc_type',
+    '056_inventory_lots',
+    '057_purchase_requisitions',
+    '058_expenses',
+    '059_followups',
+    '060_followup_assignees',
   ]);
 });
 
@@ -992,10 +997,12 @@ test('company scoping blocks access outside a manager company', async () => {
   assert.equal(denied.status, 403);
 });
 
-test('employees cannot see private projects or tasks they are not a member of', async () => {
+test('employees see only tasks assigned to them; managers see all company tasks', async () => {
   const app = makeApp();
+  // fox.m (user-5) is an Employee in company 1 but a Manager in company 2.
   const token = await login(app, 'fox.m@synergysolutions.com');
 
+  // Project privacy is preserved (unchanged).
   const projects = await request(app)
     .get('/projects')
     .set('Authorization', `Bearer ${token}`);
@@ -1007,22 +1014,34 @@ test('employees cannot see private projects or tasks they are not a member of', 
     .set('Authorization', `Bearer ${token}`);
   assert.equal(privateProject.status, 403);
 
+  // As an Employee in company 1, fox.m CANNOT see a company-1 task they're not
+  // assigned to (task-4 is assigned to user-3).
+  const unassignedTask = await request(app)
+    .get('/tasks/task-4')
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(unassignedTask.status, 403);
+
+  const unassignedComments = await request(app)
+    .get('/tasks/task-4/comments')
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(unassignedComments.status, 403);
+
   const taskList = await request(app)
     .get('/tasks')
     .set('Authorization', `Bearer ${token}`);
   assert.equal(taskList.status, 200);
-  assert.equal(taskList.body.some((task) => task.projectId === 'proj-2'), false);
+  // task-4 (company 1, not assigned to fox.m) is hidden...
+  assert.equal(taskList.body.some((task) => task.id === 'task-4'), false);
+  // ...but task-7 (assigned to fox.m, in company 2 where they manage) is visible.
+  assert.equal(taskList.body.some((task) => task.id === 'task-7'), true);
 
-  const privateTask = await request(app)
-    .get('/tasks/task-4')
+  const assignedTask = await request(app)
+    .get('/tasks/task-7')
     .set('Authorization', `Bearer ${token}`);
-  assert.equal(privateTask.status, 403);
+  assert.equal(assignedTask.status, 200);
 
-  const privateTaskComments = await request(app)
-    .get('/tasks/task-4/comments')
-    .set('Authorization', `Bearer ${token}`);
-  assert.equal(privateTaskComments.status, 403);
-
+  // The client-360 tasks tab is a project-scoped view and still respects
+  // project privacy, so a private project's tasks stay hidden there.
   const clientTasks = await request(app)
     .get('/companies/1/clients/client-1/tasks')
     .set('Authorization', `Bearer ${token}`);

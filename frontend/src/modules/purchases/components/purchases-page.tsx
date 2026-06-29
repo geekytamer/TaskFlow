@@ -85,6 +85,8 @@ type ReceiptState = {
   order?: PurchaseOrder;
   notes: string;
   quantities: Record<number, string>;
+  /** Optional batch capture per line — records an InventoryLot on receipt. */
+  lots: Record<number, { lotNumber: string; expiryDate: string }>;
 };
 
 const emptyPurchaseForm = (): PurchaseForm => ({
@@ -117,6 +119,7 @@ export function PurchasesPage() {
     open: false,
     notes: '',
     quantities: {},
+    lots: {},
   });
 
   const load = React.useCallback(async () => {
@@ -416,6 +419,7 @@ export function PurchasesPage() {
       order,
       notes: '',
       quantities,
+      lots: {},
     });
   };
 
@@ -423,10 +427,16 @@ export function PurchasesPage() {
     const order = receiptState.order;
     if (!order) return;
     const receiptItems = Object.entries(receiptState.quantities)
-      .map(([lineIndex, quantity]) => ({
-        lineIndex: Number(lineIndex),
-        quantity: Number(quantity || 0),
-      }))
+      .map(([lineIndex, quantity]) => {
+        const idx = Number(lineIndex);
+        const lot = receiptState.lots[idx];
+        return {
+          lineIndex: idx,
+          quantity: Number(quantity || 0),
+          lotNumber: lot?.lotNumber?.trim() || undefined,
+          expiryDate: lot?.expiryDate || undefined,
+        };
+      })
       .filter((item) => Number.isFinite(item.quantity) && item.quantity > 0);
 
     if (!receiptItems.length) {
@@ -443,7 +453,7 @@ export function PurchasesPage() {
         notes: receiptState.notes || undefined,
         items: receiptItems,
       });
-      setReceiptState({ open: false, notes: '', quantities: {} });
+      setReceiptState({ open: false, notes: '', quantities: {}, lots: {} });
       await load();
       toast({ title: 'Receipt recorded' });
     } catch (error: any) {
@@ -728,17 +738,18 @@ export function PurchasesPage() {
       <Dialog
         open={receiptState.open}
         onOpenChange={(open) =>
-          setReceiptState((prev) => (open ? prev : { open: false, notes: '', quantities: {} }))
+          setReceiptState((prev) => (open ? prev : { open: false, notes: '', quantities: {}, lots: {} }))
         }
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Receive Purchase Order</DialogTitle>
             <DialogDescription>
-              Record a full or partial receipt. Only remaining quantities are shown.
+              Record a full or partial receipt. Only remaining quantities are shown. Add a lot
+              number and expiry date to track the batch for FEFO and expiry alerts.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="max-h-[65vh] space-y-3 overflow-y-auto py-2">
             {receiptState.order?.items.map((item, lineIndex) => {
               const progress =
                 receiptTotalsByOrder.get(receiptState.order?.id || '') || new Map<number, number>();
@@ -779,6 +790,44 @@ export function PurchasesPage() {
                       {amount(item.unitCost)}
                     </div>
                   </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label>Lot / Batch No. (optional)</Label>
+                    <Input
+                      placeholder="Leave blank to skip batch tracking"
+                      value={receiptState.lots[lineIndex]?.lotNumber ?? ''}
+                      onChange={(event) =>
+                        setReceiptState((prev) => ({
+                          ...prev,
+                          lots: {
+                            ...prev.lots,
+                            [lineIndex]: {
+                              lotNumber: event.target.value,
+                              expiryDate: prev.lots[lineIndex]?.expiryDate ?? '',
+                            },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Expiry Date</Label>
+                    <Input
+                      type="date"
+                      value={receiptState.lots[lineIndex]?.expiryDate ?? ''}
+                      onChange={(event) =>
+                        setReceiptState((prev) => ({
+                          ...prev,
+                          lots: {
+                            ...prev.lots,
+                            [lineIndex]: {
+                              lotNumber: prev.lots[lineIndex]?.lotNumber ?? '',
+                              expiryDate: event.target.value,
+                            },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -796,7 +845,7 @@ export function PurchasesPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setReceiptState({ open: false, notes: '', quantities: {} })}
+              onClick={() => setReceiptState({ open: false, notes: '', quantities: {}, lots: {} })}
             >
               Cancel
             </Button>

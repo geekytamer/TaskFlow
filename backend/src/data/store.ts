@@ -42,7 +42,20 @@ import {
   Client,
   Supplier,
   InventoryItem,
+  InventoryLot,
+  InventoryLotStatus,
   InventoryIssue,
+  PurchaseRequisition,
+  PurchaseRequisitionStatus,
+  PurchaseRequisitionLineItem,
+  Expense,
+  FollowUp,
+  FollowUpAssignee,
+  FollowUpStatus,
+  FollowUpOutcome,
+  FollowUpEntityType,
+  FollowUpChannel,
+  FollowUpPriority,
   InventoryLocationBalance,
   InventoryTransfer,
   PurchaseOrder,
@@ -223,6 +236,19 @@ type CreateCommissionRuleInput = Omit<CommissionRule, 'id' | 'createdAt' | 'upda
 type CreateClientInput = Omit<Client, 'id' | 'reference'> & { reference?: string };
 type CreateSupplierInput = Omit<Supplier, 'id' | 'reference'> & { reference?: string };
 type CreateInventoryItemInput = Omit<InventoryItem, 'id' | 'sku'> & { sku?: string };
+type CreateInventoryLotInput = {
+  companyId: string;
+  inventoryItemId: string;
+  lotNumber: string;
+  quantity: number;
+  location?: string;
+  unitCost?: number;
+  expiryDate?: Date | string;
+  manufactureDate?: Date | string;
+  supplierId?: string;
+  receivedAt?: Date | string;
+  note?: string;
+};
 type CreateInventoryIssueInput = Omit<InventoryIssue, 'id' | 'issuedAt'> & {
   issuedAt?: Date | string;
 };
@@ -238,6 +264,26 @@ type CreateSalesOrderInput = Omit<
   'id' | 'orderNumber' | 'totalAmount' | 'invoiceId'
 > & { orderNumber?: string };
 type CreatePurchaseReceiptInput = Omit<PurchaseReceipt, 'id'>;
+type CreatePurchaseRequisitionInput = {
+  companyId: string;
+  department?: string;
+  items: PurchaseRequisitionLineItem[];
+  neededBy?: Date | string;
+  notes?: string;
+  preferredSupplierId?: string;
+};
+type CreateExpenseInput = {
+  companyId: string;
+  expenseDate?: Date | string;
+  category: string;
+  vendor?: string;
+  amount: number;
+  description?: string;
+  paymentMethod?: string;
+  reference?: string;
+  projectId?: string;
+  attachmentUrl?: string;
+};
 type CreateAccountInput = Omit<LedgerAccount, 'id' | 'code'> & { code?: string };
 type CreateJournalInput = Omit<JournalEntry, 'id' | 'createdAt'>;
 type CreateVendorBillInput = Omit<VendorBill, 'id' | 'billNumber'> & { billNumber?: string };
@@ -300,6 +346,7 @@ const defaultNumberingSettings: Record<
   supplier: { prefix: 'TP-', padLength: 2 },
   inventory_item: { prefix: 'SKU-', padLength: 4 },
   purchase_order: { prefix: 'PO-', padLength: 4 },
+  purchase_requisition: { prefix: 'PR-', padLength: 4 },
   sales_order: { prefix: 'SO-', padLength: 4 },
   sales_invoice: { prefix: 'INV-', padLength: 4 },
   vendor_invoice: { prefix: 'VI-', padLength: 4 },
@@ -2625,6 +2672,224 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '056_inventory_lots',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS inventory_lots (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              inventoryItemId TEXT NOT NULL,
+              lotNumber TEXT NOT NULL,
+              location TEXT NOT NULL,
+              quantity REAL NOT NULL DEFAULT 0,
+              initialQuantity REAL NOT NULL DEFAULT 0,
+              unitCost REAL NOT NULL DEFAULT 0,
+              expiryDate TEXT,
+              manufactureDate TEXT,
+              supplierId TEXT,
+              receivedAt TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'Active',
+              note TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              FOREIGN KEY(inventoryItemId) REFERENCES inventory_items(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_inventory_lots_item ON inventory_lots(inventoryItemId, status);
+            CREATE INDEX IF NOT EXISTS idx_inventory_lots_expiry ON inventory_lots(companyId, expiryDate);
+          `);
+          const cols = this.db.prepare(`PRAGMA table_info('stock_movements')`).all() as Array<{ name: string }>;
+          if (!cols.some((c) => c.name === 'lotId')) {
+            this.db.exec(`ALTER TABLE stock_movements ADD COLUMN lotId TEXT;`);
+          }
+        },
+      },
+      {
+        id: '057_purchase_requisitions',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS purchase_requisitions (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              requisitionNumber TEXT NOT NULL,
+              requestedByUserId TEXT,
+              department TEXT,
+              status TEXT NOT NULL DEFAULT 'Draft',
+              items TEXT NOT NULL,
+              neededBy TEXT,
+              notes TEXT,
+              preferredSupplierId TEXT,
+              approvedByUserId TEXT,
+              approvedAt TEXT,
+              rejectionReason TEXT,
+              purchaseOrderId TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_purchase_requisitions_company ON purchase_requisitions(companyId, status);
+          `);
+        },
+      },
+      {
+        id: '058_expenses',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS expenses (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              expenseDate TEXT NOT NULL,
+              category TEXT NOT NULL,
+              vendor TEXT,
+              amount REAL NOT NULL DEFAULT 0,
+              description TEXT,
+              paymentMethod TEXT,
+              reference TEXT,
+              projectId TEXT,
+              attachmentUrl TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_expenses_company_date ON expenses(companyId, expenseDate);
+          `);
+        },
+      },
+      {
+        id: '059_followups',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS follow_ups (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              ownerUserId TEXT,
+              ownerName TEXT,
+              entityType TEXT NOT NULL,
+              entityId TEXT NOT NULL,
+              title TEXT,
+              type TEXT NOT NULL DEFAULT 'Follow-up',
+              channel TEXT,
+              status TEXT NOT NULL DEFAULT 'open',
+              priority TEXT NOT NULL DEFAULT 'normal',
+              dueAt TEXT,
+              reminderAt TEXT,
+              snoozedUntil TEXT,
+              completedAt TEXT,
+              completedByUserId TEXT,
+              outcome TEXT,
+              outcomeNote TEXT,
+              notes TEXT,
+              sourceTrigger TEXT,
+              sourceType TEXT,
+              sourceId TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_followups_owner_due ON follow_ups(companyId, ownerUserId, status, dueAt);
+            CREATE INDEX IF NOT EXISTS idx_followups_entity ON follow_ups(entityType, entityId, status);
+            CREATE INDEX IF NOT EXISTS idx_followups_company_due ON follow_ups(companyId, status, dueAt);
+            CREATE INDEX IF NOT EXISTS idx_followups_sweep ON follow_ups(status, reminderAt);
+            CREATE INDEX IF NOT EXISTS idx_followups_snooze ON follow_ups(status, snoozedUntil);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_followups_idem
+              ON follow_ups(companyId, entityType, entityId, sourceTrigger, sourceId)
+              WHERE sourceId IS NOT NULL;
+          `);
+
+          const nowIso = new Date().toISOString();
+          const insert = this.db.prepare(
+            `INSERT OR IGNORE INTO follow_ups
+               (id, companyId, ownerUserId, ownerName, entityType, entityId, title, type, channel,
+                status, priority, dueAt, reminderAt, snoozedUntil, outcome, notes,
+                sourceTrigger, sourceType, sourceId, createdAt, updatedAt)
+             VALUES
+               (@id, @companyId, @ownerUserId, @ownerName, @entityType, @entityId, @title, @type, @channel,
+                'open', 'normal', @dueAt, @dueAt, NULL, NULL, @notes,
+                @sourceTrigger, @sourceType, @sourceId, @createdAt, @updatedAt)`,
+          );
+          const channelForCategory = (c?: string): string | null => {
+            switch (c) {
+              case 'Call': return 'Call';
+              case 'WhatsApp': return 'WhatsApp';
+              case 'Email': return 'Email';
+              case 'Meeting': return 'Meeting';
+              default: return null;
+            }
+          };
+
+          // Backfill 1: every open activity-event follow-up (nextActionDueDate set).
+          const seen = new Set<string>(); // entityId keys already covered
+          const actRows = this.db
+            .prepare(`SELECT * FROM activity_events WHERE nextActionDueDate IS NOT NULL`)
+            .all() as any[];
+          for (const r of actRows) {
+            let meta: any = null;
+            try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { meta = null; }
+            const et = (r.entityType === 'opportunity' || r.entityType === 'invoice') ? r.entityType : 'contact';
+            insert.run({
+              id: uuid(),
+              companyId: r.companyId,
+              ownerUserId: r.actorUserId ?? null,
+              ownerName: r.actorName ?? null,
+              entityType: et,
+              entityId: r.entityId,
+              title: r.nextAction ?? r.summary ?? null,
+              type: 'Follow-up',
+              channel: channelForCategory(r.category),
+              dueAt: r.nextActionDueDate,
+              notes: r.summary ?? null,
+              sourceTrigger: meta?.trigger ?? (r.action === 'auto_followup' ? 'auto' : 'legacy_activity'),
+              sourceType: meta?.sourceType ?? null,
+              sourceId: meta?.sourceId ?? null,
+              createdAt: r.createdAt ?? nowIso,
+              updatedAt: nowIso,
+            });
+            seen.add(`${r.companyId}:${r.entityId}`);
+          }
+
+          // Backfill 2: contact-level follow-ups (contact.nextFollowupDate) not
+          // already represented by an activity follow-up for that contact.
+          const contactRows = this.db
+            .prepare(`SELECT * FROM contacts WHERE nextFollowupDate IS NOT NULL`)
+            .all() as any[];
+          for (const c of contactRows) {
+            if (seen.has(`${c.companyId}:${c.id}`)) continue;
+            insert.run({
+              id: uuid(),
+              companyId: c.companyId,
+              ownerUserId: c.ownerUserId ?? null,
+              ownerName: c.ownerName ?? null,
+              entityType: 'contact',
+              entityId: c.id,
+              title: c.nextFollowupNote ?? null,
+              type: 'Follow-up',
+              channel: null,
+              dueAt: c.nextFollowupDate,
+              notes: null,
+              sourceTrigger: 'legacy_contact',
+              sourceType: 'contact',
+              sourceId: c.id,
+              createdAt: c.updatedAt ?? nowIso,
+              updatedAt: nowIso,
+            });
+          }
+        },
+      },
+      {
+        // Collaborators on a follow-up: inviting a teammate ADDS them here, it
+        // does not transfer the owner. "Mine" then means owned-by-me OR I'm a
+        // collaborator. Composite PK keeps a person on a follow-up at most once.
+        id: '060_followup_assignees',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS follow_up_assignees (
+              followUpId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              addedByUserId TEXT,
+              createdAt TEXT NOT NULL,
+              PRIMARY KEY (followUpId, userId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_followup_assignees_user ON follow_up_assignees(userId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4263,8 +4528,11 @@ export class DataStore {
       }
     }
 
-    // Auto-follow-up: when a new Lead is created, queue a first-touch reminder.
-    if ((input.roles || []).includes('Lead')) {
+    // Manual first-touch date (e.g. from the pipeline quick-entry) takes
+    // precedence; otherwise auto-queue a NewLead first-touch reminder.
+    if (input.nextFollowupDate) {
+      this.syncManualContactFollowup(this.getContactById(id)!, new Date(input.nextFollowupDate));
+    } else if ((input.roles || []).includes('Lead')) {
       try {
         this.scheduleAutomaticFollowup({
           companyId: input.companyId,
@@ -4362,7 +4630,44 @@ export class DataStore {
         entityId: id,
       });
     }
-    return this.getContactById(id)!;
+    const refreshed = this.getContactById(id)!;
+    // Keep the first-class follow_ups table in sync when a manual next-follow-up
+    // date is set/changed/cleared on the contact.
+    if (updates.nextFollowupDate !== undefined) {
+      this.syncManualContactFollowup(refreshed, updates.nextFollowupDate ?? null);
+    }
+    return refreshed;
+  }
+
+  /** Upsert/clear the single manual follow-up that mirrors contact.nextFollowupDate. */
+  private syncManualContactFollowup(contact: Contact, date: Date | null) {
+    const existing = this.db
+      .prepare(
+        `SELECT * FROM follow_ups WHERE companyId = ? AND entityType = 'contact' AND entityId = ?
+           AND sourceTrigger IN ('manual','legacy_contact') AND status IN ('open','snoozed')
+         ORDER BY createdAt DESC LIMIT 1`,
+      )
+      .get(contact.companyId, contact.id) as any;
+    if (date) {
+      if (existing) {
+        this.rescheduleFollowupEntity(existing.id, date, contact.nextFollowupNote ?? undefined);
+      } else {
+        this.createFollowup({
+          companyId: contact.companyId,
+          entityType: 'contact',
+          entityId: contact.id,
+          title: contact.nextFollowupNote ?? undefined,
+          ownerUserId: contact.ownerUserId,
+          ownerName: contact.ownerName,
+          dueAt: date,
+          sourceTrigger: 'manual',
+          sourceType: 'contact',
+          sourceId: contact.id,
+        });
+      }
+    } else if (existing) {
+      this.cancelFollowup(existing.id);
+    }
   }
 
   addContactRole(contactId: string, companyId: string, role: ContactRoleType, source: ContactRoleSource = 'Manual'): void {
@@ -7467,8 +7772,8 @@ export class DataStore {
   }
 
   private getNumberingDataSource(entityType: NumberingEntityType): {
-    table: 'clients' | 'suppliers' | 'inventory_items' | 'purchase_orders' | 'sales_orders' | 'vendor_bills' | 'invoices' | 'deliveries';
-    column: 'reference' | 'sku' | 'orderNumber' | 'billNumber' | 'invoiceNumber' | 'deliveryNumber';
+    table: 'clients' | 'suppliers' | 'inventory_items' | 'purchase_orders' | 'purchase_requisitions' | 'sales_orders' | 'vendor_bills' | 'invoices' | 'deliveries';
+    column: 'reference' | 'sku' | 'orderNumber' | 'requisitionNumber' | 'billNumber' | 'invoiceNumber' | 'deliveryNumber';
   } {
     switch (entityType) {
       case 'client':
@@ -7479,6 +7784,8 @@ export class DataStore {
         return { table: 'inventory_items', column: 'sku' };
       case 'purchase_order':
         return { table: 'purchase_orders', column: 'orderNumber' };
+      case 'purchase_requisition':
+        return { table: 'purchase_requisitions', column: 'requisitionNumber' };
       case 'sales_order':
         return { table: 'sales_orders', column: 'orderNumber' };
       case 'sales_invoice':
@@ -8556,6 +8863,7 @@ export class DataStore {
       taskId: input.taskId ?? undefined,
     };
 
+    let lotAllocation: Array<{ lotId: string; lotNumber: string; quantity: number }> = [];
     const trx = this.db.transaction(() => {
       this.db
         .prepare(
@@ -8573,6 +8881,18 @@ export class DataStore {
         .prepare('UPDATE inventory_items SET onHand = onHand - ? WHERE id = ? AND companyId = ?')
         .run(issue.quantity, item.id, item.companyId);
       this.incrementLocationBalance(issue.companyId, issue.inventoryItemId, issue.location, -issue.quantity);
+      // Keep lot balances reconciled: draw the issued quantity from the
+      // earliest-expiry lots at this location (best-effort — see helper).
+      lotAllocation = this.drawDownLotsFEFO(
+        issue.companyId,
+        issue.inventoryItemId,
+        issue.quantity,
+        issue.location,
+      );
+      const lotNote =
+        lotAllocation.length > 0
+          ? ` [FEFO: ${lotAllocation.map((a) => `${a.lotNumber}×${a.quantity}`).join(', ')}]`
+          : '';
       this.createStockMovement({
         companyId: issue.companyId,
         inventoryItemId: issue.inventoryItemId,
@@ -8581,9 +8901,10 @@ export class DataStore {
         unitCost: item.unitCost,
         referenceType: 'inventory_issue',
         referenceId: issue.id,
-        note: issue.note
+        lotId: lotAllocation.length === 1 ? lotAllocation[0].lotId : undefined,
+        note: (issue.note
           ? `${issue.note} (${issue.location})`
-          : `Issued from ${issue.location}`,
+          : `Issued from ${issue.location}`) + lotNote,
       });
     });
     trx();
@@ -8599,6 +8920,7 @@ export class DataStore {
         issuedTo: issue.issuedTo,
         projectId: issue.projectId,
         taskId: issue.taskId,
+        lots: lotAllocation,
       },
     });
     return issue;
@@ -9907,7 +10229,13 @@ export class DataStore {
     input: {
       receivedAt?: Date | string;
       notes?: string;
-      items: Array<{ lineIndex: number; quantity: number }>;
+      items: Array<{
+        lineIndex: number;
+        quantity: number;
+        lotNumber?: string;
+        expiryDate?: Date | string;
+        manufactureDate?: Date | string;
+      }>;
     },
   ): PurchaseOrder {
     const order = this.getPurchaseOrderById(id);
@@ -9927,6 +10255,9 @@ export class DataStore {
       .map((item) => ({
         lineIndex: Number(item.lineIndex),
         quantity: Number(item.quantity),
+        lotNumber: item.lotNumber?.trim() || undefined,
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : undefined,
+        manufactureDate: item.manufactureDate ? new Date(item.manufactureDate) : undefined,
       }))
       .filter((item) => Number.isInteger(item.lineIndex) && Number.isFinite(item.quantity) && item.quantity > 0);
 
@@ -9955,6 +10286,9 @@ export class DataStore {
         description: orderItem.description,
         quantity: Number(item.quantity.toFixed(4)),
         unitCost: orderItem.unitCost,
+        lotNumber: item.lotNumber,
+        expiryDate: item.expiryDate,
+        manufactureDate: item.manufactureDate,
       };
     });
 
@@ -9996,23 +10330,42 @@ export class DataStore {
           if (!inventoryItem?.tracksInventory) {
             return;
           }
-          updateById.run(item.quantity, inventoryItemId, order.companyId);
-          this.incrementLocationBalance(
-            order.companyId,
-            inventoryItemId,
-            this.resolveStockLocation(order.companyId, inventoryItem?.location),
-            item.quantity,
-          );
-          this.createStockMovement({
-            companyId: order.companyId,
-            inventoryItemId,
-            movementType: 'Receipt',
-            quantityChange: item.quantity,
-            unitCost: item.unitCost,
-            referenceType: 'purchase_order',
-            referenceId: order.id,
-            note: `Receipt from ${order.orderNumber}`,
-          });
+          const stockLocation = this.resolveStockLocation(order.companyId, inventoryItem?.location);
+          if (item.lotNumber) {
+            // GRN with batch capture: createInventoryLot handles the onHand +
+            // location balance + traceable stock movement for this lot.
+            this.createInventoryLot({
+              companyId: order.companyId,
+              inventoryItemId,
+              lotNumber: item.lotNumber,
+              quantity: item.quantity,
+              location: stockLocation,
+              unitCost: item.unitCost,
+              expiryDate: item.expiryDate,
+              manufactureDate: item.manufactureDate,
+              supplierId: order.supplierId,
+              receivedAt: receipt.receivedAt,
+              note: `GRN from ${order.orderNumber}`,
+            });
+          } else {
+            updateById.run(item.quantity, inventoryItemId, order.companyId);
+            this.incrementLocationBalance(
+              order.companyId,
+              inventoryItemId,
+              stockLocation,
+              item.quantity,
+            );
+            this.createStockMovement({
+              companyId: order.companyId,
+              inventoryItemId,
+              movementType: 'Receipt',
+              quantityChange: item.quantity,
+              unitCost: item.unitCost,
+              referenceType: 'purchase_order',
+              referenceId: order.id,
+              note: `Receipt from ${order.orderNumber}`,
+            });
+          }
         }
       });
 
@@ -10055,6 +10408,326 @@ export class DataStore {
       },
     });
     return updated;
+  }
+
+  // ── Purchase requisitions ─────────────────────────────────────────────────
+
+  private normalizeRequisitionItems(
+    items: PurchaseRequisitionLineItem[],
+  ): PurchaseRequisitionLineItem[] {
+    const normalized = (items || [])
+      .map((item) => ({
+        inventoryItemId: item.inventoryItemId || undefined,
+        sku: item.sku || undefined,
+        description: String(item.description || '').trim(),
+        quantity: Number(item.quantity || 0),
+        estimatedUnitCost: Number(item.estimatedUnitCost || 0),
+      }))
+      .filter((item) => item.description.length > 0 && item.quantity > 0);
+    if (normalized.length === 0) {
+      throw new Error('A requisition needs at least one line with a description and quantity.');
+    }
+    return normalized;
+  }
+
+  listPurchaseRequisitions(companyId: string): PurchaseRequisition[] {
+    const rows = this.db
+      .prepare('SELECT * FROM purchase_requisitions WHERE companyId = ? ORDER BY createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((row) => this.decodePurchaseRequisition(row));
+  }
+
+  getPurchaseRequisitionById(id: string): PurchaseRequisition | undefined {
+    const row = this.db.prepare('SELECT * FROM purchase_requisitions WHERE id = ?').get(id) as any;
+    return row ? this.decodePurchaseRequisition(row) : undefined;
+  }
+
+  createPurchaseRequisition(input: CreatePurchaseRequisitionInput): PurchaseRequisition {
+    const items = this.normalizeRequisitionItems(input.items);
+    const nowIso = new Date().toISOString();
+    const requisition: PurchaseRequisition = {
+      id: uuid(),
+      companyId: input.companyId,
+      requisitionNumber: this.nextConfiguredSequenceValue(input.companyId, 'purchase_requisition'),
+      requestedByUserId: this.currentActor?.userId,
+      department: input.department,
+      status: 'Draft',
+      items,
+      neededBy: input.neededBy ? new Date(input.neededBy) : undefined,
+      notes: input.notes,
+      preferredSupplierId: input.preferredSupplierId,
+      createdAt: new Date(nowIso),
+      updatedAt: new Date(nowIso),
+    };
+    this.db
+      .prepare(
+        'INSERT INTO purchase_requisitions (id, companyId, requisitionNumber, requestedByUserId, department, status, items, neededBy, notes, preferredSupplierId, approvedByUserId, approvedAt, rejectionReason, purchaseOrderId, createdAt, updatedAt) VALUES (@id, @companyId, @requisitionNumber, @requestedByUserId, @department, @status, @items, @neededBy, @notes, @preferredSupplierId, NULL, NULL, NULL, NULL, @createdAt, @updatedAt)',
+      )
+      .run({
+        ...requisition,
+        requestedByUserId: requisition.requestedByUserId ?? null,
+        department: requisition.department ?? null,
+        items: JSON.stringify(requisition.items),
+        neededBy: requisition.neededBy ? requisition.neededBy.toISOString() : null,
+        notes: requisition.notes ?? null,
+        preferredSupplierId: requisition.preferredSupplierId ?? null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+    this.createActivityEvent({
+      companyId: requisition.companyId,
+      entityType: 'purchase_requisition',
+      entityId: requisition.id,
+      action: 'created',
+      summary: `Purchase requisition ${requisition.requisitionNumber} created.`,
+      metadata: { lines: requisition.items.length },
+    });
+    return requisition;
+  }
+
+  private setRequisitionStatus(
+    id: string,
+    status: PurchaseRequisitionStatus,
+    extra: Partial<Pick<PurchaseRequisition, 'approvedByUserId' | 'approvedAt' | 'rejectionReason' | 'purchaseOrderId'>> = {},
+  ): PurchaseRequisition {
+    const existing = this.getPurchaseRequisitionById(id);
+    if (!existing) throw new Error('Purchase requisition not found.');
+    const nowIso = new Date().toISOString();
+    this.db
+      .prepare(
+        'UPDATE purchase_requisitions SET status = ?, approvedByUserId = COALESCE(?, approvedByUserId), approvedAt = COALESCE(?, approvedAt), rejectionReason = ?, purchaseOrderId = COALESCE(?, purchaseOrderId), updatedAt = ? WHERE id = ?',
+      )
+      .run(
+        status,
+        extra.approvedByUserId ?? null,
+        extra.approvedAt ? extra.approvedAt.toISOString() : null,
+        extra.rejectionReason ?? null,
+        extra.purchaseOrderId ?? null,
+        nowIso,
+        id,
+      );
+    return this.getPurchaseRequisitionById(id)!;
+  }
+
+  submitPurchaseRequisition(id: string): PurchaseRequisition {
+    const existing = this.getPurchaseRequisitionById(id);
+    if (!existing) throw new Error('Purchase requisition not found.');
+    if (existing.status !== 'Draft') {
+      throw new Error('Only draft requisitions can be submitted.');
+    }
+    return this.setRequisitionStatus(id, 'Submitted');
+  }
+
+  approvePurchaseRequisition(id: string): PurchaseRequisition {
+    const existing = this.getPurchaseRequisitionById(id);
+    if (!existing) throw new Error('Purchase requisition not found.');
+    if (existing.status !== 'Submitted') {
+      throw new Error('Only submitted requisitions can be approved.');
+    }
+    this.createActivityEvent({
+      companyId: existing.companyId,
+      entityType: 'purchase_requisition',
+      entityId: id,
+      action: 'approved',
+      summary: `Purchase requisition ${existing.requisitionNumber} approved.`,
+    });
+    return this.setRequisitionStatus(id, 'Approved', {
+      approvedByUserId: this.currentActor?.userId,
+      approvedAt: new Date(),
+    });
+  }
+
+  rejectPurchaseRequisition(id: string, reason?: string): PurchaseRequisition {
+    const existing = this.getPurchaseRequisitionById(id);
+    if (!existing) throw new Error('Purchase requisition not found.');
+    if (existing.status !== 'Submitted') {
+      throw new Error('Only submitted requisitions can be rejected.');
+    }
+    return this.setRequisitionStatus(id, 'Rejected', { rejectionReason: reason });
+  }
+
+  /** Convert an approved requisition into a purchase order for the given supplier. */
+  convertRequisitionToPurchaseOrder(id: string, supplierId: string): PurchaseOrder {
+    const requisition = this.getPurchaseRequisitionById(id);
+    if (!requisition) throw new Error('Purchase requisition not found.');
+    if (requisition.status !== 'Approved') {
+      throw new Error('Only approved requisitions can be converted to a purchase order.');
+    }
+    if (requisition.purchaseOrderId) {
+      throw new Error('This requisition has already been converted.');
+    }
+    const supplier = this.getSupplierById(supplierId);
+    if (!supplier || supplier.companyId !== requisition.companyId) {
+      throw new Error('Supplier does not belong to this company.');
+    }
+
+    const order = this.createPurchaseOrder({
+      companyId: requisition.companyId,
+      supplierName: supplier.name,
+      supplierId: supplier.id,
+      orderDate: new Date(),
+      status: 'Draft',
+      notes: `From requisition ${requisition.requisitionNumber}${requisition.notes ? ` — ${requisition.notes}` : ''}`,
+      items: requisition.items.map((item) => ({
+        inventoryItemId: item.inventoryItemId,
+        sku: item.sku,
+        description: item.description,
+        quantity: item.quantity,
+        unitCost: item.estimatedUnitCost,
+        lineTotal: Number((item.quantity * item.estimatedUnitCost).toFixed(2)),
+      })),
+    });
+
+    this.setRequisitionStatus(id, 'Converted', { purchaseOrderId: order.id });
+    this.createActivityEvent({
+      companyId: requisition.companyId,
+      entityType: 'purchase_requisition',
+      entityId: id,
+      action: 'converted',
+      summary: `Requisition ${requisition.requisitionNumber} converted to purchase order ${order.orderNumber}.`,
+      metadata: { purchaseOrderId: order.id },
+    });
+    return order;
+  }
+
+  deletePurchaseRequisition(id: string): boolean {
+    const existing = this.getPurchaseRequisitionById(id);
+    if (!existing) return false;
+    if (existing.status === 'Converted') {
+      throw new Error('Converted requisitions cannot be deleted.');
+    }
+    this.db.prepare('DELETE FROM purchase_requisitions WHERE id = ?').run(id);
+    return true;
+  }
+
+  private decodePurchaseRequisition(row: any): PurchaseRequisition {
+    const parsedItems = this.parseJson<any[]>(row.items);
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      requisitionNumber: row.requisitionNumber,
+      requestedByUserId: row.requestedByUserId ?? undefined,
+      department: row.department ?? undefined,
+      status: row.status as PurchaseRequisitionStatus,
+      items: (Array.isArray(parsedItems) ? parsedItems : []).map((item: any) => ({
+        inventoryItemId: item.inventoryItemId ?? undefined,
+        sku: item.sku ?? undefined,
+        description: String(item.description || ''),
+        quantity: Number(item.quantity) || 0,
+        estimatedUnitCost: Number(item.estimatedUnitCost) || 0,
+      })),
+      neededBy: row.neededBy ? new Date(row.neededBy) : undefined,
+      notes: row.notes ?? undefined,
+      preferredSupplierId: row.preferredSupplierId ?? undefined,
+      approvedByUserId: row.approvedByUserId ?? undefined,
+      approvedAt: row.approvedAt ? new Date(row.approvedAt) : undefined,
+      rejectionReason: row.rejectionReason ?? undefined,
+      purchaseOrderId: row.purchaseOrderId ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  // ── Standalone expenses ───────────────────────────────────────────────────
+
+  listExpenses(companyId: string): Expense[] {
+    const rows = this.db
+      .prepare('SELECT * FROM expenses WHERE companyId = ? ORDER BY expenseDate DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((row) => this.decodeExpense(row));
+  }
+
+  getExpenseById(id: string): Expense | undefined {
+    const row = this.db.prepare('SELECT * FROM expenses WHERE id = ?').get(id) as any;
+    return row ? this.decodeExpense(row) : undefined;
+  }
+
+  createExpense(input: CreateExpenseInput): Expense {
+    const category = (input.category || '').trim();
+    if (!category) throw new Error('Expense category is required.');
+    const amount = Number(input.amount || 0);
+    if (!(amount > 0)) throw new Error('Expense amount must be greater than zero.');
+    if (input.projectId) {
+      const project = this.getProjectById(input.projectId);
+      if (!project || project.companyId !== input.companyId) {
+        throw new Error('Project does not belong to this company.');
+      }
+    }
+    const nowIso = new Date().toISOString();
+    const expense: Expense = {
+      id: uuid(),
+      companyId: input.companyId,
+      expenseDate: input.expenseDate ? new Date(input.expenseDate) : new Date(),
+      category,
+      vendor: input.vendor?.trim() || undefined,
+      amount: Number(amount.toFixed(2)),
+      description: input.description?.trim() || undefined,
+      paymentMethod: input.paymentMethod?.trim() || undefined,
+      reference: input.reference?.trim() || undefined,
+      projectId: input.projectId || undefined,
+      attachmentUrl: input.attachmentUrl || undefined,
+      createdAt: new Date(nowIso),
+      updatedAt: new Date(nowIso),
+    };
+    this.db
+      .prepare(
+        'INSERT INTO expenses (id, companyId, expenseDate, category, vendor, amount, description, paymentMethod, reference, projectId, attachmentUrl, createdAt, updatedAt) VALUES (@id, @companyId, @expenseDate, @category, @vendor, @amount, @description, @paymentMethod, @reference, @projectId, @attachmentUrl, @createdAt, @updatedAt)',
+      )
+      .run({
+        ...expense,
+        expenseDate: expense.expenseDate.toISOString(),
+        vendor: expense.vendor ?? null,
+        description: expense.description ?? null,
+        paymentMethod: expense.paymentMethod ?? null,
+        reference: expense.reference ?? null,
+        projectId: expense.projectId ?? null,
+        attachmentUrl: expense.attachmentUrl ?? null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+    this.createActivityEvent({
+      companyId: expense.companyId,
+      entityType: 'expense',
+      entityId: expense.id,
+      action: 'created',
+      summary: `Expense recorded: ${expense.category} (${expense.amount}).`,
+      metadata: { amount: expense.amount, vendor: expense.vendor ?? null },
+    });
+    return expense;
+  }
+
+  deleteExpense(id: string): boolean {
+    const existing = this.getExpenseById(id);
+    if (!existing) return false;
+    this.db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
+    return true;
+  }
+
+  private sumExpensesBetween(companyId: string, fromIso: string, toIso: string): number {
+    const row = this.db
+      .prepare(
+        'SELECT COALESCE(SUM(amount), 0) as amount FROM expenses WHERE companyId = ? AND expenseDate >= ? AND expenseDate < ?',
+      )
+      .get(companyId, fromIso, toIso) as { amount: number };
+    return Number(row.amount || 0);
+  }
+
+  private decodeExpense(row: any): Expense {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      expenseDate: new Date(row.expenseDate),
+      category: row.category,
+      vendor: row.vendor ?? undefined,
+      amount: Number(row.amount) || 0,
+      description: row.description ?? undefined,
+      paymentMethod: row.paymentMethod ?? undefined,
+      reference: row.reference ?? undefined,
+      projectId: row.projectId ?? undefined,
+      attachmentUrl: row.attachmentUrl ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
   }
 
   listInvoices(companyId: string): Invoice[] {
@@ -11640,6 +12313,114 @@ export class DataStore {
     );
   }
 
+  /**
+   * Re-reconcile a campaign's generated invoice with the campaign's current
+   * deliverables.
+   *  - If the linked invoice is still Draft (a working document, not yet on the
+   *    ledger) it is rewritten in place to mirror the deliverables.
+   *  - If it has been issued (Sent/Paid/Overdue) the invoice is immutable, so the
+   *    net difference becomes a delta: a supplementary invoice (more scope) or a
+   *    credit note (less scope). Those require explicit confirmation (`confirm`).
+   */
+  syncCampaignInvoice(
+    companyId: string,
+    campaignId: string,
+    confirm = false,
+  ): {
+    status: 'resynced' | 'up_to_date' | 'needs_confirmation' | 'supplemented' | 'credited';
+    delta?: number;
+    kind?: 'supplementary' | 'credit';
+    invoice?: Invoice;
+    creditNote?: CreditNote;
+    message?: string;
+  } {
+    const campaign = this.getCrmCampaignById(campaignId);
+    if (!campaign || campaign.companyId !== companyId) throw new Error('Campaign not found.');
+    if (!campaign.invoiceId) {
+      throw new Error('No invoice has been generated for this campaign yet.');
+    }
+    const primary = this.getInvoiceById(campaign.invoiceId);
+    if (!primary) throw new Error('The linked invoice could not be found.');
+
+    const deliverables = this.listCampaignDeliverables(campaignId);
+    const desiredLines = deliverables.map((d) => ({
+      itemType: 'Manual' as const,
+      description: d.title,
+      quantity: 1,
+      unitPrice: d.price || 0,
+      amount: d.price || 0,
+    }));
+    const desiredTotal = Number(desiredLines.reduce((sum, l) => sum + l.amount, 0).toFixed(2));
+
+    // Draft → safe to rewrite in place (nothing recognised on the ledger yet).
+    if (primary.status === 'Draft') {
+      const lines =
+        desiredLines.length > 0
+          ? desiredLines
+          : [{ itemType: 'Manual' as const, description: `Campaign: ${campaign.name}`, quantity: 1, unitPrice: 0, amount: 0 }];
+      const invoice = this.updateInvoice(primary.id, { lineItems: lines });
+      return { status: 'resynced', invoice };
+    }
+
+    // Issued → compare the campaign's net billed amount with the desired total.
+    const campaignInvoices = this.listInvoices(companyId).filter((i) => i.campaignId === campaignId);
+    const grossBilled = campaignInvoices.reduce((sum, i) => sum + i.total, 0);
+    const credited = campaignInvoices.reduce((sum, i) => sum + this.getInvoiceCreditedAmount(i.id), 0);
+    const billedNet = Number((grossBilled - credited).toFixed(2));
+    const delta = Number((desiredTotal - billedNet).toFixed(2));
+
+    if (Math.abs(delta) < 0.005) return { status: 'up_to_date' };
+
+    const kind: 'supplementary' | 'credit' = delta > 0 ? 'supplementary' : 'credit';
+    if (!confirm) {
+      return {
+        status: 'needs_confirmation',
+        delta,
+        kind,
+        message:
+          delta > 0
+            ? `This campaign's invoice is already issued. Create a supplementary invoice for ${delta.toFixed(2)} to cover the added scope?`
+            : `This campaign's invoice is already issued. Issue a credit note for ${Math.abs(delta).toFixed(2)} for the reduced scope?`,
+      };
+    }
+
+    if (delta > 0) {
+      const now = new Date();
+      const invoice = this.createInvoice({
+        companyId,
+        clientId: primary.clientId,
+        contactId: campaign.contactId ?? undefined,
+        campaignId,
+        issueDate: now,
+        dueDate: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30),
+        lineItems: [
+          {
+            itemType: 'Manual',
+            description: `Campaign ${campaign.name} — additional scope`,
+            quantity: 1,
+            unitPrice: delta,
+            amount: delta,
+          },
+        ],
+        total: delta,
+        status: 'Draft',
+        notes: `Supplementary invoice for campaign: ${campaign.name}`,
+        currency: primary.currency,
+        taxRate: primary.taxRate,
+      });
+      return { status: 'supplemented', delta, kind, invoice };
+    }
+
+    const creditNote = this.createCreditNote({
+      companyId,
+      invoiceId: primary.id,
+      clientId: primary.clientId,
+      lineItems: [{ description: `Campaign ${campaign.name} — scope reduction`, amount: Math.abs(delta) }],
+      reason: `Campaign scope reduced after invoicing`,
+    });
+    return { status: 'credited', delta, kind, creditNote };
+  }
+
   getFinanceOverview(companyId: string): FinanceOverview {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -11680,6 +12461,15 @@ export class DataStore {
         'SELECT COALESCE(SUM(invoiceAmount), 0) as amount FROM tasks WHERE companyId = ? AND invoiceDate >= ? AND invoiceDate < ?',
       )
       .get(companyId, monthStart, nextMonth) as { amount: number };
+    // Standalone expenses recorded this month add to the cash-out figure.
+    const standaloneExpensesThisMonth = this.sumExpensesBetween(companyId, monthStart, nextMonth);
+
+    // Month-to-date accrual P&L (journal-based) — the proper revenue/profit.
+    const pnl = this.getProfitAndLoss(
+      companyId,
+      new Date(now.getFullYear(), now.getMonth(), 1),
+      now,
+    );
 
     return {
       openReceivables: Number(openReceivablesAmount.toFixed(2)),
@@ -11687,7 +12477,12 @@ export class DataStore {
       paidThisMonth: Number(paidThisMonthRow.amount || 0),
       paidPayablesThisMonth: Number(paidPayablesThisMonthRow.amount || 0),
       billedThisMonth: Number(billedThisMonthRow.amount || 0),
-      expenseReceiptsThisMonth: Number(expensesRow.amount || 0),
+      expenseReceiptsThisMonth: Number(
+        ((Number(expensesRow.amount) || 0) + standaloneExpensesThisMonth).toFixed(2),
+      ),
+      revenueThisMonth: pnl.totalRevenue,
+      expensesThisMonth: pnl.totalExpenses,
+      netProfitThisMonth: pnl.netIncome,
     };
   }
 
@@ -12960,28 +13755,50 @@ export class DataStore {
   /** Notify owners of contacts whose follow-up date has arrived (once/day). */
   sweepFollowupDueReminders(): number {
     const nowIso = new Date().toISOString();
+    // Open follow-ups whose reminder/due time has arrived, owned by someone.
     const rows = this.db
       .prepare(
-        'SELECT * FROM contacts WHERE nextFollowupDate IS NOT NULL AND nextFollowupDate <= ? AND ownerUserId IS NOT NULL',
+        `SELECT * FROM follow_ups
+           WHERE status = 'open' AND ownerUserId IS NOT NULL
+             AND COALESCE(reminderAt, dueAt) IS NOT NULL
+             AND COALESCE(reminderAt, dueAt) <= ?`,
       )
       .all(nowIso) as any[];
     let count = 0;
     for (const row of rows) {
-      const contact = this.decodeContact(row);
-      if (!contact.ownerUserId) continue;
+      const f = this.decodeFollowup(row);
+      if (!f.ownerUserId) continue;
+      // Resolve a human label + deep link from the attached entity.
+      let name = f.title || 'Follow-up';
+      let link = '/crm/followups';
+      if (f.entityType === 'contact') {
+        const c = this.getContactById(f.entityId);
+        if (c) { name = c.name; link = `/contacts/${c.id}`; }
+      }
       count += this.notify({
-        companyId: contact.companyId,
-        userIds: [contact.ownerUserId],
+        companyId: f.companyId,
+        userIds: [f.ownerUserId],
         type: 'followup_due',
-        title: `Follow-up due: ${contact.name}`,
-        body: contact.nextFollowupNote || undefined,
-        link: `/contacts/${contact.id}`,
-        entityType: 'contact',
-        entityId: contact.id,
+        title: `Follow-up due: ${name}`,
+        body: f.title || f.notes || undefined,
+        link,
+        entityType: 'follow_up',
+        entityId: f.id,
         dedupeWithinMs: 20 * 60 * 60 * 1000,
       }).length;
     }
     return count;
+  }
+
+  /** Wake snoozed follow-ups whose snooze window has elapsed (back to 'open'). */
+  sweepSnoozedFollowups(): number {
+    const nowIso = new Date().toISOString();
+    const res = this.db
+      .prepare(
+        "UPDATE follow_ups SET status = 'open', updatedAt = ? WHERE status = 'snoozed' AND snoozedUntil IS NOT NULL AND snoozedUntil <= ?",
+      )
+      .run(nowIso, nowIso);
+    return res.changes;
   }
 
   /** Notify Admin/Manager when a tracked item is at or below its reorder point (once/day). */
@@ -13101,66 +13918,567 @@ export class DataStore {
     return this.decodeActivityEvent(row);
   }
 
+  // ── First-class follow-ups (follow_ups table) ─────────────────────────────
+
+  private listFollowupAssignees(followUpId: string): FollowUpAssignee[] {
+    const rows = this.db
+      .prepare(
+        `SELECT a.userId, a.addedByUserId, a.createdAt, u.name AS name
+           FROM follow_up_assignees a
+           LEFT JOIN users u ON u.id = a.userId
+          WHERE a.followUpId = ?
+          ORDER BY a.createdAt ASC`,
+      )
+      .all(followUpId) as any[];
+    return rows.map((r) => ({
+      userId: r.userId,
+      name: r.name ?? undefined,
+      addedByUserId: r.addedByUserId ?? undefined,
+      createdAt: r.createdAt ? new Date(r.createdAt) : undefined,
+    }));
+  }
+
+  private decodeFollowup(row: any): FollowUp {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      ownerUserId: row.ownerUserId ?? undefined,
+      ownerName: row.ownerName ?? undefined,
+      assignees: this.listFollowupAssignees(row.id),
+      entityType: row.entityType as FollowUpEntityType,
+      entityId: row.entityId,
+      title: row.title ?? undefined,
+      type: row.type ?? 'Follow-up',
+      channel: row.channel ?? undefined,
+      status: row.status as FollowUpStatus,
+      priority: (row.priority ?? 'normal') as FollowUpPriority,
+      dueAt: row.dueAt ? new Date(row.dueAt) : undefined,
+      reminderAt: row.reminderAt ? new Date(row.reminderAt) : undefined,
+      snoozedUntil: row.snoozedUntil ? new Date(row.snoozedUntil) : undefined,
+      completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
+      completedByUserId: row.completedByUserId ?? undefined,
+      outcome: row.outcome ?? undefined,
+      outcomeNote: row.outcomeNote ?? undefined,
+      notes: row.notes ?? undefined,
+      sourceTrigger: row.sourceTrigger ?? undefined,
+      sourceType: row.sourceType ?? undefined,
+      sourceId: row.sourceId ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  getFollowupById(id: string): FollowUp | undefined {
+    const row = this.db.prepare('SELECT * FROM follow_ups WHERE id = ?').get(id) as any;
+    return row ? this.decodeFollowup(row) : undefined;
+  }
+
+  /**
+   * Create a follow-up. Idempotent when a sourceId is supplied: the UNIQUE
+   * partial index on (companyId, entityType, entityId, sourceTrigger, sourceId)
+   * guarantees one follow-up per business event, so re-firing a trigger returns
+   * the existing row instead of duplicating it.
+   */
+  createFollowup(input: {
+    companyId: string;
+    entityType: FollowUpEntityType;
+    entityId: string;
+    title?: string;
+    type?: string;
+    channel?: FollowUpChannel;
+    priority?: FollowUpPriority;
+    ownerUserId?: string;
+    ownerName?: string;
+    dueAt?: Date | string;
+    reminderAt?: Date | string;
+    notes?: string;
+    sourceTrigger?: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): FollowUp {
+    const nowIso = new Date().toISOString();
+    const dueAt = input.dueAt ? new Date(input.dueAt).toISOString() : null;
+    const reminderAt = input.reminderAt ? new Date(input.reminderAt).toISOString() : dueAt;
+    const sourceTrigger = input.sourceTrigger ?? 'manual';
+    const sourceId = input.sourceId ?? null;
+
+    // Idempotent path: only one open follow-up per (entity, trigger, sourceId).
+    if (sourceId) {
+      const existing = this.db
+        .prepare(
+          'SELECT * FROM follow_ups WHERE companyId = ? AND entityType = ? AND entityId = ? AND sourceTrigger = ? AND sourceId = ?',
+        )
+        .get(input.companyId, input.entityType, input.entityId, sourceTrigger, sourceId) as any;
+      if (existing) return this.decodeFollowup(existing);
+    }
+
+    const id = uuid();
+    this.db
+      .prepare(
+        `INSERT INTO follow_ups
+           (id, companyId, ownerUserId, ownerName, entityType, entityId, title, type, channel,
+            status, priority, dueAt, reminderAt, snoozedUntil, completedAt, completedByUserId,
+            outcome, outcomeNote, notes, sourceTrigger, sourceType, sourceId, createdAt, updatedAt)
+         VALUES
+           (@id, @companyId, @ownerUserId, @ownerName, @entityType, @entityId, @title, @type, @channel,
+            'open', @priority, @dueAt, @reminderAt, NULL, NULL, NULL,
+            NULL, NULL, @notes, @sourceTrigger, @sourceType, @sourceId, @now, @now)`,
+      )
+      .run({
+        id,
+        companyId: input.companyId,
+        ownerUserId: input.ownerUserId ?? null,
+        ownerName: input.ownerName ?? null,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        title: input.title ?? null,
+        type: input.type ?? 'Follow-up',
+        channel: input.channel ?? null,
+        priority: input.priority ?? 'normal',
+        dueAt,
+        reminderAt,
+        notes: input.notes ?? null,
+        sourceTrigger,
+        sourceType: input.sourceType ?? null,
+        sourceId,
+        now: nowIso,
+      });
+    return this.getFollowupById(id)!;
+  }
+
+  /** Raw follow_ups query (status defaults to 'open'). */
+  listFollowupEntities(
+    companyId: string,
+    options?: {
+      status?: FollowUpStatus | 'active';
+      ownerUserId?: string;
+      entityType?: FollowUpEntityType;
+      entityId?: string;
+      overdue?: boolean;
+      limit?: number;
+    },
+  ): FollowUp[] {
+    const status = options?.status ?? 'active';
+    const nowIso = new Date().toISOString();
+    let sql = 'SELECT * FROM follow_ups WHERE companyId = ?';
+    const params: any[] = [companyId];
+    if (status === 'active') {
+      sql += " AND status IN ('open','snoozed')";
+    } else {
+      sql += ' AND status = ?';
+      params.push(status);
+    }
+    if (options?.ownerUserId) {
+      // "Mine" = I own it OR I was invited to collaborate on it.
+      sql += ' AND (ownerUserId = ? OR id IN (SELECT followUpId FROM follow_up_assignees WHERE userId = ?))';
+      params.push(options.ownerUserId, options.ownerUserId);
+    }
+    if (options?.entityType) { sql += ' AND entityType = ?'; params.push(options.entityType); }
+    if (options?.entityId) { sql += ' AND entityId = ?'; params.push(options.entityId); }
+    if (options?.overdue === true) { sql += ' AND dueAt IS NOT NULL AND dueAt < ?'; params.push(nowIso); }
+    if (options?.overdue === false) { sql += ' AND dueAt IS NOT NULL AND dueAt >= ?'; params.push(nowIso); }
+    sql += ' ORDER BY (dueAt IS NULL), dueAt ASC LIMIT ?';
+    params.push(options?.limit ?? 500);
+    return (this.db.prepare(sql).all(...params) as any[]).map((r) => this.decodeFollowup(r));
+  }
+
+  completeFollowup(
+    id: string,
+    input: { outcome?: FollowUpOutcome; outcomeNote?: string; completedByUserId?: string } = {},
+  ): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    const nowIso = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE follow_ups SET status = 'completed', completedAt = @now, completedByUserId = @by,
+           outcome = @outcome, outcomeNote = @outcomeNote, updatedAt = @now WHERE id = @id`,
+      )
+      .run({
+        id,
+        now: nowIso,
+        by: input.completedByUserId ?? this.currentActor?.userId ?? null,
+        outcome: input.outcome ?? null,
+        outcomeNote: input.outcomeNote ?? null,
+      });
+    // Keep the contact's denormalized "soonest" cache honest when we close one.
+    if (existing.entityType === 'contact' && existing.sourceId === existing.entityId) {
+      this.db
+        .prepare('UPDATE contacts SET nextFollowupDate = NULL, nextFollowupNote = NULL WHERE id = ?')
+        .run(existing.entityId);
+    }
+    return this.getFollowupById(id);
+  }
+
+  snoozeFollowup(id: string, until: Date | string): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    const untilIso = new Date(until).toISOString();
+    const nowIso = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE follow_ups SET status = 'snoozed', snoozedUntil = @until, dueAt = @until,
+           reminderAt = @until, updatedAt = @now WHERE id = @id`,
+      )
+      .run({ id, until: untilIso, now: nowIso });
+    return this.getFollowupById(id);
+  }
+
+  rescheduleFollowupEntity(id: string, dueAt: Date | string, title?: string): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    const dueIso = new Date(dueAt).toISOString();
+    const nowIso = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE follow_ups SET dueAt = @due, reminderAt = @due, snoozedUntil = NULL, status = 'open',
+           title = COALESCE(@title, title), updatedAt = @now WHERE id = @id`,
+      )
+      .run({ id, due: dueIso, title: title ?? null, now: nowIso });
+    if (existing.entityType === 'contact' && existing.sourceId === existing.entityId) {
+      this.db
+        .prepare('UPDATE contacts SET nextFollowupDate = ? WHERE id = ?')
+        .run(dueIso, existing.entityId);
+    }
+    return this.getFollowupById(id);
+  }
+
+  reassignFollowup(id: string, ownerUserId: string): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    const owner = this.getUserById(ownerUserId);
+    this.db
+      .prepare('UPDATE follow_ups SET ownerUserId = ?, ownerName = ?, updatedAt = ? WHERE id = ?')
+      .run(ownerUserId, owner?.name ?? null, new Date().toISOString(), id);
+    return this.getFollowupById(id);
+  }
+
+  cancelFollowup(id: string): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    this.db
+      .prepare("UPDATE follow_ups SET status = 'cancelled', updatedAt = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
+    return this.getFollowupById(id);
+  }
+
+  /**
+   * Invite a teammate to collaborate on a follow-up. This ADDS a participant —
+   * it does not change the owner. No-op if they are already the owner or an
+   * existing collaborator. Notifies the invited person.
+   */
+  addFollowupAssignee(id: string, userId: string, addedByUserId?: string): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    if (existing.ownerUserId === userId) return existing; // already on point
+    const user = this.getUserById(userId);
+    if (!user || user.companyIds?.includes(existing.companyId) === false) {
+      // Only allow inviting users who belong to the same company.
+      if (!user) return existing;
+    }
+    const nowIso = new Date().toISOString();
+    const result = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO follow_up_assignees (followUpId, userId, addedByUserId, createdAt)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(id, userId, addedByUserId ?? null, nowIso);
+    this.db.prepare('UPDATE follow_ups SET updatedAt = ? WHERE id = ?').run(nowIso, id);
+
+    if (result.changes > 0) {
+      let name = existing.title || 'a follow-up';
+      let link = '/crm/followups';
+      if (existing.entityType === 'contact') {
+        const c = this.getContactById(existing.entityId);
+        if (c) { name = c.name; link = `/contacts/${c.id}`; }
+      }
+      this.notify({
+        companyId: existing.companyId,
+        userIds: [userId],
+        type: 'followup_assigned',
+        title: `You were added to a follow-up: ${name}`,
+        body: existing.title || existing.notes || undefined,
+        link,
+        entityType: 'follow_up',
+        entityId: existing.id,
+      });
+    }
+    return this.getFollowupById(id);
+  }
+
+  /** Remove a collaborator from a follow-up (does not affect the owner). */
+  removeFollowupAssignee(id: string, userId: string): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    this.db.prepare('DELETE FROM follow_up_assignees WHERE followUpId = ? AND userId = ?').run(id, userId);
+    this.db.prepare('UPDATE follow_ups SET updatedAt = ? WHERE id = ?').run(new Date().toISOString(), id);
+    return this.getFollowupById(id);
+  }
+
+  /** General field update (title, type, channel, priority, owner, due, notes). */
+  updateFollowup(
+    id: string,
+    updates: {
+      title?: string;
+      type?: string;
+      channel?: FollowUpChannel | null;
+      priority?: FollowUpPriority;
+      ownerUserId?: string | null;
+      dueAt?: Date | string | null;
+      notes?: string | null;
+    },
+  ): FollowUp | undefined {
+    const existing = this.getFollowupById(id);
+    if (!existing) return undefined;
+    const ownerName =
+      updates.ownerUserId !== undefined
+        ? (updates.ownerUserId ? this.getUserById(updates.ownerUserId)?.name ?? null : null)
+        : (existing.ownerName ?? null);
+    const dueIso =
+      updates.dueAt !== undefined
+        ? (updates.dueAt ? new Date(updates.dueAt).toISOString() : null)
+        : (existing.dueAt ? existing.dueAt.toISOString() : null);
+    this.db
+      .prepare(
+        `UPDATE follow_ups SET
+           title = @title, type = @type, channel = @channel, priority = @priority,
+           ownerUserId = @ownerUserId, ownerName = @ownerName,
+           dueAt = @dueAt, reminderAt = @dueAt, notes = @notes, updatedAt = @now
+         WHERE id = @id`,
+      )
+      .run({
+        id,
+        title: updates.title !== undefined ? (updates.title || null) : (existing.title ?? null),
+        type: updates.type ?? existing.type,
+        channel: updates.channel !== undefined ? (updates.channel || null) : (existing.channel ?? null),
+        priority: updates.priority ?? existing.priority,
+        ownerUserId: updates.ownerUserId !== undefined ? (updates.ownerUserId || null) : (existing.ownerUserId ?? null),
+        ownerName,
+        dueAt: dueIso,
+        notes: updates.notes !== undefined ? (updates.notes || null) : (existing.notes ?? null),
+        now: new Date().toISOString(),
+      });
+    return this.getFollowupById(id);
+  }
+
+  /**
+   * Follow-ups for the CRM inbox. Now backed by the first-class follow_ups
+   * table, but each row is decorated with legacy-compatible aliases
+   * (nextActionDueDate / summary / category / nextAction / actorName / isAuto /
+   * trigger) so the existing page and internal callers keep working unchanged.
+   */
   listFollowups(companyId: string, options?: {
     contactId?: string;
     ownerUserId?: string;
     overdue?: boolean;
     limit?: number;
-  }): ActivityEvent[] {
-    const limit = options?.limit ?? 100;
-    const now = new Date().toISOString();
-    let sql = `SELECT * FROM activity_events WHERE companyId = ? AND nextActionDueDate IS NOT NULL`;
-    const params: any[] = [companyId];
-    if (options?.contactId) { sql += ` AND entityId = ?`; params.push(options.contactId); }
-    if (options?.ownerUserId) { sql += ` AND actorUserId = ?`; params.push(options.ownerUserId); }
-    if (options?.overdue === true) { sql += ` AND nextActionDueDate < ?`; params.push(now); }
-    if (options?.overdue === false) { sql += ` AND nextActionDueDate >= ?`; params.push(now); }
-    sql += ` ORDER BY nextActionDueDate ASC LIMIT ?`;
-    params.push(limit);
-    const activityRows = this.db.prepare(sql).all(...params) as any[];
-    const activityFollowups = activityRows.map((r) => this.decodeActivityEvent(r));
-
-    // Also surface contact-level follow-ups (contact.nextFollowupDate). These
-    // are not stored as activity events but appear in the same list so the
-    // user has a single inbox of "things to do".
-    let contactSql = `SELECT * FROM contacts WHERE companyId = ? AND nextFollowupDate IS NOT NULL`;
-    const contactParams: any[] = [companyId];
-    if (options?.contactId) { contactSql += ` AND id = ?`; contactParams.push(options.contactId); }
-    if (options?.ownerUserId) { contactSql += ` AND ownerUserId = ?`; contactParams.push(options.ownerUserId); }
-    if (options?.overdue === true) { contactSql += ` AND nextFollowupDate < ?`; contactParams.push(now); }
-    if (options?.overdue === false) { contactSql += ` AND nextFollowupDate >= ?`; contactParams.push(now); }
-    contactSql += ` ORDER BY nextFollowupDate ASC LIMIT ?`;
-    contactParams.push(limit);
-    const contactRows = this.db.prepare(contactSql).all(...contactParams) as any[];
-
-    // Build pseudo-followup ActivityEvent rows for contact-level entries.
-    // They get a synthetic id prefixed with `contact:` so the frontend can
-    // route Mark Done / Reschedule to the contact-level endpoint.
-    const seenContactIds = new Set(activityFollowups.map((f) => f.entityId));
-    const contactFollowups: ActivityEvent[] = contactRows
-      .filter((r) => !seenContactIds.has(r.id))
-      .map((row) => ({
-        id: `contact:${row.id}`,
-        companyId: row.companyId,
-        actorUserId: row.ownerUserId ?? undefined,
-        actorName: row.ownerName ?? undefined,
-        entityType: 'contact' as const,
-        entityId: row.id,
-        action: 'followup_scheduled',
-        summary: row.nextFollowupNote || 'Follow-up scheduled',
-        category: 'Follow-up' as const,
-        nextAction: row.nextFollowupNote ?? undefined,
-        nextActionDueDate: new Date(row.nextFollowupDate),
-        createdAt: row.updatedAt ? new Date(row.updatedAt) : new Date(),
-      }));
-
-    const merged = [...activityFollowups, ...contactFollowups];
-    merged.sort((a, b) => {
-      const ad = a.nextActionDueDate ? a.nextActionDueDate.getTime() : 0;
-      const bd = b.nextActionDueDate ? b.nextActionDueDate.getTime() : 0;
-      return ad - bd;
+  }): Array<FollowUp & {
+    summary: string;
+    category: import('../types').ActivityCategory;
+    nextAction?: string;
+    nextActionDueDate?: Date;
+    actorUserId?: string;
+    actorName?: string;
+    isAuto: boolean;
+    trigger?: string;
+  }> {
+    const channelToCategory = (c?: string): import('../types').ActivityCategory => {
+      switch (c) {
+        case 'Call': return 'Call';
+        case 'WhatsApp': return 'WhatsApp';
+        case 'Email': return 'Email';
+        case 'Meeting': return 'Meeting';
+        default: return 'Follow-up';
+      }
+    };
+    const rows = this.listFollowupEntities(companyId, {
+      status: 'active',
+      ownerUserId: options?.ownerUserId,
+      entityId: options?.contactId,
+      overdue: options?.overdue,
+      limit: options?.limit ?? 100,
     });
-    return merged.slice(0, limit);
+    return rows.map((f) => ({
+      ...f,
+      summary: f.title || f.notes || 'Follow-up',
+      category: channelToCategory(f.channel),
+      nextAction: f.title,
+      nextActionDueDate: f.dueAt,
+      actorUserId: f.ownerUserId,
+      actorName: f.ownerName,
+      isAuto: Boolean(f.sourceTrigger && f.sourceTrigger !== 'manual' && f.sourceTrigger !== 'legacy_contact'),
+      trigger: f.sourceTrigger,
+    }));
+  }
+
+  // ─── Manager command center (Phase 2) ──────────────────────────────────────
+
+  /**
+   * Per-rep follow-up workload for a company: open/overdue/due-today/snoozed
+   * counts plus the age of the oldest overdue item (the "going cold" signal).
+   * Includes an "Unassigned" bucket (ownerUserId NULL) and every active member
+   * even at zero, so the heatmap shows idle reps too.
+   */
+  followupWorkload(companyId: string): {
+    byUser: Array<{
+      userId: string | null;
+      name: string;
+      open: number;
+      overdue: number;
+      dueToday: number;
+      snoozed: number;
+      oldestOverdueAt?: Date;
+    }>;
+    totals: { active: number; overdue: number; dueToday: number; snoozed: number; unassigned: number };
+  } {
+    const now = new Date();
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+    const startIso = todayStart.toISOString();
+    const endIso = todayEnd.toISOString();
+
+    const rows = this.db
+      .prepare(
+        `SELECT ownerUserId, ownerName, status, dueAt FROM follow_ups
+          WHERE companyId = ? AND status IN ('open','snoozed')`,
+      )
+      .all(companyId) as any[];
+
+    type Bucket = { userId: string | null; name: string; open: number; overdue: number; dueToday: number; snoozed: number; oldestOverdueAt?: Date };
+    const buckets = new Map<string, Bucket>();
+    const keyFor = (id: string | null) => id ?? '__unassigned__';
+    const ensure = (id: string | null, name: string): Bucket => {
+      const k = keyFor(id);
+      let b = buckets.get(k);
+      if (!b) { b = { userId: id, name, open: 0, overdue: 0, dueToday: 0, snoozed: 0 }; buckets.set(k, b); }
+      return b;
+    };
+
+    // Seed every active member at zero.
+    for (const u of this.getUsersByCompany(companyId)) ensure(u.id, u.name);
+    ensure(null, 'Unassigned');
+
+    const totals = { active: 0, overdue: 0, dueToday: 0, snoozed: 0, unassigned: 0 };
+    for (const r of rows) {
+      const b = ensure(r.ownerUserId ?? null, r.ownerName ?? (r.ownerUserId ? r.ownerUserId : 'Unassigned'));
+      b.open += 1;
+      totals.active += 1;
+      if (!r.ownerUserId) totals.unassigned += 1;
+      if (r.status === 'snoozed') { b.snoozed += 1; totals.snoozed += 1; continue; }
+      if (r.dueAt) {
+        if (r.dueAt < startIso) {
+          b.overdue += 1; totals.overdue += 1;
+          const d = new Date(r.dueAt);
+          if (!b.oldestOverdueAt || d < b.oldestOverdueAt) b.oldestOverdueAt = d;
+        } else if (r.dueAt < endIso) {
+          b.dueToday += 1; totals.dueToday += 1;
+        }
+      }
+    }
+
+    const byUser = Array.from(buckets.values())
+      // Hide the Unassigned bucket when empty; keep zero-load members visible.
+      .filter((b) => b.userId !== null || b.open > 0)
+      .sort((a, b) => b.overdue - a.overdue || b.open - a.open);
+    return { byUser, totals };
+  }
+
+  /**
+   * Open opportunities (stage not Won/Lost/Cancelled) with NO active follow-up
+   * attached — deals with no scheduled next step, sorted most-stale first.
+   */
+  followupCoverageGaps(companyId: string, limit = 50): Array<{
+    opportunityId: string;
+    title: string;
+    stage: string;
+    ownerUserId?: string;
+    ownerName?: string;
+    contactId?: string;
+    contactName?: string;
+    expectedRevenue: number;
+    updatedAt: Date;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT o.* FROM opportunities o
+          WHERE o.companyId = ?
+            AND o.stage NOT IN ('Won','Lost','Cancelled')
+            AND NOT EXISTS (
+              SELECT 1 FROM follow_ups f
+               WHERE f.companyId = o.companyId
+                 AND f.entityType = 'opportunity'
+                 AND f.entityId = o.id
+                 AND f.status IN ('open','snoozed')
+            )
+          ORDER BY o.updatedAt ASC
+          LIMIT ?`,
+      )
+      .all(companyId, limit) as any[];
+    return rows.map((row) => {
+      const o = this.decodeOpportunity(row);
+      const contact = o.contactId ? this.getContactById(o.contactId) : undefined;
+      return {
+        opportunityId: o.id,
+        title: o.title,
+        stage: o.stage,
+        ownerUserId: o.ownerUserId,
+        ownerName: o.ownerName,
+        contactId: o.contactId,
+        contactName: contact?.name,
+        expectedRevenue: o.expectedRevenue,
+        updatedAt: o.updatedAt,
+      };
+    });
+  }
+
+  /**
+   * Bulk transfer of follow-up OWNERSHIP for load-balancing (distinct from the
+   * per-card "add teammate" invite). Target set is either explicit ids or a
+   * source rep's active queue (optionally only overdue). When toUserIds has more
+   * than one entry the work is round-robined; otherwise all go to toUserId.
+   */
+  bulkReassignFollowups(
+    companyId: string,
+    opts: { ids?: string[]; fromUserId?: string; onlyOverdue?: boolean; toUserId?: string; toUserIds?: string[] },
+  ): { reassigned: number; perUser: Record<string, number> } {
+    let targets: FollowUp[] = [];
+    if (opts.ids && opts.ids.length > 0) {
+      targets = opts.ids
+        .map((id) => this.getFollowupById(id))
+        .filter((f): f is FollowUp => !!f && f.companyId === companyId && (f.status === 'open' || f.status === 'snoozed'));
+    } else if (opts.fromUserId) {
+      const nowIso = new Date().toISOString();
+      let sql = "SELECT id FROM follow_ups WHERE companyId = ? AND ownerUserId = ? AND status IN ('open','snoozed')";
+      const params: any[] = [companyId, opts.fromUserId];
+      if (opts.onlyOverdue) { sql += ' AND dueAt IS NOT NULL AND dueAt < ?'; params.push(nowIso); }
+      const ids = (this.db.prepare(sql).all(...params) as any[]).map((r) => r.id);
+      targets = ids.map((id) => this.getFollowupById(id)).filter((f): f is FollowUp => !!f);
+    }
+
+    const pool = (opts.toUserIds && opts.toUserIds.length > 0) ? opts.toUserIds : (opts.toUserId ? [opts.toUserId] : []);
+    if (pool.length === 0) return { reassigned: 0, perUser: {} };
+
+    const perUser: Record<string, number> = {};
+    let i = 0;
+    for (const f of targets) {
+      const to = pool[i % pool.length];
+      i += 1;
+      if (f.ownerUserId === to) continue; // already there
+      this.reassignFollowup(f.id, to);
+      perUser[to] = (perUser[to] ?? 0) + 1;
+    }
+    // One roll-up notification per receiving rep (not one per item).
+    for (const [userId, count] of Object.entries(perUser)) {
+      this.notify({
+        companyId,
+        userIds: [userId],
+        type: 'followup_assigned',
+        title: count === 1 ? 'A follow-up was assigned to you' : `${count} follow-ups were assigned to you`,
+        link: '/crm/followups',
+      });
+    }
+    const reassigned = Object.values(perUser).reduce((a, b) => a + b, 0);
+    return { reassigned, perUser };
   }
 
   getActivityEventById(id: string): ActivityEvent | undefined {
@@ -13192,72 +14510,46 @@ export class DataStore {
     nextAction: string;
     offsetDays: number;
     category?: import('../types').ActivityCategory;
-  }): ActivityEvent | undefined {
+  }): FollowUp | undefined {
     if (!input.contactId) return undefined;
     const contact = this.getContactById(input.contactId);
     if (!contact || contact.companyId !== input.companyId) return undefined;
 
-    // Idempotency check: scan recent automatic follow-ups for this contact
-    // matching the same trigger + sourceId. Look in the last 90 days to
-    // bound the search.
+    // Idempotency: one follow-up per (contact, trigger, sourceId). Returns
+    // undefined when one already exists so callers can count only NEW ones.
     if (input.sourceId) {
-      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const existing = this.db
         .prepare(
-          `SELECT id, metadata FROM activity_events
-             WHERE companyId = ?
-               AND entityType = 'contact'
-               AND entityId = ?
-               AND action = 'auto_followup'
-               AND createdAt >= ?`,
+          `SELECT id FROM follow_ups WHERE companyId = ? AND entityType = 'contact'
+             AND entityId = ? AND sourceTrigger = ? AND sourceId = ?`,
         )
-        .all(input.companyId, input.contactId, cutoff) as Array<{ id: string; metadata: string | null }>;
-      for (const row of existing) {
-        try {
-          const meta = row.metadata ? JSON.parse(row.metadata) : null;
-          if (meta && meta.trigger === input.trigger && meta.sourceId === input.sourceId) {
-            return undefined; // already scheduled
-          }
-        } catch {
-          /* malformed metadata, skip */
-        }
-      }
+        .get(input.companyId, input.contactId, input.trigger, input.sourceId);
+      if (existing) return undefined;
     }
 
     const dueAt = new Date();
     dueAt.setDate(dueAt.getDate() + Math.max(0, input.offsetDays));
     dueAt.setHours(9, 0, 0, 0); // normalize to 9am local
 
-    const id = uuid();
-    const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO activity_events
-           (id, companyId, actorUserId, actorName, entityType, entityId, action, summary,
-            category, outcome, nextAction, nextActionDueDate, durationMinutes, metadata, createdAt)
-         VALUES
-           (@id, @companyId, NULL, 'System', 'contact', @contactId, 'auto_followup', @summary,
-            @category, NULL, @nextAction, @due, NULL, @metadata, @now)`,
-      )
-      .run({
-        id,
-        companyId: input.companyId,
-        contactId: input.contactId,
-        summary: input.summary,
-        category: input.category ?? 'Follow-up',
-        nextAction: input.nextAction,
-        due: dueAt.toISOString(),
-        metadata: JSON.stringify({
-          trigger: input.trigger,
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-          auto: true,
-        }),
-        now,
-      });
+    const channel: FollowUpChannel | undefined =
+      input.category === 'Call' || input.category === 'WhatsApp' || input.category === 'Email' || input.category === 'Meeting'
+        ? input.category
+        : undefined;
 
-    const row = this.db.prepare('SELECT * FROM activity_events WHERE id = ?').get(id) as any;
-    return row ? this.decodeActivityEvent(row) : undefined;
+    return this.createFollowup({
+      companyId: input.companyId,
+      entityType: 'contact',
+      entityId: input.contactId,
+      title: input.nextAction,
+      notes: input.summary,
+      channel,
+      ownerUserId: contact.ownerUserId,
+      ownerName: contact.ownerName,
+      dueAt,
+      sourceTrigger: input.trigger,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+    });
   }
 
   /**
@@ -13523,6 +14815,9 @@ export class DataStore {
         description: String(item.description || ''),
         quantity: Number(item.quantity) || 0,
         unitCost: Number(item.unitCost) || 0,
+        lotNumber: item.lotNumber ?? undefined,
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : undefined,
+        manufactureDate: item.manufactureDate ? new Date(item.manufactureDate) : undefined,
       })),
     };
   }
@@ -13538,6 +14833,7 @@ export class DataStore {
         row.unitCost === null || row.unitCost === undefined ? undefined : Number(row.unitCost),
       referenceType: row.referenceType ?? undefined,
       referenceId: row.referenceId ?? undefined,
+      lotId: row.lotId ?? undefined,
       note: row.note ?? undefined,
       createdAt: new Date(row.createdAt),
     };
@@ -13557,18 +14853,312 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO stock_movements (id, companyId, inventoryItemId, movementType, quantityChange, unitCost, referenceType, referenceId, note, createdAt) VALUES (@id, @companyId, @inventoryItemId, @movementType, @quantityChange, @unitCost, @referenceType, @referenceId, @note, @createdAt)',
+        'INSERT INTO stock_movements (id, companyId, inventoryItemId, movementType, quantityChange, unitCost, referenceType, referenceId, lotId, note, createdAt) VALUES (@id, @companyId, @inventoryItemId, @movementType, @quantityChange, @unitCost, @referenceType, @referenceId, @lotId, @note, @createdAt)',
       )
       .run({
         ...movement,
         unitCost: movement.unitCost ?? null,
         referenceType: movement.referenceType ?? null,
         referenceId: movement.referenceId ?? null,
+        lotId: movement.lotId ?? null,
         note: movement.note ?? null,
         createdAt: movement.createdAt.toISOString(),
       });
 
     return movement;
+  }
+
+  // ── Inventory lots / batch & expiry tracking ──────────────────────────────
+
+  listInventoryLots(companyId: string, inventoryItemId?: string): InventoryLot[] {
+    const rows = inventoryItemId
+      ? (this.db
+          .prepare(
+            "SELECT * FROM inventory_lots WHERE companyId = ? AND inventoryItemId = ? ORDER BY (expiryDate IS NULL), expiryDate ASC, receivedAt ASC",
+          )
+          .all(companyId, inventoryItemId) as any[])
+      : (this.db
+          .prepare(
+            "SELECT * FROM inventory_lots WHERE companyId = ? ORDER BY (expiryDate IS NULL), expiryDate ASC, receivedAt ASC",
+          )
+          .all(companyId) as any[]);
+    return rows.map((row) => this.decodeInventoryLot(row));
+  }
+
+  getInventoryLotById(id: string): InventoryLot | undefined {
+    const row = this.db.prepare('SELECT * FROM inventory_lots WHERE id = ?').get(id) as any;
+    return row ? this.decodeInventoryLot(row) : undefined;
+  }
+
+  /** Lots expiring on or before `withinDays` from now (active, with stock left). */
+  listExpiringLots(companyId: string, withinDays = 30): InventoryLot[] {
+    const horizon = new Date(Date.now() + withinDays * 24 * 60 * 60 * 1000).toISOString();
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM inventory_lots WHERE companyId = ? AND status = 'Active' AND quantity > 0 AND expiryDate IS NOT NULL AND expiryDate <= ? ORDER BY expiryDate ASC",
+      )
+      .all(companyId, horizon) as any[];
+    return rows.map((row) => this.decodeInventoryLot(row));
+  }
+
+  /** Receive a batch/lot: records the lot and an inbound stock movement. */
+  createInventoryLot(input: CreateInventoryLotInput): InventoryLot {
+    const item = this.getInventoryItemById(input.inventoryItemId);
+    if (!item || item.companyId !== input.companyId) {
+      throw new Error('Inventory item does not belong to this company.');
+    }
+    const lotNumber = (input.lotNumber || '').trim();
+    if (!lotNumber) throw new Error('Lot number is required.');
+    const quantity = Number(input.quantity || 0);
+    if (!(quantity > 0)) throw new Error('Lot quantity must be greater than zero.');
+
+    const location = this.normalizeInventoryLocation(input.location || item.location);
+    const unitCost = input.unitCost === undefined ? item.unitCost : Number(input.unitCost || 0);
+    const nowIso = new Date().toISOString();
+    const receivedAt = input.receivedAt ? new Date(input.receivedAt) : new Date();
+    const lot: InventoryLot = {
+      id: uuid(),
+      companyId: input.companyId,
+      inventoryItemId: input.inventoryItemId,
+      lotNumber,
+      location,
+      quantity,
+      initialQuantity: quantity,
+      unitCost,
+      expiryDate: input.expiryDate ? new Date(input.expiryDate) : undefined,
+      manufactureDate: input.manufactureDate ? new Date(input.manufactureDate) : undefined,
+      supplierId: input.supplierId,
+      receivedAt,
+      status: 'Active',
+      note: input.note,
+      createdAt: new Date(nowIso),
+      updatedAt: new Date(nowIso),
+    };
+
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT INTO inventory_lots (id, companyId, inventoryItemId, lotNumber, location, quantity, initialQuantity, unitCost, expiryDate, manufactureDate, supplierId, receivedAt, status, note, createdAt, updatedAt) VALUES (@id, @companyId, @inventoryItemId, @lotNumber, @location, @quantity, @initialQuantity, @unitCost, @expiryDate, @manufactureDate, @supplierId, @receivedAt, @status, @note, @createdAt, @updatedAt)',
+        )
+        .run({
+          ...lot,
+          expiryDate: lot.expiryDate ? lot.expiryDate.toISOString() : null,
+          manufactureDate: lot.manufactureDate ? lot.manufactureDate.toISOString() : null,
+          supplierId: lot.supplierId ?? null,
+          note: lot.note ?? null,
+          receivedAt: lot.receivedAt.toISOString(),
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+
+      this.db
+        .prepare('UPDATE inventory_items SET onHand = onHand + ? WHERE id = ? AND companyId = ?')
+        .run(quantity, item.id, input.companyId);
+      this.incrementLocationBalance(input.companyId, item.id, location, quantity);
+      this.createStockMovement({
+        companyId: input.companyId,
+        inventoryItemId: item.id,
+        movementType: 'Receipt',
+        quantityChange: quantity,
+        unitCost,
+        referenceType: 'inventory_lot',
+        referenceId: lot.id,
+        lotId: lot.id,
+        note: `Lot ${lotNumber} received at ${location}`,
+      });
+    });
+    tx();
+
+    this.createActivityEvent({
+      companyId: input.companyId,
+      entityType: 'inventory_item',
+      entityId: item.id,
+      action: 'lot_received',
+      summary: `Lot ${lotNumber} (${quantity} ${item.unit}) received for ${item.name}.`,
+      metadata: { lotId: lot.id, expiryDate: lot.expiryDate?.toISOString() ?? null, location },
+    });
+
+    return lot;
+  }
+
+  /**
+   * Consume `quantity` of an item using FEFO (first-expiry-first-out): the lots
+   * with the earliest expiry are drawn down first. Records one Issue stock
+   * movement per lot touched and returns the resulting allocation.
+   */
+  consumeInventoryLotsFEFO(
+    companyId: string,
+    inventoryItemId: string,
+    quantity: number,
+    options: { location?: string; note?: string } = {},
+  ): Array<{ lotId: string; lotNumber: string; quantity: number }> {
+    const item = this.getInventoryItemById(inventoryItemId);
+    if (!item || item.companyId !== companyId) {
+      throw new Error('Inventory item does not belong to this company.');
+    }
+    const needed = Number(quantity || 0);
+    if (!(needed > 0)) throw new Error('Quantity to consume must be greater than zero.');
+
+    const location = options.location
+      ? this.normalizeInventoryLocation(options.location)
+      : undefined;
+    const lots = this.db
+      .prepare(
+        `SELECT * FROM inventory_lots WHERE companyId = ? AND inventoryItemId = ? AND status = 'Active' AND quantity > 0 ${
+          location ? 'AND location = ?' : ''
+        } ORDER BY (expiryDate IS NULL), expiryDate ASC, receivedAt ASC`,
+      )
+      .all(...(location ? [companyId, inventoryItemId, location] : [companyId, inventoryItemId])) as any[];
+
+    const available = lots.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+    if (available + 0.0001 < needed) {
+      throw new Error(
+        `Insufficient lot stock for ${item.name}: need ${needed}, only ${available} available${
+          location ? ` in ${location}` : ''
+        }.`,
+      );
+    }
+
+    const allocation: Array<{ lotId: string; lotNumber: string; quantity: number }> = [];
+    const nowIso = new Date().toISOString();
+    const tx = this.db.transaction(() => {
+      let remaining = needed;
+      for (const row of lots) {
+        if (remaining <= 0.0001) break;
+        const lotQty = Number(row.quantity) || 0;
+        const take = Math.min(lotQty, remaining);
+        if (take <= 0) continue;
+        const newQty = Number((lotQty - take).toFixed(4));
+        const newStatus: InventoryLotStatus = newQty <= 0.0001 ? 'Depleted' : 'Active';
+        this.db
+          .prepare('UPDATE inventory_lots SET quantity = ?, status = ?, updatedAt = ? WHERE id = ?')
+          .run(newQty, newStatus, nowIso, row.id);
+        this.db
+          .prepare('UPDATE inventory_items SET onHand = onHand - ? WHERE id = ? AND companyId = ?')
+          .run(take, item.id, companyId);
+        this.incrementLocationBalance(companyId, item.id, row.location, -take);
+        this.createStockMovement({
+          companyId,
+          inventoryItemId: item.id,
+          movementType: 'Issue',
+          quantityChange: -take,
+          unitCost: Number(row.unitCost) || item.unitCost,
+          referenceType: 'inventory_lot',
+          referenceId: row.id,
+          lotId: row.id,
+          note: options.note
+            ? `${options.note} (lot ${row.lotNumber})`
+            : `FEFO consume from lot ${row.lotNumber}`,
+        });
+        allocation.push({ lotId: row.id, lotNumber: row.lotNumber, quantity: take });
+        remaining = Number((remaining - take).toFixed(4));
+      }
+    });
+    tx();
+
+    this.createActivityEvent({
+      companyId,
+      entityType: 'inventory_item',
+      entityId: item.id,
+      action: 'lot_consumed',
+      summary: `Consumed ${needed} ${item.unit} of ${item.name} via FEFO.`,
+      metadata: { allocation, note: options.note ?? null },
+    });
+
+    return allocation;
+  }
+
+  /**
+   * Decrement active lots FEFO for `quantity` at `location` — best-effort and
+   * side-effect-free (no onHand change, no stock movement). Used to keep lot
+   * balances reconciled when stock leaves through the regular issue flow.
+   * Consumes only what lots can cover (an item may hold untracked on-hand that
+   * predates lot tracking), so it never throws.
+   */
+  private drawDownLotsFEFO(
+    companyId: string,
+    inventoryItemId: string,
+    quantity: number,
+    location: string,
+  ): Array<{ lotId: string; lotNumber: string; quantity: number }> {
+    const lots = this.db
+      .prepare(
+        "SELECT * FROM inventory_lots WHERE companyId = ? AND inventoryItemId = ? AND status = 'Active' AND quantity > 0 AND location = ? ORDER BY (expiryDate IS NULL), expiryDate ASC, receivedAt ASC",
+      )
+      .all(companyId, inventoryItemId, location) as any[];
+    const allocation: Array<{ lotId: string; lotNumber: string; quantity: number }> = [];
+    const nowIso = new Date().toISOString();
+    let remaining = Number(quantity || 0);
+    for (const row of lots) {
+      if (remaining <= 0.0001) break;
+      const lotQty = Number(row.quantity) || 0;
+      const take = Math.min(lotQty, remaining);
+      if (take <= 0) continue;
+      const newQty = Number((lotQty - take).toFixed(4));
+      const newStatus: InventoryLotStatus = newQty <= 0.0001 ? 'Depleted' : 'Active';
+      this.db
+        .prepare('UPDATE inventory_lots SET quantity = ?, status = ?, updatedAt = ? WHERE id = ?')
+        .run(newQty, newStatus, nowIso, row.id);
+      allocation.push({ lotId: row.id, lotNumber: row.lotNumber, quantity: take });
+      remaining = Number((remaining - take).toFixed(4));
+    }
+    return allocation;
+  }
+
+  /** Notify Admins/Managers about lots expiring within 30 days (once/day). */
+  sweepExpiryNotifications(): number {
+    const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+    let count = 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (const { id: companyId } of companies) {
+      const lots = this.listExpiringLots(companyId, 30);
+      if (lots.length === 0) continue;
+      const recipients = this.listUserIdsByCompanyRoles(companyId, ['Admin', 'Manager']);
+      if (recipients.length === 0) continue;
+      for (const lot of lots) {
+        const item = this.getInventoryItemById(lot.inventoryItemId);
+        if (!item) continue;
+        const expiry = lot.expiryDate!;
+        const days = Math.ceil((expiry.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+        const expired = days < 0;
+        count += this.notify({
+          companyId,
+          userIds: recipients,
+          type: 'expiry_warning',
+          title: `${expired ? 'Expired' : 'Expiring soon'}: ${item.name} (lot ${lot.lotNumber})`,
+          body: `${lot.quantity} ${item.unit} ${
+            expired ? `expired ${Math.abs(days)} day(s) ago` : `expire in ${days} day(s)`
+          } on ${expiry.toISOString().slice(0, 10)}.`,
+          link: '/inventory',
+          entityType: 'inventory_lot',
+          entityId: lot.id,
+          dedupeWithinMs: 20 * 60 * 60 * 1000,
+        }).length;
+      }
+    }
+    return count;
+  }
+
+  private decodeInventoryLot(row: any): InventoryLot {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      inventoryItemId: row.inventoryItemId,
+      lotNumber: row.lotNumber,
+      location: row.location,
+      quantity: Number(row.quantity) || 0,
+      initialQuantity: Number(row.initialQuantity) || 0,
+      unitCost: Number(row.unitCost) || 0,
+      expiryDate: row.expiryDate ? new Date(row.expiryDate) : undefined,
+      manufactureDate: row.manufactureDate ? new Date(row.manufactureDate) : undefined,
+      supplierId: row.supplierId ?? undefined,
+      receivedAt: new Date(row.receivedAt),
+      status: row.status as InventoryLotStatus,
+      note: row.note ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
   }
 
   private decodeVendorBill(row: any): VendorBill {

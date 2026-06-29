@@ -41,8 +41,8 @@ export const TOURS: Tour[] = [
       },
       {
         target: '[data-tutorial="nav-pipeline"]',
-        en: { title: 'CRM Pipeline', desc: 'Manage your entire sales funnel in one place. Track Opportunities through Kanban stages, approve Vendor and Influencer Requests, manage Campaigns and Proposals, and view Commissions earned by your sales team.' },
-        ar: { title: 'خط أنابيب المبيعات', desc: 'أدر قمع المبيعات بالكامل في مكان واحد. تتبع الفرص عبر مراحل كانبان، وافق على طلبات الموردين والمؤثرين، أدر الحملات والمقترحات، واعرض العمولات التي حققها فريق المبيعات.' },
+        en: { title: 'CRM Pipeline', desc: 'Manage your entire sales funnel in one place. Track Opportunities through Kanban stages, approve Vendor and Influencer Requests, manage Campaigns, and view Commissions earned by your sales team.' },
+        ar: { title: 'خط أنابيب المبيعات', desc: 'أدر قمع المبيعات بالكامل في مكان واحد. تتبع الفرص عبر مراحل كانبان، وافق على طلبات الموردين والمؤثرين، أدر الحملات، واعرض العمولات التي حققها فريق المبيعات.' },
         position: 'right',
       },
       {
@@ -546,8 +546,8 @@ export const TOURS: Tour[] = [
     steps: [
       {
         target: '[data-tutorial="pipeline-tabs"]',
-        en: { title: 'Pipeline Sections', desc: 'The Pipeline module is divided into five sections. Opportunities tracks your active deals through stages. Vendor Requests handles employee requests to add new vendors. Campaigns tracks marketing campaigns. Proposals manages formal proposals sent to clients. Commissions shows what your sales team has earned based on won deals.' },
-        ar: { title: 'أقسام خط الأنابيب', desc: 'وحدة خط الأنابيب مقسمة إلى خمسة أقسام. الفرص تتتبع صفقاتك النشطة عبر المراحل. طلبات الموردين تتعامل مع طلبات الموظفين لإضافة موردين جدد. الحملات تتتبع الحملات التسويقية. المقترحات تدير المقترحات الرسمية المرسلة للعملاء. العمولات تُظهر ما حققه فريق مبيعاتك بناءً على الصفقات المُبرمة.' },
+        en: { title: 'Pipeline Sections', desc: 'The Pipeline module is divided into four sections. Opportunities tracks your active deals through stages. Vendor Requests handles employee requests to add new vendors. Campaigns tracks marketing campaigns. Commissions shows what your sales team has earned based on won deals.' },
+        ar: { title: 'أقسام خط الأنابيب', desc: 'وحدة خط الأنابيب مقسمة إلى أربعة أقسام. الفرص تتتبع صفقاتك النشطة عبر المراحل. طلبات الموردين تتعامل مع طلبات الموظفين لإضافة موردين جدد. الحملات تتتبع الحملات التسويقية. العمولات تُظهر ما حققه فريق مبيعاتك بناءً على الصفقات المُبرمة.' },
         position: 'bottom',
       },
       {

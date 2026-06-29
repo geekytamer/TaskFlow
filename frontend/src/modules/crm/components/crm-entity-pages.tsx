@@ -49,6 +49,7 @@ import {
   getVendorRequests,
   generateCampaignInvoice,
   generateCampaignVendorBills,
+  syncCampaignInvoice,
   updateCampaign,
   updateCampaignAssignment,
   updateCampaignDeliverable,
@@ -85,6 +86,8 @@ import {
   TrendingUp,
   Clock,
   AlertCircle,
+  Pencil,
+  RefreshCw,
 } from 'lucide-react';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -425,6 +428,23 @@ export function CampaignsPage() {
   const [campaignForm, setCampaignForm] = React.useState({
     name: '', contactId: '', opportunityId: '', startDate: '', endDate: '', budget: '',
   });
+  const [editingCampaignId, setEditingCampaignId] = React.useState<string | null>(null);
+  const resetCampaignForm = () => {
+    setCampaignForm({ name: '', contactId: '', opportunityId: '', startDate: '', endDate: '', budget: '' });
+    setEditingCampaignId(null);
+  };
+  const openEditCampaign = (c: CrmCampaign) => {
+    setEditingCampaignId(c.id);
+    setCampaignForm({
+      name: c.name || '',
+      contactId: c.contactId || '',
+      opportunityId: c.opportunityId || '',
+      startDate: c.startDate ? new Date(c.startDate).toISOString().slice(0, 10) : '',
+      endDate: c.endDate ? new Date(c.endDate).toISOString().slice(0, 10) : '',
+      budget: c.budget != null ? String(c.budget) : '',
+    });
+    setDialogOpen(true);
+  };
   const [deliverableForm, setDeliverableForm] = React.useState({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '', fulfillment: 'Internal' as 'Internal' | 'External' });
   const [addingDeliverable, setAddingDeliverable] = React.useState(false);
   const [deliverableDialogOpen, setDeliverableDialogOpen] = React.useState(false);
@@ -433,6 +453,7 @@ export function CampaignsPage() {
   const confirm = useConfirm();
   const [generatingInvoice, setGeneratingInvoice] = React.useState(false);
   const [generatingVendorBills, setGeneratingVendorBills] = React.useState(false);
+  const [syncingInvoice, setSyncingInvoice] = React.useState(false);
   const [assignmentForm, setAssignmentForm] = React.useState({ contactId: '', role: 'Influencer' as ContactRoleType, agreedRate: '' });
   const [expenseForm, setExpenseForm] = React.useState({ description: '', amount: '', expenseDate: '', billable: false });
 
@@ -471,24 +492,74 @@ export function CampaignsPage() {
   const submitCampaign = async () => {
     if (!selectedCompany || !campaignForm.name.trim()) return;
     setSubmitting(true);
+    const payload = {
+      name: campaignForm.name.trim(),
+      contactId: campaignForm.contactId || undefined,
+      opportunityId: campaignForm.opportunityId || undefined,
+      startDate: campaignForm.startDate ? new Date(campaignForm.startDate) : undefined,
+      endDate: campaignForm.endDate ? new Date(campaignForm.endDate) : undefined,
+      budget: campaignForm.budget ? Number(campaignForm.budget) : undefined,
+    };
     try {
-      await createCampaign(selectedCompany.id, {
-        name: campaignForm.name.trim(),
-        contactId: campaignForm.contactId || undefined,
-        opportunityId: campaignForm.opportunityId || undefined,
-        startDate: campaignForm.startDate ? new Date(campaignForm.startDate) : undefined,
-        endDate: campaignForm.endDate ? new Date(campaignForm.endDate) : undefined,
-        budget: campaignForm.budget ? Number(campaignForm.budget) : undefined,
-        status: 'Planned',
-        visibility: 'Public',
-      });
-      setCampaignForm({ name: '', contactId: '', opportunityId: '', startDate: '', endDate: '', budget: '' });
+      if (editingCampaignId) {
+        const updated = await updateCampaign(editingCampaignId, payload);
+        setSelectedCampaign((prev) => (prev && prev.id === editingCampaignId ? updated : prev));
+        toast({ title: t('campaignsPage.toastUpdated', 'Campaign updated') });
+      } else {
+        await createCampaign(selectedCompany.id, {
+          ...payload,
+          status: 'Planned',
+          visibility: 'Public',
+        });
+        toast({ title: t('campaignsPage.toastCreated') });
+      }
+      resetCampaignForm();
       setDialogOpen(false);
       await loadCampaigns();
-      toast({ title: t('campaignsPage.toastCreated') });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: t('campaignsPage.toastCreateFailed'), description: error?.message });
+      toast({
+        variant: 'destructive',
+        title: editingCampaignId
+          ? t('campaignsPage.toastUpdateFailed', 'Could not update campaign')
+          : t('campaignsPage.toastCreateFailed'),
+        description: error?.message,
+      });
     } finally { setSubmitting(false); }
+  };
+
+  const handleSyncInvoice = async () => {
+    if (!selectedCompany || !selectedCampaign) return;
+    setSyncingInvoice(true);
+    try {
+      let result = await syncCampaignInvoice(selectedCompany.id, selectedCampaign.id, false);
+      if (result.status === 'needs_confirmation') {
+        const ok = await confirm({
+          title: t('campaignsPage.syncConfirmTitle', 'Invoice already issued'),
+          description: result.message || '',
+          confirmText: t('common.confirm', 'Confirm'),
+          cancelText: t('common.cancel'),
+        });
+        if (!ok) return;
+        result = await syncCampaignInvoice(selectedCompany.id, selectedCampaign.id, true);
+      }
+      const descByStatus: Record<string, string> = {
+        resynced: t('campaignsPage.syncResynced', 'The draft invoice was updated to match the campaign.'),
+        up_to_date: t('campaignsPage.syncUpToDate', 'The invoice already matches the campaign.'),
+        supplemented: t('campaignsPage.syncSupplemented', 'A supplementary invoice was created for the added scope.'),
+        credited: t('campaignsPage.syncCredited', 'A credit note was issued for the reduced scope.'),
+      };
+      await loadCampaigns();
+      await loadExecution(selectedCampaign.id);
+      toast({ title: t('campaignsPage.syncDone', 'Invoice synced'), description: descByStatus[result.status] });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: t('campaignsPage.syncFailed', 'Could not sync invoice'),
+        description: error?.message,
+      });
+    } finally {
+      setSyncingInvoice(false);
+    }
   };
 
   if (!selectedCompany) return (
@@ -612,19 +683,33 @@ export function CampaignsPage() {
         </Table>
       </div>
 
-      {/* Campaign detail panel */}
-      {selectedCampaign && (
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b bg-muted/40 px-5 py-3">
+      {/* Campaign detail dialog */}
+      <Dialog open={!!selectedCampaign} onOpenChange={(v) => { if (!v) setSelectedCampaign(null); }}>
+        <DialogContent className="max-w-4xl gap-0 overflow-y-auto p-0 max-h-[90vh]">
+        {selectedCampaign && (
+        <div className="overflow-hidden rounded-xl bg-card">
+          <div className="flex items-center justify-between border-b bg-muted/40 px-5 py-3 pe-12">
             <div>
-              <h3 className="font-semibold">{selectedCampaign.name}</h3>
+              <DialogTitle className="font-semibold">{selectedCampaign.name}</DialogTitle>
               <p className="text-xs text-muted-foreground mt-0.5">{t('campaignsPage.execution')}</p>
             </div>
             <div className="flex items-center gap-2">
               {canManageFinance && (selectedCampaign.invoiceId ? (
-                <Badge variant="outline" className="gap-1 text-xs text-green-700 border-green-300 bg-green-50">
-                  <Receipt className="h-3 w-3" /> {t('campaignsPage.invoiceGenerated')}
-                </Badge>
+                <>
+                  <Badge variant="outline" className="gap-1 text-xs text-green-700 border-green-300 bg-green-50">
+                    <Receipt className="h-3 w-3" /> {t('campaignsPage.invoiceGenerated')}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs"
+                    disabled={syncingInvoice}
+                    title={t('campaignsPage.syncInvoiceHint', 'Reconcile the invoice with the current deliverables')}
+                    onClick={handleSyncInvoice}
+                  >
+                    <RefreshCw className="h-3 w-3" /> {t('campaignsPage.syncInvoice', 'Sync invoice')}
+                  </Button>
+                </>
               ) : (
                 <Button
                   size="sm"
@@ -678,9 +763,16 @@ export function CampaignsPage() {
                 <BadgeDollarSign className="h-3 w-3" /> {t('campaignsPage.generateVendorBills')}
               </Button>
               )}
-              <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setSelectedCampaign(null)}>
-                {t('campaignsPage.close')}
-              </Button>
+              {canManageFinance && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => openEditCampaign(selectedCampaign)}
+                >
+                  <Pencil className="h-3 w-3" /> {t('campaignsPage.edit', 'Edit')}
+                </Button>
+              )}
             </div>
           </div>
           {canManageFinance && (
@@ -737,7 +829,7 @@ export function CampaignsPage() {
                     <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.addDeliverable')}
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className="h-[50vh] space-y-2 overflow-y-auto pe-1">
                   {deliverables.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">{t('campaignsPage.noDeliverables')}</p>}
                   {deliverables.map((item) => (
                     <div key={item.id} className="rounded-lg border bg-card p-3">
@@ -793,7 +885,7 @@ export function CampaignsPage() {
                     <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.addAssignment')}
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className="h-[50vh] space-y-2 overflow-y-auto pe-1">
                   {assignments.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">{t('campaignsPage.noAssignments')}</p>}
                   {assignments.map((item) => (
                     <div key={item.id} className="rounded-lg border bg-card p-3">
@@ -843,7 +935,7 @@ export function CampaignsPage() {
                     <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.addExpense')}
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className="h-[50vh] space-y-2 overflow-y-auto pe-1">
                   {expenses.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">{t('campaignsPage.noExpenses')}</p>}
                   {expenses.map((item) => (
                     <div key={item.id} className="rounded-lg border bg-card p-3">
@@ -880,14 +972,17 @@ export function CampaignsPage() {
             </TabsContent>
           </Tabs>
         </div>
-      )}
+        )}
+        </DialogContent>
+      </Dialog>
 
       {/* Create campaign dialog */}
-      <Dialog open={dialogOpen} onOpenChange={(v) => { if (!v) setCampaignForm({ name: '', contactId: '', opportunityId: '', startDate: '', endDate: '', budget: '' }); setDialogOpen(v); }}>
+      <Dialog open={dialogOpen} onOpenChange={(v) => { if (!v) resetCampaignForm(); setDialogOpen(v); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Megaphone className="h-5 w-5 text-primary" /> {t('campaignsPage.newCampaign')}
+              <Megaphone className="h-5 w-5 text-primary" />{' '}
+              {editingCampaignId ? t('campaignsPage.editCampaign', 'Edit Campaign') : t('campaignsPage.newCampaign')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -935,9 +1030,13 @@ export function CampaignsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
+            <Button variant="outline" onClick={() => { resetCampaignForm(); setDialogOpen(false); }}>{t('common.cancel')}</Button>
             <Button onClick={submitCampaign} disabled={submitting || !campaignForm.name.trim()}>
-              {submitting ? t('campaignsPage.creating') : t('campaignsPage.createCampaign')}
+              {submitting
+                ? t('campaignsPage.creating')
+                : editingCampaignId
+                  ? t('campaignsPage.saveChanges', 'Save Changes')
+                  : t('campaignsPage.createCampaign')}
             </Button>
           </DialogFooter>
         </DialogContent>

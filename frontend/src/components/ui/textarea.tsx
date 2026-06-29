@@ -4,7 +4,7 @@ import { localizeUiPlaceholder } from '@/lib/ui-text';
 import {cn} from '@/lib/utils';
 
 const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'textarea'>>(
-  ({className, placeholder, ...props}, ref) => {
+  ({className, placeholder, value, ...props}, ref) => {
     return (
       <textarea
         className={cn(
@@ -13,6 +13,9 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'tex
         )}
         ref={ref}
         placeholder={localizeUiPlaceholder(placeholder) as string | undefined}
+        // Coerce a null controlled value to '' so callers passing a nullable
+        // field don't trigger React's "value should not be null" warning.
+        value={value === null ? '' : value}
         {...props}
       />
     );

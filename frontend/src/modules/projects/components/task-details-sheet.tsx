@@ -29,7 +29,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { getProjectById, getCommentsByTaskId, createComment, updateTask, deleteTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { TaskTimePanel } from './task-time-panel';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyMembers, type CompanyMember } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
 import type { User } from '@/modules/users/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
@@ -74,7 +74,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [comments, setComments] = React.useState<Comment[]>([]);
   const [project, setProject] = React.useState<Project | undefined>();
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
-  const [allUsers, setAllUsers] = React.useState<User[]>([]);
+  const [allUsers, setAllUsers] = React.useState<CompanyMember[]>([]);
   const [allTasks, setAllTasks] = React.useState<Task[]>([]);
   const [newComment, setNewComment] = React.useState('');
   const [loading, setLoading] = React.useState(true);
@@ -88,18 +88,19 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         setLoading(true);
         setEditableTask(task);
         setInvoicePreview(task.invoiceImage || null);
-        const canLoadCompanyUsers = currentRole && currentRole !== 'Employee';
+        // Any company member (including employees) can load the lightweight
+        // member directory, so everyone can assign people to a task.
         const [projectData, commentsData, companyUsersData, tasksData] = await Promise.all([
             getProjectById(task.projectId),
             getCommentsByTaskId(task.id),
-            canLoadCompanyUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
+            getCompanyMembers(selectedCompany.id),
             getTasks(),
         ]);
-        const visibleUsers =
+        const visibleUsers: CompanyMember[] =
           companyUsersData.length > 0
             ? companyUsersData
             : currentUser
-              ? [currentUser]
+              ? [{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar ?? null }]
               : [];
         setProject(projectData);
         setComments(commentsData);
@@ -573,7 +574,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                     <Avatar className="h-9 w-9">
                                        {commentUser ? (
                                            <>
-                                            <AvatarImage src={commentUser.avatar} />
+                                            <AvatarImage src={commentUser.avatar ?? undefined} />
                                             <AvatarFallback>{commentUser.name.charAt(0)}</AvatarFallback>
                                            </>
                                        ) : (

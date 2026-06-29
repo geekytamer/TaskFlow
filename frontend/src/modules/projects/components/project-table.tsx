@@ -30,7 +30,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { getClients } from '@/services/financeService';
 import type { Client } from '@/modules/finance/types';
-import { canViewProject } from '@/modules/projects/lib/access';
 
 interface ProjectTableProps {
     projectId?: string;
@@ -43,7 +42,7 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
     const [clients, setClients] = React.useState<Client[]>([]);
     const [loading, setLoading] = React.useState(true);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
-    const { selectedCompany, projects, currentUser, currentRole } = useCompany();
+    const { selectedCompany, projects, currentRole } = useCompany();
     const { toast } = useToast();
 
     const loadData = React.useCallback(async () => {
@@ -79,25 +78,15 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
         loadData();
     }, [loadData]);
     
-    const visibleProjects = React.useMemo(() => {
-        if (!currentUser) return [];
-        return projects.filter(p => 
-            p.companyId === selectedCompany?.id &&
-            canViewProject(p, currentUser.id, currentRole)
-        );
-    }, [currentUser, currentRole, projects, selectedCompany]);
-    
     const filteredTasks = React.useMemo(() => {
-        const visibleProjectIds = visibleProjects.map(p => p.id);
         return tasks.filter(task =>
-            (!projectId || task.projectId === projectId) &&
-            (selectedStatus === 'all' || task.status === selectedStatus) &&
-            (visibleProjectIds.includes(task.projectId) ||
-                // Project-less tasks aren't tied to any project; show them in the
-                // company-wide view (no projectId prop) as long as they're in this company.
-                (!task.projectId && task.companyId === selectedCompany?.id))
+            // Scoped to a single project when rendered inside one; otherwise the
+            // company-wide tasks table shows every task in the company. Tasks are
+            // visible to all members, including project-less ones.
+            (projectId ? task.projectId === projectId : task.companyId === selectedCompany?.id) &&
+            (selectedStatus === 'all' || task.status === selectedStatus)
         );
-    }, [tasks, projectId, selectedStatus, visibleProjects, selectedCompany]);
+    }, [tasks, projectId, selectedStatus, selectedCompany]);
 
     const handleTaskClick = (task: Task) => {
         setSelectedTask(task);

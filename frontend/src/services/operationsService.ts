@@ -2,6 +2,7 @@ import { apiFetch } from '@/lib/api-client';
 import type {
   InventoryItem,
   InventoryLocationBalance,
+  InventoryLot,
   PurchaseOrder,
   PurchaseOrderLineItem,
   PurchaseReceipt,
@@ -84,6 +85,9 @@ const mapPurchaseReceiptLine = (item: any) => ({
   description: String(item?.description || ''),
   quantity: Number(item?.quantity || 0),
   unitCost: Number(item?.unitCost || 0),
+  lotNumber: item?.lotNumber ? String(item.lotNumber) : undefined,
+  expiryDate: toDate(item?.expiryDate),
+  manufactureDate: toDate(item?.manufactureDate),
 });
 
 const mapPurchaseReceipt = (receipt: any): PurchaseReceipt => ({
@@ -108,6 +112,30 @@ const mapInventoryLocationBalance = (balance: any): InventoryLocationBalance => 
   location: String(balance.location || 'Unassigned'),
   quantity: Number(balance.quantity || 0),
 });
+
+const mapInventoryLot = (lot: any): InventoryLot => ({
+  ...lot,
+  quantity: Number(lot.quantity || 0),
+  initialQuantity: Number(lot.initialQuantity || 0),
+  unitCost: Number(lot.unitCost || 0),
+  expiryDate: toDate(lot.expiryDate),
+  manufactureDate: toDate(lot.manufactureDate),
+  receivedAt: toDate(lot.receivedAt) || new Date(),
+  createdAt: toDate(lot.createdAt) || new Date(),
+  updatedAt: toDate(lot.updatedAt) || new Date(),
+});
+
+export interface CreateInventoryLotInput {
+  lotNumber: string;
+  quantity: number;
+  location?: string;
+  unitCost?: number;
+  expiryDate?: string;
+  manufactureDate?: string;
+  supplierId?: string;
+  receivedAt?: string;
+  note?: string;
+}
 
 export async function getInventoryItems(companyId: string): Promise<InventoryItem[]> {
   if (!companyId) return [];
@@ -154,6 +182,55 @@ export async function getInventoryLocationBalances(
     `/companies/${companyId}/inventory-location-balances${query}`,
   );
   return balances.map(mapInventoryLocationBalance);
+}
+
+export async function getInventoryLots(
+  companyId: string,
+  inventoryItemId?: string,
+): Promise<InventoryLot[]> {
+  if (!companyId) return [];
+  const query = inventoryItemId
+    ? `?inventoryItemId=${encodeURIComponent(inventoryItemId)}`
+    : '';
+  const lots = await apiFetch<InventoryLot[]>(`/companies/${companyId}/inventory-lots${query}`);
+  return lots.map(mapInventoryLot);
+}
+
+export async function getExpiringLots(
+  companyId: string,
+  days = 30,
+): Promise<InventoryLot[]> {
+  if (!companyId) return [];
+  const lots = await apiFetch<InventoryLot[]>(
+    `/companies/${companyId}/inventory-lots/expiring?days=${encodeURIComponent(days)}`,
+  );
+  return lots.map(mapInventoryLot);
+}
+
+export async function receiveInventoryLot(
+  companyId: string,
+  itemId: string,
+  data: CreateInventoryLotInput,
+): Promise<{ lot: InventoryLot; item: InventoryItem }> {
+  const response = await apiFetch<{ lot: InventoryLot; item: InventoryItem }>(
+    `/companies/${companyId}/inventory-items/${itemId}/lots`,
+    { method: 'POST', body: JSON.stringify(data) },
+  );
+  return { lot: mapInventoryLot(response.lot), item: response.item };
+}
+
+export async function consumeInventoryLotsFefo(
+  companyId: string,
+  itemId: string,
+  data: { quantity: number; location?: string; note?: string },
+): Promise<{ allocation: Array<{ lotId: string; lotNumber: string; quantity: number }>; item: InventoryItem }> {
+  return apiFetch<{
+    allocation: Array<{ lotId: string; lotNumber: string; quantity: number }>;
+    item: InventoryItem;
+  }>(`/companies/${companyId}/inventory-items/${itemId}/consume-fefo`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function issueInventoryItem(
@@ -300,7 +377,13 @@ export async function receivePurchaseOrder(
   data: {
     receivedAt?: Date;
     notes?: string;
-    items: Array<{ lineIndex: number; quantity: number }>;
+    items: Array<{
+      lineIndex: number;
+      quantity: number;
+      lotNumber?: string;
+      expiryDate?: string;
+      manufactureDate?: string;
+    }>;
   },
 ): Promise<PurchaseOrder> {
   const order = await apiFetch<PurchaseOrder>(`/purchase-orders/${orderId}/receipts`, {

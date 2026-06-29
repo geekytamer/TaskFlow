@@ -41,6 +41,7 @@ import {
   adjustInventoryItem,
   createInventoryItem,
   deleteInventoryItem,
+  getExpiringLots,
   getInventoryItems,
   getInventoryLocationBalances,
   getPurchaseOrders,
@@ -51,11 +52,13 @@ import {
   transferInventoryItem,
 } from '@/services/operationsService';
 import { getProjects } from '@/services/projectService';
-import type { InventoryItem, InventoryLocationBalance, PurchaseOrder, StockMovement, Supplier, Warehouse } from '@/modules/operations/types';
+import type { InventoryItem, InventoryLocationBalance, InventoryLot, PurchaseOrder, StockMovement, Supplier, Warehouse } from '@/modules/operations/types';
 import { WarehousesPanel } from './warehouses-panel';
+import { InventoryLotsDialog } from './inventory-lots-dialog';
+import { ExpiringLotsPanel } from './expiring-lots-panel';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
-import { ArrowRightLeft, PackageMinus, PackagePlus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
@@ -135,6 +138,8 @@ export function InventoryPage() {
   const [movements, setMovements] = React.useState<StockMovement[]>([]);
   const [balances, setBalances] = React.useState<InventoryLocationBalance[]>([]);
   const [warehouses, setWarehouses] = React.useState<Warehouse[]>([]);
+  const [expiringLots, setExpiringLots] = React.useState<InventoryLot[]>([]);
+  const [lotsItem, setLotsItem] = React.useState<InventoryItem | null>(null);
 
   const categoryOptions = React.useMemo(
     () => Array.from(new Set(items.map((i) => i.category).filter(Boolean))) as string[],
@@ -187,19 +192,21 @@ export function InventoryPage() {
       setSuppliers([]);
       setMovements([]);
       setBalances([]);
+      setExpiringLots([]);
       setProjects([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [itemData, orderData, supplierData, movementData, balanceData, warehouseData, projectData] = await Promise.all([
+      const [itemData, orderData, supplierData, movementData, balanceData, warehouseData, expiringData, projectData] = await Promise.all([
         getInventoryItems(selectedCompany.id),
         getPurchaseOrders(selectedCompany.id),
         getSuppliers(selectedCompany.id),
         getStockMovements(selectedCompany.id),
         getInventoryLocationBalances(selectedCompany.id),
         getWarehouses(selectedCompany.id),
+        getExpiringLots(selectedCompany.id, 30),
         getProjects(),
       ]);
       setItems(itemData);
@@ -208,6 +215,7 @@ export function InventoryPage() {
       setMovements(movementData);
       setBalances(balanceData);
       setWarehouses(warehouseData);
+      setExpiringLots(expiringData);
       setProjects(projectData.filter((project) => project.companyId === selectedCompany.id));
     } catch (error: any) {
       toast({
@@ -874,6 +882,14 @@ export function InventoryPage() {
                         >
                           {tr('Docs', 'ملفات')}
                         </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setLotsItem(item)}
+                        >
+                          <Layers className="me-2 h-4 w-4" />
+                          {tr('Lots', 'الدفعات')}
+                        </Button>
                         <Dialog
                           open={adjustment.open && adjustment.item?.id === item.id}
                           onOpenChange={(open) =>
@@ -983,7 +999,7 @@ export function InventoryPage() {
                             <DialogHeader>
                               <DialogTitle>{tr('Issue Stock', 'صرف المخزون')}</DialogTitle>
                               <DialogDescription>
-                                {tr('Allocate stock to a project, team member, or internal use.', 'خصص المخزون لمشروع أو موظف أو استخدام داخلي.')}
+                                {tr('Allocate stock to a project, team member, or internal use. Tracked lots are drawn first-expiry-first-out (FEFO).', 'خصص المخزون لمشروع أو موظف أو استخدام داخلي. تُصرف الدفعات حسب الأقرب انتهاءً أولًا (FEFO).')}
                               </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-3 py-2 sm:grid-cols-2">
@@ -1219,11 +1235,12 @@ export function InventoryPage() {
           companyId={selectedCompany.id}
           warehouses={warehouses}
           balances={balances}
-          items={items}
           onChanged={reloadWarehouses}
           tr={tr}
         />
       ) : null}
+
+      <ExpiringLotsPanel lots={expiringLots} items={items} tr={tr} />
 
       <Card data-tutorial="inventory-movements">
         <CardHeader>
@@ -1287,6 +1304,21 @@ export function InventoryPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {selectedCompany && (
+        <InventoryLotsDialog
+          item={lotsItem}
+          companyId={selectedCompany.id}
+          locationOptions={locationOptions}
+          defaultWarehouseName={defaultWarehouseName}
+          suppliers={suppliers}
+          amount={amount}
+          canManage={canManageInventory}
+          tr={tr}
+          onClose={() => setLotsItem(null)}
+          onChanged={load}
+        />
+      )}
     </SectionPageShell>
   );
 }

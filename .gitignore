@@ -52,3 +52,6 @@ next-env.d.ts
 *.db-shm
 *.sqlite
 *.sqlite3
+
+# Local Claude Code agent config (not for remote)
+.claude/

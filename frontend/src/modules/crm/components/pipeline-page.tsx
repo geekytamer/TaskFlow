@@ -19,6 +19,14 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { ContributorsPanel } from './contributors-panel';
+import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
+import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
+import {
+  ContactFormFields,
+  emptyContactForm,
+  buildContactPayload,
+  type ContactForm,
+} from '@/modules/contacts/components/contact-form-fields';
 import { createContact, getContacts, type Contact, type ContactRoleType } from '@/services/contactService';
 import {
   createOpportunity,
@@ -164,7 +172,25 @@ export function PipelinePage() {
   const [editingOpportunity, setEditingOpportunity] = React.useState<Opportunity | null>(null);
   const [oppForm, setOppForm] = React.useState<OpportunityForm>(emptyOpportunityForm());
   const [quickForm, setQuickForm] = React.useState<QuickEntryForm>(emptyQuickEntryForm());
+  const [leadContact, setLeadContact] = React.useState<ContactForm>(emptyContactForm());
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
+  const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    let cancelled = false;
+    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+      .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
+      .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
+
+  const resetQuickEntry = () => {
+    setQuickForm(emptyQuickEntryForm());
+    setLeadContact(emptyContactForm());
+    setCreateCustomValues({});
+  };
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) {
@@ -273,15 +299,13 @@ export function PipelinePage() {
   };
 
   const saveQuickEntry = async () => {
-    if (!selectedCompany || !quickForm.name.trim()) return;
+    if (!selectedCompany || !leadContact.name.trim()) return;
     setSubmitting(true);
     try {
       await createContact({
         companyId: selectedCompany.id,
-        kind: quickForm.type === 'Influencer' ? 'Person' : 'Organization',
-        name: quickForm.name.trim(),
-        phone: quickForm.phone.trim() || undefined,
-        email: quickForm.email.trim() || undefined,
+        ...buildContactPayload(leadContact, { customFields: createCustomValues }),
+        // The "type" selector is this page's role driver; CRM fields stay below.
         roles: [quickForm.type],
         leadStatus: quickForm.type === 'Client' ? 'Won' : quickForm.status,
         leadSource: quickForm.source,
@@ -289,10 +313,9 @@ export function PipelinePage() {
         ownerUserId: user?.id,
         ownerName: user?.name,
         nextFollowupDate: quickForm.nextFollowupDate ? new Date(quickForm.nextFollowupDate) : undefined,
-        nextFollowupNote: quickForm.notes.trim() || undefined,
-        notes: quickForm.notes.trim() || undefined,
+        nextFollowupNote: leadContact.notes.trim() || undefined,
       });
-      setQuickForm(emptyQuickEntryForm());
+      resetQuickEntry();
       setQuickDialogOpen(false);
       toast({ title: t('pipelinePage.toastLeadAdded') });
       await load();
@@ -705,8 +728,8 @@ export function PipelinePage() {
       </Dialog>
 
       {/* ── Quick Entry (add lead/contact) dialog ───────────────────────── */}
-      <Dialog open={quickDialogOpen} onOpenChange={(v) => { if (!v) setQuickForm(emptyQuickEntryForm()); setQuickDialogOpen(v); }}>
-        <DialogContent className="max-w-md">
+      <Dialog open={quickDialogOpen} onOpenChange={(v) => { if (!v) resetQuickEntry(); setQuickDialogOpen(v); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5 text-primary" /> {t('pipelinePage.quickEntryTitle')}
@@ -739,20 +762,7 @@ export function PipelinePage() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>{t('pipelinePage.fieldName')} <span className="text-destructive">*</span></Label>
-              <Input placeholder={t('pipelinePage.fieldNamePh')} value={quickForm.name} onChange={(e) => setQuickForm((p) => ({ ...p, name: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>{t('pipelinePage.fieldPhone')}</Label>
-                <Input placeholder="+1 234 567 8900" value={quickForm.phone} onChange={(e) => setQuickForm((p) => ({ ...p, phone: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>{t('pipelinePage.fieldEmail')}</Label>
-                <Input placeholder={t('pipelinePage.fieldEmailPh')} value={quickForm.email} onChange={(e) => setQuickForm((p) => ({ ...p, email: e.target.value }))} />
-              </div>
-            </div>
+            <ContactFormFields form={leadContact} setForm={setLeadContact} hideRoles />
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>{t('pipelinePage.fieldLeadStatus')}</Label>
@@ -773,14 +783,19 @@ export function PipelinePage() {
               <Label>{t('pipelinePage.fieldNextFollowup')}</Label>
               <Input type="date" value={quickForm.nextFollowupDate} onChange={(e) => setQuickForm((p) => ({ ...p, nextFollowupDate: e.target.value }))} />
             </div>
-            <div className="space-y-1.5">
-              <Label>{t('pipelinePage.fieldNotes')}</Label>
-              <Textarea placeholder={t('pipelinePage.fieldQuickNotesPh')} rows={2} value={quickForm.notes} onChange={(e) => setQuickForm((p) => ({ ...p, notes: e.target.value }))} />
-            </div>
+            {customFieldDefs.length > 0 && (
+              <div className="border-t pt-3">
+                <CustomFieldsForm
+                  definitions={customFieldDefs}
+                  values={createCustomValues}
+                  onChange={setCreateCustomValues}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuickDialogOpen(false)}>{t('common.cancel')}</Button>
-            <Button onClick={saveQuickEntry} disabled={submitting || !quickForm.name.trim()}>
+            <Button onClick={saveQuickEntry} disabled={submitting || !leadContact.name.trim()}>
               {submitting ? t('pipelinePage.adding') : t('pipelinePage.addLead')}
             </Button>
           </DialogFooter>

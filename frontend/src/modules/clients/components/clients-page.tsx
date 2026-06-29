@@ -27,25 +27,15 @@ import { getInvoices } from '@/services/financeService';
 import { getProjects } from '@/services/projectService';
 import type { Invoice } from '@/modules/finance/types';
 import type { Project } from '@/modules/projects/types';
+import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
+import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
+import {
+  ContactFormFields,
+  emptyContactForm,
+  buildContactPayload,
+  type ContactForm,
+} from '@/modules/contacts/components/contact-form-fields';
 import { Building2, User, Plus, Search } from 'lucide-react';
-
-type ClientForm = {
-  name: string;
-  contactPerson: string;
-  email: string;
-  phone: string;
-  address: string;
-  notes: string;
-};
-
-const emptyForm = (): ClientForm => ({
-  name: '',
-  contactPerson: '',
-  email: '',
-  phone: '',
-  address: '',
-  notes: '',
-});
 
 export function ClientsPage() {
   const { selectedCompany } = useCompany();
@@ -58,8 +48,19 @@ export function ClientsPage() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [openCreate, setOpenCreate] = React.useState(false);
-  const [form, setForm] = React.useState<ClientForm>(emptyForm());
+  const [form, setForm] = React.useState<ContactForm>(emptyContactForm());
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
+  const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    let cancelled = false;
+    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+      .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
+      .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -131,18 +132,12 @@ export function ClientsPage() {
     try {
       const contact = await createContact({
         companyId: selectedCompany.id,
-        kind: 'Organization',
-        name: form.name.trim(),
-        contactPerson: form.contactPerson.trim() || undefined,
-        email: form.email.trim() || undefined,
-        phone: form.phone.trim() || undefined,
-        address: form.address.trim() || undefined,
-        notes: form.notes.trim() || undefined,
-        roles: ['Client'],
+        ...buildContactPayload(form, { customFields: createCustomValues, lockedRole: 'Client' }),
       });
       setContacts((prev: Contact[]) => [...prev, contact]);
       setOpenCreate(false);
-      setForm(emptyForm());
+      setForm(emptyContactForm());
+      setCreateCustomValues({});
       toast({ title: t('contacts.created') });
     } catch {
       toast({ title: t('common.error'), variant: 'destructive' });
@@ -160,38 +155,20 @@ export function ClientsPage() {
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 me-1" />{t('clients.addClient')}</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t('clients.createTitle')}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div>
-                <Label>{t('contacts.name')} *</Label>
-                <Input value={form.name} onChange={(e) => setForm((f: ClientForm) => ({ ...f, name: e.target.value }))} />
+            <ContactFormFields form={form} setForm={setForm} lockedRole="Client" />
+            {customFieldDefs.length > 0 && (
+              <div className="border-t pt-3">
+                <CustomFieldsForm
+                  definitions={customFieldDefs}
+                  values={createCustomValues}
+                  onChange={setCreateCustomValues}
+                />
               </div>
-              <div>
-                <Label>{t('contacts.contactPerson')}</Label>
-                <Input value={form.contactPerson} onChange={(e) => setForm((f: ClientForm) => ({ ...f, contactPerson: e.target.value }))} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>{t('contacts.email')}</Label>
-                  <Input type="email" value={form.email} onChange={(e) => setForm((f: ClientForm) => ({ ...f, email: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>{t('contacts.phone')}</Label>
-                  <Input value={form.phone} onChange={(e) => setForm((f: ClientForm) => ({ ...f, phone: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <Label>{t('contacts.address')}</Label>
-                <Input value={form.address} onChange={(e) => setForm((f: ClientForm) => ({ ...f, address: e.target.value }))} />
-              </div>
-              <div>
-                <Label>{t('contacts.notes')}</Label>
-                <Input value={form.notes} onChange={(e) => setForm((f: ClientForm) => ({ ...f, notes: e.target.value }))} />
-              </div>
-            </div>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
               <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>

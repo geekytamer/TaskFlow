@@ -6,8 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { getTasks } from '@/services/projectService';
 import { ProjectTable } from './project-table';
 import { CreateTaskSheet } from './create-task-sheet';
-import { canViewProject } from '@/modules/projects/lib/access';
-import { taskStatuses, taskPriorities, type Task } from '@/modules/projects/types';
+import { type Task } from '@/modules/projects/types';
 import {
   CheckSquare,
   Clock,
@@ -33,7 +32,7 @@ function StatCard({ icon: Icon, label, value, color = 'text-foreground' }: {
 }
 
 export function TasksPage() {
-  const { selectedCompany, projects, currentUser, currentRole } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const { t } = useI18n();
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -43,22 +42,12 @@ export function TasksPage() {
     setLoading(true);
     getTasks()
       .then((all) => {
-        const visibleProjectIds = new Set(
-          projects
-            .filter((p) => p.companyId === selectedCompany.id && canViewProject(p, currentUser.id, currentRole))
-            .map((p) => p.id),
-        );
-        setTasks(
-          all.filter(
-            (t) =>
-              // Project-less tasks belong to the company directly; keep them too.
-              (!t.projectId && t.companyId === selectedCompany.id) ||
-              visibleProjectIds.has(t.projectId),
-          ),
-        );
+        // Tasks are company-wide: every member sees every task in the company,
+        // whether or not it belongs to a project.
+        setTasks(all.filter((t) => t.companyId === selectedCompany.id));
       })
       .finally(() => setLoading(false));
-  }, [selectedCompany, projects, currentUser, currentRole]);
+  }, [selectedCompany, currentUser]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);

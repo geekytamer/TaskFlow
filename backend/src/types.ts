@@ -22,6 +22,7 @@ export type NumberingEntityType =
   | 'supplier'
   | 'inventory_item'
   | 'purchase_order'
+  | 'purchase_requisition'
   | 'sales_order'
   | 'sales_invoice'
   | 'vendor_invoice'
@@ -223,6 +224,33 @@ export interface InventoryItem {
   customFields?: Record<string, unknown>;
 }
 
+export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired';
+
+/**
+ * A received batch/lot of an inventory item, tracked separately for expiry and
+ * FEFO (first-expiry-first-out) consumption. `quantity` is what remains on hand
+ * for this lot; the sum of a tracked item's active lots should reconcile with
+ * the item's `onHand`.
+ */
+export interface InventoryLot {
+  id: string;
+  companyId: string;
+  inventoryItemId: string;
+  lotNumber: string;
+  location: string;
+  quantity: number;
+  initialQuantity: number;
+  unitCost: number;
+  expiryDate?: Date;
+  manufactureDate?: Date;
+  supplierId?: string;
+  receivedAt: Date;
+  status: InventoryLotStatus;
+  note?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export type CustomFieldEntityType = 'contact' | 'inventory_item';
 export const customFieldEntityTypes: CustomFieldEntityType[] = ['contact', 'inventory_item'];
 
@@ -287,6 +315,44 @@ export interface PurchaseOrder {
   rejectionReason?: string;
 }
 
+export type PurchaseRequisitionStatus =
+  | 'Draft'
+  | 'Submitted'
+  | 'Approved'
+  | 'Rejected'
+  | 'Converted';
+
+export interface PurchaseRequisitionLineItem {
+  inventoryItemId?: string;
+  sku?: string;
+  description: string;
+  quantity: number;
+  estimatedUnitCost: number;
+}
+
+/**
+ * An internal request to purchase, approved before it becomes a PO. Sits
+ * upstream of PurchaseOrder: Draft → Submitted → Approved → Converted (to a PO).
+ */
+export interface PurchaseRequisition {
+  id: string;
+  companyId: string;
+  requisitionNumber: string;
+  requestedByUserId?: string;
+  department?: string;
+  status: PurchaseRequisitionStatus;
+  items: PurchaseRequisitionLineItem[];
+  neededBy?: Date;
+  notes?: string;
+  preferredSupplierId?: string;
+  approvedByUserId?: string;
+  approvedAt?: Date;
+  rejectionReason?: string;
+  purchaseOrderId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface PurchaseReceiptLine {
   lineIndex: number;
   inventoryItemId?: string;
@@ -294,6 +360,10 @@ export interface PurchaseReceiptLine {
   description: string;
   quantity: number;
   unitCost: number;
+  /** Batch/lot captured at receipt — creates a tracked InventoryLot when set. */
+  lotNumber?: string;
+  expiryDate?: Date;
+  manufactureDate?: Date;
 }
 
 export interface PurchaseReceipt {
@@ -370,8 +440,11 @@ export interface StockMovement {
     | 'manual_adjustment'
     | 'inventory_issue'
     | 'inventory_transfer'
-    | 'delivery';
+    | 'delivery'
+    | 'inventory_lot';
   referenceId?: string;
+  /** The batch/lot this movement received into or consumed from, when tracked. */
+  lotId?: string;
   note?: string;
   createdAt: Date;
 }
@@ -539,15 +612,16 @@ export interface InvoiceTemplate {
   isDefault: boolean;
   primaryColor: string;
   accentColor: string;
-  logoUrl?: string;
-  headerImageUrl?: string;
-  footerImageUrl?: string;
-  letterheadPdfUrl?: string;
+  // Clearable assets/text: null is an explicit "remove" on update.
+  logoUrl?: string | null;
+  headerImageUrl?: string | null;
+  footerImageUrl?: string | null;
+  letterheadPdfUrl?: string | null;
   /** Rasterized first page of the letterhead PDF, used as the page background. */
-  letterheadImageUrl?: string;
-  stampUrl?: string;
-  signatureUrl?: string;
-  signatureLabel?: string;
+  letterheadImageUrl?: string | null;
+  stampUrl?: string | null;
+  signatureUrl?: string | null;
+  signatureLabel?: string | null;
   paymentInstructions?: string;
   terms?: string;
   footerNote?: string;
@@ -895,6 +969,77 @@ export interface ContactRole {
 export type ActivityCategory = 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Proposal Sent' | 'Follow-up' | 'Note' | 'Other';
 export const activityCategories: ActivityCategory[] = ['Call', 'WhatsApp', 'Email', 'Meeting', 'Proposal Sent', 'Follow-up', 'Note', 'Other'];
 
+// ── Follow-ups (first-class) ───────────────────────────────────────────────
+/** What a follow-up can be attached to. */
+export type FollowUpEntityType = 'contact' | 'opportunity' | 'invoice';
+export const followUpEntityTypes: FollowUpEntityType[] = ['contact', 'opportunity', 'invoice'];
+export type FollowUpStatus = 'open' | 'completed' | 'snoozed' | 'cancelled';
+export const followUpStatuses: FollowUpStatus[] = ['open', 'completed', 'snoozed', 'cancelled'];
+export type FollowUpPriority = 'low' | 'normal' | 'high' | 'urgent';
+export const followUpPriorities: FollowUpPriority[] = ['low', 'normal', 'high', 'urgent'];
+export type FollowUpChannel = 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Task';
+export const followUpChannels: FollowUpChannel[] = ['Call', 'WhatsApp', 'Email', 'Meeting', 'Task'];
+/** Structured outcome captured when a follow-up is completed. */
+export type FollowUpOutcome =
+  | 'connected'
+  | 'no_answer'
+  | 'left_voicemail'
+  | 'busy'
+  | 'wrong_number'
+  | 'booked_meeting'
+  | 'not_interested'
+  | 'sent'
+  | 'replied'
+  | 'bounced'
+  | 'opted_out'
+  | 'held'
+  | 'no_show'
+  | 'rescheduled'
+  | 'done';
+export const followUpOutcomes: FollowUpOutcome[] = [
+  'connected', 'no_answer', 'left_voicemail', 'busy', 'wrong_number', 'booked_meeting',
+  'not_interested', 'sent', 'replied', 'bounced', 'opted_out', 'held', 'no_show', 'rescheduled', 'done',
+];
+
+/** A first-class follow-up: a scheduled next action against a contact, deal, or invoice. */
+export interface FollowUp {
+  id: string;
+  companyId: string;
+  /** The primary owner (the rep on point). */
+  ownerUserId?: string;
+  ownerName?: string;
+  /** Additional teammates invited to collaborate on this follow-up (not a transfer of ownership). */
+  assignees?: FollowUpAssignee[];
+  entityType: FollowUpEntityType;
+  entityId: string;
+  title?: string;
+  type: string;
+  channel?: FollowUpChannel;
+  status: FollowUpStatus;
+  priority: FollowUpPriority;
+  dueAt?: Date;
+  reminderAt?: Date;
+  snoozedUntil?: Date;
+  completedAt?: Date;
+  completedByUserId?: string;
+  outcome?: FollowUpOutcome;
+  outcomeNote?: string;
+  notes?: string;
+  /** Provenance: what business event created it (manual, opportunity_proposal, invoice_overdue, …). */
+  sourceTrigger?: string;
+  sourceType?: string;
+  sourceId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FollowUpAssignee {
+  userId: string;
+  name?: string;
+  addedByUserId?: string;
+  createdAt?: Date;
+}
+
 export type OpportunityStage = 'New' | 'Qualified' | 'Proposal' | 'Negotiation' | 'Won' | 'Lost' | 'Cancelled';
 export const opportunityStages: OpportunityStage[] = ['New', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost', 'Cancelled'];
 
@@ -1171,10 +1316,12 @@ export interface ActivityEvent {
     | 'supplier'
     | 'inventory_item'
     | 'purchase_order'
+    | 'purchase_requisition'
     | 'sales_order'
     | 'delivery'
     | 'invoice'
     | 'vendor_bill'
+    | 'expense'
     | 'whatsapp_message';
   entityId: string;
   action: string;
@@ -1201,8 +1348,10 @@ export type NotificationType =
   | 'invoice_payment'
   | 'vendor_bill_approval'
   | 'followup_due'
+  | 'followup_assigned'
   | 'lead_assigned'
   | 'low_stock'
+  | 'expiry_warning'
   | 'po_approval'
   | 'po_approval_result';
 
@@ -1390,6 +1539,26 @@ export interface AgingBucket {
   amount: number;
 }
 
+/**
+ * A standalone business expense — recorded directly, independent of any task or
+ * campaign. An optional projectId links it to a project for reporting.
+ */
+export interface Expense {
+  id: string;
+  companyId: string;
+  expenseDate: Date;
+  category: string;
+  vendor?: string;
+  amount: number;
+  description?: string;
+  paymentMethod?: string;
+  reference?: string;
+  projectId?: string;
+  attachmentUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface FinanceOverview {
   openReceivables: number;
   openPayables: number;
@@ -1397,6 +1566,10 @@ export interface FinanceOverview {
   paidPayablesThisMonth: number;
   billedThisMonth: number;
   expenseReceiptsThisMonth: number;
+  /** Month-to-date accrual figures from the journal-based P&L. */
+  revenueThisMonth: number;
+  expensesThisMonth: number;
+  netProfitThisMonth: number;
 }
 
 export interface SanitizedUser extends Omit<User, 'password'> {}

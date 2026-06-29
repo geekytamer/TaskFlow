@@ -171,6 +171,28 @@ export function FinanceOverviewPanel() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7" data-tutorial="finance-metrics-grid">
+        <KpiCardLink href="/finance?tab=reports">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.revenueThisMonth')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{amount(overview?.revenueThisMonth || 0)}</div>
+            <div className="text-xs text-muted-foreground">{t('financeOverview.monthToDate')}</div>
+          </CardContent>
+        </KpiCardLink>
+        <KpiCardLink href="/finance?tab=reports">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.netProfitThisMonth')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${(overview?.netProfitThisMonth || 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+              {amount(overview?.netProfitThisMonth || 0)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {t('financeOverview.revenueMinusExpenses')}
+            </div>
+          </CardContent>
+        </KpiCardLink>
         <KpiCardLink href="/finance?tab=invoices" tutorial="finance-metric-receivables">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.openReceivables')}</CardTitle>

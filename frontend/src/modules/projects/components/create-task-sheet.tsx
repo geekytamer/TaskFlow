@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyMembers } from '@/services/userService';
 import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
 import { taskPriorities } from '@/modules/projects/types';
@@ -102,7 +102,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         if (!selectedCompany || !currentUser) return;
         
         const [users, tasks] = await Promise.all([
-          getUsersByCompany(selectedCompany.id),
+          getCompanyMembers(selectedCompany.id),
           getTasks(),
         ]);
         

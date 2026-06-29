@@ -116,14 +116,17 @@ const toForm = (template: InvoiceTemplate): InvoiceTemplateInput => ({
 const cleanForm = (form: InvoiceTemplateInput): InvoiceTemplateInput => ({
   ...form,
   name: form.name.trim(),
-  logoUrl: form.logoUrl?.trim() || undefined,
-  headerImageUrl: form.headerImageUrl?.trim() || undefined,
-  footerImageUrl: form.footerImageUrl?.trim() || undefined,
-  letterheadPdfUrl: form.letterheadPdfUrl?.trim() || undefined,
-  letterheadImageUrl: form.letterheadImageUrl?.trim() || undefined,
-  stampUrl: form.stampUrl?.trim() || undefined,
-  signatureUrl: form.signatureUrl?.trim() || undefined,
-  signatureLabel: form.signatureLabel?.trim() || undefined,
+  // Send null (not undefined) when an asset is cleared so the value is included
+  // in the payload and the backend persists the removal instead of treating the
+  // missing key as "no change".
+  logoUrl: form.logoUrl?.trim() || null,
+  headerImageUrl: form.headerImageUrl?.trim() || null,
+  footerImageUrl: form.footerImageUrl?.trim() || null,
+  letterheadPdfUrl: form.letterheadPdfUrl?.trim() || null,
+  letterheadImageUrl: form.letterheadImageUrl?.trim() || null,
+  stampUrl: form.stampUrl?.trim() || null,
+  signatureUrl: form.signatureUrl?.trim() || null,
+  signatureLabel: form.signatureLabel?.trim() || null,
   columns: form.columns && form.columns.length > 0 ? form.columns : undefined,
   bankAccounts: form.bankAccounts && form.bankAccounts.length > 0 ? form.bankAccounts : undefined,
   qrEnabled: form.qrEnabled !== false,

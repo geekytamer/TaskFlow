@@ -17,13 +17,14 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { ChevronDown, ChevronRight, Pencil, Plus, Trash2, Warehouse as WarehouseIcon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronRight, Pencil, Plus, Trash2, Warehouse as WarehouseIcon } from 'lucide-react';
 import {
   createWarehouse,
   updateWarehouse,
   deleteWarehouse,
 } from '@/services/operationsService';
-import type { InventoryItem, InventoryLocationBalance, Warehouse } from '@/modules/operations/types';
+import type { InventoryLocationBalance, Warehouse } from '@/modules/operations/types';
 
 type FormState = {
   name: string;
@@ -39,36 +40,21 @@ export function WarehousesPanel({
   companyId,
   warehouses,
   balances,
-  items,
   onChanged,
   tr,
 }: {
   companyId: string;
   warehouses: Warehouse[];
   balances: InventoryLocationBalance[];
-  items: InventoryItem[];
   onChanged: () => void | Promise<void>;
   tr: (en: string, ar: string) => string;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Warehouse | null>(null);
   const [form, setForm] = React.useState<FormState>(emptyForm);
   const [saving, setSaving] = React.useState(false);
-  const [expanded, setExpanded] = React.useState<string | null>(null);
-
-  const itemById = React.useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  // Stocked line items per warehouse name.
-  const stockByWarehouse = React.useMemo(() => {
-    const map = new Map<string, InventoryLocationBalance[]>();
-    for (const b of balances) {
-      if (b.quantity === 0) continue;
-      const arr = map.get(b.location) || [];
-      arr.push(b);
-      map.set(b.location, arr);
-    }
-    return map;
-  }, [balances]);
 
   // SKU count + total quantity per warehouse name, from current balances.
   const summary = React.useMemo(() => {
@@ -167,35 +153,35 @@ export function WarehousesPanel({
             )}
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tr('Name', 'الاسم')}</TableHead>
-                <TableHead>{tr('Address', 'العنوان')}</TableHead>
-                <TableHead className="text-end">{tr('SKUs', 'الأصناف')}</TableHead>
-                <TableHead className="text-end">{tr('Total Qty', 'إجمالي الكمية')}</TableHead>
-                <TableHead className="text-end">{tr('Actions', 'إجراءات')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {warehouses.map((w) => {
-                const s = summary.get(w.name) || { skus: 0, qty: 0 };
-                const stock = stockByWarehouse.get(w.name) || [];
-                const isOpen = expanded === w.id;
-                return (
-                  <React.Fragment key={w.id}>
-                    <TableRow className={w.isActive ? '' : 'opacity-60'}>
+          <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-background">
+                <TableRow>
+                  <TableHead>{tr('Name', 'الاسم')}</TableHead>
+                  <TableHead>{tr('Address', 'العنوان')}</TableHead>
+                  <TableHead className="text-end">{tr('SKUs', 'الأصناف')}</TableHead>
+                  <TableHead className="text-end">{tr('Total Qty', 'إجمالي الكمية')}</TableHead>
+                  <TableHead className="text-end">{tr('Actions', 'إجراءات')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {warehouses.map((w) => {
+                  const s = summary.get(w.name) || { skus: 0, qty: 0 };
+                  const goToDetail = () => router.push(`/inventory/warehouses/${w.id}`);
+                  return (
+                    <TableRow
+                      key={w.id}
+                      className={`cursor-pointer ${w.isActive ? '' : 'opacity-60'}`}
+                      onClick={goToDetail}
+                      role="link"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') goToDetail();
+                      }}
+                    >
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            className="text-muted-foreground disabled:opacity-30"
-                            onClick={() => setExpanded(isOpen ? null : w.id)}
-                            disabled={stock.length === 0}
-                            aria-label={isOpen ? tr('Collapse', 'طي') : tr('Expand', 'توسيع')}
-                          >
-                            {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          </button>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium">{w.name}</span>
                           {w.code ? <span className="text-xs text-muted-foreground">({w.code})</span> : null}
                           {w.isDefault ? <Badge variant="secondary">{tr('Default', 'افتراضي')}</Badge> : null}
@@ -207,14 +193,26 @@ export function WarehousesPanel({
                       <TableCell className="text-end font-medium">{s.qty}</TableCell>
                       <TableCell className="text-end">
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(w)} aria-label={tr('Edit', 'تعديل')}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEdit(w);
+                            }}
+                            aria-label={tr('Edit', 'تعديل')}
+                          >
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                            onClick={() => remove(w)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              remove(w);
+                            }}
                             aria-label={tr('Delete', 'حذف')}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -222,31 +220,11 @@ export function WarehousesPanel({
                         </div>
                       </TableCell>
                     </TableRow>
-                    {isOpen && stock.length > 0 ? (
-                      <TableRow className="bg-muted/30 hover:bg-muted/30">
-                        <TableCell colSpan={5} className="p-0">
-                          <div className="px-10 py-2">
-                            {stock.map((b) => {
-                              const it = itemById.get(b.inventoryItemId);
-                              return (
-                                <div key={b.inventoryItemId} className="flex items-center justify-between border-b py-1 text-sm last:border-b-0">
-                                  <span>
-                                    {it?.name ?? b.inventoryItemId}
-                                    {it?.sku ? <span className="ms-2 text-xs text-muted-foreground">{it.sku}</span> : null}
-                                  </span>
-                                  <span className="font-medium">{b.quantity}{it?.unit ? ` ${it.unit}` : ''}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : null}
-                  </React.Fragment>
-                );
-              })}
-            </TableBody>
-          </Table>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
 

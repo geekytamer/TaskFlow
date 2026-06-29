@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { InvoiceTable } from './invoice-table';
 import { ExpenseTable } from './expense-table';
+import { StandaloneExpenseTable } from './standalone-expense-table';
 import { FinanceOverviewPanel } from './finance-overview';
 import { VendorBillTable } from './vendor-bill-table';
 import { JournalTable } from './journal-table';
@@ -86,7 +87,8 @@ export function FinancePage() {
         <TabsContent value="activity">
           <ActivityLogPanel />
         </TabsContent>
-        <TabsContent value="expenses">
+        <TabsContent value="expenses" className="space-y-4">
+          <StandaloneExpenseTable />
           <ExpenseTable />
         </TabsContent>
       </Tabs>

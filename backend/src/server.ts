@@ -37,6 +37,10 @@ import {
   type NumberingEntityType,
   type RecordEntityType,
 	  activityCategories,
+	  followUpOutcomes,
+	  followUpEntityTypes,
+	  followUpChannels,
+	  followUpPriorities,
 	  leadStatuses,
 	  leadSources,
 	  contactPriorities,
@@ -395,7 +399,13 @@ const parseProposalItems = (value: unknown): ProposalLineItem[] => {
 
 const parsePurchaseReceiptItems = (
   value: unknown,
-): Array<{ lineIndex: number; quantity: number }> => {
+): Array<{
+  lineIndex: number;
+  quantity: number;
+  lotNumber?: string;
+  expiryDate?: string;
+  manufactureDate?: string;
+}> => {
   const rows = requiredArray<unknown>(value, 'items');
   if (rows.length === 0) {
     throw new HttpError(400, 'items must contain at least one receipt line.');
@@ -410,7 +420,36 @@ const parsePurchaseReceiptItems = (
     if (quantity <= 0) {
       throw new HttpError(400, `items[${index}].quantity must be greater than zero.`);
     }
-    return { lineIndex, quantity };
+    return {
+      lineIndex,
+      quantity,
+      lotNumber: optionalString(record.lotNumber),
+      expiryDate: optionalDateInput(record.expiryDate),
+      manufactureDate: optionalDateInput(record.manufactureDate),
+    };
+  });
+};
+
+const parsePurchaseRequisitionItems = (value: unknown) => {
+  const rows = requiredArray<unknown>(value, 'items');
+  if (rows.length === 0) {
+    throw new HttpError(400, 'items must contain at least one requisition line.');
+  }
+  return rows.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    const quantity = requiredNumber(record.quantity, `items[${index}].quantity`);
+    if (quantity <= 0) {
+      throw new HttpError(400, `items[${index}].quantity must be greater than zero.`);
+    }
+    return {
+      inventoryItemId: optionalString(record.inventoryItemId),
+      sku: optionalString(record.sku),
+      description: requiredString(record.description, `items[${index}].description`, { min: 1 }),
+      quantity,
+      estimatedUnitCost: record.estimatedUnitCost !== undefined
+        ? requiredNumber(record.estimatedUnitCost, `items[${index}].estimatedUnitCost`)
+        : 0,
+    };
   });
 };
 
@@ -532,12 +571,14 @@ export function createServer(options: CreateServerOptions = {}) {
     // (deduped to once per day per item by the store).
     const runReminders = () => {
       try {
+        store.sweepSnoozedFollowups(); // wake snoozed follow-ups before reminding
         const tasks = store.sweepTaskDueReminders();
         const followups = store.sweepFollowupDueReminders();
         const overdue = store.sweepOverdueInvoiceNotifications();
         const lowStock = store.sweepLowStockNotifications();
-        if (tasks + followups + overdue + lowStock > 0) {
-          logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock`);
+        const expiring = store.sweepExpiryNotifications();
+        if (tasks + followups + overdue + lowStock + expiring > 0) {
+          logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock, ${expiring} expiry`);
         }
       } catch (error) {
         logger.error('[notifications] reminder sweep failed', error);
@@ -650,20 +691,21 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  // A task without a project is a general company task: visible to anyone with
-  // company access. A task attached to a project inherits that project's visibility.
+  // Task visibility is role-based: Admins/Managers/Accountants see every task in
+  // the company (including project-less ones); Employees see only tasks they are
+  // assigned to. Company scoping is enforced separately by the callers.
   const canViewTask = (
     user: SanitizedUser,
-    task: { projectId?: string | null },
+    task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
   ): boolean => {
-    if (!task.projectId) return true;
-    const project = store.getProjectById(task.projectId);
-    return Boolean(project && canViewProject(user, project));
+    const role = getEffectiveRole(user, task.companyId);
+    if (role && role !== 'Employee') return true;
+    return (task.assignedUserIds ?? []).includes(user.id);
   };
 
   const requireTaskViewAccess = (
     req: AuthedRequest,
-    task: { companyId: string; projectId?: string | null },
+    task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
   ) => {
     requireCompanyAccess(req, task.companyId);
     if (!canViewTask(req.user!, task)) {
@@ -1082,16 +1124,18 @@ export function createServer(options: CreateServerOptions = {}) {
       isDefault: record.isDefault !== undefined ? optionalBoolean(record.isDefault) : undefined,
       primaryColor: record.primaryColor !== undefined ? requiredString(record.primaryColor, 'primaryColor') : undefined,
       accentColor: record.accentColor !== undefined ? requiredString(record.accentColor, 'accentColor') : undefined,
-      logoUrl: record.logoUrl !== undefined ? optionalString(record.logoUrl) : undefined,
-      headerImageUrl: record.headerImageUrl !== undefined ? optionalString(record.headerImageUrl) : undefined,
-      footerImageUrl: record.footerImageUrl !== undefined ? optionalString(record.footerImageUrl) : undefined,
+      // Asset/text fields are clearable: a present-but-empty value (null or '')
+      // means "remove it" and must persist as null, NOT be dropped as "no change".
+      logoUrl: record.logoUrl !== undefined ? (optionalString(record.logoUrl) ?? null) : undefined,
+      headerImageUrl: record.headerImageUrl !== undefined ? (optionalString(record.headerImageUrl) ?? null) : undefined,
+      footerImageUrl: record.footerImageUrl !== undefined ? (optionalString(record.footerImageUrl) ?? null) : undefined,
       letterheadPdfUrl:
-        record.letterheadPdfUrl !== undefined ? optionalString(record.letterheadPdfUrl) : undefined,
+        record.letterheadPdfUrl !== undefined ? (optionalString(record.letterheadPdfUrl) ?? null) : undefined,
       letterheadImageUrl:
-        record.letterheadImageUrl !== undefined ? optionalString(record.letterheadImageUrl) : undefined,
-      stampUrl: record.stampUrl !== undefined ? optionalString(record.stampUrl) : undefined,
-      signatureUrl: record.signatureUrl !== undefined ? optionalString(record.signatureUrl) : undefined,
-      signatureLabel: record.signatureLabel !== undefined ? optionalString(record.signatureLabel) : undefined,
+        record.letterheadImageUrl !== undefined ? (optionalString(record.letterheadImageUrl) ?? null) : undefined,
+      stampUrl: record.stampUrl !== undefined ? (optionalString(record.stampUrl) ?? null) : undefined,
+      signatureUrl: record.signatureUrl !== undefined ? (optionalString(record.signatureUrl) ?? null) : undefined,
+      signatureLabel: record.signatureLabel !== undefined ? (optionalString(record.signatureLabel) ?? null) : undefined,
       columns: record.columns !== undefined ? parseInvoiceColumns(record.columns) : undefined,
       bankAccounts: record.bankAccounts !== undefined ? parseBankAccounts(record.bankAccounts) : undefined,
       qrEnabled: record.qrEnabled !== undefined ? optionalBoolean(record.qrEnabled) : undefined,
@@ -1600,7 +1644,10 @@ export function createServer(options: CreateServerOptions = {}) {
     '/companies/:companyId/finance/settings',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      // Readable by any company member: the currency code (and other operational
+      // settings) drive UI formatting for everyone, not just finance roles.
+      // Mutating these still requires Admin/Manager (the PUT below).
+      requireCompanyAccess(req, req.params.companyId);
       res.json(store.getCompanyFinanceSettings(req.params.companyId));
     }),
   );
@@ -1878,6 +1925,24 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
       res.json(store.getUsersByCompany(req.params.companyId));
+    }),
+  );
+
+  // Minimal member directory (id/name/avatar only) readable by ANY company
+  // member — used to populate assignee pickers without exposing the full,
+  // sensitive user records (emails, roles, cost/commission rates).
+  app.get(
+    '/companies/:companyId/members',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyAccess(req, req.params.companyId);
+      res.json(
+        store.getUsersByCompany(req.params.companyId).map((u) => ({
+          id: u.id,
+          name: u.name,
+          avatar: u.avatar ?? null,
+        })),
+      );
     }),
   );
 
@@ -2832,13 +2897,17 @@ export function createServer(options: CreateServerOptions = {}) {
 	        res.json(updated);
 	        return;
 	      }
-	      const event = store.getActivityEventById(rawId);
-	      if (!event) throw new HttpError(404, 'Follow-up not found.');
-	      requireCompanyRoles(req, event.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-	      const updated = store.updateActivityFollowup(rawId, {
-	        nextActionDueDate: null,
-	        nextAction: null,
-	      });
+		      const followup = store.getFollowupById(rawId);
+	      if (!followup) throw new HttpError(404, 'Follow-up not found.');
+	      requireCompanyRoles(req, followup.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const body = asRecord(req.body, 'body');
+	      const updated = withActor(req, () =>
+	        store.completeFollowup(rawId, {
+	          outcome: body.outcome !== undefined ? enumValue(body.outcome, 'outcome', followUpOutcomes) : undefined,
+	          outcomeNote: optionalString(body.outcomeNote),
+	          completedByUserId: req.user!.id,
+	        }),
+	      );
 	      res.json(updated);
 	    }),
 	  );
@@ -2867,16 +2936,173 @@ export function createServer(options: CreateServerOptions = {}) {
 	        res.json(updated);
 	        return;
 	      }
-	      const event = store.getActivityEventById(rawId);
-	      if (!event) throw new HttpError(404, 'Follow-up not found.');
-	      requireCompanyRoles(req, event.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-	      const updated = store.updateActivityFollowup(rawId, {
-	        nextActionDueDate: dueDate,
-	        nextAction: optionalString(body.nextAction),
-	      });
+		      const followup = store.getFollowupById(rawId);
+	      if (!followup) throw new HttpError(404, 'Follow-up not found.');
+	      requireCompanyRoles(req, followup.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+	      const updated = withActor(req, () =>
+	        store.rescheduleFollowupEntity(rawId, dueDate, optionalString(body.nextAction)),
+	      );
 	      res.json(updated);
 	    }),
 	  );
+
+  const crmRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
+  const loadFollowup = (req: AuthedRequest) => {
+    const f = store.getFollowupById(req.params.id);
+    if (!f) throw new HttpError(404, 'Follow-up not found.');
+    requireCompanyRoles(req, f.companyId, crmRoles);
+    return f;
+  };
+
+  // Create a follow-up (manual). Owner defaults to the current user; set
+  // ownerUserId to assign it to a teammate.
+  app.post(
+    '/companies/:companyId/followups',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, crmRoles);
+      const body = asRecord(req.body, 'body');
+      const entityType = body.entityType !== undefined
+        ? enumValue(body.entityType, 'entityType', followUpEntityTypes)
+        : 'contact';
+      const entityId = requiredString(body.entityId, 'entityId');
+      if (entityType === 'contact') {
+        const c = store.getContactById(entityId);
+        if (!c || c.companyId !== req.params.companyId) throw new HttpError(404, 'Contact not found.');
+      }
+      const ownerUserId = optionalString(body.ownerUserId) ?? req.user!.id;
+      const owner = store.getUserById(ownerUserId);
+      const created = withActor(req, () =>
+        store.createFollowup({
+          companyId: req.params.companyId,
+          entityType,
+          entityId,
+          title: optionalString(body.title),
+          type: optionalString(body.type),
+          channel: body.channel !== undefined ? enumValue(body.channel, 'channel', followUpChannels) : undefined,
+          priority: body.priority !== undefined ? enumValue(body.priority, 'priority', followUpPriorities) : undefined,
+          ownerUserId,
+          ownerName: owner?.name,
+          dueAt: optionalDateInput(body.dueAt),
+          notes: optionalString(body.notes),
+          sourceTrigger: 'manual',
+        }),
+      );
+      res.status(201).json(created);
+    }),
+  );
+
+  app.patch(
+    '/followups/:id',
+    authMiddleware,
+    handler((req, res) => {
+      loadFollowup(req);
+      const body = asRecord(req.body, 'body');
+      const updated = withActor(req, () =>
+        store.updateFollowup(req.params.id, {
+          title: body.title !== undefined ? optionalString(body.title) : undefined,
+          type: body.type !== undefined ? optionalString(body.type) : undefined,
+          channel: body.channel !== undefined ? (body.channel ? enumValue(body.channel, 'channel', followUpChannels) : null) : undefined,
+          priority: body.priority !== undefined ? enumValue(body.priority, 'priority', followUpPriorities) : undefined,
+          ownerUserId: body.ownerUserId !== undefined ? (optionalString(body.ownerUserId) ?? null) : undefined,
+          dueAt: body.dueAt !== undefined ? (optionalDateInput(body.dueAt) ?? null) : undefined,
+          notes: body.notes !== undefined ? (optionalString(body.notes) ?? null) : undefined,
+        }),
+      );
+      res.json(updated);
+    }),
+  );
+
+  app.post(
+    '/followups/:id/snooze',
+    authMiddleware,
+    handler((req, res) => {
+      loadFollowup(req);
+      const body = asRecord(req.body, 'body');
+      const until = new Date(requiredDateInput(body.until, 'until'));
+      const updated = withActor(req, () => store.snoozeFollowup(req.params.id, until));
+      res.json(updated);
+    }),
+  );
+
+  app.post(
+    '/followups/:id/reassign',
+    authMiddleware,
+    handler((req, res) => {
+      const f = loadFollowup(req);
+      // Reassigning to another person is a team action — Admin/Manager only.
+      requireCompanyRoles(req, f.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      const updated = withActor(req, () => store.reassignFollowup(req.params.id, requiredString(body.ownerUserId, 'ownerUserId')));
+      res.json(updated);
+    }),
+  );
+
+  // Invite a teammate to collaborate on a follow-up (additive — not a transfer
+  // of ownership). Any CRM user in the company can share, including Employees.
+  app.post(
+    '/followups/:id/assignees',
+    authMiddleware,
+    handler((req, res) => {
+      const f = loadFollowup(req);
+      const body = asRecord(req.body, 'body');
+      const userId = requiredString(body.userId, 'userId');
+      const member = store.getUserById(userId);
+      if (!member || !member.companyIds?.includes(f.companyId)) {
+        throw new HttpError(400, 'User is not a member of this company.');
+      }
+      const updated = withActor(req, () => store.addFollowupAssignee(req.params.id, userId, req.user!.id));
+      res.json(updated);
+    }),
+  );
+
+  app.delete(
+    '/followups/:id/assignees/:userId',
+    authMiddleware,
+    handler((req, res) => {
+      loadFollowup(req);
+      const updated = withActor(req, () => store.removeFollowupAssignee(req.params.id, req.params.userId));
+      res.json(updated);
+    }),
+  );
+
+  // Complete with a structured outcome, optionally scheduling the next touch in
+  // the same call (the "never dropped" loop).
+  app.post(
+    '/followups/:id/complete',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = loadFollowup(req);
+      const body = asRecord(req.body, 'body');
+      const updated = withActor(req, () =>
+        store.completeFollowup(req.params.id, {
+          outcome: body.outcome !== undefined ? enumValue(body.outcome, 'outcome', followUpOutcomes) : undefined,
+          outcomeNote: optionalString(body.outcomeNote),
+          completedByUserId: req.user!.id,
+        }),
+      );
+      let next = null;
+      const nextBody = body.next !== undefined ? asRecord(body.next, 'next') : null;
+      if (nextBody && nextBody.dueAt) {
+        next = withActor(req, () =>
+          store.createFollowup({
+            companyId: existing.companyId,
+            entityType: existing.entityType,
+            entityId: existing.entityId,
+            title: optionalString(nextBody.title) ?? existing.title,
+            type: optionalString(nextBody.type) ?? existing.type,
+            channel: nextBody.channel !== undefined ? enumValue(nextBody.channel, 'channel', followUpChannels) : existing.channel,
+            priority: nextBody.priority !== undefined ? enumValue(nextBody.priority, 'priority', followUpPriorities) : existing.priority,
+            ownerUserId: existing.ownerUserId,
+            ownerName: existing.ownerName,
+            dueAt: optionalDateInput(nextBody.dueAt),
+            sourceTrigger: 'manual',
+          }),
+        );
+      }
+      res.json({ completed: updated, next });
+    }),
+  );
 
 	  app.post(
 	    '/companies/:companyId/followups/sweep-overdue',
@@ -2901,14 +3127,64 @@ export function createServer(options: CreateServerOptions = {}) {
       const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
       const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit });
-      // Enrich with contact info
+      // Enrich with contact info (resolve the contact behind opp/invoice too).
       const enriched = followups.map((f) => {
-        const contact = store.getContactById(f.entityId);
-        return { ...f, contact: contact ? { id: contact.id, name: contact.name, email: contact.email, roles: contact.roles } : null };
+        let contact = store.getContactById(f.entityId);
+        if (!contact && f.entityType === 'opportunity') {
+          const opp = store.getOpportunityById(f.entityId);
+          if (opp?.contactId) contact = store.getContactById(opp.contactId);
+        }
+        return {
+          ...f,
+          contact: contact
+            ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles }
+            : null,
+        };
       });
 	      res.json(enriched);
 	    }),
 	  );
+
+  // ─── Follow-ups: manager command center (Admin/Manager only) ──────────────
+  app.get(
+    '/companies/:companyId/followups/workload',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      res.json(store.followupWorkload(req.params.companyId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/followups/coverage-gaps',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      res.json(store.followupCoverageGaps(req.params.companyId, limit));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/followups/bulk-reassign',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      const ids = Array.isArray(body.ids) ? (body.ids as unknown[]).map((x) => String(x)) : undefined;
+      const toUserIds = Array.isArray(body.toUserIds) ? (body.toUserIds as unknown[]).map((x) => String(x)) : undefined;
+      const result = withActor(req, () =>
+        store.bulkReassignFollowups(req.params.companyId, {
+          ids,
+          fromUserId: optionalString(body.fromUserId),
+          onlyOverdue: body.onlyOverdue === true,
+          toUserId: optionalString(body.toUserId),
+          toUserIds,
+        }),
+      );
+      res.json(result);
+    }),
+  );
 
 		  // ─── CRM: Opportunities ──────────────────────────────────────────────────
 
@@ -3326,6 +3602,27 @@ export function createServer(options: CreateServerOptions = {}) {
 		      );
 		      store.updateCrmCampaign(campaign.id, { invoiceId: invoice.id });
 		      res.status(201).json(invoice);
+		    }),
+		  );
+
+		  app.post(
+		    '/companies/:companyId/campaigns/:campaignId/sync-invoice',
+		    authMiddleware,
+		    handler((req, res) => {
+		      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+		      const campaign = store.getCrmCampaignById(req.params.campaignId);
+		      if (!campaign || campaign.companyId !== req.params.companyId) {
+		        throw new HttpError(404, 'Campaign not found.');
+		      }
+		      const confirm = optionalBoolean(asRecord(req.body, 'body').confirm) ?? false;
+		      try {
+		        const result = withActor(req, () =>
+		          store.syncCampaignInvoice(req.params.companyId, req.params.campaignId, confirm),
+		        );
+		        res.json(result);
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not sync the campaign invoice.');
+		      }
 		    }),
 		  );
 
@@ -4425,6 +4722,109 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.get(
+    '/companies/:companyId/inventory-lots',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const inventoryItemId =
+        req.query.inventoryItemId !== undefined
+          ? requiredString(req.query.inventoryItemId, 'inventoryItemId')
+          : undefined;
+      if (inventoryItemId) {
+        const item = store.getInventoryItemById(inventoryItemId);
+        if (!item || item.companyId !== req.params.companyId) {
+          throw new HttpError(404, 'Inventory item not found.');
+        }
+      }
+      res.json(store.listInventoryLots(req.params.companyId, inventoryItemId));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/inventory-lots/expiring',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const days =
+        req.query.days !== undefined ? requiredNumber(req.query.days, 'days') : 30;
+      res.json(store.listExpiringLots(req.params.companyId, days));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items/:itemId/lots',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const item = store.getInventoryItemById(req.params.itemId);
+      if (!item || item.companyId !== req.params.companyId) {
+        throw new HttpError(404, 'Inventory item not found.');
+      }
+      if (!item.tracksInventory) {
+        throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      const body = asRecord(req.body, 'body');
+      const lotLocation = optionalString(body.location) || item.location || 'Unassigned';
+      ensureActiveWarehouse(req.params.companyId, lotLocation, 'location');
+      const supplierId = optionalString(body.supplierId);
+      ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
+      try {
+        const lot = withActor(req, () =>
+          store.createInventoryLot({
+            companyId: req.params.companyId,
+            inventoryItemId: req.params.itemId,
+            lotNumber: requiredString(body.lotNumber, 'lotNumber'),
+            quantity: requiredNumber(body.quantity, 'quantity'),
+            location: lotLocation,
+            unitCost: optionalNumber(body.unitCost),
+            expiryDate: optionalDateInput(body.expiryDate),
+            manufactureDate: optionalDateInput(body.manufactureDate),
+            supplierId,
+            receivedAt: optionalDateInput(body.receivedAt),
+            note: optionalString(body.note),
+          }),
+        );
+        res.status(201).json({ lot, item: store.getInventoryItemById(req.params.itemId) });
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not receive lot.');
+      }
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/inventory-items/:itemId/consume-fefo',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const item = store.getInventoryItemById(req.params.itemId);
+      if (!item || item.companyId !== req.params.companyId) {
+        throw new HttpError(404, 'Inventory item not found.');
+      }
+      if (!item.tracksInventory) {
+        throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      const body = asRecord(req.body, 'body');
+      const consumeLocation = optionalString(body.location);
+      if (consumeLocation) {
+        ensureActiveWarehouse(req.params.companyId, consumeLocation, 'location');
+      }
+      try {
+        const allocation = withActor(req, () =>
+          store.consumeInventoryLotsFEFO(
+            req.params.companyId,
+            req.params.itemId,
+            requiredNumber(body.quantity, 'quantity'),
+            { location: consumeLocation, note: optionalString(body.note) },
+          ),
+        );
+        res.status(201).json({ allocation, item: store.getInventoryItemById(req.params.itemId) });
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not consume lots.');
+      }
+    }),
+  );
+
   app.post(
     '/companies/:companyId/inventory-items/:itemId/adjustments',
     authMiddleware,
@@ -4700,6 +5100,116 @@ export function createServer(options: CreateServerOptions = {}) {
       );
       res.status(201).json(receipt);
     }),
+  );
+
+  app.get(
+    '/companies/:companyId/expenses',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listExpenses(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/expenses',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const projectId = optionalString(body.projectId);
+      try {
+        const expense = withActor(req, () =>
+          store.createExpense({
+            companyId: req.params.companyId,
+            category: requiredString(body.category, 'category', { min: 1 }),
+            amount: requiredNumber(body.amount, 'amount'),
+            expenseDate: optionalDateInput(body.expenseDate),
+            vendor: optionalString(body.vendor),
+            description: optionalString(body.description),
+            paymentMethod: optionalString(body.paymentMethod),
+            reference: optionalString(body.reference),
+            projectId,
+            attachmentUrl: optionalString(body.attachmentUrl),
+          }),
+        );
+        res.status(201).json(expense);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not record expense.');
+      }
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/purchase-requisitions',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listPurchaseRequisitions(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/purchase-requisitions',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const preferredSupplierId = optionalString(body.preferredSupplierId);
+      ensureSupplierBelongsToCompany(preferredSupplierId, req.params.companyId);
+      try {
+        const requisition = withActor(req, () =>
+          store.createPurchaseRequisition({
+            companyId: req.params.companyId,
+            department: optionalString(body.department),
+            items: parsePurchaseRequisitionItems(body.items),
+            neededBy: optionalDateInput(body.neededBy),
+            notes: optionalString(body.notes),
+            preferredSupplierId,
+          }),
+        );
+        res.status(201).json(requisition);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not create requisition.');
+      }
+    }),
+  );
+
+  const requisitionAction = (
+    suffix: string,
+    roles: UserRole[],
+    run: (id: string, req: AuthedRequest) => unknown,
+  ) => {
+    app.post(
+      `/purchase-requisitions/:id/${suffix}`,
+      authMiddleware,
+      handler((req, res) => {
+        const existing = store.getPurchaseRequisitionById(req.params.id);
+        if (!existing) throw new HttpError(404, 'Purchase requisition not found.');
+        requireCompanyRoles(req, existing.companyId, roles);
+        try {
+          const result = withActor(req, () => run(req.params.id, req));
+          res.json(result);
+        } catch (error) {
+          if (error instanceof HttpError) throw error;
+          throw new HttpError(400, error instanceof Error ? error.message : 'Action failed.');
+        }
+      }),
+    );
+  };
+
+  requisitionAction('submit', companyManagementRoles, (id) => store.submitPurchaseRequisition(id));
+  requisitionAction('approve', ['Admin', 'Manager'], (id) => store.approvePurchaseRequisition(id));
+  requisitionAction('reject', ['Admin', 'Manager'], (id, req) =>
+    store.rejectPurchaseRequisition(id, optionalString(asRecord(req.body, 'body').reason)),
+  );
+  requisitionAction('convert', companyManagementRoles, (id, req) =>
+    store.convertRequisitionToPurchaseOrder(
+      id,
+      requiredString(asRecord(req.body, 'body').supplierId, 'supplierId'),
+    ),
   );
 
   app.get(
@@ -6457,6 +6967,8 @@ export function createServer(options: CreateServerOptions = {}) {
   deleteRoute('/invoices/:id', (id) => store.getInvoiceById(id), (id) => store.deleteInvoice(id), 'Invoice not found.', 'Could not delete invoice.');
   deleteRoute('/sales-orders/:id', (id) => store.getSalesOrderById(id), (id) => store.deleteSalesOrder(id), 'Sales order not found.', 'Could not delete sales order.');
   deleteRoute('/purchase-orders/:id', (id) => store.getPurchaseOrderById(id), (id) => store.deletePurchaseOrder(id), 'Purchase order not found.', 'Could not delete purchase order.');
+  deleteRoute('/purchase-requisitions/:id', (id) => store.getPurchaseRequisitionById(id), (id) => store.deletePurchaseRequisition(id), 'Purchase requisition not found.', 'Could not delete purchase requisition.');
+  deleteRoute('/expenses/:id', (id) => store.getExpenseById(id), (id) => store.deleteExpense(id), 'Expense not found.', 'Could not delete expense.');
   deleteRoute('/vendor-bills/:id', (id) => store.getVendorBillById(id), (id) => store.deleteVendorBill(id), 'Vendor bill not found.', 'Could not delete vendor bill.');
   deleteRoute('/credit-notes/:id', (id) => store.getCreditNoteById(id), (id) => store.deleteCreditNote(id), 'Credit note not found.', 'Could not delete credit note.');
   deleteRoute('/inventory-items/:id', (id) => store.getInventoryItemById(id), (id) => store.deleteInventoryItem(id), 'Inventory item not found.', 'Could not delete inventory item.');

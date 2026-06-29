@@ -204,15 +204,15 @@ export interface InvoiceTemplate {
   isDefault: boolean;
   primaryColor: string;
   accentColor: string;
-  logoUrl?: string;
-  headerImageUrl?: string;
-  footerImageUrl?: string;
+  logoUrl?: string | null;
+  headerImageUrl?: string | null;
+  footerImageUrl?: string | null;
   docType?: 'invoice' | 'delivery';
-  letterheadPdfUrl?: string;
-  letterheadImageUrl?: string;
-  stampUrl?: string;
-  signatureUrl?: string;
-  signatureLabel?: string;
+  letterheadPdfUrl?: string | null;
+  letterheadImageUrl?: string | null;
+  stampUrl?: string | null;
+  signatureUrl?: string | null;
+  signatureLabel?: string | null;
   paymentInstructions?: string;
   terms?: string;
   footerNote?: string;
@@ -527,6 +527,22 @@ export interface AgingBucket {
   amount: number;
 }
 
+export interface Expense {
+  id: string;
+  companyId: string;
+  expenseDate: Date;
+  category: string;
+  vendor?: string;
+  amount: number;
+  description?: string;
+  paymentMethod?: string;
+  reference?: string;
+  projectId?: string;
+  attachmentUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface FinanceOverview {
   openReceivables: number;
   openPayables: number;
@@ -534,4 +550,7 @@ export interface FinanceOverview {
   paidPayablesThisMonth: number;
   billedThisMonth: number;
   expenseReceiptsThisMonth: number;
+  revenueThisMonth: number;
+  expensesThisMonth: number;
+  netProfitThisMonth: number;
 }

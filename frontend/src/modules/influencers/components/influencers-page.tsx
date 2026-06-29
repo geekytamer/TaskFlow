@@ -20,11 +20,27 @@ import { SectionEmptyState } from '@/modules/operations/components/section-empty
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
+import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
+import {
   getContacts,
+  createContact,
   influencerPlatforms,
   type Contact,
   type InfluencerAccount,
 } from '@/services/contactService';
+import {
+  ContactFormFields,
+  emptyContactForm,
+  buildContactPayload,
+  type ContactForm,
+} from '@/modules/contacts/components/contact-form-fields';
 import { InfluencerEditSheet } from './influencer-edit-sheet';
 import {
   Sparkles,
@@ -35,6 +51,7 @@ import {
   ExternalLink,
   MapPin,
   Pencil,
+  Plus,
 } from 'lucide-react';
 
 const AVAILABILITY = ['Available', 'Partially Available', 'Unavailable'] as const;
@@ -231,6 +248,11 @@ export function InfluencersPage() {
   const [influencers, setInfluencers] = React.useState<Contact[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState<Contact | null>(null);
+  const [openCreate, setOpenCreate] = React.useState(false);
+  const [form, setForm] = React.useState<ContactForm>(emptyContactForm({ kind: 'Person' }));
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
+  const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
+  const [saving, setSaving] = React.useState(false);
 
   const [search, setSearch] = React.useState('');
   const [platform, setPlatform] = React.useState<string>('All');
@@ -258,6 +280,35 @@ export function InfluencersPage() {
   React.useEffect(() => {
     void loadInfluencers();
   }, [loadInfluencers]);
+
+  React.useEffect(() => {
+    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    let cancelled = false;
+    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+      .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
+      .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
+
+  const handleCreate = async () => {
+    if (!selectedCompany || !form.name.trim()) return;
+    setSaving(true);
+    try {
+      await createContact({
+        companyId: selectedCompany.id,
+        ...buildContactPayload(form, { customFields: createCustomValues, lockedRole: 'Influencer' }),
+      });
+      setOpenCreate(false);
+      setForm(emptyContactForm({ kind: 'Person' }));
+      setCreateCustomValues({});
+      await loadInfluencers();
+      toast({ title: t('contacts.created') });
+    } catch (error: any) {
+      toast({ title: error?.message || t('common.error'), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const niches = React.useMemo(() => {
     const set = new Set<string>();
@@ -333,6 +384,10 @@ export function InfluencersPage() {
       description={t('influencers.subtitle')}
       actions={
         selectedCompany ? (
+          <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setOpenCreate(true)}>
+            <Plus className="h-4 w-4 me-1" />{t('influencers.addInfluencer', 'Add Influencer')}
+          </Button>
           <CsvImportExport
             exportPath={`/companies/${selectedCompany.id}/influencers/export`}
             exportFilename="influencers.csv"
@@ -349,6 +404,7 @@ export function InfluencersPage() {
               },
             }}
           />
+          </div>
         ) : undefined
       }
     >
@@ -475,6 +531,31 @@ export function InfluencersPage() {
           </div>
         </>
       )}
+
+      <Dialog open={openCreate} onOpenChange={(v) => { if (!v) { setForm(emptyContactForm({ kind: 'Person' })); setCreateCustomValues({}); } setOpenCreate(v); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('influencers.addInfluencer', 'Add Influencer')}</DialogTitle>
+          </DialogHeader>
+          <ContactFormFields form={form} setForm={setForm} lockedRole="Influencer" />
+          {customFieldDefs.length > 0 && (
+            <div className="border-t pt-3">
+              <CustomFieldsForm
+                definitions={customFieldDefs}
+                values={createCustomValues}
+                onChange={setCreateCustomValues}
+              />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {t('influencers.addInfluencerHint', 'Platform, handle, follower and rate details can be added with Edit after creating.')}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
+            <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <InfluencerEditSheet
         contact={editing}
