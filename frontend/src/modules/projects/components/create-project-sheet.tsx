@@ -30,6 +30,7 @@ import { getClients } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
 import { createProject } from '@/services/projectService';
 import { useToast } from '@/hooks/use-toast';
+import { useI18n } from '@/context/i18n-context';
 
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
@@ -43,6 +44,8 @@ export function CreateProjectSheet() {
   const [clients, setClients] = React.useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = React.useState<string | undefined>();
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
   React.useEffect(() => {
     async function loadData() {
@@ -76,8 +79,8 @@ export function CreateProjectSheet() {
     if (!name || !selectedCompany) {
       toast({
         variant: 'destructive',
-        title: 'Validation Error',
-        description: 'Project Name and Company are required.',
+        title: tr('Validation Error', 'خطأ في التحقق'),
+        description: tr('Project Name and Company are required.', 'اسم المشروع والشركة مطلوبان.'),
       });
       return;
     }
@@ -93,8 +96,8 @@ export function CreateProjectSheet() {
         clientId: selectedClient,
       });
       toast({
-        title: 'Project Created',
-        description: `Project "${name}" has been successfully created.`,
+        title: tr('Project Created', 'تم إنشاء المشروع'),
+        description: tr(`Project "${name}" has been successfully created.`, `تم إنشاء المشروع "${name}" بنجاح.`),
       });
       refreshProjects(); // Refresh the centralized project list
       // Reset form and close sheet
@@ -108,8 +111,8 @@ export function CreateProjectSheet() {
     } catch (error) {
        toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create project.',
+        title: tr('Error', 'خطأ'),
+        description: tr('Failed to create project.', 'تعذّر إنشاء المشروع.'),
       });
     }
   }
@@ -117,42 +120,42 @@ export function CreateProjectSheet() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="outline"><PlusCircle className="me-2 h-4 w-4" />New Project</Button>
+        <Button variant="outline"><PlusCircle className="me-2 h-4 w-4" />{tr('New Project', 'مشروع جديد')}</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-lg sm:max-w-lg flex flex-col">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
             <SheetHeader>
-            <SheetTitle>Create New Project</SheetTitle>
+            <SheetTitle>{tr('Create New Project', 'إنشاء مشروع جديد')}</SheetTitle>
             <SheetDescription>
-                Fill in the details below to create a new project.
+                {tr('Fill in the details below to create a new project.', 'أدخل التفاصيل أدناه لإنشاء مشروع جديد.')}
             </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto pe-6 -me-6">
             <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="name" className="text-end">
-                    Project Name
+                    {tr('Project Name', 'اسم المشروع')}
                 </Label>
-                <Input id="name" placeholder="e.g. Q4 Marketing Campaign" className="col-span-3" value={name} onChange={e => setName(e.target.value)} />
+                <Input id="name" placeholder={tr('e.g. Q4 Marketing Campaign', 'مثال: حملة تسويق الربع الرابع')} className="col-span-3" value={name} onChange={e => setName(e.target.value)} />
                 </div>
 
                  <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="description" className="text-end">
-                        Description
+                        {tr('Description', 'الوصف')}
                     </Label>
-                    <Input id="description" placeholder="A brief description of the project." className="col-span-3" value={description} onChange={e => setDescription(e.target.value)} />
+                    <Input id="description" placeholder={tr('A brief description of the project.', 'وصف موجز للمشروع.')} className="col-span-3" value={description} onChange={e => setDescription(e.target.value)} />
                 </div>
                 
                  <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-end">
-                        Client
+                        {tr('Client', 'العميل')}
                     </Label>
                     <div className="col-span-3">
                         <Select value={selectedClient} onValueChange={setSelectedClient}>
                             <SelectTrigger>
                                 <div className="flex items-center gap-2">
                                     <Briefcase className="h-4 w-4 text-muted-foreground" />
-                                    <SelectValue placeholder="Link to a client (optional)" />
+                                    <SelectValue placeholder={tr('Link to a client (optional)', 'ربط بعميل (اختياري)')} />
                                 </div>
                             </SelectTrigger>
                             <SelectContent>
@@ -168,23 +171,23 @@ export function CreateProjectSheet() {
 
                 <div className="grid grid-cols-4 items-start gap-4">
                 <Label className="text-end pt-2">
-                    Visibility
+                    {tr('Visibility', 'الظهور')}
                 </Label>
                 <div className="col-span-3">
                     <Select value={visibility} onValueChange={(v: ProjectVisibility) => setVisibility(v)}>
                         <SelectTrigger>
-                        <SelectValue placeholder="Select visibility" />
+                        <SelectValue placeholder={tr('Select visibility', 'اختر مستوى الظهور')} />
                         </SelectTrigger>
                         <SelectContent>
                         {projectVisibilities.map((vis) => (
                             <SelectItem key={vis} value={vis}>
-                            {vis}
+                            {vis === 'Private' ? tr('Private', 'خاص') : tr('Public', 'عام')}
                             </SelectItem>
                         ))}
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground mt-2">
-                        Public projects are visible to everyone in the company. Private projects are only visible to selected members.
+                        {tr('Public projects are visible to everyone in the company. Private projects are only visible to selected members.', 'المشاريع العامة مرئية لجميع أعضاء الشركة. المشاريع الخاصة مرئية فقط للأعضاء المحددين.')}
                     </p>
                 </div>
                 </div>
@@ -192,17 +195,17 @@ export function CreateProjectSheet() {
                 {visibility === 'Private' && (
                     <div className="grid grid-cols-4 items-start gap-4">
                         <Label className="text-end pt-2">
-                            Members
+                            {tr('Members', 'الأعضاء')}
                         </Label>
                         <div className="col-span-3">
                             <MultiSelect
                                 items={companyUsers}
                                 selected={selectedMembers}
                                 onChange={setSelectedMembers}
-                                placeholder="Select members..."
+                                placeholder={tr('Select members...', 'اختر الأعضاء...')}
                             />
                             <p className="text-xs text-muted-foreground mt-2">
-                                Select which members have access to this private project.
+                                {tr('Select which members have access to this private project.', 'حدّد الأعضاء الذين يمكنهم الوصول إلى هذا المشروع الخاص.')}
                             </p>
                         </div>
                     </div>
@@ -210,7 +213,7 @@ export function CreateProjectSheet() {
 
                 <div className="grid grid-cols-4 items-start gap-4">
                     <Label htmlFor="color" className="text-end pt-2">
-                        Project Color
+                        {tr('Project Color', 'لون المشروع')}
                     </Label>
                     <div className="col-span-3">
                         <RadioGroup
@@ -239,7 +242,7 @@ export function CreateProjectSheet() {
                             value={color}
                             onChange={(e) => setColor(e.target.value)}
                         />
-                        <Label htmlFor="color-input" className="text-sm font-normal">Custom Color</Label>
+                        <Label htmlFor="color-input" className="text-sm font-normal">{tr('Custom Color', 'لون مخصّص')}</Label>
                         </div>
                     </div>
                 </div>
@@ -247,9 +250,9 @@ export function CreateProjectSheet() {
             </div>
             <SheetFooter>
             <SheetClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
+                <Button type="button" variant="outline">{tr('Cancel', 'إلغاء')}</Button>
             </SheetClose>
-            <Button type="submit">Create Project</Button>
+            <Button type="submit">{tr('Create Project', 'إنشاء المشروع')}</Button>
             </SheetFooter>
         </form>
       </SheetContent>

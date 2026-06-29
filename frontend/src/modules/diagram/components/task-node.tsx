@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { getProjectById } from '@/services/projectService';
 import type { Project } from '@/modules/projects/types';
+import { useI18n } from '@/context/i18n-context';
 
 const priorityColors: Record<Task['priority'], string> = {
   High: 'bg-red-500',
@@ -17,6 +18,8 @@ const priorityColors: Record<Task['priority'], string> = {
 type TaskNodeData = Task & { parentTitle?: string };
 
 function TaskNode({ data }: NodeProps<TaskNodeData>) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [project, setProject] = useState<Project | undefined>(undefined);
   
   useEffect(() => {
@@ -59,7 +62,7 @@ function TaskNode({ data }: NodeProps<TaskNodeData>) {
               </div>
               {data.parentTitle && (
                 <p className="text-xs text-muted-foreground">
-                  Child of <span className="font-medium text-foreground">{data.parentTitle}</span>
+                  {tr('Child of', 'تابع لـ')} <span className="font-medium text-foreground">{data.parentTitle}</span>
                 </p>
               )}
             </CardContent>
@@ -69,7 +72,7 @@ function TaskNode({ data }: NodeProps<TaskNodeData>) {
         <TooltipContent side="bottom">
           <div className="max-w-xs">
             <p className="font-bold">{data.title}</p>
-            {project && <p className="text-sm text-muted-foreground">Project: {project.name}</p>}
+            {project && <p className="text-sm text-muted-foreground">{tr('Project', 'المشروع')}: {project.name}</p>}
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">{data.description}</p>
           </div>
         </TooltipContent>

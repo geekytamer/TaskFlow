@@ -19,8 +19,11 @@ import {
 import { cn } from '@/lib/utils';
 import { placeholderCompanies } from '@/lib/placeholder-data';
 import type { Company } from '@/lib/types';
+import { useI18n } from '@/context/i18n-context';
 
 export function CompanySwitcher() {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [open, setOpen] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company>(
     placeholderCompanies[0]
@@ -44,9 +47,9 @@ export function CompanySwitcher() {
       </PopoverTrigger>
       <PopoverContent className="w-[250px] p-0">
         <Command>
-          <CommandInput placeholder="Search company..." />
+          <CommandInput placeholder={tr('Search company...', 'بحث عن شركة...')} />
           <CommandList>
-            <CommandEmpty>No company found.</CommandEmpty>
+            <CommandEmpty>{tr('No company found.', 'لم يتم العثور على شركة.')}</CommandEmpty>
             <CommandGroup>
               {placeholderCompanies.map((company) => (
                 <CommandItem

@@ -26,6 +26,7 @@ import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
 import {
@@ -57,6 +58,8 @@ interface UserTableProps {
 
 export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: UserTableProps) {
   const { selectedCompany, companies, currentUser } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [users, setUsers] = React.useState<User[]>([]);
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -110,8 +113,8 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
         console.error("Failed to fetch user table data:", error);
         toast({
           variant: 'destructive',
-          title: 'Error',
-          description: error?.message || 'Could not load user data.',
+          title: tr('Error', 'خطأ'),
+          description: error?.message || tr('Could not load user data.', 'تعذر تحميل بيانات المستخدمين.'),
         });
         setUsers([]);
         setPositions([]);
@@ -135,16 +138,16 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
     try {
       await deleteUser(userToDelete.id);
       toast({
-        title: 'User Deleted',
-        description: `User "${userToDelete.name}" has been deleted.`,
+        title: tr('User Deleted', 'تم حذف المستخدم'),
+        description: tr(`User "${userToDelete.name}" has been deleted.`, `تم حذف المستخدم "${userToDelete.name}".`),
       });
       fetchData();
       setUserToDelete(null);
     } catch (error: any) {
        toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error?.message || 'Failed to delete user.',
+        title: tr('Error', 'خطأ'),
+        description: error?.message || tr('Failed to delete user.', 'فشل حذف المستخدم.'),
       });
     }
   }
@@ -185,10 +188,10 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
               <Table>
         <TableHeader>
             <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Assignments</TableHead>
-                <TableHead>Primary Role</TableHead>
-                <TableHead className="text-end">Actions</TableHead>
+                <TableHead>{tr('User', 'المستخدم')}</TableHead>
+                <TableHead>{tr('Assignments', 'التعيينات')}</TableHead>
+                <TableHead>{tr('Primary Role', 'الدور الأساسي')}</TableHead>
+                <TableHead className="text-end">{tr('Actions', 'الإجراءات')}</TableHead>
             </TableRow>
         </TableHeader>
                 <TableBody>
@@ -220,10 +223,10 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Assignments</TableHead>
-              <TableHead>Primary Role</TableHead>
-              <TableHead className="text-end">Actions</TableHead>
+              <TableHead>{tr('User', 'المستخدم')}</TableHead>
+              <TableHead>{tr('Assignments', 'التعيينات')}</TableHead>
+              <TableHead>{tr('Primary Role', 'الدور الأساسي')}</TableHead>
+              <TableHead className="text-end">{tr('Actions', 'الإجراءات')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -261,7 +264,7 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                     <div className="flex flex-col gap-1">
                       <span className="text-sm">{assignmentsLabel}</span>
                       {position?.title && (
-                        <span className="text-xs text-muted-foreground">Position: {position.title}</span>
+                        <span className="text-xs text-muted-foreground">{tr('Position', 'المنصب')}: {position.title}</span>
                       )}
                     </div>
                   </TableCell>
@@ -272,16 +275,16 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="h-8 w-8 p-0">
-                                <span className="sr-only">Open menu</span>
+                                <span className="sr-only">{tr('Open menu', 'فتح القائمة')}</span>
                                 <MoreHorizontal className="h-4 w-4" />
                             </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => setEditingUser(user)}>Edit User</DropdownMenuItem>
+                            <DropdownMenuLabel>{tr('Actions', 'الإجراءات')}</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => setEditingUser(user)}>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
                             <AlertDialogTrigger asChild>
                                 <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
-                                Delete User
+                                {tr('Delete User', 'حذف المستخدم')}
                                 </DropdownMenuItem>
                             </AlertDialogTrigger>
                             </DropdownMenuContent>
@@ -289,15 +292,17 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                         {userToDelete?.id === user.id && (
                             <AlertDialogContent>
                             <AlertDialogHeader>
-                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                <AlertDialogTitle>{tr('Are you absolutely sure?', 'هل أنت متأكد تمامًا؟')}</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete the
-                                user "{userToDelete.name}" from Firestore. Note: this does not delete the user from Firebase Authentication.
+                                {tr(
+                                  `This action cannot be undone. This will permanently delete the user "${userToDelete.name}" from Firestore. Note: this does not delete the user from Firebase Authentication.`,
+                                  `لا يمكن التراجع عن هذا الإجراء. سيؤدي ذلك إلى حذف المستخدم "${userToDelete.name}" نهائيًا من Firestore. ملاحظة: لا يحذف هذا المستخدم من مصادقة Firebase.`,
+                                )}
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                                <AlertDialogCancel onClick={() => setUserToDelete(null)}>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDelete}>Continue</AlertDialogAction>
+                                <AlertDialogCancel onClick={() => setUserToDelete(null)}>{tr('Cancel', 'إلغاء')}</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDelete}>{tr('Continue', 'متابعة')}</AlertDialogAction>
                             </AlertDialogFooter>
                             </AlertDialogContent>
                         )}

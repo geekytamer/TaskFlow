@@ -69,7 +69,16 @@ export function InfluencerEditSheet({
   onOpenChange: (open: boolean) => void;
   onSaved: (updated: Contact) => void;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const availabilityLabel = (a: string) =>
+    a === 'Available'
+      ? tr('Available', 'متاح')
+      : a === 'Partially Available'
+        ? tr('Partially Available', 'متاح جزئياً')
+        : a === 'Unavailable'
+          ? tr('Unavailable', 'غير متاح')
+          : a;
   const { toast } = useToast();
   const [form, setForm] = React.useState<ProfileForm>(() =>
     contact ? toForm(contact) : toForm({} as Contact),
@@ -180,7 +189,7 @@ export function InfluencerEditSheet({
                   <SelectItem value="__none__">—</SelectItem>
                   {AVAILABILITY.map((a) => (
                     <SelectItem key={a} value={a}>
-                      {a}
+                      {availabilityLabel(a)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -222,7 +231,7 @@ export function InfluencerEditSheet({
               <Input
                 className="h-8 text-sm"
                 value={form.location}
-                placeholder="City, Country"
+                placeholder={tr('City, Country', 'المدينة، الدولة')}
                 onChange={(e) => set('location', e.target.value)}
               />
             </div>

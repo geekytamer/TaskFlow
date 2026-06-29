@@ -7,12 +7,23 @@ import type { Task, TaskStatus } from '@/modules/projects/types';
 import { taskStatuses } from '@/modules/projects/types';
 import { KanbanTaskCard } from './kanban-task-card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useI18n } from '@/context/i18n-context';
 
 interface KanbanBoardProps {
     projectId: string;
 }
 
 export function KanbanBoard({ projectId }: KanbanBoardProps) {
+    const { language } = useI18n();
+    const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+    const statusLabel = (status: TaskStatus) =>
+        status === 'To Do'
+            ? tr('To Do', 'قيد الانتظار')
+            : status === 'In Progress'
+                ? tr('In Progress', 'قيد التنفيذ')
+                : status === 'Done'
+                    ? tr('Done', 'مكتمل')
+                    : status;
     const [tasks, setTasks] = React.useState<Task[]>([]);
     const [loading, setLoading] = React.useState(true);
 
@@ -99,7 +110,7 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
             <div className="flex gap-4 items-start">
                 {taskStatuses.map(status => (
                     <div key={status} className="w-[300px] flex-shrink-0 bg-muted/50 rounded-lg p-3">
-                        <h3 className="font-semibold mb-3 px-1">{status}</h3>
+                        <h3 className="font-semibold mb-3 px-1">{statusLabel(status)}</h3>
                         <Droppable droppableId={status}>
                             {(provided, snapshot) => (
                                 <div
@@ -123,7 +134,7 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
                                     ))}
                                     {columns[status].length === 0 && (
                                         <div className="flex items-center justify-center rounded-md border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground">
-                                            Drop here to move a task into "{status}"
+                                            {tr(`Drop here to move a task into "${statusLabel(status)}"`, `أفلِت هنا لنقل المهمة إلى "${statusLabel(status)}"`)}
                                         </div>
                                     )}
                                     {provided.placeholder}

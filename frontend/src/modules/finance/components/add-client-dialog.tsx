@@ -34,6 +34,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { createClient } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 
 const addClientSchema = z.object({
   name: z.string().min(2, 'Client name must be at least 2 characters.'),
@@ -66,6 +67,8 @@ export function AddClientDialog({
 }: AddClientDialogProps) {
   const { toast } = useToast();
   const { selectedCompany } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const form = useForm<AddClientFormValues>({
     resolver: zodResolver(addClientSchema),
     defaultValues: {
@@ -92,7 +95,7 @@ export function AddClientDialog({
 
   const onSubmit = async (data: AddClientFormValues) => {
     if (!selectedCompany) {
-        toast({ variant: 'destructive', title: 'Error', description: 'No company selected.' });
+        toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: tr('No company selected.', 'لم يتم اختيار شركة.') });
         return;
     }
     try {
@@ -108,16 +111,16 @@ export function AddClientDialog({
         notes: data.notes || undefined,
       });
       toast({
-        title: 'Client Created',
-        description: `Client "${data.name}" has been successfully created.`,
+        title: tr('Client Created', 'تم إنشاء العميل'),
+        description: tr(`Client "${data.name}" has been successfully created.`, `تم إنشاء العميل "${data.name}" بنجاح.`),
       });
       onClientAdded();
       handleOpenChange(false);
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error?.message || 'Failed to create client.',
+        title: tr('Error', 'خطأ'),
+        description: error?.message || tr('Failed to create client.', 'تعذّر إنشاء العميل.'),
       });
     }
   };
@@ -127,24 +130,24 @@ export function AddClientDialog({
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add New Client</DialogTitle>
+          <DialogTitle>{tr('Add New Client', 'إضافة عميل جديد')}</DialogTitle>
           <DialogDescription>
-            Fill in the details for the new client.
+            {tr('Fill in the details for the new client.', 'أدخل تفاصيل العميل الجديد.')}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
             <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              Client reference is generated automatically when the record is saved.
+              {tr('Client reference is generated automatically when the record is saved.', 'يتم إنشاء مرجع العميل تلقائيًا عند حفظ السجل.')}
             </div>
             <FormField
               control={form.control}
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Client Name</FormLabel>
+                  <FormLabel>{tr('Client Name', 'اسم العميل')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Globex Corporation" {...field} />
+                    <Input placeholder={tr('e.g. Globex Corporation', 'مثال: شركة جلوبكس')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -155,9 +158,9 @@ export function AddClientDialog({
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Contact Email</FormLabel>
+                  <FormLabel>{tr('Contact Email', 'البريد الإلكتروني')}</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="e.g. contact@globex.com" {...field} />
+                    <Input type="email" placeholder={tr('e.g. contact@globex.com', 'مثال: contact@globex.com')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -168,9 +171,9 @@ export function AddClientDialog({
               name="contactName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Contact Name</FormLabel>
+                  <FormLabel>{tr('Contact Name', 'اسم جهة الاتصال')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Sarah Johnson" {...field} />
+                    <Input placeholder={tr('e.g. Sarah Johnson', 'مثال: سارة جونسون')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -181,9 +184,9 @@ export function AddClientDialog({
               name="phone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phone</FormLabel>
+                  <FormLabel>{tr('Phone', 'الهاتف')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. +1 415 555 0199" {...field} />
+                    <Input placeholder={tr('e.g. +1 415 555 0199', 'مثال: 0199 555 415 1+')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -194,9 +197,9 @@ export function AddClientDialog({
               name="vatNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>VAT Number</FormLabel>
+                  <FormLabel>{tr('VAT Number', 'الرقم الضريبي')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. VAT-2041" {...field} />
+                    <Input placeholder={tr('e.g. VAT-2041', 'مثال: VAT-2041')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -207,9 +210,9 @@ export function AddClientDialog({
               name="creditLimit"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Credit Limit</FormLabel>
+                  <FormLabel>{tr('Credit Limit', 'حد الائتمان')}</FormLabel>
                   <FormControl>
-                    <Input type="number" step="0.01" placeholder="e.g. 5000" {...field} />
+                    <Input type="number" step="0.01" placeholder={tr('e.g. 5000', 'مثال: 5000')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -220,9 +223,9 @@ export function AddClientDialog({
               name="creditNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Credit Number</FormLabel>
+                  <FormLabel>{tr('Credit Number', 'رقم الائتمان')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. CL-1001" {...field} />
+                    <Input placeholder={tr('e.g. CL-1001', 'مثال: CL-1001')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -233,9 +236,9 @@ export function AddClientDialog({
               name="address"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Billing Address</FormLabel>
+                  <FormLabel>{tr('Billing Address', 'عنوان الفوترة')}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. 123 Main St, Anytown USA" {...field} />
+                    <Input placeholder={tr('e.g. 123 Main St, Anytown USA', 'مثال: شارع الرئيسي 123، المدينة')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -246,7 +249,7 @@ export function AddClientDialog({
               name="paymentMethod"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Payment Method</FormLabel>
+                  <FormLabel>{tr('Payment Method', 'طريقة الدفع')}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
@@ -254,10 +257,10 @@ export function AddClientDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="Cash">Cash</SelectItem>
-                      <SelectItem value="Card">Card</SelectItem>
-                      <SelectItem value="Credit">Credit</SelectItem>
+                      <SelectItem value="Bank Transfer">{tr('Bank Transfer', 'تحويل بنكي')}</SelectItem>
+                      <SelectItem value="Cash">{tr('Cash', 'نقدًا')}</SelectItem>
+                      <SelectItem value="Card">{tr('Card', 'بطاقة')}</SelectItem>
+                      <SelectItem value="Credit">{tr('Credit', 'آجل')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -269,7 +272,7 @@ export function AddClientDialog({
               name="status"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Client Status</FormLabel>
+                  <FormLabel>{tr('Client Status', 'حالة العميل')}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
@@ -277,10 +280,10 @@ export function AddClientDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="Lead">Lead</SelectItem>
-                      <SelectItem value="Active">Active</SelectItem>
-                      <SelectItem value="At Risk">At Risk</SelectItem>
-                      <SelectItem value="Inactive">Inactive</SelectItem>
+                      <SelectItem value="Lead">{tr('Lead', 'عميل محتمل')}</SelectItem>
+                      <SelectItem value="Active">{tr('Active', 'نشط')}</SelectItem>
+                      <SelectItem value="At Risk">{tr('At Risk', 'معرّض للخطر')}</SelectItem>
+                      <SelectItem value="Inactive">{tr('Inactive', 'غير نشط')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -292,9 +295,9 @@ export function AddClientDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>{tr('Notes', 'ملاحظات')}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Relationship notes, billing preferences, or context" {...field} />
+                    <Textarea placeholder={tr('Relationship notes, billing preferences, or context', 'ملاحظات عن العلاقة، تفضيلات الفوترة، أو سياق إضافي')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -302,9 +305,9 @@ export function AddClientDialog({
             />
              <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-                    Cancel
+                    {tr('Cancel', 'إلغاء')}
                 </Button>
-                <Button type="submit">Create Client</Button>
+                <Button type="submit">{tr('Create Client', 'إنشاء العميل')}</Button>
             </DialogFooter>
           </form>
         </Form>

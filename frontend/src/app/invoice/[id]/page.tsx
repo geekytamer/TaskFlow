@@ -10,7 +10,8 @@ import { Printer } from 'lucide-react';
 
 export default function PublicInvoicePage() {
   const params = useParams();
-  const { setLanguage } = useI18n();
+  const { setLanguage, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const id = params?.id as string;
   const [data, setData] = React.useState<PublicInvoicePayload | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -32,16 +33,16 @@ export default function PublicInvoicePage() {
     setLoading(true);
     getPublicInvoice(id)
       .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e?.message || 'Could not load invoice.'); })
+      .catch((e) => { if (!cancelled) setError(e?.message || tr('Could not load invoice.', 'تعذر تحميل الفاتورة.')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [id]);
 
   if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading invoice…</div>;
+    return <div className="p-8 text-center text-slate-500">{tr('Loading invoice…', 'جارٍ تحميل الفاتورة…')}</div>;
   }
   if (error || !data) {
-    return <div className="p-8 text-center text-red-500">{error || 'Invoice not found.'}</div>;
+    return <div className="p-8 text-center text-red-500">{error || tr('Invoice not found.', 'الفاتورة غير موجودة.')}</div>;
   }
 
   return (
@@ -58,12 +59,12 @@ export default function PublicInvoicePage() {
       `}</style>
       <div className="no-print mx-auto mb-6 flex max-w-[760px] flex-col items-center gap-4 rounded-lg bg-white p-4 shadow-sm sm:flex-row sm:justify-between">
         <p className="text-sm text-slate-500">
-          Invoice <span className="font-medium text-slate-700">{data.invoice.invoiceNumber}</span>
+          {tr('Invoice', 'فاتورة')} <span className="font-medium text-slate-700">{data.invoice.invoiceNumber}</span>
           {data.company?.name ? ` · ${data.company.name}` : ''}
         </p>
         <Button onClick={() => window.print()}>
           <Printer className="mr-2 h-4 w-4" />
-          Download / Print PDF
+          {tr('Download / Print PDF', 'تنزيل / طباعة PDF')}
         </Button>
       </div>
 

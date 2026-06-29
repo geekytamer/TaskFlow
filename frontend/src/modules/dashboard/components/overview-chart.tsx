@@ -8,27 +8,29 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { getTasks } from '@/services/projectService';
 import type { Task } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const chartConfig = {
-  total: {
-    label: 'Tasks',
-  },
-  'To Do': {
-    color: 'hsl(var(--chart-3))'
-  },
-  'In Progress': {
-    color: 'hsl(var(--chart-2))'
-  },
-  'Done': {
-    color: 'hsl(var(--chart-1))'
-  }
-};
-
 export function OverviewChart() {
   const { selectedCompany, currentUser } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const chartConfig = {
+    total: {
+      label: tr('Tasks', 'المهام'),
+    },
+    'To Do': {
+      color: 'hsl(var(--chart-3))'
+    },
+    'In Progress': {
+      color: 'hsl(var(--chart-2))'
+    },
+    'Done': {
+      color: 'hsl(var(--chart-1))'
+    }
+  };
   const [data, setData] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
 

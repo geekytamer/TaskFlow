@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useI18n } from '@/context/i18n-context';
 import { updateInvoiceTemplate } from '@/services/financeService';
 import type { InvoiceTemplate, Invoice, Client, InvoiceColumn } from '../types';
 import type { Company } from '@/modules/companies/types';
@@ -269,6 +270,27 @@ function reorderBlockInTree(
 
 export function InvoiceDesigner({ template, company, onClose, onSaved }: InvoiceDesignerProps) {
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const paletteLabel = (type: string, fallback: string) => {
+    switch (type) {
+      case 'container': return tr('Group', 'مجموعة');
+      case 'heading': return tr('Heading', 'عنوان');
+      case 'text': return tr('Text', 'نص');
+      case 'image': return tr('Image', 'صورة');
+      case 'details': return tr('Details', 'تفاصيل');
+      case 'lineItems': return tr('Line items', 'بنود');
+      case 'totals': return tr('Totals', 'الإجماليات');
+      case 'payment': return tr('Payment', 'الدفع');
+      case 'signature': return tr('Signature', 'التوقيع');
+      case 'qr': return tr('QR code', 'رمز QR');
+      case 'divider': return tr('Divider', 'فاصل');
+      case 'spacer': return tr('Spacer', 'مسافة');
+      case 'shape': return tr('Color band', 'شريط لوني');
+      case 'pageBreak': return tr('Page break', 'فاصل صفحة');
+      default: return fallback;
+    }
+  };
   const initialDoc = React.useMemo(
     () => isInvoiceDoc(template.doc) ? template.doc : templateToDoc(template),
     [template],
@@ -359,7 +381,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const applyPreset = (presetId: string) => {
     const preset = invoicePresets.find((p) => p.id === presetId);
     if (!preset) return;
-    if (dirty && !window.confirm(`Replace the current design with the "${preset.name}" preset?`)) return;
+    if (dirty && !window.confirm(tr(`Replace the current design with the "${preset.name}" preset?`, `هل تريد استبدال التصميم الحالي بالقالب الجاهز "${preset.name}"؟`))) return;
     commit(() => preset.build({ ...template, doc: undefined }));
     setSelectedId(null);
   };
@@ -381,12 +403,12 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   };
 
   const close = () => {
-    if (dirty && !window.confirm('Discard your unsaved invoice design changes?')) return;
+    if (dirty && !window.confirm(tr('Discard your unsaved invoice design changes?', 'هل تريد تجاهل تغييرات تصميم الفاتورة غير المحفوظة؟'))) return;
     onClose();
   };
 
   const reset = () => {
-    if (!window.confirm('Reset this design to the template settings?')) return;
+    if (!window.confirm(tr('Reset this design to the template settings?', 'هل تريد إعادة ضبط هذا التصميم إلى إعدادات القالب؟'))) return;
     commit(() => templateToDoc({ ...template, doc: undefined }));
     setSelectedId(null);
   };
@@ -396,7 +418,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
     if (validationErrors.length > 0) {
       toast({
         variant: 'destructive',
-        title: 'Design is invalid',
+        title: tr('Design is invalid', 'التصميم غير صالح'),
         description: validationErrors[0],
       });
       return;
@@ -407,13 +429,13 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
       savedSnapshot.current = JSON.stringify(doc);
       setHistory([]);
       setFuture([]);
-      toast({ title: 'Design saved' });
+      toast({ title: tr('Design saved', 'تم حفظ التصميم') });
       onSaved();
     } catch (error: unknown) {
       toast({
         variant: 'destructive',
-        title: 'Save failed',
-        description: error instanceof Error ? error.message : 'Could not save the invoice design.',
+        title: tr('Save failed', 'فشل الحفظ'),
+        description: error instanceof Error ? error.message : tr('Could not save the invoice design.', 'تعذر حفظ تصميم الفاتورة.'),
       });
     } finally {
       setSaving(false);
@@ -425,38 +447,38 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" onClick={close}>
           <ArrowLeft className="me-1 h-4 w-4" />
-          Back to settings
+          {tr('Back to settings', 'العودة إلى الإعدادات')}
         </Button>
         <div className="text-sm font-medium">
-          Designing: {template.name}
-          {dirty && <span className="ms-2 text-amber-600">Unsaved changes</span>}
+          {tr('Designing', 'تصميم')}: {template.name}
+          {dirty && <span className="ms-2 text-amber-600">{tr('Unsaved changes', 'تغييرات غير محفوظة')}</span>}
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={undo} disabled={history.length === 0} title="Undo">
+          <Button variant="ghost" size="icon" onClick={undo} disabled={history.length === 0} title={tr('Undo', 'تراجع')}>
             <Undo2 className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={redo} disabled={future.length === 0} title="Redo">
+          <Button variant="ghost" size="icon" onClick={redo} disabled={future.length === 0} title={tr('Redo', 'إعادة')}>
             <Redo2 className="h-4 w-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={reset}>
             <RotateCcw className="me-1 h-4 w-4" />
-            Reset
+            {tr('Reset', 'إعادة ضبط')}
           </Button>
           <Button size="sm" onClick={save} disabled={saving || errors.length > 0 || !dirty}>
-            {saving ? 'Saving...' : 'Save design'}
+            {saving ? tr('Saving...', 'جارٍ الحفظ...') : tr('Save design', 'حفظ التصميم')}
           </Button>
         </div>
       </div>
 
       {errors.length > 0 && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          {errors[0]} {errors.length > 1 ? `(${errors.length - 1} more)` : ''}
+          {errors[0]} {errors.length > 1 ? tr(`(${errors.length - 1} more)`, `(${errors.length - 1} أخرى)`) : ''}
         </div>
       )}
 
       <div className="grid flex-1 gap-3 overflow-hidden lg:grid-cols-[190px_300px_1fr]">
         <div className="overflow-y-auto rounded-lg border p-2">
-          <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start from a preset</p>
+          <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr('Start from a preset', 'ابدأ من قالب جاهز')}</p>
           <div className="grid gap-1.5">
             {invoicePresets.map((preset) => (
               <button
@@ -472,7 +494,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
             ))}
           </div>
 
-          <p className="mt-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add block</p>
+          <p className="mt-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr('Add block', 'إضافة عنصر')}</p>
           <div className="grid grid-cols-2 gap-1.5">
             {PALETTE.map((item) => (
               <button
@@ -480,22 +502,22 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
                 type="button"
                 onClick={() => addBlock(item.type)}
                 className="flex flex-col items-center gap-1 rounded-md border p-2 text-[11px] hover:bg-muted"
-                title={selected?.type === 'container' ? `Add ${item.label} inside selected group` : `Add ${item.label}`}
+                title={selected?.type === 'container' ? tr(`Add ${item.label} inside selected group`, `إضافة ${paletteLabel(item.type, item.label)} داخل المجموعة المحددة`) : tr(`Add ${item.label}`, `إضافة ${paletteLabel(item.type, item.label)}`)}
               >
                 <item.icon className="h-4 w-4 text-muted-foreground" />
-                {item.label}
+                {paletteLabel(item.type, item.label)}
               </button>
             ))}
           </div>
           <p className="mt-3 px-1 text-[11px] text-muted-foreground">
-            Select a group before adding to place the new block inside it.
+            {tr('Select a group before adding to place the new block inside it.', 'حدد مجموعة قبل الإضافة لوضع العنصر الجديد داخلها.')}
           </p>
         </div>
 
         <div className="overflow-y-auto rounded-lg border p-2">
           <div className="flex items-center justify-between px-1 pb-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layout</p>
-            <span className="text-[11px] text-muted-foreground">{countBlocks(doc.body)} blocks</span>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr('Layout', 'التخطيط')}</p>
+            <span className="text-[11px] text-muted-foreground">{countBlocks(doc.body)} {tr('blocks', 'عنصر')}</span>
           </div>
           <BlockTree
             blocks={doc.body}
@@ -514,7 +536,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
             onRemove={removeBlock}
             onReorder={reorder}
           />
-          {doc.body.length === 0 && <p className="px-1 text-xs text-muted-foreground">Add blocks from the left.</p>}
+          {doc.body.length === 0 && <p className="px-1 text-xs text-muted-foreground">{tr('Add blocks from the left.', 'أضف عناصر من القائمة الجانبية.')}</p>}
         </div>
 
         <div className="grid gap-3 overflow-hidden xl:grid-cols-[minmax(520px,1fr)_320px]">
@@ -533,14 +555,14 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
               />
             </div>
             <p className="mt-2 text-center text-[11px] text-muted-foreground">
-              Click a block to edit it · drag to reorder
+              {tr('Click a block to edit it · drag to reorder', 'انقر على عنصر لتعديله · اسحب لإعادة الترتيب')}
             </p>
           </div>
           <div className="overflow-y-auto rounded-lg border p-3">
             <DocumentProperties doc={doc} onChange={(patch) => commit((current) => ({ ...current, ...patch }))} />
             <div className="my-4 border-t" />
             {!selected ? (
-              <p className="text-xs text-muted-foreground">Select a block to edit its content and style.</p>
+              <p className="text-xs text-muted-foreground">{tr('Select a block to edit its content and style.', 'حدد عنصرًا لتعديل محتواه وتنسيقه.')}</p>
             ) : (
               <BlockProperties
                 block={selected}
@@ -579,6 +601,8 @@ function BlockTree({
   onReorder: (draggedId: string, targetId: string, place: 'before' | 'after') => void;
   depth?: number;
 }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   return (
     <div className={depth ? 'mt-1 space-y-1 border-s ps-2' : 'space-y-1.5'}>
       {blocks.map((block, index) => (
@@ -607,8 +631,8 @@ function BlockTree({
             {block.type === 'container' && block.children.length > 0 ? (
               <button
                 type="button"
-                title={collapsedIds.has(block.id) ? 'Expand group' : 'Collapse group'}
-                aria-label={collapsedIds.has(block.id) ? 'Expand group' : 'Collapse group'}
+                title={collapsedIds.has(block.id) ? tr('Expand group', 'توسيع المجموعة') : tr('Collapse group', 'طي المجموعة')}
+                aria-label={collapsedIds.has(block.id) ? tr('Expand group', 'توسيع المجموعة') : tr('Collapse group', 'طي المجموعة')}
                 aria-expanded={!collapsedIds.has(block.id)}
                 className="shrink-0 text-muted-foreground"
                 onClick={() => onToggleCollapsed(block.id)}
@@ -624,16 +648,16 @@ function BlockTree({
                 <span className="ms-1 text-muted-foreground">({block.children.length})</span>
               ) : null}
             </button>
-            <button type="button" title="Move up" aria-label="Move block up" disabled={index === 0} onClick={() => onMove(block.id, -1)}>
+            <button type="button" title={tr('Move up', 'تحريك لأعلى')} aria-label={tr('Move block up', 'تحريك العنصر لأعلى')} disabled={index === 0} onClick={() => onMove(block.id, -1)}>
               <ChevronUp className="h-3.5 w-3.5" />
             </button>
-            <button type="button" title="Move down" aria-label="Move block down" disabled={index === blocks.length - 1} onClick={() => onMove(block.id, 1)}>
+            <button type="button" title={tr('Move down', 'تحريك لأسفل')} aria-label={tr('Move block down', 'تحريك العنصر لأسفل')} disabled={index === blocks.length - 1} onClick={() => onMove(block.id, 1)}>
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
-            <button type="button" title="Duplicate" aria-label="Duplicate block" onClick={() => onDuplicate(block.id)}>
+            <button type="button" title={tr('Duplicate', 'تكرار')} aria-label={tr('Duplicate block', 'تكرار العنصر')} onClick={() => onDuplicate(block.id)}>
               <Copy className="h-3.5 w-3.5" />
             </button>
-            <button type="button" title="Delete" aria-label="Delete block" className="text-muted-foreground hover:text-destructive" onClick={() => onRemove(block.id)}>
+            <button type="button" title={tr('Delete', 'حذف')} aria-label={tr('Delete block', 'حذف العنصر')} className="text-muted-foreground hover:text-destructive" onClick={() => onRemove(block.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -664,17 +688,19 @@ function DocumentProperties({
   doc: InvoiceDoc;
   onChange: (patch: Partial<InvoiceDoc>) => void;
 }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const updateMargin = (side: 'top' | 'right' | 'bottom' | 'left', value: number) => {
     onChange({ page: { ...doc.page, margin: { ...doc.page.margin, [side]: value } } });
   };
   return (
     <details open>
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Document
+        {tr('Document', 'المستند')}
       </summary>
       <div className="mt-3 space-y-3">
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Page size">
+          <Field label={tr('Page size', 'حجم الصفحة')}>
             <Select value={doc.page.size} onValueChange={(size) => onChange({ page: { ...doc.page, size: size as InvoiceDoc['page']['size'] } })}>
               <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -683,18 +709,18 @@ function DocumentProperties({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Orientation">
+          <Field label={tr('Orientation', 'الاتجاه')}>
             <Select value={doc.page.orientation} onValueChange={(orientation) => onChange({ page: { ...doc.page, orientation: orientation as InvoiceDoc['page']['orientation'] } })}>
               <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="portrait">Portrait</SelectItem>
-                <SelectItem value="landscape">Landscape</SelectItem>
+                <SelectItem value="portrait">{tr('Portrait', 'عمودي')}</SelectItem>
+                <SelectItem value="landscape">{tr('Landscape', 'أفقي')}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
         </div>
         <div>
-          <Label className="text-xs">Page margins (mm)</Label>
+          <Label className="text-xs">{tr('Page margins (mm)', 'هوامش الصفحة (مم)')}</Label>
           <div className="mt-1 grid grid-cols-4 gap-1">
             {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
               <Input
@@ -703,7 +729,7 @@ function DocumentProperties({
                 type="number"
                 min={0}
                 max={50}
-                aria-label={`${side} page margin`}
+                aria-label={`${side} ${tr('page margin', 'هامش الصفحة')}`}
                 title={side}
                 value={doc.page.margin[side] ?? 0}
                 onChange={(event) => updateMargin(side, Number(event.target.value))}
@@ -711,7 +737,7 @@ function DocumentProperties({
             ))}
           </div>
         </div>
-        <Field label="Font family">
+        <Field label={tr('Font family', 'نوع الخط')}>
           <Input
             className="h-8"
             value={doc.theme.fontFamily}
@@ -720,9 +746,9 @@ function DocumentProperties({
           />
         </Field>
         <div className="grid grid-cols-3 gap-2">
-          <ColorField label="Primary" value={doc.theme.primaryColor} onChange={(primaryColor) => onChange({ theme: { ...doc.theme, primaryColor } })} />
-          <ColorField label="Accent" value={doc.theme.accentColor} onChange={(accentColor) => onChange({ theme: { ...doc.theme, accentColor } })} />
-          <ColorField label="Text" value={doc.theme.textColor} onChange={(textColor) => onChange({ theme: { ...doc.theme, textColor } })} />
+          <ColorField label={tr('Primary', 'أساسي')} value={doc.theme.primaryColor} onChange={(primaryColor) => onChange({ theme: { ...doc.theme, primaryColor } })} />
+          <ColorField label={tr('Accent', 'مميز')} value={doc.theme.accentColor} onChange={(accentColor) => onChange({ theme: { ...doc.theme, accentColor } })} />
+          <ColorField label={tr('Text', 'النص')} value={doc.theme.textColor} onChange={(textColor) => onChange({ theme: { ...doc.theme, textColor } })} />
         </div>
       </div>
     </details>
@@ -740,6 +766,8 @@ function BlockProperties({
   onChange: (patch: Partial<Block>) => void;
   onStyle: (style: BlockStyle) => void;
 }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const style = block.style || {};
   const setNumber = (value: string) => (value === '' ? undefined : Number(value));
 
@@ -748,14 +776,14 @@ function BlockProperties({
       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{block.type}</div>
 
       {(block.type === 'text' || block.type === 'heading') && (
-        <Field label="Content">
+        <Field label={tr('Content', 'المحتوى')}>
           <Textarea
             rows={3}
             value={block.content}
             onChange={(event) => onChange({ content: event.target.value } as Partial<Block>)}
           />
           <details className="mt-1 text-[11px] text-muted-foreground">
-            <summary className="cursor-pointer">Data tokens</summary>
+            <summary className="cursor-pointer">{tr('Data tokens', 'رموز البيانات')}</summary>
             <div className="mt-1 space-y-1">
               {TOKEN_GROUPS.map((group) => (
                 <div key={group.group}>
@@ -769,7 +797,7 @@ function BlockProperties({
       )}
 
       {block.type === 'heading' && (
-        <Field label="Level">
+        <Field label={tr('Level', 'المستوى')}>
           <Select value={String(block.level)} onValueChange={(value) => onChange({ level: Number(value) } as Partial<Block>)}>
             <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -781,21 +809,21 @@ function BlockProperties({
 
       {block.type === 'container' && (
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Layout">
+          <Field label={tr('Layout', 'التخطيط')}>
             <Select value={block.layout} onValueChange={(layout) => onChange({ layout } as Partial<ContainerBlock>)}>
               <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="stack">Stack</SelectItem>
-                <SelectItem value="row">Row</SelectItem>
-                <SelectItem value="grid">Grid</SelectItem>
+                <SelectItem value="stack">{tr('Stack', 'عمودي')}</SelectItem>
+                <SelectItem value="row">{tr('Row', 'صف')}</SelectItem>
+                <SelectItem value="grid">{tr('Grid', 'شبكة')}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Gap">
+          <Field label={tr('Gap', 'المسافة')}>
             <Input className="h-8" type="number" min={0} max={200} value={block.gap ?? 16} onChange={(event) => onChange({ gap: Number(event.target.value) } as Partial<ContainerBlock>)} />
           </Field>
           {block.layout === 'grid' && (
-            <Field label="Columns">
+            <Field label={tr('Columns', 'الأعمدة')}>
               <Input className="h-8" type="number" min={1} max={6} value={block.columns ?? 2} onChange={(event) => onChange({ columns: Number(event.target.value) } as Partial<ContainerBlock>)} />
             </Field>
           )}
@@ -807,7 +835,7 @@ function BlockProperties({
       )}
 
       {(block.type === 'spacer' || block.type === 'shape') && (
-        <Field label="Height (px)">
+        <Field label={tr('Height (px)', 'الارتفاع (بكسل)')}>
           <Input className="h-8" type="number" min={block.type === 'spacer' ? 0 : 1} max={2000} value={block.height ?? 24} onChange={(event) => onChange({ height: Number(event.target.value) } as Partial<Block>)} />
         </Field>
       )}
@@ -823,9 +851,9 @@ function BlockProperties({
       {block.type === 'totals' && (
         <div className="space-y-2">
           {([
-            ['showSubtotal', 'Show subtotal'],
-            ['showTax', 'Show tax'],
-            ['showTotal', 'Show total'],
+            ['showSubtotal', tr('Show subtotal', 'إظهار المجموع الفرعي')],
+            ['showTax', tr('Show tax', 'إظهار الضريبة')],
+            ['showTotal', tr('Show total', 'إظهار الإجمالي')],
           ] as const).map(([key, label]) => (
             <Checkbox
               key={key}
@@ -838,75 +866,75 @@ function BlockProperties({
       )}
 
       {block.type === 'payment' && (
-        <Field label="Title">
+        <Field label={tr('Title', 'العنوان')}>
           <Input className="h-8" value={block.title ?? ''} onChange={(event) => onChange({ title: event.target.value } as Partial<Block>)} />
         </Field>
       )}
 
       {block.type === 'qr' && (
-        <Field label="Caption">
-          <Input className="h-8" value={block.caption ?? ''} onChange={(event) => onChange({ caption: event.target.value } as Partial<Block>)} placeholder="Scan to view & download" />
+        <Field label={tr('Caption', 'التسمية التوضيحية')}>
+          <Input className="h-8" value={block.caption ?? ''} onChange={(event) => onChange({ caption: event.target.value } as Partial<Block>)} placeholder={tr('Scan to view & download', 'امسح للعرض والتنزيل')} />
         </Field>
       )}
 
       <div className="space-y-3 border-t pt-3">
-        <Field label="Show when">
+        <Field label={tr('Show when', 'إظهار عند')}>
           <Select value={block.visibleWhen ?? 'always'} onValueChange={(visibleWhen) => onChange({ visibleWhen } as Partial<Block>)}>
             <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="always">Always</SelectItem>
-              <SelectItem value="hasNotes">Invoice has notes</SelectItem>
-              <SelectItem value="hasBankAccounts">Bank accounts exist</SelectItem>
-              <SelectItem value="hasLogo">Logo exists</SelectItem>
-              <SelectItem value="hasStamp">Stamp exists</SelectItem>
-              <SelectItem value="hasSignature">Signature exists</SelectItem>
+              <SelectItem value="always">{tr('Always', 'دائمًا')}</SelectItem>
+              <SelectItem value="hasNotes">{tr('Invoice has notes', 'الفاتورة بها ملاحظات')}</SelectItem>
+              <SelectItem value="hasBankAccounts">{tr('Bank accounts exist', 'توجد حسابات بنكية')}</SelectItem>
+              <SelectItem value="hasLogo">{tr('Logo exists', 'يوجد شعار')}</SelectItem>
+              <SelectItem value="hasStamp">{tr('Stamp exists', 'يوجد ختم')}</SelectItem>
+              <SelectItem value="hasSignature">{tr('Signature exists', 'يوجد توقيع')}</SelectItem>
             </SelectContent>
           </Select>
         </Field>
 
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Align">
+          <Field label={tr('Align', 'المحاذاة')}>
             <Select value={style.align ?? 'left'} onValueChange={(align) => onStyle({ align: align as BlockStyle['align'] })}>
               <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="left">Left</SelectItem>
-                <SelectItem value="center">Center</SelectItem>
-                <SelectItem value="right">Right</SelectItem>
+                <SelectItem value="left">{tr('Left', 'يسار')}</SelectItem>
+                <SelectItem value="center">{tr('Center', 'وسط')}</SelectItem>
+                <SelectItem value="right">{tr('Right', 'يمين')}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Width">
+          <Field label={tr('Width', 'العرض')}>
             <Input className="h-8" value={style.width ?? ''} placeholder="100%" onChange={(event) => onStyle({ width: event.target.value || undefined })} />
           </Field>
-          <Field label="Font size">
+          <Field label={tr('Font size', 'حجم الخط')}>
             <Input className="h-8" type="number" min={1} max={500} value={style.fontSize ?? ''} onChange={(event) => onStyle({ fontSize: setNumber(event.target.value) })} />
           </Field>
-          <Field label="Line height">
+          <Field label={tr('Line height', 'ارتفاع السطر')}>
             <Input className="h-8" type="number" min={0} max={20} step={0.1} value={style.lineHeight ?? ''} onChange={(event) => onStyle({ lineHeight: setNumber(event.target.value) })} />
           </Field>
         </div>
 
-        <Field label="Font family">
-          <Input className="h-8" value={style.fontFamily ?? ''} placeholder="Use document font" onChange={(event) => onStyle({ fontFamily: event.target.value || undefined })} />
+        <Field label={tr('Font family', 'نوع الخط')}>
+          <Input className="h-8" value={style.fontFamily ?? ''} placeholder={tr('Use document font', 'استخدام خط المستند')} onChange={(event) => onStyle({ fontFamily: event.target.value || undefined })} />
         </Field>
 
         <div className="grid grid-cols-2 gap-2">
-          <ColorField label="Text color" value={style.color ?? '#0f172a'} onChange={(color) => onStyle({ color })} />
-          <ColorField label="Background" value={style.background ?? '#ffffff'} onChange={(background) => onStyle({ background })} />
+          <ColorField label={tr('Text color', 'لون النص')} value={style.color ?? '#0f172a'} onChange={(color) => onStyle({ color })} />
+          <ColorField label={tr('Background', 'الخلفية')} value={style.background ?? '#ffffff'} onChange={(background) => onStyle({ background })} />
         </div>
 
-        <Field label="Background image">
+        <Field label={tr('Background image', 'صورة الخلفية')}>
           <div className="space-y-2">
-            <ImageUploadButton label="Upload background" onUploaded={(dataUrl) => onStyle({ backgroundImage: dataUrl })} />
+            <ImageUploadButton label={tr('Upload background', 'رفع خلفية')} onUploaded={(dataUrl) => onStyle({ backgroundImage: dataUrl })} />
             {style.backgroundImage ? (
               <>
                 <ImagePreview src={style.backgroundImage} onClear={() => onStyle({ backgroundImage: undefined })} />
                 <Select value={style.backgroundSize ?? 'cover'} onValueChange={(size) => onStyle({ backgroundSize: size as NonNullable<BlockStyle['backgroundSize']> })}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cover">Cover (fill)</SelectItem>
-                    <SelectItem value="contain">Contain (fit)</SelectItem>
-                    <SelectItem value="auto">Original size</SelectItem>
+                    <SelectItem value="cover">{tr('Cover (fill)', 'تغطية (ملء)')}</SelectItem>
+                    <SelectItem value="contain">{tr('Contain (fit)', 'احتواء (ملاءمة)')}</SelectItem>
+                    <SelectItem value="auto">{tr('Original size', 'الحجم الأصلي')}</SelectItem>
                   </SelectContent>
                 </Select>
               </>
@@ -914,43 +942,43 @@ function BlockProperties({
           </div>
         </Field>
 
-        <SpacingProperties label="Margin" value={style.margin} onChange={(margin) => onStyle({ margin })} />
-        <SpacingProperties label="Padding" value={style.padding} onChange={(padding) => onStyle({ padding })} />
+        <SpacingProperties label={tr('Margin', 'الهامش الخارجي')} value={style.margin} onChange={(margin) => onStyle({ margin })} />
+        <SpacingProperties label={tr('Padding', 'الهامش الداخلي')} value={style.padding} onChange={(padding) => onStyle({ padding })} />
 
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Border width">
+          <Field label={tr('Border width', 'عرض الحد')}>
             <Input className="h-8" type="number" min={0} max={20} value={style.border?.width ?? ''} onChange={(event) => onStyle({ border: { ...style.border, width: setNumber(event.target.value) } })} />
           </Field>
-          <ColorField label="Border color" value={style.border?.color ?? '#e5e7eb'} onChange={(color) => onStyle({ border: { ...style.border, color } })} />
-          <Field label="Border style">
+          <ColorField label={tr('Border color', 'لون الحد')} value={style.border?.color ?? '#e5e7eb'} onChange={(color) => onStyle({ border: { ...style.border, color } })} />
+          <Field label={tr('Border style', 'نمط الحد')}>
             <Select value={style.border?.style ?? 'solid'} onValueChange={(borderStyle) => onStyle({ border: { ...style.border, style: borderStyle as NonNullable<BlockStyle['border']>['style'] } })}>
               <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="solid">Solid</SelectItem>
-                <SelectItem value="dashed">Dashed</SelectItem>
-                <SelectItem value="dotted">Dotted</SelectItem>
+                <SelectItem value="solid">{tr('Solid', 'متصل')}</SelectItem>
+                <SelectItem value="dashed">{tr('Dashed', 'متقطع')}</SelectItem>
+                <SelectItem value="dotted">{tr('Dotted', 'منقّط')}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Corner radius">
+          <Field label={tr('Corner radius', 'استدارة الزوايا')}>
             <Input className="h-8" type="number" min={0} max={500} value={style.borderRadius ?? ''} onChange={(event) => onStyle({ borderRadius: setNumber(event.target.value) })} />
           </Field>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <Checkbox label="Bold" checked={(style.fontWeight ?? 400) >= 600} onChange={(checked) => onStyle({ fontWeight: checked ? 700 : 400 })} />
-          <Checkbox label="Italic" checked={style.italic === true} onChange={(italic) => onStyle({ italic })} />
-          <Checkbox label="Uppercase" checked={style.uppercase === true} onChange={(uppercase) => onStyle({ uppercase })} />
+          <Checkbox label={tr('Bold', 'عريض')} checked={(style.fontWeight ?? 400) >= 600} onChange={(checked) => onStyle({ fontWeight: checked ? 700 : 400 })} />
+          <Checkbox label={tr('Italic', 'مائل')} checked={style.italic === true} onChange={(italic) => onStyle({ italic })} />
+          <Checkbox label={tr('Uppercase', 'أحرف كبيرة')} checked={style.uppercase === true} onChange={(uppercase) => onStyle({ uppercase })} />
         </div>
 
         <Checkbox
-          label="Full width (ignore page margins)"
+          label={tr('Full width (ignore page margins)', 'عرض كامل (تجاهل هوامش الصفحة)')}
           checked={style.fullBleed === true}
           onChange={(fullBleed) => onStyle({ fullBleed })}
         />
         {style.fullBleed ? (
           <p className="text-[11px] leading-tight text-muted-foreground">
-            Spans the whole sheet edge to edge. Best on top-level bands, header/footer images, and color bars.
+            {tr('Spans the whole sheet edge to edge. Best on top-level bands, header/footer images, and color bars.', 'يمتد على كامل الصفحة من حافة إلى حافة. الأفضل للأشرطة العلوية وصور الرأس/التذييل وأشرطة الألوان.')}
           </p>
         ) : null}
       </div>
@@ -960,16 +988,18 @@ function BlockProperties({
 
 function ImageUploadButton({ label, onUploaded }: { label: string; onUploaded: (dataUrl: string) => void }) {
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const handleFile = (file: File | null) => {
     if (!file) return;
     if (file.size > MAX_IMAGE_BYTES) {
-      toast({ variant: 'destructive', title: 'Image too large', description: 'Please use an image under 1.4 MB.' });
+      toast({ variant: 'destructive', title: tr('Image too large', 'الصورة كبيرة جدًا'), description: tr('Please use an image under 1.4 MB.', 'يرجى استخدام صورة أقل من 1.4 ميجابايت.') });
       return;
     }
     const reader = new FileReader();
     reader.onload = () => onUploaded(String(reader.result));
-    reader.onerror = () => toast({ variant: 'destructive', title: 'Could not read the image' });
+    reader.onerror = () => toast({ variant: 'destructive', title: tr('Could not read the image', 'تعذر قراءة الصورة') });
     reader.readAsDataURL(file);
   };
   return (
@@ -993,14 +1023,16 @@ function ImageUploadButton({ label, onUploaded }: { label: string; onUploaded: (
 
 /** Small thumbnail preview for an uploaded/linked image, with a clear button. */
 function ImagePreview({ src, onClear }: { src: string; onClear: () => void }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   return (
     <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-1.5">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt="" className="h-9 w-9 rounded object-contain" />
       <span className="flex-1 truncate text-[11px] text-muted-foreground">
-        {src.startsWith('data:') ? 'Uploaded image' : src}
+        {src.startsWith('data:') ? tr('Uploaded image', 'صورة مرفوعة') : src}
       </span>
-      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive" onClick={onClear} aria-label="Remove image">
+      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive" onClick={onClear} aria-label={tr('Remove image', 'إزالة الصورة')}>
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>
@@ -1008,10 +1040,12 @@ function ImagePreview({ src, onClear }: { src: string; onClear: () => void }) {
 }
 
 function ImageProperties({ block, onChange }: { block: ImageBlock; onChange: (patch: Partial<Block>) => void }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const source = block.binding ? `binding:${block.binding}` : 'custom';
   return (
     <div className="space-y-2">
-      <Field label="Source">
+      <Field label={tr('Source', 'المصدر')}>
         <Select
           value={source}
           onValueChange={(value) => {
@@ -1024,31 +1058,31 @@ function ImageProperties({ block, onChange }: { block: ImageBlock; onChange: (pa
             {['logo', 'stamp', 'signature', 'header', 'footer'].map((binding) => (
               <SelectItem key={binding} value={`binding:${binding}`}>{binding}</SelectItem>
             ))}
-            <SelectItem value="custom">Custom URL/data URL</SelectItem>
+            <SelectItem value="custom">{tr('Custom URL/data URL', 'رابط مخصص / رابط بيانات')}</SelectItem>
           </SelectContent>
         </Select>
       </Field>
       {!block.binding && (
-        <Field label="Image">
+        <Field label={tr('Image', 'الصورة')}>
           <div className="space-y-2">
-            <ImageUploadButton label="Upload image" onUploaded={(dataUrl) => onChange({ src: dataUrl } as Partial<ImageBlock>)} />
+            <ImageUploadButton label={tr('Upload image', 'رفع صورة')} onUploaded={(dataUrl) => onChange({ src: dataUrl } as Partial<ImageBlock>)} />
             {block.src ? (
               <ImagePreview src={block.src} onClear={() => onChange({ src: undefined } as Partial<ImageBlock>)} />
             ) : null}
-            <Textarea rows={2} placeholder="…or paste an image URL / data URL" value={block.src ?? ''} onChange={(event) => onChange({ src: event.target.value } as Partial<ImageBlock>)} />
+            <Textarea rows={2} placeholder={tr('…or paste an image URL / data URL', '…أو الصق رابط صورة / رابط بيانات')} value={block.src ?? ''} onChange={(event) => onChange({ src: event.target.value } as Partial<ImageBlock>)} />
           </div>
         </Field>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Height (px)">
+        <Field label={tr('Height (px)', 'الارتفاع (بكسل)')}>
           <Input className="h-8" type="number" min={1} max={2000} value={block.height ?? 56} onChange={(event) => onChange({ height: Number(event.target.value) } as Partial<ImageBlock>)} />
         </Field>
-        <Field label="Fit">
+        <Field label={tr('Fit', 'الملاءمة')}>
           <Select value={block.fit ?? 'contain'} onValueChange={(fit) => onChange({ fit } as Partial<ImageBlock>)}>
             <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="contain">Contain</SelectItem>
-              <SelectItem value="cover">Cover</SelectItem>
+              <SelectItem value="contain">{tr('Contain', 'احتواء')}</SelectItem>
+              <SelectItem value="cover">{tr('Cover', 'تغطية')}</SelectItem>
             </SelectContent>
           </Select>
         </Field>
@@ -1058,18 +1092,20 @@ function ImageProperties({ block, onChange }: { block: ImageBlock; onChange: (pa
 }
 
 function DetailsProperties({ block, onChange }: { block: DetailsBlock; onChange: (patch: Partial<Block>) => void }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const updateField = (index: number, patch: Partial<DetailsBlock['fields'][number]>) => {
     onChange({ fields: block.fields.map((field, itemIndex) => itemIndex === index ? { ...field, ...patch } : field) } as Partial<DetailsBlock>);
   };
   return (
     <div className="space-y-2">
-      <Field label="Title">
+      <Field label={tr('Title', 'العنوان')}>
         <Input className="h-8" value={block.title ?? ''} onChange={(event) => onChange({ title: event.target.value } as Partial<DetailsBlock>)} />
       </Field>
-      <Label className="text-xs">Fields</Label>
+      <Label className="text-xs">{tr('Fields', 'الحقول')}</Label>
       {block.fields.map((field, index) => (
         <div key={index} className="grid grid-cols-[1fr_1.4fr_auto] gap-1">
-          <Input className="h-8" value={field.label} placeholder="Label" onChange={(event) => updateField(index, { label: event.target.value })} />
+          <Input className="h-8" value={field.label} placeholder={tr('Label', 'التسمية')} onChange={(event) => updateField(index, { label: event.target.value })} />
           <Input className="h-8" value={field.value} placeholder="{{client.name}}" onChange={(event) => updateField(index, { value: event.target.value })} />
           <Button type="button" variant="ghost" size="icon" onClick={() => onChange({ fields: block.fields.filter((_, itemIndex) => itemIndex !== index) } as Partial<DetailsBlock>)}>
             <Trash2 className="h-3.5 w-3.5" />
@@ -1077,7 +1113,7 @@ function DetailsProperties({ block, onChange }: { block: DetailsBlock; onChange:
         </div>
       ))}
       <Button type="button" variant="outline" size="sm" onClick={() => onChange({ fields: [...block.fields, { label: '', value: '' }] } as Partial<DetailsBlock>)}>
-        Add field
+        {tr('Add field', 'إضافة حقل')}
       </Button>
     </div>
   );
@@ -1092,6 +1128,8 @@ function ColumnsProperties({
   templateColumns?: InvoiceColumn[];
   onChange: (patch: Partial<Block>) => void;
 }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const inherited = block.columns === undefined;
   const columns = block.columns ?? templateColumns ?? DEFAULT_COLUMNS;
   const setColumns = (next: InvoiceColumn[] | undefined) => onChange({ columns: next } as Partial<Block>);
@@ -1101,7 +1139,7 @@ function ColumnsProperties({
   return (
     <div className="space-y-2">
       <Checkbox
-        label="Use template columns"
+        label={tr('Use template columns', 'استخدام أعمدة القالب')}
         checked={inherited}
         onChange={(checked) => setColumns(checked ? undefined : JSON.parse(JSON.stringify(columns)))}
       />
@@ -1124,14 +1162,14 @@ function ColumnsProperties({
             </Button>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-1">
-            <Checkbox label="Visible" checked={column.visible} onChange={(visible) => updateColumn(column.id, { visible })} />
-            <Input className="h-8" type="number" min={1} max={100} value={column.width ?? ''} placeholder="Width %" onChange={(event) => updateColumn(column.id, { width: event.target.value ? Number(event.target.value) : undefined })} />
+            <Checkbox label={tr('Visible', 'مرئي')} checked={column.visible} onChange={(visible) => updateColumn(column.id, { visible })} />
+            <Input className="h-8" type="number" min={1} max={100} value={column.width ?? ''} placeholder={tr('Width %', 'العرض %')} onChange={(event) => updateColumn(column.id, { width: event.target.value ? Number(event.target.value) : undefined })} />
             <Select value={column.align ?? 'left'} onValueChange={(align) => updateColumn(column.id, { align: align as InvoiceColumn['align'] })}>
               <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="left">Left</SelectItem>
-                <SelectItem value="center">Center</SelectItem>
-                <SelectItem value="right">Right</SelectItem>
+                <SelectItem value="left">{tr('Left', 'يسار')}</SelectItem>
+                <SelectItem value="center">{tr('Center', 'وسط')}</SelectItem>
+                <SelectItem value="right">{tr('Right', 'يمين')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1142,7 +1180,7 @@ function ColumnsProperties({
           ...columns,
           { id: makeId(), key: 'custom', label: 'Custom', visible: true, width: 15, align: 'left' },
         ])}>
-          Add custom column
+          {tr('Add custom column', 'إضافة عمود مخصص')}
         </Button>
       )}
     </div>

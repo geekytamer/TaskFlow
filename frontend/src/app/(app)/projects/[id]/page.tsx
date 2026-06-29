@@ -5,6 +5,7 @@ import { notFound, useParams, useRouter } from 'next/navigation';
 import { addProjectMember, deleteProject, getProjectById, removeProjectMember, updateProject } from '@/services/projectService';
 import type { Project, User } from '@/lib/types';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { ProjectTaskViews } from '@/modules/projects/components/project-task-views';
 import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -34,6 +35,8 @@ export default function ProjectDetailsPage() {
   const id = params.id as string;
 
   const { selectedCompany, currentUser, currentRole } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [project, setProject] = React.useState<Project | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -121,10 +124,10 @@ export default function ProjectDetailsPage() {
         clientId: editClient && editClient !== 'none' ? editClient : undefined,
       });
       setProject(updated);
-      toast({ title: 'Project updated' });
+      toast({ title: tr('Project updated', 'تم تحديث المشروع') });
       setEditOpen(false);
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Update failed', description: 'Could not update project.' });
+      toast({ variant: 'destructive', title: tr('Update failed', 'فشل التحديث'), description: tr('Could not update project.', 'تعذر تحديث المشروع.') });
     } finally {
       setSaving(false);
     }
@@ -132,14 +135,14 @@ export default function ProjectDetailsPage() {
 
   const handleDelete = async () => {
     if (!project) return;
-    if (!confirm('Delete this project and its tasks?')) return;
+    if (!confirm(tr('Delete this project and its tasks?', 'حذف هذا المشروع ومهامه؟'))) return;
     setDeleting(true);
     try {
       await deleteProject(project.id);
-      toast({ title: 'Project deleted' });
+      toast({ title: tr('Project deleted', 'تم حذف المشروع') });
       router.push('/projects');
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete project.' });
+      toast({ variant: 'destructive', title: tr('Delete failed', 'فشل الحذف'), description: tr('Could not delete project.', 'تعذر حذف المشروع.') });
     } finally {
       setDeleting(false);
     }
@@ -151,9 +154,9 @@ export default function ProjectDetailsPage() {
       const updated = await addProjectMember(project.id, selectedMemberToAdd);
       setProject(updated);
       setSelectedMemberToAdd(undefined);
-      toast({ title: 'Member added' });
+      toast({ title: tr('Member added', 'تمت إضافة العضو') });
     } catch {
-      toast({ variant: 'destructive', title: 'Failed', description: 'Could not add member.' });
+      toast({ variant: 'destructive', title: tr('Failed', 'فشل'), description: tr('Could not add member.', 'تعذر إضافة العضو.') });
     }
   };
 
@@ -162,9 +165,9 @@ export default function ProjectDetailsPage() {
     try {
       const updated = await removeProjectMember(project.id, userId);
       setProject(updated);
-      toast({ title: 'Member removed' });
+      toast({ title: tr('Member removed', 'تمت إزالة العضو') });
     } catch {
-      toast({ variant: 'destructive', title: 'Failed', description: 'Could not remove member.' });
+      toast({ variant: 'destructive', title: tr('Failed', 'فشل'), description: tr('Could not remove member.', 'تعذر إزالة العضو.') });
     }
   };
 
@@ -202,15 +205,15 @@ export default function ProjectDetailsPage() {
             <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
             <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
               {project.visibility === 'Private' ? <Lock className="me-1 h-3 w-3" /> : <Globe className="me-1 h-3 w-3" />}
-              {project.visibility}
+              {project.visibility === 'Private' ? tr('Private', 'خاص') : tr('Public', 'عام')}
             </Badge>
           </div>
           {project.description && <p className="mt-1 text-muted-foreground">{project.description}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{projectTasks.length} tasks</span>
+            <span className="font-medium text-foreground">{projectTasks.length} {tr('tasks', 'مهمة')}</span>
             {clientName && <><span>•</span><span>{clientName}</span></>}
             {projectMembers.length > 0 && (
-              <><span>•</span><span>{projectMembers.length} member{projectMembers.length !== 1 ? 's' : ''}</span></>
+              <><span>•</span><span>{projectMembers.length} {tr(projectMembers.length !== 1 ? 'members' : 'member', 'عضو')}</span></>
             )}
           </div>
         </div>
@@ -219,39 +222,39 @@ export default function ProjectDetailsPage() {
             <Sheet open={editOpen} onOpenChange={setEditOpen}>
               <SheetTrigger asChild>
                 <Button variant="outline" size="sm">
-                  <Pencil className="h-4 w-4 me-1" /> Edit
+                  <Pencil className="h-4 w-4 me-1" /> {tr('Edit', 'تعديل')}
                 </Button>
               </SheetTrigger>
               <SheetContent className="w-full max-w-xl">
                 <SheetHeader>
-                  <SheetTitle>Edit Project</SheetTitle>
-                  <SheetDescription>Update details, visibility, client, and members.</SheetDescription>
+                  <SheetTitle>{tr('Edit Project', 'تعديل المشروع')}</SheetTitle>
+                  <SheetDescription>{tr('Update details, visibility, client, and members.', 'تحديث التفاصيل والظهور والعميل والأعضاء.')}</SheetDescription>
                 </SheetHeader>
                 <div className="flex flex-col gap-4 py-4">
                   <div className="space-y-2">
-                    <Label>Name</Label>
-                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Name" />
+                    <Label>{tr('Name', 'الاسم')}</Label>
+                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder={tr('Name', 'الاسم')} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Description</Label>
-                    <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Description" />
+                    <Label>{tr('Description', 'الوصف')}</Label>
+                    <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder={tr('Description', 'الوصف')} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Visibility</Label>
+                    <Label>{tr('Visibility', 'الظهور')}</Label>
                     <Select value={editVisibility} onValueChange={(v) => setEditVisibility(v as ProjectVisibility)}>
-                      <SelectTrigger><SelectValue placeholder="Visibility" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={tr('Visibility', 'الظهور')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Public">Public</SelectItem>
-                        <SelectItem value="Private">Private</SelectItem>
+                        <SelectItem value="Public">{tr('Public', 'عام')}</SelectItem>
+                        <SelectItem value="Private">{tr('Private', 'خاص')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Client</Label>
+                    <Label>{tr('Client', 'العميل')}</Label>
                     <Select value={editClient ?? 'none'} onValueChange={(v) => setEditClient(v)}>
-                      <SelectTrigger><SelectValue placeholder="Client (optional)" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={tr('Client (optional)', 'العميل (اختياري)')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No client</SelectItem>
+                        <SelectItem value="none">{tr('No client', 'بدون عميل')}</SelectItem>
                         {clients.map((client) => (
                           <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                         ))}
@@ -260,10 +263,10 @@ export default function ProjectDetailsPage() {
                   </div>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label className="text-base font-semibold">Members</Label>
+                      <Label className="text-base font-semibold">{tr('Members', 'الأعضاء')}</Label>
                       <div className="flex gap-2">
                         <Select value={selectedMemberToAdd} onValueChange={(v) => setSelectedMemberToAdd(v)}>
-                          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Invite member" /></SelectTrigger>
+                          <SelectTrigger className="w-[180px]"><SelectValue placeholder={tr('Invite member', 'دعوة عضو')} /></SelectTrigger>
                           <SelectContent>
                             {availableMembers.map((user) => (
                               <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
@@ -271,12 +274,12 @@ export default function ProjectDetailsPage() {
                           </SelectContent>
                         </Select>
                         <Button variant="outline" onClick={handleAddMember} disabled={!selectedMemberToAdd}>
-                          <UserPlus className="h-4 w-4 me-1" /> Add
+                          <UserPlus className="h-4 w-4 me-1" /> {tr('Add', 'إضافة')}
                         </Button>
                       </div>
                     </div>
                     <div className="space-y-2">
-                      {projectMembers.length === 0 && <p className="text-sm text-muted-foreground">No members yet.</p>}
+                      {projectMembers.length === 0 && <p className="text-sm text-muted-foreground">{tr('No members yet.', 'لا يوجد أعضاء بعد.')}</p>}
                       {projectMembers.map((user) => (
                         <div key={user.id} className="flex items-center justify-between rounded border px-3 py-2 bg-card">
                           <div className="flex items-center gap-2">
@@ -293,9 +296,9 @@ export default function ProjectDetailsPage() {
                 </div>
                 <SheetFooter className="flex justify-between gap-2">
                   <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-                    <Trash2 className="h-4 w-4 me-1" /> Delete Project
+                    <Trash2 className="h-4 w-4 me-1" /> {tr('Delete Project', 'حذف المشروع')}
                   </Button>
-                  <Button onClick={handleSave} disabled={saving}>Save Changes</Button>
+                  <Button onClick={handleSave} disabled={saving}>{tr('Save Changes', 'حفظ التغييرات')}</Button>
                 </SheetFooter>
               </SheetContent>
             </Sheet>
@@ -314,21 +317,21 @@ export default function ProjectDetailsPage() {
           onClick={() => setFinanceOpen((v) => !v)}
         >
           <div className="flex items-center gap-4">
-            <span className="font-semibold">Finance Summary</span>
+            <span className="font-semibold">{tr('Finance Summary', 'الملخص المالي')}</span>
             <div className="flex items-center gap-3 text-sm">
               {readyToBillTasks.length > 0 && (
                 <span className="rounded-full bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 text-xs font-medium">
-                  {readyToBillTasks.length} ready to bill
+                  {readyToBillTasks.length} {tr('ready to bill', 'جاهزة للفوترة')}
                 </span>
               )}
-              <span className="text-muted-foreground">Billed: <span className="font-medium text-foreground">{amount(billedAmount)}</span></span>
-              <span className="text-muted-foreground">Collected: <span className="font-medium text-emerald-600">{amount(collectedAmount)}</span></span>
+              <span className="text-muted-foreground">{tr('Billed', 'مفوتر')}: <span className="font-medium text-foreground">{amount(billedAmount)}</span></span>
+              <span className="text-muted-foreground">{tr('Collected', 'محصّل')}: <span className="font-medium text-emerald-600">{amount(collectedAmount)}</span></span>
               {outstandingAmount > 0 && (
-                <span className="text-muted-foreground">Outstanding: <span className="font-medium text-amber-600">{amount(outstandingAmount)}</span></span>
+                <span className="text-muted-foreground">{tr('Outstanding', 'مستحق')}: <span className="font-medium text-amber-600">{amount(outstandingAmount)}</span></span>
               )}
             </div>
           </div>
-          <span className="text-muted-foreground text-xs">{financeOpen ? '▲ Hide' : '▼ Show'}</span>
+          <span className="text-muted-foreground text-xs">{financeOpen ? tr('▲ Hide', '▲ إخفاء') : tr('▼ Show', '▼ عرض')}</span>
         </button>
 
         {financeOpen && (
@@ -336,10 +339,10 @@ export default function ProjectDetailsPage() {
             {/* Stat cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 divide-x border-b">
               {[
-                { label: 'Ready to Bill', value: readyToBillTasks.length, sub: amount(readyToBillAmount), color: '' },
-                { label: 'Invoiced Tasks', value: billedTasks.length, sub: amount(billedAmount), color: '' },
-                { label: 'Collected', value: amount(collectedAmount), sub: null, color: 'text-emerald-600' },
-                { label: 'Outstanding', value: amount(outstandingAmount), sub: null, color: 'text-amber-600' },
+                { label: tr('Ready to Bill', 'جاهزة للفوترة'), value: readyToBillTasks.length, sub: amount(readyToBillAmount), color: '' },
+                { label: tr('Invoiced Tasks', 'المهام المفوترة'), value: billedTasks.length, sub: amount(billedAmount), color: '' },
+                { label: tr('Collected', 'محصّل'), value: amount(collectedAmount), sub: null, color: 'text-emerald-600' },
+                { label: tr('Outstanding', 'مستحق'), value: amount(outstandingAmount), sub: null, color: 'text-amber-600' },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} className="px-5 py-4">
                   <p className="text-xs text-muted-foreground">{label}</p>
@@ -352,12 +355,12 @@ export default function ProjectDetailsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Issue Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-end">Total</TableHead>
-                  <TableHead className="text-end">Paid</TableHead>
-                  <TableHead className="text-end">Outstanding</TableHead>
+                  <TableHead>{tr('Invoice', 'فاتورة')}</TableHead>
+                  <TableHead>{tr('Issue Date', 'تاريخ الإصدار')}</TableHead>
+                  <TableHead>{tr('Status', 'الحالة')}</TableHead>
+                  <TableHead className="text-end">{tr('Total', 'الإجمالي')}</TableHead>
+                  <TableHead className="text-end">{tr('Paid', 'مدفوع')}</TableHead>
+                  <TableHead className="text-end">{tr('Outstanding', 'مستحق')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -374,7 +377,7 @@ export default function ProjectDetailsPage() {
                 {projectInvoices.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
-                      No invoices linked to this project yet.
+                      {tr('No invoices linked to this project yet.', 'لا توجد فواتير مرتبطة بهذا المشروع بعد.')}
                     </TableCell>
                   </TableRow>
                 )}
@@ -390,7 +393,7 @@ export default function ProjectDetailsPage() {
           companyId={selectedCompany.id}
           entityType="project"
           entityId={project.id}
-          title="Project Attachments & Timeline"
+          title={tr('Project Attachments & Timeline', 'مرفقات المشروع والجدول الزمني')}
         />
       )}
     </div>

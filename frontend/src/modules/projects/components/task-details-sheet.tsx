@@ -44,6 +44,7 @@ import { Label } from '@/components/ui/label';
 import { createInvoice } from '@/services/financeService';
 import { Badge } from '@/components/ui/badge';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { useI18n } from '@/context/i18n-context';
 
 interface TaskDetailsSheetProps {
   open: boolean;
@@ -66,6 +67,8 @@ function DetailRow({ icon: Icon, label, children }: { icon: React.ElementType, l
 
 export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: TaskDetailsSheetProps) {
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const confirm = useConfirm();
   const { selectedCompany, currentUser, currentRole } = useCompany();
   const canCreateFinanceInvoice = currentRole && currentRole !== 'Employee';
@@ -136,31 +139,31 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
     if (!selectedCompany) {
       toast({
         variant: 'destructive',
-        title: 'Missing company',
-        description: 'Select a company before creating an invoice.',
+        title: tr('Missing company', 'الشركة غير محددة'),
+        description: tr('Select a company before creating an invoice.', 'يرجى اختيار شركة قبل إنشاء فاتورة.'),
       });
       return;
     }
     if (!project?.clientId) {
       toast({
         variant: 'destructive',
-        title: 'Missing client',
-        description: 'Assign a client to this project to bill the task.',
+        title: tr('Missing client', 'العميل غير محدد'),
+        description: tr('Assign a client to this project to bill the task.', 'يرجى ربط عميل بهذا المشروع لفوترة المهمة.'),
       });
       return;
     }
     if (!editableTask.invoiceAmount || !editableTask.title) {
       toast({
         variant: 'destructive',
-        title: 'Add invoice details',
-        description: 'Please add an amount (and optionally number/date) before creating an invoice.',
+        title: tr('Add invoice details', 'أضف تفاصيل الفاتورة'),
+        description: tr('Please add an amount (and optionally number/date) before creating an invoice.', 'يرجى إضافة مبلغ (واختيارياً الرقم/التاريخ) قبل إنشاء الفاتورة.'),
       });
       return;
     }
     if (editableTask.generatedInvoiceId) {
       toast({
-        title: 'Already invoiced',
-        description: 'This task is already linked to a finance invoice.',
+        title: tr('Already invoiced', 'تمت الفوترة بالفعل'),
+        description: tr('This task is already linked to a finance invoice.', 'هذه المهمة مرتبطة بالفعل بفاتورة مالية.'),
       });
       return;
     }
@@ -201,14 +204,17 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
       }));
       onTaskUpdate();
       toast({
-        title: 'Invoice created',
-        description: `Linked to ${invoice.invoiceNumber}. Visible in Finance for accountants.`,
+        title: tr('Invoice created', 'تم إنشاء الفاتورة'),
+        description: tr(
+          `Linked to ${invoice.invoiceNumber}. Visible in Finance for accountants.`,
+          `تم الربط بـ ${invoice.invoiceNumber}. ظاهرة في المالية للمحاسبين.`,
+        ),
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Could not create invoice',
-        description: error?.message || 'Please try again.',
+        title: tr('Could not create invoice', 'تعذّر إنشاء الفاتورة'),
+        description: error?.message || tr('Please try again.', 'يرجى المحاولة مرة أخرى.'),
       });
     } finally {
       setCreatingInvoice(false);
@@ -219,35 +225,35 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
     try {
         await updateTask(editableTask.id, editableTask);
         toast({
-            title: "Task Saved",
-            description: `Changes to "${editableTask.title}" have been saved.`,
+            title: tr('Task Saved', 'تم حفظ المهمة'),
+            description: tr(`Changes to "${editableTask.title}" have been saved.`, `تم حفظ التغييرات على "${editableTask.title}".`),
         });
         onTaskUpdate();
         onOpenChange(false);
     } catch (error) {
          toast({
             variant: 'destructive',
-            title: "Error",
-            description: `Failed to save changes.`,
+            title: tr('Error', 'خطأ'),
+            description: tr(`Failed to save changes.`, 'تعذّر حفظ التغييرات.'),
         });
     }
   }
 
   const handleDeleteTask = async () => {
     if (!(await confirm({
-      title: 'Delete task?',
-      description: `Delete "${editableTask.title}"? Its comments and time entries will be removed. This cannot be undone.`,
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
+      title: tr('Delete task?', 'حذف المهمة؟'),
+      description: tr(`Delete "${editableTask.title}"? Its comments and time entries will be removed. This cannot be undone.`, `حذف "${editableTask.title}"؟ ستُحذف تعليقاتها وسجلات الوقت الخاصة بها. لا يمكن التراجع عن هذا الإجراء.`),
+      confirmText: tr('Delete', 'حذف'),
+      cancelText: tr('Cancel', 'إلغاء'),
       destructive: true,
     }))) return;
     try {
       await deleteTask(editableTask.id);
-      toast({ title: 'Task deleted' });
+      toast({ title: tr('Task deleted', 'تم حذف المهمة') });
       onTaskUpdate();
       onOpenChange(false);
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Could not delete task', description: error?.message });
+      toast({ variant: 'destructive', title: tr('Could not delete task', 'تعذّر حذف المهمة'), description: error?.message });
     }
   };
 
@@ -264,8 +270,8 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
     } catch (error) {
          toast({
             variant: 'destructive',
-            title: "Error",
-            description: `Failed to post comment.`,
+            title: tr('Error', 'خطأ'),
+            description: tr(`Failed to post comment.`, 'تعذّر نشر التعليق.'),
         });
     }
   };
@@ -289,12 +295,12 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         ) : (
         <>
             <SheetHeader>
-              <SheetTitle>{editableTask?.title || "Task Details"}</SheetTitle>
+              <SheetTitle>{editableTask?.title || tr('Task Details', 'تفاصيل المهمة')}</SheetTitle>
               <SheetDescription>
                 {project ? (
-                  <>In project <span className="font-semibold text-foreground">{project.name}</span></>
+                  <>{tr('In project', 'في المشروع')} <span className="font-semibold text-foreground">{project.name}</span></>
                 ) : (
-                  <span className="text-muted-foreground">No project</span>
+                  <span className="text-muted-foreground">{tr('No project', 'لا يوجد مشروع')}</span>
                 )}
               </SheetDescription>
             </SheetHeader>
@@ -302,7 +308,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
             <div className="space-y-6 py-4">
                 
                 <dl className="space-y-4">
-                  <DetailRow icon={Pencil} label="Title">
+                  <DetailRow icon={Pencil} label={tr('Title', 'العنوان')}>
                       <Input 
                           id="title"
                           value={editableTask.title}
@@ -310,13 +316,13 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           className="font-medium"
                       />
                   </DetailRow>
-                  <DetailRow icon={GripVertical} label="Status">
+                  <DetailRow icon={GripVertical} label={tr('Status', 'الحالة')}>
                       <Select
                           value={editableTask.status}
                           onValueChange={(value: TaskStatus) => handleFieldChange('status', value)}
                       >
                           <SelectTrigger className="w-[180px]">
-                              <SelectValue placeholder="Set status" />
+                              <SelectValue placeholder={tr('Set status', 'تحديد الحالة')} />
                           </SelectTrigger>
                           <SelectContent>
                               {taskStatuses.map(status => (
@@ -325,25 +331,25 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           </SelectContent>
                       </Select>
                   </DetailRow>
-                  <DetailRow icon={UserIcon} label="Assignees">
+                  <DetailRow icon={UserIcon} label={tr('Assignees', 'المكلّفون')}>
                       <MultiSelect
                           items={companyUsers}
                           selected={editableTask.assignedUserIds || []}
                           onChange={(selected) => handleFieldChange('assignedUserIds', selected)}
-                          placeholder="Select assignees..."
+                          placeholder={tr('Select assignees...', 'اختر المكلّفين...')}
                           className="max-w-xs"
                       />
                   </DetailRow>
-                  <DetailRow icon={UserIcon} label="Parent Task">
+                  <DetailRow icon={UserIcon} label={tr('Parent Task', 'المهمة الأصل')}>
                     <Select
                       value={editableTask.parentTaskId || 'none'}
                       onValueChange={(value) => handleFieldChange('parentTaskId', value === 'none' ? undefined : value)}
                     >
                       <SelectTrigger className="w-[240px]">
-                        <SelectValue placeholder="No parent" />
+                        <SelectValue placeholder={tr('No parent', 'لا توجد مهمة أصل')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No parent</SelectItem>
+                        <SelectItem value="none">{tr('No parent', 'لا توجد مهمة أصل')}</SelectItem>
                         {allTasks
                           .filter((t) => t.projectId === editableTask.projectId)
                           .map((t) => (
@@ -354,7 +360,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                       </SelectContent>
                     </Select>
                   </DetailRow>
-                  <DetailRow icon={CalendarIcon} label="Due Date">
+                  <DetailRow icon={CalendarIcon} label={tr('Due Date', 'تاريخ الاستحقاق')}>
                       <Popover>
                           <PopoverTrigger asChild>
                           <Button
@@ -365,7 +371,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                               )}
                           >
                               <CalendarIcon className="me-2 h-4 w-4" />
-                              {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>Pick a date</span>}
+                              {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
                           </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0">
@@ -378,13 +384,13 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           </PopoverContent>
                       </Popover>
                   </DetailRow>
-                    <DetailRow icon={Tag} label="Priority">
+                    <DetailRow icon={Tag} label={tr('Priority', 'الأولوية')}>
                         <Select
                             value={editableTask.priority}
                             onValueChange={(value: TaskPriority) => handleFieldChange('priority', value)}
                         >
                             <SelectTrigger className="w-[180px]">
-                                <SelectValue placeholder="Set priority" />
+                                <SelectValue placeholder={tr('Set priority', 'تحديد الأولوية')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {taskPriorities.map(priority => (
@@ -393,10 +399,10 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                             </SelectContent>
                         </Select>
                     </DetailRow>
-                    <DetailRow icon={GripVertical} label="Description">
+                    <DetailRow icon={GripVertical} label={tr('Description', 'الوصف')}>
                         <Textarea
                             id="description"
-                            placeholder="Add a detailed description for the task..."
+                            placeholder={tr('Add a detailed description for the task...', 'أضف وصفاً تفصيلياً للمهمة...')}
                             value={editableTask.description}
                             onChange={(e) => handleFieldChange('description', e.target.value)}
                             className="min-h-[120px]"
@@ -412,7 +418,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                       companyId={selectedCompany.id}
                       entityType="task"
                       entityId={editableTask.id}
-                      title="Task Attachments & Timeline"
+                      title={tr('Task Attachments & Timeline', 'مرفقات المهمة والجدول الزمني')}
                       compact
                     />
                     <Separator />
@@ -422,12 +428,12 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                 <div>
                     <h4 className="text-lg font-semibold mb-4 flex items-center gap-2">
                        <FileImage className="h-5 w-5" />
-                        Invoice Details
+                        {tr('Invoice Details', 'تفاصيل الفاتورة')}
                     </h4>
                     <div className="space-y-4">
                       <div className="grid grid-cols-[120px_1fr] items-start gap-4">
                         <Label className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
-                            <span>Invoice Image</span>
+                            <span>{tr('Invoice Image', 'صورة الفاتورة')}</span>
                         </Label>
                         <div className="flex flex-col gap-2">
                            <Input
@@ -439,12 +445,12 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                 className="hidden"
                             />
                             <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                                Upload Image
+                                {tr('Upload Image', 'رفع صورة')}
                             </Button>
                             {invoicePreview && (
                                 <Image
                                     src={invoicePreview}
-                                    alt="Invoice preview"
+                                    alt={tr('Invoice preview', 'معاينة الفاتورة')}
                                     width={200}
                                     height={200}
                                     className="rounded-md border object-cover aspect-square"
@@ -452,29 +458,29 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                             )}
                         </div>
                       </div>
-                      <DetailRow icon={Info} label="Vendor">
-                         <Input 
+                      <DetailRow icon={Info} label={tr('Vendor', 'المورّد')}>
+                         <Input
                             value={editableTask.invoiceVendor || ''}
                             onChange={(e) => handleFieldChange('invoiceVendor', e.target.value)}
-                            placeholder="e.g. Acme Inc."
+                            placeholder={tr('e.g. Acme Inc.', 'مثال: شركة أكمي')}
                          />
                       </DetailRow>
-                      <DetailRow icon={Info} label="Invoice Number">
-                         <Input 
+                      <DetailRow icon={Info} label={tr('Invoice Number', 'رقم الفاتورة')}>
+                         <Input
                              value={editableTask.invoiceNumber || ''}
                              onChange={(e) => handleFieldChange('invoiceNumber', e.target.value)}
-                             placeholder="e.g. INV-12345"
+                             placeholder={tr('e.g. INV-12345', 'مثال: INV-12345')}
                          />
                       </DetailRow>
-                      <DetailRow icon={Info} label="Invoice Amount">
-                         <Input 
+                      <DetailRow icon={Info} label={tr('Invoice Amount', 'مبلغ الفاتورة')}>
+                         <Input
                              type="number"
                              value={editableTask.invoiceAmount || ''}
                              onChange={(e) => handleFieldChange('invoiceAmount', parseFloat(e.target.value))}
-                             placeholder="e.g. 199.99"
+                             placeholder={tr('e.g. 199.99', 'مثال: 199.99')}
                          />
                       </DetailRow>
-                      <DetailRow icon={CalendarIcon} label="Invoice Date">
+                      <DetailRow icon={CalendarIcon} label={tr('Invoice Date', 'تاريخ الفاتورة')}>
                          <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -485,7 +491,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                     )}
                                 >
                                     <CalendarIcon className="me-2 h-4 w-4" />
-                                    {editableTask.invoiceDate ? format(editableTask.invoiceDate, 'PPP') : <span>Pick a date</span>}
+                                    {editableTask.invoiceDate ? format(editableTask.invoiceDate, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
                                 </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0">
@@ -500,20 +506,20 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                       </DetailRow>
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
                         <div className="space-y-1">
-                          <p className="font-semibold text-sm">Finance invoice</p>
+                          <p className="font-semibold text-sm">{tr('Finance invoice', 'فاتورة مالية')}</p>
                           <p className="text-sm text-muted-foreground">
                             {editableTask.generatedInvoiceId
-                              ? `Linked to invoice ${editableTask.invoiceNumber || editableTask.generatedInvoiceId}`
+                              ? tr(`Linked to invoice ${editableTask.invoiceNumber || editableTask.generatedInvoiceId}`, `مرتبطة بالفاتورة ${editableTask.invoiceNumber || editableTask.generatedInvoiceId}`)
                               : canCreateFinanceInvoice
-                                ? 'Create a finance invoice so accountants can track it without opening the task.'
-                                : 'Invoice creation is available to managers, accountants, and admins.'}
+                                ? tr('Create a finance invoice so accountants can track it without opening the task.', 'أنشئ فاتورة مالية ليتمكن المحاسبون من متابعتها دون فتح المهمة.')
+                                : tr('Invoice creation is available to managers, accountants, and admins.', 'إنشاء الفواتير متاح للمدراء والمحاسبين والمشرفين.')}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
                           {editableTask.generatedInvoiceId && (
                             <Badge variant="outline" className="gap-1">
                               <ExternalLink className="h-3 w-3" />
-                              In Finance
+                              {tr('In Finance', 'في المالية')}
                             </Badge>
                           )}
                           {canCreateFinanceInvoice && (
@@ -524,10 +530,10 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                               variant={editableTask.generatedInvoiceId ? 'secondary' : 'default'}
                             >
                               {creatingInvoice
-                                ? 'Creating...'
+                                ? tr('Creating...', 'جارٍ الإنشاء...')
                                 : editableTask.generatedInvoiceId
-                                  ? 'Refresh link'
-                                  : 'Create invoice'}
+                                  ? tr('Refresh link', 'تحديث الرابط')
+                                  : tr('Create invoice', 'إنشاء فاتورة')}
                             </Button>
                           )}
                         </div>
@@ -544,7 +550,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                 <div>
                     <h4 className="text-lg font-semibold mb-4 flex items-center gap-2">
                         <MessageSquare className="h-5 w-5" />
-                        Activity
+                        {tr('Activity', 'النشاط')}
                     </h4>
                     <div className="space-y-6">
                         {currentUser && <div className="flex items-start gap-3">
@@ -553,14 +559,14 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                 <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 space-y-2">
-                                <Textarea 
-                                    placeholder="Write a comment..." 
+                                <Textarea
+                                    placeholder={tr('Write a comment...', 'اكتب تعليقاً...')}
                                     className="text-sm"
                                     value={newComment}
                                     onChange={(e) => setNewComment(e.target.value)}
                                 />
                                 <div className="flex justify-end gap-2">
-                                    <Button size="sm" onClick={handlePostComment} disabled={!newComment.trim()}>Post Comment</Button>
+                                    <Button size="sm" onClick={handlePostComment} disabled={!newComment.trim()}>{tr('Post Comment', 'نشر التعليق')}</Button>
                                 </div>
                             </div>
                         </div>}
@@ -583,7 +589,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                     </Avatar>
                                     <div className='flex-1'>
                                         <div className="flex items-baseline gap-2">
-                                            <p className="font-semibold text-sm">{commentUser?.name || 'Unknown User'}</p>
+                                            <p className="font-semibold text-sm">{commentUser?.name || tr('Unknown User', 'مستخدم غير معروف')}</p>
                                             <p className="text-xs text-muted-foreground">
                                                 {formatDistanceToNow(comment.createdAt, { addSuffix: true })}
                                             </p>
@@ -613,12 +619,12 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
             <SheetFooter>
             <Button variant="outline" className="me-auto text-destructive hover:text-destructive" onClick={handleDeleteTask}>
                 <Trash2 className="me-2 h-4 w-4" />
-                Delete
+                {tr('Delete', 'حذف')}
             </Button>
             <SheetClose asChild>
-                <Button variant="outline">Cancel</Button>
+                <Button variant="outline">{tr('Cancel', 'إلغاء')}</Button>
             </SheetClose>
-            <Button onClick={handleSaveChanges}>Save Changes</Button>
+            <Button onClick={handleSaveChanges}>{tr('Save Changes', 'حفظ التغييرات')}</Button>
             </SheetFooter>
         </>
         )}

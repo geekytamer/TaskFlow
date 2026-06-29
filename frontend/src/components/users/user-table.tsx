@@ -1,3 +1,5 @@
+'use client';
+
 import {
   Table,
   TableBody,
@@ -19,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { MoreHorizontal } from 'lucide-react';
 import { placeholderUsers } from '@/lib/placeholder-data';
 import type { UserRole } from '@/lib/types';
+import { useI18n } from '@/context/i18n-context';
 
 const roleColors: Record<UserRole, string> = {
     Admin: 'bg-primary text-primary-foreground',
@@ -27,6 +30,8 @@ const roleColors: Record<UserRole, string> = {
 }
 
 export function UserTable() {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const users = placeholderUsers.filter((u) => u.companyId === '1'); // Mock company filter
 
   return (
@@ -34,9 +39,9 @@ export function UserTable() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>User</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead className="text-end">Actions</TableHead>
+            <TableHead>{tr('User', 'المستخدم')}</TableHead>
+            <TableHead>{tr('Role', 'الدور')}</TableHead>
+            <TableHead className="text-end">{tr('Actions', 'الإجراءات')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -63,15 +68,15 @@ export function UserTable() {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="h-8 w-8 p-0">
-                      <span className="sr-only">Open menu</span>
+                      <span className="sr-only">{tr('Open menu', 'فتح القائمة')}</span>
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                    <DropdownMenuItem>Edit User</DropdownMenuItem>
+                    <DropdownMenuLabel>{tr('Actions', 'الإجراءات')}</DropdownMenuLabel>
+                    <DropdownMenuItem>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
                     <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                      Delete User
+                      {tr('Delete User', 'حذف المستخدم')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

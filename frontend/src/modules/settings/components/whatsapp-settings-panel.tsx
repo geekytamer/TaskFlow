@@ -41,7 +41,8 @@ const stateBadgeStyles: Record<WhatsAppInstanceState, string> = {
 
 export function WhatsappSettingsPanel() {
   const { selectedCompany } = useCompany();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const [instance, setInstance] = React.useState<WhatsAppInstance | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -58,7 +59,9 @@ export function WhatsappSettingsPanel() {
     displayName: '',
   });
   const [testPhone, setTestPhone] = React.useState('');
-  const [testMessage, setTestMessage] = React.useState('Hello from TaskFlow 👋');
+  const [testMessage, setTestMessage] = React.useState(
+    language === 'ar' ? 'مرحباً من TaskFlow 👋' : 'Hello from TaskFlow 👋',
+  );
   const [testSending, setTestSending] = React.useState(false);
 
   const companyId = selectedCompany?.id;
@@ -398,7 +401,7 @@ export function WhatsappSettingsPanel() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={`data:image/png;base64,${qr}`}
-                  alt="WhatsApp QR"
+                  alt={tr('WhatsApp QR', 'رمز QR للواتساب')}
                   className="h-56 w-56"
                 />
               ) : (

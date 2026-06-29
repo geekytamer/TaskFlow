@@ -13,9 +13,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { placeholderUsers } from '@/lib/placeholder-data';
+import { useI18n } from '@/context/i18n-context';
 
 export function UserNav() {
   const router = useRouter();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const user = placeholderUsers[0]; // Mocking the current user
 
   const handleLogout = () => {
@@ -54,11 +57,11 @@ export function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>Profile</DropdownMenuItem>
-          <DropdownMenuItem>Settings</DropdownMenuItem>
+          <DropdownMenuItem>{tr('Profile', 'الملف الشخصي')}</DropdownMenuItem>
+          <DropdownMenuItem>{tr('Settings', 'الإعدادات')}</DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleLogout}>Log out</DropdownMenuItem>
+        <DropdownMenuItem onClick={handleLogout}>{tr('Log out', 'تسجيل الخروج')}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

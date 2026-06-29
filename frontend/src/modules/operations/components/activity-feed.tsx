@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { getActivityEvents } from '@/services/financeService';
 import type { ActivityEvent } from '@/modules/finance/types';
 
@@ -17,13 +18,17 @@ type ActivityFeedProps = {
 };
 
 export function ActivityFeed({
-  title = 'Recent Activity',
+  title,
   entityType,
   entityId,
   limit = 8,
-  emptyMessage = 'No activity recorded yet.',
+  emptyMessage,
 }: ActivityFeedProps) {
   const { selectedCompany } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const resolvedTitle = title ?? tr('Recent Activity', 'النشاط الأخير');
+  const resolvedEmptyMessage = emptyMessage ?? tr('No activity recorded yet.', 'لا يوجد نشاط مسجل بعد.');
   const [events, setEvents] = React.useState<ActivityEvent[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -60,7 +65,7 @@ export function ActivityFeed({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle>{resolvedTitle}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
@@ -73,7 +78,7 @@ export function ActivityFeed({
             ))}
           {!loading && events.length === 0 && (
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              {emptyMessage}
+              {resolvedEmptyMessage}
             </div>
           )}
           {!loading &&
@@ -81,7 +86,7 @@ export function ActivityFeed({
               <div key={event.id} className="rounded-lg border p-3">
                 <div className="font-medium">{event.summary}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {(event.actorName || 'System')} • {event.entityType.replace('_', ' ')} • {formatDistanceToNow(event.createdAt, { addSuffix: true })}
+                  {(event.actorName || tr('System', 'النظام'))} • {event.entityType.replace('_', ' ')} • {formatDistanceToNow(event.createdAt, { addSuffix: true })}
                 </div>
               </div>
             ))}

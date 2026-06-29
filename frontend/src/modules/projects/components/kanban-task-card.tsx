@@ -10,6 +10,13 @@ import { getUsersByCompany } from '@/services/userService';
 import type { User } from '@/modules/users/types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
+
+const priorityLabels: Record<Task['priority'], { en: string; ar: string }> = {
+  High: { en: 'High', ar: 'عالية' },
+  Medium: { en: 'Medium', ar: 'متوسطة' },
+  Low: { en: 'Low', ar: 'منخفضة' },
+};
 
 const priorityColors: Record<Task['priority'], string> = {
   High: 'bg-red-500',
@@ -24,6 +31,8 @@ interface KanbanTaskCardProps {
 export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
     const [users, setUsers] = React.useState<User[]>([]);
     const { selectedCompany, currentUser, currentRole } = useCompany();
+    const { language } = useI18n();
+    const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
     React.useEffect(() => {
         async function loadUsers() {
@@ -63,7 +72,7 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                                 <div className={`h-3 w-3 rounded-full ${priorityColors[task.priority]}`} />
                             </TooltipTrigger>
                             <TooltipContent>
-                                <p>{task.priority} priority</p>
+                                <p>{tr(`${priorityLabels[task.priority].en} priority`, `أولوية ${priorityLabels[task.priority].ar}`)}</p>
                             </TooltipContent>
                         </Tooltip>
                      </TooltipProvider>
@@ -77,7 +86,7 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                 </div>
                 <div className="flex justify-between items-center">
                     <p className="text-xs text-muted-foreground">
-                        {task.dueDate ? `Due: ${new Date(task.dueDate).toLocaleDateString(getCurrentLocale())}` : ''}
+                        {task.dueDate ? tr(`Due: ${new Date(task.dueDate).toLocaleDateString(getCurrentLocale())}`, `الاستحقاق: ${new Date(task.dueDate).toLocaleDateString(getCurrentLocale())}`) : ''}
                     </p>
                     <div className="flex -space-x-2 rtl:space-x-reverse">
                         {users.map(user => (

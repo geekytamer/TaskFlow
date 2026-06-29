@@ -864,7 +864,7 @@ export function InventoryPage() {
                     <TableCell className="text-end">{amount(item.unitCost)}</TableCell>
                     <TableCell>
                       {item.preferredSupplierId
-                        ? supplierNameMap.get(item.preferredSupplierId) || item.preferredVendor || 'Unassigned'
+                        ? supplierNameMap.get(item.preferredSupplierId) || item.preferredVendor || tr('Unassigned', 'غير محدد')
                         : item.preferredVendor || tr('Unassigned', 'غير محدد')}
                     </TableCell>
                     <TableCell>
@@ -1342,6 +1342,8 @@ function WarehouseSelect({
   emptyLabel?: string;
 }) {
   const NONE = '__none__';
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   return (
     <Select
       value={value ? value : allowNone ? NONE : undefined}
@@ -1353,7 +1355,7 @@ function WarehouseSelect({
       <SelectContent>
         {allowNone ? <SelectItem value={NONE}>{noneLabel ?? '—'}</SelectItem> : null}
         {options.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel ?? 'No warehouses'}</div>
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel ?? tr('No warehouses', 'لا توجد مستودعات')}</div>
         ) : (
           options.map((option) => (
             <SelectItem key={option} value={option}>

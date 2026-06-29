@@ -81,6 +81,7 @@ export function InvoiceTable() {
   const { toast } = useToast();
   const confirm = useConfirm();
   const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
   const canManageFinance = effectiveRole !== 'Employee';
@@ -128,14 +129,14 @@ export function InvoiceTable() {
   }, [fetchData]);
 
   const getClientName = (clientId: string, contactId?: string) => {
-    return clients.find(c => c.id === clientId || c.id === contactId)?.name || 'N/A';
+    return clients.find(c => c.id === clientId || c.id === contactId)?.name || tr('N/A', 'غير متاح');
   };
 
   const getTaskTitle = (taskId?: string) =>
     taskId ? tasks.find((task) => task.id === taskId)?.title || taskId : undefined;
 
   const getTemplateName = (templateId?: string) =>
-    templateId ? templates.find((template) => template.id === templateId)?.name || 'Custom' : 'Default';
+    templateId ? templates.find((template) => template.id === templateId)?.name || tr('Custom', 'مخصص') : tr('Default', 'افتراضي');
 
   const getTemplate = (templateId?: string) =>
     (templateId ? templates.find((template) => template.id === templateId) : undefined)

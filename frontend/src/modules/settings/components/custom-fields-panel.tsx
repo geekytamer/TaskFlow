@@ -167,7 +167,7 @@ export function CustomFieldsPanel() {
               <Input
                 value={options}
                 onChange={(e) => setOptions(e.target.value)}
-                placeholder="Gold, Silver, Bronze"
+                placeholder={tr('Gold, Silver, Bronze', 'ذهبي، فضي، برونزي')}
                 disabled={fieldType !== 'select'}
               />
             </div>

@@ -51,7 +51,8 @@ interface CreateInvoiceSheetProps {
 export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCreated }: CreateInvoiceSheetProps) {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { currencyCode, amount } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
@@ -102,8 +103,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         setSalesOrders([]);
         toast({
           variant: 'destructive',
-          title: 'Clients unavailable',
-          description: error?.message || 'Could not load clients.',
+          title: tr('Clients unavailable', 'العملاء غير متاحين'),
+          description: error?.message || tr('Could not load clients.', 'تعذر تحميل العملاء.'),
         });
       } finally {
         setLoading(false);
@@ -128,8 +129,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
               setSelectedTaskIds([]);
               toast({
                 variant: 'destructive',
-                title: 'Billable tasks unavailable',
-                description: error?.message || 'Could not load billable tasks.',
+                title: tr('Billable tasks unavailable', 'المهام القابلة للفوترة غير متاحة'),
+                description: error?.message || tr('Could not load billable tasks.', 'تعذر تحميل المهام القابلة للفوترة.'),
               });
             } finally {
               setLoadingTasks(false);
@@ -213,8 +214,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     if (!description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) {
       toast({
         variant: 'destructive',
-        title: 'Invalid manual line',
-        description: 'Description, quantity, and unit price are required.',
+        title: tr('Invalid manual line', 'بند يدوي غير صالح'),
+        description: tr('Description, quantity, and unit price are required.', 'الوصف والكمية وسعر الوحدة مطلوبة.'),
       });
       return;
     }
@@ -288,8 +289,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     if (!selectedCompany || !selectedClient || selectedLineItems.length === 0) {
       toast({
         variant: 'destructive',
-        title: 'Validation Error',
-        description: 'Please select a client and at least one billable item.',
+        title: tr('Validation Error', 'خطأ في التحقق'),
+        description: tr('Please select a client and at least one billable item.', 'يرجى اختيار عميل وبند واحد قابل للفوترة على الأقل.'),
       });
       return;
     }
@@ -323,8 +324,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     } catch (error: any) {
        toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error?.message || 'Failed to create invoice.',
+        title: tr('Error', 'خطأ'),
+        description: error?.message || tr('Failed to create invoice.', 'تعذر إنشاء الفاتورة.'),
       });
     }
   };
@@ -356,8 +357,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       <SheetTrigger asChild>{children}</SheetTrigger>
       <SheetContent className="w-full max-w-3xl sm:max-w-3xl flex flex-col">
         <SheetHeader>
-          <SheetTitle>Create New Invoice</SheetTitle>
-          <SheetDescription>Select a client to find billable tasks and generate an invoice.</SheetDescription>
+          <SheetTitle>{tr('Create New Invoice', 'إنشاء فاتورة جديدة')}</SheetTitle>
+          <SheetDescription>{tr('Select a client to find billable tasks and generate an invoice.', 'اختر عميلاً للعثور على المهام القابلة للفوترة وإنشاء فاتورة.')}</SheetDescription>
         </SheetHeader>
         <div className="flex-1 flex flex-col gap-4 py-4 overflow-y-auto">
             <div className="pe-6" data-tutorial="invoice-form-client">
@@ -392,19 +393,19 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
             </div>
 
             <div className="pe-6" data-tutorial="invoice-form-template">
-                <Label>Invoice Template</Label>
+                <Label>{tr('Invoice Template', 'قالب الفاتورة')}</Label>
                 <Select
                   onValueChange={setSelectedTemplateId}
                   value={selectedTemplateId}
                   disabled={loading || templates.length === 0}
                 >
                     <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Select a template..." />
+                        <SelectValue placeholder={tr('Select a template...', 'اختر قالباً...')} />
                     </SelectTrigger>
                     <SelectContent>
                         {templates.map((template) => (
                             <SelectItem key={template.id} value={template.id}>
-                                {template.name}{template.isDefault ? ' (Default)' : ''}
+                                {template.name}{template.isDefault ? tr(' (Default)', ' (افتراضي)') : ''}
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -413,15 +414,15 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
 
             <div className="grid gap-3 pe-6 md:grid-cols-4" data-tutorial="invoice-form-task-filter">
               <div className="md:col-span-2 space-y-1">
-                <Label>Search</Label>
+                <Label>{tr('Search', 'بحث')}</Label>
                 <Input
-                  placeholder="Search title, vendor, invoice #"
+                  placeholder={tr('Search title, vendor, invoice #', 'ابحث بالعنوان أو المورّد أو رقم الفاتورة')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Min Amount</Label>
+                <Label>{tr('Min Amount', 'الحد الأدنى للمبلغ')}</Label>
                 <Input
                   type="number"
                   placeholder="0"
@@ -430,54 +431,54 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <Label>Status</Label>
+                <Label>{tr('Status', 'الحالة')}</Label>
                 <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="Done">Done</SelectItem>
-                    <SelectItem value="In Progress">In Progress</SelectItem>
-                    <SelectItem value="To Do">To Do</SelectItem>
+                    <SelectItem value="all">{tr('All', 'الكل')}</SelectItem>
+                    <SelectItem value="Done">{tr('Done', 'منجز')}</SelectItem>
+                    <SelectItem value="In Progress">{tr('In Progress', 'قيد التنفيذ')}</SelectItem>
+                    <SelectItem value="To Do">{tr('To Do', 'قيد الانتظار')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex flex-col gap-1">
-                <Label>Sort By</Label>
+                <Label>{tr('Sort By', 'الترتيب حسب')}</Label>
                 <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="date">Date</SelectItem>
-                    <SelectItem value="amount">Amount</SelectItem>
+                    <SelectItem value="date">{tr('Date', 'التاريخ')}</SelectItem>
+                    <SelectItem value="amount">{tr('Amount', 'المبلغ')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="rounded-lg border p-4 pe-6 space-y-3" data-tutorial="invoice-form-manual-line">
-              <p className="text-sm font-semibold">Add Manual Item</p>
+              <p className="text-sm font-semibold">{tr('Add Manual Item', 'إضافة بند يدوي')}</p>
               <div className="grid gap-3 md:grid-cols-6">
                 <div className="md:col-span-2 space-y-1">
-                  <Label>Description</Label>
+                  <Label>{tr('Description', 'الوصف')}</Label>
                   <Input
-                    placeholder="Service or product description"
+                    placeholder={tr('Service or product description', 'وصف الخدمة أو المنتج')}
                     value={manualDescription}
                     onChange={(e) => setManualDescription(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>SKU / Ref</Label>
+                  <Label>{tr('SKU / Ref', 'رمز / مرجع')}</Label>
                   <Input
-                    placeholder="Optional"
+                    placeholder={tr('Optional', 'اختياري')}
                     value={manualSku}
                     onChange={(e) => setManualSku(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Qty</Label>
+                  <Label>{tr('Qty', 'الكمية')}</Label>
                   <Input
                     type="number"
                     value={manualQuantity}
@@ -485,7 +486,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Unit Price</Label>
+                  <Label>{tr('Unit Price', 'سعر الوحدة')}</Label>
                   <Input
                     type="number"
                     value={manualUnitPrice}
@@ -493,7 +494,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Discount</Label>
+                  <Label>{tr('Discount', 'الخصم')}</Label>
                   <div className="flex items-center gap-1">
                     <Input
                       type="number"
@@ -504,7 +505,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                       <SelectTrigger className="w-16 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="percent">%</SelectItem>
-                        <SelectItem value="amount">Fixed</SelectItem>
+                        <SelectItem value="amount">{tr('Fixed', 'ثابت')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -514,7 +515,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 <div className="grid gap-3 md:grid-cols-3">
                   {customColumns.map((col) => (
                     <div key={col.id} className="space-y-1">
-                      <Label>{col.label || 'Custom'}</Label>
+                      <Label>{col.label || tr('Custom', 'مخصص')}</Label>
                       <Input
                         placeholder={col.label}
                         value={manualCustom[col.id] ?? ''}
@@ -526,7 +527,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
               )}
               <div className="flex justify-end">
                 <Button type="button" variant="outline" onClick={addManualLine}>
-                  Add Manual Line
+                  {tr('Add Manual Line', 'إضافة بند يدوي')}
                 </Button>
               </div>
             </div>
@@ -545,14 +546,14 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                                     }
                                 }}
                             /></TableHead>
-                            <TableHead>Task / Vendor Invoice</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead className="text-end">Amount</TableHead>
+                            <TableHead>{tr('Task / Vendor Invoice', 'المهمة / فاتورة المورّد')}</TableHead>
+                            <TableHead>{tr('Date', 'التاريخ')}</TableHead>
+                            <TableHead className="text-end">{tr('Amount', 'المبلغ')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loadingTasks ? (
-                             <TableRow><TableCell colSpan={4} className="text-center">Loading tasks...</TableCell></TableRow>
+                             <TableRow><TableCell colSpan={4} className="text-center">{tr('Loading tasks...', 'جارٍ تحميل المهام...')}</TableCell></TableRow>
                         ) : filteredTasks.length > 0 ? (
                             filteredTasks.map(task => (
                                 <TableRow key={task.id} onClick={() => handleSelectTask(task.id)} className="cursor-pointer">
@@ -561,12 +562,12 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                                         <p className="font-medium">{task.title}</p>
                                         <p className="text-sm text-muted-foreground">{task.invoiceVendor} - #{task.invoiceNumber}</p>
                                     </TableCell>
-                                    <TableCell>{task.invoiceDate ? format(task.invoiceDate, 'MMM d, yyyy') : 'N/A'}</TableCell>
+                                    <TableCell>{task.invoiceDate ? format(task.invoiceDate, 'MMM d, yyyy') : tr('N/A', 'غير متاح')}</TableCell>
                                     <TableCell className="text-end">{amount(task.invoiceAmount || 0)}</TableCell>
                                 </TableRow>
                             ))
                         ) : (
-                             <TableRow><TableCell colSpan={4} className="text-center h-24">{selectedClient ? 'No billable tasks found for this client.' : 'Please select a client.'}</TableCell></TableRow>
+                             <TableRow><TableCell colSpan={4} className="text-center h-24">{selectedClient ? tr('No billable tasks found for this client.', 'لا توجد مهام قابلة للفوترة لهذا العميل.') : tr('Please select a client.', 'يرجى اختيار عميل.')}</TableCell></TableRow>
                         )}
                     </TableBody>
                 </Table>
@@ -577,15 +578,15 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Manual Item</TableHead>
-                          <TableHead>SKU</TableHead>
+                          <TableHead>{tr('Manual Item', 'بند يدوي')}</TableHead>
+                          <TableHead>{tr('SKU', 'الرمز')}</TableHead>
                           {customColumns.map((col) => (
-                            <TableHead key={col.id}>{col.label || 'Custom'}</TableHead>
+                            <TableHead key={col.id}>{col.label || tr('Custom', 'مخصص')}</TableHead>
                           ))}
-                          <TableHead className="text-end">Qty</TableHead>
-                          <TableHead className="text-end">Unit Price</TableHead>
-                          <TableHead className="text-end">Amount</TableHead>
-                          <TableHead className="text-end">Remove</TableHead>
+                          <TableHead className="text-end">{tr('Qty', 'الكمية')}</TableHead>
+                          <TableHead className="text-end">{tr('Unit Price', 'سعر الوحدة')}</TableHead>
+                          <TableHead className="text-end">{tr('Amount', 'المبلغ')}</TableHead>
+                          <TableHead className="text-end">{tr('Remove', 'إزالة')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -613,7 +614,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                                 size="sm"
                                 onClick={() => removeManualLine(index)}
                               >
-                                Remove
+                                {tr('Remove', 'إزالة')}
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -623,16 +624,16 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                   </div>
                 )}
                 <div className="flex justify-end items-center gap-4 p-4 bg-muted/50 rounded-lg" data-tutorial="invoice-form-total">
-                    <p className="font-semibold">Invoice Total:</p>
+                    <p className="font-semibold">{tr('Invoice Total:', 'إجمالي الفاتورة:')}</p>
                     <p className="text-2xl font-bold">{amount(invoiceTotal)}</p>
                 </div>
             </div>
         </div>
 
         <SheetFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{tr('Cancel', 'إلغاء')}</Button>
           <Button onClick={handleCreateInvoice} disabled={selectedLineItems.length === 0} data-tutorial="invoice-form-submit">
-            Create Draft Invoice
+            {tr('Create Draft Invoice', 'إنشاء مسودة فاتورة')}
           </Button>
         </SheetFooter>
       </SheetContent>

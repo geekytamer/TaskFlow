@@ -56,6 +56,7 @@ import type {
 } from '@/modules/operations/types';
 import { PackageCheck, ShoppingCart, Trash2 } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { useI18n } from '@/context/i18n-context';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
   Draft: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -104,6 +105,8 @@ export function PurchasesPage() {
   const { toast } = useToast();
   const confirm = useConfirm();
   const { money, amount } = useCompanyCurrency();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
   const [suppliers, setSuppliers] = React.useState<Contact[]>([]);
@@ -149,8 +152,8 @@ export function PurchasesPage() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Purchases unavailable',
-        description: error?.message || 'Could not load purchase orders.',
+        title: tr('Purchases unavailable', 'المشتريات غير متاحة'),
+        description: error?.message || tr('Could not load purchase orders.', 'تعذّر تحميل أوامر الشراء.'),
       });
     } finally {
       setLoading(false);
@@ -248,6 +251,15 @@ export function PurchasesPage() {
     return map;
   }, [orders, receiptTotalsByOrder]);
 
+  const statusLabel = (status: PurchaseOrderStatus) =>
+    tr(status, ({
+      'Draft': 'مسودة',
+      'Ordered': 'تم الطلب',
+      'Partially Received': 'مستلَم جزئيًا',
+      'Received': 'مستلَم',
+      'Cancelled': 'ملغى',
+    } as Record<PurchaseOrderStatus, string>)[status]);
+
   const resetForm = () => setForm(emptyPurchaseForm());
 
   const updateItemRow = (index: number, updates: Partial<PurchaseItemForm>) => {
@@ -301,8 +313,8 @@ export function PurchasesPage() {
     if (!form.contactId || !form.orderDate) {
       toast({
         variant: 'destructive',
-        title: 'Missing required fields',
-        description: 'Supplier and order date are required.',
+        title: tr('Missing required fields', 'حقول مطلوبة ناقصة'),
+        description: tr('Supplier and order date are required.', 'المورّد وتاريخ الطلب مطلوبان.'),
       });
       return;
     }
@@ -330,8 +342,8 @@ export function PurchasesPage() {
     if (!preparedItems.length) {
       toast({
         variant: 'destructive',
-        title: 'Line items required',
-        description: 'Select at least one inventory item for this purchase order.',
+        title: tr('Line items required', 'بنود مطلوبة'),
+        description: tr('Select at least one inventory item for this purchase order.', 'اختر صنف مخزون واحدًا على الأقل لأمر الشراء هذا.'),
       });
       return;
     }
@@ -349,12 +361,12 @@ export function PurchasesPage() {
       setOpenCreate(false);
       resetForm();
       await load();
-      toast({ title: 'Purchase order created' });
+      toast({ title: tr('Purchase order created', 'تم إنشاء أمر الشراء') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Create failed',
-        description: error?.message || 'Could not create purchase order.',
+        title: tr('Create failed', 'فشل الإنشاء'),
+        description: error?.message || tr('Could not create purchase order.', 'تعذّر إنشاء أمر الشراء.'),
       });
     }
   };
@@ -364,14 +376,14 @@ export function PurchasesPage() {
       await updatePurchaseOrderStatus(orderId, status);
       await load();
       toast({
-        title: 'Purchase order updated',
-        description: `Order moved to ${status}.`,
+        title: tr('Purchase order updated', 'تم تحديث أمر الشراء'),
+        description: tr(`Order moved to ${status}.`, `تم نقل الطلب إلى ${statusLabel(status)}.`),
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Update failed',
-        description: error?.message || 'Could not update purchase order status.',
+        title: tr('Update failed', 'فشل التحديث'),
+        description: error?.message || tr('Could not update purchase order status.', 'تعذّر تحديث حالة أمر الشراء.'),
       });
     }
   };
@@ -380,27 +392,27 @@ export function PurchasesPage() {
     try {
       await approvePurchaseOrder(orderId);
       await load();
-      toast({ title: 'Purchase order approved' });
+      toast({ title: tr('Purchase order approved', 'تمت الموافقة على أمر الشراء') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Approval failed',
-        description: error?.message || 'Could not approve purchase order.',
+        title: tr('Approval failed', 'فشلت الموافقة'),
+        description: error?.message || tr('Could not approve purchase order.', 'تعذّرت الموافقة على أمر الشراء.'),
       });
     }
   };
 
   const handleReject = async (orderId: string) => {
-    const reason = window.prompt('Reason for rejecting this purchase order (optional):') ?? undefined;
+    const reason = window.prompt(tr('Reason for rejecting this purchase order (optional):', 'سبب رفض أمر الشراء هذا (اختياري):')) ?? undefined;
     try {
       await rejectPurchaseOrder(orderId, reason);
       await load();
-      toast({ title: 'Purchase order rejected' });
+      toast({ title: tr('Purchase order rejected', 'تم رفض أمر الشراء') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Rejection failed',
-        description: error?.message || 'Could not reject purchase order.',
+        title: tr('Rejection failed', 'فشل الرفض'),
+        description: error?.message || tr('Could not reject purchase order.', 'تعذّر رفض أمر الشراء.'),
       });
     }
   };
@@ -442,8 +454,8 @@ export function PurchasesPage() {
     if (!receiptItems.length) {
       toast({
         variant: 'destructive',
-        title: 'Receipt quantities required',
-        description: 'Enter at least one positive quantity to receive.',
+        title: tr('Receipt quantities required', 'كميات الاستلام مطلوبة'),
+        description: tr('Enter at least one positive quantity to receive.', 'أدخل كمية موجبة واحدة على الأقل للاستلام.'),
       });
       return;
     }
@@ -455,12 +467,12 @@ export function PurchasesPage() {
       });
       setReceiptState({ open: false, notes: '', quantities: {}, lots: {} });
       await load();
-      toast({ title: 'Receipt recorded' });
+      toast({ title: tr('Receipt recorded', 'تم تسجيل الاستلام') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Receipt failed',
-        description: error?.message || 'Could not receive this purchase order.',
+        title: tr('Receipt failed', 'فشل الاستلام'),
+        description: error?.message || tr('Could not receive this purchase order.', 'تعذّر استلام أمر الشراء هذا.'),
       });
     }
   };
@@ -468,12 +480,12 @@ export function PurchasesPage() {
   if (!selectedCompany) {
     return (
       <SectionPageShell
-        title="Purchases"
-        description="Manage procurement orders, receiving, and supplier-linked billable exposure."
+        title={tr('Purchases', 'المشتريات')}
+        description={tr('Manage procurement orders, receiving, and supplier-linked billable exposure.', 'إدارة أوامر التوريد والاستلام والمبالغ القابلة للفوترة المرتبطة بالموردين.')}
       >
         <SectionEmptyState
-          title="Choose a company to continue"
-          description="Purchase orders are company-specific. Switch into a company first to create orders, receive stock, and track unbilled PO value."
+          title={tr('Choose a company to continue', 'اختر شركة للمتابعة')}
+          description={tr('Purchase orders are company-specific. Switch into a company first to create orders, receive stock, and track unbilled PO value.', 'أوامر الشراء خاصة بكل شركة. انتقل إلى شركة أولًا لإنشاء الأوامر واستلام المخزون وتتبّع قيمة أوامر الشراء غير المفوترة.')}
         />
       </SectionPageShell>
     );
@@ -481,13 +493,13 @@ export function PurchasesPage() {
 
   return (
     <SectionPageShell
-      title="Purchases"
-      description="Manage procurement orders and receive stock directly into inventory."
+      title={tr('Purchases', 'المشتريات')}
+      description={tr('Manage procurement orders and receive stock directly into inventory.', 'إدارة أوامر التوريد واستلام المخزون مباشرةً في المستودع.')}
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="purchases-metrics">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Open Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Open Orders', 'الأوامر المفتوحة')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.openOrders}</div>
@@ -495,7 +507,7 @@ export function PurchasesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Ordered Spend</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Ordered Spend', 'قيمة الطلبات')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{amount(stats.orderedSpend)}</div>
@@ -503,7 +515,7 @@ export function PurchasesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Awaiting Receipt</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Awaiting Receipt', 'بانتظار الاستلام')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">{stats.awaitingReceiptUnits}</div>
@@ -511,7 +523,7 @@ export function PurchasesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Received This Month</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Received This Month', 'المستلَم هذا الشهر')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600">{stats.receivedThisMonth}</div>
@@ -519,7 +531,7 @@ export function PurchasesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Unbilled PO Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{tr('Unbilled PO Value', 'قيمة أوامر الشراء غير المفوترة')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{amount(stats.unbilledValue)}</div>
@@ -533,7 +545,7 @@ export function PurchasesPage() {
             data-tutorial="purchases-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by order number, supplier, note, or item"
+            placeholder={tr('Search by order number, supplier, note, or item', 'البحث برقم الأمر أو المورّد أو الملاحظة أو الصنف')}
             className="max-w-md"
           />
         )}
@@ -546,16 +558,16 @@ export function PurchasesPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="Draft">Draft</SelectItem>
-              <SelectItem value="Ordered">Ordered</SelectItem>
-              <SelectItem value="Partially Received">Partially Received</SelectItem>
-              <SelectItem value="Received">Received</SelectItem>
-              <SelectItem value="Cancelled">Cancelled</SelectItem>
+              <SelectItem value="all">{tr('All statuses', 'جميع الحالات')}</SelectItem>
+              <SelectItem value="Draft">{tr('Draft', 'مسودة')}</SelectItem>
+              <SelectItem value="Ordered">{tr('Ordered', 'تم الطلب')}</SelectItem>
+              <SelectItem value="Partially Received">{tr('Partially Received', 'مستلَم جزئيًا')}</SelectItem>
+              <SelectItem value="Received">{tr('Received', 'مستلَم')}</SelectItem>
+              <SelectItem value="Cancelled">{tr('Cancelled', 'ملغى')}</SelectItem>
             </SelectContent>
           </Select>
         )}
-        summary={`Showing ${filteredOrders.length} of ${orders.length} orders`}
+        summary={tr(`Showing ${filteredOrders.length} of ${orders.length} orders`, `عرض ${filteredOrders.length} من ${orders.length} أمرًا`)}
         actions={(
           <Dialog
           open={openCreate}
@@ -567,35 +579,35 @@ export function PurchasesPage() {
           <DialogTrigger asChild>
             <Button disabled={!items.length} data-tutorial="purchases-create-btn">
               <ShoppingCart className="me-2 h-4 w-4" />
-              New Purchase Order
+              {tr('New Purchase Order', 'أمر شراء جديد')}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
-              <DialogTitle>Create Purchase Order</DialogTitle>
+              <DialogTitle>{tr('Create Purchase Order', 'إنشاء أمر شراء')}</DialogTitle>
               <DialogDescription>
-                Build a purchase order from inventory items and receive stock when the shipment arrives.
+                {tr('Build a purchase order from inventory items and receive stock when the shipment arrives.', 'أنشئ أمر شراء من أصناف المخزون واستلم البضاعة عند وصول الشحنة.')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-2 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>Order Number</Label>
+                <Label>{tr('Order Number', 'رقم الأمر')}</Label>
                 <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
-                  Auto-generated when saved
+                  {tr('Auto-generated when saved', 'يُنشأ تلقائيًا عند الحفظ')}
                 </div>
               </div>
                 <div className="space-y-1">
-                  <Label>Supplier</Label>
+                  <Label>{tr('Supplier', 'المورّد')}</Label>
                   <Combobox
                     options={suppliers.map((c: Contact) => ({ value: c.id, label: c.name }))}
                     value={form.contactId}
                     onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
-                    placeholder="Select supplier"
-                    searchPlaceholder="Select supplier"
+                    placeholder={tr('Select supplier', 'اختر المورّد')}
+                    searchPlaceholder={tr('Select supplier', 'اختر المورّد')}
                   />
                 </div>
               <div className="space-y-1">
-                <Label>Order Date</Label>
+                <Label>{tr('Order Date', 'تاريخ الطلب')}</Label>
                 <Input
                   type="date"
                   value={form.orderDate}
@@ -605,7 +617,7 @@ export function PurchasesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Expected Date</Label>
+                <Label>{tr('Expected Date', 'التاريخ المتوقع')}</Label>
                 <Input
                   type="date"
                   value={form.expectedDate}
@@ -615,7 +627,7 @@ export function PurchasesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Initial Status</Label>
+                <Label>{tr('Initial Status', 'الحالة الأولية')}</Label>
                 <Select
                   value={form.status}
                   onValueChange={(value) =>
@@ -626,40 +638,40 @@ export function PurchasesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Draft">Draft</SelectItem>
-                    <SelectItem value="Ordered">Ordered</SelectItem>
-                    <SelectItem value="Received">Received</SelectItem>
-                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                    <SelectItem value="Draft">{tr('Draft', 'مسودة')}</SelectItem>
+                    <SelectItem value="Ordered">{tr('Ordered', 'تم الطلب')}</SelectItem>
+                    <SelectItem value="Received">{tr('Received', 'مستلَم')}</SelectItem>
+                    <SelectItem value="Cancelled">{tr('Cancelled', 'ملغى')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>Estimated Total</Label>
+                <Label>{tr('Estimated Total', 'الإجمالي التقديري')}</Label>
                 <div className="flex h-10 items-center rounded-md border px-3 text-sm">
                   {amount(estimatedTotal)}
                 </div>
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <Label>Notes</Label>
+                <Label>{tr('Notes', 'ملاحظات')}</Label>
                 <Textarea
                   value={form.notes}
                   onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-                  placeholder="Optional purchasing notes"
+                  placeholder={tr('Optional purchasing notes', 'ملاحظات شراء اختيارية')}
                 />
               </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Line Items</Label>
+                <Label>{tr('Line Items', 'البنود')}</Label>
                 <Button type="button" variant="outline" size="sm" onClick={addItemRow}>
-                  Add Line
+                  {tr('Add Line', 'إضافة بند')}
                 </Button>
               </div>
               {form.items.map((item, index) => (
                 <div key={index} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
                   <div className="space-y-1">
-                    <Label>Inventory Item</Label>
+                    <Label>{tr('Inventory Item', 'صنف المخزون')}</Label>
                     <Select
                       value={item.inventoryItemId}
                       onValueChange={(value) => {
@@ -677,19 +689,19 @@ export function PurchasesPage() {
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select item" />
+                        <SelectValue placeholder={tr('Select item', 'اختر صنفًا')} />
                       </SelectTrigger>
                       <SelectContent>
                         {items.map((inventoryItem) => (
                           <SelectItem key={inventoryItem.id} value={inventoryItem.id}>
-                            {inventoryItem.sku}-{inventoryItem.name}-{inventoryItem.barcode || 'No Barcode'}
+                            {inventoryItem.sku}-{inventoryItem.name}-{inventoryItem.barcode || tr('No Barcode', 'بدون باركود')}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label>Quantity</Label>
+                    <Label>{tr('Quantity', 'الكمية')}</Label>
                     <Input
                       type="number"
                       min="1"
@@ -698,7 +710,7 @@ export function PurchasesPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Unit Cost</Label>
+                    <Label>{tr('Unit Cost', 'تكلفة الوحدة')}</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -717,7 +729,7 @@ export function PurchasesPage() {
                       onClick={() => removeItemRow(index)}
                       disabled={form.items.length === 1}
                     >
-                      Remove
+                      {tr('Remove', 'إزالة')}
                     </Button>
                   </div>
                 </div>
@@ -726,9 +738,9 @@ export function PurchasesPage() {
 
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>
-                Cancel
+                {tr('Cancel', 'إلغاء')}
               </Button>
-            <Button onClick={handleCreate}>Create Order</Button>
+            <Button onClick={handleCreate}>{tr('Create Order', 'إنشاء الأمر')}</Button>
           </DialogFooter>
         </DialogContent>
           </Dialog>
@@ -743,10 +755,9 @@ export function PurchasesPage() {
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Receive Purchase Order</DialogTitle>
+            <DialogTitle>{tr('Receive Purchase Order', 'استلام أمر الشراء')}</DialogTitle>
             <DialogDescription>
-              Record a full or partial receipt. Only remaining quantities are shown. Add a lot
-              number and expiry date to track the batch for FEFO and expiry alerts.
+              {tr('Record a full or partial receipt. Only remaining quantities are shown. Add a lot number and expiry date to track the batch for FEFO and expiry alerts.', 'سجّل استلامًا كاملًا أو جزئيًا. تُعرض الكميات المتبقية فقط. أضف رقم الدفعة وتاريخ الانتهاء لتتبّع الدفعة وفق نظام FEFO وتنبيهات الانتهاء.')}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[65vh] space-y-3 overflow-y-auto py-2">
@@ -764,11 +775,11 @@ export function PurchasesPage() {
                   <div>
                     <div className="font-medium">{item.description}</div>
                     <div className="text-xs text-muted-foreground">
-                      Ordered {item.quantity} • Received {received} • Remaining {remaining}
+                      {tr('Ordered', 'مطلوب')} {item.quantity} • {tr('Received', 'مستلَم')} {received} • {tr('Remaining', 'متبقٍ')} {remaining}
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label>Receive Qty</Label>
+                    <Label>{tr('Receive Qty', 'كمية الاستلام')}</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -785,15 +796,15 @@ export function PurchasesPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Unit Cost</Label>
+                    <Label>{tr('Unit Cost', 'تكلفة الوحدة')}</Label>
                     <div className="flex h-10 items-center rounded-md border px-3 text-sm">
                       {amount(item.unitCost)}
                     </div>
                   </div>
                   <div className="space-y-1 sm:col-span-2">
-                    <Label>Lot / Batch No. (optional)</Label>
+                    <Label>{tr('Lot / Batch No. (optional)', 'رقم الدفعة (اختياري)')}</Label>
                     <Input
-                      placeholder="Leave blank to skip batch tracking"
+                      placeholder={tr('Leave blank to skip batch tracking', 'اتركه فارغًا لتجاوز تتبّع الدفعات')}
                       value={receiptState.lots[lineIndex]?.lotNumber ?? ''}
                       onChange={(event) =>
                         setReceiptState((prev) => ({
@@ -810,7 +821,7 @@ export function PurchasesPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Expiry Date</Label>
+                    <Label>{tr('Expiry Date', 'تاريخ الانتهاء')}</Label>
                     <Input
                       type="date"
                       value={receiptState.lots[lineIndex]?.expiryDate ?? ''}
@@ -832,13 +843,13 @@ export function PurchasesPage() {
               );
             })}
             <div className="space-y-1">
-              <Label>Notes</Label>
+              <Label>{tr('Notes', 'ملاحظات')}</Label>
               <Textarea
                 value={receiptState.notes}
                 onChange={(event) =>
                   setReceiptState((prev) => ({ ...prev, notes: event.target.value }))
                 }
-                placeholder="Packing slip, partial shipment, damaged carton..."
+                placeholder={tr('Packing slip, partial shipment, damaged carton...', 'إشعار التعبئة، شحنة جزئية، صندوق تالف...')}
               />
             </div>
           </div>
@@ -847,11 +858,11 @@ export function PurchasesPage() {
               variant="outline"
               onClick={() => setReceiptState({ open: false, notes: '', quantities: {}, lots: {} })}
             >
-              Cancel
+              {tr('Cancel', 'إلغاء')}
             </Button>
             <Button onClick={handleReceive}>
               <PackageCheck className="me-2 h-4 w-4" />
-              Record Receipt
+              {tr('Record Receipt', 'تسجيل الاستلام')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -859,8 +870,8 @@ export function PurchasesPage() {
 
       {!items.length && !loading && (
         <SectionEmptyState
-          title="Inventory items are required first"
-          description="Purchase orders are linked to tracked stock items so receipts can update inventory automatically. Create inventory items before opening new POs."
+          title={tr('Inventory items are required first', 'يجب توفّر أصناف المخزون أولًا')}
+          description={tr('Purchase orders are linked to tracked stock items so receipts can update inventory automatically. Create inventory items before opening new POs.', 'ترتبط أوامر الشراء بأصناف المخزون المتتبَّعة حتى يحدّث الاستلام المخزون تلقائيًا. أنشئ أصناف المخزون قبل فتح أوامر شراء جديدة.')}
         />
       )}
 
@@ -868,14 +879,14 @@ export function PurchasesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Order #</TableHead>
-              <TableHead>Supplier</TableHead>
-              <TableHead>Dates</TableHead>
-              <TableHead>Items</TableHead>
-              <TableHead className="text-end">Total</TableHead>
-              <TableHead>Payables</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-end">Action</TableHead>
+              <TableHead>{tr('Order #', 'رقم الأمر')}</TableHead>
+              <TableHead>{tr('Supplier', 'المورّد')}</TableHead>
+              <TableHead>{tr('Dates', 'التواريخ')}</TableHead>
+              <TableHead>{tr('Items', 'الأصناف')}</TableHead>
+              <TableHead className="text-end">{tr('Total', 'الإجمالي')}</TableHead>
+              <TableHead>{tr('Payables', 'الذمم الدائنة')}</TableHead>
+              <TableHead>{tr('Status', 'الحالة')}</TableHead>
+              <TableHead className="text-end">{tr('Action', 'الإجراء')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -901,7 +912,7 @@ export function PurchasesPage() {
                       <div>{order.supplierName}</div>
                       {order.supplierId && (
                         <div className="text-xs text-muted-foreground">
-                          Linked supplier record
+                          {tr('Linked supplier record', 'سجل مورّد مرتبط')}
                         </div>
                       )}
                     </div>
@@ -910,8 +921,8 @@ export function PurchasesPage() {
                     <div>{format(order.orderDate, 'MMM d, yyyy')}</div>
                     <div className="text-xs text-muted-foreground">
                       {order.expectedDate
-                        ? `Expected ${format(order.expectedDate, 'MMM d, yyyy')}`
-                        : 'No ETA'}
+                        ? `${tr('Expected', 'متوقع')} ${format(order.expectedDate, 'MMM d, yyyy')}`
+                        : tr('No ETA', 'لا يوجد موعد متوقع')}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -922,7 +933,7 @@ export function PurchasesPage() {
                         </div>
                       ))}
                       <div className="text-xs text-muted-foreground">
-                        Received {orderReceiptProgress.get(order.id)?.receivedUnits || 0} /{' '}
+                        {tr('Received', 'مستلَم')} {orderReceiptProgress.get(order.id)?.receivedUnits || 0} /{' '}
                         {orderReceiptProgress.get(order.id)?.totalUnits || 0}
                       </div>
                     </div>
@@ -930,25 +941,31 @@ export function PurchasesPage() {
                   <TableCell className="text-end">{amount(order.totalAmount)}</TableCell>
                   <TableCell>
                     <div className="space-y-1 text-sm">
-                      <div>Billed {amount(payableMap.get(order.id)?.billedAmount || 0)}</div>
+                      <div>{tr('Billed', 'مفوتر')} {amount(payableMap.get(order.id)?.billedAmount || 0)}</div>
                       <div className="text-muted-foreground">
-                        Remaining {amount(payableMap.get(order.id)?.remainingToBill || order.totalAmount)}
+                        {tr('Remaining', 'متبقٍ')} {amount(payableMap.get(order.id)?.remainingToBill || order.totalAmount)}
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">
                       <Badge variant="outline" className={statusStyles[order.status]}>
-                        {order.status}
+                        {tr(order.status, ({
+                          'Draft': 'مسودة',
+                          'Ordered': 'تم الطلب',
+                          'Partially Received': 'مستلَم جزئيًا',
+                          'Received': 'مستلَم',
+                          'Cancelled': 'ملغى',
+                        } as Record<PurchaseOrderStatus, string>)[order.status])}
                       </Badge>
                       {order.approvalStatus === 'pending' && (
                         <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
-                          Awaiting approval
+                          {tr('Awaiting approval', 'بانتظار الموافقة')}
                         </Badge>
                       )}
                       {order.approvalStatus === 'approved' && (
                         <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">
-                          Approved{order.approvedBy ? ` · ${order.approvedBy}` : ''}
+                          {tr('Approved', 'تمت الموافقة')}{order.approvedBy ? ` · ${order.approvedBy}` : ''}
                         </Badge>
                       )}
                       {order.approvalStatus === 'rejected' && (
@@ -957,7 +974,7 @@ export function PurchasesPage() {
                           className="bg-rose-100 text-rose-800 border-rose-200"
                           title={order.rejectionReason || undefined}
                         >
-                          Rejected
+                          {tr('Rejected', 'مرفوض')}
                         </Badge>
                       )}
                     </div>
@@ -969,7 +986,7 @@ export function PurchasesPage() {
                       size="sm"
                       onClick={() => setSelectedOrderForDocs(order)}
                     >
-                      Docs
+                      {tr('Docs', 'المستندات')}
                     </Button>
                     {order.approvalStatus === 'pending' && canApprove && (
                       <>
@@ -979,7 +996,7 @@ export function PurchasesPage() {
                           className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                           onClick={() => handleApprove(order.id)}
                         >
-                          Approve
+                          {tr('Approve', 'موافقة')}
                         </Button>
                         <Button
                           variant="outline"
@@ -987,7 +1004,7 @@ export function PurchasesPage() {
                           className="border-rose-200 text-rose-700 hover:bg-rose-50"
                           onClick={() => handleReject(order.id)}
                         >
-                          Reject
+                          {tr('Reject', 'رفض')}
                         </Button>
                       </>
                     )}
@@ -997,13 +1014,13 @@ export function PurchasesPage() {
                         size="sm"
                         onClick={() => handleStatusUpdate(order.id, 'Ordered')}
                       >
-                        Place Order
+                        {tr('Place Order', 'تأكيد الطلب')}
                       </Button>
                     )}
                     {(order.status === 'Ordered' || order.status === 'Partially Received') && (
                       <Button size="sm" onClick={() => openReceiveDialog(order)}>
                         <PackageCheck className="me-2 h-4 w-4" />
-                        Receive
+                        {tr('Receive', 'استلام')}
                       </Button>
                     )}
                     {order.status !== 'Draft' &&
@@ -1011,8 +1028,8 @@ export function PurchasesPage() {
                       order.status !== 'Partially Received' && (
                       <span className="text-sm text-muted-foreground">
                         {order.receivedAt
-                          ? `Received ${format(order.receivedAt, 'MMM d')}`
-                          : 'No action'}
+                          ? `${tr('Received', 'استُلم')} ${format(order.receivedAt, 'MMM d')}`
+                          : tr('No action', 'لا يوجد إجراء')}
                       </span>
                     )}
                     {canApprove && (
@@ -1022,18 +1039,18 @@ export function PurchasesPage() {
                         className="text-muted-foreground hover:text-destructive"
                         onClick={async () => {
                           if (!(await confirm({
-                            title: 'Delete purchase order?',
-                            description: `Delete order ${order.orderNumber}? This cannot be undone.`,
-                            confirmText: 'Delete',
-                            cancelText: 'Cancel',
+                            title: tr('Delete purchase order?', 'حذف أمر الشراء؟'),
+                            description: tr(`Delete order ${order.orderNumber}? This cannot be undone.`, `هل تريد حذف الأمر ${order.orderNumber}؟ لا يمكن التراجع عن هذا الإجراء.`),
+                            confirmText: tr('Delete', 'حذف'),
+                            cancelText: tr('Cancel', 'إلغاء'),
                             destructive: true,
                           }))) return;
                           try {
                             await deletePurchaseOrder(order.id);
                             await load();
-                            toast({ title: 'Purchase order deleted' });
+                            toast({ title: tr('Purchase order deleted', 'تم حذف أمر الشراء') });
                           } catch (error: any) {
-                            toast({ variant: 'destructive', title: 'Could not delete purchase order', description: error?.message });
+                            toast({ variant: 'destructive', title: tr('Could not delete purchase order', 'تعذّر حذف أمر الشراء'), description: error?.message });
                           }
                         }}
                       >
@@ -1048,8 +1065,8 @@ export function PurchasesPage() {
               <TableRow>
                 <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                   {orders.length === 0
-                    ? 'No purchase orders yet. Create one to link procurement with inventory receipts.'
-                    : 'No purchase orders match the current search or filter.'}
+                    ? tr('No purchase orders yet. Create one to link procurement with inventory receipts.', 'لا توجد أوامر شراء بعد. أنشئ أمرًا لربط التوريد باستلامات المخزون.')
+                    : tr('No purchase orders match the current search or filter.', 'لا توجد أوامر شراء مطابقة للبحث أو عامل التصفية الحالي.')}
                 </TableCell>
               </TableRow>
             )}
@@ -1059,18 +1076,18 @@ export function PurchasesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Receipt History</CardTitle>
+          <CardTitle>{tr('Recent Receipt History', 'سجل الاستلامات الأخيرة')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Order</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{tr('Date', 'التاريخ')}</TableHead>
+                  <TableHead>{tr('Order', 'الأمر')}</TableHead>
+                  <TableHead>{tr('Supplier', 'المورّد')}</TableHead>
+                  <TableHead>{tr('Items', 'الأصناف')}</TableHead>
+                  <TableHead>{tr('Notes', 'ملاحظات')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1093,7 +1110,7 @@ export function PurchasesPage() {
                 {receipts.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                      No receipts have been recorded yet.
+                      {tr('No receipts have been recorded yet.', 'لم يتم تسجيل أي استلامات بعد.')}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1107,14 +1124,14 @@ export function PurchasesPage() {
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{selectedOrderForDocs?.orderNumber}</DialogTitle>
-            <DialogDescription>Purchase order documents and audit timeline.</DialogDescription>
+            <DialogDescription>{tr('Purchase order documents and audit timeline.', 'مستندات أمر الشراء والمخطط الزمني للتدقيق.')}</DialogDescription>
           </DialogHeader>
           {selectedOrderForDocs && selectedCompany && (
             <RecordSupportPanel
               companyId={selectedCompany.id}
               entityType="purchase_order"
               entityId={selectedOrderForDocs.id}
-              title="Purchase Order Attachments & Timeline"
+              title={tr('Purchase Order Attachments & Timeline', 'مرفقات أمر الشراء والمخطط الزمني')}
             />
           )}
         </DialogContent>

@@ -33,9 +33,12 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Badge } from '../ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useI18n } from '@/context/i18n-context';
 // AI tag suggestion removed; using simple heuristic in component
 
 export function CreateTaskSheet() {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -48,8 +51,8 @@ export function CreateTaskSheet() {
     if (!description) {
       toast({
         variant: 'destructive',
-        title: 'Description needed',
-        description: 'Please enter a description to suggest tags.',
+        title: tr('Description needed', 'الوصف مطلوب'),
+        description: tr('Please enter a description to suggest tags.', 'يُرجى إدخال وصف لاقتراح الوسوم.'),
       });
       return;
     }
@@ -80,31 +83,31 @@ export function CreateTaskSheet() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button><PlusCircle className="me-2 h-4 w-4" />New Task</Button>
+        <Button><PlusCircle className="me-2 h-4 w-4" />{tr('New Task', 'مهمة جديدة')}</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-2xl sm:max-w-2xl flex flex-col">
         <SheetHeader>
-          <SheetTitle>Create New Task</SheetTitle>
+          <SheetTitle>{tr('Create New Task', 'إنشاء مهمة جديدة')}</SheetTitle>
           <SheetDescription>
-            Fill in the details below to add a new task to the board.
+            {tr('Fill in the details below to add a new task to the board.', 'املأ التفاصيل أدناه لإضافة مهمة جديدة إلى اللوحة.')}
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto pe-6 -me-6">
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="title" className="text-end">
-                Title
+                {tr('Title', 'العنوان')}
               </Label>
-              <Input id="title" placeholder="e.g. Design homepage mockups" className="col-span-3" />
+              <Input id="title" placeholder={tr('e.g. Design homepage mockups', 'مثال: تصميم نماذج الصفحة الرئيسية')} className="col-span-3" />
             </div>
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="description" className="text-end pt-2">
-                Description
+                {tr('Description', 'الوصف')}
               </Label>
               <div className="col-span-3">
                 <Textarea
                     id="description"
-                    placeholder="Add a detailed description for the task..."
+                    placeholder={tr('Add a detailed description for the task...', 'أضف وصفًا تفصيليًا للمهمة...')}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     className="min-h-[120px]"
@@ -112,7 +115,7 @@ export function CreateTaskSheet() {
               </div>
             </div>
             <div className="grid grid-cols-4 items-start gap-4">
-              <Label className="text-end pt-2">Tags</Label>
+              <Label className="text-end pt-2">{tr('Tags', 'الوسوم')}</Label>
               <div className="col-span-3">
                 <div className="flex items-center gap-2 mb-2">
                     <Input
@@ -124,11 +127,11 @@ export function CreateTaskSheet() {
                                 addTag(tagInput);
                             }
                         }}
-                        placeholder="Add a tag and press Enter"
+                        placeholder={tr('Add a tag and press Enter', 'أضف وسمًا واضغط Enter')}
                     />
                      <Button variant="outline" size="sm" onClick={handleSuggestTags} disabled={isSuggesting}>
                         <Sparkles className={cn("me-2 h-4 w-4", isSuggesting && "animate-spin")} />
-                        {isSuggesting ? 'Thinking...' : 'Suggest'}
+                        {isSuggesting ? tr('Thinking...', 'جارٍ التفكير...') : tr('Suggest', 'اقتراح')}
                     </Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -143,7 +146,7 @@ export function CreateTaskSheet() {
                 </div>
                  {suggestedTags.length > 0 && (
                     <div className="mt-2">
-                        <p className="text-xs text-muted-foreground mb-1">Suggestions:</p>
+                        <p className="text-xs text-muted-foreground mb-1">{tr('Suggestions:', 'اقتراحات:')}</p>
                         <div className="flex flex-wrap gap-1">
                         {suggestedTags.map(tag => (
                             <Button key={tag} size="xs" variant="outline" onClick={() => addTag(tag)}>
@@ -158,11 +161,11 @@ export function CreateTaskSheet() {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="assignee" className="text-end">
-                Assignee
+                {tr('Assignee', 'المسند إليه')}
               </Label>
               <Select>
                 <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select a team member" />
+                  <SelectValue placeholder={tr('Select a team member', 'اختر عضو فريق')} />
                 </SelectTrigger>
                 <SelectContent>
                   {placeholderUsers.map((user) => (
@@ -175,11 +178,11 @@ export function CreateTaskSheet() {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="priority" className="text-end">
-                Priority
+                {tr('Priority', 'الأولوية')}
               </Label>
               <Select>
                 <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select priority" />
+                  <SelectValue placeholder={tr('Select priority', 'اختر الأولوية')} />
                 </SelectTrigger>
                 <SelectContent>
                   {taskPriorities.map((priority) => (
@@ -192,7 +195,7 @@ export function CreateTaskSheet() {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="due-date" className="text-end">
-                Due Date
+                {tr('Due Date', 'تاريخ الاستحقاق')}
               </Label>
               <Popover>
                 <PopoverTrigger asChild>
@@ -204,7 +207,7 @@ export function CreateTaskSheet() {
                     )}
                   >
                     <CalendarIcon className="me-2 h-4 w-4" />
-                    {description ? format(new Date(), 'PPP') : <span>Pick a date</span>}
+                    {description ? format(new Date(), 'PPP') : <span>{tr('Pick a date', 'اختر تاريخًا')}</span>}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
@@ -216,9 +219,9 @@ export function CreateTaskSheet() {
         </div>
         <SheetFooter>
           <SheetClose asChild>
-            <Button variant="outline">Cancel</Button>
+            <Button variant="outline">{tr('Cancel', 'إلغاء')}</Button>
           </SheetClose>
-          <Button type="submit">Create Task</Button>
+          <Button type="submit">{tr('Create Task', 'إنشاء المهمة')}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

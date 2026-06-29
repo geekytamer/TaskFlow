@@ -99,7 +99,8 @@ function formatRelative(iso?: string | null) {
 }
 
 export function AdminPage() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const { amount } = useCompanyCurrency();
   const { setSelectedCompany, companies } = useCompany();
@@ -171,7 +172,7 @@ export function AdminPage() {
       toast({ title: label, description: `${count}` });
       load();
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Tool failed', description: e?.message });
+      toast({ variant: 'destructive', title: tr('Tool failed', 'فشل تشغيل الأداة'), description: e?.message });
     }
   };
 
@@ -360,7 +361,7 @@ export function AdminPage() {
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5" />
-                          <span className="sr-only">Edit company</span>
+                          <span className="sr-only">{tr('Edit company', 'تعديل الشركة')}</span>
                         </Button>
                         <Button
                           size="sm"
@@ -757,6 +758,8 @@ function ToolButton({
 }: {
   icon: React.ReactNode; title: string; description: string; onClick: () => void;
 }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
       <span className="text-muted-foreground">{icon}</span>
@@ -766,7 +769,7 @@ function ToolButton({
       </div>
       <Button size="sm" variant="outline" onClick={onClick}>
         <PlayCircle className="me-1 h-3.5 w-3.5" />
-        Run
+        {tr('Run', 'تشغيل')}
       </Button>
     </div>
   );

@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
+import { useI18n } from '@/context/i18n-context';
 import type { RecordAttachment, RecordEntityType, RecordTimelineItem } from '@/modules/finance/types';
 import {
   createRecordAttachment,
@@ -32,11 +33,14 @@ export function RecordSupportPanel({
   companyId,
   entityType,
   entityId,
-  title = 'Attachments & Timeline',
+  title,
   compact = false,
 }: RecordSupportPanelProps) {
   const { currentRole } = useCompany();
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const resolvedTitle = title ?? tr('Attachments & Timeline', 'المرفقات والسجل الزمني');
   const resolvedCompanyId = companyId || '';
   const [attachments, setAttachments] = React.useState<RecordAttachment[]>([]);
   const [timeline, setTimeline] = React.useState<RecordTimelineItem[]>([]);
@@ -67,8 +71,8 @@ export function RecordSupportPanel({
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Record history unavailable',
-        description: error?.message || 'Could not load attachments or timeline.',
+        title: tr('Record history unavailable', 'سجل السجلّ غير متاح'),
+        description: error?.message || tr('Could not load attachments or timeline.', 'تعذّر تحميل المرفقات أو السجل الزمني.'),
       });
     } finally {
       setLoading(false);
@@ -92,8 +96,8 @@ export function RecordSupportPanel({
     if (!finalFileName) {
       toast({
         variant: 'destructive',
-        title: 'Missing file name',
-        description: 'Add a file name or choose a local file.',
+        title: tr('Missing file name', 'اسم الملف مفقود'),
+        description: tr('Add a file name or choose a local file.', 'أضف اسم ملف أو اختر ملفاً محلياً.'),
       });
       return;
     }
@@ -111,12 +115,12 @@ export function RecordSupportPanel({
       setNote('');
       setLocalFile(null);
       await load();
-      toast({ title: 'Attachment added' });
+      toast({ title: tr('Attachment added', 'تمت إضافة المرفق') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Attachment failed',
-        description: error?.message || 'Could not add attachment.',
+        title: tr('Attachment failed', 'فشلت إضافة المرفق'),
+        description: error?.message || tr('Could not add attachment.', 'تعذّرت إضافة المرفق.'),
       });
     } finally {
       setSaving(false);
@@ -127,12 +131,12 @@ export function RecordSupportPanel({
     try {
       await deleteRecordAttachment(attachmentId);
       await load();
-      toast({ title: 'Attachment removed' });
+      toast({ title: tr('Attachment removed', 'تمت إزالة المرفق') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Delete failed',
-        description: error?.message || 'Could not remove attachment.',
+        title: tr('Delete failed', 'فشل الحذف'),
+        description: error?.message || tr('Could not remove attachment.', 'تعذّرت إزالة المرفق.'),
       });
     }
   };
@@ -154,45 +158,45 @@ export function RecordSupportPanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Paperclip className="h-5 w-5" />
-          {title}
+          {resolvedTitle}
         </CardTitle>
         <CardDescription>
-          Attach files or links and review the audit history for this record.
+          {tr('Attach files or links and review the audit history for this record.', 'أرفق ملفات أو روابط وراجع سجل التدقيق لهذا السجل.')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-1">
-            <Label>Local File</Label>
+            <Label>{tr('Local File', 'ملف محلي')}</Label>
             <Input type="file" onChange={(event) => handleLocalFile(event.target.files?.[0] || null)} />
           </div>
           <div className="space-y-1">
-            <Label>File Name</Label>
+            <Label>{tr('File Name', 'اسم الملف')}</Label>
             <Input value={fileName} onChange={(event) => setFileName(event.target.value)} placeholder="receipt.pdf" />
           </div>
           <div className="flex items-end">
             <Button onClick={handleAddAttachment} disabled={saving}>
-              {saving ? 'Adding...' : 'Add'}
+              {saving ? tr('Adding...', 'جارٍ الإضافة...') : tr('Add', 'إضافة')}
             </Button>
           </div>
           <div className="space-y-1 md:col-span-2">
-            <Label>External Link</Label>
+            <Label>{tr('External Link', 'رابط خارجي')}</Label>
             <Input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." />
           </div>
           <div className="space-y-1 md:col-span-3">
-            <Label>Note</Label>
-            <Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="What is this attachment for?" />
+            <Label>{tr('Note', 'ملاحظة')}</Label>
+            <Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={tr('What is this attachment for?', 'لماذا هذا المرفق؟')} />
           </div>
           <p className="text-xs text-muted-foreground md:col-span-3">
-            Local files are recorded as metadata for now. Add a URL when the file is stored in Drive, S3, or another document system.
+            {tr('Local files are recorded as metadata for now. Add a URL when the file is stored in Drive, S3, or another document system.', 'تُسجَّل الملفات المحلية كبيانات وصفية حالياً. أضف رابطاً عندما يكون الملف مخزّناً في Drive أو S3 أو نظام مستندات آخر.')}
           </p>
         </div>
 
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold">Attachments</h4>
+          <h4 className="text-sm font-semibold">{tr('Attachments', 'المرفقات')}</h4>
           {attachments.length === 0 ? (
             <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              No attachments yet.
+              {tr('No attachments yet.', 'لا توجد مرفقات بعد.')}
             </div>
           ) : (
             attachments.map((attachment) => (
@@ -209,12 +213,12 @@ export function RecordSupportPanel({
                         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                       >
                         <LinkIcon className="h-3 w-3" />
-                        Open
+                        {tr('Open', 'فتح')}
                       </a>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {attachment.uploadedByName || 'Unknown user'} • {formatDistanceToNow(attachment.createdAt, { addSuffix: true })}
+                    {attachment.uploadedByName || tr('Unknown user', 'مستخدم غير معروف')} • {formatDistanceToNow(attachment.createdAt, { addSuffix: true })}
                     {attachment.sizeBytes ? ` • ${(attachment.sizeBytes / 1024).toFixed(1)} KB` : ''}
                   </p>
                   {attachment.note && <p className="text-sm text-muted-foreground">{attachment.note}</p>}
@@ -230,10 +234,10 @@ export function RecordSupportPanel({
         </div>
 
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold">Timeline</h4>
+          <h4 className="text-sm font-semibold">{tr('Timeline', 'السجل الزمني')}</h4>
           {timeline.length === 0 ? (
             <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              No timeline activity yet.
+              {tr('No timeline activity yet.', 'لا يوجد نشاط في السجل الزمني بعد.')}
             </div>
           ) : (
             timeline.map((item) => (
@@ -242,7 +246,7 @@ export function RecordSupportPanel({
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{item.title}</p>
                   <p className="text-xs text-muted-foreground">
-                    {item.actorName || 'System'} • {formatDistanceToNow(item.createdAt, { addSuffix: true })}
+                    {item.actorName || tr('System', 'النظام')} • {formatDistanceToNow(item.createdAt, { addSuffix: true })}
                   </p>
                   {item.detail && <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>}
                 </div>

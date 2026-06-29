@@ -45,7 +45,7 @@ const startOfMonthInput = () => {
   return toInputDate(new Date(now.getFullYear(), now.getMonth(), 1));
 };
 
-const printableReport = (title: string, body: string) => `
+const printableReport = (title: string, body: string, generatedLabel: string) => `
   <html>
     <head>
       <title>${title}</title>
@@ -62,7 +62,7 @@ const printableReport = (title: string, body: string) => `
     </head>
     <body>
       <h1>${title}</h1>
-      <div class="muted">Generated ${new Date().toLocaleString(getCurrentLocale())}</div>
+      <div class="muted">${generatedLabel} ${new Date().toLocaleString(getCurrentLocale())}</div>
       ${body}
     </body>
   </html>
@@ -71,7 +71,8 @@ const printableReport = (title: string, body: string) => `
 export function FinancialReportsPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [trialBalance, setTrialBalance] = React.useState<TrialBalanceReport | null>(null);
@@ -132,7 +133,7 @@ export function FinancialReportsPanel() {
   const handlePrint = (title: string, body: string) => {
     const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
     if (!reportWindow) return;
-    reportWindow.document.write(printableReport(title, body));
+    reportWindow.document.write(printableReport(title, body, tr('Generated', 'تاريخ الإنشاء')));
     reportWindow.document.close();
     reportWindow.focus();
     reportWindow.print();
@@ -246,8 +247,8 @@ export function FinancialReportsPanel() {
                   size="sm"
                   onClick={() =>
                     handlePrint(
-                      `${selectedCompany.name} Trial Balance`,
-                      `<table><thead><tr><th>Code</th><th>Name</th><th>Debit</th><th>Credit</th></tr></thead><tbody>${trialRows.map((line) => `<tr><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.debitBalance)}</td><td class="right">${money(line.creditBalance)}</td></tr>`).join('')}<tr class="total"><td colspan="2">Totals</td><td class="right">${money(trialBalance?.totalDebit || 0)}</td><td class="right">${money(trialBalance?.totalCredit || 0)}</td></tr></tbody></table>`,
+                      `${selectedCompany.name} ${tr('Trial Balance', 'ميزان المراجعة')}`,
+                      `<table><thead><tr><th>${tr('Code', 'الرمز')}</th><th>${tr('Name', 'الاسم')}</th><th>${tr('Debit', 'مدين')}</th><th>${tr('Credit', 'دائن')}</th></tr></thead><tbody>${trialRows.map((line) => `<tr><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.debitBalance)}</td><td class="right">${money(line.creditBalance)}</td></tr>`).join('')}<tr class="total"><td colspan="2">${tr('Totals', 'الإجماليات')}</td><td class="right">${money(trialBalance?.totalDebit || 0)}</td><td class="right">${money(trialBalance?.totalCredit || 0)}</td></tr></tbody></table>`,
                     )
                   }
                 >
@@ -308,8 +309,8 @@ export function FinancialReportsPanel() {
                   size="sm"
                   onClick={() =>
                     handlePrint(
-                      `${selectedCompany.name} Profit & Loss`,
-                      `<table><thead><tr><th>Section</th><th>Code</th><th>Name</th><th>Amount</th></tr></thead><tbody>${pnlRows.map((line) => `<tr><td>${line.section}</td><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.amount)}</td></tr>`).join('')}<tr class="total"><td colspan="3">Net Income</td><td class="right">${money(profitAndLoss?.netIncome || 0)}</td></tr></tbody></table>`,
+                      `${selectedCompany.name} ${tr('Profit & Loss', 'الأرباح والخسائر')}`,
+                      `<table><thead><tr><th>${tr('Section', 'القسم')}</th><th>${tr('Code', 'الرمز')}</th><th>${tr('Name', 'الاسم')}</th><th>${tr('Amount', 'المبلغ')}</th></tr></thead><tbody>${pnlRows.map((line) => `<tr><td>${line.section === 'Revenue' ? tr('Revenue', 'الإيرادات') : tr('Expense', 'المصروفات')}</td><td>${line.code}</td><td>${line.name}</td><td class="right">${money(line.amount)}</td></tr>`).join('')}<tr class="total"><td colspan="3">${tr('Net Income', 'صافي الدخل')}</td><td class="right">${money(profitAndLoss?.netIncome || 0)}</td></tr></tbody></table>`,
                     )
                   }
                 >
@@ -345,7 +346,7 @@ export function FinancialReportsPanel() {
                   <TableBody>
                     {pnlRows.map((line) => (
                       <TableRow key={`${line.section}-${line.accountId}`}>
-                        <TableCell><Badge variant="outline">{line.section}</Badge></TableCell>
+                        <TableCell><Badge variant="outline">{line.section === 'Revenue' ? tr('Revenue', 'الإيرادات') : tr('Expense', 'المصروفات')}</Badge></TableCell>
                         <TableCell className="font-mono">{line.code}</TableCell>
                         <TableCell className="font-medium">{line.name}</TableCell>
                         <TableCell className="text-end">{amount(line.amount)}</TableCell>

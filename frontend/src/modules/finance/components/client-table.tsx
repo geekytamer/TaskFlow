@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { useCompanyCurrency } from '@/lib/currency';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
@@ -40,6 +41,8 @@ import { RecordSupportPanel } from '@/modules/shared/components/record-support-p
 
 export function ClientTable() {
   const { selectedCompany } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
@@ -87,8 +90,8 @@ export function ClientTable() {
       setProjects([]);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error?.message || 'Could not load clients.',
+        title: tr('Error', 'خطأ'),
+        description: error?.message || tr('Could not load clients.', 'تعذر تحميل العملاء.'),
       });
     } finally {
       setLoading(false);
@@ -187,12 +190,12 @@ export function ClientTable() {
       setSelectedClient(updated);
       setEditing(false);
       await fetchData();
-      toast({ title: 'Client updated' });
+      toast({ title: tr('Client updated', 'تم تحديث العميل') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Update failed',
-        description: error?.message || 'Could not update client.',
+        title: tr('Update failed', 'فشل التحديث'),
+        description: error?.message || tr('Could not update client.', 'تعذر تحديث العميل.'),
       });
     }
   };
@@ -203,9 +206,9 @@ export function ClientTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Client Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Address</TableHead>
+              <TableHead>{tr('Client Name', 'اسم العميل')}</TableHead>
+              <TableHead>{tr('Email', 'البريد الإلكتروني')}</TableHead>
+              <TableHead>{tr('Address', 'العنوان')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -229,11 +232,15 @@ export function ClientTable() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search clients by name, email, or address"
+            placeholder={tr('Search clients by name, email, or address', 'ابحث عن العملاء بالاسم أو البريد أو العنوان')}
             className="max-w-md"
           />
         )}
-        summary={`${filteredClients.length} client${filteredClients.length === 1 ? '' : 's'}`}
+        summary={
+          language === 'ar'
+            ? `${filteredClients.length} عميل`
+            : `${filteredClients.length} client${filteredClients.length === 1 ? '' : 's'}`
+        }
         actions={(
           <AddClientDialog
           open={isAddDialogOpen}
@@ -242,7 +249,7 @@ export function ClientTable() {
         >
           <Button>
             <PlusCircle className="me-2 h-4 w-4" />
-            Add Client
+            {tr('Add Client', 'إضافة عميل')}
           </Button>
         </AddClientDialog>
         )}
@@ -251,13 +258,13 @@ export function ClientTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Client Name</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Reference</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Address</TableHead>
-              <TableHead className="text-end">Invoices</TableHead>
-              <TableHead className="text-end">Outstanding</TableHead>
+              <TableHead>{tr('Client Name', 'اسم العميل')}</TableHead>
+              <TableHead>{tr('Contact', 'جهة الاتصال')}</TableHead>
+              <TableHead>{tr('Reference', 'المرجع')}</TableHead>
+              <TableHead>{tr('Status', 'الحالة')}</TableHead>
+              <TableHead>{tr('Address', 'العنوان')}</TableHead>
+              <TableHead className="text-end">{tr('Invoices', 'الفواتير')}</TableHead>
+              <TableHead className="text-end">{tr('Outstanding', 'المستحق')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -273,7 +280,7 @@ export function ClientTable() {
                 >
                   <TableCell className="font-medium">
                     <div>{client.name}</div>
-                    <div className="text-xs text-muted-foreground">Open details</div>
+                    <div className="text-xs text-muted-foreground">{tr('Open details', 'عرض التفاصيل')}</div>
                   </TableCell>
                   <TableCell>
                     <div className="space-y-1 text-sm">
@@ -283,7 +290,7 @@ export function ClientTable() {
                   </TableCell>
                   <TableCell>{client.reference}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{client.status || 'Active'}</Badge>
+                    <Badge variant="outline">{client.status || tr('Active', 'نشط')}</Badge>
                   </TableCell>
                   <TableCell>{client.address}</TableCell>
                   <TableCell className="text-end">{metrics?.invoiceCount || 0}</TableCell>
@@ -295,8 +302,11 @@ export function ClientTable() {
               <TableRow>
                 <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">
                   {clients.length === 0
-                    ? 'No clients yet. Add your first client to start linking projects and invoices.'
-                    : 'No clients match your search.'}
+                    ? tr(
+                        'No clients yet. Add your first client to start linking projects and invoices.',
+                        'لا يوجد عملاء بعد. أضف أول عميل لبدء ربط المشاريع والفواتير.',
+                      )
+                    : tr('No clients match your search.', 'لا يوجد عملاء مطابقون لبحثك.')}
                 </TableCell>
               </TableRow>
             )}
@@ -318,11 +328,11 @@ export function ClientTable() {
                   </div>
                   {editing ? (
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-                      <Button onClick={handleSave}>Save</Button>
+                      <Button variant="outline" onClick={() => setEditing(false)}>{tr('Cancel', 'إلغاء')}</Button>
+                      <Button onClick={handleSave}>{tr('Save', 'حفظ')}</Button>
                     </div>
                   ) : (
-                    <Button variant="outline" onClick={() => setEditing(true)}>Edit Client</Button>
+                    <Button variant="outline" onClick={() => setEditing(true)}>{tr('Edit Client', 'تعديل العميل')}</Button>
                   )}
                 </div>
               </SheetHeader>
@@ -335,42 +345,42 @@ export function ClientTable() {
                   return (
                     <div className="grid grid-cols-3 gap-4">
                       <div className="rounded-lg border p-4">
-                        <p className="text-sm text-muted-foreground">Total Billed</p>
+                        <p className="text-sm text-muted-foreground">{tr('Total Billed', 'إجمالي الفواتير')}</p>
                         <p className="text-2xl font-bold">{amount(total)}</p>
                       </div>
                       <div className="rounded-lg border p-4">
-                        <p className="text-sm text-muted-foreground">Outstanding</p>
+                        <p className="text-sm text-muted-foreground">{tr('Outstanding', 'المستحق')}</p>
                         <p className="text-2xl font-bold text-orange-600">{amount(outstanding)}</p>
                       </div>
                       <div className="rounded-lg border p-4">
-                        <p className="text-sm text-muted-foreground">Paid</p>
+                        <p className="text-sm text-muted-foreground">{tr('Paid', 'المدفوع')}</p>
                         <p className="text-2xl font-bold text-green-600">{amount(paid)}</p>
                         <Progress value={paidPct} className="mt-2" />
-                        <p className="text-xs text-muted-foreground mt-1">{paidPct}% paid</p>
+                        <p className="text-xs text-muted-foreground mt-1">{tr(`${paidPct}% paid`, `${paidPct}٪ مدفوع`)}</p>
                       </div>
                     </div>
                   );
                 })()}
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-lg border p-4">
-                    <p className="text-sm text-muted-foreground">Credit Limit</p>
+                    <p className="text-sm text-muted-foreground">{tr('Credit Limit', 'حد الائتمان')}</p>
                     <p className="text-xl font-semibold">{amount(selectedClient.creditLimit || 0)}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {selectedClient.creditNumber || 'No credit number'}
+                      {selectedClient.creditNumber || tr('No credit number', 'لا يوجد رقم ائتمان')}
                     </p>
                   </div>
                   <div className="rounded-lg border p-4">
-                    <p className="text-sm text-muted-foreground">Billing Profile</p>
-                    <p className="text-xl font-semibold">{selectedClient.paymentMethod || 'Not set'}</p>
+                    <p className="text-sm text-muted-foreground">{tr('Billing Profile', 'ملف الفوترة')}</p>
+                    <p className="text-xl font-semibold">{selectedClient.paymentMethod || tr('Not set', 'غير محدد')}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      VAT: {selectedClient.vatNumber || 'Not set'}
+                      {tr('VAT', 'الضريبة')}: {selectedClient.vatNumber || tr('Not set', 'غير محدد')}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid gap-4 rounded-lg border p-4 md:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>Client Name</Label>
+                    <Label>{tr('Client Name', 'اسم العميل')}</Label>
                     <Input
                       value={form.name || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
@@ -378,7 +388,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Contact Name</Label>
+                    <Label>{tr('Contact Name', 'اسم جهة الاتصال')}</Label>
                     <Input
                       value={form.contactName || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, contactName: event.target.value }))}
@@ -386,7 +396,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Email</Label>
+                    <Label>{tr('Email', 'البريد الإلكتروني')}</Label>
                     <Input
                       value={form.email || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
@@ -394,7 +404,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Phone</Label>
+                    <Label>{tr('Phone', 'الهاتف')}</Label>
                     <Input
                       value={form.phone || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
@@ -402,7 +412,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>VAT Number</Label>
+                    <Label>{tr('VAT Number', 'الرقم الضريبي')}</Label>
                     <Input
                       value={form.vatNumber || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, vatNumber: event.target.value }))}
@@ -410,7 +420,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Credit Limit</Label>
+                    <Label>{tr('Credit Limit', 'حد الائتمان')}</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -420,7 +430,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Credit Number</Label>
+                    <Label>{tr('Credit Number', 'رقم الائتمان')}</Label>
                     <Input
                       value={form.creditNumber || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, creditNumber: event.target.value }))}
@@ -428,7 +438,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Payment Method</Label>
+                    <Label>{tr('Payment Method', 'طريقة الدفع')}</Label>
                     <Select
                       value={(form.paymentMethod as string) || 'Bank Transfer'}
                       onValueChange={(value) => setForm((prev) => ({ ...prev, paymentMethod: value }))}
@@ -438,15 +448,15 @@ export function ClientTable() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                        <SelectItem value="Cash">Cash</SelectItem>
-                        <SelectItem value="Card">Card</SelectItem>
-                        <SelectItem value="Credit">Credit</SelectItem>
+                        <SelectItem value="Bank Transfer">{tr('Bank Transfer', 'تحويل بنكي')}</SelectItem>
+                        <SelectItem value="Cash">{tr('Cash', 'نقدًا')}</SelectItem>
+                        <SelectItem value="Card">{tr('Card', 'بطاقة')}</SelectItem>
+                        <SelectItem value="Credit">{tr('Credit', 'ائتمان')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label>Status</Label>
+                    <Label>{tr('Status', 'الحالة')}</Label>
                     <Select
                       value={(form.status as string) || 'Active'}
                       onValueChange={(value) => setForm((prev) => ({ ...prev, status: value as Client['status'] }))}
@@ -456,15 +466,15 @@ export function ClientTable() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Lead">Lead</SelectItem>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="At Risk">At Risk</SelectItem>
-                        <SelectItem value="Inactive">Inactive</SelectItem>
+                        <SelectItem value="Lead">{tr('Lead', 'عميل محتمل')}</SelectItem>
+                        <SelectItem value="Active">{tr('Active', 'نشط')}</SelectItem>
+                        <SelectItem value="At Risk">{tr('At Risk', 'معرّض للخطر')}</SelectItem>
+                        <SelectItem value="Inactive">{tr('Inactive', 'غير نشط')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <Label>Address</Label>
+                    <Label>{tr('Address', 'العنوان')}</Label>
                     <Input
                       value={form.address || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, address: event.target.value }))}
@@ -472,7 +482,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <Label>Notes</Label>
+                    <Label>{tr('Notes', 'ملاحظات')}</Label>
                     <Textarea
                       value={form.notes || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
@@ -482,13 +492,13 @@ export function ClientTable() {
                 </div>
 
                 <div>
-                  <p className="text-sm font-semibold mb-2">Linked Projects</p>
+                  <p className="text-sm font-semibold mb-2">{tr('Linked Projects', 'المشاريع المرتبطة')}</p>
                   <div className="rounded-lg border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Project</TableHead>
-                          <TableHead>Visibility</TableHead>
+                          <TableHead>{tr('Project', 'المشروع')}</TableHead>
+                          <TableHead>{tr('Visibility', 'الظهور')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -501,7 +511,7 @@ export function ClientTable() {
                         {clientProjects.length === 0 && (
                           <TableRow>
                             <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">
-                              No linked projects yet.
+                              {tr('No linked projects yet.', 'لا توجد مشاريع مرتبطة بعد.')}
                             </TableCell>
                           </TableRow>
                         )}
@@ -511,18 +521,18 @@ export function ClientTable() {
                 </div>
 
                 <div>
-                  <p className="text-sm font-semibold mb-2">Invoice History</p>
+                  <p className="text-sm font-semibold mb-2">{tr('Invoice History', 'سجل الفواتير')}</p>
                   <div className="rounded-lg border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Number</TableHead>
-                          <TableHead>Issued</TableHead>
-                          <TableHead>Due</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-end">Paid</TableHead>
-                          <TableHead className="text-end">Outstanding</TableHead>
-                          <TableHead className="text-end">Total</TableHead>
+                          <TableHead>{tr('Number', 'الرقم')}</TableHead>
+                          <TableHead>{tr('Issued', 'تاريخ الإصدار')}</TableHead>
+                          <TableHead>{tr('Due', 'تاريخ الاستحقاق')}</TableHead>
+                          <TableHead>{tr('Status', 'الحالة')}</TableHead>
+                          <TableHead className="text-end">{tr('Paid', 'المدفوع')}</TableHead>
+                          <TableHead className="text-end">{tr('Outstanding', 'المستحق')}</TableHead>
+                          <TableHead className="text-end">{tr('Total', 'الإجمالي')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -542,7 +552,7 @@ export function ClientTable() {
                         {clientInvoices.length === 0 && (
                           <TableRow>
                             <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                              No invoices yet.
+                              {tr('No invoices yet.', 'لا توجد فواتير بعد.')}
                             </TableCell>
                           </TableRow>
                         )}
@@ -552,18 +562,18 @@ export function ClientTable() {
                 </div>
 
                 <ActivityFeed
-                  title="Client Activity"
+                  title={tr('Client Activity', 'نشاط العميل')}
                   entityType="client"
                   entityId={selectedClient.id}
                   limit={6}
-                  emptyMessage="No client activity recorded yet."
+                  emptyMessage={tr('No client activity recorded yet.', 'لم يُسجَّل أي نشاط للعميل بعد.')}
                 />
                 {selectedCompany && (
                   <RecordSupportPanel
                     companyId={selectedCompany.id}
                     entityType="client"
                     entityId={selectedClient.id}
-                    title="Client Attachments & Timeline"
+                    title={tr('Client Attachments & Timeline', 'مرفقات العميل والجدول الزمني')}
                     compact
                   />
                 )}

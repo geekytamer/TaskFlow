@@ -10,7 +10,8 @@ import { Printer } from 'lucide-react';
 
 export default function PublicDeliveryPage() {
   const params = useParams();
-  const { setLanguage } = useI18n();
+  const { setLanguage, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const id = params?.id as string;
   const [data, setData] = React.useState<(PublicInvoicePayload & { deliveryNumber: string }) | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -28,16 +29,16 @@ export default function PublicDeliveryPage() {
     setLoading(true);
     getPublicDelivery(id)
       .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e?.message || 'Could not load delivery note.'); })
+      .catch((e) => { if (!cancelled) setError(e?.message || tr('Could not load delivery note.', 'تعذر تحميل سند التسليم.')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [id]);
 
   if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading delivery note…</div>;
+    return <div className="p-8 text-center text-slate-500">{tr('Loading delivery note…', 'جارٍ تحميل سند التسليم…')}</div>;
   }
   if (error || !data) {
-    return <div className="p-8 text-center text-red-500">{error || 'Delivery note not found.'}</div>;
+    return <div className="p-8 text-center text-red-500">{error || tr('Delivery note not found.', 'سند التسليم غير موجود.')}</div>;
   }
 
   return (
@@ -54,12 +55,12 @@ export default function PublicDeliveryPage() {
       `}</style>
       <div className="no-print mx-auto mb-6 flex max-w-[760px] flex-col items-center gap-4 rounded-lg bg-white p-4 shadow-sm sm:flex-row sm:justify-between">
         <p className="text-sm text-slate-500">
-          Delivery note <span className="font-medium text-slate-700">{data.deliveryNumber}</span>
+          {tr('Delivery note', 'سند التسليم')} <span className="font-medium text-slate-700">{data.deliveryNumber}</span>
           {data.company?.name ? ` · ${data.company.name}` : ''}
         </p>
         <Button onClick={() => window.print()}>
           <Printer className="mr-2 h-4 w-4" />
-          Download / Print PDF
+          {tr('Download / Print PDF', 'تنزيل / طباعة PDF')}
         </Button>
       </div>
 

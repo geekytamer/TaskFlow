@@ -60,7 +60,8 @@ const bucketLabelKey: Record<AgingBucket['bucket'], string> = {
 export function FinanceOverviewPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const bucketLabel = (bucket: AgingBucket['bucket']) => t(bucketLabelKey[bucket]);
   const [overview, setOverview] = React.useState<FinanceOverview | null>(null);
@@ -280,11 +281,11 @@ export function FinanceOverviewPanel() {
         <CardContent>
           <div className="mb-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border p-3 text-sm">
-              <p className="text-muted-foreground">Open customer invoices</p>
+              <p className="text-muted-foreground">{tr('Open customer invoices', 'فواتير العملاء المفتوحة')}</p>
               <p className="text-xl font-semibold">{invoiceCount}</p>
             </div>
             <div className="rounded-md border p-3 text-sm">
-              <p className="text-muted-foreground">Open vendor bills</p>
+              <p className="text-muted-foreground">{tr('Open vendor bills', 'فواتير الموردين المفتوحة')}</p>
               <p className="text-xl font-semibold">{billCount}</p>
             </div>
           </div>
@@ -292,9 +293,9 @@ export function FinanceOverviewPanel() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Bucket</TableHead>
-                  <TableHead className="text-end">Receivables</TableHead>
-                  <TableHead className="text-end">Payables</TableHead>
+                  <TableHead>{tr('Bucket', 'الفئة')}</TableHead>
+                  <TableHead className="text-end">{tr('Receivables', 'المستحقات')}</TableHead>
+                  <TableHead className="text-end">{tr('Payables', 'الذمم الدائنة')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -27,13 +27,14 @@ import { useToast } from '@/hooks/use-toast';
 import { createCompany } from '@/services/companyService';
 import { useI18n } from '@/context/i18n-context';
 
-const addCompanySchema = z.object({
-  name: z.string().min(2, 'Company name must be at least 2 characters.'),
-  website: z.string().url('Please enter a valid URL.').optional().or(z.literal('')),
-  address: z.string().optional(),
-});
+const makeAddCompanySchema = (tr: (en: string, ar: string) => string) =>
+  z.object({
+    name: z.string().min(2, tr('Company name must be at least 2 characters.', 'يجب أن يتكون اسم الشركة من حرفين على الأقل.')),
+    website: z.string().url(tr('Please enter a valid URL.', 'يرجى إدخال رابط صحيح.')).optional().or(z.literal('')),
+    address: z.string().optional(),
+  });
 
-type AddCompanyFormValues = z.infer<typeof addCompanySchema>;
+type AddCompanyFormValues = z.infer<ReturnType<typeof makeAddCompanySchema>>;
 
 interface AddCompanyDialogProps {
   children: React.ReactNode;
@@ -49,9 +50,10 @@ export function AddCompanyDialog({
   onCompanyAdded,
 }: AddCompanyDialogProps) {
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const form = useForm<AddCompanyFormValues>({
-    resolver: zodResolver(addCompanySchema),
+    resolver: zodResolver(makeAddCompanySchema(tr)),
     defaultValues: {
       name: '',
       website: '',
@@ -70,16 +72,16 @@ export function AddCompanyDialog({
     try {
       await createCompany(data);
       toast({
-        title: 'Company Created',
-        description: `Company "${data.name}" has been successfully created.`,
+        title: tr('Company Created', 'تم إنشاء الشركة'),
+        description: tr(`Company "${data.name}" has been successfully created.`, `تم إنشاء الشركة "${data.name}" بنجاح.`),
       });
       onCompanyAdded();
       handleOpenChange(false);
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create company.',
+        title: tr('Error', 'خطأ'),
+        description: tr('Failed to create company.', 'تعذّر إنشاء الشركة.'),
       });
     }
   };

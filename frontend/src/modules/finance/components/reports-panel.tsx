@@ -19,10 +19,11 @@ const renderPrintDocument = (
   summary: ManagementReportSummary,
   companyName: string,
   money: (value: number) => string,
+  tr: (en: string, ar: string) => string,
 ) => `
   <html>
     <head>
-      <title>${companyName} Management Report</title>
+      <title>${companyName} ${tr('Management Report', 'تقرير إداري')}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
         h1, h2 { margin: 0 0 12px; }
@@ -37,28 +38,28 @@ const renderPrintDocument = (
       </style>
     </head>
     <body>
-      <h1>${companyName} Management Report</h1>
-      <div class="label">Generated ${new Date().toLocaleString(getCurrentLocale())}</div>
-      <h2>KPIs</h2>
+      <h1>${companyName} ${tr('Management Report', 'تقرير إداري')}</h1>
+      <div class="label">${tr('Generated', 'تم الإنشاء')} ${new Date().toLocaleString(getCurrentLocale())}</div>
+      <h2>${tr('KPIs', 'مؤشرات الأداء')}</h2>
       <div class="grid">
-        <div class="card"><div class="label">Open Receivables</div><div class="value">${money(summary.finance.openReceivables)}</div></div>
-        <div class="card"><div class="label">Open Payables</div><div class="value">${money(summary.finance.openPayables)}</div></div>
-        <div class="card"><div class="label">Paid Payables This Month</div><div class="value">${money(summary.finance.paidPayablesThisMonth)}</div></div>
-        <div class="card"><div class="label">Stock Value</div><div class="value">${money(summary.inventory.stockValue)}</div></div>
-        <div class="card"><div class="label">Low Stock Items</div><div class="value">${summary.inventory.lowStockCount}</div></div>
-        <div class="card"><div class="label">Open Orders</div><div class="value">${summary.purchases.openOrders}</div></div>
-        <div class="card"><div class="label">Unbilled PO Value</div><div class="value">${money(summary.purchases.unbilledValue)}</div></div>
+        <div class="card"><div class="label">${tr('Open Receivables', 'الذمم المدينة المفتوحة')}</div><div class="value">${money(summary.finance.openReceivables)}</div></div>
+        <div class="card"><div class="label">${tr('Open Payables', 'الذمم الدائنة المفتوحة')}</div><div class="value">${money(summary.finance.openPayables)}</div></div>
+        <div class="card"><div class="label">${tr('Paid Payables This Month', 'الذمم الدائنة المدفوعة هذا الشهر')}</div><div class="value">${money(summary.finance.paidPayablesThisMonth)}</div></div>
+        <div class="card"><div class="label">${tr('Stock Value', 'قيمة المخزون')}</div><div class="value">${money(summary.inventory.stockValue)}</div></div>
+        <div class="card"><div class="label">${tr('Low Stock Items', 'أصناف منخفضة المخزون')}</div><div class="value">${summary.inventory.lowStockCount}</div></div>
+        <div class="card"><div class="label">${tr('Open Orders', 'الطلبات المفتوحة')}</div><div class="value">${summary.purchases.openOrders}</div></div>
+        <div class="card"><div class="label">${tr('Unbilled PO Value', 'قيمة أوامر الشراء غير المفوترة')}</div><div class="value">${money(summary.purchases.unbilledValue)}</div></div>
       </div>
-      <h2>Top Clients</h2>
+      <h2>${tr('Top Clients', 'أهم العملاء')}</h2>
       <table>
-        <thead><tr><th>Client</th><th>Total Billed</th><th>Paid</th><th>Outstanding</th></tr></thead>
+        <thead><tr><th>${tr('Client', 'العميل')}</th><th>${tr('Total Billed', 'إجمالي المفوتر')}</th><th>${tr('Paid', 'المدفوع')}</th><th>${tr('Outstanding', 'المستحق')}</th></tr></thead>
         <tbody>
           ${summary.topClients.map((client) => `<tr><td>${client.clientName}</td><td>${money(client.totalBilled)}</td><td>${money(client.paidAmount)}</td><td>${money(client.outstandingAmount)}</td></tr>`).join('')}
         </tbody>
       </table>
-      <h2>Top Suppliers</h2>
+      <h2>${tr('Top Suppliers', 'أهم الموردين')}</h2>
       <table>
-        <thead><tr><th>Supplier</th><th>Ordered</th><th>Open Payables</th><th>Remaining To Bill</th></tr></thead>
+        <thead><tr><th>${tr('Supplier', 'المورّد')}</th><th>${tr('Ordered', 'المطلوب')}</th><th>${tr('Open Payables', 'الذمم الدائنة المفتوحة')}</th><th>${tr('Remaining To Bill', 'المتبقي للفوترة')}</th></tr></thead>
         <tbody>
           ${summary.topSuppliers.map((supplier) => `<tr><td>${supplier.supplierName}</td><td>${money(supplier.totalOrderedAmount)}</td><td>${money(supplier.openPayables)}</td><td>${money(supplier.remainingToBill)}</td></tr>`).join('')}
         </tbody>
@@ -70,7 +71,8 @@ const renderPrintDocument = (
 export function ReportsPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const [summary, setSummary] = React.useState<ManagementReportSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -120,7 +122,7 @@ export function ReportsPanel() {
     if (!summary || !selectedCompany) return;
     const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
     if (!reportWindow) return;
-    reportWindow.document.write(renderPrintDocument(summary, selectedCompany.name, money));
+    reportWindow.document.write(renderPrintDocument(summary, selectedCompany.name, money, tr));
     reportWindow.document.close();
     reportWindow.focus();
     reportWindow.print();

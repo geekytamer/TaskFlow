@@ -31,11 +31,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { ProjectLegend } from './project-legend';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { canViewProject } from '@/modules/projects/lib/access';
 
 
 const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
+    const { language } = useI18n();
+    const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       if (data.isLabel) return null;
@@ -49,25 +52,25 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
             </CardHeader>
           <CardContent className="p-4 pt-0 text-sm">
             <div className="flex justify-between items-center mb-2">
-                <span className="text-muted-foreground">Status:</span>
+                <span className="text-muted-foreground">{tr('Status:', 'الحالة:')}</span>
                 <Badge variant="outline">{data.status}</Badge>
             </div>
-            {project && <p className="text-muted-foreground mb-2">Project: {project.name}</p>}
+            {project && <p className="text-muted-foreground mb-2">{tr('Project:', 'المشروع:')} {project.name}</p>}
             <div className="flex justify-between">
-                <span className="text-muted-foreground">Start:</span>
-                <span>{data.startDate ? format(data.startDate, 'MMM d') : 'N/A'}</span>
+                <span className="text-muted-foreground">{tr('Start:', 'البداية:')}</span>
+                <span>{data.startDate ? format(data.startDate, 'MMM d') : tr('N/A', 'غير متاح')}</span>
             </div>
              <div className="flex justify-between">
-                <span className="text-muted-foreground">End:</span>
-                <span>{data.endDate ? format(data.endDate, 'MMM d') : 'N/A'}</span>
+                <span className="text-muted-foreground">{tr('End:', 'النهاية:')}</span>
+                <span>{data.endDate ? format(data.endDate, 'MMM d') : tr('N/A', 'غير متاح')}</span>
             </div>
              <div className="flex justify-between">
-                <span className="text-muted-foreground">Duration:</span>
-                <span>{data.duration} days</span>
+                <span className="text-muted-foreground">{tr('Duration:', 'المدة:')}</span>
+                <span>{data.duration} {tr('days', 'يوم')}</span>
             </div>
             {users.length > 0 && (
                 <div className="pt-2 mt-2 border-t">
-                  <p className="text-muted-foreground mb-1">Assignees:</p>
+                  <p className="text-muted-foreground mb-1">{tr('Assignees:', 'المكلّفون:')}</p>
                   <div className="flex items-center -space-x-2 rtl:space-x-reverse">
                     {users.map((user: User) => (
                       <Avatar key={user.id} className="h-6 w-6 border">
@@ -119,6 +122,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany, projects, currentUser, currentRole } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const chartRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -180,7 +185,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
               differenceInDays(startDate, today),
               differenceInDays(endDate, today),
             ] as [number, number],
-            projectName: project?.name || 'Uncategorized',
+            projectName: project?.name || tr('Uncategorized', 'غير مصنّف'),
             fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
     })
@@ -197,7 +202,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
         if (!a.startDate || !b.startDate) return 0;
         return a.startDate.getTime() - b.startDate.getTime()
     });
-  }, [tasks, projects, visibleProjects, selectedStatus, selectedAssignee]);
+  }, [tasks, projects, visibleProjects, selectedStatus, selectedAssignee, language]);
 
 
   const groupedTasks = React.useMemo<GanttRow[]>(() => {
@@ -261,10 +266,10 @@ export function GanttChart({ projectId }: GanttChartProps) {
                  <div className="flex items-center gap-4">
                     <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
                         <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Filter by status" />
+                            <SelectValue placeholder={tr('Filter by status', 'تصفية حسب الحالة')} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Statuses</SelectItem>
+                            <SelectItem value="all">{tr('All Statuses', 'كل الحالات')}</SelectItem>
                             {taskStatuses.map((status) => (
                             <SelectItem key={status} value={status}>
                                 {status}
@@ -274,10 +279,10 @@ export function GanttChart({ projectId }: GanttChartProps) {
                     </Select>
                      <Select value={selectedAssignee} onValueChange={(value) => setSelectedAssignee(value as string)}>
                         <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Filter by assignee" />
+                            <SelectValue placeholder={tr('Filter by assignee', 'تصفية حسب المكلّف')} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Assignees</SelectItem>
+                            <SelectItem value="all">{tr('All Assignees', 'كل المكلّفين')}</SelectItem>
                             {companyUsers.map((user) => (
                             <SelectItem key={user.id} value={user.id}>
                                 {user.name}
@@ -339,7 +344,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                         interval={0}
                         />
                     <Tooltip content={<GanttTooltip allUsers={users} allProjects={projects} />} cursor={{fill: 'hsl(var(--muted))'}}/>
-                    <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: "Today", position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
+                    <ReferenceLine x={0} stroke="hsl(var(--primary))" strokeDasharray="3 3" label={{value: tr("Today", "اليوم"), position:"insideTopLeft", fill: "hsl(var(--primary))" }} />
                     <Bar dataKey="ganttRange" barSize={BAR_HEIGHT * 0.6} radius={[4, 4, 4, 4]}>
                          <LabelList 
                             dataKey="title" 

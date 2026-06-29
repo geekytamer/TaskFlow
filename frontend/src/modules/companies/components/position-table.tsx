@@ -42,7 +42,8 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
   const [positionToDelete, setPositionToDelete] = React.useState<Position | null>(null);
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -69,16 +70,19 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
     try {
       await deletePosition(positionToDelete.id);
       toast({
-        title: 'Position Deleted',
-        description: `Position "${positionToDelete.title}" has been deleted.`,
+        title: tr('Position Deleted', 'تم حذف المنصب'),
+        description: tr(
+          `Position "${positionToDelete.title}" has been deleted.`,
+          `تم حذف المنصب "${positionToDelete.title}".`,
+        ),
       });
       fetchData();
       setPositionToDelete(null);
     } catch (error) {
        toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to delete position.',
+        title: tr('Error', 'خطأ'),
+        description: tr('Failed to delete position.', 'تعذر حذف المنصب.'),
       });
     }
   }
@@ -128,9 +132,9 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
         <Table>
             <TableHeader>
             <TableRow>
-                <TableHead>Position Title</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead className="text-end">Actions</TableHead>
+                <TableHead>{tr('Position Title', 'المسمى الوظيفي')}</TableHead>
+                <TableHead>{tr('Company', 'الشركة')}</TableHead>
+                <TableHead className="text-end">{tr('Actions', 'الإجراءات')}</TableHead>
             </TableRow>
             </TableHeader>
             <TableBody>
@@ -139,7 +143,7 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
               return (
                 <TableRow key={position.id}>
                   <TableCell className="font-medium">{position.title}</TableCell>
-                  <TableCell>{company?.name || 'N/A'}</TableCell>
+                  <TableCell>{company?.name || tr('N/A', 'غير متوفر')}</TableCell>
                   <TableCell className="text-end">
                     <AlertDialog>
                       <DropdownMenu>

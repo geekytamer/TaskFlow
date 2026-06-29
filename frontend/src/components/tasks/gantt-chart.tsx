@@ -26,9 +26,12 @@ import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { ChartContainer, ChartTooltipContent } from '../ui/chart';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { useI18n } from '@/context/i18n-context';
 
 
 const GanttTooltip = ({ active, payload }: any) => {
+    const { language } = useI18n();
+    const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       const user = placeholderUsers.find(u => u.id === data.assignedUserId);
@@ -39,16 +42,16 @@ const GanttTooltip = ({ active, payload }: any) => {
             </CardHeader>
           <CardContent className="p-4 pt-0 text-sm">
             <div className="flex justify-between">
-                <span className="text-muted-foreground">Start:</span>
+                <span className="text-muted-foreground">{tr('Start:', 'البداية:')}</span>
                 <span>{format(data.startDate, 'MMM d')}</span>
             </div>
              <div className="flex justify-between">
-                <span className="text-muted-foreground">End:</span>
+                <span className="text-muted-foreground">{tr('End:', 'النهاية:')}</span>
                 <span>{format(data.endDate, 'MMM d')}</span>
             </div>
              <div className="flex justify-between">
-                <span className="text-muted-foreground">Duration:</span>
-                <span>{data.duration} days</span>
+                <span className="text-muted-foreground">{tr('Duration:', 'المدة:')}</span>
+                <span>{data.duration} {tr('days', 'يوم')}</span>
             </div>
             {user && (
                 <div className="flex items-center pt-2 mt-2 border-t">
@@ -67,6 +70,8 @@ const GanttTooltip = ({ active, payload }: any) => {
   };
 
 export function GanttChart() {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [tasks] = React.useState<Task[]>(placeholderTasks);
   const [users] = React.useState<User[]>(placeholderUsers);
 
@@ -102,19 +107,19 @@ export function GanttChart() {
             <div className="flex items-center gap-4">
                 <Select>
                 <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by status" />
+                    <SelectValue placeholder={tr('Filter by status', 'تصفية حسب الحالة')} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
-                    
+                    <SelectItem value="all">{tr('All Statuses', 'كل الحالات')}</SelectItem>
+
                 </SelectContent>
                 </Select>
                 <Select>
                 <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by assignee" />
+                    <SelectValue placeholder={tr('Filter by assignee', 'تصفية حسب المسؤول')} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="all">All Assignees</SelectItem>
+                    <SelectItem value="all">{tr('All Assignees', 'كل المسؤولين')}</SelectItem>
                     {users.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                         {user.name}

@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,6 +14,8 @@ import { canViewProject } from '@/modules/projects/lib/access';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [clients, setClients] = React.useState<Client[]>([]);
 
   React.useEffect(() => {
@@ -81,7 +84,7 @@ export function ProjectList() {
                                 <div className="flex flex-wrap gap-2">
                                     <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
                                     {project.visibility === 'Private' ? <Lock className="me-1 h-3 w-3" /> : <Globe className="me-1 h-3 w-3" />}
-                                    {project.visibility}
+                                    {project.visibility === 'Private' ? tr('Private', 'خاص') : tr('Public', 'عام')}
                                     </Badge>
                                     {client && <Badge variant="outline">{client.name}</Badge>}
                                 </div>

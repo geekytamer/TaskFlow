@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { InvoiceDocument } from '@/modules/finance/components/invoice-document';
 import { getInvoice, getClients, getInvoiceTemplates } from '@/services/financeService';
 import type { Invoice, Client, InvoiceTemplate } from '@/modules/finance/types';
@@ -15,6 +16,8 @@ export default function PrintInvoicePage() {
   const id = params?.id as string;
   const shouldAutoPrint = searchParams.get('print') === '1';
   const { selectedCompany } = useCompany();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
   const [client, setClient] = React.useState<Client | null>(null);
   const [template, setTemplate] = React.useState<InvoiceTemplate | null>(null);
@@ -29,7 +32,7 @@ export default function PrintInvoicePage() {
         setLoading(true);
         const inv = await getInvoice(id);
         if (!inv || inv.companyId !== selectedCompany?.id) {
-          setError('Invoice not found or does not belong to the selected company.');
+          setError(tr('Invoice not found or does not belong to the selected company.', 'الفاتورة غير موجودة أو لا تخص الشركة المحددة.'));
           return;
         }
         setInvoice(inv);
@@ -51,7 +54,7 @@ export default function PrintInvoicePage() {
                   null;
         setTemplate(t);
       } catch (err: any) {
-        setError(err.message || 'Error loading invoice');
+        setError(err.message || tr('Error loading invoice', 'حدث خطأ أثناء تحميل الفاتورة'));
       } finally {
         setLoading(false);
       }
@@ -97,15 +100,15 @@ export default function PrintInvoicePage() {
   }, [shouldAutoPrint, loading, invoice, selectedCompany]);
 
   if (!selectedCompany) {
-    return <div className="p-8 text-center text-slate-500">Company not selected. Please go back to the app and select a company.</div>;
+    return <div className="p-8 text-center text-slate-500">{tr('Company not selected. Please go back to the app and select a company.', 'لم يتم تحديد شركة. يُرجى العودة إلى التطبيق واختيار شركة.')}</div>;
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading invoice...</div>;
+    return <div className="p-8 text-center text-slate-500">{tr('Loading invoice...', 'جارٍ تحميل الفاتورة...')}</div>;
   }
 
   if (error || !invoice) {
-    return <div className="p-8 text-center text-red-500">{error || 'Invoice not found'}</div>;
+    return <div className="p-8 text-center text-red-500">{error || tr('Invoice not found', 'الفاتورة غير موجودة')}</div>;
   }
 
   return (
@@ -128,12 +131,12 @@ export default function PrintInvoicePage() {
       <div className="no-print mx-auto mb-6 flex max-w-[760px] flex-col items-center gap-4 rounded-lg bg-white p-4 shadow-sm sm:flex-row sm:justify-between">
         <p className="text-sm text-slate-500">
           {shouldAutoPrint
-            ? 'The print dialog should open automatically. Use Pages per sheet = 1 and disable browser headers/footers for a clean PDF.'
-            : 'Use Pages per sheet = 1 and disable browser headers/footers in the print dialog for a clean PDF.'}
+            ? tr('The print dialog should open automatically. Use Pages per sheet = 1 and disable browser headers/footers for a clean PDF.', 'من المفترض أن تُفتح نافذة الطباعة تلقائيًا. استخدم عدد الصفحات لكل ورقة = 1 وعطّل رؤوس وتذييلات المتصفح للحصول على ملف PDF نظيف.')
+            : tr('Use Pages per sheet = 1 and disable browser headers/footers in the print dialog for a clean PDF.', 'استخدم عدد الصفحات لكل ورقة = 1 وعطّل رؤوس وتذييلات المتصفح في نافذة الطباعة للحصول على ملف PDF نظيف.')}
         </p>
         <Button onClick={() => window.print()}>
           <Printer className="mr-2 h-4 w-4" />
-          Print / Save PDF
+          {tr('Print / Save PDF', 'طباعة / حفظ PDF')}
         </Button>
       </div>
 

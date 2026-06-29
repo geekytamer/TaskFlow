@@ -46,13 +46,16 @@ import { useI18n } from '@/context/i18n-context';
 
 const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
-const addUserSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters.'),
-  email: z.string().email('Please enter a valid email.'),
-  companyIds: z.array(z.string()).min(1, 'Please select at least one company.'),
-});
+const buildAddUserSchema = (tr: (en: string, ar: string) => string) =>
+  z.object({
+    name: z.string().min(2, tr('Name must be at least 2 characters.', 'يجب أن لا يقل الاسم عن حرفين.')),
+    email: z.string().email(tr('Please enter a valid email.', 'يرجى إدخال بريد إلكتروني صالح.')),
+    companyIds: z
+      .array(z.string())
+      .min(1, tr('Please select at least one company.', 'يرجى اختيار شركة واحدة على الأقل.')),
+  });
 
-type AddUserFormValues = z.infer<typeof addUserSchema>;
+type AddUserFormValues = z.infer<ReturnType<typeof buildAddUserSchema>>;
 
 interface AddUserSheetProps {
   children?: React.ReactNode;
@@ -72,7 +75,8 @@ export function AddUserSheet({
   currentUserRole,
 }: AddUserSheetProps) {
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { companies, currentUser, selectedCompany } = useCompany();
   const [positions, setPositions] = React.useState<Position[]>([]);
   const [companyAssignments, setCompanyAssignments] = React.useState<
@@ -86,6 +90,8 @@ export function AddUserSheet({
     costRatePerHour: string;
   }>({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
   const isEditMode = !!userToEdit;
+
+  const addUserSchema = React.useMemo(() => buildAddUserSchema(tr), [language]);
 
   const form = useForm<AddUserFormValues>({
     resolver: zodResolver(addUserSchema),
@@ -259,8 +265,11 @@ export function AddUserSheet({
           ...commissionPayload,
         });
         toast({
-          title: 'User Updated',
-          description: `User "${data.name}" has been successfully updated.`,
+          title: tr('User Updated', 'تم تحديث المستخدم'),
+          description: tr(
+            `User "${data.name}" has been successfully updated.`,
+            `تم تحديث المستخدم "${data.name}" بنجاح.`,
+          ),
         });
       } else {
         const result = await createUser({
@@ -272,8 +281,11 @@ export function AddUserSheet({
           ...commissionPayload,
         } as any);
         toast({
-          title: 'User Created',
-          description: `User "${data.name}" has been created. Temporary password: ${result.password}`,
+          title: tr('User Created', 'تم إنشاء المستخدم'),
+          description: tr(
+            `User "${data.name}" has been created. Temporary password: ${result.password}`,
+            `تم إنشاء المستخدم "${data.name}". كلمة المرور المؤقتة: ${result.password}`,
+          ),
         });
       }
       onUserAdded();
@@ -281,8 +293,8 @@ export function AddUserSheet({
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Failed to save user.',
+        title: tr('Error', 'خطأ'),
+        description: error.message || tr('Failed to save user.', 'تعذر حفظ المستخدم.'),
       });
     }
   };
@@ -469,9 +481,9 @@ export function AddUserSheet({
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Revenue">Revenue</SelectItem>
-                      <SelectItem value="Paid Amount">Paid Amount</SelectItem>
-                      <SelectItem value="Profit">Profit</SelectItem>
+                      <SelectItem value="Revenue">{tr('Revenue', 'الإيرادات')}</SelectItem>
+                      <SelectItem value="Paid Amount">{tr('Paid Amount', 'المبلغ المدفوع')}</SelectItem>
+                      <SelectItem value="Profit">{tr('Profit', 'الربح')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

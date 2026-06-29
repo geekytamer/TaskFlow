@@ -59,7 +59,8 @@ export function AddPositionDialog({
   companyId,
 }: AddPositionDialogProps) {
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { companies } = useCompany();
 
   const form = useForm<AddPositionFormValues>({
@@ -85,16 +86,16 @@ export function AddPositionDialog({
     try {
       await createPosition(data);
       toast({
-        title: 'Position Created',
-        description: `Position "${data.title}" has been successfully created.`,
+        title: tr('Position Created', 'تم إنشاء المنصب'),
+        description: tr(`Position "${data.title}" has been successfully created.`, `تم إنشاء المنصب "${data.title}" بنجاح.`),
       });
       onPositionAdded();
       handleOpenChange(false);
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create position.',
+        title: tr('Error', 'خطأ'),
+        description: tr('Failed to create position.', 'تعذّر إنشاء المنصب.'),
       });
     }
   };

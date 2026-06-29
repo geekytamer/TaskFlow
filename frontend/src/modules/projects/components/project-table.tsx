@@ -30,6 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { getClients } from '@/services/financeService';
 import type { Client } from '@/modules/finance/types';
+import { useI18n } from '@/context/i18n-context';
 
 interface ProjectTableProps {
     projectId?: string;
@@ -44,6 +45,8 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const { selectedCompany, projects, currentRole } = useCompany();
     const { toast } = useToast();
+    const { language } = useI18n();
+    const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
     const loadData = React.useCallback(async () => {
         if (!selectedCompany) return;
@@ -66,13 +69,13 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
             setClients([]);
             toast({
                 variant: 'destructive',
-                title: 'Error',
-                description: error?.message || 'Could not load project tasks.',
+                title: tr('Error', 'خطأ'),
+                description: error?.message || tr('Could not load project tasks.', 'تعذر تحميل مهام المشروع.'),
             });
         } finally {
             setLoading(false);
         }
-    }, [currentRole, selectedCompany, toast]);
+    }, [currentRole, selectedCompany, toast, tr]);
 
     React.useEffect(() => {
         loadData();
@@ -105,13 +108,13 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Task</TableHead>
-                            <TableHead>Project</TableHead>
-                            <TableHead>Client</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Priority</TableHead>
-                            <TableHead>Assignees</TableHead>
-                            <TableHead>Due Date</TableHead>
+                            <TableHead>{tr('Task', 'المهمة')}</TableHead>
+                            <TableHead>{tr('Project', 'المشروع')}</TableHead>
+                            <TableHead>{tr('Client', 'العميل')}</TableHead>
+                            <TableHead>{tr('Status', 'الحالة')}</TableHead>
+                            <TableHead>{tr('Priority', 'الأولوية')}</TableHead>
+                            <TableHead>{tr('Assignees', 'المسؤولون')}</TableHead>
+                            <TableHead>{tr('Due Date', 'تاريخ الاستحقاق')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -139,10 +142,10 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
         <div className="flex items-center gap-4">
              <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as TaskStatus | 'all')}>
                 <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by status" />
+                    <SelectValue placeholder={tr('Filter by status', 'تصفية حسب الحالة')} />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="all">{tr('All Statuses', 'كل الحالات')}</SelectItem>
                     {taskStatuses.map((status) => (
                     <SelectItem key={status} value={status}>
                         {status}
@@ -156,13 +159,13 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
             <Table>
                 <TableHeader>
                 <TableRow>
-                    <TableHead>Task</TableHead>
-                    <TableHead>Project</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Assignees</TableHead>
-                    <TableHead>Due Date</TableHead>
+                    <TableHead>{tr('Task', 'المهمة')}</TableHead>
+                    <TableHead>{tr('Project', 'المشروع')}</TableHead>
+                    <TableHead>{tr('Client', 'العميل')}</TableHead>
+                    <TableHead>{tr('Status', 'الحالة')}</TableHead>
+                    <TableHead>{tr('Priority', 'الأولوية')}</TableHead>
+                    <TableHead>{tr('Assignees', 'المسؤولون')}</TableHead>
+                    <TableHead>{tr('Due Date', 'تاريخ الاستحقاق')}</TableHead>
                 </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -181,11 +184,11 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
                                         {project.name}
                                     </>
                                 ) : (
-                                    <span className="text-muted-foreground">No project</span>
+                                    <span className="text-muted-foreground">{tr('No project', 'بدون مشروع')}</span>
                                 )}
                             </div>
                         </TableCell>
-                        <TableCell>{client?.name || 'Unlinked'}</TableCell>
+                        <TableCell>{client?.name || tr('Unlinked', 'غير مرتبط')}</TableCell>
                         <TableCell>
                             <Badge variant="outline">{task.status}</Badge>
                         </TableCell>
@@ -203,7 +206,7 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
                             )}
                         </TableCell>
                         <TableCell>
-                            {task.dueDate ? format(task.dueDate, 'MMM d, yyyy') : 'N/A'}
+                            {task.dueDate ? format(task.dueDate, 'MMM d, yyyy') : tr('N/A', 'غير متاح')}
                         </TableCell>
                         </TableRow>
                     )

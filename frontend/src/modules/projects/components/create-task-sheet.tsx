@@ -45,6 +45,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 // AI tag suggestion removed; fallback heuristic in component
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Label } from '@/components/ui/label';
 import { useRouter } from 'next/navigation';
@@ -77,6 +78,8 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
   const [suggestedTags, setSuggestedTags] = React.useState<string[]>([]);
   const [isSuggesting, setIsSuggesting] = React.useState(false);
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { selectedCompany, currentUser, currentRole, projects } = useCompany();
 
   const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
@@ -137,8 +140,8 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
     if (!descriptionValue) {
       toast({
         variant: 'destructive',
-        title: 'Description needed',
-        description: 'Please enter a description to suggest tags.',
+        title: tr('Description needed', 'الوصف مطلوب'),
+        description: tr('Please enter a description to suggest tags.', 'الرجاء إدخال وصف لاقتراح الوسوم.'),
       });
       return;
     }
@@ -180,8 +183,8 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
             parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
         });
         toast({
-        title: 'Task Created',
-        description: `Task "${data.title}" has been created.`,
+        title: tr('Task Created', 'تم إنشاء المهمة'),
+        description: tr(`Task "${data.title}" has been created.`, `تم إنشاء المهمة "${data.title}".`),
         });
         form.reset();
         setOpen(false);
@@ -189,8 +192,8 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
     } catch (error) {
          toast({
             variant: 'destructive',
-            title: 'Error',
-            description: 'Failed to create task.',
+            title: tr('Error', 'خطأ'),
+            description: tr('Failed to create task.', 'فشل إنشاء المهمة.'),
         });
     }
   }
@@ -199,22 +202,22 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button><PlusCircle className="me-2 h-4 w-4" />New Task</Button>
+        <Button><PlusCircle className="me-2 h-4 w-4" />{tr('New Task', 'مهمة جديدة')}</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-2xl sm:max-w-2xl flex flex-col">
        <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
             <SheetHeader>
-              <SheetTitle>Create New Task</SheetTitle>
+              <SheetTitle>{tr('Create New Task', 'إنشاء مهمة جديدة')}</SheetTitle>
               <SheetDescription>
-                Fill in the details below to add a new task to a project.
+                {tr('Fill in the details below to add a new task to a project.', 'املأ التفاصيل أدناه لإضافة مهمة جديدة إلى مشروع.')}
               </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto pe-6 -me-6">
               <div className="grid gap-4 py-4">
                 {lockedProjectId ? (
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <FormLabel className="text-end">Project</FormLabel>
+                    <FormLabel className="text-end">{tr('Project', 'المشروع')}</FormLabel>
                     <div className="col-span-3 flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
                       {(() => {
                         const p = projects.find((pr) => pr.id === lockedProjectId);
@@ -233,7 +236,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                     name="projectId"
                     render={({ field }) => (
                       <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-end">Project</FormLabel>
+                        <FormLabel className="text-end">{tr('Project', 'المشروع')}</FormLabel>
                         <div className="col-span-3">
                           <Select
                             onValueChange={(v) => field.onChange(v === NO_PROJECT ? '' : v)}
@@ -241,12 +244,12 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="No project (optional)" />
+                                <SelectValue placeholder={tr('No project (optional)', 'بدون مشروع (اختياري)')} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
                               <SelectItem value={NO_PROJECT}>
-                                <span className="text-muted-foreground">No project</span>
+                                <span className="text-muted-foreground">{tr('No project', 'بدون مشروع')}</span>
                               </SelectItem>
                               {visibleProjects.map((project) => (
                                 <SelectItem key={project.id} value={project.id}>
@@ -269,10 +272,10 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="title"
                   render={({ field }) => (
                     <FormItem className="grid grid-cols-4 items-center gap-4">
-                      <FormLabel className="text-end">Title</FormLabel>
+                      <FormLabel className="text-end">{tr('Title', 'العنوان')}</FormLabel>
                       <div className="col-span-3">
                          <FormControl>
-                            <Input placeholder="e.g. Design homepage mockups" {...field} />
+                            <Input placeholder={tr('e.g. Design homepage mockups', 'مثال: تصميم نماذج الصفحة الرئيسية')} {...field} />
                         </FormControl>
                         <FormMessage />
                       </div>
@@ -284,11 +287,11 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="description"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-start gap-4">
-                      <FormLabel className="text-end pt-2">Description</FormLabel>
+                      <FormLabel className="text-end pt-2">{tr('Description', 'الوصف')}</FormLabel>
                       <div className="col-span-3">
                         <FormControl>
                           <Textarea
-                            placeholder="Add a detailed description for the task..."
+                            placeholder={tr('Add a detailed description for the task...', 'أضف وصفاً مفصلاً للمهمة...')}
                             className="min-h-[120px]"
                             {...field}
                           />
@@ -306,16 +309,16 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                     );
                     return (
                       <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-end">Parent Task</FormLabel>
+                        <FormLabel className="text-end">{tr('Parent Task', 'المهمة الأم')}</FormLabel>
                         <div className="col-span-3">
                           <Select onValueChange={field.onChange} value={field.value || 'none'}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="No parent task" />
+                                <SelectValue placeholder={tr('No parent task', 'بدون مهمة أم')} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="none">No parent task</SelectItem>
+                              <SelectItem value="none">{tr('No parent task', 'بدون مهمة أم')}</SelectItem>
                               {parentOptions.map((task) => (
                                 <SelectItem key={task.id} value={task.id}>
                                   {task.title}
@@ -330,7 +333,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   }}
                 />
                 <div className="grid grid-cols-4 items-start gap-4">
-                  <Label className="text-end pt-2">Tags</Label>
+                  <Label className="text-end pt-2">{tr('Tags', 'الوسوم')}</Label>
                   <div className="col-span-3">
                     <div className="flex items-center gap-2 mb-2">
                         <Input
@@ -342,11 +345,11 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                                     addTag(tagInput);
                                 }
                             }}
-                            placeholder="Add a tag and press Enter"
+                            placeholder={tr('Add a tag and press Enter', 'أضف وسماً واضغط Enter')}
                         />
                          <Button type="button" variant="outline" size="sm" onClick={handleSuggestTags} disabled={isSuggesting}>
                             <Sparkles className={cn("me-2 h-4 w-4", isSuggesting && "animate-spin")} />
-                            {isSuggesting ? 'Thinking...' : 'Suggest'}
+                            {isSuggesting ? tr('Thinking...', 'جارٍ التفكير...') : tr('Suggest', 'اقتراح')}
                         </Button>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -361,7 +364,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                     </div>
                      {suggestedTags.length > 0 && (
                         <div className="mt-2">
-                            <p className="text-xs text-muted-foreground mb-1">Suggestions:</p>
+                            <p className="text-xs text-muted-foreground mb-1">{tr('Suggestions:', 'اقتراحات:')}</p>
                             <div className="flex flex-wrap gap-1">
                             {suggestedTags.map(tag => (
                                 <Button key={tag} type="button" size="sm" variant="outline" onClick={() => addTag(tag)}>
@@ -379,13 +382,13 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="assignedUserIds"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-start gap-4">
-                        <FormLabel className="text-end pt-2">Assignees</FormLabel>
+                        <FormLabel className="text-end pt-2">{tr('Assignees', 'المسؤولون')}</FormLabel>
                         <div className="col-span-3">
                           <MultiSelect
                               items={companyUsers}
                               selected={field.value || []}
                               onChange={field.onChange}
-                              placeholder="Select assignees..."
+                              placeholder={tr('Select assignees...', 'اختر المسؤولين...')}
                           />
                         </div>
                     </FormItem>
@@ -396,12 +399,12 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="priority"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-center gap-4">
-                      <FormLabel className="text-end">Priority</FormLabel>
+                      <FormLabel className="text-end">{tr('Priority', 'الأولوية')}</FormLabel>
                        <div className="col-span-3">
                           <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select priority" />
+                                <SelectValue placeholder={tr('Select priority', 'اختر الأولوية')} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
@@ -422,7 +425,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="dueDate"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-end">Due Date</FormLabel>
+                        <FormLabel className="text-end">{tr('Due Date', 'تاريخ الاستحقاق')}</FormLabel>
                         <div className="col-span-3">
                         <Popover>
                             <PopoverTrigger asChild>
@@ -435,7 +438,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                                     )}
                                 >
                                     <CalendarIcon className="me-2 h-4 w-4" />
-                                    {field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}
+                                    {field.value ? format(field.value, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
                                 </Button>
                                </FormControl>
                             </PopoverTrigger>
@@ -453,7 +456,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                     name="color"
                     render={({ field }) => (
                         <FormItem className="grid grid-cols-4 items-center gap-4">
-                            <FormLabel className="text-end">Task Color</FormLabel>
+                            <FormLabel className="text-end">{tr('Task Color', 'لون المهمة')}</FormLabel>
                             <FormControl>
                                 <Input id="color" type="color" className="col-span-3 p-1" {...field} />
                             </FormControl>
@@ -464,9 +467,9 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
             </div>
             <SheetFooter>
               <SheetClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
+                <Button type="button" variant="outline">{tr('Cancel', 'إلغاء')}</Button>
               </SheetClose>
-              <Button type="submit">Create Task</Button>
+              <Button type="submit">{tr('Create Task', 'إنشاء المهمة')}</Button>
             </SheetFooter>
          </form>
         </Form>

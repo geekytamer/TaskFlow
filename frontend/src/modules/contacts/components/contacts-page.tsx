@@ -103,7 +103,7 @@ const PRIORITY_COLORS: Record<ContactPriority, string> = {
 
 export function ContactsPage() {
   const { selectedCompany } = useCompany();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -632,7 +632,7 @@ export function ContactsPage() {
                       <Label className="text-xs">{t('crm.niche')}</Label>
                       <Input className="h-8 text-sm" value={crmForm.influencerNiche}
                         onChange={e => setCrmForm(f => ({ ...f, influencerNiche: e.target.value }))}
-                        placeholder="Beauty, Tech, Lifestyle…" />
+                        placeholder={language === 'ar' ? 'جمال، تقنية، نمط حياة…' : 'Beauty, Tech, Lifestyle…'} />
                     </div>
                     <div>
                       <Label className="text-xs">{t('crm.availability')}</Label>
@@ -668,7 +668,7 @@ export function ContactsPage() {
                       <Label className="text-xs">{t('crm.location')}</Label>
                       <Input className="h-8 text-sm" value={crmForm.location}
                         onChange={e => setCrmForm(f => ({ ...f, location: e.target.value }))}
-                        placeholder="City, Country" />
+                        placeholder={language === 'ar' ? 'المدينة، الدولة' : 'City, Country'} />
                     </div>
                   </div>
 

@@ -1481,19 +1481,21 @@ export function CommissionsPage() {
   const { selectedCompany, loading } = useCrmBaseData();
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [commissions, setCommissions] = React.useState<Commission[]>([]);
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) return setCommissions([]);
     try { setCommissions(await getCommissions(selectedCompany.id)); }
-    catch (error: any) { toast({ variant: 'destructive', title: 'Could not load commissions', description: error?.message }); }
-  }, [selectedCompany, toast]);
+    catch (error: any) { toast({ variant: 'destructive', title: tr('Could not load commissions', 'تعذّر تحميل العمولات'), description: error?.message }); }
+  }, [selectedCompany, toast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   React.useEffect(() => { load(); }, [load]);
 
   if (!selectedCompany) return (
-    <SectionPageShell title="Commissions" description="Review and pay team commissions.">
-      <SectionEmptyState title="Choose a company" description="Commissions are company-specific." />
+    <SectionPageShell title={tr('Commissions', 'العمولات')} description={tr('Review and pay team commissions.', 'مراجعة وصرف عمولات الفريق.')}>
+      <SectionEmptyState title={tr('Choose a company', 'اختر شركة')} description={tr('Commissions are company-specific.', 'العمولات خاصة بكل شركة.')} />
     </SectionPageShell>
   );
 
@@ -1502,12 +1504,12 @@ export function CommissionsPage() {
   const paidTotal = commissions.filter((c) => c.status === 'Paid').reduce((s, c) => s + c.amount, 0);
 
   return (
-    <SectionPageShell title="Commissions" description="Approve and pay commissions generated from won opportunities.">
+    <SectionPageShell title={tr('Commissions', 'العمولات')} description={tr('Approve and pay commissions generated from won opportunities.', 'اعتماد وصرف العمولات الناتجة عن الفرص المكسوبة.')}>
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard icon={BadgeDollarSign} label="Draft" value={amount(draftTotal)} sub={`${commissions.filter((c) => c.status === 'Draft').length} entries`} color="text-gray-600" />
-        <StatCard icon={CheckCircle2} label="Approved" value={amount(approvedTotal)} sub={`${commissions.filter((c) => c.status === 'Approved').length} entries`} color="text-blue-600" />
-        <StatCard icon={TrendingUp} label="Paid Out" value={amount(paidTotal)} sub={`${commissions.filter((c) => c.status === 'Paid').length} entries`} color="text-green-600" />
+        <StatCard icon={BadgeDollarSign} label={tr('Draft', 'مسودة')} value={amount(draftTotal)} sub={`${commissions.filter((c) => c.status === 'Draft').length} ${tr('entries', 'إدخالات')}`} color="text-gray-600" />
+        <StatCard icon={CheckCircle2} label={tr('Approved', 'معتمدة')} value={amount(approvedTotal)} sub={`${commissions.filter((c) => c.status === 'Approved').length} ${tr('entries', 'إدخالات')}`} color="text-blue-600" />
+        <StatCard icon={TrendingUp} label={tr('Paid Out', 'المصروفة')} value={amount(paidTotal)} sub={`${commissions.filter((c) => c.status === 'Paid').length} ${tr('entries', 'إدخالات')}`} color="text-green-600" />
       </div>
 
       {/* Table */}
@@ -1515,12 +1517,12 @@ export function CommissionsPage() {
         <Table>
           <TableHeader>
             <TableRow className="">
-              <TableHead>Service</TableHead>
-              <TableHead>Team Member</TableHead>
-              <TableHead>Basis</TableHead>
-              <TableHead>Commission</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{tr('Service', 'الخدمة')}</TableHead>
+              <TableHead>{tr('Team Member', 'عضو الفريق')}</TableHead>
+              <TableHead>{tr('Basis', 'الأساس')}</TableHead>
+              <TableHead>{tr('Commission', 'العمولة')}</TableHead>
+              <TableHead>{tr('Status', 'الحالة')}</TableHead>
+              <TableHead className="text-right">{tr('Actions', 'الإجراءات')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1533,19 +1535,19 @@ export function CommissionsPage() {
                 <TableCell className="text-sm">{item.userName || '—'}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{amount(item.basisAmount)}</TableCell>
                 <TableCell className="font-semibold text-sm">{amount(item.amount)}</TableCell>
-                <TableCell><ColorBadge status={item.status} map={commissionStatusColor} /></TableCell>
+                <TableCell><ColorBadge status={item.status} map={commissionStatusColor} label={item.status === 'Draft' ? tr('Draft', 'مسودة') : item.status === 'Approved' ? tr('Approved', 'معتمدة') : item.status === 'Paid' ? tr('Paid', 'مدفوعة') : item.status} /></TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     {item.status === 'Draft' && (
                       <Button size="sm" variant="outline" className="h-7 gap-1 text-xs"
                         onClick={async () => { await updateCommissionStatus(item.id, 'Approved'); await load(); }}>
-                        <CheckCircle2 className="h-3 w-3" /> Approve
+                        <CheckCircle2 className="h-3 w-3" /> {tr('Approve', 'اعتماد')}
                       </Button>
                     )}
                     {item.status === 'Approved' && (
                       <Button size="sm" className="h-7 gap-1 text-xs bg-green-600 hover:bg-green-700 text-white"
                         onClick={async () => { await updateCommissionStatus(item.id, 'Paid'); await load(); }}>
-                        <BadgeDollarSign className="h-3 w-3" /> Mark Paid
+                        <BadgeDollarSign className="h-3 w-3" /> {tr('Mark Paid', 'تحديد كمصروفة')}
                       </Button>
                     )}
                   </div>
@@ -1554,7 +1556,7 @@ export function CommissionsPage() {
             ))}
             {!loading && commissions.length === 0 && (
               <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                No commissions yet. Commissions are generated from won opportunities.
+                {tr('No commissions yet. Commissions are generated from won opportunities.', 'لا توجد عمولات بعد. تُنشأ العمولات من الفرص المكسوبة.')}
               </TableCell></TableRow>
             )}
           </TableBody>

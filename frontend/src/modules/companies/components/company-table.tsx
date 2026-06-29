@@ -43,7 +43,8 @@ export function CompanyTable() {
   const [companyToDelete, setCompanyToDelete] = React.useState<Company | null>(null);
   const [companyToEdit, setCompanyToEdit] = React.useState<Company | null>(null);
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
   const onCompanyAdded = () => {
     refreshCompanies();
@@ -54,16 +55,16 @@ export function CompanyTable() {
     try {
       await deleteCompany(companyToDelete.id);
       toast({
-        title: 'Company Deleted',
-        description: `Company "${companyToDelete.name}" has been deleted.`,
+        title: tr('Company Deleted', 'تم حذف الشركة'),
+        description: tr(`Company "${companyToDelete.name}" has been deleted.`, `تم حذف الشركة "${companyToDelete.name}".`),
       });
       refreshCompanies();
       setCompanyToDelete(null);
     } catch (error) {
        toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to delete company.',
+        title: tr('Error', 'خطأ'),
+        description: tr('Failed to delete company.', 'تعذّر حذف الشركة.'),
       });
     }
   }

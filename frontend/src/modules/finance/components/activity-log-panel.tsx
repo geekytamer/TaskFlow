@@ -22,6 +22,7 @@ import { getUsersByCompany } from '@/services/userService';
 import type { ActivityEvent } from '@/modules/finance/types';
 import type { User } from '@/modules/users/types';
 import { Download } from 'lucide-react';
+import { useI18n } from '@/context/i18n-context';
 
 const entityTypes: Array<ActivityEvent['entityType']> = [
   'client',
@@ -37,6 +38,8 @@ const entityTypes: Array<ActivityEvent['entityType']> = [
 export function ActivityLogPanel() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [events, setEvents] = React.useState<ActivityEvent[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -69,8 +72,8 @@ export function ActivityLogPanel() {
       setUsers([]);
       toast({
         variant: 'destructive',
-        title: 'Activity log unavailable',
-        description: error?.message || 'Could not load activity log.',
+        title: tr('Activity log unavailable', 'سجل النشاط غير متاح'),
+        description: error?.message || tr('Could not load activity log.', 'تعذّر تحميل سجل النشاط.'),
       });
     } finally {
       setLoading(false);
@@ -94,8 +97,8 @@ export function ActivityLogPanel() {
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Export failed',
-        description: error?.message || 'Could not export activity log.',
+        title: tr('Export failed', 'فشل التصدير'),
+        description: error?.message || tr('Could not export activity log.', 'تعذّر تصدير سجل النشاط.'),
       });
     }
   };
@@ -119,7 +122,7 @@ export function ActivityLogPanel() {
     return (
       <Card>
         <CardContent className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-          Select a company to view the activity log.
+          {tr('Select a company to view the activity log.', 'اختر شركة لعرض سجل النشاط.')}
         </CardContent>
       </Card>
     );
@@ -129,21 +132,21 @@ export function ActivityLogPanel() {
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-[1fr_220px_220px_auto]">
         <div className="space-y-1">
-          <Label>Record Id</Label>
+          <Label>{tr('Record Id', 'معرّف السجل')}</Label>
           <Input
             value={entityId}
             onChange={(event) => setEntityId(event.target.value)}
-            placeholder="Filter by record id"
+            placeholder={tr('Filter by record id', 'التصفية حسب معرّف السجل')}
           />
         </div>
         <div className="space-y-1">
-          <Label>Entity Type</Label>
+          <Label>{tr('Entity Type', 'نوع العنصر')}</Label>
           <Select value={entityType} onValueChange={(value) => setEntityType(value as typeof entityType)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All entities</SelectItem>
+              <SelectItem value="all">{tr('All entities', 'جميع العناصر')}</SelectItem>
               {entityTypes.map((type) => (
                 <SelectItem key={type} value={type}>
                   {type.replace('_', ' ')}
@@ -153,13 +156,13 @@ export function ActivityLogPanel() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label>Actor</Label>
+          <Label>{tr('Actor', 'المنفّذ')}</Label>
           <Select value={actorUserId} onValueChange={setActorUserId}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All users</SelectItem>
+              <SelectItem value="all">{tr('All users', 'جميع المستخدمين')}</SelectItem>
               {users.map((user) => (
                 <SelectItem key={user.id} value={user.id}>
                   {user.name}
@@ -169,36 +172,36 @@ export function ActivityLogPanel() {
           </Select>
         </div>
         <div className="flex items-end gap-2">
-          <Button variant="outline" onClick={load}>Apply</Button>
+          <Button variant="outline" onClick={load}>{tr('Apply', 'تطبيق')}</Button>
           <Button variant="outline" onClick={handleExport}>
             <Download className="me-2 h-4 w-4" />
-            Export CSV
+            {tr('Export CSV', 'تصدير CSV')}
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Activity Log</CardTitle>
+          <CardTitle>{tr('Activity Log', 'سجل النشاط')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>When</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Record</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Summary</TableHead>
+                  <TableHead>{tr('When', 'الوقت')}</TableHead>
+                  <TableHead>{tr('Actor', 'المنفّذ')}</TableHead>
+                  <TableHead>{tr('Entity', 'العنصر')}</TableHead>
+                  <TableHead>{tr('Record', 'السجل')}</TableHead>
+                  <TableHead>{tr('Action', 'الإجراء')}</TableHead>
+                  <TableHead>{tr('Summary', 'الملخّص')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {events.map((event) => (
                   <TableRow key={event.id}>
                     <TableCell>{format(event.createdAt, 'MMM d, yyyy h:mm a')}</TableCell>
-                    <TableCell>{event.actorName || actorNameMap.get(event.actorUserId || '') || 'System'}</TableCell>
+                    <TableCell>{event.actorName || actorNameMap.get(event.actorUserId || '') || tr('System', 'النظام')}</TableCell>
                     <TableCell>{event.entityType.replace('_', ' ')}</TableCell>
                     <TableCell className="font-mono text-xs">{event.entityId}</TableCell>
                     <TableCell>{event.action}</TableCell>
@@ -208,7 +211,7 @@ export function ActivityLogPanel() {
                 {events.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
-                      No activity matches the current filters.
+                      {tr('No activity matches the current filters.', 'لا يوجد نشاط مطابق لعوامل التصفية الحالية.')}
                     </TableCell>
                   </TableRow>
                 )}
