@@ -295,8 +295,8 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                                 <AlertDialogTitle>{tr('Are you absolutely sure?', 'هل أنت متأكد تمامًا؟')}</AlertDialogTitle>
                                 <AlertDialogDescription>
                                 {tr(
-                                  `This action cannot be undone. This will permanently delete the user "${userToDelete.name}" from Firestore. Note: this does not delete the user from Firebase Authentication.`,
-                                  `لا يمكن التراجع عن هذا الإجراء. سيؤدي ذلك إلى حذف المستخدم "${userToDelete.name}" نهائيًا من Firestore. ملاحظة: لا يحذف هذا المستخدم من مصادقة Firebase.`,
+                                  `This action cannot be undone. This will permanently delete the user "${userToDelete.name}" and revoke their access.`,
+                                  `لا يمكن التراجع عن هذا الإجراء. سيؤدي ذلك إلى حذف المستخدم "${userToDelete.name}" نهائيًا وإلغاء صلاحيات وصوله.`,
                                 )}
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
