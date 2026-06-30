@@ -48,6 +48,8 @@ import {
   getContacts,
   updateContact,
   deleteContact,
+  addContactRole,
+  removeContactRole,
   influencerPlatforms,
   type Contact,
   type ContactRoleType,
@@ -296,7 +298,7 @@ export function ContactsPage() {
     if (!editingContact || !editForm.name.trim()) return;
     setSaving(true);
     try {
-      const updated = await updateContact(editingContact.id, {
+      let updated = await updateContact(editingContact.id, {
         kind: editForm.kind,
         name: editForm.name.trim(),
         legalName: editForm.legalName.trim() || undefined,
@@ -307,6 +309,16 @@ export function ContactsPage() {
         taxNumber: editForm.taxNumber.trim() || undefined,
         notes: editForm.notes.trim() || undefined,
       });
+      // Roles are managed via dedicated endpoints, not updateContact — sync the
+      // diff so toggling Client/Lead/etc. on or off actually persists.
+      const original = editingContact.roles ?? [];
+      const next = editForm.roles ?? [];
+      for (const role of next.filter(r => !original.includes(r))) {
+        updated = await addContactRole(editingContact.id, role);
+      }
+      for (const role of original.filter(r => !next.includes(r))) {
+        updated = await removeContactRole(editingContact.id, role);
+      }
       setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
       setEditingContact(null);
       toast({ title: t('contacts.updated') });
