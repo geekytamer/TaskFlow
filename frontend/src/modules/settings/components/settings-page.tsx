@@ -54,7 +54,7 @@ export function SettingsPage() {
           throw new Error("Default admin user template not found in placeholders.");
       }
       
-      const firestoreUserData = {
+      const adminUserData = {
           ...adminTemplate,
           id: adminId,
           email: adminEmail,
@@ -62,7 +62,7 @@ export function SettingsPage() {
           avatar: undefined
       };
 
-      await createUserWithId(adminId, { ...firestoreUserData, password });
+      await createUserWithId(adminId, { ...adminUserData, password });
       
       setAdminPassword(password);
       toast({

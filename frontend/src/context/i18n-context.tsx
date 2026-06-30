@@ -358,9 +358,6 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'login.successMessage': 'Welcome back!',
     'login.failedTitle': 'Login Failed',
     'login.failedMessage': 'Invalid email or password. Please try again.',
-    'login.accessDeniedTitle': 'Access Denied',
-    'login.accessDeniedMessage':
-      'Your account exists but has not been configured by an administrator yet. Please contact your manager.',
 
     'auth.guardDenied': "You don't have permission to view this page.",
     'auth.adminOnly': 'Access Denied. You must be an Admin to view this page.',
@@ -3157,9 +3154,6 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'login.successMessage': 'مرحبًا بعودتك!',
     'login.failedTitle': 'فشل تسجيل الدخول',
     'login.failedMessage': 'البريد الإلكتروني أو كلمة المرور غير صحيحة. حاول مرة أخرى.',
-    'login.accessDeniedTitle': 'تم رفض الوصول',
-    'login.accessDeniedMessage':
-      'الحساب موجود لكن لم يتم إعداده من قبل المدير بعد. الرجاء التواصل مع المدير.',
 
     'auth.guardDenied': 'ليس لديك صلاحية عرض هذه الصفحة.',
     'auth.adminOnly': 'تم رفض الوصول. يجب أن تكون مسؤولًا لعرض هذه الصفحة.',

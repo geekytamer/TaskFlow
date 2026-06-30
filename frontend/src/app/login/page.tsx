@@ -1,8 +1,8 @@
 
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -20,23 +20,11 @@ import { useI18n } from '@/context/i18n-context';
 
 function LoginPageInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    const error = searchParams.get('error');
-    if (error === 'no-firestore-user') {
-      toast({
-        variant: 'destructive',
-        title: t('login.accessDeniedTitle'),
-        description: t('login.accessDeniedMessage'),
-      });
-    }
-  }, [searchParams, toast]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
