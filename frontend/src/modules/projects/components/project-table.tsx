@@ -44,22 +44,30 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
     const [loading, setLoading] = React.useState(true);
     const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
     const { selectedCompany, projects, currentRole } = useCompany();
-    const { toast } = useToast();
     const { language } = useI18n();
+    const selectedCompanyId = selectedCompany?.id;
+    const { toast } = useToast();
     const tr = React.useCallback(
         (en: string, ar: string) => (language === 'ar' ? ar : en),
         [language],
     );
+    const toastRef = React.useRef(toast);
+    const trRef = React.useRef(tr);
+
+    React.useEffect(() => {
+        toastRef.current = toast;
+        trRef.current = tr;
+    }, [toast, tr]);
 
     const loadData = React.useCallback(async () => {
-        if (!selectedCompany) return;
+        if (!selectedCompanyId) return;
         setLoading(true);
         try {
             const canLoadCompanyReferences = currentRole && currentRole !== 'Employee';
             const [tasksData, usersData, clientData] = await Promise.all([
                 getTasks(),
-                canLoadCompanyReferences ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
-                canLoadCompanyReferences ? getClients(selectedCompany.id) : Promise.resolve([]),
+                canLoadCompanyReferences ? getUsersByCompany(selectedCompanyId) : Promise.resolve([]),
+                canLoadCompanyReferences ? getClients(selectedCompanyId) : Promise.resolve([]),
             ]);
             
             setTasks(tasksData);
@@ -70,15 +78,15 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
             setTasks([]);
             setUsers([]);
             setClients([]);
-            toast({
+            toastRef.current({
                 variant: 'destructive',
-                title: tr('Error', 'خطأ'),
-                description: error?.message || tr('Could not load project tasks.', 'تعذر تحميل مهام المشروع.'),
+                title: trRef.current('Error', 'خطأ'),
+                description: error?.message || trRef.current('Could not load project tasks.', 'تعذر تحميل مهام المشروع.'),
             });
         } finally {
             setLoading(false);
         }
-    }, [currentRole, selectedCompany, toast, tr]);
+    }, [currentRole, selectedCompanyId]);
 
     React.useEffect(() => {
         loadData();
