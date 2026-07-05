@@ -46,7 +46,10 @@ export function ProjectTable({ projectId }: ProjectTableProps) {
     const { selectedCompany, projects, currentRole } = useCompany();
     const { toast } = useToast();
     const { language } = useI18n();
-    const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+    const tr = React.useCallback(
+        (en: string, ar: string) => (language === 'ar' ? ar : en),
+        [language],
+    );
 
     const loadData = React.useCallback(async () => {
         if (!selectedCompany) return;
