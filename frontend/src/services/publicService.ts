@@ -1,7 +1,7 @@
 import type { Invoice, InvoiceTemplate, Client } from '@/modules/finance/types';
 import type { Company } from '@/modules/companies/types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
 const toDate = (v: any) => (v ? new Date(v) : undefined);
 

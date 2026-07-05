@@ -1,6 +1,6 @@
 import { getStoredToken } from '@/lib/api-client';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
 /** Fetch an authenticated endpoint and trigger a file download of the response. */
 export async function downloadAuthedFile(path: string, filename: string): Promise<void> {

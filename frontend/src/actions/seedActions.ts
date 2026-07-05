@@ -5,7 +5,7 @@
  * Calls the backend /seed endpoint directly.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
 export async function runSeedDatabase() {
   const res = await fetch(`${API_BASE_URL}/seed`, { method: 'POST' });

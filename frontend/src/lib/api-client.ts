@@ -1,6 +1,6 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "http://localhost:4005";
+  "http://localhost:4006";
 export const TOKEN_KEY = "taskflow_token";
 
 export class ApiError extends Error {

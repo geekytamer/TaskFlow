@@ -462,7 +462,7 @@ export async function createCreditNote(
   return mapCreditNote(data);
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
 /**
  * Fetches a server-rendered PDF for an invoice and triggers a browser download.
@@ -1135,7 +1135,7 @@ export async function downloadReportExport(
   companyId: string,
   dataset: 'management-kpis' | 'clients' | 'suppliers' | 'inventory-alerts' | 'activity-log',
 ): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
   const token = getStoredToken();
   const response = await fetch(`${baseUrl}/companies/${companyId}/reports/export/${dataset}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -1166,7 +1166,7 @@ export async function downloadFinanceExport(
     | 'profit-and-loss',
   options?: { asOf?: Date; from?: Date; to?: Date },
 ): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
   const token = getStoredToken();
   const params = new URLSearchParams();
   if (options?.asOf) params.set('asOf', options.asOf.toISOString());

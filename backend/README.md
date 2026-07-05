@@ -5,7 +5,7 @@ Lightweight Express + SQLite API that replaces the previous Firebase usage. Data
 ## Quick start
 
 - Install dependencies: `npm install`
-- Run in dev mode: `npm run dev` (defaults to port `4005`)
+- Run in dev mode: `npm run dev` (defaults to port `4006`)
 - Optional env:
   - `PORT` to change the port
   - `ALLOWED_ORIGINS` as a comma-separated list for CORS (default allows all)

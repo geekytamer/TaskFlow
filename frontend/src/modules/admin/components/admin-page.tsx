@@ -63,7 +63,7 @@ import {
   Users as UsersIcon,
 } from 'lucide-react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
 // Entity types that can appear in the activity log (matches the backend union).
 const ADMIN_ENTITY_TYPES = [
