@@ -48,6 +48,8 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Lock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Task } from '@/modules/projects/types';
 import { canViewProject } from '@/modules/projects/lib/access';
@@ -67,6 +69,7 @@ const createTaskSchema = z.object({
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
   parentTaskId: z.string().optional(),
+  isPrivate: z.boolean().optional(),
 });
 
 type CreateTaskFormValues = z.infer<typeof createTaskSchema>;
@@ -97,6 +100,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         tags: [],
         color: '#cccccc',
         parentTaskId: 'none',
+        isPrivate: false,
     },
   });
 
@@ -417,6 +421,29 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                           </Select>
                           <FormMessage />
                         </div>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="isPrivate"
+                  render={({ field }) => (
+                    <FormItem className="grid grid-cols-4 items-center gap-4">
+                      <FormLabel className="text-end flex items-center justify-end gap-1">
+                        <Lock className="h-3.5 w-3.5" />
+                        {tr('Private', 'خاصة')}
+                      </FormLabel>
+                      <div className="col-span-3 flex items-center gap-2">
+                        <FormControl>
+                          <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                        <span className="text-xs text-muted-foreground">
+                          {tr(
+                            'Only you and assignees can see this task',
+                            'أنت والمكلفون فقط يمكنكم رؤية هذه المهمة',
+                          )}
+                        </span>
+                      </div>
                     </FormItem>
                   )}
                 />

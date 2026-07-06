@@ -158,6 +158,12 @@ export interface Task {
   color?: string;
   dependencies?: string[];
   parentTaskId?: string;
+  // The user who created the task. Used together with isPrivate to scope
+  // visibility of personal tasks.
+  ownerId?: string;
+  // A private task is visible only to its owner and assignees — it overrides
+  // the role-based (Manager/Admin sees all) default and the project cascade.
+  isPrivate?: boolean;
   invoiceImage?: string;
   invoiceVendor?: string;
   invoiceNumber?: string;

@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CalendarClock,
   Inbox,
+  Lock,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
@@ -209,11 +210,17 @@ function TaskRow({
       <div className="min-w-0 flex-1">
         <div
           className={cn(
-            'truncate text-sm font-medium',
+            'flex items-center gap-1.5 truncate text-sm font-medium',
             task.status === 'Done' && 'text-muted-foreground line-through',
           )}
         >
-          {task.title}
+          {task.isPrivate && (
+            <Lock
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-label={tr('Private', 'خاصة')}
+            />
+          )}
+          <span className="truncate">{task.title}</span>
         </div>
         {showProject && (
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -316,11 +323,14 @@ function TaskGroup({
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
+type Scope = 'mine' | 'all' | 'unassigned';
+
 export function TaskList({ projectId }: { projectId?: string }) {
-  const { selectedCompany, projects, currentRole } = useCompany();
+  const { selectedCompany, projects, currentRole, currentUser } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
+  const currentUserId = currentUser?.id;
 
   const tr = React.useCallback(
     (en: string, ar: string) => (language === 'ar' ? ar : en),
@@ -340,7 +350,33 @@ export function TaskList({ projectId }: { projectId?: string }) {
   const [clients, setClients] = React.useState<Client[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState<StatFilter>('all');
+  const [scope, setScope] = React.useState<Scope>('mine');
   const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
+
+  // Default to "My tasks" but remember the last choice per user + view.
+  const scopeStorageKey = currentUserId
+    ? `task-scope:${currentUserId}:${projectId ?? 'all'}`
+    : null;
+  React.useEffect(() => {
+    if (!scopeStorageKey) return;
+    try {
+      const stored = localStorage.getItem(scopeStorageKey) as Scope | null;
+      setScope(stored && ['mine', 'all', 'unassigned'].includes(stored) ? stored : 'mine');
+    } catch {
+      setScope('mine');
+    }
+  }, [scopeStorageKey]);
+  const changeScope = React.useCallback(
+    (next: Scope) => {
+      setScope(next);
+      if (scopeStorageKey) {
+        try {
+          localStorage.setItem(scopeStorageKey, next);
+        } catch {}
+      }
+    },
+    [scopeStorageKey],
+  );
 
   const loadData = React.useCallback(async () => {
     if (!selectedCompanyId) return;
@@ -391,12 +427,23 @@ export function TaskList({ projectId }: { projectId?: string }) {
 
   const todayStart = React.useMemo(() => startOfDay(new Date()), []);
 
+  // "My tasks" / "Unassigned" / "All" — reduces clutter without changing what
+  // the server already scoped the user to.
+  const scopeFiltered = React.useMemo(() => {
+    return scopedTasks.filter((t) => {
+      if (scope === 'all') return true;
+      const assignees = t.assignedUserIds ?? [];
+      if (scope === 'unassigned') return assignees.length === 0;
+      return currentUserId ? assignees.includes(currentUserId) : false;
+    });
+  }, [scopedTasks, scope, currentUserId]);
+
   const counts = React.useMemo(() => {
     let todo = 0,
       inProgress = 0,
       done = 0,
       overdue = 0;
-    for (const t of scopedTasks) {
+    for (const t of scopeFiltered) {
       if (t.status === 'To Do') todo++;
       else if (t.status === 'In Progress') inProgress++;
       else if (t.status === 'Done') done++;
@@ -404,16 +451,16 @@ export function TaskList({ projectId }: { projectId?: string }) {
         overdue++;
     }
     return { todo, inProgress, done, overdue };
-  }, [scopedTasks, todayStart]);
+  }, [scopeFiltered, todayStart]);
 
   const filteredTasks = React.useMemo(() => {
-    return scopedTasks.filter((t) => {
+    return scopeFiltered.filter((t) => {
       if (filter === 'all') return true;
       if (filter === 'overdue')
         return t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && t.status !== 'Done';
       return t.status === filter;
     });
-  }, [scopedTasks, filter, todayStart]);
+  }, [scopeFiltered, filter, todayStart]);
 
   const grouped = React.useMemo(() => {
     const buckets: Record<BucketKey, Task[]> = {
@@ -515,6 +562,29 @@ export function TaskList({ projectId }: { projectId?: string }) {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Scope: My tasks / All / Unassigned */}
+      <div className="flex items-center gap-1 self-start rounded-lg border bg-card p-1 text-sm">
+        {(['mine', 'all', 'unassigned'] as Scope[]).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => changeScope(s)}
+            className={cn(
+              'rounded-md px-3 py-1 font-medium transition-colors',
+              scope === s
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {s === 'mine'
+              ? tr('My tasks', 'مهامي')
+              : s === 'all'
+                ? tr('All tasks', 'كل المهام')
+                : tr('Unassigned', 'غير مُسندة')}
+          </button>
+        ))}
+      </div>
+
       {/* Clickable stats / filters */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

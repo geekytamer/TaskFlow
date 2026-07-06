@@ -848,6 +848,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '059_followups',
     '060_followup_assignees',
     '061_notification_data',
+    '062_task_privacy',
   ]);
 });
 
@@ -1097,6 +1098,95 @@ test('task mutation follows the same access as viewing', async () => {
 
   const allowedComment = await auth(request(app).post('/tasks/task-2/comments')).send({ content: 'on it' });
   assert.equal(allowedComment.status, 201);
+});
+
+test('private tasks are visible only to their owner and assignees', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-priv-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  // A second, non-super-admin Manager in company 1 — the "other manager" who
+  // must NOT be able to see a peer manager's private task.
+  const peer = store.createUser({
+    name: 'Peer Manager',
+    email: 'peer.manager@innovatecorp.com',
+    role: 'Manager',
+    companyIds: ['1'],
+    companyRoles: [{ companyId: '1', role: 'Manager' }],
+    password: 'password',
+  });
+  // A platform super-admin who is also a member of company 1. It is the
+  // super-admin flag (not the Admin role) that grants support/audit access to
+  // private tasks — the seeded company Admin below is blocked, this user is not.
+  store.createUser({
+    name: 'Root',
+    email: 'root@taskflow.com',
+    role: 'Admin',
+    companyIds: ['1'],
+    companyRoles: [{ companyId: '1', role: 'Admin' }],
+    password: 'password',
+    isSuperAdmin: true,
+  });
+  const app = createServer({
+    dbPath,
+    seedOnEmpty: false,
+    allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const ownerToken = await login(app, 'samantha.b@innovatecorp.com'); // Manager (owner)
+  const peerToken = await login(app, 'peer.manager@innovatecorp.com'); // Manager (peer)
+  const employeeToken = await login(app, 'charlie.d@innovatecorp.com'); // Employee, member of proj-1
+  const adminToken = await login(app, 'admin@taskflow.com'); // company Admin (not super-admin)
+  const superToken = await login(app, 'root@taskflow.com'); // platform super-admin
+
+  // Owner creates a PRIVATE task in the public proj-1.
+  const created = await request(app)
+    .post('/tasks')
+    .set('Authorization', `Bearer ${ownerToken}`)
+    .send({ title: 'Personal planning', priority: 'Medium', companyId: '1', projectId: 'proj-1', isPrivate: true });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.isPrivate, true);
+  const id = created.body.id;
+
+  const see = (token) => request(app).get(`/tasks/${id}`).set('Authorization', `Bearer ${token}`);
+  const inList = async (token) => {
+    const r = await request(app).get('/tasks').set('Authorization', `Bearer ${token}`);
+    return r.body.some((t) => t.id === id);
+  };
+
+  // Owner sees it.
+  assert.equal((await see(ownerToken)).status, 200);
+  assert.equal(await inList(ownerToken), true);
+
+  // A peer Manager does NOT — private overrides "managers see all".
+  assert.equal((await see(peerToken)).status, 403);
+  assert.equal(await inList(peerToken), false);
+  const peerUpdate = await request(app)
+    .put(`/tasks/${id}`)
+    .set('Authorization', `Bearer ${peerToken}`)
+    .send({ status: 'Done' });
+  assert.equal(peerUpdate.status, 403);
+
+  // An Employee who could otherwise see proj-1's tasks via the cascade does NOT.
+  assert.equal((await see(employeeToken)).status, 403);
+  assert.equal(await inList(employeeToken), false);
+
+  // Not even a company Admin can see a private task they neither own nor are
+  // assigned to.
+  assert.equal((await see(adminToken)).status, 403);
+  assert.equal(await inList(adminToken), false);
+
+  // The platform super-admin retains access for support/audit.
+  assert.equal((await see(superToken)).status, 200);
+
+  // Assigning the peer manager grants them access to the private task.
+  const assigned = await request(app)
+    .put(`/tasks/${id}`)
+    .set('Authorization', `Bearer ${ownerToken}`)
+    .send({ assignedUserIds: [peer.id] });
+  assert.equal(assigned.status, 200);
+  assert.equal((await see(peerToken)).status, 200);
+  assert.equal(await inList(peerToken), true);
 });
 
 test('managers can see private projects and tasks in their company', async () => {

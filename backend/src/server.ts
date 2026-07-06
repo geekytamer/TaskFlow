@@ -698,11 +698,25 @@ export function createServer(options: CreateServerOptions = {}) {
   // it is directly assigned to them. Company scoping is enforced by the callers.
   const canViewTask = (
     user: SanitizedUser,
-    task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
+    task: {
+      companyId: string;
+      projectId?: string | null;
+      assignedUserIds?: string[];
+      ownerId?: string | null;
+      isPrivate?: boolean;
+    },
   ): boolean => {
+    const isAssignee = (task.assignedUserIds ?? []).includes(user.id);
+    // A private task is visible ONLY to its owner and assignees — it overrides
+    // the role-based default and the project cascade. The platform super-admin
+    // retains access for support/audit; company Admins/Managers do not.
+    if (task.isPrivate) {
+      if (user.isSuperAdmin) return true;
+      return task.ownerId === user.id || isAssignee;
+    }
     const role = getEffectiveRole(user, task.companyId);
     if (role && role !== 'Employee') return true;
-    if ((task.assignedUserIds ?? []).includes(user.id)) return true;
+    if (isAssignee) return true;
     if (task.projectId) {
       const project = store.getProjectById(task.projectId);
       if (project && canViewProject(user, project)) return true;
@@ -1065,6 +1079,7 @@ export function createServer(options: CreateServerOptions = {}) {
       dependencies:
         record.dependencies !== undefined ? stringArray(record.dependencies, 'dependencies') : undefined,
       parentTaskId: record.parentTaskId !== undefined ? optionalString(record.parentTaskId) : undefined,
+      isPrivate: record.isPrivate !== undefined ? optionalBoolean(record.isPrivate) : undefined,
       invoiceImage: record.invoiceImage !== undefined ? optionalString(record.invoiceImage) : undefined,
       invoiceVendor: record.invoiceVendor !== undefined ? optionalString(record.invoiceVendor) : undefined,
       invoiceNumber: record.invoiceNumber !== undefined ? optionalString(record.invoiceNumber) : undefined,
@@ -2273,6 +2288,9 @@ export function createServer(options: CreateServerOptions = {}) {
           color: payload.color,
           dependencies: payload.dependencies || [],
           parentTaskId: payload.parentTaskId,
+          // The creator owns the task; used to scope private tasks.
+          ownerId: req.user!.id,
+          isPrivate: payload.isPrivate ?? false,
           invoiceImage: payload.invoiceImage,
           invoiceVendor: payload.invoiceVendor,
           invoiceNumber: payload.invoiceNumber,
