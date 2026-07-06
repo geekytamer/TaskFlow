@@ -712,6 +712,8 @@ export class DataStore {
         color TEXT,
         dependencies TEXT,
         parentTaskId TEXT,
+        ownerId TEXT,
+        isPrivate INTEGER NOT NULL DEFAULT 0,
         invoiceImage TEXT,
         invoiceVendor TEXT,
         invoiceNumber TEXT,
@@ -2902,6 +2904,18 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '062_task_privacy',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(tasks)`).all() as any[]).map((c) => c.name);
+          if (!cols.includes('ownerId')) {
+            this.db.exec(`ALTER TABLE tasks ADD COLUMN ownerId TEXT;`);
+          }
+          if (!cols.includes('isPrivate')) {
+            this.db.exec(`ALTER TABLE tasks ADD COLUMN isPrivate INTEGER NOT NULL DEFAULT 0;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4125,6 +4139,8 @@ export class DataStore {
       tags: this.parseJson<string[]>(row.tags) || [],
       dependencies: this.parseJson<string[]>(row.dependencies) || [],
       parentTaskId: row.parentTaskId || undefined,
+      ownerId: row.ownerId || undefined,
+      isPrivate: Boolean(row.isPrivate),
       invoiceDate: row.invoiceDate ? new Date(row.invoiceDate) : undefined,
     };
   }
@@ -4138,7 +4154,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId)',
+        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId)',
       )
       .run({
         id: newTask.id,
@@ -4155,6 +4171,8 @@ export class DataStore {
         color: newTask.color ?? null,
         dependencies: JSON.stringify(newTask.dependencies || []),
         parentTaskId: newTask.parentTaskId ?? null,
+        ownerId: newTask.ownerId ?? null,
+        isPrivate: newTask.isPrivate ? 1 : 0,
         invoiceImage: newTask.invoiceImage ?? null,
         invoiceVendor: newTask.invoiceVendor ?? null,
         invoiceNumber: newTask.invoiceNumber ?? null,
@@ -4225,6 +4243,14 @@ export class DataStore {
       tags: JSON.stringify(updatedTags),
       dependencies: JSON.stringify(updatedDeps),
       parentTaskId: updates.parentTaskId ?? existing.parentTaskId ?? null,
+      // ownerId is set once at creation and never changed by an update, so it is
+      // deliberately omitted from the SET clause below (existing value preserved).
+      isPrivate:
+        updates.isPrivate !== undefined
+          ? updates.isPrivate
+            ? 1
+            : 0
+          : existing.isPrivate,
       invoiceDate: updates.invoiceDate
         ? new Date(updates.invoiceDate).toISOString()
         : existing.invoiceDate,
@@ -4232,7 +4258,7 @@ export class DataStore {
 
     this.db
       .prepare(
-        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId WHERE id=@id',
+        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId WHERE id=@id',
       )
       .run(updated);
     const result = this.decodeTask({ ...existing, ...updates, ...updated });

@@ -36,7 +36,8 @@ import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { add, format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2, Lock } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -398,6 +399,17 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                 ))}
                             </SelectContent>
                         </Select>
+                    </DetailRow>
+                    <DetailRow icon={Lock} label={tr('Private', 'خاصة')}>
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                checked={!!editableTask.isPrivate}
+                                onCheckedChange={(checked) => handleFieldChange('isPrivate', checked)}
+                            />
+                            <span className="text-xs text-muted-foreground">
+                                {tr('Only you and assignees can see this task', 'أنت والمكلفون فقط يمكنكم رؤية هذه المهمة')}
+                            </span>
+                        </div>
                     </DetailRow>
                     <DetailRow icon={GripVertical} label={tr('Description', 'الوصف')}>
                         <Textarea
