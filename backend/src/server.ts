@@ -691,16 +691,23 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  // Task visibility is role-based: Admins/Managers/Accountants see every task in
-  // the company (including project-less ones); Employees see only tasks they are
-  // assigned to. Company scoping is enforced separately by the callers.
+  // Task visibility: Admins/Managers/Accountants see every task in the company.
+  // For Employees, project access cascades to its tasks — anyone who can see a
+  // project (Public, or one they're a member of) sees every task under it. A
+  // project-less task, or one in a project they cannot see, is visible only if
+  // it is directly assigned to them. Company scoping is enforced by the callers.
   const canViewTask = (
     user: SanitizedUser,
     task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
   ): boolean => {
     const role = getEffectiveRole(user, task.companyId);
     if (role && role !== 'Employee') return true;
-    return (task.assignedUserIds ?? []).includes(user.id);
+    if ((task.assignedUserIds ?? []).includes(user.id)) return true;
+    if (task.projectId) {
+      const project = store.getProjectById(task.projectId);
+      if (project && canViewProject(user, project)) return true;
+    }
+    return false;
   };
 
   const requireTaskViewAccess = (
@@ -2284,7 +2291,9 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const existing = store.getTaskById(req.params.id);
       if (!existing) throw new HttpError(404, 'Task not found.');
-      requireCompanyAccess(req, existing.companyId);
+      // Only someone who can view the task (its assignees, or a company
+      // Manager/Admin/Accountant) may mutate it — mirrors GET isolation.
+      requireTaskViewAccess(req, existing);
       const payload = parseTaskPayload(req.body, { partial: true });
       const targetCompanyId = payload.companyId || existing.companyId;
       const targetProjectId = payload.projectId || existing.projectId;
@@ -2325,7 +2334,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const tasks = taskIds.map((taskId) => {
         const task = store.getTaskById(taskId);
         if (!task) throw new HttpError(404, `Task ${taskId} not found.`);
-        requireCompanyAccess(req, task.companyId);
+        requireTaskViewAccess(req, task);
         return task;
       });
       const companyIds = new Set(tasks.map((task) => task.companyId));
@@ -2359,7 +2368,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const task = store.getTaskById(req.params.taskId);
       if (!task) throw new HttpError(404, 'Task not found.');
-      requireCompanyAccess(req, task.companyId);
+      requireTaskViewAccess(req, task);
       const body = asRecord(req.body, 'body');
       const comment = store.createComment({
         taskId: req.params.taskId,
@@ -2389,7 +2398,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const task = store.getTaskById(req.params.taskId);
       if (!task) throw new HttpError(404, 'Task not found.');
-      requireCompanyAccess(req, task.companyId);
+      requireTaskViewAccess(req, task);
       const body = asRecord(req.body, 'body');
       const hours = body.hours !== undefined ? requiredNumber(body.hours, 'hours') : undefined;
       const minutes = hours !== undefined ? Math.round(hours * 60) : requiredNumber(body.minutes, 'minutes');
@@ -6940,7 +6949,24 @@ export function createServer(options: CreateServerOptions = {}) {
   deleteRoute('/vendor-bills/:id', (id) => store.getVendorBillById(id), (id) => store.deleteVendorBill(id), 'Vendor bill not found.', 'Could not delete vendor bill.');
   deleteRoute('/credit-notes/:id', (id) => store.getCreditNoteById(id), (id) => store.deleteCreditNote(id), 'Credit note not found.', 'Could not delete credit note.');
   deleteRoute('/inventory-items/:id', (id) => store.getInventoryItemById(id), (id) => store.deleteInventoryItem(id), 'Inventory item not found.', 'Could not delete inventory item.');
-  deleteRoute('/tasks/:id', (id) => store.getTaskById(id), (id) => store.deleteTask(id), 'Task not found.', 'Could not delete task.', { anyMember: true });
+  // Task deletion is scoped like task viewing: assignees (or a company
+  // Manager/Admin/Accountant) may delete, but not an unrelated Employee who
+  // cannot even see the task.
+  app.delete(
+    '/tasks/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getTaskById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Task not found.');
+      requireTaskViewAccess(req, existing);
+      try {
+        store.deleteTask(req.params.id);
+      } catch (error) {
+        throw new HttpError(409, error instanceof Error ? error.message : 'Could not delete task.');
+      }
+      res.status(204).end();
+    }),
+  );
   deleteRoute('/departments/:id', (id) => store.getDepartmentById(id), (id) => store.deleteDepartment(id), 'Department not found.', 'Could not delete department.');
   deleteRoute('/employees/:id', (id) => store.getEmployeeById(id), (id) => store.deleteEmployee(id), 'Employee not found.', 'Could not delete employee.');
   deleteRoute('/leave-types/:id', (id) => store.getLeaveTypeById(id), (id) => store.deleteLeaveType(id), 'Leave type not found.', 'Could not delete leave type.');
