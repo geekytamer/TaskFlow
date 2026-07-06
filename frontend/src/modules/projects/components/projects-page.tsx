@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { CreateProjectSheet } from '@/modules/projects/components/create-project-sheet';
 import { ActivityFeed } from '@/modules/operations/components/activity-feed';
-import { ProjectTable } from '@/modules/projects/components/project-table';
+import { TaskList } from '@/modules/projects/components/task-list';
 import { ProjectList } from '@/modules/projects/components/project-list';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
@@ -37,7 +37,7 @@ export function ProjectsPage() {
           <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold font-headline">{t('projects.allTasks')}</h2>
           </div>
-          <div data-tutorial="projects-tasks-table"><ProjectTable /></div>
+          <div data-tutorial="projects-tasks-table"><TaskList /></div>
       </div>
 
       <ActivityFeed

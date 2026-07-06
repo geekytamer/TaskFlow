@@ -998,12 +998,14 @@ test('company scoping blocks access outside a manager company', async () => {
   assert.equal(denied.status, 403);
 });
 
-test('employees see only tasks assigned to them; managers see all company tasks', async () => {
+test('task visibility cascades from project access for employees', async () => {
   const app = makeApp();
   // fox.m (user-5) is an Employee in company 1 but a Manager in company 2.
+  // In company 1 they are NOT a member of the private proj-2, and are assigned
+  // to no company-1 task.
   const token = await login(app, 'fox.m@synergysolutions.com');
 
-  // Project privacy is preserved (unchanged).
+  // Project privacy is preserved: the private proj-2 stays hidden.
   const projects = await request(app)
     .get('/projects')
     .set('Authorization', `Bearer ${token}`);
@@ -1015,8 +1017,8 @@ test('employees see only tasks assigned to them; managers see all company tasks'
     .set('Authorization', `Bearer ${token}`);
   assert.equal(privateProject.status, 403);
 
-  // As an Employee in company 1, fox.m CANNOT see a company-1 task they're not
-  // assigned to (task-4 is assigned to user-3).
+  // task-4 lives in the private proj-2 and is assigned to user-3 — fox.m can see
+  // neither the project nor the task, so it stays hidden.
   const unassignedTask = await request(app)
     .get('/tasks/task-4')
     .set('Authorization', `Bearer ${token}`);
@@ -1031,10 +1033,23 @@ test('employees see only tasks assigned to them; managers see all company tasks'
     .get('/tasks')
     .set('Authorization', `Bearer ${token}`);
   assert.equal(taskList.status, 200);
-  // task-4 (company 1, not assigned to fox.m) is hidden...
+  // task-4/task-5 (private proj-2, not a member) stay hidden...
   assert.equal(taskList.body.some((task) => task.id === 'task-4'), false);
-  // ...but task-7 (assigned to fox.m, in company 2 where they manage) is visible.
+  assert.equal(taskList.body.some((task) => task.id === 'task-5'), false);
+  // ...but every task in the PUBLIC proj-1 is visible even though fox.m is not
+  // assigned to any of them — project access cascades to its tasks.
+  assert.equal(taskList.body.some((task) => task.id === 'task-1'), true);
+  assert.equal(taskList.body.some((task) => task.id === 'task-2'), true);
+  assert.equal(taskList.body.some((task) => task.id === 'task-3'), true);
+  // ...and task-7 (assigned to fox.m, in company 2 where they manage) is visible.
   assert.equal(taskList.body.some((task) => task.id === 'task-7'), true);
+
+  // A task in the public project is reachable even though it is assigned to
+  // someone else (task-2 -> user-2).
+  const publicProjectTask = await request(app)
+    .get('/tasks/task-2')
+    .set('Authorization', `Bearer ${token}`);
+  assert.equal(publicProjectTask.status, 200);
 
   const assignedTask = await request(app)
     .get('/tasks/task-7')
@@ -1048,6 +1063,40 @@ test('employees see only tasks assigned to them; managers see all company tasks'
     .set('Authorization', `Bearer ${token}`);
   assert.equal(clientTasks.status, 200);
   assert.equal(clientTasks.body.some((task) => task.projectId === 'proj-2'), false);
+});
+
+test('task mutation follows the same access as viewing', async () => {
+  const app = makeApp();
+  // fox.m (user-5) is an Employee in company 1, not a member of private proj-2
+  // and not assigned to task-4 -> cannot see or touch it. But proj-1 is public,
+  // so they can act on its tasks (task-2, assigned to user-2).
+  const token = await login(app, 'fox.m@synergysolutions.com');
+  const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+  // Update, delete, comment, and time-log are all denied on an unseen task.
+  const update = await auth(request(app).put('/tasks/task-4')).send({ status: 'Done' });
+  assert.equal(update.status, 403);
+
+  const comment = await auth(request(app).post('/tasks/task-4/comments')).send({ content: 'hi' });
+  assert.equal(comment.status, 403);
+
+  const time = await auth(request(app).post('/tasks/task-4/time-entries')).send({ minutes: 30 });
+  assert.equal(time.status, 403);
+
+  const removed = await auth(request(app).delete('/tasks/task-4'));
+  assert.equal(removed.status, 403);
+
+  const stillHidden = await auth(request(app).get('/tasks/task-4'));
+  assert.equal(stillHidden.status, 403);
+
+  // ...but a task in the public proj-1 (task-2) is mutable even though it is
+  // assigned to someone else, because project access grants it.
+  const allowed = await auth(request(app).put('/tasks/task-2')).send({ status: 'In Progress' });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.status, 'In Progress');
+
+  const allowedComment = await auth(request(app).post('/tasks/task-2/comments')).send({ content: 'on it' });
+  assert.equal(allowedComment.status, 201);
 });
 
 test('managers can see private projects and tasks in their company', async () => {
