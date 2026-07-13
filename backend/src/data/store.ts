@@ -138,6 +138,7 @@ import {
   Rfq,
   RfqLineItem,
   RfqStatus,
+  BillMatch,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -5634,6 +5635,57 @@ export class DataStore {
     });
     trx();
     return true;
+  }
+
+  // ─── Three-way invoice matching ────────────────────────────────────────────
+
+  private computeBillMatch(bill: VendorBill): BillMatch {
+    const TOL = 0.01;
+    const billedTotal = Number(bill.amount || 0);
+    const base: BillMatch = {
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      vendorName: bill.vendorName,
+      billedTotal,
+      orderedTotal: 0,
+      receivedTotal: 0,
+      priceVariance: 0,
+      receiptVariance: 0,
+      status: 'no_po',
+    };
+    if (!bill.purchaseOrderId) return base;
+    const po = this.getPurchaseOrderById(bill.purchaseOrderId);
+    if (!po || po.companyId !== bill.companyId) return base;
+    const receipts = this.listPurchaseReceipts(bill.companyId, po.id);
+    const receivedTotal = Number(
+      receipts
+        .reduce((sum, r) => sum + r.items.reduce((s, l) => s + Number(l.quantity || 0) * Number(l.unitCost || 0), 0), 0)
+        .toFixed(2),
+    );
+    const orderedTotal = Number(po.totalAmount || 0);
+    const priceVariance = Number((billedTotal - orderedTotal).toFixed(2));
+    const receiptVariance = Number((receivedTotal - orderedTotal).toFixed(2));
+    const matched = Math.abs(priceVariance) <= TOL && Math.abs(receiptVariance) <= TOL;
+    return {
+      ...base,
+      purchaseOrderId: po.id,
+      orderNumber: po.orderNumber,
+      orderedTotal,
+      receivedTotal,
+      priceVariance,
+      receiptVariance,
+      status: matched ? 'matched' : 'variance',
+    };
+  }
+
+  getBillMatch(billId: string): BillMatch | undefined {
+    const bill = this.getVendorBillById(billId);
+    if (!bill) return undefined;
+    return this.computeBillMatch(bill);
+  }
+
+  listBillMatches(companyId: string): BillMatch[] {
+    return this.listVendorBills(companyId).map((b) => this.computeBillMatch(b));
   }
 
   /** Build a WPS (Wage Protection System) SIF-style CSV for a payroll run. */

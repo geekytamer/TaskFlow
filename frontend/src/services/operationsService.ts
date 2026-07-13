@@ -270,6 +270,29 @@ export async function deleteRfq(id: string): Promise<void> {
   await apiFetch(`/rfqs/${id}`, { method: 'DELETE' });
 }
 
+// ─── Three-way invoice matching ──────────────────────────────────────────────
+
+export type BillMatchStatus = 'matched' | 'no_po' | 'variance';
+
+export interface BillMatch {
+  billId: string;
+  billNumber: string;
+  vendorName: string;
+  billedTotal: number;
+  purchaseOrderId?: string;
+  orderNumber?: string;
+  orderedTotal: number;
+  receivedTotal: number;
+  priceVariance: number;
+  receiptVariance: number;
+  status: BillMatchStatus;
+}
+
+export async function getBillMatches(companyId: string): Promise<BillMatch[]> {
+  if (!companyId) return [];
+  return apiFetch<BillMatch[]>(`/companies/${companyId}/bill-matches`);
+}
+
 export async function createInventoryItem(
   companyId: string,
   data: CreateInventoryItemInput,

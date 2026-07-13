@@ -6575,6 +6575,26 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Three-way invoice matching ─────────────────────────────────────────────
+  app.get(
+    '/companies/:companyId/bill-matches',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listBillMatches(req.params.companyId));
+    }),
+  );
+  app.get(
+    '/vendor-bills/:id/match',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      res.json(store.getBillMatch(req.params.id));
+    }),
+  );
+
   app.get(
     '/companies/:companyId/finance/supplier-payables',
     authMiddleware,

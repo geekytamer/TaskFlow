@@ -1118,6 +1118,74 @@ test('RFQ collects supplier quotes and awards the winning one', async () => {
   assert.equal(denied.status, 403);
 });
 
+test('three-way match compares a vendor bill against its PO and receipts', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-3w-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+
+  // PO1: 100 units @ 10 = 1,000, fully received and fully billed → matched.
+  const po1 = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-03-01T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 100, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po1.id, {
+    receivedAt: new Date(), items: po1.items.map((it, lineIndex) => ({ lineIndex, quantity: it.quantity })),
+  });
+  const matchedBill = store.createVendorBill({
+    companyId: '1', vendorName: 'Acme', purchaseOrderId: po1.id, amount: 1000,
+    issueDate: new Date(), dueDate: new Date(), status: 'Approved',
+  });
+
+  // PO2: 1,000 ordered but only 600 received, billed 600 → receipt variance.
+  const po2 = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-03-02T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 100, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po2.id, { receivedAt: new Date(), items: [{ lineIndex: 0, quantity: 60 }] });
+  const varianceBill = store.createVendorBill({
+    companyId: '1', vendorName: 'Acme', purchaseOrderId: po2.id, amount: 600,
+    issueDate: new Date(), dueDate: new Date(), status: 'Approved',
+  });
+
+  // A bill with no PO at all.
+  const noPoBill = store.createVendorBill({
+    companyId: '1', vendorName: 'Globex', amount: 500,
+    issueDate: new Date(), dueDate: new Date(), status: 'Approved',
+  });
+
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const m1 = await admin(request(app).get(`/vendor-bills/${matchedBill.id}/match`));
+  assert.equal(m1.status, 200);
+  assert.equal(m1.body.status, 'matched');
+  assert.equal(m1.body.orderedTotal, 1000);
+  assert.equal(m1.body.receivedTotal, 1000);
+  assert.equal(m1.body.priceVariance, 0);
+
+  const m2 = await admin(request(app).get(`/vendor-bills/${varianceBill.id}/match`));
+  assert.equal(m2.body.status, 'variance');
+  assert.equal(m2.body.orderedTotal, 1000);
+  assert.equal(m2.body.receivedTotal, 600);
+  assert.equal(m2.body.receiptVariance, -400);
+
+  const m3 = await admin(request(app).get(`/vendor-bills/${noPoBill.id}/match`));
+  assert.equal(m3.body.status, 'no_po');
+
+  const list = await admin(request(app).get('/companies/1/bill-matches'));
+  assert.equal(list.status, 200);
+  assert.ok(list.body.length >= 3);
+
+  // Employees cannot access matching.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/bill-matches').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
 test('users can update their own profile without gaining company-management access', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');

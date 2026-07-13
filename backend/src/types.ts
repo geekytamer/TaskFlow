@@ -845,6 +845,25 @@ export interface VendorBill {
   outstandingAmount?: number;
 }
 
+export type BillMatchStatus = 'matched' | 'no_po' | 'variance';
+
+/** Three-way match of a vendor bill against its PO (ordered) and GRNs (received). */
+export interface BillMatch {
+  billId: string;
+  billNumber: string;
+  vendorName: string;
+  billedTotal: number;
+  purchaseOrderId?: string;
+  orderNumber?: string;
+  orderedTotal: number;
+  receivedTotal: number;
+  /** billedTotal − orderedTotal. */
+  priceVariance: number;
+  /** receivedTotal − orderedTotal. */
+  receiptVariance: number;
+  status: BillMatchStatus;
+}
+
 export interface VendorBillPayment {
   id: string;
   billId: string;
