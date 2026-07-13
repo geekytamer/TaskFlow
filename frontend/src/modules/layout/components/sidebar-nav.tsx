@@ -36,6 +36,7 @@ import {
   CalendarOff,
   CalendarCheck,
   Wallet,
+  ClipboardCheck,
   Building2,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
@@ -73,6 +74,7 @@ const sections: NavSection[] = [
       { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
       { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
       { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
+      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'] },
     ],
   },
   {

@@ -852,6 +852,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '063_budgets',
     '064_vat_returns',
     '065_hr_payroll',
+    '066_stock_counts',
   ]);
 });
 
@@ -1026,6 +1027,60 @@ test('payroll run generates payslips from salaries and exports a WPS file', asyn
   // Employees cannot run payroll.
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/payroll-runs').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('cycle count posts on-hand adjustments from the physical count', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-cc-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  // Seed a stock-tracked item at 100 on-hand directly (endpoint requires a
+  // warehouse for opening stock; the store does not).
+  const seeded = store.createInventoryItem({
+    companyId: '1', name: 'Frozen Peas', category: 'Frozen', unit: 'kg',
+    vatApplicable: true, tracksInventory: true, onHand: 100, reorderPoint: 0,
+    unitCost: 2, location: 'Main',
+  });
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+  const itemId = seeded.id;
+
+  const count = await admin(request(app).post('/companies/1/stock-counts')).send({});
+  assert.equal(count.status, 201);
+  const line = count.body.lines.find((l) => l.inventoryItemId === itemId);
+  assert.equal(line.systemQty, 100);
+  assert.equal(line.countedQty, null);
+
+  // Physically counted 93 kg (a 7 kg shrinkage).
+  const updated = await admin(request(app).put(`/stock-counts/${count.body.id}`)).send({
+    counts: [{ lineId: line.id, countedQty: 93 }],
+  });
+  assert.equal(updated.status, 200);
+  const updatedLine = updated.body.lines.find((l) => l.id === line.id);
+  assert.equal(updatedLine.variance, -7);
+
+  const posted = await admin(request(app).post(`/stock-counts/${count.body.id}/post`));
+  assert.equal(posted.status, 200);
+  assert.equal(posted.body.status, 'posted');
+
+  // On-hand now matches the physical count.
+  const after = await admin(request(app).get(`/companies/1/inventory-items`));
+  const afterItem = after.body.find((i) => i.id === itemId);
+  assert.equal(afterItem.onHand, 93);
+
+  // A posted count cannot be edited or deleted.
+  const reEdit = await admin(request(app).put(`/stock-counts/${count.body.id}`)).send({ counts: [] });
+  assert.equal(reEdit.status, 400);
+  const del = await admin(request(app).delete(`/stock-counts/${count.body.id}`));
+  assert.equal(del.status, 400);
+
+  // Employees cannot access counts.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/stock-counts').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
 });
 

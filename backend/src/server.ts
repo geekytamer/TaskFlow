@@ -4560,6 +4560,66 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Cycle counts ─────────────────────────────────────────────────────────
+  const loadStockCount = (req: AuthedRequest) => {
+    const count = store.getStockCountById(req.params.id);
+    if (!count) throw new HttpError(404, 'Stock count not found.');
+    requireCompanyRoles(req, count.companyId, companyManagementRoles);
+    return count;
+  };
+  app.get('/companies/:companyId/stock-counts', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listStockCounts(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/stock-counts', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const count = withActor(req, () =>
+        store.createStockCount(req.params.companyId, { location: optionalString(body.location), notes: optionalString(body.notes) }),
+      );
+      res.status(201).json(count);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not open stock count.');
+    }
+  }));
+  app.get('/stock-counts/:id', authMiddleware, handler((req, res) => {
+    res.json(loadStockCount(req));
+  }));
+  app.put('/stock-counts/:id', authMiddleware, handler((req, res) => {
+    loadStockCount(req);
+    const body = asRecord(req.body, 'body');
+    if (!Array.isArray(body.counts)) throw new HttpError(400, 'counts must be an array.');
+    const counts = body.counts.map((raw) => {
+      const line = asRecord(raw, 'count');
+      const countedQty = line.countedQty === null ? null : requiredNumber(line.countedQty, 'countedQty');
+      return { lineId: requiredString(line.lineId, 'lineId'), countedQty };
+    });
+    try {
+      res.json(store.updateStockCountLines(req.params.id, counts));
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not update count.');
+    }
+  }));
+  app.post('/stock-counts/:id/post', authMiddleware, handler((req, res) => {
+    loadStockCount(req);
+    try {
+      res.json(withActor(req, () => store.postStockCount(req.params.id)));
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not post count.');
+    }
+  }));
+  app.delete('/stock-counts/:id', authMiddleware, handler((req, res) => {
+    loadStockCount(req);
+    try {
+      store.deleteStockCount(req.params.id);
+      res.status(204).end();
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not delete count.');
+    }
+  }));
+
   app.get(
     '/companies/:companyId/inventory-items',
     authMiddleware,

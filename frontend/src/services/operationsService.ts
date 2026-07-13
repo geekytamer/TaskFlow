@@ -142,6 +142,65 @@ export async function getInventoryItems(companyId: string): Promise<InventoryIte
   return apiFetch<InventoryItem[]>(`/companies/${companyId}/inventory-items`);
 }
 
+export type StockCountStatus = 'draft' | 'posted';
+
+export interface StockCountLine {
+  id: string;
+  countId: string;
+  inventoryItemId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  systemQty: number;
+  countedQty: number | null;
+  variance: number;
+}
+
+export interface StockCount {
+  id: string;
+  companyId: string;
+  reference: string;
+  location?: string;
+  status: StockCountStatus;
+  notes?: string;
+  lines: StockCountLine[];
+  createdAt: string;
+  postedAt?: string;
+}
+
+export async function getStockCounts(companyId: string): Promise<StockCount[]> {
+  if (!companyId) return [];
+  return apiFetch<StockCount[]>(`/companies/${companyId}/stock-counts`);
+}
+
+export async function getStockCount(id: string): Promise<StockCount> {
+  return apiFetch<StockCount>(`/stock-counts/${id}`);
+}
+
+export async function createStockCount(companyId: string, notes?: string): Promise<StockCount> {
+  return apiFetch<StockCount>(`/companies/${companyId}/stock-counts`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function saveStockCount(
+  id: string, counts: { lineId: string; countedQty: number | null }[],
+): Promise<StockCount> {
+  return apiFetch<StockCount>(`/stock-counts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ counts }),
+  });
+}
+
+export async function postStockCount(id: string): Promise<StockCount> {
+  return apiFetch<StockCount>(`/stock-counts/${id}/post`, { method: 'POST' });
+}
+
+export async function deleteStockCount(id: string): Promise<void> {
+  await apiFetch(`/stock-counts/${id}`, { method: 'DELETE' });
+}
+
 export async function createInventoryItem(
   companyId: string,
   data: CreateInventoryItemInput,

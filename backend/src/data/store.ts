@@ -133,6 +133,8 @@ import {
   PayrollRun,
   PayrollRunStatus,
   Payslip,
+  StockCount,
+  StockCountStatus,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -3055,6 +3057,33 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '066_stock_counts',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS stock_counts (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              reference TEXT NOT NULL,
+              location TEXT,
+              status TEXT NOT NULL DEFAULT 'draft',
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              postedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_counts_company ON stock_counts(companyId, createdAt);
+            CREATE TABLE IF NOT EXISTS stock_count_lines (
+              id TEXT PRIMARY KEY,
+              countId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              inventoryItemId TEXT NOT NULL,
+              systemQty REAL NOT NULL DEFAULT 0,
+              countedQty REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_count_lines_count ON stock_count_lines(countId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5329,6 +5358,122 @@ export class DataStore {
     const trx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM payslips WHERE runId = ?').run(id);
       this.db.prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  // ─── Cycle counts ────────────────────────────────────────────────────────
+
+  private decodeStockCount(row: any): StockCount {
+    const lines = (this.db
+      .prepare('SELECT * FROM stock_count_lines WHERE countId = ? ORDER BY id ASC')
+      .all(row.id) as any[]).map((l) => {
+      const item = this.getInventoryItemById(l.inventoryItemId);
+      const systemQty = Number(l.systemQty) || 0;
+      const countedQty = l.countedQty === null || l.countedQty === undefined ? null : Number(l.countedQty);
+      return {
+        id: l.id,
+        countId: l.countId,
+        inventoryItemId: l.inventoryItemId,
+        sku: item?.sku ?? '—',
+        name: item?.name ?? 'Unknown item',
+        unit: item?.unit ?? '',
+        systemQty,
+        countedQty,
+        variance: countedQty === null ? 0 : Number((countedQty - systemQty).toFixed(3)),
+      };
+    });
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      reference: row.reference,
+      location: row.location ?? undefined,
+      status: row.status as StockCountStatus,
+      notes: row.notes ?? undefined,
+      lines,
+      createdAt: new Date(row.createdAt),
+      postedAt: row.postedAt ? new Date(row.postedAt) : undefined,
+    };
+  }
+
+  listStockCounts(companyId: string): StockCount[] {
+    const rows = this.db
+      .prepare('SELECT * FROM stock_counts WHERE companyId = ? ORDER BY createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodeStockCount(r));
+  }
+
+  getStockCountById(id: string): StockCount | undefined {
+    const row = this.db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(id) as any;
+    return row ? this.decodeStockCount(row) : undefined;
+  }
+
+  /** Open a count, snapshotting current on-hand for every tracked item. */
+  createStockCount(companyId: string, options?: { location?: string; notes?: string }): StockCount {
+    const items = this.listInventoryItems(companyId).filter((i) => i.tracksInventory);
+    if (items.length === 0) throw new Error('No stock-tracked items to count.');
+    const id = uuid();
+    const reference = `CC-${new Date().toISOString().slice(0, 10)}-${id.slice(0, 4).toUpperCase()}`;
+    const nowIso = new Date().toISOString();
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('INSERT INTO stock_counts (id, companyId, reference, location, status, notes, createdAt, postedAt) VALUES (@id,@companyId,@reference,@location,@status,@notes,@createdAt,@postedAt)')
+        .run({ id, companyId, reference, location: options?.location ?? null, status: 'draft', notes: options?.notes ?? null, createdAt: nowIso, postedAt: null });
+      const insert = this.db.prepare('INSERT INTO stock_count_lines (id, countId, companyId, inventoryItemId, systemQty, countedQty) VALUES (@id,@countId,@companyId,@inventoryItemId,@systemQty,@countedQty)');
+      for (const item of items) {
+        insert.run({ id: uuid(), countId: id, companyId, inventoryItemId: item.id, systemQty: Number(item.onHand || 0), countedQty: null });
+      }
+    });
+    trx();
+    return this.getStockCountById(id)!;
+  }
+
+  /** Record counted quantities (draft only). */
+  updateStockCountLines(id: string, counts: { lineId: string; countedQty: number | null }[]): StockCount | undefined {
+    const count = this.getStockCountById(id);
+    if (!count) return undefined;
+    if (count.status !== 'draft') throw new Error('This count has already been posted.');
+    const update = this.db.prepare('UPDATE stock_count_lines SET countedQty = ? WHERE id = ? AND countId = ?');
+    const trx = this.db.transaction(() => {
+      for (const c of counts) {
+        update.run(c.countedQty === null || c.countedQty === undefined ? null : Number(c.countedQty), c.lineId, id);
+      }
+    });
+    trx();
+    return this.getStockCountById(id);
+  }
+
+  /** Post the count: adjust on-hand for every counted line where it differs. */
+  postStockCount(id: string): StockCount | undefined {
+    const count = this.getStockCountById(id);
+    if (!count) return undefined;
+    if (count.status !== 'posted' && count.status !== 'draft') return count;
+    if (count.status === 'posted') throw new Error('This count has already been posted.');
+    const trx = this.db.transaction(() => {
+      for (const line of count.lines) {
+        if (line.countedQty === null) continue;
+        const delta = Number((line.countedQty - line.systemQty).toFixed(3));
+        if (Math.abs(delta) < 0.0001) continue;
+        this.createInventoryAdjustment(count.companyId, line.inventoryItemId, delta, `Cycle count ${count.reference}`, count.location);
+      }
+      this.db.prepare("UPDATE stock_counts SET status = 'posted', postedAt = ? WHERE id = ?").run(new Date().toISOString(), id);
+    });
+    trx();
+    this.createActivityEvent({
+      companyId: count.companyId, entityType: 'inventory_item', entityId: id, action: 'stock_count_posted',
+      summary: `Cycle count ${count.reference} posted.`,
+    });
+    return this.getStockCountById(id);
+  }
+
+  deleteStockCount(id: string): boolean {
+    const count = this.getStockCountById(id);
+    if (!count) return false;
+    if (count.status === 'posted') throw new Error('A posted count cannot be deleted.');
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM stock_count_lines WHERE countId = ?').run(id);
+      this.db.prepare('DELETE FROM stock_counts WHERE id = ?').run(id);
     });
     trx();
     return true;

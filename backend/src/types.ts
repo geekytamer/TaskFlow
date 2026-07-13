@@ -230,6 +230,35 @@ export interface InventoryItem {
   customFields?: Record<string, unknown>;
 }
 
+export type StockCountStatus = 'draft' | 'posted';
+
+export interface StockCountLine {
+  id: string;
+  countId: string;
+  inventoryItemId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  /** On-hand snapshot at the time the count was opened. */
+  systemQty: number;
+  /** Physically counted quantity; null until entered. */
+  countedQty: number | null;
+  /** countedQty − systemQty (0 until counted). */
+  variance: number;
+}
+
+export interface StockCount {
+  id: string;
+  companyId: string;
+  reference: string;
+  location?: string;
+  status: StockCountStatus;
+  notes?: string;
+  lines: StockCountLine[];
+  createdAt: Date;
+  postedAt?: Date;
+}
+
 export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired';
 
 /**
