@@ -19,6 +19,9 @@ import type {
   JournalEntryLine,
   LedgerAccount,
   LedgerAccountType,
+  Budget,
+  BudgetStatus,
+  BudgetVarianceReport,
   ManagementReportSummary,
   NumberingEntityType,
   Payment,
@@ -756,6 +759,39 @@ export async function bulkUpdateInvoiceStatus(
 export async function getLedgerAccounts(companyId: string): Promise<LedgerAccount[]> {
   if (!companyId) return [];
   return apiFetch<LedgerAccount[]>(`/companies/${companyId}/finance/accounts`);
+}
+
+export async function getBudgets(companyId: string): Promise<Budget[]> {
+  if (!companyId) return [];
+  return apiFetch<Budget[]>(`/companies/${companyId}/budgets`);
+}
+
+export async function getBudgetVariance(budgetId: string): Promise<BudgetVarianceReport> {
+  return apiFetch<BudgetVarianceReport>(`/budgets/${budgetId}/variance`);
+}
+
+export async function createBudget(
+  companyId: string,
+  data: { name: string; fiscalYear: number; status?: BudgetStatus; lines: { accountId: string; amount: number }[] },
+): Promise<Budget> {
+  return apiFetch<Budget>(`/companies/${companyId}/budgets`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateBudget(
+  budgetId: string,
+  data: { name?: string; fiscalYear?: number; status?: BudgetStatus; lines?: { accountId: string; amount: number }[] },
+): Promise<Budget> {
+  return apiFetch<Budget>(`/budgets/${budgetId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteBudget(budgetId: string): Promise<void> {
+  await apiFetch(`/budgets/${budgetId}`, { method: 'DELETE' });
 }
 
 export async function createLedgerAccount(

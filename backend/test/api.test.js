@@ -849,7 +849,68 @@ test('health endpoint reports status and applied migrations', async () => {
     '060_followup_assignees',
     '061_notification_data',
     '062_task_privacy',
+    '063_budgets',
   ]);
+});
+
+test('budgets compute variance from ledger actuals and are management-only', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-budget-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  // Company 1 ships with a default chart of accounts. Use the Salaries expense
+  // account (5200) and post an actual expense of 8,000 in FY2026.
+  const accounts = store.listLedgerAccounts('1');
+  const salaries = accounts.find((a) => a.code === '5200');
+  const cash = accounts.find((a) => a.code === '1000');
+  assert.ok(salaries && cash);
+  const { randomUUID } = require('node:crypto');
+  store.createJournalEntry({
+    companyId: '1', sourceType: 'manual', sourceId: 'test-actual',
+    memo: 'Salaries paid', entryDate: new Date('2026-03-31T00:00:00.000Z'),
+    lines: [
+      { id: randomUUID(), accountId: salaries.id, description: 'Salaries', debit: 8000, credit: 0 },
+      { id: randomUUID(), accountId: cash.id, description: 'Cash out', debit: 0, credit: 8000 },
+    ],
+  });
+
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const created = await admin(request(app).post('/companies/1/budgets')).send({
+    name: 'Operating Budget', fiscalYear: 2026, status: 'active',
+    lines: [{ accountId: salaries.id, amount: 10000 }],
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.lines.length, 1);
+  const budgetId = created.body.id;
+
+  const variance = await admin(request(app).get(`/budgets/${budgetId}/variance`));
+  assert.equal(variance.status, 200);
+  assert.equal(variance.body.totalBudget, 10000);
+  assert.equal(variance.body.totalActual, 8000);
+  assert.equal(variance.body.totalVariance, 2000);
+  const line = variance.body.lines[0];
+  assert.equal(line.budget, 10000);
+  assert.equal(line.actual, 8000);
+  assert.equal(line.variance, 2000);
+  assert.equal(line.utilization, 80);
+
+  // An out-of-year actual does not count toward the budget.
+  const otherYear = await admin(request(app).post('/companies/1/budgets')).send({
+    name: 'Next Year', fiscalYear: 2027, lines: [{ accountId: salaries.id, amount: 5000 }],
+  });
+  const v2 = await admin(request(app).get(`/budgets/${otherYear.body.id}/variance`));
+  assert.equal(v2.body.totalActual, 0);
+
+  // Employees cannot see budgets.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/budgets').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
 });
 
 test('users can update their own profile without gaining company-management access', async () => {

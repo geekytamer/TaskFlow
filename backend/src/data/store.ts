@@ -121,6 +121,10 @@ import {
   RecordTimelineItem,
   AccountActivityReport,
   TrialBalanceReport,
+  Budget,
+  BudgetStatus,
+  BudgetVarianceReport,
+  BudgetVarianceLine,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -283,6 +287,20 @@ type CreateExpenseInput = {
   reference?: string;
   projectId?: string;
   attachmentUrl?: string;
+};
+type BudgetLineInput = { accountId: string; amount: number };
+type CreateBudgetInput = {
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status?: BudgetStatus;
+  lines: BudgetLineInput[];
+};
+type UpdateBudgetInput = {
+  name?: string;
+  status?: BudgetStatus;
+  fiscalYear?: number;
+  lines?: BudgetLineInput[];
 };
 type CreateAccountInput = Omit<LedgerAccount, 'id' | 'code'> & { code?: string };
 type CreateJournalInput = Omit<JournalEntry, 'id' | 'createdAt'>;
@@ -2914,6 +2932,31 @@ export class DataStore {
           if (!cols.includes('isPrivate')) {
             this.db.exec(`ALTER TABLE tasks ADD COLUMN isPrivate INTEGER NOT NULL DEFAULT 0;`);
           }
+        },
+      },
+      {
+        id: '063_budgets',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS budgets (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              fiscalYear INTEGER NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_budgets_company ON budgets(companyId, fiscalYear);
+            CREATE TABLE IF NOT EXISTS budget_lines (
+              id TEXT PRIMARY KEY,
+              budgetId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              accountId TEXT NOT NULL,
+              amount REAL NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_budget_lines_budget ON budget_lines(budgetId);
+          `);
         },
       },
     ];
@@ -10774,6 +10817,191 @@ export class DataStore {
       attachmentUrl: row.attachmentUrl ?? undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  // ─── Budgets ────────────────────────────────────────────────────────────────
+
+  private decodeBudget(row: any): Budget {
+    const lines = this.db
+      .prepare('SELECT * FROM budget_lines WHERE budgetId = ? ORDER BY id ASC')
+      .all(row.id) as any[];
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      name: row.name,
+      fiscalYear: Number(row.fiscalYear),
+      status: row.status as BudgetStatus,
+      lines: lines.map((l) => ({
+        id: l.id,
+        budgetId: l.budgetId,
+        accountId: l.accountId,
+        amount: Number(l.amount) || 0,
+      })),
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listBudgets(companyId: string): Budget[] {
+    const rows = this.db
+      .prepare('SELECT * FROM budgets WHERE companyId = ? ORDER BY fiscalYear DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((row) => this.decodeBudget(row));
+  }
+
+  getBudgetById(id: string): Budget | undefined {
+    const row = this.db.prepare('SELECT * FROM budgets WHERE id = ?').get(id) as any;
+    return row ? this.decodeBudget(row) : undefined;
+  }
+
+  private validateBudgetLines(companyId: string, lines: BudgetLineInput[]) {
+    const clean: BudgetLineInput[] = [];
+    const seen = new Set<string>();
+    for (const line of lines || []) {
+      const account = this.getLedgerAccountById(line.accountId);
+      if (!account || account.companyId !== companyId) {
+        throw new Error('Budget line references an account that does not belong to this company.');
+      }
+      if (seen.has(line.accountId)) {
+        throw new Error('Each account can appear only once in a budget.');
+      }
+      seen.add(line.accountId);
+      clean.push({ accountId: line.accountId, amount: Number(Number(line.amount || 0).toFixed(2)) });
+    }
+    return clean;
+  }
+
+  private writeBudgetLines(budgetId: string, companyId: string, lines: BudgetLineInput[]) {
+    this.db.prepare('DELETE FROM budget_lines WHERE budgetId = ?').run(budgetId);
+    const insert = this.db.prepare(
+      'INSERT INTO budget_lines (id, budgetId, companyId, accountId, amount) VALUES (@id, @budgetId, @companyId, @accountId, @amount)',
+    );
+    for (const line of lines) {
+      insert.run({ id: uuid(), budgetId, companyId, accountId: line.accountId, amount: line.amount });
+    }
+  }
+
+  createBudget(input: CreateBudgetInput): Budget {
+    const name = (input.name || '').trim();
+    if (!name) throw new Error('Budget name is required.');
+    if (!Number.isInteger(input.fiscalYear) || input.fiscalYear < 2000 || input.fiscalYear > 2100) {
+      throw new Error('A valid fiscal year is required.');
+    }
+    const lines = this.validateBudgetLines(input.companyId, input.lines || []);
+    const nowIso = new Date().toISOString();
+    const id = uuid();
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT INTO budgets (id, companyId, name, fiscalYear, status, createdAt, updatedAt) VALUES (@id, @companyId, @name, @fiscalYear, @status, @createdAt, @updatedAt)',
+        )
+        .run({
+          id,
+          companyId: input.companyId,
+          name,
+          fiscalYear: input.fiscalYear,
+          status: input.status ?? 'draft',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+      this.writeBudgetLines(id, input.companyId, lines);
+    });
+    trx();
+    this.createActivityEvent({
+      companyId: input.companyId,
+      entityType: 'budget',
+      entityId: id,
+      action: 'created',
+      summary: `Budget "${name}" created for ${input.fiscalYear}.`,
+      metadata: { fiscalYear: input.fiscalYear, lines: lines.length },
+    });
+    return this.getBudgetById(id)!;
+  }
+
+  updateBudget(id: string, updates: UpdateBudgetInput): Budget | undefined {
+    const existing = this.getBudgetById(id);
+    if (!existing) return undefined;
+    const name = updates.name !== undefined ? updates.name.trim() : existing.name;
+    if (!name) throw new Error('Budget name is required.');
+    const fiscalYear = updates.fiscalYear ?? existing.fiscalYear;
+    const status = updates.status ?? existing.status;
+    const lines =
+      updates.lines !== undefined
+        ? this.validateBudgetLines(existing.companyId, updates.lines)
+        : undefined;
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE budgets SET name=@name, fiscalYear=@fiscalYear, status=@status, updatedAt=@updatedAt WHERE id=@id')
+        .run({ id, name, fiscalYear, status, updatedAt: new Date().toISOString() });
+      if (lines !== undefined) this.writeBudgetLines(id, existing.companyId, lines);
+    });
+    trx();
+    return this.getBudgetById(id);
+  }
+
+  deleteBudget(id: string): boolean {
+    const existing = this.getBudgetById(id);
+    if (!existing) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM budget_lines WHERE budgetId = ?').run(id);
+      this.db.prepare('DELETE FROM budgets WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  /** Net movement (in the account's normal-balance direction) within a date range. */
+  private accountMovementInRange(companyId: string, accountId: string, from: Date, to: Date): number {
+    const account = this.getLedgerAccountById(accountId);
+    if (!account || account.companyId !== companyId) return 0;
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(l.debit),0) as debit, COALESCE(SUM(l.credit),0) as credit
+         FROM journal_lines l JOIN journal_entries e ON e.id = l.entryId
+         WHERE e.companyId = ? AND l.accountId = ? AND e.entryDate >= ? AND e.entryDate <= ?`,
+      )
+      .get(companyId, accountId, from.toISOString(), to.toISOString()) as { debit: number; credit: number };
+    return Number(
+      this.normalBalanceMovement(account.type, Number(row.debit) || 0, Number(row.credit) || 0).toFixed(2),
+    );
+  }
+
+  getBudgetVariance(id: string): BudgetVarianceReport | undefined {
+    const budget = this.getBudgetById(id);
+    if (!budget) return undefined;
+    const from = new Date(Date.UTC(budget.fiscalYear, 0, 1, 0, 0, 0));
+    const to = new Date(Date.UTC(budget.fiscalYear, 11, 31, 23, 59, 59));
+    const lines: BudgetVarianceLine[] = budget.lines.map((line) => {
+      const account = this.getLedgerAccountById(line.accountId);
+      const actual = this.accountMovementInRange(budget.companyId, line.accountId, from, to);
+      const variance = Number((line.amount - actual).toFixed(2));
+      const utilization = line.amount > 0 ? Number(((actual / line.amount) * 100).toFixed(1)) : 0;
+      return {
+        accountId: line.accountId,
+        accountCode: account?.code ?? '—',
+        accountName: account?.name ?? 'Unknown account',
+        accountType: account?.type ?? 'Expense',
+        budget: line.amount,
+        actual,
+        variance,
+        utilization,
+      };
+    });
+    const totalBudget = Number(lines.reduce((s, l) => s + l.budget, 0).toFixed(2));
+    const totalActual = Number(lines.reduce((s, l) => s + l.actual, 0).toFixed(2));
+    return {
+      budgetId: budget.id,
+      companyId: budget.companyId,
+      name: budget.name,
+      fiscalYear: budget.fiscalYear,
+      status: budget.status,
+      from,
+      to,
+      lines,
+      totalBudget,
+      totalActual,
+      totalVariance: Number((totalBudget - totalActual).toFixed(2)),
     };
   }
 

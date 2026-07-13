@@ -1328,6 +1328,7 @@ export interface ActivityEvent {
     | 'invoice'
     | 'vendor_bill'
     | 'expense'
+    | 'budget'
     | 'whatsapp_message';
   entityId: string;
   action: string;
@@ -1565,6 +1566,54 @@ export interface Expense {
   attachmentUrl?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type BudgetStatus = 'draft' | 'active' | 'archived';
+
+export interface BudgetLine {
+  id: string;
+  budgetId: string;
+  accountId: string;
+  /** Budgeted amount for the whole fiscal year. */
+  amount: number;
+}
+
+export interface Budget {
+  id: string;
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status: BudgetStatus;
+  lines: BudgetLine[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BudgetVarianceLine {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  accountType: LedgerAccountType;
+  budget: number;
+  actual: number;
+  /** budget − actual. For Expense accounts a negative value means over budget. */
+  variance: number;
+  /** actual / budget as a percentage (0 when there is no budget). */
+  utilization: number;
+}
+
+export interface BudgetVarianceReport {
+  budgetId: string;
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status: BudgetStatus;
+  from: Date;
+  to: Date;
+  lines: BudgetVarianceLine[];
+  totalBudget: number;
+  totalActual: number;
+  totalVariance: number;
 }
 
 export interface FinanceOverview {

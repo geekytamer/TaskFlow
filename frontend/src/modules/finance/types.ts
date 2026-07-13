@@ -269,6 +269,51 @@ export interface LedgerAccount {
   isSystem?: boolean;
 }
 
+export type BudgetStatus = 'draft' | 'active' | 'archived';
+
+export interface BudgetLine {
+  id: string;
+  budgetId: string;
+  accountId: string;
+  amount: number;
+}
+
+export interface Budget {
+  id: string;
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status: BudgetStatus;
+  lines: BudgetLine[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetVarianceLine {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  accountType: LedgerAccountType;
+  budget: number;
+  actual: number;
+  variance: number;
+  utilization: number;
+}
+
+export interface BudgetVarianceReport {
+  budgetId: string;
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status: BudgetStatus;
+  from: string;
+  to: string;
+  lines: BudgetVarianceLine[];
+  totalBudget: number;
+  totalActual: number;
+  totalVariance: number;
+}
+
 export interface JournalEntryLine {
   id: string;
   accountId: string;
