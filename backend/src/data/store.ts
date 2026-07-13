@@ -135,6 +135,9 @@ import {
   Payslip,
   StockCount,
   StockCountStatus,
+  Rfq,
+  RfqLineItem,
+  RfqStatus,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -3084,6 +3087,38 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '067_rfqs',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS rfqs (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              reference TEXT NOT NULL,
+              title TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              items TEXT NOT NULL DEFAULT '[]',
+              notes TEXT,
+              awardedQuoteId TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rfqs_company ON rfqs(companyId, createdAt);
+            CREATE TABLE IF NOT EXISTS rfq_quotes (
+              id TEXT PRIMARY KEY,
+              rfqId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              supplierId TEXT,
+              supplierName TEXT NOT NULL,
+              totalAmount REAL NOT NULL DEFAULT 0,
+              leadTimeDays INTEGER,
+              notes TEXT,
+              submittedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rfq_quotes_rfq ON rfq_quotes(rfqId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5474,6 +5509,128 @@ export class DataStore {
     const trx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM stock_count_lines WHERE countId = ?').run(id);
       this.db.prepare('DELETE FROM stock_counts WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  // ─── RFQs (request for quotation) ──────────────────────────────────────────
+
+  private decodeRfq(row: any): Rfq {
+    const quotes = (this.db
+      .prepare('SELECT * FROM rfq_quotes WHERE rfqId = ? ORDER BY totalAmount ASC, submittedAt ASC')
+      .all(row.id) as any[]).map((q) => ({
+      id: q.id,
+      rfqId: q.rfqId,
+      supplierId: q.supplierId ?? undefined,
+      supplierName: q.supplierName,
+      totalAmount: Number(q.totalAmount) || 0,
+      leadTimeDays: q.leadTimeDays === null || q.leadTimeDays === undefined ? undefined : Number(q.leadTimeDays),
+      notes: q.notes ?? undefined,
+      submittedAt: new Date(q.submittedAt),
+    }));
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      reference: row.reference,
+      title: row.title,
+      status: row.status as RfqStatus,
+      items: (this.parseJson<RfqLineItem[]>(row.items) || []),
+      quotes,
+      notes: row.notes ?? undefined,
+      awardedQuoteId: row.awardedQuoteId ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listRfqs(companyId: string): Rfq[] {
+    const rows = this.db.prepare('SELECT * FROM rfqs WHERE companyId = ? ORDER BY createdAt DESC').all(companyId) as any[];
+    return rows.map((r) => this.decodeRfq(r));
+  }
+
+  getRfqById(id: string): Rfq | undefined {
+    const row = this.db.prepare('SELECT * FROM rfqs WHERE id = ?').get(id) as any;
+    return row ? this.decodeRfq(row) : undefined;
+  }
+
+  private normalizeRfqItems(items: RfqLineItem[]): RfqLineItem[] {
+    return (items || [])
+      .map((i) => ({ description: (i.description || '').trim(), quantity: Number(i.quantity || 0), unit: i.unit?.trim() || undefined }))
+      .filter((i) => i.description && i.quantity > 0);
+  }
+
+  createRfq(companyId: string, input: { title: string; items: RfqLineItem[]; notes?: string }): Rfq {
+    const title = (input.title || '').trim();
+    if (!title) throw new Error('RFQ title is required.');
+    const items = this.normalizeRfqItems(input.items);
+    if (items.length === 0) throw new Error('Add at least one line item.');
+    const id = uuid();
+    const reference = `RFQ-${new Date().toISOString().slice(0, 10)}-${id.slice(0, 4).toUpperCase()}`;
+    const nowIso = new Date().toISOString();
+    this.db
+      .prepare('INSERT INTO rfqs (id, companyId, reference, title, status, items, notes, awardedQuoteId, createdAt, updatedAt) VALUES (@id,@companyId,@reference,@title,@status,@items,@notes,@awardedQuoteId,@createdAt,@updatedAt)')
+      .run({ id, companyId, reference, title, status: 'draft', items: JSON.stringify(items), notes: input.notes?.trim() || null, awardedQuoteId: null, createdAt: nowIso, updatedAt: nowIso });
+    this.createActivityEvent({ companyId, entityType: 'rfq', entityId: id, action: 'created', summary: `RFQ ${reference} created.` });
+    return this.getRfqById(id)!;
+  }
+
+  updateRfq(id: string, updates: { title?: string; items?: RfqLineItem[]; notes?: string; status?: RfqStatus }): Rfq | undefined {
+    const rfq = this.getRfqById(id);
+    if (!rfq) return undefined;
+    const title = updates.title !== undefined ? updates.title.trim() : rfq.title;
+    if (!title) throw new Error('RFQ title is required.');
+    const items = updates.items !== undefined ? this.normalizeRfqItems(updates.items) : rfq.items;
+    const status = updates.status ?? rfq.status;
+    const notes = updates.notes !== undefined ? (updates.notes.trim() || null) : (rfq.notes ?? null);
+    this.db
+      .prepare('UPDATE rfqs SET title=@title, items=@items, notes=@notes, status=@status, updatedAt=@updatedAt WHERE id=@id')
+      .run({ id, title, items: JSON.stringify(items), notes, status, updatedAt: new Date().toISOString() });
+    return this.getRfqById(id);
+  }
+
+  addRfqQuote(rfqId: string, input: { supplierId?: string; supplierName: string; totalAmount: number; leadTimeDays?: number; notes?: string }): Rfq {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) throw new Error('RFQ not found.');
+    const supplierName = (input.supplierName || '').trim();
+    if (!supplierName) throw new Error('Supplier name is required.');
+    if (input.supplierId) {
+      const supplier = this.getSupplierById(input.supplierId);
+      if (!supplier || supplier.companyId !== rfq.companyId) throw new Error('Supplier does not belong to this company.');
+    }
+    this.db
+      .prepare('INSERT INTO rfq_quotes (id, rfqId, companyId, supplierId, supplierName, totalAmount, leadTimeDays, notes, submittedAt) VALUES (@id,@rfqId,@companyId,@supplierId,@supplierName,@totalAmount,@leadTimeDays,@notes,@submittedAt)')
+      .run({ id: uuid(), rfqId, companyId: rfq.companyId, supplierId: input.supplierId ?? null, supplierName, totalAmount: Number(Number(input.totalAmount || 0).toFixed(2)), leadTimeDays: input.leadTimeDays ?? null, notes: input.notes?.trim() || null, submittedAt: new Date().toISOString() });
+    if (rfq.status === 'draft') this.db.prepare("UPDATE rfqs SET status = 'sent', updatedAt = ? WHERE id = ?").run(new Date().toISOString(), rfqId);
+    return this.getRfqById(rfqId)!;
+  }
+
+  deleteRfqQuote(rfqId: string, quoteId: string): Rfq | undefined {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) return undefined;
+    this.db.prepare('DELETE FROM rfq_quotes WHERE id = ? AND rfqId = ?').run(quoteId, rfqId);
+    if (rfq.awardedQuoteId === quoteId) {
+      this.db.prepare("UPDATE rfqs SET awardedQuoteId = NULL, status = 'sent', updatedAt = ? WHERE id = ?").run(new Date().toISOString(), rfqId);
+    }
+    return this.getRfqById(rfqId);
+  }
+
+  awardRfqQuote(rfqId: string, quoteId: string): Rfq | undefined {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) return undefined;
+    const quote = rfq.quotes.find((q) => q.id === quoteId);
+    if (!quote) throw new Error('Quote not found on this RFQ.');
+    this.db.prepare("UPDATE rfqs SET awardedQuoteId = ?, status = 'awarded', updatedAt = ? WHERE id = ?").run(quoteId, new Date().toISOString(), rfqId);
+    this.createActivityEvent({ companyId: rfq.companyId, entityType: 'rfq', entityId: rfqId, action: 'awarded', summary: `RFQ ${rfq.reference} awarded to ${quote.supplierName}.`, metadata: { supplierName: quote.supplierName, totalAmount: quote.totalAmount } });
+    return this.getRfqById(rfqId);
+  }
+
+  deleteRfq(id: string): boolean {
+    const rfq = this.getRfqById(id);
+    if (!rfq) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM rfq_quotes WHERE rfqId = ?').run(id);
+      this.db.prepare('DELETE FROM rfqs WHERE id = ?').run(id);
     });
     trx();
     return true;

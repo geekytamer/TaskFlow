@@ -853,6 +853,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '064_vat_returns',
     '065_hr_payroll',
     '066_stock_counts',
+    '067_rfqs',
   ]);
 });
 
@@ -1081,6 +1082,39 @@ test('cycle count posts on-hand adjustments from the physical count', async () =
   // Employees cannot access counts.
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/stock-counts').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('RFQ collects supplier quotes and awards the winning one', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const rfq = await admin(request(app).post('/companies/1/rfqs')).send({
+    title: 'Frozen fruit supply', items: [{ description: 'Strawberries', quantity: 500, unit: 'kg' }],
+  });
+  assert.equal(rfq.status, 201);
+  assert.equal(rfq.body.status, 'draft');
+  const id = rfq.body.id;
+
+  // Two supplier quotes; adding the first moves the RFQ to "sent".
+  const q1 = await admin(request(app).post(`/rfqs/${id}/quotes`)).send({ supplierName: 'Acme', totalAmount: 1200 });
+  assert.equal(q1.status, 201);
+  assert.equal(q1.body.status, 'sent');
+  const q2 = await admin(request(app).post(`/rfqs/${id}/quotes`)).send({ supplierName: 'Globex', totalAmount: 1050 });
+  assert.equal(q2.body.quotes.length, 2);
+  // Quotes are returned cheapest-first.
+  assert.equal(q2.body.quotes[0].supplierName, 'Globex');
+
+  const winningId = q2.body.quotes.find((q) => q.supplierName === 'Globex').id;
+  const awarded = await admin(request(app).post(`/rfqs/${id}/award`)).send({ quoteId: winningId });
+  assert.equal(awarded.status, 200);
+  assert.equal(awarded.body.status, 'awarded');
+  assert.equal(awarded.body.awardedQuoteId, winningId);
+
+  // Employees cannot access RFQs.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/rfqs').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
 });
 

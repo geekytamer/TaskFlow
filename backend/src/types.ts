@@ -388,6 +388,39 @@ export interface PurchaseRequisition {
   updatedAt: Date;
 }
 
+export type RfqStatus = 'draft' | 'sent' | 'awarded' | 'closed';
+
+export interface RfqLineItem {
+  description: string;
+  quantity: number;
+  unit?: string;
+}
+
+export interface RfqQuote {
+  id: string;
+  rfqId: string;
+  supplierId?: string;
+  supplierName: string;
+  totalAmount: number;
+  leadTimeDays?: number;
+  notes?: string;
+  submittedAt: Date;
+}
+
+export interface Rfq {
+  id: string;
+  companyId: string;
+  reference: string;
+  title: string;
+  status: RfqStatus;
+  items: RfqLineItem[];
+  quotes: RfqQuote[];
+  notes?: string;
+  awardedQuoteId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface PurchaseReceiptLine {
   lineIndex: number;
   inventoryItemId?: string;
@@ -1360,6 +1393,7 @@ export interface ActivityEvent {
     | 'budget'
     | 'vat_return'
     | 'payroll_run'
+    | 'rfq'
     | 'whatsapp_message';
   entityId: string;
   action: string;
