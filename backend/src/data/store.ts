@@ -133,6 +133,12 @@ import {
   PayrollRun,
   PayrollRunStatus,
   Payslip,
+  StockCount,
+  StockCountStatus,
+  Rfq,
+  RfqLineItem,
+  RfqStatus,
+  BillMatch,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -3055,6 +3061,65 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '066_stock_counts',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS stock_counts (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              reference TEXT NOT NULL,
+              location TEXT,
+              status TEXT NOT NULL DEFAULT 'draft',
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              postedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_counts_company ON stock_counts(companyId, createdAt);
+            CREATE TABLE IF NOT EXISTS stock_count_lines (
+              id TEXT PRIMARY KEY,
+              countId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              inventoryItemId TEXT NOT NULL,
+              systemQty REAL NOT NULL DEFAULT 0,
+              countedQty REAL
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_count_lines_count ON stock_count_lines(countId);
+          `);
+        },
+      },
+      {
+        id: '067_rfqs',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS rfqs (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              reference TEXT NOT NULL,
+              title TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              items TEXT NOT NULL DEFAULT '[]',
+              notes TEXT,
+              awardedQuoteId TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rfqs_company ON rfqs(companyId, createdAt);
+            CREATE TABLE IF NOT EXISTS rfq_quotes (
+              id TEXT PRIMARY KEY,
+              rfqId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              supplierId TEXT,
+              supplierName TEXT NOT NULL,
+              totalAmount REAL NOT NULL DEFAULT 0,
+              leadTimeDays INTEGER,
+              notes TEXT,
+              submittedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rfq_quotes_rfq ON rfq_quotes(rfqId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5332,6 +5397,295 @@ export class DataStore {
     });
     trx();
     return true;
+  }
+
+  // ─── Cycle counts ────────────────────────────────────────────────────────
+
+  private decodeStockCount(row: any): StockCount {
+    const lines = (this.db
+      .prepare('SELECT * FROM stock_count_lines WHERE countId = ? ORDER BY id ASC')
+      .all(row.id) as any[]).map((l) => {
+      const item = this.getInventoryItemById(l.inventoryItemId);
+      const systemQty = Number(l.systemQty) || 0;
+      const countedQty = l.countedQty === null || l.countedQty === undefined ? null : Number(l.countedQty);
+      return {
+        id: l.id,
+        countId: l.countId,
+        inventoryItemId: l.inventoryItemId,
+        sku: item?.sku ?? '—',
+        name: item?.name ?? 'Unknown item',
+        unit: item?.unit ?? '',
+        systemQty,
+        countedQty,
+        variance: countedQty === null ? 0 : Number((countedQty - systemQty).toFixed(3)),
+      };
+    });
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      reference: row.reference,
+      location: row.location ?? undefined,
+      status: row.status as StockCountStatus,
+      notes: row.notes ?? undefined,
+      lines,
+      createdAt: new Date(row.createdAt),
+      postedAt: row.postedAt ? new Date(row.postedAt) : undefined,
+    };
+  }
+
+  listStockCounts(companyId: string): StockCount[] {
+    const rows = this.db
+      .prepare('SELECT * FROM stock_counts WHERE companyId = ? ORDER BY createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodeStockCount(r));
+  }
+
+  getStockCountById(id: string): StockCount | undefined {
+    const row = this.db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(id) as any;
+    return row ? this.decodeStockCount(row) : undefined;
+  }
+
+  /** Open a count, snapshotting current on-hand for every tracked item. */
+  createStockCount(companyId: string, options?: { location?: string; notes?: string }): StockCount {
+    const items = this.listInventoryItems(companyId).filter((i) => i.tracksInventory);
+    if (items.length === 0) throw new Error('No stock-tracked items to count.');
+    const id = uuid();
+    const reference = `CC-${new Date().toISOString().slice(0, 10)}-${id.slice(0, 4).toUpperCase()}`;
+    const nowIso = new Date().toISOString();
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('INSERT INTO stock_counts (id, companyId, reference, location, status, notes, createdAt, postedAt) VALUES (@id,@companyId,@reference,@location,@status,@notes,@createdAt,@postedAt)')
+        .run({ id, companyId, reference, location: options?.location ?? null, status: 'draft', notes: options?.notes ?? null, createdAt: nowIso, postedAt: null });
+      const insert = this.db.prepare('INSERT INTO stock_count_lines (id, countId, companyId, inventoryItemId, systemQty, countedQty) VALUES (@id,@countId,@companyId,@inventoryItemId,@systemQty,@countedQty)');
+      for (const item of items) {
+        insert.run({ id: uuid(), countId: id, companyId, inventoryItemId: item.id, systemQty: Number(item.onHand || 0), countedQty: null });
+      }
+    });
+    trx();
+    return this.getStockCountById(id)!;
+  }
+
+  /** Record counted quantities (draft only). */
+  updateStockCountLines(id: string, counts: { lineId: string; countedQty: number | null }[]): StockCount | undefined {
+    const count = this.getStockCountById(id);
+    if (!count) return undefined;
+    if (count.status !== 'draft') throw new Error('This count has already been posted.');
+    const update = this.db.prepare('UPDATE stock_count_lines SET countedQty = ? WHERE id = ? AND countId = ?');
+    const trx = this.db.transaction(() => {
+      for (const c of counts) {
+        update.run(c.countedQty === null || c.countedQty === undefined ? null : Number(c.countedQty), c.lineId, id);
+      }
+    });
+    trx();
+    return this.getStockCountById(id);
+  }
+
+  /** Post the count: adjust on-hand for every counted line where it differs. */
+  postStockCount(id: string): StockCount | undefined {
+    const count = this.getStockCountById(id);
+    if (!count) return undefined;
+    if (count.status !== 'posted' && count.status !== 'draft') return count;
+    if (count.status === 'posted') throw new Error('This count has already been posted.');
+    const trx = this.db.transaction(() => {
+      for (const line of count.lines) {
+        if (line.countedQty === null) continue;
+        const delta = Number((line.countedQty - line.systemQty).toFixed(3));
+        if (Math.abs(delta) < 0.0001) continue;
+        this.createInventoryAdjustment(count.companyId, line.inventoryItemId, delta, `Cycle count ${count.reference}`, count.location);
+      }
+      this.db.prepare("UPDATE stock_counts SET status = 'posted', postedAt = ? WHERE id = ?").run(new Date().toISOString(), id);
+    });
+    trx();
+    this.createActivityEvent({
+      companyId: count.companyId, entityType: 'inventory_item', entityId: id, action: 'stock_count_posted',
+      summary: `Cycle count ${count.reference} posted.`,
+    });
+    return this.getStockCountById(id);
+  }
+
+  deleteStockCount(id: string): boolean {
+    const count = this.getStockCountById(id);
+    if (!count) return false;
+    if (count.status === 'posted') throw new Error('A posted count cannot be deleted.');
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM stock_count_lines WHERE countId = ?').run(id);
+      this.db.prepare('DELETE FROM stock_counts WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  // ─── RFQs (request for quotation) ──────────────────────────────────────────
+
+  private decodeRfq(row: any): Rfq {
+    const quotes = (this.db
+      .prepare('SELECT * FROM rfq_quotes WHERE rfqId = ? ORDER BY totalAmount ASC, submittedAt ASC')
+      .all(row.id) as any[]).map((q) => ({
+      id: q.id,
+      rfqId: q.rfqId,
+      supplierId: q.supplierId ?? undefined,
+      supplierName: q.supplierName,
+      totalAmount: Number(q.totalAmount) || 0,
+      leadTimeDays: q.leadTimeDays === null || q.leadTimeDays === undefined ? undefined : Number(q.leadTimeDays),
+      notes: q.notes ?? undefined,
+      submittedAt: new Date(q.submittedAt),
+    }));
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      reference: row.reference,
+      title: row.title,
+      status: row.status as RfqStatus,
+      items: (this.parseJson<RfqLineItem[]>(row.items) || []),
+      quotes,
+      notes: row.notes ?? undefined,
+      awardedQuoteId: row.awardedQuoteId ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listRfqs(companyId: string): Rfq[] {
+    const rows = this.db.prepare('SELECT * FROM rfqs WHERE companyId = ? ORDER BY createdAt DESC').all(companyId) as any[];
+    return rows.map((r) => this.decodeRfq(r));
+  }
+
+  getRfqById(id: string): Rfq | undefined {
+    const row = this.db.prepare('SELECT * FROM rfqs WHERE id = ?').get(id) as any;
+    return row ? this.decodeRfq(row) : undefined;
+  }
+
+  private normalizeRfqItems(items: RfqLineItem[]): RfqLineItem[] {
+    return (items || [])
+      .map((i) => ({ description: (i.description || '').trim(), quantity: Number(i.quantity || 0), unit: i.unit?.trim() || undefined }))
+      .filter((i) => i.description && i.quantity > 0);
+  }
+
+  createRfq(companyId: string, input: { title: string; items: RfqLineItem[]; notes?: string }): Rfq {
+    const title = (input.title || '').trim();
+    if (!title) throw new Error('RFQ title is required.');
+    const items = this.normalizeRfqItems(input.items);
+    if (items.length === 0) throw new Error('Add at least one line item.');
+    const id = uuid();
+    const reference = `RFQ-${new Date().toISOString().slice(0, 10)}-${id.slice(0, 4).toUpperCase()}`;
+    const nowIso = new Date().toISOString();
+    this.db
+      .prepare('INSERT INTO rfqs (id, companyId, reference, title, status, items, notes, awardedQuoteId, createdAt, updatedAt) VALUES (@id,@companyId,@reference,@title,@status,@items,@notes,@awardedQuoteId,@createdAt,@updatedAt)')
+      .run({ id, companyId, reference, title, status: 'draft', items: JSON.stringify(items), notes: input.notes?.trim() || null, awardedQuoteId: null, createdAt: nowIso, updatedAt: nowIso });
+    this.createActivityEvent({ companyId, entityType: 'rfq', entityId: id, action: 'created', summary: `RFQ ${reference} created.` });
+    return this.getRfqById(id)!;
+  }
+
+  updateRfq(id: string, updates: { title?: string; items?: RfqLineItem[]; notes?: string; status?: RfqStatus }): Rfq | undefined {
+    const rfq = this.getRfqById(id);
+    if (!rfq) return undefined;
+    const title = updates.title !== undefined ? updates.title.trim() : rfq.title;
+    if (!title) throw new Error('RFQ title is required.');
+    const items = updates.items !== undefined ? this.normalizeRfqItems(updates.items) : rfq.items;
+    const status = updates.status ?? rfq.status;
+    const notes = updates.notes !== undefined ? (updates.notes.trim() || null) : (rfq.notes ?? null);
+    this.db
+      .prepare('UPDATE rfqs SET title=@title, items=@items, notes=@notes, status=@status, updatedAt=@updatedAt WHERE id=@id')
+      .run({ id, title, items: JSON.stringify(items), notes, status, updatedAt: new Date().toISOString() });
+    return this.getRfqById(id);
+  }
+
+  addRfqQuote(rfqId: string, input: { supplierId?: string; supplierName: string; totalAmount: number; leadTimeDays?: number; notes?: string }): Rfq {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) throw new Error('RFQ not found.');
+    const supplierName = (input.supplierName || '').trim();
+    if (!supplierName) throw new Error('Supplier name is required.');
+    if (input.supplierId) {
+      const supplier = this.getSupplierById(input.supplierId);
+      if (!supplier || supplier.companyId !== rfq.companyId) throw new Error('Supplier does not belong to this company.');
+    }
+    this.db
+      .prepare('INSERT INTO rfq_quotes (id, rfqId, companyId, supplierId, supplierName, totalAmount, leadTimeDays, notes, submittedAt) VALUES (@id,@rfqId,@companyId,@supplierId,@supplierName,@totalAmount,@leadTimeDays,@notes,@submittedAt)')
+      .run({ id: uuid(), rfqId, companyId: rfq.companyId, supplierId: input.supplierId ?? null, supplierName, totalAmount: Number(Number(input.totalAmount || 0).toFixed(2)), leadTimeDays: input.leadTimeDays ?? null, notes: input.notes?.trim() || null, submittedAt: new Date().toISOString() });
+    if (rfq.status === 'draft') this.db.prepare("UPDATE rfqs SET status = 'sent', updatedAt = ? WHERE id = ?").run(new Date().toISOString(), rfqId);
+    return this.getRfqById(rfqId)!;
+  }
+
+  deleteRfqQuote(rfqId: string, quoteId: string): Rfq | undefined {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) return undefined;
+    this.db.prepare('DELETE FROM rfq_quotes WHERE id = ? AND rfqId = ?').run(quoteId, rfqId);
+    if (rfq.awardedQuoteId === quoteId) {
+      this.db.prepare("UPDATE rfqs SET awardedQuoteId = NULL, status = 'sent', updatedAt = ? WHERE id = ?").run(new Date().toISOString(), rfqId);
+    }
+    return this.getRfqById(rfqId);
+  }
+
+  awardRfqQuote(rfqId: string, quoteId: string): Rfq | undefined {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) return undefined;
+    const quote = rfq.quotes.find((q) => q.id === quoteId);
+    if (!quote) throw new Error('Quote not found on this RFQ.');
+    this.db.prepare("UPDATE rfqs SET awardedQuoteId = ?, status = 'awarded', updatedAt = ? WHERE id = ?").run(quoteId, new Date().toISOString(), rfqId);
+    this.createActivityEvent({ companyId: rfq.companyId, entityType: 'rfq', entityId: rfqId, action: 'awarded', summary: `RFQ ${rfq.reference} awarded to ${quote.supplierName}.`, metadata: { supplierName: quote.supplierName, totalAmount: quote.totalAmount } });
+    return this.getRfqById(rfqId);
+  }
+
+  deleteRfq(id: string): boolean {
+    const rfq = this.getRfqById(id);
+    if (!rfq) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM rfq_quotes WHERE rfqId = ?').run(id);
+      this.db.prepare('DELETE FROM rfqs WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  // ─── Three-way invoice matching ────────────────────────────────────────────
+
+  private computeBillMatch(bill: VendorBill): BillMatch {
+    const TOL = 0.01;
+    const billedTotal = Number(bill.amount || 0);
+    const base: BillMatch = {
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      vendorName: bill.vendorName,
+      billedTotal,
+      orderedTotal: 0,
+      receivedTotal: 0,
+      priceVariance: 0,
+      receiptVariance: 0,
+      status: 'no_po',
+    };
+    if (!bill.purchaseOrderId) return base;
+    const po = this.getPurchaseOrderById(bill.purchaseOrderId);
+    if (!po || po.companyId !== bill.companyId) return base;
+    const receipts = this.listPurchaseReceipts(bill.companyId, po.id);
+    const receivedTotal = Number(
+      receipts
+        .reduce((sum, r) => sum + r.items.reduce((s, l) => s + Number(l.quantity || 0) * Number(l.unitCost || 0), 0), 0)
+        .toFixed(2),
+    );
+    const orderedTotal = Number(po.totalAmount || 0);
+    const priceVariance = Number((billedTotal - orderedTotal).toFixed(2));
+    const receiptVariance = Number((receivedTotal - orderedTotal).toFixed(2));
+    const matched = Math.abs(priceVariance) <= TOL && Math.abs(receiptVariance) <= TOL;
+    return {
+      ...base,
+      purchaseOrderId: po.id,
+      orderNumber: po.orderNumber,
+      orderedTotal,
+      receivedTotal,
+      priceVariance,
+      receiptVariance,
+      status: matched ? 'matched' : 'variance',
+    };
+  }
+
+  getBillMatch(billId: string): BillMatch | undefined {
+    const bill = this.getVendorBillById(billId);
+    if (!bill) return undefined;
+    return this.computeBillMatch(bill);
+  }
+
+  listBillMatches(companyId: string): BillMatch[] {
+    return this.listVendorBills(companyId).map((b) => this.computeBillMatch(b));
   }
 
   /** Build a WPS (Wage Protection System) SIF-style CSV for a payroll run. */

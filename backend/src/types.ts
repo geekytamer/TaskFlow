@@ -230,6 +230,35 @@ export interface InventoryItem {
   customFields?: Record<string, unknown>;
 }
 
+export type StockCountStatus = 'draft' | 'posted';
+
+export interface StockCountLine {
+  id: string;
+  countId: string;
+  inventoryItemId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  /** On-hand snapshot at the time the count was opened. */
+  systemQty: number;
+  /** Physically counted quantity; null until entered. */
+  countedQty: number | null;
+  /** countedQty − systemQty (0 until counted). */
+  variance: number;
+}
+
+export interface StockCount {
+  id: string;
+  companyId: string;
+  reference: string;
+  location?: string;
+  status: StockCountStatus;
+  notes?: string;
+  lines: StockCountLine[];
+  createdAt: Date;
+  postedAt?: Date;
+}
+
 export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired';
 
 /**
@@ -355,6 +384,39 @@ export interface PurchaseRequisition {
   approvedAt?: Date;
   rejectionReason?: string;
   purchaseOrderId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type RfqStatus = 'draft' | 'sent' | 'awarded' | 'closed';
+
+export interface RfqLineItem {
+  description: string;
+  quantity: number;
+  unit?: string;
+}
+
+export interface RfqQuote {
+  id: string;
+  rfqId: string;
+  supplierId?: string;
+  supplierName: string;
+  totalAmount: number;
+  leadTimeDays?: number;
+  notes?: string;
+  submittedAt: Date;
+}
+
+export interface Rfq {
+  id: string;
+  companyId: string;
+  reference: string;
+  title: string;
+  status: RfqStatus;
+  items: RfqLineItem[];
+  quotes: RfqQuote[];
+  notes?: string;
+  awardedQuoteId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -781,6 +843,25 @@ export interface VendorBill {
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+}
+
+export type BillMatchStatus = 'matched' | 'no_po' | 'variance';
+
+/** Three-way match of a vendor bill against its PO (ordered) and GRNs (received). */
+export interface BillMatch {
+  billId: string;
+  billNumber: string;
+  vendorName: string;
+  billedTotal: number;
+  purchaseOrderId?: string;
+  orderNumber?: string;
+  orderedTotal: number;
+  receivedTotal: number;
+  /** billedTotal − orderedTotal. */
+  priceVariance: number;
+  /** receivedTotal − orderedTotal. */
+  receiptVariance: number;
+  status: BillMatchStatus;
 }
 
 export interface VendorBillPayment {
@@ -1331,6 +1412,7 @@ export interface ActivityEvent {
     | 'budget'
     | 'vat_return'
     | 'payroll_run'
+    | 'rfq'
     | 'whatsapp_message';
   entityId: string;
   action: string;

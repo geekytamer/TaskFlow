@@ -852,6 +852,8 @@ test('health endpoint reports status and applied migrations', async () => {
     '063_budgets',
     '064_vat_returns',
     '065_hr_payroll',
+    '066_stock_counts',
+    '067_rfqs',
   ]);
 });
 
@@ -1026,6 +1028,161 @@ test('payroll run generates payslips from salaries and exports a WPS file', asyn
   // Employees cannot run payroll.
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/payroll-runs').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('cycle count posts on-hand adjustments from the physical count', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-cc-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  // Seed a stock-tracked item at 100 on-hand directly (endpoint requires a
+  // warehouse for opening stock; the store does not).
+  const seeded = store.createInventoryItem({
+    companyId: '1', name: 'Frozen Peas', category: 'Frozen', unit: 'kg',
+    vatApplicable: true, tracksInventory: true, onHand: 100, reorderPoint: 0,
+    unitCost: 2, location: 'Main',
+  });
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+  const itemId = seeded.id;
+
+  const count = await admin(request(app).post('/companies/1/stock-counts')).send({});
+  assert.equal(count.status, 201);
+  const line = count.body.lines.find((l) => l.inventoryItemId === itemId);
+  assert.equal(line.systemQty, 100);
+  assert.equal(line.countedQty, null);
+
+  // Physically counted 93 kg (a 7 kg shrinkage).
+  const updated = await admin(request(app).put(`/stock-counts/${count.body.id}`)).send({
+    counts: [{ lineId: line.id, countedQty: 93 }],
+  });
+  assert.equal(updated.status, 200);
+  const updatedLine = updated.body.lines.find((l) => l.id === line.id);
+  assert.equal(updatedLine.variance, -7);
+
+  const posted = await admin(request(app).post(`/stock-counts/${count.body.id}/post`));
+  assert.equal(posted.status, 200);
+  assert.equal(posted.body.status, 'posted');
+
+  // On-hand now matches the physical count.
+  const after = await admin(request(app).get(`/companies/1/inventory-items`));
+  const afterItem = after.body.find((i) => i.id === itemId);
+  assert.equal(afterItem.onHand, 93);
+
+  // A posted count cannot be edited or deleted.
+  const reEdit = await admin(request(app).put(`/stock-counts/${count.body.id}`)).send({ counts: [] });
+  assert.equal(reEdit.status, 400);
+  const del = await admin(request(app).delete(`/stock-counts/${count.body.id}`));
+  assert.equal(del.status, 400);
+
+  // Employees cannot access counts.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/stock-counts').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('RFQ collects supplier quotes and awards the winning one', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const rfq = await admin(request(app).post('/companies/1/rfqs')).send({
+    title: 'Frozen fruit supply', items: [{ description: 'Strawberries', quantity: 500, unit: 'kg' }],
+  });
+  assert.equal(rfq.status, 201);
+  assert.equal(rfq.body.status, 'draft');
+  const id = rfq.body.id;
+
+  // Two supplier quotes; adding the first moves the RFQ to "sent".
+  const q1 = await admin(request(app).post(`/rfqs/${id}/quotes`)).send({ supplierName: 'Acme', totalAmount: 1200 });
+  assert.equal(q1.status, 201);
+  assert.equal(q1.body.status, 'sent');
+  const q2 = await admin(request(app).post(`/rfqs/${id}/quotes`)).send({ supplierName: 'Globex', totalAmount: 1050 });
+  assert.equal(q2.body.quotes.length, 2);
+  // Quotes are returned cheapest-first.
+  assert.equal(q2.body.quotes[0].supplierName, 'Globex');
+
+  const winningId = q2.body.quotes.find((q) => q.supplierName === 'Globex').id;
+  const awarded = await admin(request(app).post(`/rfqs/${id}/award`)).send({ quoteId: winningId });
+  assert.equal(awarded.status, 200);
+  assert.equal(awarded.body.status, 'awarded');
+  assert.equal(awarded.body.awardedQuoteId, winningId);
+
+  // Employees cannot access RFQs.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/rfqs').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('three-way match compares a vendor bill against its PO and receipts', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-3w-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+
+  // PO1: 100 units @ 10 = 1,000, fully received and fully billed → matched.
+  const po1 = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-03-01T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 100, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po1.id, {
+    receivedAt: new Date(), items: po1.items.map((it, lineIndex) => ({ lineIndex, quantity: it.quantity })),
+  });
+  const matchedBill = store.createVendorBill({
+    companyId: '1', vendorName: 'Acme', purchaseOrderId: po1.id, amount: 1000,
+    issueDate: new Date(), dueDate: new Date(), status: 'Approved',
+  });
+
+  // PO2: 1,000 ordered but only 600 received, billed 600 → receipt variance.
+  const po2 = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-03-02T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 100, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po2.id, { receivedAt: new Date(), items: [{ lineIndex: 0, quantity: 60 }] });
+  const varianceBill = store.createVendorBill({
+    companyId: '1', vendorName: 'Acme', purchaseOrderId: po2.id, amount: 600,
+    issueDate: new Date(), dueDate: new Date(), status: 'Approved',
+  });
+
+  // A bill with no PO at all.
+  const noPoBill = store.createVendorBill({
+    companyId: '1', vendorName: 'Globex', amount: 500,
+    issueDate: new Date(), dueDate: new Date(), status: 'Approved',
+  });
+
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const m1 = await admin(request(app).get(`/vendor-bills/${matchedBill.id}/match`));
+  assert.equal(m1.status, 200);
+  assert.equal(m1.body.status, 'matched');
+  assert.equal(m1.body.orderedTotal, 1000);
+  assert.equal(m1.body.receivedTotal, 1000);
+  assert.equal(m1.body.priceVariance, 0);
+
+  const m2 = await admin(request(app).get(`/vendor-bills/${varianceBill.id}/match`));
+  assert.equal(m2.body.status, 'variance');
+  assert.equal(m2.body.orderedTotal, 1000);
+  assert.equal(m2.body.receivedTotal, 600);
+  assert.equal(m2.body.receiptVariance, -400);
+
+  const m3 = await admin(request(app).get(`/vendor-bills/${noPoBill.id}/match`));
+  assert.equal(m3.body.status, 'no_po');
+
+  const list = await admin(request(app).get('/companies/1/bill-matches'));
+  assert.equal(list.status, 200);
+  assert.ok(list.body.length >= 3);
+
+  // Employees cannot access matching.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/bill-matches').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
 });
 

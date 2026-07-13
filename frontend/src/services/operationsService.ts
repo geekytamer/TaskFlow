@@ -142,6 +142,157 @@ export async function getInventoryItems(companyId: string): Promise<InventoryIte
   return apiFetch<InventoryItem[]>(`/companies/${companyId}/inventory-items`);
 }
 
+export type StockCountStatus = 'draft' | 'posted';
+
+export interface StockCountLine {
+  id: string;
+  countId: string;
+  inventoryItemId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  systemQty: number;
+  countedQty: number | null;
+  variance: number;
+}
+
+export interface StockCount {
+  id: string;
+  companyId: string;
+  reference: string;
+  location?: string;
+  status: StockCountStatus;
+  notes?: string;
+  lines: StockCountLine[];
+  createdAt: string;
+  postedAt?: string;
+}
+
+export async function getStockCounts(companyId: string): Promise<StockCount[]> {
+  if (!companyId) return [];
+  return apiFetch<StockCount[]>(`/companies/${companyId}/stock-counts`);
+}
+
+export async function getStockCount(id: string): Promise<StockCount> {
+  return apiFetch<StockCount>(`/stock-counts/${id}`);
+}
+
+export async function createStockCount(companyId: string, notes?: string): Promise<StockCount> {
+  return apiFetch<StockCount>(`/companies/${companyId}/stock-counts`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function saveStockCount(
+  id: string, counts: { lineId: string; countedQty: number | null }[],
+): Promise<StockCount> {
+  return apiFetch<StockCount>(`/stock-counts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ counts }),
+  });
+}
+
+export async function postStockCount(id: string): Promise<StockCount> {
+  return apiFetch<StockCount>(`/stock-counts/${id}/post`, { method: 'POST' });
+}
+
+export async function deleteStockCount(id: string): Promise<void> {
+  await apiFetch(`/stock-counts/${id}`, { method: 'DELETE' });
+}
+
+// ─── RFQs ────────────────────────────────────────────────────────────────────
+
+export type RfqStatus = 'draft' | 'sent' | 'awarded' | 'closed';
+
+export interface RfqLineItem {
+  description: string;
+  quantity: number;
+  unit?: string;
+}
+
+export interface RfqQuote {
+  id: string;
+  rfqId: string;
+  supplierId?: string;
+  supplierName: string;
+  totalAmount: number;
+  leadTimeDays?: number;
+  notes?: string;
+  submittedAt: string;
+}
+
+export interface Rfq {
+  id: string;
+  companyId: string;
+  reference: string;
+  title: string;
+  status: RfqStatus;
+  items: RfqLineItem[];
+  quotes: RfqQuote[];
+  notes?: string;
+  awardedQuoteId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getRfqs(companyId: string): Promise<Rfq[]> {
+  if (!companyId) return [];
+  return apiFetch<Rfq[]>(`/companies/${companyId}/rfqs`);
+}
+
+export async function getRfq(id: string): Promise<Rfq> {
+  return apiFetch<Rfq>(`/rfqs/${id}`);
+}
+
+export async function createRfq(
+  companyId: string, data: { title: string; items: RfqLineItem[]; notes?: string },
+): Promise<Rfq> {
+  return apiFetch<Rfq>(`/companies/${companyId}/rfqs`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function addRfqQuote(
+  rfqId: string,
+  data: { supplierId?: string; supplierName: string; totalAmount: number; leadTimeDays?: number; notes?: string },
+): Promise<Rfq> {
+  return apiFetch<Rfq>(`/rfqs/${rfqId}/quotes`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function deleteRfqQuote(rfqId: string, quoteId: string): Promise<Rfq> {
+  return apiFetch<Rfq>(`/rfqs/${rfqId}/quotes/${quoteId}`, { method: 'DELETE' });
+}
+
+export async function awardRfqQuote(rfqId: string, quoteId: string): Promise<Rfq> {
+  return apiFetch<Rfq>(`/rfqs/${rfqId}/award`, { method: 'POST', body: JSON.stringify({ quoteId }) });
+}
+
+export async function deleteRfq(id: string): Promise<void> {
+  await apiFetch(`/rfqs/${id}`, { method: 'DELETE' });
+}
+
+// ─── Three-way invoice matching ──────────────────────────────────────────────
+
+export type BillMatchStatus = 'matched' | 'no_po' | 'variance';
+
+export interface BillMatch {
+  billId: string;
+  billNumber: string;
+  vendorName: string;
+  billedTotal: number;
+  purchaseOrderId?: string;
+  orderNumber?: string;
+  orderedTotal: number;
+  receivedTotal: number;
+  priceVariance: number;
+  receiptVariance: number;
+  status: BillMatchStatus;
+}
+
+export async function getBillMatches(companyId: string): Promise<BillMatch[]> {
+  if (!companyId) return [];
+  return apiFetch<BillMatch[]>(`/companies/${companyId}/bill-matches`);
+}
+
 export async function createInventoryItem(
   companyId: string,
   data: CreateInventoryItemInput,

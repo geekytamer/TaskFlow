@@ -4560,6 +4560,66 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Cycle counts ─────────────────────────────────────────────────────────
+  const loadStockCount = (req: AuthedRequest) => {
+    const count = store.getStockCountById(req.params.id);
+    if (!count) throw new HttpError(404, 'Stock count not found.');
+    requireCompanyRoles(req, count.companyId, companyManagementRoles);
+    return count;
+  };
+  app.get('/companies/:companyId/stock-counts', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listStockCounts(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/stock-counts', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const count = withActor(req, () =>
+        store.createStockCount(req.params.companyId, { location: optionalString(body.location), notes: optionalString(body.notes) }),
+      );
+      res.status(201).json(count);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not open stock count.');
+    }
+  }));
+  app.get('/stock-counts/:id', authMiddleware, handler((req, res) => {
+    res.json(loadStockCount(req));
+  }));
+  app.put('/stock-counts/:id', authMiddleware, handler((req, res) => {
+    loadStockCount(req);
+    const body = asRecord(req.body, 'body');
+    if (!Array.isArray(body.counts)) throw new HttpError(400, 'counts must be an array.');
+    const counts = body.counts.map((raw) => {
+      const line = asRecord(raw, 'count');
+      const countedQty = line.countedQty === null ? null : requiredNumber(line.countedQty, 'countedQty');
+      return { lineId: requiredString(line.lineId, 'lineId'), countedQty };
+    });
+    try {
+      res.json(store.updateStockCountLines(req.params.id, counts));
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not update count.');
+    }
+  }));
+  app.post('/stock-counts/:id/post', authMiddleware, handler((req, res) => {
+    loadStockCount(req);
+    try {
+      res.json(withActor(req, () => store.postStockCount(req.params.id)));
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not post count.');
+    }
+  }));
+  app.delete('/stock-counts/:id', authMiddleware, handler((req, res) => {
+    loadStockCount(req);
+    try {
+      store.deleteStockCount(req.params.id);
+      res.status(204).end();
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not delete count.');
+    }
+  }));
+
   app.get(
     '/companies/:companyId/inventory-items',
     authMiddleware,
@@ -5307,6 +5367,95 @@ export function createServer(options: CreateServerOptions = {}) {
       }
     }),
   );
+
+  // ─── RFQs (request for quotation) ───────────────────────────────────────────
+  const parseRfqItems = (value: unknown) => {
+    if (!Array.isArray(value)) throw new HttpError(400, 'items must be an array.');
+    return value.map((raw) => {
+      const line = asRecord(raw, 'item');
+      return {
+        description: requiredString(line.description, 'description', { min: 1 }),
+        quantity: requiredNumber(line.quantity, 'quantity'),
+        unit: optionalString(line.unit),
+      };
+    });
+  };
+  const loadRfq = (req: AuthedRequest) => {
+    const rfq = store.getRfqById(req.params.id);
+    if (!rfq) throw new HttpError(404, 'RFQ not found.');
+    requireCompanyRoles(req, rfq.companyId, companyManagementRoles);
+    return rfq;
+  };
+  app.get('/companies/:companyId/rfqs', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listRfqs(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/rfqs', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const rfq = withActor(req, () => store.createRfq(req.params.companyId, {
+        title: requiredString(body.title, 'title', { min: 1 }),
+        items: parseRfqItems(body.items),
+        notes: optionalString(body.notes),
+      }));
+      res.status(201).json(rfq);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create RFQ.');
+    }
+  }));
+  app.get('/rfqs/:id', authMiddleware, handler((req, res) => { res.json(loadRfq(req)); }));
+  app.put('/rfqs/:id', authMiddleware, handler((req, res) => {
+    loadRfq(req);
+    const body = asRecord(req.body, 'body');
+    try {
+      res.json(store.updateRfq(req.params.id, {
+        title: body.title !== undefined ? requiredString(body.title, 'title', { min: 1 }) : undefined,
+        items: body.items !== undefined ? parseRfqItems(body.items) : undefined,
+        notes: optionalString(body.notes),
+        status: body.status !== undefined ? (enumValue(body.status, 'status', ['draft', 'sent', 'awarded', 'closed']) as any) : undefined,
+      }));
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not update RFQ.');
+    }
+  }));
+  app.post('/rfqs/:id/quotes', authMiddleware, handler((req, res) => {
+    loadRfq(req);
+    const body = asRecord(req.body, 'body');
+    try {
+      res.status(201).json(store.addRfqQuote(req.params.id, {
+        supplierId: optionalString(body.supplierId),
+        supplierName: requiredString(body.supplierName, 'supplierName', { min: 1 }),
+        totalAmount: requiredNumber(body.totalAmount, 'totalAmount'),
+        leadTimeDays: body.leadTimeDays !== undefined ? requiredNumber(body.leadTimeDays, 'leadTimeDays') : undefined,
+        notes: optionalString(body.notes),
+      }));
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not add quote.');
+    }
+  }));
+  app.delete('/rfqs/:id/quotes/:quoteId', authMiddleware, handler((req, res) => {
+    loadRfq(req);
+    res.json(store.deleteRfqQuote(req.params.id, req.params.quoteId));
+  }));
+  app.post('/rfqs/:id/award', authMiddleware, handler((req, res) => {
+    loadRfq(req);
+    const body = asRecord(req.body, 'body');
+    try {
+      res.json(withActor(req, () => store.awardRfqQuote(req.params.id, requiredString(body.quoteId, 'quoteId'))));
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not award quote.');
+    }
+  }));
+  app.delete('/rfqs/:id', authMiddleware, handler((req, res) => {
+    loadRfq(req);
+    store.deleteRfq(req.params.id);
+    res.status(204).end();
+  }));
 
   app.get(
     '/companies/:companyId/purchase-requisitions',
@@ -6423,6 +6572,26 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       res.json(store.listVendorBills(req.params.companyId));
+    }),
+  );
+
+  // ─── Three-way invoice matching ─────────────────────────────────────────────
+  app.get(
+    '/companies/:companyId/bill-matches',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listBillMatches(req.params.companyId));
+    }),
+  );
+  app.get(
+    '/vendor-bills/:id/match',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      res.json(store.getBillMatch(req.params.id));
     }),
   );
 
