@@ -851,6 +851,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '062_task_privacy',
     '063_budgets',
     '064_vat_returns',
+    '065_hr_payroll',
   ]);
 });
 
@@ -975,6 +976,56 @@ test('VAT return computes output/input tax from the ledger and files a period', 
   // Employees cannot access VAT.
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get(`/companies/1/vat/preview?${q}`).set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('payroll run generates payslips from salaries and exports a WPS file', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  // Two employees with salaries + bank details.
+  const e1 = await admin(request(app).post('/companies/1/employees')).send({
+    name: 'Aisha', basicSalary: 800, allowances: 200, deductions: 50, bankName: 'Bank Muscat', iban: 'OM1234',
+  });
+  assert.equal(e1.status, 201);
+  assert.equal(e1.body.basicSalary, 800);
+  const e2 = await admin(request(app).post('/companies/1/employees')).send({
+    name: 'Bilal', basicSalary: 1000, allowances: 0, deductions: 100, bankName: 'NBO', iban: 'OM9999',
+  });
+
+  // Attendance upsert is idempotent per employee/day.
+  const att1 = await admin(request(app).post('/companies/1/attendance')).send({
+    employeeId: e1.body.id, date: '2026-03-01', status: 'present', hours: 8,
+  });
+  assert.equal(att1.status, 201);
+  const att2 = await admin(request(app).post('/companies/1/attendance')).send({
+    employeeId: e1.body.id, date: '2026-03-01', status: 'leave', hours: 0,
+  });
+  assert.equal(att2.status, 201);
+  assert.equal(att2.body.id, att1.body.id); // same day → updated, not duplicated
+  const attList = await admin(request(app).get('/companies/1/attendance?from=2026-03-01&to=2026-03-31'));
+  assert.equal(attList.body.length, 1);
+  assert.equal(attList.body[0].status, 'leave');
+
+  // Payroll run: net = basic + allowances − deductions.
+  const run = await admin(request(app).post('/companies/1/payroll-runs')).send({ period: '2026-03' });
+  assert.equal(run.status, 201);
+  assert.equal(run.body.payslips.length, 2);
+  const aisha = run.body.payslips.find((p) => p.employeeName === 'Aisha');
+  assert.equal(aisha.net, 950); // 800 + 200 − 50
+  assert.equal(run.body.totalNet, 950 + 900); // Bilal: 1000 − 100
+
+  // WPS export is a CSV with the net salaries and bank details.
+  const wps = await admin(request(app).get(`/payroll-runs/${run.body.id}/wps`));
+  assert.equal(wps.status, 200);
+  assert.match(wps.headers['content-type'], /csv/);
+  assert.match(wps.text, /OM1234/);
+  assert.match(wps.text, /950\.00/);
+
+  // Employees cannot run payroll.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/payroll-runs').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
 });
 

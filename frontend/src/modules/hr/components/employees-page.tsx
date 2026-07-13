@@ -41,11 +41,13 @@ type Form = {
   name: string; email: string; phone: string; jobTitle: string;
   departmentId: string; managerId: string; employmentType: EmploymentType;
   status: EmployeeStatus; hireDate: string; annualLeaveAllowance: string; notes: string;
+  basicSalary: string; allowances: string; deductions: string; bankName: string; iban: string;
 };
 
 const emptyForm = (): Form => ({
   name: '', email: '', phone: '', jobTitle: '', departmentId: '', managerId: '',
   employmentType: 'Full-time', status: 'Active', hireDate: '', annualLeaveAllowance: '21', notes: '',
+  basicSalary: '', allowances: '', deductions: '', bankName: '', iban: '',
 });
 
 export function EmployeesPage() {
@@ -95,6 +97,10 @@ export function EmployeesPage() {
       employmentType: e.employmentType ?? 'Full-time', status: e.status,
       hireDate: e.hireDate ? new Date(e.hireDate).toISOString().slice(0, 10) : '',
       annualLeaveAllowance: String(e.annualLeaveAllowance ?? 0), notes: e.notes ?? '',
+      basicSalary: e.basicSalary ? String(e.basicSalary) : '',
+      allowances: e.allowances ? String(e.allowances) : '',
+      deductions: e.deductions ? String(e.deductions) : '',
+      bankName: e.bankName ?? '', iban: e.iban ?? '',
     });
     setDialogOpen(true);
   };
@@ -114,6 +120,11 @@ export function EmployeesPage() {
       hireDate: form.hireDate || undefined,
       annualLeaveAllowance: Number(form.annualLeaveAllowance || 0),
       notes: form.notes.trim() || undefined,
+      basicSalary: Number(form.basicSalary || 0),
+      allowances: Number(form.allowances || 0),
+      deductions: Number(form.deductions || 0),
+      bankName: form.bankName.trim() || undefined,
+      iban: form.iban.trim() || undefined,
     } as Partial<Employee>;
     try {
       if (editing) {
@@ -318,6 +329,30 @@ export function EmployeesPage() {
             <div className="space-y-1 sm:col-span-2">
               <Label>{tr('Notes', 'ملاحظات')}</Label>
               <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
+            </div>
+
+            <div className="sm:col-span-2 mt-1 border-t pt-3">
+              <p className="text-sm font-semibold text-muted-foreground">{tr('Payroll', 'الرواتب')}</p>
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('Basic salary', 'الراتب الأساسي')}</Label>
+              <Input type="number" value={form.basicSalary} onChange={(e) => setForm((p) => ({ ...p, basicSalary: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('Allowances', 'البدلات')}</Label>
+              <Input type="number" value={form.allowances} onChange={(e) => setForm((p) => ({ ...p, allowances: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('Deductions', 'الاستقطاعات')}</Label>
+              <Input type="number" value={form.deductions} onChange={(e) => setForm((p) => ({ ...p, deductions: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('Bank name', 'اسم البنك')}</Label>
+              <Input value={form.bankName} onChange={(e) => setForm((p) => ({ ...p, bankName: e.target.value }))} />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label>{tr('IBAN', 'رقم الآيبان')}</Label>
+              <Input value={form.iban} onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>

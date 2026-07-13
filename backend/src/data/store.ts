@@ -128,6 +128,11 @@ import {
   VatReturn,
   VatReturnPreview,
   VatReturnStatus,
+  AttendanceRecord,
+  AttendanceStatus,
+  PayrollRun,
+  PayrollRunStatus,
+  Payslip,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -3001,6 +3006,55 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '065_hr_payroll',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(employees)`).all() as any[]).map((c) => c.name);
+          const addCol = (name: string, ddl: string) => {
+            if (!cols.includes(name)) this.db.exec(`ALTER TABLE employees ADD COLUMN ${ddl};`);
+          };
+          addCol('basicSalary', 'basicSalary REAL NOT NULL DEFAULT 0');
+          addCol('allowances', 'allowances REAL NOT NULL DEFAULT 0');
+          addCol('deductions', 'deductions REAL NOT NULL DEFAULT 0');
+          addCol('bankName', 'bankName TEXT');
+          addCol('iban', 'iban TEXT');
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS attendance (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              employeeId TEXT NOT NULL,
+              date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'present',
+              hours REAL NOT NULL DEFAULT 0,
+              note TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_emp_date ON attendance(employeeId, date);
+            CREATE INDEX IF NOT EXISTS idx_attendance_company ON attendance(companyId, date);
+            CREATE TABLE IF NOT EXISTS payroll_runs (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              period TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              notes TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_payroll_runs_company ON payroll_runs(companyId, period);
+            CREATE TABLE IF NOT EXISTS payslips (
+              id TEXT PRIMARY KEY,
+              runId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              employeeId TEXT NOT NULL,
+              employeeName TEXT NOT NULL,
+              basic REAL NOT NULL DEFAULT 0,
+              allowances REAL NOT NULL DEFAULT 0,
+              deductions REAL NOT NULL DEFAULT 0,
+              net REAL NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_payslips_run ON payslips(runId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5028,6 +5082,11 @@ export class DataStore {
       endDate: row.endDate ? new Date(row.endDate) : undefined,
       annualLeaveAllowance: Number(row.annualLeaveAllowance ?? 0),
       notes: row.notes ?? undefined,
+      basicSalary: Number(row.basicSalary ?? 0),
+      allowances: Number(row.allowances ?? 0),
+      deductions: Number(row.deductions ?? 0),
+      bankName: row.bankName ?? undefined,
+      iban: row.iban ?? undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -5060,13 +5119,18 @@ export class DataStore {
       endDate: input.endDate ? new Date(input.endDate).toISOString() : null,
       annualLeaveAllowance: input.annualLeaveAllowance ?? 21,
       notes: input.notes ?? null,
+      basicSalary: Number(input.basicSalary ?? 0),
+      allowances: Number(input.allowances ?? 0),
+      deductions: Number(input.deductions ?? 0),
+      bankName: input.bankName ?? null,
+      iban: input.iban ?? null,
       createdAt: now,
       updatedAt: now,
     };
     this.db
       .prepare(
-        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, createdAt, updatedAt)
-         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @createdAt, @updatedAt)`,
+        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, basicSalary, allowances, deductions, bankName, iban, createdAt, updatedAt)
+         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @basicSalary, @allowances, @deductions, @bankName, @iban, @createdAt, @updatedAt)`,
       )
       .run(row);
     return this.getEmployeeById(row.id)!;
@@ -5078,7 +5142,7 @@ export class DataStore {
     const merged = { ...e, ...updates };
     this.db
       .prepare(
-        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
+        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, basicSalary=@basicSalary, allowances=@allowances, deductions=@deductions, bankName=@bankName, iban=@iban, updatedAt=@updatedAt WHERE id=@id`,
       )
       .run({
         id,
@@ -5095,6 +5159,11 @@ export class DataStore {
         endDate: merged.endDate ? new Date(merged.endDate).toISOString() : null,
         annualLeaveAllowance: merged.annualLeaveAllowance ?? 21,
         notes: merged.notes ?? null,
+        basicSalary: Number(merged.basicSalary ?? 0),
+        allowances: Number(merged.allowances ?? 0),
+        deductions: Number(merged.deductions ?? 0),
+        bankName: merged.bankName ?? null,
+        iban: merged.iban ?? null,
         updatedAt: new Date().toISOString(),
       });
     return this.getEmployeeById(id);
@@ -5105,10 +5174,184 @@ export class DataStore {
     if (!this.getEmployeeById(id)) throw new Error('Employee not found.');
     const trx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM leave_requests WHERE employeeId = ?').run(id);
+      this.db.prepare('DELETE FROM attendance WHERE employeeId = ?').run(id);
       this.db.prepare('UPDATE employees SET managerId = NULL WHERE managerId = ?').run(id);
       this.db.prepare('DELETE FROM employees WHERE id = ?').run(id);
     });
     trx();
+  }
+
+  // ─── Attendance ───────────────────────────────────────────────────────────
+
+  private decodeAttendance(row: any): AttendanceRecord {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      employeeId: row.employeeId,
+      date: row.date,
+      status: row.status as AttendanceStatus,
+      hours: Number(row.hours) || 0,
+      note: row.note ?? undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listAttendance(
+    companyId: string,
+    options?: { employeeId?: string; from?: string; to?: string },
+  ): AttendanceRecord[] {
+    const filters = ['companyId = ?'];
+    const params: any[] = [companyId];
+    if (options?.employeeId) { filters.push('employeeId = ?'); params.push(options.employeeId); }
+    if (options?.from) { filters.push('date >= ?'); params.push(options.from); }
+    if (options?.to) { filters.push('date <= ?'); params.push(options.to); }
+    const rows = this.db
+      .prepare(`SELECT * FROM attendance WHERE ${filters.join(' AND ')} ORDER BY date DESC, employeeId ASC`)
+      .all(...params) as any[];
+    return rows.map((r) => this.decodeAttendance(r));
+  }
+
+  /** Insert or replace the attendance for an employee on a given day. */
+  upsertAttendance(input: {
+    companyId: string; employeeId: string; date: string;
+    status: AttendanceStatus; hours?: number; note?: string;
+  }): AttendanceRecord {
+    const emp = this.getEmployeeById(input.employeeId);
+    if (!emp || emp.companyId !== input.companyId) throw new Error('Employee does not belong to this company.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('date must be YYYY-MM-DD.');
+    const existing = this.db
+      .prepare('SELECT id FROM attendance WHERE employeeId = ? AND date = ?')
+      .get(input.employeeId, input.date) as { id?: string } | undefined;
+    const id = existing?.id ?? uuid();
+    if (existing?.id) {
+      this.db
+        .prepare('UPDATE attendance SET status=@status, hours=@hours, note=@note WHERE id=@id')
+        .run({ id, status: input.status, hours: Number(input.hours ?? 0), note: input.note ?? null });
+    } else {
+      this.db
+        .prepare('INSERT INTO attendance (id, companyId, employeeId, date, status, hours, note, createdAt) VALUES (@id,@companyId,@employeeId,@date,@status,@hours,@note,@createdAt)')
+        .run({
+          id, companyId: input.companyId, employeeId: input.employeeId, date: input.date,
+          status: input.status, hours: Number(input.hours ?? 0), note: input.note ?? null,
+          createdAt: new Date().toISOString(),
+        });
+    }
+    return this.decodeAttendance(this.db.prepare('SELECT * FROM attendance WHERE id = ?').get(id));
+  }
+
+  deleteAttendance(id: string): AttendanceRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM attendance WHERE id = ?').get(id) as any;
+    if (!row) return undefined;
+    this.db.prepare('DELETE FROM attendance WHERE id = ?').run(id);
+    return this.decodeAttendance(row);
+  }
+
+  // ─── Payroll ──────────────────────────────────────────────────────────────
+
+  private decodePayrollRun(row: any): PayrollRun {
+    const slips = (this.db.prepare('SELECT * FROM payslips WHERE runId = ? ORDER BY employeeName ASC').all(row.id) as any[]).map((s) => ({
+      id: s.id,
+      runId: s.runId,
+      companyId: s.companyId,
+      employeeId: s.employeeId,
+      employeeName: s.employeeName,
+      basic: Number(s.basic) || 0,
+      allowances: Number(s.allowances) || 0,
+      deductions: Number(s.deductions) || 0,
+      net: Number(s.net) || 0,
+    }));
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      period: row.period,
+      status: row.status as PayrollRunStatus,
+      notes: row.notes ?? undefined,
+      payslips: slips,
+      totalNet: Number(slips.reduce((sum, s) => sum + s.net, 0).toFixed(2)),
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listPayrollRuns(companyId: string): PayrollRun[] {
+    const rows = this.db
+      .prepare('SELECT * FROM payroll_runs WHERE companyId = ? ORDER BY period DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodePayrollRun(r));
+  }
+
+  getPayrollRunById(id: string): PayrollRun | undefined {
+    const row = this.db.prepare('SELECT * FROM payroll_runs WHERE id = ?').get(id) as any;
+    return row ? this.decodePayrollRun(row) : undefined;
+  }
+
+  /** Create a payroll run for a period, generating a payslip for each active employee. */
+  createPayrollRun(companyId: string, period: string, notes?: string): PayrollRun {
+    if (!/^\d{4}-\d{2}$/.test(period)) throw new Error('period must be YYYY-MM.');
+    const employees = this.listEmployees(companyId).filter((e) => e.status === 'Active');
+    if (employees.length === 0) throw new Error('No active employees to run payroll for.');
+    const id = uuid();
+    const nowIso = new Date().toISOString();
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('INSERT INTO payroll_runs (id, companyId, period, status, notes, createdAt) VALUES (@id,@companyId,@period,@status,@notes,@createdAt)')
+        .run({ id, companyId, period, status: 'draft', notes: notes?.trim() || null, createdAt: nowIso });
+      const insert = this.db.prepare(
+        'INSERT INTO payslips (id, runId, companyId, employeeId, employeeName, basic, allowances, deductions, net) VALUES (@id,@runId,@companyId,@employeeId,@employeeName,@basic,@allowances,@deductions,@net)',
+      );
+      for (const e of employees) {
+        const basic = Number(e.basicSalary ?? 0);
+        const allowances = Number(e.allowances ?? 0);
+        const deductions = Number(e.deductions ?? 0);
+        const net = Number((basic + allowances - deductions).toFixed(2));
+        insert.run({
+          id: uuid(), runId: id, companyId, employeeId: e.id, employeeName: e.name,
+          basic, allowances, deductions, net,
+        });
+      }
+    });
+    trx();
+    this.createActivityEvent({
+      companyId, entityType: 'payroll_run', entityId: id, action: 'created',
+      summary: `Payroll run created for ${period} (${employees.length} employees).`,
+      metadata: { period, employees: employees.length },
+    });
+    return this.getPayrollRunById(id)!;
+  }
+
+  updatePayrollRunStatus(id: string, status: PayrollRunStatus): PayrollRun | undefined {
+    if (!this.getPayrollRunById(id)) return undefined;
+    this.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run(status, id);
+    return this.getPayrollRunById(id);
+  }
+
+  deletePayrollRun(id: string): boolean {
+    if (!this.getPayrollRunById(id)) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM payslips WHERE runId = ?').run(id);
+      this.db.prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  /** Build a WPS (Wage Protection System) SIF-style CSV for a payroll run. */
+  buildWpsCsv(id: string): string {
+    const run = this.getPayrollRunById(id);
+    if (!run) throw new Error('Payroll run not found.');
+    const header = ['EmployeeID', 'EmployeeName', 'BankName', 'IBAN', 'Period', 'NetSalary'];
+    const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = run.payslips.map((s) => {
+      const emp = this.getEmployeeById(s.employeeId);
+      return [
+        s.employeeId,
+        s.employeeName,
+        emp?.bankName ?? '',
+        emp?.iban ?? '',
+        run.period,
+        s.net.toFixed(2),
+      ].map((c) => esc(String(c))).join(',');
+    });
+    return [header.map(esc).join(','), ...rows].join('\r\n');
   }
 
   // ─── HR: leave types ───────────────────────────────────────────────────────

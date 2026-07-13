@@ -1,4 +1,6 @@
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, getStoredToken } from '@/lib/api-client';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
 export type EmploymentType = 'Full-time' | 'Part-time' | 'Contractor' | 'Intern';
 export type EmployeeStatus = 'Active' | 'On Leave' | 'Terminated';
@@ -28,8 +30,51 @@ export interface Employee {
   endDate?: Date;
   annualLeaveAllowance: number;
   notes?: string;
+  basicSalary?: number;
+  allowances?: number;
+  deductions?: number;
+  bankName?: string;
+  iban?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'holiday';
+
+export interface AttendanceRecord {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  date: string;
+  status: AttendanceStatus;
+  hours: number;
+  note?: string;
+  createdAt: string;
+}
+
+export type PayrollRunStatus = 'draft' | 'approved' | 'paid';
+
+export interface Payslip {
+  id: string;
+  runId: string;
+  companyId: string;
+  employeeId: string;
+  employeeName: string;
+  basic: number;
+  allowances: number;
+  deductions: number;
+  net: number;
+}
+
+export interface PayrollRun {
+  id: string;
+  companyId: string;
+  period: string;
+  status: PayrollRunStatus;
+  notes?: string;
+  payslips: Payslip[];
+  totalNet: number;
+  createdAt: string;
 }
 
 export interface LeaveType {
@@ -160,4 +205,80 @@ export async function setLeaveRequestStatus(id: string, status: LeaveRequestStat
 }
 export async function deleteLeaveRequest(id: string): Promise<void> {
   await apiFetch(`/leave-requests/${id}`, { method: 'DELETE' });
+}
+
+// ─── Attendance ──────────────────────────────────────────────────────────────
+
+export async function getAttendance(
+  companyId: string, filters?: { employeeId?: string; from?: string; to?: string },
+): Promise<AttendanceRecord[]> {
+  if (!companyId) return [];
+  const q = new URLSearchParams();
+  if (filters?.employeeId) q.set('employeeId', filters.employeeId);
+  if (filters?.from) q.set('from', filters.from);
+  if (filters?.to) q.set('to', filters.to);
+  const qs = q.toString();
+  return apiFetch<AttendanceRecord[]>(`/companies/${companyId}/attendance${qs ? `?${qs}` : ''}`);
+}
+
+export async function upsertAttendance(
+  companyId: string,
+  data: { employeeId: string; date: string; status: AttendanceStatus; hours?: number; note?: string },
+): Promise<AttendanceRecord> {
+  return apiFetch<AttendanceRecord>(`/companies/${companyId}/attendance`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteAttendance(id: string): Promise<void> {
+  await apiFetch(`/attendance/${id}`, { method: 'DELETE' });
+}
+
+// ─── Payroll ─────────────────────────────────────────────────────────────────
+
+export async function getPayrollRuns(companyId: string): Promise<PayrollRun[]> {
+  if (!companyId) return [];
+  return apiFetch<PayrollRun[]>(`/companies/${companyId}/payroll-runs`);
+}
+
+export async function getPayrollRun(id: string): Promise<PayrollRun> {
+  return apiFetch<PayrollRun>(`/payroll-runs/${id}`);
+}
+
+export async function createPayrollRun(
+  companyId: string, period: string, notes?: string,
+): Promise<PayrollRun> {
+  return apiFetch<PayrollRun>(`/companies/${companyId}/payroll-runs`, {
+    method: 'POST',
+    body: JSON.stringify({ period, notes }),
+  });
+}
+
+export async function setPayrollRunStatus(id: string, status: PayrollRunStatus): Promise<PayrollRun> {
+  return apiFetch<PayrollRun>(`/payroll-runs/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function deletePayrollRun(id: string): Promise<void> {
+  await apiFetch(`/payroll-runs/${id}`, { method: 'DELETE' });
+}
+
+/** Fetch the WPS CSV (authenticated) and trigger a browser download. */
+export async function downloadWps(runId: string, period: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/payroll-runs/${runId}/wps`, {
+    headers: { Authorization: `Bearer ${getStoredToken() ?? ''}` },
+  });
+  if (!res.ok) throw new Error('Could not download WPS file.');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `wps-${period}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

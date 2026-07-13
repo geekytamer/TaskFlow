@@ -7042,6 +7042,86 @@ export function createServer(options: CreateServerOptions = {}) {
     res.json(store.getLeaveBalance(req.params.id, year));
   }));
 
+  // ─── Attendance ─────────────────────────────────────────────────────────────
+  app.get('/companies/:companyId/attendance', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listAttendance(req.params.companyId, {
+      employeeId: optionalString(req.query.employeeId),
+      from: optionalString(req.query.from),
+      to: optionalString(req.query.to),
+    }));
+  }));
+  app.post('/companies/:companyId/attendance', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const record = store.upsertAttendance({
+        companyId: req.params.companyId,
+        employeeId: requiredString(body.employeeId, 'employeeId'),
+        date: requiredString(body.date, 'date'),
+        status: enumValue(body.status, 'status', ['present', 'absent', 'leave', 'holiday']) as any,
+        hours: body.hours !== undefined ? requiredNumber(body.hours, 'hours') : undefined,
+        note: optionalString(body.note),
+      });
+      res.status(201).json(record);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not record attendance.');
+    }
+  }));
+  app.delete('/attendance/:id', authMiddleware, handler((req, res) => {
+    const record = store.deleteAttendance(req.params.id);
+    if (!record) throw new HttpError(404, 'Attendance record not found.');
+    requireCompanyRoles(req, record.companyId, companyManagementRoles);
+    res.status(204).end();
+  }));
+
+  // ─── Payroll ──────────────────────────────────────────────────────────────
+  app.get('/companies/:companyId/payroll-runs', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listPayrollRuns(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/payroll-runs', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const run = withActor(req, () =>
+        store.createPayrollRun(req.params.companyId, requiredString(body.period, 'period'), optionalString(body.notes)),
+      );
+      res.status(201).json(run);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create payroll run.');
+    }
+  }));
+  const loadPayrollRun = (req: AuthedRequest) => {
+    const run = store.getPayrollRunById(req.params.id);
+    if (!run) throw new HttpError(404, 'Payroll run not found.');
+    requireCompanyRoles(req, run.companyId, companyManagementRoles);
+    return run;
+  };
+  app.get('/payroll-runs/:id', authMiddleware, handler((req, res) => {
+    res.json(loadPayrollRun(req));
+  }));
+  app.put('/payroll-runs/:id/status', authMiddleware, handler((req, res) => {
+    loadPayrollRun(req);
+    const body = asRecord(req.body, 'body');
+    const status = enumValue(body.status, 'status', ['draft', 'approved', 'paid']) as any;
+    res.json(store.updatePayrollRunStatus(req.params.id, status));
+  }));
+  app.delete('/payroll-runs/:id', authMiddleware, handler((req, res) => {
+    loadPayrollRun(req);
+    store.deletePayrollRun(req.params.id);
+    res.status(204).end();
+  }));
+  app.get('/payroll-runs/:id/wps', authMiddleware, handler((req, res) => {
+    const run = loadPayrollRun(req);
+    const csv = store.buildWpsCsv(req.params.id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="wps-${run.period}.csv"`);
+    res.send(csv);
+  }));
+
   app.get('/companies/:companyId/leave-types', authMiddleware, handler((req, res) => {
     requireCompanyAccess(req, req.params.companyId);
     res.json(store.listLeaveTypes(req.params.companyId));

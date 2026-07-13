@@ -1330,6 +1330,7 @@ export interface ActivityEvent {
     | 'expense'
     | 'budget'
     | 'vat_return'
+    | 'payroll_run'
     | 'whatsapp_message';
   entityId: string;
   action: string;
@@ -1694,8 +1695,54 @@ export interface Employee {
   endDate?: Date;
   annualLeaveAllowance: number;
   notes?: string;
+  // Payroll / WPS
+  basicSalary?: number;
+  allowances?: number;
+  deductions?: number;
+  bankName?: string;
+  iban?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type PayrollRunStatus = 'draft' | 'approved' | 'paid';
+
+export interface Payslip {
+  id: string;
+  runId: string;
+  companyId: string;
+  employeeId: string;
+  employeeName: string;
+  basic: number;
+  allowances: number;
+  deductions: number;
+  net: number;
+}
+
+export interface PayrollRun {
+  id: string;
+  companyId: string;
+  /** Pay period as YYYY-MM. */
+  period: string;
+  status: PayrollRunStatus;
+  notes?: string;
+  payslips: Payslip[];
+  totalNet: number;
+  createdAt: Date;
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'holiday';
+
+export interface AttendanceRecord {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** Calendar date as YYYY-MM-DD. */
+  date: string;
+  status: AttendanceStatus;
+  hours: number;
+  note?: string;
+  createdAt: Date;
 }
 
 export interface LeaveType {
