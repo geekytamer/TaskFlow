@@ -1329,6 +1329,7 @@ export interface ActivityEvent {
     | 'vendor_bill'
     | 'expense'
     | 'budget'
+    | 'vat_return'
     | 'whatsapp_message';
   entityId: string;
   action: string;
@@ -1614,6 +1615,38 @@ export interface BudgetVarianceReport {
   totalBudget: number;
   totalActual: number;
   totalVariance: number;
+}
+
+export type VatReturnStatus = 'draft' | 'filed';
+
+export interface VatReturnFigures {
+  /** Net standard-rated sales (revenue) in the period. */
+  taxableSales: number;
+  /** VAT collected on sales (output tax). */
+  outputVat: number;
+  /** Net purchases with recoverable VAT in the period. */
+  taxablePurchases: number;
+  /** Recoverable VAT on purchases (input tax). */
+  inputVat: number;
+  /** outputVat − inputVat. Positive = payable to the tax authority. */
+  netVat: number;
+}
+
+export interface VatReturnPreview extends VatReturnFigures {
+  companyId: string;
+  periodStart: Date;
+  periodEnd: Date;
+}
+
+export interface VatReturn extends VatReturnFigures {
+  id: string;
+  companyId: string;
+  periodStart: Date;
+  periodEnd: Date;
+  status: VatReturnStatus;
+  notes?: string;
+  filedAt?: Date;
+  createdAt: Date;
 }
 
 export interface FinanceOverview {

@@ -14,6 +14,7 @@ import { ActivityLogPanel } from './activity-log-panel';
 import { FinancialReportsPanel } from './financial-reports-panel';
 import { InvoiceTemplatePanel } from './invoice-template-panel';
 import { BudgetPanel } from './budget-panel';
+import { VatPanel } from './vat-panel';
 import { useI18n } from '@/context/i18n-context';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 
@@ -29,6 +30,7 @@ const VALID_TABS = new Set([
   'activity',
   'expenses',
   'budgets',
+  'vat',
 ]);
 
 export function FinancePage() {
@@ -61,6 +63,7 @@ export function FinancePage() {
           <TabsTrigger value="activity">{t('finance.tabActivity')}</TabsTrigger>
           <TabsTrigger value="expenses" data-tutorial="finance-tab-expenses">{t('finance.tabExpenses')}</TabsTrigger>
           <TabsTrigger value="budgets">{t('finance.tabBudgets', 'Budgets')}</TabsTrigger>
+          <TabsTrigger value="vat">{t('finance.tabVat', 'VAT')}</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="overview">
@@ -96,6 +99,9 @@ export function FinancePage() {
         </TabsContent>
         <TabsContent value="budgets">
           <BudgetPanel />
+        </TabsContent>
+        <TabsContent value="vat">
+          <VatPanel />
         </TabsContent>
       </Tabs>
     </SectionPageShell>

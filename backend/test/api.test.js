@@ -850,6 +850,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '061_notification_data',
     '062_task_privacy',
     '063_budgets',
+    '064_vat_returns',
   ]);
 });
 
@@ -910,6 +911,70 @@ test('budgets compute variance from ledger actuals and are management-only', asy
   // Employees cannot see budgets.
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/budgets').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('VAT return computes output/input tax from the ledger and files a period', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-vat-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const accounts = store.listLedgerAccounts('1');
+  const ar = accounts.find((a) => a.code === '1100');       // Accounts Receivable
+  const revenue = accounts.find((a) => a.code === '4000') || accounts.find((a) => a.type === 'Revenue');
+  const outputVatAcct = accounts.find((a) => a.code === '2200'); // Sales Tax Payable
+  const inputVatAcct = accounts.find((a) => a.code === '1150');  // Recoverable VAT (added by migration)
+  const cash = accounts.find((a) => a.code === '1000');
+  assert.ok(ar && revenue && outputVatAcct && inputVatAcct && cash);
+  const { randomUUID } = require('node:crypto');
+
+  // A sale of 1,000 + 5% VAT within the period.
+  store.createJournalEntry({
+    companyId: '1', sourceType: 'manual', sourceId: 'sale-1', memo: 'Sale',
+    entryDate: new Date('2026-02-15T00:00:00.000Z'),
+    lines: [
+      { id: randomUUID(), accountId: ar.id, description: 'AR', debit: 1050, credit: 0 },
+      { id: randomUUID(), accountId: revenue.id, description: 'Revenue', debit: 0, credit: 1000 },
+      { id: randomUUID(), accountId: outputVatAcct.id, description: 'Output VAT', debit: 0, credit: 50 },
+    ],
+  });
+  // A purchase with 20 recoverable VAT within the period.
+  store.createJournalEntry({
+    companyId: '1', sourceType: 'manual', sourceId: 'purch-1', memo: 'Purchase',
+    entryDate: new Date('2026-02-20T00:00:00.000Z'),
+    lines: [
+      { id: randomUUID(), accountId: inputVatAcct.id, description: 'Input VAT', debit: 20, credit: 0 },
+      { id: randomUUID(), accountId: cash.id, description: 'Cash', debit: 0, credit: 20 },
+    ],
+  });
+
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+  const q = 'from=2026-01-01&to=2026-03-31';
+
+  const preview = await admin(request(app).get(`/companies/1/vat/preview?${q}`));
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.outputVat, 50);
+  assert.equal(preview.body.inputVat, 20);
+  assert.equal(preview.body.taxableSales, 1000);
+  assert.equal(preview.body.netVat, 30);
+
+  const filed = await admin(request(app).post('/companies/1/vat-returns'))
+    .send({ from: '2026-01-01', to: '2026-03-31', notes: 'Q1' });
+  assert.equal(filed.status, 201);
+  assert.equal(filed.body.netVat, 30);
+  assert.equal(filed.body.status, 'filed');
+
+  const list = await admin(request(app).get('/companies/1/vat-returns'));
+  assert.equal(list.body.length, 1);
+
+  // Employees cannot access VAT.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get(`/companies/1/vat/preview?${q}`).set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
 });
 

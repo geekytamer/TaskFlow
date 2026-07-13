@@ -5208,6 +5208,67 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── VAT compliance ─────────────────────────────────────────────────────────
+
+  const parseVatPeriod = (req: AuthedRequest): { from: Date; to: Date } => {
+    const fromRaw = (req.query.from ?? (req.body && (req.body as any).from)) as unknown;
+    const toRaw = (req.query.to ?? (req.body && (req.body as any).to)) as unknown;
+    const from = optionalDateInput(fromRaw);
+    const to = optionalDateInput(toRaw);
+    if (!from || !to) throw new HttpError(400, 'from and to dates are required.');
+    return { from: new Date(from), to: new Date(to) };
+  };
+
+  app.get(
+    '/companies/:companyId/vat/preview',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { from, to } = parseVatPeriod(req);
+      res.json(store.computeVatFigures(req.params.companyId, from, to));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/vat-returns',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listVatReturns(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/vat-returns',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { from, to } = parseVatPeriod(req);
+      const body = asRecord(req.body, 'body');
+      try {
+        const filed = withActor(req, () =>
+          store.fileVatReturn(req.params.companyId, from, to, optionalString(body.notes)),
+        );
+        res.status(201).json(filed);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not file VAT return.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/vat-returns/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getVatReturnById(req.params.id);
+      if (!existing) throw new HttpError(404, 'VAT return not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      store.deleteVatReturn(req.params.id);
+      res.status(204).end();
+    }),
+  );
+
   app.get(
     '/companies/:companyId/expenses',
     authMiddleware,

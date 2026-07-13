@@ -22,6 +22,8 @@ import type {
   Budget,
   BudgetStatus,
   BudgetVarianceReport,
+  VatReturn,
+  VatReturnPreview,
   ManagementReportSummary,
   NumberingEntityType,
   Payment,
@@ -792,6 +794,30 @@ export async function updateBudget(
 
 export async function deleteBudget(budgetId: string): Promise<void> {
   await apiFetch(`/budgets/${budgetId}`, { method: 'DELETE' });
+}
+
+export async function getVatPreview(
+  companyId: string, from: string, to: string,
+): Promise<VatReturnPreview> {
+  return apiFetch<VatReturnPreview>(`/companies/${companyId}/vat/preview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+}
+
+export async function getVatReturns(companyId: string): Promise<VatReturn[]> {
+  if (!companyId) return [];
+  return apiFetch<VatReturn[]>(`/companies/${companyId}/vat-returns`);
+}
+
+export async function fileVatReturn(
+  companyId: string, from: string, to: string, notes?: string,
+): Promise<VatReturn> {
+  return apiFetch<VatReturn>(`/companies/${companyId}/vat-returns`, {
+    method: 'POST',
+    body: JSON.stringify({ from, to, notes }),
+  });
+}
+
+export async function deleteVatReturn(id: string): Promise<void> {
+  await apiFetch(`/vat-returns/${id}`, { method: 'DELETE' });
 }
 
 export async function createLedgerAccount(

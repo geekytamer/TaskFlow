@@ -125,6 +125,9 @@ import {
   BudgetStatus,
   BudgetVarianceReport,
   BudgetVarianceLine,
+  VatReturn,
+  VatReturnPreview,
+  VatReturnStatus,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -324,6 +327,7 @@ const defaultLedgerAccounts: Array<
   { code: '1100', name: 'Accounts Receivable', type: 'Asset', detailType: 'Trade receivables', description: 'Outstanding customer invoice balances.', isActive: true, isSystem: true },
   { code: '1200', name: 'Inventory', type: 'Asset', detailType: 'Inventory asset', description: 'Tracked inventory on hand.', isActive: true, isSystem: true },
   { code: '1300', name: 'Prepaid Expenses', type: 'Asset', detailType: 'Prepayments', description: 'Advance payments for future periods.', isActive: true, isSystem: true },
+  { code: '1150', name: 'Recoverable VAT (Input Tax)', type: 'Asset', detailType: 'Tax asset', description: 'Input VAT recoverable on purchases.', isActive: true, isSystem: true },
   { code: '1500', name: 'Equipment', type: 'Asset', detailType: 'Fixed assets', description: 'Operational equipment and devices.', isActive: true, isSystem: true },
   { code: '1510', name: 'Furniture and Fixtures', type: 'Asset', detailType: 'Fixed assets', description: 'Office furniture and fixtures.', isActive: true, isSystem: true },
   { code: '2000', name: 'Accounts Payable', type: 'Liability', detailType: 'Trade payables', description: 'Outstanding supplier invoices.', isActive: true, isSystem: true },
@@ -2957,6 +2961,44 @@ export class DataStore {
             );
             CREATE INDEX IF NOT EXISTS idx_budget_lines_budget ON budget_lines(budgetId);
           `);
+        },
+      },
+      {
+        id: '064_vat_returns',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS vat_returns (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              periodStart TEXT NOT NULL,
+              periodEnd TEXT NOT NULL,
+              taxableSales REAL NOT NULL DEFAULT 0,
+              outputVat REAL NOT NULL DEFAULT 0,
+              taxablePurchases REAL NOT NULL DEFAULT 0,
+              inputVat REAL NOT NULL DEFAULT 0,
+              netVat REAL NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'filed',
+              notes TEXT,
+              filedAt TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_vat_returns_company ON vat_returns(companyId, periodStart);
+          `);
+          // Backfill the recoverable-VAT (input tax) account for existing companies.
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+          const exists = this.db.prepare('SELECT 1 FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1');
+          const insert = this.db.prepare(
+            'INSERT INTO ledger_accounts (id, companyId, code, name, type, detailType, description, isActive, isSystem) VALUES (@id, @companyId, @code, @name, @type, @detailType, @description, @isActive, @isSystem)',
+          );
+          for (const c of companies) {
+            if (!exists.get(c.id, '1150')) {
+              insert.run({
+                id: uuid(), companyId: c.id, code: '1150', name: 'Recoverable VAT (Input Tax)',
+                type: 'Asset', detailType: 'Tax asset', description: 'Input VAT recoverable on purchases.',
+                isActive: 1, isSystem: 1,
+              });
+            }
+          }
         },
       },
     ];
@@ -11003,6 +11045,105 @@ export class DataStore {
       totalActual,
       totalVariance: Number((totalBudget - totalActual).toFixed(2)),
     };
+  }
+
+  // ─── VAT compliance ───────────────────────────────────────────────────────
+
+  private accountMovementByCode(companyId: string, code: string, from: Date, to: Date): number {
+    const row = this.db
+      .prepare('SELECT id FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1')
+      .get(companyId, code) as { id?: string } | undefined;
+    if (!row?.id) return 0;
+    return this.accountMovementInRange(companyId, row.id, from, to);
+  }
+
+  private movementByAccountType(companyId: string, type: LedgerAccountType, from: Date, to: Date): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(l.debit),0) as debit, COALESCE(SUM(l.credit),0) as credit
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entryId
+         JOIN ledger_accounts a ON a.id = l.accountId
+         WHERE e.companyId = ? AND a.type = ? AND e.entryDate >= ? AND e.entryDate <= ?`,
+      )
+      .get(companyId, type, from.toISOString(), to.toISOString()) as { debit: number; credit: number };
+    return Number(this.normalBalanceMovement(type, Number(row.debit) || 0, Number(row.credit) || 0).toFixed(2));
+  }
+
+  /** Compute VAT figures from the ledger for a period. Oman standard rate is 5%. */
+  computeVatFigures(companyId: string, from: Date, to: Date): VatReturnPreview {
+    const OMAN_VAT_RATE = 0.05;
+    const outputVat = Math.max(0, this.accountMovementByCode(companyId, '2200', from, to));
+    const inputVat = Math.max(0, this.accountMovementByCode(companyId, '1150', from, to));
+    const taxableSales = Math.max(0, this.movementByAccountType(companyId, 'Revenue', from, to));
+    // Purchase base isn't captured separately yet; derive it from recoverable VAT.
+    const taxablePurchases = inputVat > 0 ? Number((inputVat / OMAN_VAT_RATE).toFixed(2)) : 0;
+    const netVat = Number((outputVat - inputVat).toFixed(2));
+    return { companyId, periodStart: from, periodEnd: to, taxableSales, outputVat, taxablePurchases, inputVat, netVat };
+  }
+
+  private decodeVatReturn(row: any): VatReturn {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      periodStart: new Date(row.periodStart),
+      periodEnd: new Date(row.periodEnd),
+      taxableSales: Number(row.taxableSales) || 0,
+      outputVat: Number(row.outputVat) || 0,
+      taxablePurchases: Number(row.taxablePurchases) || 0,
+      inputVat: Number(row.inputVat) || 0,
+      netVat: Number(row.netVat) || 0,
+      status: row.status as VatReturnStatus,
+      notes: row.notes ?? undefined,
+      filedAt: row.filedAt ? new Date(row.filedAt) : undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listVatReturns(companyId: string): VatReturn[] {
+    const rows = this.db
+      .prepare('SELECT * FROM vat_returns WHERE companyId = ? ORDER BY periodStart DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodeVatReturn(r));
+  }
+
+  getVatReturnById(id: string): VatReturn | undefined {
+    const row = this.db.prepare('SELECT * FROM vat_returns WHERE id = ?').get(id) as any;
+    return row ? this.decodeVatReturn(row) : undefined;
+  }
+
+  fileVatReturn(companyId: string, from: Date, to: Date, notes?: string): VatReturn {
+    if (!(from.getTime() <= to.getTime())) {
+      throw new Error('Period start must be on or before the period end.');
+    }
+    const figures = this.computeVatFigures(companyId, from, to);
+    const nowIso = new Date().toISOString();
+    const id = uuid();
+    this.db
+      .prepare(
+        `INSERT INTO vat_returns (id, companyId, periodStart, periodEnd, taxableSales, outputVat, taxablePurchases, inputVat, netVat, status, notes, filedAt, createdAt)
+         VALUES (@id, @companyId, @periodStart, @periodEnd, @taxableSales, @outputVat, @taxablePurchases, @inputVat, @netVat, @status, @notes, @filedAt, @createdAt)`,
+      )
+      .run({
+        id, companyId,
+        periodStart: from.toISOString(), periodEnd: to.toISOString(),
+        taxableSales: figures.taxableSales, outputVat: figures.outputVat,
+        taxablePurchases: figures.taxablePurchases, inputVat: figures.inputVat, netVat: figures.netVat,
+        status: 'filed', notes: notes?.trim() || null, filedAt: nowIso, createdAt: nowIso,
+      });
+    this.createActivityEvent({
+      companyId, entityType: 'vat_return', entityId: id, action: 'filed',
+      summary: `VAT return filed: net ${figures.netVat.toFixed(2)}.`,
+      metadata: { outputVat: figures.outputVat, inputVat: figures.inputVat, netVat: figures.netVat },
+    });
+    return this.getVatReturnById(id)!;
+  }
+
+  deleteVatReturn(id: string): boolean {
+    const existing = this.getVatReturnById(id);
+    if (!existing) return false;
+    this.db.prepare('DELETE FROM vat_returns WHERE id = ?').run(id);
+    return true;
   }
 
   listInvoices(companyId: string): Invoice[] {

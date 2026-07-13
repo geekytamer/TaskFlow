@@ -314,6 +314,31 @@ export interface BudgetVarianceReport {
   totalVariance: number;
 }
 
+export interface VatReturnFigures {
+  taxableSales: number;
+  outputVat: number;
+  taxablePurchases: number;
+  inputVat: number;
+  netVat: number;
+}
+
+export interface VatReturnPreview extends VatReturnFigures {
+  companyId: string;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface VatReturn extends VatReturnFigures {
+  id: string;
+  companyId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: 'draft' | 'filed';
+  notes?: string;
+  filedAt?: string;
+  createdAt: string;
+}
+
 export interface JournalEntryLine {
   id: string;
   accountId: string;
