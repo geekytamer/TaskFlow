@@ -5097,6 +5097,178 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Budgets ────────────────────────────────────────────────────────────────
+
+  const parseBudgetLines = (value: unknown): { accountId: string; amount: number }[] => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) throw new HttpError(400, 'lines must be an array.');
+    return value.map((raw) => {
+      const line = asRecord(raw, 'line');
+      return {
+        accountId: requiredString(line.accountId, 'accountId'),
+        amount: requiredNumber(line.amount, 'amount'),
+      };
+    });
+  };
+
+  app.get(
+    '/companies/:companyId/budgets',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listBudgets(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/budgets',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      try {
+        const budget = withActor(req, () =>
+          store.createBudget({
+            companyId: req.params.companyId,
+            name: requiredString(body.name, 'name', { min: 1 }),
+            fiscalYear: requiredNumber(body.fiscalYear, 'fiscalYear'),
+            status: body.status !== undefined
+              ? (enumValue(body.status, 'status', ['draft', 'active', 'archived']) as any)
+              : undefined,
+            lines: parseBudgetLines(body.lines),
+          }),
+        );
+        res.status(201).json(budget);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not create budget.');
+      }
+    }),
+  );
+
+  const loadBudgetForWrite = (req: AuthedRequest) => {
+    const budget = store.getBudgetById(req.params.id);
+    if (!budget) throw new HttpError(404, 'Budget not found.');
+    requireCompanyRoles(req, budget.companyId, companyManagementRoles);
+    return budget;
+  };
+
+  app.get(
+    '/budgets/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const budget = loadBudgetForWrite(req);
+      res.json(budget);
+    }),
+  );
+
+  app.get(
+    '/budgets/:id/variance',
+    authMiddleware,
+    handler((req, res) => {
+      loadBudgetForWrite(req);
+      const report = store.getBudgetVariance(req.params.id);
+      if (!report) throw new HttpError(404, 'Budget not found.');
+      res.json(report);
+    }),
+  );
+
+  app.put(
+    '/budgets/:id',
+    authMiddleware,
+    handler((req, res) => {
+      loadBudgetForWrite(req);
+      const body = asRecord(req.body, 'body');
+      try {
+        const budget = withActor(req, () =>
+          store.updateBudget(req.params.id, {
+            name: body.name !== undefined ? requiredString(body.name, 'name', { min: 1 }) : undefined,
+            fiscalYear: body.fiscalYear !== undefined ? requiredNumber(body.fiscalYear, 'fiscalYear') : undefined,
+            status: body.status !== undefined
+              ? (enumValue(body.status, 'status', ['draft', 'active', 'archived']) as any)
+              : undefined,
+            lines: body.lines !== undefined ? parseBudgetLines(body.lines) : undefined,
+          }),
+        );
+        res.json(budget);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update budget.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/budgets/:id',
+    authMiddleware,
+    handler((req, res) => {
+      loadBudgetForWrite(req);
+      store.deleteBudget(req.params.id);
+      res.status(204).end();
+    }),
+  );
+
+  // ─── VAT compliance ─────────────────────────────────────────────────────────
+
+  const parseVatPeriod = (req: AuthedRequest): { from: Date; to: Date } => {
+    const fromRaw = (req.query.from ?? (req.body && (req.body as any).from)) as unknown;
+    const toRaw = (req.query.to ?? (req.body && (req.body as any).to)) as unknown;
+    const from = optionalDateInput(fromRaw);
+    const to = optionalDateInput(toRaw);
+    if (!from || !to) throw new HttpError(400, 'from and to dates are required.');
+    return { from: new Date(from), to: new Date(to) };
+  };
+
+  app.get(
+    '/companies/:companyId/vat/preview',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { from, to } = parseVatPeriod(req);
+      res.json(store.computeVatFigures(req.params.companyId, from, to));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/vat-returns',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listVatReturns(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/vat-returns',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { from, to } = parseVatPeriod(req);
+      const body = asRecord(req.body, 'body');
+      try {
+        const filed = withActor(req, () =>
+          store.fileVatReturn(req.params.companyId, from, to, optionalString(body.notes)),
+        );
+        res.status(201).json(filed);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not file VAT return.');
+      }
+    }),
+  );
+
+  app.delete(
+    '/vat-returns/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getVatReturnById(req.params.id);
+      if (!existing) throw new HttpError(404, 'VAT return not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      store.deleteVatReturn(req.params.id);
+      res.status(204).end();
+    }),
+  );
+
   app.get(
     '/companies/:companyId/expenses',
     authMiddleware,
@@ -6868,6 +7040,86 @@ export function createServer(options: CreateServerOptions = {}) {
     requireCompanyAccess(req, employee.companyId);
     const year = req.query.year ? Number(req.query.year) : undefined;
     res.json(store.getLeaveBalance(req.params.id, year));
+  }));
+
+  // ─── Attendance ─────────────────────────────────────────────────────────────
+  app.get('/companies/:companyId/attendance', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listAttendance(req.params.companyId, {
+      employeeId: optionalString(req.query.employeeId),
+      from: optionalString(req.query.from),
+      to: optionalString(req.query.to),
+    }));
+  }));
+  app.post('/companies/:companyId/attendance', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const record = store.upsertAttendance({
+        companyId: req.params.companyId,
+        employeeId: requiredString(body.employeeId, 'employeeId'),
+        date: requiredString(body.date, 'date'),
+        status: enumValue(body.status, 'status', ['present', 'absent', 'leave', 'holiday']) as any,
+        hours: body.hours !== undefined ? requiredNumber(body.hours, 'hours') : undefined,
+        note: optionalString(body.note),
+      });
+      res.status(201).json(record);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not record attendance.');
+    }
+  }));
+  app.delete('/attendance/:id', authMiddleware, handler((req, res) => {
+    const record = store.deleteAttendance(req.params.id);
+    if (!record) throw new HttpError(404, 'Attendance record not found.');
+    requireCompanyRoles(req, record.companyId, companyManagementRoles);
+    res.status(204).end();
+  }));
+
+  // ─── Payroll ──────────────────────────────────────────────────────────────
+  app.get('/companies/:companyId/payroll-runs', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listPayrollRuns(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/payroll-runs', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const run = withActor(req, () =>
+        store.createPayrollRun(req.params.companyId, requiredString(body.period, 'period'), optionalString(body.notes)),
+      );
+      res.status(201).json(run);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create payroll run.');
+    }
+  }));
+  const loadPayrollRun = (req: AuthedRequest) => {
+    const run = store.getPayrollRunById(req.params.id);
+    if (!run) throw new HttpError(404, 'Payroll run not found.');
+    requireCompanyRoles(req, run.companyId, companyManagementRoles);
+    return run;
+  };
+  app.get('/payroll-runs/:id', authMiddleware, handler((req, res) => {
+    res.json(loadPayrollRun(req));
+  }));
+  app.put('/payroll-runs/:id/status', authMiddleware, handler((req, res) => {
+    loadPayrollRun(req);
+    const body = asRecord(req.body, 'body');
+    const status = enumValue(body.status, 'status', ['draft', 'approved', 'paid']) as any;
+    res.json(store.updatePayrollRunStatus(req.params.id, status));
+  }));
+  app.delete('/payroll-runs/:id', authMiddleware, handler((req, res) => {
+    loadPayrollRun(req);
+    store.deletePayrollRun(req.params.id);
+    res.status(204).end();
+  }));
+  app.get('/payroll-runs/:id/wps', authMiddleware, handler((req, res) => {
+    const run = loadPayrollRun(req);
+    const csv = store.buildWpsCsv(req.params.id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="wps-${run.period}.csv"`);
+    res.send(csv);
   }));
 
   app.get('/companies/:companyId/leave-types', authMiddleware, handler((req, res) => {

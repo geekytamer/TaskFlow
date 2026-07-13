@@ -34,6 +34,8 @@ import {
   Sparkles,
   Contact2,
   CalendarOff,
+  CalendarCheck,
+  Wallet,
   Building2,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
@@ -104,7 +106,9 @@ const sections: NavSection[] = [
     labelKey: 'nav.section.hr',
     items: [
       { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-employees' },
+      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, roles: ['Admin', 'Manager', 'Accountant'] },
       { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-leave' },
+      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'] },
     ],
   },
   {

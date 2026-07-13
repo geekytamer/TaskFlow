@@ -1328,6 +1328,9 @@ export interface ActivityEvent {
     | 'invoice'
     | 'vendor_bill'
     | 'expense'
+    | 'budget'
+    | 'vat_return'
+    | 'payroll_run'
     | 'whatsapp_message';
   entityId: string;
   action: string;
@@ -1567,6 +1570,86 @@ export interface Expense {
   updatedAt: Date;
 }
 
+export type BudgetStatus = 'draft' | 'active' | 'archived';
+
+export interface BudgetLine {
+  id: string;
+  budgetId: string;
+  accountId: string;
+  /** Budgeted amount for the whole fiscal year. */
+  amount: number;
+}
+
+export interface Budget {
+  id: string;
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status: BudgetStatus;
+  lines: BudgetLine[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BudgetVarianceLine {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  accountType: LedgerAccountType;
+  budget: number;
+  actual: number;
+  /** budget − actual. For Expense accounts a negative value means over budget. */
+  variance: number;
+  /** actual / budget as a percentage (0 when there is no budget). */
+  utilization: number;
+}
+
+export interface BudgetVarianceReport {
+  budgetId: string;
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status: BudgetStatus;
+  from: Date;
+  to: Date;
+  lines: BudgetVarianceLine[];
+  totalBudget: number;
+  totalActual: number;
+  totalVariance: number;
+}
+
+export type VatReturnStatus = 'draft' | 'filed';
+
+export interface VatReturnFigures {
+  /** Net standard-rated sales (revenue) in the period. */
+  taxableSales: number;
+  /** VAT collected on sales (output tax). */
+  outputVat: number;
+  /** Net purchases with recoverable VAT in the period. */
+  taxablePurchases: number;
+  /** Recoverable VAT on purchases (input tax). */
+  inputVat: number;
+  /** outputVat − inputVat. Positive = payable to the tax authority. */
+  netVat: number;
+}
+
+export interface VatReturnPreview extends VatReturnFigures {
+  companyId: string;
+  periodStart: Date;
+  periodEnd: Date;
+}
+
+export interface VatReturn extends VatReturnFigures {
+  id: string;
+  companyId: string;
+  periodStart: Date;
+  periodEnd: Date;
+  status: VatReturnStatus;
+  notes?: string;
+  filedAt?: Date;
+  createdAt: Date;
+}
+
 export interface FinanceOverview {
   openReceivables: number;
   openPayables: number;
@@ -1612,8 +1695,54 @@ export interface Employee {
   endDate?: Date;
   annualLeaveAllowance: number;
   notes?: string;
+  // Payroll / WPS
+  basicSalary?: number;
+  allowances?: number;
+  deductions?: number;
+  bankName?: string;
+  iban?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type PayrollRunStatus = 'draft' | 'approved' | 'paid';
+
+export interface Payslip {
+  id: string;
+  runId: string;
+  companyId: string;
+  employeeId: string;
+  employeeName: string;
+  basic: number;
+  allowances: number;
+  deductions: number;
+  net: number;
+}
+
+export interface PayrollRun {
+  id: string;
+  companyId: string;
+  /** Pay period as YYYY-MM. */
+  period: string;
+  status: PayrollRunStatus;
+  notes?: string;
+  payslips: Payslip[];
+  totalNet: number;
+  createdAt: Date;
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'holiday';
+
+export interface AttendanceRecord {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** Calendar date as YYYY-MM-DD. */
+  date: string;
+  status: AttendanceStatus;
+  hours: number;
+  note?: string;
+  createdAt: Date;
 }
 
 export interface LeaveType {

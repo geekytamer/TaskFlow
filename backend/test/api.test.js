@@ -849,7 +849,184 @@ test('health endpoint reports status and applied migrations', async () => {
     '060_followup_assignees',
     '061_notification_data',
     '062_task_privacy',
+    '063_budgets',
+    '064_vat_returns',
+    '065_hr_payroll',
   ]);
+});
+
+test('budgets compute variance from ledger actuals and are management-only', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-budget-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  // Company 1 ships with a default chart of accounts. Use the Salaries expense
+  // account (5200) and post an actual expense of 8,000 in FY2026.
+  const accounts = store.listLedgerAccounts('1');
+  const salaries = accounts.find((a) => a.code === '5200');
+  const cash = accounts.find((a) => a.code === '1000');
+  assert.ok(salaries && cash);
+  const { randomUUID } = require('node:crypto');
+  store.createJournalEntry({
+    companyId: '1', sourceType: 'manual', sourceId: 'test-actual',
+    memo: 'Salaries paid', entryDate: new Date('2026-03-31T00:00:00.000Z'),
+    lines: [
+      { id: randomUUID(), accountId: salaries.id, description: 'Salaries', debit: 8000, credit: 0 },
+      { id: randomUUID(), accountId: cash.id, description: 'Cash out', debit: 0, credit: 8000 },
+    ],
+  });
+
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const created = await admin(request(app).post('/companies/1/budgets')).send({
+    name: 'Operating Budget', fiscalYear: 2026, status: 'active',
+    lines: [{ accountId: salaries.id, amount: 10000 }],
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.lines.length, 1);
+  const budgetId = created.body.id;
+
+  const variance = await admin(request(app).get(`/budgets/${budgetId}/variance`));
+  assert.equal(variance.status, 200);
+  assert.equal(variance.body.totalBudget, 10000);
+  assert.equal(variance.body.totalActual, 8000);
+  assert.equal(variance.body.totalVariance, 2000);
+  const line = variance.body.lines[0];
+  assert.equal(line.budget, 10000);
+  assert.equal(line.actual, 8000);
+  assert.equal(line.variance, 2000);
+  assert.equal(line.utilization, 80);
+
+  // An out-of-year actual does not count toward the budget.
+  const otherYear = await admin(request(app).post('/companies/1/budgets')).send({
+    name: 'Next Year', fiscalYear: 2027, lines: [{ accountId: salaries.id, amount: 5000 }],
+  });
+  const v2 = await admin(request(app).get(`/budgets/${otherYear.body.id}/variance`));
+  assert.equal(v2.body.totalActual, 0);
+
+  // Employees cannot see budgets.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/budgets').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('VAT return computes output/input tax from the ledger and files a period', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-vat-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const accounts = store.listLedgerAccounts('1');
+  const ar = accounts.find((a) => a.code === '1100');       // Accounts Receivable
+  const revenue = accounts.find((a) => a.code === '4000') || accounts.find((a) => a.type === 'Revenue');
+  const outputVatAcct = accounts.find((a) => a.code === '2200'); // Sales Tax Payable
+  const inputVatAcct = accounts.find((a) => a.code === '1150');  // Recoverable VAT (added by migration)
+  const cash = accounts.find((a) => a.code === '1000');
+  assert.ok(ar && revenue && outputVatAcct && inputVatAcct && cash);
+  const { randomUUID } = require('node:crypto');
+
+  // A sale of 1,000 + 5% VAT within the period.
+  store.createJournalEntry({
+    companyId: '1', sourceType: 'manual', sourceId: 'sale-1', memo: 'Sale',
+    entryDate: new Date('2026-02-15T00:00:00.000Z'),
+    lines: [
+      { id: randomUUID(), accountId: ar.id, description: 'AR', debit: 1050, credit: 0 },
+      { id: randomUUID(), accountId: revenue.id, description: 'Revenue', debit: 0, credit: 1000 },
+      { id: randomUUID(), accountId: outputVatAcct.id, description: 'Output VAT', debit: 0, credit: 50 },
+    ],
+  });
+  // A purchase with 20 recoverable VAT within the period.
+  store.createJournalEntry({
+    companyId: '1', sourceType: 'manual', sourceId: 'purch-1', memo: 'Purchase',
+    entryDate: new Date('2026-02-20T00:00:00.000Z'),
+    lines: [
+      { id: randomUUID(), accountId: inputVatAcct.id, description: 'Input VAT', debit: 20, credit: 0 },
+      { id: randomUUID(), accountId: cash.id, description: 'Cash', debit: 0, credit: 20 },
+    ],
+  });
+
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+  const q = 'from=2026-01-01&to=2026-03-31';
+
+  const preview = await admin(request(app).get(`/companies/1/vat/preview?${q}`));
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.outputVat, 50);
+  assert.equal(preview.body.inputVat, 20);
+  assert.equal(preview.body.taxableSales, 1000);
+  assert.equal(preview.body.netVat, 30);
+
+  const filed = await admin(request(app).post('/companies/1/vat-returns'))
+    .send({ from: '2026-01-01', to: '2026-03-31', notes: 'Q1' });
+  assert.equal(filed.status, 201);
+  assert.equal(filed.body.netVat, 30);
+  assert.equal(filed.body.status, 'filed');
+
+  const list = await admin(request(app).get('/companies/1/vat-returns'));
+  assert.equal(list.body.length, 1);
+
+  // Employees cannot access VAT.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get(`/companies/1/vat/preview?${q}`).set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('payroll run generates payslips from salaries and exports a WPS file', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  // Two employees with salaries + bank details.
+  const e1 = await admin(request(app).post('/companies/1/employees')).send({
+    name: 'Aisha', basicSalary: 800, allowances: 200, deductions: 50, bankName: 'Bank Muscat', iban: 'OM1234',
+  });
+  assert.equal(e1.status, 201);
+  assert.equal(e1.body.basicSalary, 800);
+  const e2 = await admin(request(app).post('/companies/1/employees')).send({
+    name: 'Bilal', basicSalary: 1000, allowances: 0, deductions: 100, bankName: 'NBO', iban: 'OM9999',
+  });
+
+  // Attendance upsert is idempotent per employee/day.
+  const att1 = await admin(request(app).post('/companies/1/attendance')).send({
+    employeeId: e1.body.id, date: '2026-03-01', status: 'present', hours: 8,
+  });
+  assert.equal(att1.status, 201);
+  const att2 = await admin(request(app).post('/companies/1/attendance')).send({
+    employeeId: e1.body.id, date: '2026-03-01', status: 'leave', hours: 0,
+  });
+  assert.equal(att2.status, 201);
+  assert.equal(att2.body.id, att1.body.id); // same day → updated, not duplicated
+  const attList = await admin(request(app).get('/companies/1/attendance?from=2026-03-01&to=2026-03-31'));
+  assert.equal(attList.body.length, 1);
+  assert.equal(attList.body[0].status, 'leave');
+
+  // Payroll run: net = basic + allowances − deductions.
+  const run = await admin(request(app).post('/companies/1/payroll-runs')).send({ period: '2026-03' });
+  assert.equal(run.status, 201);
+  assert.equal(run.body.payslips.length, 2);
+  const aisha = run.body.payslips.find((p) => p.employeeName === 'Aisha');
+  assert.equal(aisha.net, 950); // 800 + 200 − 50
+  assert.equal(run.body.totalNet, 950 + 900); // Bilal: 1000 − 100
+
+  // WPS export is a CSV with the net salaries and bank details.
+  const wps = await admin(request(app).get(`/payroll-runs/${run.body.id}/wps`));
+  assert.equal(wps.status, 200);
+  assert.match(wps.headers['content-type'], /csv/);
+  assert.match(wps.text, /OM1234/);
+  assert.match(wps.text, /950\.00/);
+
+  // Employees cannot run payroll.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/payroll-runs').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
 });
 
 test('users can update their own profile without gaining company-management access', async () => {

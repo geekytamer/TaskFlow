@@ -121,6 +121,18 @@ import {
   RecordTimelineItem,
   AccountActivityReport,
   TrialBalanceReport,
+  Budget,
+  BudgetStatus,
+  BudgetVarianceReport,
+  BudgetVarianceLine,
+  VatReturn,
+  VatReturnPreview,
+  VatReturnStatus,
+  AttendanceRecord,
+  AttendanceStatus,
+  PayrollRun,
+  PayrollRunStatus,
+  Payslip,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -284,6 +296,20 @@ type CreateExpenseInput = {
   projectId?: string;
   attachmentUrl?: string;
 };
+type BudgetLineInput = { accountId: string; amount: number };
+type CreateBudgetInput = {
+  companyId: string;
+  name: string;
+  fiscalYear: number;
+  status?: BudgetStatus;
+  lines: BudgetLineInput[];
+};
+type UpdateBudgetInput = {
+  name?: string;
+  status?: BudgetStatus;
+  fiscalYear?: number;
+  lines?: BudgetLineInput[];
+};
 type CreateAccountInput = Omit<LedgerAccount, 'id' | 'code'> & { code?: string };
 type CreateJournalInput = Omit<JournalEntry, 'id' | 'createdAt'>;
 type CreateVendorBillInput = Omit<VendorBill, 'id' | 'billNumber'> & { billNumber?: string };
@@ -306,6 +332,7 @@ const defaultLedgerAccounts: Array<
   { code: '1100', name: 'Accounts Receivable', type: 'Asset', detailType: 'Trade receivables', description: 'Outstanding customer invoice balances.', isActive: true, isSystem: true },
   { code: '1200', name: 'Inventory', type: 'Asset', detailType: 'Inventory asset', description: 'Tracked inventory on hand.', isActive: true, isSystem: true },
   { code: '1300', name: 'Prepaid Expenses', type: 'Asset', detailType: 'Prepayments', description: 'Advance payments for future periods.', isActive: true, isSystem: true },
+  { code: '1150', name: 'Recoverable VAT (Input Tax)', type: 'Asset', detailType: 'Tax asset', description: 'Input VAT recoverable on purchases.', isActive: true, isSystem: true },
   { code: '1500', name: 'Equipment', type: 'Asset', detailType: 'Fixed assets', description: 'Operational equipment and devices.', isActive: true, isSystem: true },
   { code: '1510', name: 'Furniture and Fixtures', type: 'Asset', detailType: 'Fixed assets', description: 'Office furniture and fixtures.', isActive: true, isSystem: true },
   { code: '2000', name: 'Accounts Payable', type: 'Liability', detailType: 'Trade payables', description: 'Outstanding supplier invoices.', isActive: true, isSystem: true },
@@ -2916,6 +2943,118 @@ export class DataStore {
           }
         },
       },
+      {
+        id: '063_budgets',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS budgets (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              fiscalYear INTEGER NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_budgets_company ON budgets(companyId, fiscalYear);
+            CREATE TABLE IF NOT EXISTS budget_lines (
+              id TEXT PRIMARY KEY,
+              budgetId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              accountId TEXT NOT NULL,
+              amount REAL NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_budget_lines_budget ON budget_lines(budgetId);
+          `);
+        },
+      },
+      {
+        id: '064_vat_returns',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS vat_returns (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              periodStart TEXT NOT NULL,
+              periodEnd TEXT NOT NULL,
+              taxableSales REAL NOT NULL DEFAULT 0,
+              outputVat REAL NOT NULL DEFAULT 0,
+              taxablePurchases REAL NOT NULL DEFAULT 0,
+              inputVat REAL NOT NULL DEFAULT 0,
+              netVat REAL NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'filed',
+              notes TEXT,
+              filedAt TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_vat_returns_company ON vat_returns(companyId, periodStart);
+          `);
+          // Backfill the recoverable-VAT (input tax) account for existing companies.
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+          const exists = this.db.prepare('SELECT 1 FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1');
+          const insert = this.db.prepare(
+            'INSERT INTO ledger_accounts (id, companyId, code, name, type, detailType, description, isActive, isSystem) VALUES (@id, @companyId, @code, @name, @type, @detailType, @description, @isActive, @isSystem)',
+          );
+          for (const c of companies) {
+            if (!exists.get(c.id, '1150')) {
+              insert.run({
+                id: uuid(), companyId: c.id, code: '1150', name: 'Recoverable VAT (Input Tax)',
+                type: 'Asset', detailType: 'Tax asset', description: 'Input VAT recoverable on purchases.',
+                isActive: 1, isSystem: 1,
+              });
+            }
+          }
+        },
+      },
+      {
+        id: '065_hr_payroll',
+        run: () => {
+          const cols = (this.db.prepare(`PRAGMA table_info(employees)`).all() as any[]).map((c) => c.name);
+          const addCol = (name: string, ddl: string) => {
+            if (!cols.includes(name)) this.db.exec(`ALTER TABLE employees ADD COLUMN ${ddl};`);
+          };
+          addCol('basicSalary', 'basicSalary REAL NOT NULL DEFAULT 0');
+          addCol('allowances', 'allowances REAL NOT NULL DEFAULT 0');
+          addCol('deductions', 'deductions REAL NOT NULL DEFAULT 0');
+          addCol('bankName', 'bankName TEXT');
+          addCol('iban', 'iban TEXT');
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS attendance (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              employeeId TEXT NOT NULL,
+              date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'present',
+              hours REAL NOT NULL DEFAULT 0,
+              note TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_emp_date ON attendance(employeeId, date);
+            CREATE INDEX IF NOT EXISTS idx_attendance_company ON attendance(companyId, date);
+            CREATE TABLE IF NOT EXISTS payroll_runs (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              period TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              notes TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_payroll_runs_company ON payroll_runs(companyId, period);
+            CREATE TABLE IF NOT EXISTS payslips (
+              id TEXT PRIMARY KEY,
+              runId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              employeeId TEXT NOT NULL,
+              employeeName TEXT NOT NULL,
+              basic REAL NOT NULL DEFAULT 0,
+              allowances REAL NOT NULL DEFAULT 0,
+              deductions REAL NOT NULL DEFAULT 0,
+              net REAL NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_payslips_run ON payslips(runId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4943,6 +5082,11 @@ export class DataStore {
       endDate: row.endDate ? new Date(row.endDate) : undefined,
       annualLeaveAllowance: Number(row.annualLeaveAllowance ?? 0),
       notes: row.notes ?? undefined,
+      basicSalary: Number(row.basicSalary ?? 0),
+      allowances: Number(row.allowances ?? 0),
+      deductions: Number(row.deductions ?? 0),
+      bankName: row.bankName ?? undefined,
+      iban: row.iban ?? undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -4975,13 +5119,18 @@ export class DataStore {
       endDate: input.endDate ? new Date(input.endDate).toISOString() : null,
       annualLeaveAllowance: input.annualLeaveAllowance ?? 21,
       notes: input.notes ?? null,
+      basicSalary: Number(input.basicSalary ?? 0),
+      allowances: Number(input.allowances ?? 0),
+      deductions: Number(input.deductions ?? 0),
+      bankName: input.bankName ?? null,
+      iban: input.iban ?? null,
       createdAt: now,
       updatedAt: now,
     };
     this.db
       .prepare(
-        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, createdAt, updatedAt)
-         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @createdAt, @updatedAt)`,
+        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, basicSalary, allowances, deductions, bankName, iban, createdAt, updatedAt)
+         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @basicSalary, @allowances, @deductions, @bankName, @iban, @createdAt, @updatedAt)`,
       )
       .run(row);
     return this.getEmployeeById(row.id)!;
@@ -4993,7 +5142,7 @@ export class DataStore {
     const merged = { ...e, ...updates };
     this.db
       .prepare(
-        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, updatedAt=@updatedAt WHERE id=@id`,
+        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, basicSalary=@basicSalary, allowances=@allowances, deductions=@deductions, bankName=@bankName, iban=@iban, updatedAt=@updatedAt WHERE id=@id`,
       )
       .run({
         id,
@@ -5010,6 +5159,11 @@ export class DataStore {
         endDate: merged.endDate ? new Date(merged.endDate).toISOString() : null,
         annualLeaveAllowance: merged.annualLeaveAllowance ?? 21,
         notes: merged.notes ?? null,
+        basicSalary: Number(merged.basicSalary ?? 0),
+        allowances: Number(merged.allowances ?? 0),
+        deductions: Number(merged.deductions ?? 0),
+        bankName: merged.bankName ?? null,
+        iban: merged.iban ?? null,
         updatedAt: new Date().toISOString(),
       });
     return this.getEmployeeById(id);
@@ -5020,10 +5174,184 @@ export class DataStore {
     if (!this.getEmployeeById(id)) throw new Error('Employee not found.');
     const trx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM leave_requests WHERE employeeId = ?').run(id);
+      this.db.prepare('DELETE FROM attendance WHERE employeeId = ?').run(id);
       this.db.prepare('UPDATE employees SET managerId = NULL WHERE managerId = ?').run(id);
       this.db.prepare('DELETE FROM employees WHERE id = ?').run(id);
     });
     trx();
+  }
+
+  // ─── Attendance ───────────────────────────────────────────────────────────
+
+  private decodeAttendance(row: any): AttendanceRecord {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      employeeId: row.employeeId,
+      date: row.date,
+      status: row.status as AttendanceStatus,
+      hours: Number(row.hours) || 0,
+      note: row.note ?? undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listAttendance(
+    companyId: string,
+    options?: { employeeId?: string; from?: string; to?: string },
+  ): AttendanceRecord[] {
+    const filters = ['companyId = ?'];
+    const params: any[] = [companyId];
+    if (options?.employeeId) { filters.push('employeeId = ?'); params.push(options.employeeId); }
+    if (options?.from) { filters.push('date >= ?'); params.push(options.from); }
+    if (options?.to) { filters.push('date <= ?'); params.push(options.to); }
+    const rows = this.db
+      .prepare(`SELECT * FROM attendance WHERE ${filters.join(' AND ')} ORDER BY date DESC, employeeId ASC`)
+      .all(...params) as any[];
+    return rows.map((r) => this.decodeAttendance(r));
+  }
+
+  /** Insert or replace the attendance for an employee on a given day. */
+  upsertAttendance(input: {
+    companyId: string; employeeId: string; date: string;
+    status: AttendanceStatus; hours?: number; note?: string;
+  }): AttendanceRecord {
+    const emp = this.getEmployeeById(input.employeeId);
+    if (!emp || emp.companyId !== input.companyId) throw new Error('Employee does not belong to this company.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('date must be YYYY-MM-DD.');
+    const existing = this.db
+      .prepare('SELECT id FROM attendance WHERE employeeId = ? AND date = ?')
+      .get(input.employeeId, input.date) as { id?: string } | undefined;
+    const id = existing?.id ?? uuid();
+    if (existing?.id) {
+      this.db
+        .prepare('UPDATE attendance SET status=@status, hours=@hours, note=@note WHERE id=@id')
+        .run({ id, status: input.status, hours: Number(input.hours ?? 0), note: input.note ?? null });
+    } else {
+      this.db
+        .prepare('INSERT INTO attendance (id, companyId, employeeId, date, status, hours, note, createdAt) VALUES (@id,@companyId,@employeeId,@date,@status,@hours,@note,@createdAt)')
+        .run({
+          id, companyId: input.companyId, employeeId: input.employeeId, date: input.date,
+          status: input.status, hours: Number(input.hours ?? 0), note: input.note ?? null,
+          createdAt: new Date().toISOString(),
+        });
+    }
+    return this.decodeAttendance(this.db.prepare('SELECT * FROM attendance WHERE id = ?').get(id));
+  }
+
+  deleteAttendance(id: string): AttendanceRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM attendance WHERE id = ?').get(id) as any;
+    if (!row) return undefined;
+    this.db.prepare('DELETE FROM attendance WHERE id = ?').run(id);
+    return this.decodeAttendance(row);
+  }
+
+  // ─── Payroll ──────────────────────────────────────────────────────────────
+
+  private decodePayrollRun(row: any): PayrollRun {
+    const slips = (this.db.prepare('SELECT * FROM payslips WHERE runId = ? ORDER BY employeeName ASC').all(row.id) as any[]).map((s) => ({
+      id: s.id,
+      runId: s.runId,
+      companyId: s.companyId,
+      employeeId: s.employeeId,
+      employeeName: s.employeeName,
+      basic: Number(s.basic) || 0,
+      allowances: Number(s.allowances) || 0,
+      deductions: Number(s.deductions) || 0,
+      net: Number(s.net) || 0,
+    }));
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      period: row.period,
+      status: row.status as PayrollRunStatus,
+      notes: row.notes ?? undefined,
+      payslips: slips,
+      totalNet: Number(slips.reduce((sum, s) => sum + s.net, 0).toFixed(2)),
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listPayrollRuns(companyId: string): PayrollRun[] {
+    const rows = this.db
+      .prepare('SELECT * FROM payroll_runs WHERE companyId = ? ORDER BY period DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodePayrollRun(r));
+  }
+
+  getPayrollRunById(id: string): PayrollRun | undefined {
+    const row = this.db.prepare('SELECT * FROM payroll_runs WHERE id = ?').get(id) as any;
+    return row ? this.decodePayrollRun(row) : undefined;
+  }
+
+  /** Create a payroll run for a period, generating a payslip for each active employee. */
+  createPayrollRun(companyId: string, period: string, notes?: string): PayrollRun {
+    if (!/^\d{4}-\d{2}$/.test(period)) throw new Error('period must be YYYY-MM.');
+    const employees = this.listEmployees(companyId).filter((e) => e.status === 'Active');
+    if (employees.length === 0) throw new Error('No active employees to run payroll for.');
+    const id = uuid();
+    const nowIso = new Date().toISOString();
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('INSERT INTO payroll_runs (id, companyId, period, status, notes, createdAt) VALUES (@id,@companyId,@period,@status,@notes,@createdAt)')
+        .run({ id, companyId, period, status: 'draft', notes: notes?.trim() || null, createdAt: nowIso });
+      const insert = this.db.prepare(
+        'INSERT INTO payslips (id, runId, companyId, employeeId, employeeName, basic, allowances, deductions, net) VALUES (@id,@runId,@companyId,@employeeId,@employeeName,@basic,@allowances,@deductions,@net)',
+      );
+      for (const e of employees) {
+        const basic = Number(e.basicSalary ?? 0);
+        const allowances = Number(e.allowances ?? 0);
+        const deductions = Number(e.deductions ?? 0);
+        const net = Number((basic + allowances - deductions).toFixed(2));
+        insert.run({
+          id: uuid(), runId: id, companyId, employeeId: e.id, employeeName: e.name,
+          basic, allowances, deductions, net,
+        });
+      }
+    });
+    trx();
+    this.createActivityEvent({
+      companyId, entityType: 'payroll_run', entityId: id, action: 'created',
+      summary: `Payroll run created for ${period} (${employees.length} employees).`,
+      metadata: { period, employees: employees.length },
+    });
+    return this.getPayrollRunById(id)!;
+  }
+
+  updatePayrollRunStatus(id: string, status: PayrollRunStatus): PayrollRun | undefined {
+    if (!this.getPayrollRunById(id)) return undefined;
+    this.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run(status, id);
+    return this.getPayrollRunById(id);
+  }
+
+  deletePayrollRun(id: string): boolean {
+    if (!this.getPayrollRunById(id)) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM payslips WHERE runId = ?').run(id);
+      this.db.prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  /** Build a WPS (Wage Protection System) SIF-style CSV for a payroll run. */
+  buildWpsCsv(id: string): string {
+    const run = this.getPayrollRunById(id);
+    if (!run) throw new Error('Payroll run not found.');
+    const header = ['EmployeeID', 'EmployeeName', 'BankName', 'IBAN', 'Period', 'NetSalary'];
+    const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = run.payslips.map((s) => {
+      const emp = this.getEmployeeById(s.employeeId);
+      return [
+        s.employeeId,
+        s.employeeName,
+        emp?.bankName ?? '',
+        emp?.iban ?? '',
+        run.period,
+        s.net.toFixed(2),
+      ].map((c) => esc(String(c))).join(',');
+    });
+    return [header.map(esc).join(','), ...rows].join('\r\n');
   }
 
   // ─── HR: leave types ───────────────────────────────────────────────────────
@@ -10775,6 +11103,290 @@ export class DataStore {
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
+  }
+
+  // ─── Budgets ────────────────────────────────────────────────────────────────
+
+  private decodeBudget(row: any): Budget {
+    const lines = this.db
+      .prepare('SELECT * FROM budget_lines WHERE budgetId = ? ORDER BY id ASC')
+      .all(row.id) as any[];
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      name: row.name,
+      fiscalYear: Number(row.fiscalYear),
+      status: row.status as BudgetStatus,
+      lines: lines.map((l) => ({
+        id: l.id,
+        budgetId: l.budgetId,
+        accountId: l.accountId,
+        amount: Number(l.amount) || 0,
+      })),
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listBudgets(companyId: string): Budget[] {
+    const rows = this.db
+      .prepare('SELECT * FROM budgets WHERE companyId = ? ORDER BY fiscalYear DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((row) => this.decodeBudget(row));
+  }
+
+  getBudgetById(id: string): Budget | undefined {
+    const row = this.db.prepare('SELECT * FROM budgets WHERE id = ?').get(id) as any;
+    return row ? this.decodeBudget(row) : undefined;
+  }
+
+  private validateBudgetLines(companyId: string, lines: BudgetLineInput[]) {
+    const clean: BudgetLineInput[] = [];
+    const seen = new Set<string>();
+    for (const line of lines || []) {
+      const account = this.getLedgerAccountById(line.accountId);
+      if (!account || account.companyId !== companyId) {
+        throw new Error('Budget line references an account that does not belong to this company.');
+      }
+      if (seen.has(line.accountId)) {
+        throw new Error('Each account can appear only once in a budget.');
+      }
+      seen.add(line.accountId);
+      clean.push({ accountId: line.accountId, amount: Number(Number(line.amount || 0).toFixed(2)) });
+    }
+    return clean;
+  }
+
+  private writeBudgetLines(budgetId: string, companyId: string, lines: BudgetLineInput[]) {
+    this.db.prepare('DELETE FROM budget_lines WHERE budgetId = ?').run(budgetId);
+    const insert = this.db.prepare(
+      'INSERT INTO budget_lines (id, budgetId, companyId, accountId, amount) VALUES (@id, @budgetId, @companyId, @accountId, @amount)',
+    );
+    for (const line of lines) {
+      insert.run({ id: uuid(), budgetId, companyId, accountId: line.accountId, amount: line.amount });
+    }
+  }
+
+  createBudget(input: CreateBudgetInput): Budget {
+    const name = (input.name || '').trim();
+    if (!name) throw new Error('Budget name is required.');
+    if (!Number.isInteger(input.fiscalYear) || input.fiscalYear < 2000 || input.fiscalYear > 2100) {
+      throw new Error('A valid fiscal year is required.');
+    }
+    const lines = this.validateBudgetLines(input.companyId, input.lines || []);
+    const nowIso = new Date().toISOString();
+    const id = uuid();
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT INTO budgets (id, companyId, name, fiscalYear, status, createdAt, updatedAt) VALUES (@id, @companyId, @name, @fiscalYear, @status, @createdAt, @updatedAt)',
+        )
+        .run({
+          id,
+          companyId: input.companyId,
+          name,
+          fiscalYear: input.fiscalYear,
+          status: input.status ?? 'draft',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+      this.writeBudgetLines(id, input.companyId, lines);
+    });
+    trx();
+    this.createActivityEvent({
+      companyId: input.companyId,
+      entityType: 'budget',
+      entityId: id,
+      action: 'created',
+      summary: `Budget "${name}" created for ${input.fiscalYear}.`,
+      metadata: { fiscalYear: input.fiscalYear, lines: lines.length },
+    });
+    return this.getBudgetById(id)!;
+  }
+
+  updateBudget(id: string, updates: UpdateBudgetInput): Budget | undefined {
+    const existing = this.getBudgetById(id);
+    if (!existing) return undefined;
+    const name = updates.name !== undefined ? updates.name.trim() : existing.name;
+    if (!name) throw new Error('Budget name is required.');
+    const fiscalYear = updates.fiscalYear ?? existing.fiscalYear;
+    const status = updates.status ?? existing.status;
+    const lines =
+      updates.lines !== undefined
+        ? this.validateBudgetLines(existing.companyId, updates.lines)
+        : undefined;
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE budgets SET name=@name, fiscalYear=@fiscalYear, status=@status, updatedAt=@updatedAt WHERE id=@id')
+        .run({ id, name, fiscalYear, status, updatedAt: new Date().toISOString() });
+      if (lines !== undefined) this.writeBudgetLines(id, existing.companyId, lines);
+    });
+    trx();
+    return this.getBudgetById(id);
+  }
+
+  deleteBudget(id: string): boolean {
+    const existing = this.getBudgetById(id);
+    if (!existing) return false;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM budget_lines WHERE budgetId = ?').run(id);
+      this.db.prepare('DELETE FROM budgets WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  /** Net movement (in the account's normal-balance direction) within a date range. */
+  private accountMovementInRange(companyId: string, accountId: string, from: Date, to: Date): number {
+    const account = this.getLedgerAccountById(accountId);
+    if (!account || account.companyId !== companyId) return 0;
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(l.debit),0) as debit, COALESCE(SUM(l.credit),0) as credit
+         FROM journal_lines l JOIN journal_entries e ON e.id = l.entryId
+         WHERE e.companyId = ? AND l.accountId = ? AND e.entryDate >= ? AND e.entryDate <= ?`,
+      )
+      .get(companyId, accountId, from.toISOString(), to.toISOString()) as { debit: number; credit: number };
+    return Number(
+      this.normalBalanceMovement(account.type, Number(row.debit) || 0, Number(row.credit) || 0).toFixed(2),
+    );
+  }
+
+  getBudgetVariance(id: string): BudgetVarianceReport | undefined {
+    const budget = this.getBudgetById(id);
+    if (!budget) return undefined;
+    const from = new Date(Date.UTC(budget.fiscalYear, 0, 1, 0, 0, 0));
+    const to = new Date(Date.UTC(budget.fiscalYear, 11, 31, 23, 59, 59));
+    const lines: BudgetVarianceLine[] = budget.lines.map((line) => {
+      const account = this.getLedgerAccountById(line.accountId);
+      const actual = this.accountMovementInRange(budget.companyId, line.accountId, from, to);
+      const variance = Number((line.amount - actual).toFixed(2));
+      const utilization = line.amount > 0 ? Number(((actual / line.amount) * 100).toFixed(1)) : 0;
+      return {
+        accountId: line.accountId,
+        accountCode: account?.code ?? '—',
+        accountName: account?.name ?? 'Unknown account',
+        accountType: account?.type ?? 'Expense',
+        budget: line.amount,
+        actual,
+        variance,
+        utilization,
+      };
+    });
+    const totalBudget = Number(lines.reduce((s, l) => s + l.budget, 0).toFixed(2));
+    const totalActual = Number(lines.reduce((s, l) => s + l.actual, 0).toFixed(2));
+    return {
+      budgetId: budget.id,
+      companyId: budget.companyId,
+      name: budget.name,
+      fiscalYear: budget.fiscalYear,
+      status: budget.status,
+      from,
+      to,
+      lines,
+      totalBudget,
+      totalActual,
+      totalVariance: Number((totalBudget - totalActual).toFixed(2)),
+    };
+  }
+
+  // ─── VAT compliance ───────────────────────────────────────────────────────
+
+  private accountMovementByCode(companyId: string, code: string, from: Date, to: Date): number {
+    const row = this.db
+      .prepare('SELECT id FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1')
+      .get(companyId, code) as { id?: string } | undefined;
+    if (!row?.id) return 0;
+    return this.accountMovementInRange(companyId, row.id, from, to);
+  }
+
+  private movementByAccountType(companyId: string, type: LedgerAccountType, from: Date, to: Date): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(l.debit),0) as debit, COALESCE(SUM(l.credit),0) as credit
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entryId
+         JOIN ledger_accounts a ON a.id = l.accountId
+         WHERE e.companyId = ? AND a.type = ? AND e.entryDate >= ? AND e.entryDate <= ?`,
+      )
+      .get(companyId, type, from.toISOString(), to.toISOString()) as { debit: number; credit: number };
+    return Number(this.normalBalanceMovement(type, Number(row.debit) || 0, Number(row.credit) || 0).toFixed(2));
+  }
+
+  /** Compute VAT figures from the ledger for a period. Oman standard rate is 5%. */
+  computeVatFigures(companyId: string, from: Date, to: Date): VatReturnPreview {
+    const OMAN_VAT_RATE = 0.05;
+    const outputVat = Math.max(0, this.accountMovementByCode(companyId, '2200', from, to));
+    const inputVat = Math.max(0, this.accountMovementByCode(companyId, '1150', from, to));
+    const taxableSales = Math.max(0, this.movementByAccountType(companyId, 'Revenue', from, to));
+    // Purchase base isn't captured separately yet; derive it from recoverable VAT.
+    const taxablePurchases = inputVat > 0 ? Number((inputVat / OMAN_VAT_RATE).toFixed(2)) : 0;
+    const netVat = Number((outputVat - inputVat).toFixed(2));
+    return { companyId, periodStart: from, periodEnd: to, taxableSales, outputVat, taxablePurchases, inputVat, netVat };
+  }
+
+  private decodeVatReturn(row: any): VatReturn {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      periodStart: new Date(row.periodStart),
+      periodEnd: new Date(row.periodEnd),
+      taxableSales: Number(row.taxableSales) || 0,
+      outputVat: Number(row.outputVat) || 0,
+      taxablePurchases: Number(row.taxablePurchases) || 0,
+      inputVat: Number(row.inputVat) || 0,
+      netVat: Number(row.netVat) || 0,
+      status: row.status as VatReturnStatus,
+      notes: row.notes ?? undefined,
+      filedAt: row.filedAt ? new Date(row.filedAt) : undefined,
+      createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listVatReturns(companyId: string): VatReturn[] {
+    const rows = this.db
+      .prepare('SELECT * FROM vat_returns WHERE companyId = ? ORDER BY periodStart DESC, createdAt DESC')
+      .all(companyId) as any[];
+    return rows.map((r) => this.decodeVatReturn(r));
+  }
+
+  getVatReturnById(id: string): VatReturn | undefined {
+    const row = this.db.prepare('SELECT * FROM vat_returns WHERE id = ?').get(id) as any;
+    return row ? this.decodeVatReturn(row) : undefined;
+  }
+
+  fileVatReturn(companyId: string, from: Date, to: Date, notes?: string): VatReturn {
+    if (!(from.getTime() <= to.getTime())) {
+      throw new Error('Period start must be on or before the period end.');
+    }
+    const figures = this.computeVatFigures(companyId, from, to);
+    const nowIso = new Date().toISOString();
+    const id = uuid();
+    this.db
+      .prepare(
+        `INSERT INTO vat_returns (id, companyId, periodStart, periodEnd, taxableSales, outputVat, taxablePurchases, inputVat, netVat, status, notes, filedAt, createdAt)
+         VALUES (@id, @companyId, @periodStart, @periodEnd, @taxableSales, @outputVat, @taxablePurchases, @inputVat, @netVat, @status, @notes, @filedAt, @createdAt)`,
+      )
+      .run({
+        id, companyId,
+        periodStart: from.toISOString(), periodEnd: to.toISOString(),
+        taxableSales: figures.taxableSales, outputVat: figures.outputVat,
+        taxablePurchases: figures.taxablePurchases, inputVat: figures.inputVat, netVat: figures.netVat,
+        status: 'filed', notes: notes?.trim() || null, filedAt: nowIso, createdAt: nowIso,
+      });
+    this.createActivityEvent({
+      companyId, entityType: 'vat_return', entityId: id, action: 'filed',
+      summary: `VAT return filed: net ${figures.netVat.toFixed(2)}.`,
+      metadata: { outputVat: figures.outputVat, inputVat: figures.inputVat, netVat: figures.netVat },
+    });
+    return this.getVatReturnById(id)!;
+  }
+
+  deleteVatReturn(id: string): boolean {
+    const existing = this.getVatReturnById(id);
+    if (!existing) return false;
+    this.db.prepare('DELETE FROM vat_returns WHERE id = ?').run(id);
+    return true;
   }
 
   listInvoices(companyId: string): Invoice[] {

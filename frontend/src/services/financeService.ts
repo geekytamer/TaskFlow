@@ -19,6 +19,11 @@ import type {
   JournalEntryLine,
   LedgerAccount,
   LedgerAccountType,
+  Budget,
+  BudgetStatus,
+  BudgetVarianceReport,
+  VatReturn,
+  VatReturnPreview,
   ManagementReportSummary,
   NumberingEntityType,
   Payment,
@@ -756,6 +761,63 @@ export async function bulkUpdateInvoiceStatus(
 export async function getLedgerAccounts(companyId: string): Promise<LedgerAccount[]> {
   if (!companyId) return [];
   return apiFetch<LedgerAccount[]>(`/companies/${companyId}/finance/accounts`);
+}
+
+export async function getBudgets(companyId: string): Promise<Budget[]> {
+  if (!companyId) return [];
+  return apiFetch<Budget[]>(`/companies/${companyId}/budgets`);
+}
+
+export async function getBudgetVariance(budgetId: string): Promise<BudgetVarianceReport> {
+  return apiFetch<BudgetVarianceReport>(`/budgets/${budgetId}/variance`);
+}
+
+export async function createBudget(
+  companyId: string,
+  data: { name: string; fiscalYear: number; status?: BudgetStatus; lines: { accountId: string; amount: number }[] },
+): Promise<Budget> {
+  return apiFetch<Budget>(`/companies/${companyId}/budgets`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateBudget(
+  budgetId: string,
+  data: { name?: string; fiscalYear?: number; status?: BudgetStatus; lines?: { accountId: string; amount: number }[] },
+): Promise<Budget> {
+  return apiFetch<Budget>(`/budgets/${budgetId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteBudget(budgetId: string): Promise<void> {
+  await apiFetch(`/budgets/${budgetId}`, { method: 'DELETE' });
+}
+
+export async function getVatPreview(
+  companyId: string, from: string, to: string,
+): Promise<VatReturnPreview> {
+  return apiFetch<VatReturnPreview>(`/companies/${companyId}/vat/preview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+}
+
+export async function getVatReturns(companyId: string): Promise<VatReturn[]> {
+  if (!companyId) return [];
+  return apiFetch<VatReturn[]>(`/companies/${companyId}/vat-returns`);
+}
+
+export async function fileVatReturn(
+  companyId: string, from: string, to: string, notes?: string,
+): Promise<VatReturn> {
+  return apiFetch<VatReturn>(`/companies/${companyId}/vat-returns`, {
+    method: 'POST',
+    body: JSON.stringify({ from, to, notes }),
+  });
+}
+
+export async function deleteVatReturn(id: string): Promise<void> {
+  await apiFetch(`/vat-returns/${id}`, { method: 'DELETE' });
 }
 
 export async function createLedgerAccount(
