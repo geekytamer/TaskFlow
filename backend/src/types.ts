@@ -230,6 +230,50 @@ export interface InventoryItem {
   customFields?: Record<string, unknown>;
 }
 
+export interface RecipeComponent {
+  id: string;
+  recipeId: string;
+  componentItemId: string;
+  /** Quantity of the component consumed to produce one batch. */
+  quantity: number;
+}
+
+export interface Recipe {
+  id: string;
+  companyId: string;
+  name: string;
+  /** Finished-good inventory item this recipe produces. */
+  outputItemId: string;
+  /** Units of the finished good produced per batch. */
+  outputQuantity: number;
+  components: RecipeComponent[];
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type WorkOrderStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface WorkOrder {
+  id: string;
+  companyId: string;
+  reference: string;
+  recipeId: string;
+  recipeName: string;
+  outputItemId: string;
+  batches: number;
+  /** batches × recipe.outputQuantity, snapshotted at creation. */
+  expectedQuantity: number;
+  /** Actual good units produced (set on completion). */
+  producedQuantity: number;
+  /** Total component cost consumed (set on completion). */
+  materialCost: number;
+  status: WorkOrderStatus;
+  notes?: string;
+  createdAt: Date;
+  completedAt?: Date;
+}
+
 export type StockCountStatus = 'draft' | 'posted';
 
 export interface StockCountLine {
@@ -1413,6 +1457,7 @@ export interface ActivityEvent {
     | 'vat_return'
     | 'payroll_run'
     | 'rfq'
+    | 'work_order'
     | 'whatsapp_message';
   entityId: string;
   action: string;

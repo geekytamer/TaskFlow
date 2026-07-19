@@ -854,6 +854,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '065_hr_payroll',
     '066_stock_counts',
     '067_rfqs',
+    '068_manufacturing',
   ]);
 });
 
@@ -1184,6 +1185,80 @@ test('three-way match compares a vendor bill against its PO and receipts', async
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/bill-matches').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
+});
+
+test('work order consumes components, produces output, and records yield + cost', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-mfg-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  // Components: potatoes (200 on hand @ 1) and oil (100 @ 2). Output: fries (0 @ 0).
+  const potato = store.createInventoryItem({ companyId: '1', name: 'Potatoes', category: 'Raw', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 200, reorderPoint: 0, unitCost: 1, location: 'Main' });
+  const oil = store.createInventoryItem({ companyId: '1', name: 'Oil', category: 'Raw', unit: 'L', vatApplicable: true, tracksInventory: true, onHand: 100, reorderPoint: 0, unitCost: 2, location: 'Main' });
+  const fries = store.createInventoryItem({ companyId: '1', name: 'Frozen Fries', category: 'Finished', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 0, location: 'Main' });
+
+  const app = createServer({ dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  // Recipe: 1 batch = 10 kg potatoes + 2 L oil → 8 kg fries.
+  const recipe = await admin(request(app).post('/companies/1/recipes')).send({
+    name: 'French Fries', outputItemId: fries.id, outputQuantity: 8,
+    components: [{ componentItemId: potato.id, quantity: 10 }, { componentItemId: oil.id, quantity: 2 }],
+  });
+  assert.equal(recipe.status, 201);
+  assert.equal(recipe.body.components.length, 2);
+
+  // Work order for 5 batches → expected 40 kg fries; consumes 50 potato, 10 oil.
+  const wo = await admin(request(app).post('/companies/1/work-orders')).send({ recipeId: recipe.body.id, batches: 5 });
+  assert.equal(wo.status, 201);
+  assert.equal(wo.body.expectedQuantity, 40);
+  assert.equal(wo.body.status, 'planned');
+
+  // Complete with an actual yield of 38 kg (2 kg short).
+  const done = await admin(request(app).post(`/work-orders/${wo.body.id}/complete`)).send({ producedQuantity: 38 });
+  assert.equal(done.status, 200);
+  assert.equal(done.body.status, 'completed');
+  assert.equal(done.body.producedQuantity, 38);
+  // Material cost = 50 potato @1 + 10 oil @2 = 70.
+  assert.equal(done.body.materialCost, 70);
+
+  // Stock moved: potatoes 200−50=150, oil 100−10=90, fries 0+38=38.
+  const items = await admin(request(app).get('/companies/1/inventory-items'));
+  const byId = (id) => items.body.find((i) => i.id === id).onHand;
+  assert.equal(byId(potato.id), 150);
+  assert.equal(byId(oil.id), 90);
+  assert.equal(byId(fries.id), 38);
+
+  // A completed work order cannot be deleted.
+  const del = await admin(request(app).delete(`/work-orders/${wo.body.id}`));
+  assert.equal(del.status, 400);
+
+  // Employees cannot access manufacturing.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/recipes').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
+test('work order refuses to complete without enough component stock', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-mfg2-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const flour = store.createInventoryItem({ companyId: '1', name: 'Flour', category: 'Raw', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 5, reorderPoint: 0, unitCost: 1, location: 'Main' });
+  const bread = store.createInventoryItem({ companyId: '1', name: 'Bread', category: 'Finished', unit: 'unit', vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 0, location: 'Main' });
+  const app = createServer({ dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  const recipe = await admin(request(app).post('/companies/1/recipes')).send({
+    name: 'Bread', outputItemId: bread.id, outputQuantity: 1,
+    components: [{ componentItemId: flour.id, quantity: 10 }], // needs 10, only 5 on hand
+  });
+  const wo = await admin(request(app).post('/companies/1/work-orders')).send({ recipeId: recipe.body.id, batches: 1 });
+  const done = await admin(request(app).post(`/work-orders/${wo.body.id}/complete`)).send({});
+  assert.equal(done.status, 400);
+  // Nothing was consumed — the transaction rolled back.
+  const items = await admin(request(app).get('/companies/1/inventory-items'));
+  assert.equal(items.body.find((i) => i.id === flour.id).onHand, 5);
 });
 
 test('users can update their own profile without gaining company-management access', async () => {
