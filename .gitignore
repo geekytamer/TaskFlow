@@ -55,3 +55,6 @@ next-env.d.ts
 
 # Local Claude Code agent config (not for remote)
 .claude/
+
+# graphify generated artifacts
+graphify-out/
