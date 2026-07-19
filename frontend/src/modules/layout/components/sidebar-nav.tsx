@@ -39,6 +39,7 @@ import {
   ClipboardCheck,
   FileQuestion,
   Scale,
+  Factory,
   Building2,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
@@ -79,6 +80,7 @@ const sections: NavSection[] = [
       { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'] },
       { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
       { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'] },
     ],
   },
   {

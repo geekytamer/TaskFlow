@@ -2,7 +2,7 @@
 
 ## Core Features:
 
-- Login Page: Login page with Firebase Authentication.
+- Login Page: Login page with email/password auth against the Express + SQLite backend (opaque bearer tokens).
 - Dashboard: Dashboard displaying tasks overview and counts, scoped per company.
 - Company Switcher: Company switcher for admins to manage different companies.
 - Task Manager: Task management interface (CRUD operations) with filtering and Kanban-style drag-and-drop.

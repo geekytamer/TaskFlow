@@ -139,6 +139,9 @@ import {
   RfqLineItem,
   RfqStatus,
   BillMatch,
+  Recipe,
+  WorkOrder,
+  WorkOrderStatus,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -3120,6 +3123,47 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '068_manufacturing',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS recipes (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              outputItemId TEXT NOT NULL,
+              outputQuantity REAL NOT NULL DEFAULT 1,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_recipes_company ON recipes(companyId);
+            CREATE TABLE IF NOT EXISTS recipe_components (
+              id TEXT PRIMARY KEY,
+              recipeId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              componentItemId TEXT NOT NULL,
+              quantity REAL NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_recipe_components_recipe ON recipe_components(recipeId);
+            CREATE TABLE IF NOT EXISTS work_orders (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              reference TEXT NOT NULL,
+              recipeId TEXT NOT NULL,
+              batches REAL NOT NULL DEFAULT 1,
+              expectedQuantity REAL NOT NULL DEFAULT 0,
+              producedQuantity REAL NOT NULL DEFAULT 0,
+              materialCost REAL NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'planned',
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              completedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_work_orders_company ON work_orders(companyId, createdAt);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5686,6 +5730,200 @@ export class DataStore {
 
   listBillMatches(companyId: string): BillMatch[] {
     return this.listVendorBills(companyId).map((b) => this.computeBillMatch(b));
+  }
+
+  // ─── Manufacturing: recipes (BOM) ──────────────────────────────────────────
+
+  private decodeRecipe(row: any): Recipe {
+    const components = (this.db
+      .prepare('SELECT * FROM recipe_components WHERE recipeId = ? ORDER BY id ASC')
+      .all(row.id) as any[]).map((c) => ({
+      id: c.id,
+      recipeId: c.recipeId,
+      componentItemId: c.componentItemId,
+      quantity: Number(c.quantity) || 0,
+    }));
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      name: row.name,
+      outputItemId: row.outputItemId,
+      outputQuantity: Number(row.outputQuantity) || 0,
+      components,
+      notes: row.notes ?? undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listRecipes(companyId: string): Recipe[] {
+    const rows = this.db.prepare('SELECT * FROM recipes WHERE companyId = ? ORDER BY name ASC').all(companyId) as any[];
+    return rows.map((r) => this.decodeRecipe(r));
+  }
+
+  getRecipeById(id: string): Recipe | undefined {
+    const row = this.db.prepare('SELECT * FROM recipes WHERE id = ?').get(id) as any;
+    return row ? this.decodeRecipe(row) : undefined;
+  }
+
+  private validateRecipeItems(companyId: string, outputItemId: string, components: { componentItemId: string; quantity: number }[]) {
+    const output = this.getInventoryItemById(outputItemId);
+    if (!output || output.companyId !== companyId) throw new Error('Output item does not belong to this company.');
+    const clean: { componentItemId: string; quantity: number }[] = [];
+    for (const c of components || []) {
+      const item = this.getInventoryItemById(c.componentItemId);
+      if (!item || item.companyId !== companyId) throw new Error('A component item does not belong to this company.');
+      if (c.componentItemId === outputItemId) throw new Error('A recipe cannot consume its own output.');
+      const quantity = Number(c.quantity || 0);
+      if (quantity > 0) clean.push({ componentItemId: c.componentItemId, quantity });
+    }
+    if (clean.length === 0) throw new Error('Add at least one component.');
+    return clean;
+  }
+
+  private writeRecipeComponents(recipeId: string, companyId: string, components: { componentItemId: string; quantity: number }[]) {
+    this.db.prepare('DELETE FROM recipe_components WHERE recipeId = ?').run(recipeId);
+    const insert = this.db.prepare('INSERT INTO recipe_components (id, recipeId, companyId, componentItemId, quantity) VALUES (@id,@recipeId,@companyId,@componentItemId,@quantity)');
+    for (const c of components) insert.run({ id: uuid(), recipeId, companyId, componentItemId: c.componentItemId, quantity: c.quantity });
+  }
+
+  createRecipe(companyId: string, input: { name: string; outputItemId: string; outputQuantity: number; components: { componentItemId: string; quantity: number }[]; notes?: string }): Recipe {
+    const name = (input.name || '').trim();
+    if (!name) throw new Error('Recipe name is required.');
+    if (!(Number(input.outputQuantity) > 0)) throw new Error('Output quantity must be greater than zero.');
+    const components = this.validateRecipeItems(companyId, input.outputItemId, input.components);
+    const id = uuid();
+    const nowIso = new Date().toISOString();
+    const trx = this.db.transaction(() => {
+      this.db.prepare('INSERT INTO recipes (id, companyId, name, outputItemId, outputQuantity, notes, createdAt, updatedAt) VALUES (@id,@companyId,@name,@outputItemId,@outputQuantity,@notes,@createdAt,@updatedAt)')
+        .run({ id, companyId, name, outputItemId: input.outputItemId, outputQuantity: Number(input.outputQuantity), notes: input.notes?.trim() || null, createdAt: nowIso, updatedAt: nowIso });
+      this.writeRecipeComponents(id, companyId, components);
+    });
+    trx();
+    return this.getRecipeById(id)!;
+  }
+
+  updateRecipe(id: string, updates: { name?: string; outputItemId?: string; outputQuantity?: number; components?: { componentItemId: string; quantity: number }[]; notes?: string }): Recipe | undefined {
+    const recipe = this.getRecipeById(id);
+    if (!recipe) return undefined;
+    const name = updates.name !== undefined ? updates.name.trim() : recipe.name;
+    if (!name) throw new Error('Recipe name is required.');
+    const outputItemId = updates.outputItemId ?? recipe.outputItemId;
+    const outputQuantity = updates.outputQuantity ?? recipe.outputQuantity;
+    if (!(Number(outputQuantity) > 0)) throw new Error('Output quantity must be greater than zero.');
+    const components = updates.components !== undefined
+      ? this.validateRecipeItems(recipe.companyId, outputItemId, updates.components)
+      : undefined;
+    const trx = this.db.transaction(() => {
+      this.db.prepare('UPDATE recipes SET name=@name, outputItemId=@outputItemId, outputQuantity=@outputQuantity, notes=@notes, updatedAt=@updatedAt WHERE id=@id')
+        .run({ id, name, outputItemId, outputQuantity: Number(outputQuantity), notes: updates.notes !== undefined ? (updates.notes.trim() || null) : (recipe.notes ?? null), updatedAt: new Date().toISOString() });
+      if (components !== undefined) this.writeRecipeComponents(id, recipe.companyId, components);
+    });
+    trx();
+    return this.getRecipeById(id);
+  }
+
+  deleteRecipe(id: string): boolean {
+    const recipe = this.getRecipeById(id);
+    if (!recipe) return false;
+    const inUse = this.db.prepare("SELECT 1 FROM work_orders WHERE recipeId = ? AND status != 'cancelled' LIMIT 1").get(id);
+    if (inUse) throw new Error('This recipe is used by a work order and cannot be deleted.');
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM recipe_components WHERE recipeId = ?').run(id);
+      this.db.prepare('DELETE FROM recipes WHERE id = ?').run(id);
+    });
+    trx();
+    return true;
+  }
+
+  // ─── Manufacturing: work orders ────────────────────────────────────────────
+
+  private decodeWorkOrder(row: any): WorkOrder {
+    const recipe = this.getRecipeById(row.recipeId);
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      reference: row.reference,
+      recipeId: row.recipeId,
+      recipeName: recipe?.name ?? 'Deleted recipe',
+      outputItemId: recipe?.outputItemId ?? '',
+      batches: Number(row.batches) || 0,
+      expectedQuantity: Number(row.expectedQuantity) || 0,
+      producedQuantity: Number(row.producedQuantity) || 0,
+      materialCost: Number(row.materialCost) || 0,
+      status: row.status as WorkOrderStatus,
+      notes: row.notes ?? undefined,
+      createdAt: new Date(row.createdAt),
+      completedAt: row.completedAt ? new Date(row.completedAt) : undefined,
+    };
+  }
+
+  listWorkOrders(companyId: string): WorkOrder[] {
+    const rows = this.db.prepare('SELECT * FROM work_orders WHERE companyId = ? ORDER BY createdAt DESC').all(companyId) as any[];
+    return rows.map((r) => this.decodeWorkOrder(r));
+  }
+
+  getWorkOrderById(id: string): WorkOrder | undefined {
+    const row = this.db.prepare('SELECT * FROM work_orders WHERE id = ?').get(id) as any;
+    return row ? this.decodeWorkOrder(row) : undefined;
+  }
+
+  createWorkOrder(companyId: string, input: { recipeId: string; batches: number; notes?: string }): WorkOrder {
+    const recipe = this.getRecipeById(input.recipeId);
+    if (!recipe || recipe.companyId !== companyId) throw new Error('Recipe does not belong to this company.');
+    const batches = Number(input.batches || 0);
+    if (!(batches > 0)) throw new Error('Batches must be greater than zero.');
+    const id = uuid();
+    const reference = `WO-${new Date().toISOString().slice(0, 10)}-${id.slice(0, 4).toUpperCase()}`;
+    const nowIso = new Date().toISOString();
+    this.db.prepare('INSERT INTO work_orders (id, companyId, reference, recipeId, batches, expectedQuantity, producedQuantity, materialCost, status, notes, createdAt, completedAt) VALUES (@id,@companyId,@reference,@recipeId,@batches,@expectedQuantity,0,0,@status,@notes,@createdAt,NULL)')
+      .run({ id, companyId, reference, recipeId: recipe.id, batches, expectedQuantity: Number((recipe.outputQuantity * batches).toFixed(3)), status: 'planned', notes: input.notes?.trim() || null, createdAt: nowIso });
+    this.createActivityEvent({ companyId, entityType: 'work_order', entityId: id, action: 'created', summary: `Work order ${reference} created.` });
+    return this.getWorkOrderById(id)!;
+  }
+
+  /** Complete a work order: consume components, produce output, record cost. */
+  completeWorkOrder(id: string, producedQuantity?: number): WorkOrder | undefined {
+    const wo = this.getWorkOrderById(id);
+    if (!wo) return undefined;
+    if (wo.status === 'completed') throw new Error('Work order is already completed.');
+    if (wo.status === 'cancelled') throw new Error('A cancelled work order cannot be completed.');
+    const recipe = this.getRecipeById(wo.recipeId);
+    if (!recipe) throw new Error('The recipe for this work order no longer exists.');
+    const produced = producedQuantity !== undefined ? Number(producedQuantity) : wo.expectedQuantity;
+    if (!(produced > 0)) throw new Error('Produced quantity must be greater than zero.');
+    let materialCost = 0;
+    const trx = this.db.transaction(() => {
+      for (const c of recipe.components) {
+        const consume = Number((c.quantity * wo.batches).toFixed(3));
+        const item = this.getInventoryItemById(c.componentItemId);
+        // Throws (and rolls back) if there isn't enough stock.
+        this.createInventoryAdjustment(wo.companyId, c.componentItemId, -consume, `Work order ${wo.reference} consumption`);
+        materialCost += Number(item?.unitCost || 0) * consume;
+      }
+      this.createInventoryAdjustment(wo.companyId, recipe.outputItemId, produced, `Work order ${wo.reference} output`);
+      this.db.prepare("UPDATE work_orders SET status='completed', producedQuantity=?, materialCost=?, completedAt=? WHERE id=?")
+        .run(produced, Number(materialCost.toFixed(2)), new Date().toISOString(), id);
+    });
+    trx();
+    this.createActivityEvent({ companyId: wo.companyId, entityType: 'work_order', entityId: id, action: 'completed', summary: `Work order ${wo.reference} completed: ${produced} produced.`, metadata: { produced, materialCost: Number(materialCost.toFixed(2)) } });
+    return this.getWorkOrderById(id);
+  }
+
+  cancelWorkOrder(id: string): WorkOrder | undefined {
+    const wo = this.getWorkOrderById(id);
+    if (!wo) return undefined;
+    if (wo.status === 'completed') throw new Error('A completed work order cannot be cancelled.');
+    this.db.prepare("UPDATE work_orders SET status='cancelled' WHERE id=?").run(id);
+    return this.getWorkOrderById(id);
+  }
+
+  deleteWorkOrder(id: string): boolean {
+    const wo = this.getWorkOrderById(id);
+    if (!wo) return false;
+    if (wo.status === 'completed') throw new Error('A completed work order cannot be deleted; its stock movements are already posted.');
+    this.db.prepare('DELETE FROM work_orders WHERE id = ?').run(id);
+    return true;
   }
 
   /** Build a WPS (Wage Protection System) SIF-style CSV for a payroll run. */

@@ -293,6 +293,85 @@ export async function getBillMatches(companyId: string): Promise<BillMatch[]> {
   return apiFetch<BillMatch[]>(`/companies/${companyId}/bill-matches`);
 }
 
+// ─── Manufacturing ───────────────────────────────────────────────────────────
+
+export interface RecipeComponent {
+  id: string;
+  recipeId: string;
+  componentItemId: string;
+  quantity: number;
+}
+
+export interface Recipe {
+  id: string;
+  companyId: string;
+  name: string;
+  outputItemId: string;
+  outputQuantity: number;
+  components: RecipeComponent[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WorkOrderStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface WorkOrder {
+  id: string;
+  companyId: string;
+  reference: string;
+  recipeId: string;
+  recipeName: string;
+  outputItemId: string;
+  batches: number;
+  expectedQuantity: number;
+  producedQuantity: number;
+  materialCost: number;
+  status: WorkOrderStatus;
+  notes?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export async function getRecipes(companyId: string): Promise<Recipe[]> {
+  if (!companyId) return [];
+  return apiFetch<Recipe[]>(`/companies/${companyId}/recipes`);
+}
+
+export async function createRecipe(
+  companyId: string,
+  data: { name: string; outputItemId: string; outputQuantity: number; components: { componentItemId: string; quantity: number }[]; notes?: string },
+): Promise<Recipe> {
+  return apiFetch<Recipe>(`/companies/${companyId}/recipes`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function deleteRecipe(id: string): Promise<void> {
+  await apiFetch(`/recipes/${id}`, { method: 'DELETE' });
+}
+
+export async function getWorkOrders(companyId: string): Promise<WorkOrder[]> {
+  if (!companyId) return [];
+  return apiFetch<WorkOrder[]>(`/companies/${companyId}/work-orders`);
+}
+
+export async function createWorkOrder(
+  companyId: string, data: { recipeId: string; batches: number; notes?: string },
+): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/companies/${companyId}/work-orders`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function completeWorkOrder(id: string, producedQuantity?: number): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/complete`, { method: 'POST', body: JSON.stringify({ producedQuantity }) });
+}
+
+export async function cancelWorkOrder(id: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/cancel`, { method: 'POST' });
+}
+
+export async function deleteWorkOrder(id: string): Promise<void> {
+  await apiFetch(`/work-orders/${id}`, { method: 'DELETE' });
+}
+
 export async function createInventoryItem(
   companyId: string,
   data: CreateInventoryItemInput,
