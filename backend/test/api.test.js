@@ -855,6 +855,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '066_stock_counts',
     '067_rfqs',
     '068_manufacturing',
+    '069_documents',
   ]);
 });
 
@@ -1259,6 +1260,53 @@ test('work order refuses to complete without enough component stock', async () =
   // Nothing was consumed — the transaction rolled back.
   const items = await admin(request(app).get('/companies/1/inventory-items'));
   assert.equal(items.body.find((i) => i.id === flour.id).onHand, 5);
+});
+
+test('document templates + instances: snapshot freezes the design at creation', async () => {
+  const app = makeApp();
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
+
+  // A letterhead-backed letter template with a merge field and a manual field.
+  const tpl = await admin(request(app).post('/companies/1/document-templates')).send({
+    name: 'Payment reminder', type: 'letter', dataSource: 'client',
+    letterhead: { pageSize: 'A4', contentBox: { top: 40, right: 20, bottom: 30, left: 20 } },
+    doc: { version: 1, body: [{ type: 'text', text: 'Dear {{client.name}}, ref {{ref}}.' }] },
+    manualFields: [{ key: 'ref', label: 'Reference' }],
+  });
+  assert.equal(tpl.status, 201);
+  assert.equal(tpl.body.dataSource, 'client');
+  assert.equal(tpl.body.manualFields[0].key, 'ref');
+  const templateId = tpl.body.id;
+
+  // Create a document from it, bound to a client + manual field value.
+  const doc = await admin(request(app).post('/companies/1/documents')).send({
+    templateId, title: 'Reminder — Acme', recordType: 'client', recordId: 'client-1',
+    fieldValues: { ref: 'INV-42' },
+  });
+  assert.equal(doc.status, 201);
+  assert.equal(doc.body.recordId, 'client-1');
+  assert.equal(doc.body.fieldValues.ref, 'INV-42');
+  // The design was snapshotted onto the document.
+  assert.ok(doc.body.docSnapshot);
+  assert.equal(doc.body.letterheadSnapshot.pageSize, 'A4');
+  const docId = doc.body.id;
+
+  // Editing the TEMPLATE does not change the already-created document's snapshot.
+  await admin(request(app).put(`/document-templates/${templateId}`)).send({
+    doc: { version: 1, body: [{ type: 'text', text: 'COMPLETELY DIFFERENT' }] },
+  });
+  const after = await admin(request(app).get(`/documents/${docId}`));
+  assert.equal(after.body.docSnapshot.body[0].text, 'Dear {{client.name}}, ref {{ref}}.');
+
+  // A template with documents cannot be deleted.
+  const delTpl = await admin(request(app).delete(`/document-templates/${templateId}`));
+  assert.equal(delTpl.status, 400);
+
+  // Employees cannot access the document builder.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app).get('/companies/1/document-templates').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
 });
 
 test('users can update their own profile without gaining company-management access', async () => {

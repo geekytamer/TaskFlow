@@ -714,6 +714,65 @@ export interface InvoiceBankAccount {
 
 export type TemplateDocType = 'invoice' | 'delivery';
 
+// ── General document builder ───────────────────────────────────────────────
+// Reusable letterhead-backed documents (letters, memos, quotes, certificates)
+// with merge fields. Layout JSON (doc, letterhead) is owned by the frontend
+// engine; the backend stores it opaquely.
+
+export type DocumentType = 'letter' | 'memo' | 'quote' | 'certificate' | 'statement' | 'custom';
+
+/** Which system record a document template merges data from. */
+export type DocumentDataSource =
+  | 'none'
+  | 'client'
+  | 'invoice'
+  | 'contact'
+  | 'delivery_note'
+  | 'opportunity'
+  | 'sales_order';
+
+export interface DocumentManualField {
+  /** Token key, e.g. 'subject' → {{subject}}. */
+  key: string;
+  label: string;
+}
+
+export interface DocumentTemplate {
+  id: string;
+  companyId: string;
+  name: string;
+  type: DocumentType;
+  dataSource: DocumentDataSource;
+  /** Letterhead page setup (firstPage/continuation backgrounds, contentBox, pageSize). */
+  letterhead?: unknown;
+  /** Block tree (the design). */
+  doc?: unknown;
+  manualFields: DocumentManualField[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type DocumentStatus = 'draft' | 'final';
+
+/** A produced document instance, bound to a record with a frozen design snapshot. */
+export interface DocumentRecord {
+  id: string;
+  companyId: string;
+  templateId: string;
+  templateName?: string;
+  title: string;
+  recordType?: DocumentDataSource;
+  recordId?: string;
+  /** Manual field values entered for this document. */
+  fieldValues: Record<string, string>;
+  /** Frozen copy of the template design at creation, so template edits never change it. */
+  docSnapshot?: unknown;
+  letterheadSnapshot?: unknown;
+  status: DocumentStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface InvoiceTemplate {
   id: string;
   companyId: string;
@@ -1458,6 +1517,7 @@ export interface ActivityEvent {
     | 'payroll_run'
     | 'rfq'
     | 'work_order'
+    | 'document'
     | 'whatsapp_message';
   entityId: string;
   action: string;
