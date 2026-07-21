@@ -142,6 +142,12 @@ import {
   Recipe,
   WorkOrder,
   WorkOrderStatus,
+  DocumentTemplate,
+  DocumentType,
+  DocumentDataSource,
+  DocumentManualField,
+  DocumentRecord,
+  DocumentStatus,
   ProfitAndLossReport,
   CompanyFinanceSettings,
   CustomFieldDefinition,
@@ -3164,6 +3170,41 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '069_documents',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS document_templates (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              type TEXT NOT NULL DEFAULT 'letter',
+              dataSource TEXT NOT NULL DEFAULT 'none',
+              letterhead TEXT,
+              doc TEXT,
+              manualFields TEXT NOT NULL DEFAULT '[]',
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_document_templates_company ON document_templates(companyId, name);
+            CREATE TABLE IF NOT EXISTS documents (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              templateId TEXT NOT NULL,
+              title TEXT NOT NULL,
+              recordType TEXT,
+              recordId TEXT,
+              fieldValues TEXT NOT NULL DEFAULT '{}',
+              docSnapshot TEXT,
+              letterheadSnapshot TEXT,
+              status TEXT NOT NULL DEFAULT 'draft',
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_documents_company ON documents(companyId, createdAt);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5923,6 +5964,159 @@ export class DataStore {
     if (!wo) return false;
     if (wo.status === 'completed') throw new Error('A completed work order cannot be deleted; its stock movements are already posted.');
     this.db.prepare('DELETE FROM work_orders WHERE id = ?').run(id);
+    return true;
+  }
+
+  // ─── Document builder: templates ───────────────────────────────────────────
+
+  private decodeDocumentTemplate(row: any): DocumentTemplate {
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      name: row.name,
+      type: row.type as DocumentType,
+      dataSource: row.dataSource as DocumentDataSource,
+      letterhead: row.letterhead ? this.parseJson(row.letterhead) : undefined,
+      doc: row.doc ? this.parseJson(row.doc) : undefined,
+      manualFields: (this.parseJson<DocumentManualField[]>(row.manualFields) || []),
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listDocumentTemplates(companyId: string): DocumentTemplate[] {
+    const rows = this.db.prepare('SELECT * FROM document_templates WHERE companyId = ? ORDER BY name ASC').all(companyId) as any[];
+    return rows.map((r) => this.decodeDocumentTemplate(r));
+  }
+
+  getDocumentTemplateById(id: string): DocumentTemplate | undefined {
+    const row = this.db.prepare('SELECT * FROM document_templates WHERE id = ?').get(id) as any;
+    return row ? this.decodeDocumentTemplate(row) : undefined;
+  }
+
+  createDocumentTemplate(companyId: string, input: {
+    name: string; type: DocumentType; dataSource: DocumentDataSource;
+    letterhead?: unknown; doc?: unknown; manualFields?: DocumentManualField[];
+  }): DocumentTemplate {
+    const name = (input.name || '').trim();
+    if (!name) throw new Error('Template name is required.');
+    const id = uuid();
+    const nowIso = new Date().toISOString();
+    this.db.prepare('INSERT INTO document_templates (id, companyId, name, type, dataSource, letterhead, doc, manualFields, createdAt, updatedAt) VALUES (@id,@companyId,@name,@type,@dataSource,@letterhead,@doc,@manualFields,@createdAt,@updatedAt)')
+      .run({
+        id, companyId, name, type: input.type, dataSource: input.dataSource,
+        letterhead: input.letterhead ? JSON.stringify(input.letterhead) : null,
+        doc: input.doc ? JSON.stringify(input.doc) : null,
+        manualFields: JSON.stringify(input.manualFields || []),
+        createdAt: nowIso, updatedAt: nowIso,
+      });
+    return this.getDocumentTemplateById(id)!;
+  }
+
+  updateDocumentTemplate(id: string, updates: {
+    name?: string; type?: DocumentType; dataSource?: DocumentDataSource;
+    letterhead?: unknown; doc?: unknown; manualFields?: DocumentManualField[];
+  }): DocumentTemplate | undefined {
+    const existing = this.getDocumentTemplateById(id);
+    if (!existing) return undefined;
+    const name = updates.name !== undefined ? updates.name.trim() : existing.name;
+    if (!name) throw new Error('Template name is required.');
+    this.db.prepare('UPDATE document_templates SET name=@name, type=@type, dataSource=@dataSource, letterhead=@letterhead, doc=@doc, manualFields=@manualFields, updatedAt=@updatedAt WHERE id=@id')
+      .run({
+        id, name,
+        type: updates.type ?? existing.type,
+        dataSource: updates.dataSource ?? existing.dataSource,
+        letterhead: updates.letterhead !== undefined ? (updates.letterhead ? JSON.stringify(updates.letterhead) : null) : (existing.letterhead ? JSON.stringify(existing.letterhead) : null),
+        doc: updates.doc !== undefined ? (updates.doc ? JSON.stringify(updates.doc) : null) : (existing.doc ? JSON.stringify(existing.doc) : null),
+        manualFields: JSON.stringify(updates.manualFields ?? existing.manualFields),
+        updatedAt: new Date().toISOString(),
+      });
+    return this.getDocumentTemplateById(id);
+  }
+
+  deleteDocumentTemplate(id: string): boolean {
+    const existing = this.getDocumentTemplateById(id);
+    if (!existing) return false;
+    const inUse = this.db.prepare('SELECT 1 FROM documents WHERE templateId = ? LIMIT 1').get(id);
+    if (inUse) throw new Error('This template has documents created from it and cannot be deleted.');
+    this.db.prepare('DELETE FROM document_templates WHERE id = ?').run(id);
+    return true;
+  }
+
+  // ─── Document builder: document instances ──────────────────────────────────
+
+  private decodeDocument(row: any): DocumentRecord {
+    const template = this.getDocumentTemplateById(row.templateId);
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      templateId: row.templateId,
+      templateName: template?.name,
+      title: row.title,
+      recordType: (row.recordType ?? undefined) as DocumentDataSource | undefined,
+      recordId: row.recordId ?? undefined,
+      fieldValues: (this.parseJson<Record<string, string>>(row.fieldValues) || {}),
+      docSnapshot: row.docSnapshot ? this.parseJson(row.docSnapshot) : undefined,
+      letterheadSnapshot: row.letterheadSnapshot ? this.parseJson(row.letterheadSnapshot) : undefined,
+      status: row.status as DocumentStatus,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
+  }
+
+  listDocuments(companyId: string): DocumentRecord[] {
+    const rows = this.db.prepare('SELECT * FROM documents WHERE companyId = ? ORDER BY createdAt DESC').all(companyId) as any[];
+    return rows.map((r) => this.decodeDocument(r));
+  }
+
+  getDocumentById(id: string): DocumentRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as any;
+    return row ? this.decodeDocument(row) : undefined;
+  }
+
+  /** Create a document, freezing the template's design + letterhead into a snapshot. */
+  createDocument(companyId: string, input: {
+    templateId: string; title?: string; recordType?: DocumentDataSource; recordId?: string;
+    fieldValues?: Record<string, string>; status?: DocumentStatus;
+  }): DocumentRecord {
+    const template = this.getDocumentTemplateById(input.templateId);
+    if (!template || template.companyId !== companyId) throw new Error('Template does not belong to this company.');
+    const id = uuid();
+    const nowIso = new Date().toISOString();
+    this.db.prepare('INSERT INTO documents (id, companyId, templateId, title, recordType, recordId, fieldValues, docSnapshot, letterheadSnapshot, status, createdAt, updatedAt) VALUES (@id,@companyId,@templateId,@title,@recordType,@recordId,@fieldValues,@docSnapshot,@letterheadSnapshot,@status,@createdAt,@updatedAt)')
+      .run({
+        id, companyId, templateId: template.id,
+        title: (input.title || template.name).trim(),
+        recordType: input.recordType ?? template.dataSource ?? null,
+        recordId: input.recordId ?? null,
+        fieldValues: JSON.stringify(input.fieldValues || {}),
+        docSnapshot: template.doc ? JSON.stringify(template.doc) : null,
+        letterheadSnapshot: template.letterhead ? JSON.stringify(template.letterhead) : null,
+        status: input.status ?? 'draft',
+        createdAt: nowIso, updatedAt: nowIso,
+      });
+    this.createActivityEvent({ companyId, entityType: 'document', entityId: id, action: 'created', summary: `Document "${(input.title || template.name).trim()}" created.` });
+    return this.getDocumentById(id)!;
+  }
+
+  updateDocument(id: string, updates: { title?: string; fieldValues?: Record<string, string>; recordId?: string; status?: DocumentStatus }): DocumentRecord | undefined {
+    const existing = this.getDocumentById(id);
+    if (!existing) return undefined;
+    this.db.prepare('UPDATE documents SET title=@title, fieldValues=@fieldValues, recordId=@recordId, status=@status, updatedAt=@updatedAt WHERE id=@id')
+      .run({
+        id,
+        title: updates.title !== undefined ? updates.title.trim() : existing.title,
+        fieldValues: JSON.stringify(updates.fieldValues ?? existing.fieldValues),
+        recordId: updates.recordId !== undefined ? (updates.recordId || null) : (existing.recordId ?? null),
+        status: updates.status ?? existing.status,
+        updatedAt: new Date().toISOString(),
+      });
+    return this.getDocumentById(id);
+  }
+
+  deleteDocument(id: string): boolean {
+    if (!this.getDocumentById(id)) return false;
+    this.db.prepare('DELETE FROM documents WHERE id = ?').run(id);
     return true;
   }
 

@@ -1785,6 +1785,113 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // ─── Document builder ───────────────────────────────────────────────────────
+  const DOCUMENT_TYPES = ['letter', 'memo', 'quote', 'certificate', 'statement', 'custom'] as const;
+  const DOCUMENT_SOURCES = ['none', 'client', 'invoice', 'contact', 'delivery_note', 'opportunity', 'sales_order'] as const;
+  const parseManualFields = (value: unknown) => {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value)) throw new HttpError(400, 'manualFields must be an array.');
+    return value.map((raw) => {
+      const f = asRecord(raw, 'field');
+      return { key: requiredString(f.key, 'key', { min: 1 }), label: requiredString(f.label, 'label', { min: 1 }) };
+    });
+  };
+  const loadDocTemplate = (req: AuthedRequest) => {
+    const t = store.getDocumentTemplateById(req.params.id);
+    if (!t) throw new HttpError(404, 'Document template not found.');
+    requireCompanyRoles(req, t.companyId, companyManagementRoles);
+    return t;
+  };
+  app.get('/companies/:companyId/document-templates', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listDocumentTemplates(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/document-templates', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const t = withActor(req, () => store.createDocumentTemplate(req.params.companyId, {
+        name: requiredString(body.name, 'name', { min: 1 }),
+        type: (body.type !== undefined ? enumValue(body.type, 'type', DOCUMENT_TYPES as any) : 'letter') as any,
+        dataSource: (body.dataSource !== undefined ? enumValue(body.dataSource, 'dataSource', DOCUMENT_SOURCES as any) : 'none') as any,
+        letterhead: body.letterhead,
+        doc: body.doc,
+        manualFields: parseManualFields(body.manualFields),
+      }));
+      res.status(201).json(t);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create template.');
+    }
+  }));
+  app.get('/document-templates/:id', authMiddleware, handler((req, res) => { res.json(loadDocTemplate(req)); }));
+  app.put('/document-templates/:id', authMiddleware, handler((req, res) => {
+    loadDocTemplate(req);
+    const body = asRecord(req.body, 'body');
+    try {
+      res.json(store.updateDocumentTemplate(req.params.id, {
+        name: body.name !== undefined ? requiredString(body.name, 'name', { min: 1 }) : undefined,
+        type: body.type !== undefined ? (enumValue(body.type, 'type', DOCUMENT_TYPES as any) as any) : undefined,
+        dataSource: body.dataSource !== undefined ? (enumValue(body.dataSource, 'dataSource', DOCUMENT_SOURCES as any) as any) : undefined,
+        letterhead: body.letterhead,
+        doc: body.doc,
+        manualFields: parseManualFields(body.manualFields),
+      }));
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not update template.');
+    }
+  }));
+  app.delete('/document-templates/:id', authMiddleware, handler((req, res) => {
+    loadDocTemplate(req);
+    try { store.deleteDocumentTemplate(req.params.id); res.status(204).end(); }
+    catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Could not delete template.'); }
+  }));
+
+  const loadDocument = (req: AuthedRequest) => {
+    const d = store.getDocumentById(req.params.id);
+    if (!d) throw new HttpError(404, 'Document not found.');
+    requireCompanyRoles(req, d.companyId, companyManagementRoles);
+    return d;
+  };
+  app.get('/companies/:companyId/documents', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    res.json(store.listDocuments(req.params.companyId));
+  }));
+  app.post('/companies/:companyId/documents', authMiddleware, handler((req, res) => {
+    requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+    const body = asRecord(req.body, 'body');
+    try {
+      const d = withActor(req, () => store.createDocument(req.params.companyId, {
+        templateId: requiredString(body.templateId, 'templateId'),
+        title: optionalString(body.title),
+        recordType: body.recordType !== undefined ? (enumValue(body.recordType, 'recordType', DOCUMENT_SOURCES as any) as any) : undefined,
+        recordId: optionalString(body.recordId),
+        fieldValues: (body.fieldValues && typeof body.fieldValues === 'object') ? (body.fieldValues as Record<string, string>) : undefined,
+      }));
+      res.status(201).json(d);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create document.');
+    }
+  }));
+  app.get('/documents/:id', authMiddleware, handler((req, res) => { res.json(loadDocument(req)); }));
+  app.put('/documents/:id', authMiddleware, handler((req, res) => {
+    loadDocument(req);
+    const body = asRecord(req.body, 'body');
+    res.json(store.updateDocument(req.params.id, {
+      title: optionalString(body.title),
+      fieldValues: (body.fieldValues && typeof body.fieldValues === 'object') ? (body.fieldValues as Record<string, string>) : undefined,
+      recordId: body.recordId !== undefined ? optionalString(body.recordId) : undefined,
+      status: body.status !== undefined ? (enumValue(body.status, 'status', ['draft', 'final']) as any) : undefined,
+    }));
+  }));
+  app.delete('/documents/:id', authMiddleware, handler((req, res) => {
+    loadDocument(req);
+    store.deleteDocument(req.params.id);
+    res.status(204).end();
+  }));
+
   app.get(
     '/companies/:companyId/invoice-templates',
     authMiddleware,
