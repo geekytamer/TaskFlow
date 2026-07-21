@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
   getDocumentTemplates, deleteDocumentTemplate,
-  getDocuments, deleteDocument,
+  getDocuments, deleteDocument, downloadDocumentPdf,
 } from '@/services/documentService';
 import type { DocumentTemplate, DocumentInstance } from '@/modules/documents/types';
 import { DocumentTemplateEditor } from './document-template-editor';
@@ -23,7 +23,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Pencil, FileText, FilePlus2 } from 'lucide-react';
+import { Plus, Trash2, Pencil, FileText, FilePlus2, Download } from 'lucide-react';
 
 type View =
   | { mode: 'list' }
@@ -67,6 +67,10 @@ export function DocumentsPanel() {
     if (!ok) return;
     try { await deleteDocument(id); load(); }
     catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
+  };
+  const downloadPdf = async (id: string, title: string) => {
+    try { await downloadDocumentPdf(id, title); }
+    catch (e: any) { toast({ variant: 'destructive', title: tr('PDF unavailable', 'PDF غير متاح'), description: e?.message }); }
   };
 
   if (view.mode === 'edit-template') {
@@ -173,7 +177,10 @@ export function DocumentsPanel() {
                           <TableCell className="font-medium">{d.title}</TableCell>
                           <TableCell className="text-muted-foreground">{d.templateName ?? '—'}</TableCell>
                           <TableCell><Badge variant={d.status === 'final' ? 'default' : 'secondary'}>{d.status}</Badge></TableCell>
-                          <TableCell className="text-end"><Button variant="ghost" size="icon" onClick={() => removeDocument(d.id)}><Trash2 className="h-4 w-4" /></Button></TableCell>
+                          <TableCell className="text-end">
+                            <Button variant="ghost" size="sm" onClick={() => downloadPdf(d.id, d.title)}><Download className="me-1 h-4 w-4" />{tr('PDF', 'PDF')}</Button>
+                            <Button variant="ghost" size="icon" onClick={() => removeDocument(d.id)}><Trash2 className="h-4 w-4" /></Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

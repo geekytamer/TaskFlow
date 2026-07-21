@@ -1299,6 +1299,15 @@ test('document templates + instances: snapshot freezes the design at creation', 
   const after = await admin(request(app).get(`/documents/${docId}`));
   assert.equal(after.body.docSnapshot.body[0].text, 'Dear {{client.name}}, ref {{ref}}.');
 
+  // The public print endpoint resolves merge fields (client + manual) into a
+  // flat context — this is what the Chromium PDF renderer consumes.
+  const pub = await request(app).get(`/public/documents/${docId}`); // no auth
+  assert.equal(pub.status, 200);
+  assert.equal(pub.body.context['client.name'], 'Acme Corp'); // client-1 in the seed
+  assert.equal(pub.body.context.ref, 'INV-42'); // manual field value
+  assert.ok(pub.body.context['company.name']);
+  assert.equal(pub.body.doc.body[0].text, 'Dear {{client.name}}, ref {{ref}}.');
+
   // A template with documents cannot be deleted.
   const delTpl = await admin(request(app).delete(`/document-templates/${templateId}`));
   assert.equal(delTpl.status, 400);

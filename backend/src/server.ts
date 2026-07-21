@@ -1892,6 +1892,74 @@ export function createServer(options: CreateServerOptions = {}) {
     res.status(204).end();
   }));
 
+  // Resolve a document's merge context (company + bound record + manual fields)
+  // into a flat token map the print page substitutes into the design.
+  const resolveDocumentContext = (doc: ReturnType<typeof store.getDocumentById>): Record<string, string> => {
+    const ctx: Record<string, string> = {};
+    if (!doc) return ctx;
+    const company: any = store.getCompanyById(doc.companyId);
+    if (company) {
+      ctx['company.name'] = company.name || '';
+      ctx['company.address'] = company.address || '';
+      ctx['company.email'] = company.email || '';
+      ctx['company.phone'] = company.phone || '';
+      ctx['company.vatNumber'] = company.vatNumber || company.taxNumber || '';
+    }
+    ctx['today'] = new Date().toLocaleDateString('en-GB');
+    const rid = doc.recordId;
+    if (rid && doc.recordType === 'client') {
+      const c: any = store.getClientById(rid);
+      if (c) Object.assign(ctx, { 'client.name': c.name || '', 'client.email': c.email || '', 'client.phone': c.phone || '', 'client.address': c.address || '', 'client.vatNumber': c.vatNumber || '' });
+    } else if (rid && doc.recordType === 'invoice') {
+      const i: any = store.getInvoiceById(rid);
+      if (i) Object.assign(ctx, {
+        'invoice.number': i.invoiceNumber || '', 'invoice.total': String(i.total ?? ''),
+        'invoice.outstanding': String(i.outstandingAmount ?? i.total ?? ''),
+        'invoice.issueDate': i.issueDate ? new Date(i.issueDate).toLocaleDateString('en-GB') : '',
+        'invoice.dueDate': i.dueDate ? new Date(i.dueDate).toLocaleDateString('en-GB') : '',
+        'invoice.status': i.status || '',
+      });
+    } else if (rid && doc.recordType === 'contact') {
+      const c: any = store.getContactById(rid);
+      if (c) Object.assign(ctx, { 'contact.name': c.name || '', 'contact.email': c.email || '', 'contact.phone': c.phone || '', 'contact.company': c.company || '', 'contact.role': c.role || '' });
+    }
+    // Manual field values entered on the document take precedence.
+    Object.assign(ctx, doc.fieldValues || {});
+    return ctx;
+  };
+
+  // Public, unauthenticated print view (opaque UUID — not enumerable). Puppeteer
+  // renders this to PDF; the browser QR/print flows use it too.
+  app.get('/public/documents/:id', handler((req, res) => {
+    const doc = store.getDocumentById(req.params.id);
+    if (!doc) throw new HttpError(404, 'Document not found.');
+    res.json({
+      title: doc.title,
+      doc: doc.docSnapshot ?? null,
+      letterhead: doc.letterheadSnapshot ?? null,
+      context: resolveDocumentContext(doc),
+    });
+  }));
+
+  app.get('/documents/:id/pdf', authMiddleware, handler(async (req, res) => {
+    const doc = store.getDocumentById(req.params.id);
+    if (!doc) throw new HttpError(404, 'Document not found.');
+    requireCompanyRoles(req, doc.companyId, companyManagementRoles);
+    const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const format: 'A4' | 'Letter' = (doc.letterheadSnapshot as any)?.pageSize === 'Letter' ? 'Letter' : 'A4';
+    const url = `${appUrl}/document/${doc.id}`;
+    let pdf: Buffer;
+    try {
+      pdf = await renderInvoicePdf({ url, format });
+    } catch (err) {
+      throw new HttpError(503, 'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.');
+    }
+    const safe = doc.title.replace(/[^a-zA-Z0-9._-]+/g, '-') || 'document';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safe}.pdf"`);
+    res.end(pdf);
+  }));
+
   app.get(
     '/companies/:companyId/invoice-templates',
     authMiddleware,
