@@ -36,7 +36,7 @@ import {
 } from '@/services/financeService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { Client, Invoice, InvoiceStatus, InvoiceTemplate, Payment } from '../types';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getTasks } from '@/services/projectService';
@@ -562,9 +562,9 @@ export function InvoiceTable() {
                               ? t('invoiceTable.managePaymentsTitle')
                               : t('invoiceTable.recordPaymentTitle')}
                           </DialogTitle>
-                          <p className="text-sm text-muted-foreground">
+                          <DialogDescription>
                             {invoice.invoiceNumber} — {getClientName(invoice.clientId, invoice.contactId)}
-                          </p>
+                          </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-2">
                           {(invoice.outstandingAmount || 0) > 0 && (
@@ -783,11 +783,11 @@ export function InvoiceTable() {
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>{t('invoiceTable.previewTitle')}</DialogTitle>
-            <p className="text-sm text-muted-foreground">
+            <DialogDescription>
               {t('invoiceTable.previewSubtitle')
                 .replace('{number}', previewInvoice?.invoiceNumber || '')
                 .replace('{template}', getTemplateName(previewInvoice?.templateId))}
-            </p>
+            </DialogDescription>
           </DialogHeader>
           <div className="invoice-preview-actions flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
@@ -839,9 +839,9 @@ export function InvoiceTable() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('invoiceTable.creditNoteTitle')}</DialogTitle>
-            <p className="text-sm text-muted-foreground">
+            <DialogDescription>
               {t('invoiceTable.creditNoteSubtitle').replace('{number}', creditDialog.invoice?.invoiceNumber || '')}
-            </p>
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1">

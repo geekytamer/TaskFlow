@@ -14,7 +14,7 @@ import type { Company } from '@/modules/companies/types';
 import { DocRenderer } from '../doc/doc-renderer';
 import { templateToDoc } from '../doc/template-to-doc';
 import { invoicePresets } from '../doc/presets';
-import { TOKEN_GROUPS } from '../doc/tokens';
+import { GENERIC_TOKEN_GROUPS, TOKEN_GROUPS } from '../doc/tokens';
 import type {
   Block,
   BlockStyle,
@@ -73,7 +73,7 @@ const DEFAULT_COLUMNS: InvoiceColumn[] = [
 const BLOCK_DEFAULTS: Record<string, () => Block> = {
   container: () => ({ id: makeId(), type: 'container', layout: 'stack', gap: 12, children: [] }),
   heading: () => ({ id: makeId(), type: 'heading', level: 2, content: 'Heading' }),
-  text: () => ({ id: makeId(), type: 'text', content: 'Text - use {{invoice.number}} tokens.' }),
+  text: () => ({ id: makeId(), type: 'text', content: 'Text - use {{ }} to insert data.' }),
   image: () => ({ id: makeId(), type: 'image', binding: 'logo', height: 56 }),
   divider: () => ({ id: makeId(), type: 'divider', style: { margin: { top: 12, bottom: 12 } } }),
   spacer: () => ({ id: makeId(), type: 'spacer', height: 24 }),
@@ -189,6 +189,22 @@ function updateBlockInTree(blocks: Block[], id: string, patch: Partial<Block>): 
   });
 }
 
+const PAGE_FLOW_BLOCK_TYPES = new Set<Block['type']>(['lineItems', 'pageBreak']);
+
+export function insertDesignerBlock(
+  blocks: Block[],
+  selectedId: string | null,
+  block: Block,
+): Block[] {
+  const selectedBlock = findBlock(blocks, selectedId);
+  if (selectedBlock?.type === 'container' && !PAGE_FLOW_BLOCK_TYPES.has(block.type)) {
+    return updateBlockInTree(blocks, selectedBlock.id, {
+      children: [...selectedBlock.children, block],
+    } as Partial<ContainerBlock>);
+  }
+  return [...blocks, block];
+}
+
 function removeBlockFromTree(blocks: Block[], id: string): Block[] {
   return blocks
     .filter((block) => block.id !== id)
@@ -272,6 +288,14 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const { toast } = useToast();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const financialDocument = ['invoice', 'quote', 'statement'].includes(template.docType ?? 'invoice');
+  const genericDocument = ['letter', 'memo', 'certificate', 'custom'].includes(template.docType ?? 'invoice');
+  const availablePresets = ['invoice', 'delivery', 'quote', 'statement'].includes(template.docType ?? 'invoice')
+    ? invoicePresets
+    : [];
+  const palette = financialDocument
+    ? PALETTE
+    : PALETTE.filter((item) => !['lineItems', 'totals', 'payment'].includes(item.type));
   const paletteLabel = (type: string, fallback: string) => {
     switch (type) {
       case 'container': return tr('Group', 'مجموعة');
@@ -350,18 +374,10 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const addBlock = (type: string) => {
     const block = BLOCK_DEFAULTS[type]?.();
     if (!block) return;
-    commit((current) => {
-      const selectedBlock = findBlock(current.body, selectedId);
-      if (selectedBlock?.type === 'container') {
-        return {
-          ...current,
-          body: updateBlockInTree(current.body, selectedBlock.id, {
-            children: [...selectedBlock.children, block],
-          } as Partial<ContainerBlock>),
-        };
-      }
-      return { ...current, body: [...current.body, block] };
-    });
+    commit((current) => ({
+      ...current,
+      body: insertDesignerBlock(current.body, selectedId, block),
+    }));
     setSelectedId(block.id);
   };
 
@@ -379,7 +395,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   };
 
   const applyPreset = (presetId: string) => {
-    const preset = invoicePresets.find((p) => p.id === presetId);
+    const preset = availablePresets.find((p) => p.id === presetId);
     if (!preset) return;
     if (dirty && !window.confirm(tr(`Replace the current design with the "${preset.name}" preset?`, `هل تريد استبدال التصميم الحالي بالقالب الجاهز "${preset.name}"؟`))) return;
     commit(() => preset.build({ ...template, doc: undefined }));
@@ -403,7 +419,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   };
 
   const close = () => {
-    if (dirty && !window.confirm(tr('Discard your unsaved invoice design changes?', 'هل تريد تجاهل تغييرات تصميم الفاتورة غير المحفوظة؟'))) return;
+    if (dirty && !window.confirm(tr('Discard your unsaved design changes?', 'هل تريد تجاهل تغييرات التصميم غير المحفوظة؟'))) return;
     onClose();
   };
 
@@ -447,7 +463,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" onClick={close}>
           <ArrowLeft className="me-1 h-4 w-4" />
-          {tr('Back to settings', 'العودة إلى الإعدادات')}
+          {tr('Back to templates', 'العودة إلى القوالب')}
         </Button>
         <div className="text-sm font-medium">
           {tr('Designing', 'تصميم')}: {template.name}
@@ -478,9 +494,11 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
 
       <div className="grid flex-1 gap-3 overflow-hidden lg:grid-cols-[190px_300px_1fr]">
         <div className="overflow-y-auto rounded-lg border p-2">
+          {availablePresets.length > 0 && (
+            <>
           <p className="px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr('Start from a preset', 'ابدأ من قالب جاهز')}</p>
           <div className="grid gap-1.5">
-            {invoicePresets.map((preset) => (
+            {availablePresets.map((preset) => (
               <button
                 key={preset.id}
                 type="button"
@@ -493,16 +511,22 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
               </button>
             ))}
           </div>
+            </>
+          )}
 
           <p className="mt-3 px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr('Add block', 'إضافة عنصر')}</p>
           <div className="grid grid-cols-2 gap-1.5">
-            {PALETTE.map((item) => (
+            {palette.map((item) => (
               <button
                 key={item.type}
                 type="button"
                 onClick={() => addBlock(item.type)}
                 className="flex flex-col items-center gap-1 rounded-md border p-2 text-[11px] hover:bg-muted"
-                title={selected?.type === 'container' ? tr(`Add ${item.label} inside selected group`, `إضافة ${paletteLabel(item.type, item.label)} داخل المجموعة المحددة`) : tr(`Add ${item.label}`, `إضافة ${paletteLabel(item.type, item.label)}`)}
+                title={
+                  selected?.type === 'container' && !PAGE_FLOW_BLOCK_TYPES.has(item.type as Block['type'])
+                    ? tr(`Add ${item.label} inside selected group`, `إضافة ${paletteLabel(item.type, item.label)} داخل المجموعة المحددة`)
+                    : tr(`Add ${item.label}`, `إضافة ${paletteLabel(item.type, item.label)}`)
+                }
               >
                 <item.icon className="h-4 w-4 text-muted-foreground" />
                 {paletteLabel(item.type, item.label)}
@@ -511,6 +535,8 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
           </div>
           <p className="mt-3 px-1 text-[11px] text-muted-foreground">
             {tr('Select a group before adding to place the new block inside it.', 'حدد مجموعة قبل الإضافة لوضع العنصر الجديد داخلها.')}
+            {' '}
+            {tr('Page breaks and line items always stay at page level.', 'تبقى فواصل الصفحات والبنود دائمًا على مستوى الصفحة.')}
           </p>
         </div>
 
@@ -567,6 +593,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
               <BlockProperties
                 block={selected}
                 templateColumns={template.columns}
+                tokenGroups={genericDocument ? GENERIC_TOKEN_GROUPS : TOKEN_GROUPS}
                 onChange={(patch) => updateBlock(selected.id, patch)}
                 onStyle={(style) => updateStyle(selected.id, style)}
               />
@@ -758,11 +785,13 @@ function DocumentProperties({
 function BlockProperties({
   block,
   templateColumns,
+  tokenGroups,
   onChange,
   onStyle,
 }: {
   block: Block;
   templateColumns?: InvoiceColumn[];
+  tokenGroups: typeof TOKEN_GROUPS;
   onChange: (patch: Partial<Block>) => void;
   onStyle: (style: BlockStyle) => void;
 }) {
@@ -785,7 +814,7 @@ function BlockProperties({
           <details className="mt-1 text-[11px] text-muted-foreground">
             <summary className="cursor-pointer">{tr('Data tokens', 'رموز البيانات')}</summary>
             <div className="mt-1 space-y-1">
-              {TOKEN_GROUPS.map((group) => (
+              {tokenGroups.map((group) => (
                 <div key={group.group}>
                   <span className="font-medium">{group.group}:</span>{' '}
                   {group.tokens.map((token) => `{{${token.token}}}`).join(', ')}

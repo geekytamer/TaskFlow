@@ -15,11 +15,66 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   const s = docStrings();
   const primary = template?.primaryColor || '#111827';
   const accent = template?.accentColor || '#2563eb';
+  const docType = template?.docType ?? 'invoice';
+
+  if (['letter', 'memo', 'certificate', 'custom'].includes(docType)) {
+    const genericBody: Block[] = docType === 'letter'
+      ? [
+          { id: id('date'), type: 'text', content: '{{document.date}}', style: { align: 'right', color: '#64748b' } },
+          { id: id('recipient'), type: 'details', title: 'Recipient', fields: [
+            { label: '', value: '{{client.name}}' },
+            { label: '', value: '{{client.address}}' },
+            { label: '', value: '{{client.email}}' },
+          ], style: { margin: { top: 24, bottom: 24 } } },
+          { id: id('title'), type: 'heading', level: 1, content: 'BUSINESS LETTER', style: { color: primary } },
+          { id: id('body'), type: 'text', content: 'Dear {{client.name}},\n\nWrite your letter here.', style: { margin: { top: 20 }, lineHeight: 1.6 } },
+          { id: id('signature'), type: 'signature', style: { margin: { top: 40 } } },
+        ]
+      : docType === 'memo'
+        ? [
+            { id: id('title'), type: 'heading', level: 1, content: 'MEMORANDUM', style: { color: primary } },
+            { id: id('meta'), type: 'details', title: '', fields: [
+              { label: 'To', value: '{{client.name}}' },
+              { label: 'From', value: '{{company.name}}' },
+              { label: 'Date', value: '{{document.date}}' },
+              { label: 'Subject', value: 'Memo subject' },
+            ], style: { margin: { top: 20, bottom: 20 } } },
+            { id: id('divider'), type: 'divider' },
+            { id: id('body'), type: 'text', content: 'Write the memo here.', style: { margin: { top: 20 }, lineHeight: 1.6 } },
+          ]
+        : docType === 'certificate'
+          ? [
+              { id: id('title'), type: 'heading', level: 1, content: 'CERTIFICATE', style: { align: 'center', color: primary, margin: { top: 80 } } },
+              { id: id('subtitle'), type: 'text', content: 'This certificate is presented to', style: { align: 'center', margin: { top: 32 } } },
+              { id: id('recipient'), type: 'heading', level: 2, content: '{{client.name}}', style: { align: 'center', color: accent, margin: { top: 24, bottom: 24 } } },
+              { id: id('body'), type: 'text', content: 'For outstanding achievement and completion.', style: { align: 'center' } },
+              { id: id('signature'), type: 'signature', style: { margin: { top: 64 }, align: 'center' } },
+            ]
+          : [
+              { id: id('title'), type: 'heading', level: 1, content: 'CUSTOM DOCUMENT', style: { color: primary } },
+              { id: id('body'), type: 'text', content: 'Start designing your document here.', style: { margin: { top: 20 } } },
+            ];
+
+    return {
+      version: 1,
+      page: { size: 'A4', orientation: 'portrait', margin: { top: 20, right: 20, bottom: 20, left: 20 } },
+      theme: { fontFamily: 'inherit', primaryColor: primary, accentColor: accent, textColor: '#0f172a' },
+      body: genericBody,
+    };
+  }
+
   const breaks = new Set<InvoiceSectionKey>(template?.sectionBreaks ?? []);
   const pageBreak = (): Block => ({ id: id('pb'), type: 'pageBreak' });
   // A delivery note is the same engine without the money side: a quantity-only
   // items table, a "Delivery Note" heading, and no totals/payment sections.
-  const isDelivery = template?.docType === 'delivery';
+  const isDelivery = docType === 'delivery';
+  const documentHeading = docType === 'quote'
+    ? 'QUOTATION'
+    : docType === 'statement'
+      ? 'ACCOUNT STATEMENT'
+      : isDelivery
+        ? (s.deliveryNote ?? 'Delivery Note')
+        : s.invoice;
   const deliveryColumns = [
     { id: 'dn-sku', key: 'sku' as const, label: s.sku ?? 'SKU', visible: true, width: 22, align: 'left' as const },
     { id: 'dn-desc', key: 'description' as const, label: s.description ?? 'Description', visible: true, align: 'left' as const },
@@ -54,7 +109,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
         layout: 'stack',
         style: { align: 'right' },
         children: [
-          { id: id('inv'), type: 'heading', level: 1, content: isDelivery ? (s.deliveryNote ?? 'Delivery Note') : s.invoice, style: { align: 'right', color: primary } },
+          { id: id('inv'), type: 'heading', level: 1, content: documentHeading, style: { align: 'right', color: primary } },
           { id: id('num'), type: 'text', content: '{{invoice.number}}', style: { align: 'right', fontSize: 13, color: '#64748b', margin: { top: 8 } } },
           { id: id('st'), type: 'text', content: '{{invoice.status}}', style: { align: 'right', fontSize: 13, color: '#64748b' } },
         ],

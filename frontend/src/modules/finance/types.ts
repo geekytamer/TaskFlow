@@ -173,6 +173,15 @@ export interface Delivery {
 }
 
 export type InvoiceTemplateLayout = 'classic' | 'modern' | 'compact' | 'letterhead';
+export type TemplateDocumentType =
+  | 'invoice'
+  | 'delivery'
+  | 'quote'
+  | 'letter'
+  | 'memo'
+  | 'certificate'
+  | 'statement'
+  | 'custom';
 
 export type InvoiceColumnKey = 'sku' | 'description' | 'quantity' | 'unitPrice' | 'amount' | 'custom';
 export type InvoiceColumnAlign = 'left' | 'center' | 'right';
@@ -207,7 +216,7 @@ export interface InvoiceTemplate {
   logoUrl?: string | null;
   headerImageUrl?: string | null;
   footerImageUrl?: string | null;
-  docType?: 'invoice' | 'delivery';
+  docType?: TemplateDocumentType;
   letterheadPdfUrl?: string | null;
   letterheadImageUrl?: string | null;
   stampUrl?: string | null;

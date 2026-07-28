@@ -567,10 +567,10 @@ export async function getInvoice(invoiceId: string): Promise<Invoice | null> {
 
 export async function getInvoiceTemplates(
   companyId: string,
-  docType: 'invoice' | 'delivery' = 'invoice',
+  docType: import('@/modules/finance/types').TemplateDocumentType = 'invoice',
 ): Promise<InvoiceTemplate[]> {
   if (!companyId) return [];
-  const query = docType === 'delivery' ? '?docType=delivery' : '';
+  const query = `?docType=${encodeURIComponent(docType)}`;
   const templates = await apiFetch<InvoiceTemplate[]>(`/companies/${companyId}/invoice-templates${query}`);
   return templates.map(mapInvoiceTemplate);
 }

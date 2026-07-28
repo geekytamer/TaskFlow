@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { getClients, createInvoice, getInvoiceTemplates, getSalesOrders } from '@/services/financeService';
-import { getTasksByClient, markTasksAsInvoiced } from '@/services/projectService';
+import { getTasksByClient } from '@/services/projectService';
 import type { Client, InvoiceLineItem, InvoiceTemplate, SalesOrder } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { useCompany } from '@/context/company-context';
@@ -311,9 +311,6 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         currency: currencyCode,
         status: 'Draft',
       });
-      
-      await markTasksAsInvoiced(selectedTaskIds, newInvoice.id);
-
       toast({
         title: t('finance.invoiceCreated'),
         description: t('finance.invoiceCreatedDescription').replace('{invoiceNumber}', newInvoice.invoiceNumber),

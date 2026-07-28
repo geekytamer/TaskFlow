@@ -52,17 +52,34 @@ export const TOKEN_GROUPS: { group: string; tokens: { token: string; label: stri
   },
 ];
 
+export const GENERIC_TOKEN_GROUPS: typeof TOKEN_GROUPS = [
+  {
+    group: 'Document',
+    tokens: [
+      { token: 'document.number', label: 'Document number' },
+      { token: 'document.date', label: 'Document date' },
+      { token: 'document.status', label: 'Status' },
+      { token: 'document.notes', label: 'Notes' },
+    ],
+  },
+  ...TOKEN_GROUPS.filter((group) => group.group !== 'Invoice'),
+];
+
 export function resolveToken(token: string, ctx: DocDataContext): string {
   const { invoice, client, company } = ctx;
   switch (token.trim()) {
+    case 'document.number':
     case 'invoice.number': return invoice.invoiceNumber || '';
+    case 'document.status':
     case 'invoice.status': return invoice.status || '';
+    case 'document.date':
     case 'invoice.issueDate': return fmtDate(invoice.issueDate);
     case 'invoice.dueDate': return fmtDate(invoice.dueDate);
     case 'invoice.currency': return invoice.currency || 'USD';
     case 'invoice.subtotal': return ctx.formatMoney(ctx.subtotal);
     case 'invoice.tax': return ctx.formatMoney(ctx.taxAmount);
     case 'invoice.total': return ctx.formatMoney(ctx.total);
+    case 'document.notes':
     case 'invoice.notes': return invoice.notes || '';
     case 'client.name': return client?.name || '';
     case 'client.address': return client?.address || '';

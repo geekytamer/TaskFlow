@@ -1,18 +1,27 @@
 'use client';
 
 import * as React from 'react';
+import dynamic from 'next/dynamic';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getDocumentTemplates, deleteDocumentTemplate,
+  getDocumentTemplates,
   getDocuments, deleteDocument, downloadDocumentPdf,
 } from '@/services/documentService';
 import type { DocumentTemplate, DocumentInstance } from '@/modules/documents/types';
-import { DocumentTemplateEditor } from './document-template-editor';
+import type { TemplateDocumentType } from '@/modules/finance/types';
+import {
+  DOCUMENT_WORKSPACE_TABS,
+  getDocumentWorkspaceTab,
+} from '@/modules/documents/document-tabs';
+import {
+  DOCUMENT_TEMPLATE_TYPES,
+} from '@/modules/documents/document-template-types';
 import { DocumentComposer } from './document-composer';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,11 +32,19 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Pencil, FileText, FilePlus2, Download } from 'lucide-react';
+import { Plus, Trash2, FileText, Download, LayoutTemplate } from 'lucide-react';
+
+const InvoiceTemplatePanel = dynamic(
+  () => import('@/modules/finance/components/invoice-template-panel')
+    .then((module) => module.InvoiceTemplatePanel),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-96 w-full rounded-lg" />,
+  },
+);
 
 type View =
   | { mode: 'list' }
-  | { mode: 'edit-template'; template: DocumentTemplate | null }
   | { mode: 'compose'; template: DocumentTemplate };
 
 export function DocumentsPanel() {
@@ -35,6 +52,8 @@ export function DocumentsPanel() {
   const { language } = useI18n();
   const { toast } = useToast();
   const confirm = useConfirm();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const companyId = selectedCompany?.id;
 
@@ -43,6 +62,26 @@ export function DocumentsPanel() {
   const [loading, setLoading] = React.useState(true);
   const [view, setView] = React.useState<View>({ mode: 'list' });
   const [composeTemplateId, setComposeTemplateId] = React.useState('');
+  const activeTab = getDocumentWorkspaceTab(searchParams.get('tab'));
+  const requestedTemplateType = searchParams.get('type');
+  const activeTemplateType = (
+    DOCUMENT_TEMPLATE_TYPES.some((item) => item.value === requestedTemplateType)
+      ? requestedTemplateType
+      : 'invoice'
+  ) as TemplateDocumentType;
+
+  const handleTabChange = (value: string) => {
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    params.set('tab', value);
+    router.replace(`/documents?${params.toString()}`);
+  };
+
+  const handleTemplateTypeChange = (value: TemplateDocumentType) => {
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    params.set('tab', 'templates');
+    params.set('type', value);
+    router.replace(`/documents?${params.toString()}`);
+  };
 
   const load = React.useCallback(async () => {
     if (!companyId) return;
@@ -56,12 +95,6 @@ export function DocumentsPanel() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  const removeTemplate = async (id: string) => {
-    const ok = await confirm({ title: tr('Delete template?', 'حذف القالب؟'), confirmText: tr('Delete', 'حذف') });
-    if (!ok) return;
-    try { await deleteDocumentTemplate(id); load(); }
-    catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
-  };
   const removeDocument = async (id: string) => {
     const ok = await confirm({ title: tr('Delete document?', 'حذف المستند؟'), confirmText: tr('Delete', 'حذف') });
     if (!ok) return;
@@ -73,75 +106,79 @@ export function DocumentsPanel() {
     catch (e: any) { toast({ variant: 'destructive', title: tr('PDF unavailable', 'PDF غير متاح'), description: e?.message }); }
   };
 
-  if (view.mode === 'edit-template') {
-    return (
-      <Card><CardContent className="pt-6">
-        <DocumentTemplateEditor template={view.template} onBack={() => setView({ mode: 'list' })} onSaved={() => { setView({ mode: 'list' }); load(); }} />
-      </CardContent></Card>
-    );
-  }
   if (view.mode === 'compose') {
     return (
-      <Card><CardContent className="pt-6">
+      <Card><CardContent className="p-4 sm:p-6">
         <DocumentComposer template={view.template} onBack={() => setView({ mode: 'list' })} onSaved={() => { setView({ mode: 'list' }); load(); }} />
       </CardContent></Card>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{tr('Documents', 'المستندات')}</CardTitle>
-        <CardDescription>
-          {tr('Design letterhead-backed templates with merge fields, then generate documents from them.',
-              'صمّم قوالب بترويسة وحقول دمج، ثم أنشئ المستندات منها.')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <Skeleton className="h-48 w-full rounded-lg" />
-        ) : (
-          <Tabs defaultValue="templates" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="templates">{tr('Templates', 'القوالب')}</TabsTrigger>
-              <TabsTrigger value="documents">{tr('Documents', 'المستندات')}</TabsTrigger>
-            </TabsList>
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary"><LayoutTemplate className="h-5 w-5" /></div>
+            <div>
+              <p className="text-2xl font-semibold">{DOCUMENT_TEMPLATE_TYPES.length}</p>
+              <p className="text-xs text-muted-foreground">{tr('Supported document types', 'أنواع المستندات المدعومة')}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary"><FileText className="h-5 w-5" /></div>
+            <div>
+              <p className="text-2xl font-semibold">{loading ? '—' : documents.length}</p>
+              <p className="text-xs text-muted-foreground">{tr('Generated documents', 'مستندات تم إنشاؤها')}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="p-4 sm:p-6">
+          {loading ? (
+            <Skeleton className="h-48 w-full rounded-lg" />
+          ) : (
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
+            <div className="overflow-x-auto pb-1">
+              <TabsList className="h-auto min-w-max">
+                {DOCUMENT_WORKSPACE_TABS.map((tab) => (
+                  <TabsTrigger key={tab.value} value={tab.value}>
+                    {tr(tab.label, tab.labelAr)}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
 
             <TabsContent value="templates" className="space-y-3">
-              <div className="flex justify-end">
-                <Button onClick={() => setView({ mode: 'edit-template', template: null })}><Plus className="me-2 h-4 w-4" />{tr('New template', 'قالب جديد')}</Button>
-              </div>
-              {templates.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center">
-                  <FileText className="h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">{tr('No templates yet.', 'لا توجد قوالب بعد.')}</p>
-                </div>
-              ) : (
-                <div className="rounded-lg border">
-                  <Table>
-                    <TableHeader><TableRow>
-                      <TableHead>{tr('Name', 'الاسم')}</TableHead>
-                      <TableHead>{tr('Type', 'النوع')}</TableHead>
-                      <TableHead>{tr('Merges', 'الدمج')}</TableHead>
-                      <TableHead className="text-end">{tr('Actions', 'إجراءات')}</TableHead>
-                    </TableRow></TableHeader>
-                    <TableBody>
-                      {templates.map((t) => (
-                        <TableRow key={t.id}>
-                          <TableCell className="font-medium">{t.name}</TableCell>
-                          <TableCell><Badge variant="secondary">{t.type}</Badge></TableCell>
-                          <TableCell className="text-muted-foreground">{t.dataSource === 'none' ? '—' : t.dataSource}</TableCell>
-                          <TableCell className="text-end">
-                            <Button variant="ghost" size="sm" onClick={() => setView({ mode: 'compose', template: t })}><FilePlus2 className="me-1 h-4 w-4" />{tr('Use', 'استخدام')}</Button>
-                            <Button variant="ghost" size="icon" onClick={() => setView({ mode: 'edit-template', template: t })}><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => removeTemplate(t.id)}><Trash2 className="h-4 w-4" /></Button>
-                          </TableCell>
-                        </TableRow>
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="max-w-sm space-y-2">
+                  <p className="text-sm font-semibold">{tr('What are you designing?', 'ما نوع المستند الذي تصممه؟')}</p>
+                  <Select
+                    value={activeTemplateType}
+                    onValueChange={(value) => handleTemplateTypeChange(value as TemplateDocumentType)}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {DOCUMENT_TEMPLATE_TYPES.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {tr(item.label, item.labelAr)}
+                        </SelectItem>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {tr(
+                      'The editor, starter layout, fields, and financial controls adapt to this type.',
+                      'يتكيف المحرر والتخطيط الابتدائي والحقول والضوابط المالية مع هذا النوع.',
+                    )}
+                  </p>
                 </div>
-              )}
+              </div>
+              <InvoiceTemplatePanel key={activeTemplateType} docType={activeTemplateType} />
             </TabsContent>
 
             <TabsContent value="documents" className="space-y-3">
@@ -189,8 +226,9 @@ export function DocumentsPanel() {
               )}
             </TabsContent>
           </Tabs>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

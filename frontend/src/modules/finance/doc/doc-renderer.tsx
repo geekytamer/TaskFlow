@@ -43,6 +43,10 @@ interface DocRendererProps {
 
 function px(n?: number) { return n === undefined ? undefined : `${n}px`; }
 
+const useIsomorphicLayoutEffect = typeof window === 'undefined'
+  ? React.useEffect
+  : React.useLayoutEffect;
+
 /** Mirror physical left/right alignment for RTL documents; center/undefined unchanged. */
 function swapAlign(align?: 'left' | 'center' | 'right', isRtl?: boolean): 'left' | 'center' | 'right' | undefined {
   if (!isRtl || !align || align === 'center') return align;
@@ -103,6 +107,100 @@ function isVisible(block: Block, ctx: DocDataContext, template?: InvoiceTemplate
   }
 }
 
+export interface PreviewBlockMeasurement {
+  height: number;
+  rowHeights?: number[];
+}
+
+export interface PreviewContentEntry {
+  block: Block;
+  lineItemStart?: number;
+  lineItemEnd?: number;
+}
+
+export function paginatePreviewContent(
+  blocks: Block[],
+  measurements: PreviewBlockMeasurement[],
+  pageContentHeight: number,
+): PreviewContentEntry[][] {
+  const pages: PreviewContentEntry[][] = [[]];
+  let currentHeight = 0;
+
+  blocks.forEach((block, index) => {
+    if (block.type === 'pageBreak') {
+      pages.push([]);
+      currentHeight = 0;
+      return;
+    }
+
+    const measurement = measurements[index] ?? { height: 0 };
+    const rowHeights = block.type === 'lineItems' ? measurement.rowHeights : undefined;
+
+    if (rowHeights?.length) {
+      const rowTotal = rowHeights.reduce((sum, height) => sum + height, 0);
+      const tableOverhead = Math.max(0, measurement.height - rowTotal);
+      let rowStart = 0;
+
+      while (rowStart < rowHeights.length) {
+        let availableHeight = pageContentHeight - currentHeight;
+        const currentPage = pages[pages.length - 1];
+        if (currentPage.length > 0 && tableOverhead + rowHeights[rowStart] > availableHeight) {
+          pages.push([]);
+          currentHeight = 0;
+          availableHeight = pageContentHeight;
+        }
+
+        let rowEnd = rowStart;
+        let segmentHeight = tableOverhead;
+        while (
+          rowEnd < rowHeights.length
+          && (segmentHeight + rowHeights[rowEnd] <= availableHeight || rowEnd === rowStart)
+        ) {
+          segmentHeight += rowHeights[rowEnd];
+          rowEnd += 1;
+        }
+
+        pages[pages.length - 1].push({
+          block,
+          lineItemStart: rowStart,
+          lineItemEnd: rowEnd,
+        });
+        currentHeight += segmentHeight;
+        rowStart = rowEnd;
+
+        if (rowStart < rowHeights.length) {
+          pages.push([]);
+          currentHeight = 0;
+        }
+      }
+      return;
+    }
+
+    const currentPage = pages[pages.length - 1];
+    if (currentPage.length > 0 && currentHeight + measurement.height > pageContentHeight) {
+      pages.push([]);
+      currentHeight = 0;
+    }
+
+    pages[pages.length - 1].push({ block });
+    currentHeight += measurement.height;
+  });
+
+  return pages;
+}
+
+export function paginatePreviewBlocks(
+  blocks: Block[],
+  blockHeights: number[],
+  pageContentHeight: number,
+): Block[][] {
+  return paginatePreviewContent(
+    blocks,
+    blockHeights.map((height) => ({ height })),
+    pageContentHeight,
+  ).map((page) => page.map((entry) => entry.block));
+}
+
 export function DocRenderer({
   doc,
   invoice,
@@ -138,22 +236,26 @@ export function DocRenderer({
   const pageHeight = doc.page.size === 'A4' ? (portrait ? 297 : 210) : (portrait ? 279 : 216);
   const pagePadding = `${doc.page.margin.top ?? 10}mm ${doc.page.margin.right ?? 10}mm ${doc.page.margin.bottom ?? 10}mm ${doc.page.margin.left ?? 10}mm`;
 
-  const marginL = doc.page.margin.left ?? 10;
   const marginR = doc.page.margin.right ?? 10;
+  const marginL = doc.page.margin.left ?? 10;
 
-  // A letterhead backs every page: the image tiles once per sheet-height so it
-  // repeats across multi-page documents, and the sheet keeps a fixed page size.
+  // The root background is only for the single-sheet screen preview. Printing
+  // uses a fixed image layer below so Chromium repeats it on every PDF page.
   const letterhead = template?.letterheadImageUrl;
   const letterheadStyle: React.CSSProperties = letterhead
     ? {
         backgroundImage: `url("${letterhead}")`,
-        backgroundRepeat: 'repeat-y',
-        backgroundSize: `100% ${pageHeight}mm`,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
         backgroundPosition: 'top center',
       }
     : {};
 
-  const renderBlock = (block: Block): React.ReactNode => {
+  const renderBlock = (
+    block: Block,
+    lineItemStart?: number,
+    lineItemEnd?: number,
+  ): React.ReactNode => {
     if (!isVisible(block, ctx, template)) return null;
     let base = styleToCss(block.style, isRtl);
     if (block.style?.fullBleed) {
@@ -221,7 +323,23 @@ export function DocRenderer({
       case 'pageBreak':
         return <div key={block.id} className="doc-page-break" />;
       case 'lineItems':
-        return <LineItemsView key={block.id} block={block as LineItemsBlock} ctx={ctx} theme={theme} money={money} template={template} style={base} />;
+        return (
+          <LineItemsView
+            key={block.id}
+            block={block as LineItemsBlock}
+            ctx={ctx}
+            theme={theme}
+            money={money}
+            template={template}
+            style={base}
+            lineItems={
+              lineItemStart === undefined
+                ? undefined
+                : invoice.lineItems.slice(lineItemStart, lineItemEnd)
+            }
+            rowOffset={lineItemStart ?? 0}
+          />
+        );
       case 'totals':
         return <TotalsView key={block.id} block={block as TotalsBlock} ctx={ctx} theme={theme} money={money} style={base} s={s} />;
       case 'details':
@@ -259,81 +377,240 @@ export function DocRenderer({
     }
   };
 
+  const renderTopLevelBlock = (
+    block: Block,
+    isEditable: boolean,
+    lineItemStart?: number,
+    lineItemEnd?: number,
+  ) => {
+    const node = renderBlock(block, lineItemStart, lineItemEnd);
+    if (!isEditable) return node;
+
+    // Designer canvas: wrap each top-level block so it can be selected and
+    // dragged to reorder. The drop point (before/after) follows the cursor.
+    return (
+      <div
+        key={block.id}
+        data-doc-block={block.id}
+        draggable
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelectBlock?.(block.id);
+        }}
+        onDragStart={(e) => {
+          e.dataTransfer.setData('text/plain', block.id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const draggedId = e.dataTransfer.getData('text/plain');
+          if (!draggedId || draggedId === block.id) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const place = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+          onReorderBlock?.(draggedId, block.id, place);
+        }}
+        style={{
+          outline: selectedId === block.id ? '2px solid #6366f1' : '1px dashed transparent',
+          outlineOffset: 2,
+          cursor: 'grab',
+          borderRadius: 4,
+        }}
+      >
+        {node}
+      </div>
+    );
+  };
+
+  const renderWatermark = () => template?.watermarkEnabled && template?.watermarkText ? (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      <span
+        className="select-none text-8xl font-extrabold uppercase"
+        style={{
+          color: theme.primaryColor,
+          opacity: template.watermarkOpacity ?? 0.12,
+          transform: 'rotate(-30deg)',
+        }}
+      >
+        {template.watermarkText}
+      </span>
+    </div>
+  ) : null;
+
+  const measurementRef = React.useRef<HTMLDivElement>(null);
+  const [previewPages, setPreviewPages] = React.useState<PreviewContentEntry[][]>(
+    () => paginatePreviewContent(doc.body, [], Number.POSITIVE_INFINITY),
+  );
+
+  useIsomorphicLayoutEffect(() => {
+    const measurement = measurementRef.current;
+    if (!measurement) return;
+
+    let animationFrame = 0;
+    const updatePagination = () => {
+      const probe = measurement.querySelector<HTMLElement>('[data-doc-page-height-probe]');
+      const measuredBlocks = measurement.querySelectorAll<HTMLElement>('[data-doc-measure-block]');
+      if (!probe || measuredBlocks.length !== doc.body.length) return;
+
+      const computed = window.getComputedStyle(measurement);
+      const contentHeight = probe.getBoundingClientRect().height
+        - Number.parseFloat(computed.paddingTop)
+        - Number.parseFloat(computed.paddingBottom);
+      const blockMeasurements = Array.from(measuredBlocks, (element) => ({
+        height: element.getBoundingClientRect().height,
+        rowHeights: Array.from(
+          element.querySelectorAll<HTMLElement>('.doc-line-items tbody tr'),
+          (row) => row.getBoundingClientRect().height,
+        ),
+      }));
+      const nextPages = paginatePreviewContent(doc.body, blockMeasurements, contentHeight);
+      const signature = (pages: PreviewContentEntry[][]) => pages
+        .map((page) => page.map((entry) => (
+          `${entry.block.id}:${entry.lineItemStart ?? ''}-${entry.lineItemEnd ?? ''}`
+        )).join(','))
+        .join('|');
+      const nextSignature = signature(nextPages);
+
+      setPreviewPages((currentPages) => {
+        return signature(currentPages) === nextSignature ? currentPages : nextPages;
+      });
+    };
+    const schedulePagination = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(updatePagination);
+    };
+
+    updatePagination();
+    const observer = new ResizeObserver(schedulePagination);
+    observer.observe(measurement);
+    measurement.querySelectorAll('img').forEach((image) => image.addEventListener('load', schedulePagination));
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      measurement.querySelectorAll('img').forEach((image) => image.removeEventListener('load', schedulePagination));
+    };
+  }, [client, company, doc.body, invoice, pageHeight, pagePadding, pageWidth, template]);
+
   return (
     <div
       dir={isRtl ? 'rtl' : 'ltr'}
-      className="invoice-print-area doc-render relative mx-auto w-full bg-white text-slate-950"
+      className="doc-render mx-auto w-full text-slate-950"
       style={{
         fontFamily: theme.fontFamily,
         color: theme.textColor,
-        padding: pagePadding,
-        width: `${pageWidth}mm`,
-        minHeight: `${pageHeight}mm`,
-        maxWidth: '100%',
-        ...letterheadStyle,
       }}
     >
       <style>{`
+        .doc-letterhead-background { display: none; }
+        .doc-render-content { position: relative; z-index: 1; }
+        .doc-screen-pages { display: grid; gap: 16px; }
+        .doc-print-flow { display: none; }
         @media print {
-          @page { size: ${doc.page.size} ${doc.page.orientation}; margin: ${doc.page.margin.top ?? 10}mm ${doc.page.margin.right ?? 10}mm ${doc.page.margin.bottom ?? 10}mm ${doc.page.margin.left ?? 10}mm; }
-          .doc-render { width: 100% !important; max-width: none !important; min-height: auto !important; padding: 0 !important; }
+          @page { size: ${doc.page.size} ${doc.page.orientation}; margin: ${letterhead ? '0' : pagePadding}; }
+          html, body { background: #fff !important; }
+          [data-invoice-rendered=true],
+          [data-delivery-rendered=true] { background: #fff !important; }
+          .doc-screen-pages { display: none !important; }
+          .doc-print-flow { display: block !important; width: 100% !important; max-width: none !important; min-height: auto !important; padding: 0 !important; background: #fff !important; }
+          .doc-letterhead-background {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+            z-index: 0;
+          }
+          .doc-render-content {
+            padding: ${letterhead ? pagePadding : '0'};
+            box-sizing: border-box;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
+          }
           .doc-page-break { break-before: page; page-break-before: always; }
           .doc-line-items tr { break-inside: avoid; page-break-inside: avoid; }
           .doc-line-items thead { display: table-header-group; }
         }
       `}</style>
-      {template?.watermarkEnabled && template?.watermarkText ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-          <span
-            className="select-none text-8xl font-extrabold uppercase"
-            style={{
-              color: theme.primaryColor,
-              opacity: template.watermarkOpacity ?? 0.12,
-              transform: 'rotate(-30deg)',
-            }}
-          >
-            {template.watermarkText}
-          </span>
-        </div>
-      ) : null}
-      {doc.body.map((block) => {
-        const node = renderBlock(block);
-        if (!editable) return node;
-        // Designer canvas: wrap each top-level block so it can be selected and
-        // dragged to reorder. The drop point (before/after) follows the cursor.
-        return (
+      <div className="doc-screen-pages">
+        {previewPages.map((entries, pageIndex) => (
           <div
-            key={block.id}
-            data-doc-block={block.id}
-            draggable
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectBlock?.(block.id);
-            }}
-            onDragStart={(e) => {
-              e.dataTransfer.setData('text/plain', block.id);
-              e.dataTransfer.effectAllowed = 'move';
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const draggedId = e.dataTransfer.getData('text/plain');
-              if (!draggedId || draggedId === block.id) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const place = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-              onReorderBlock?.(draggedId, block.id, place);
-            }}
+            key={`preview-page-${pageIndex}`}
+            data-doc-preview-page={pageIndex + 1}
+            className="invoice-print-area relative mx-auto w-full bg-white"
             style={{
-              outline: selectedId === block.id ? '2px solid #6366f1' : '1px dashed transparent',
-              outlineOffset: 2,
-              cursor: 'grab',
-              borderRadius: 4,
+              padding: pagePadding,
+              width: `${pageWidth}mm`,
+              minHeight: `${pageHeight}mm`,
+              maxWidth: '100%',
+              ...letterheadStyle,
             }}
           >
-            {node}
+            {renderWatermark()}
+            <div className="doc-render-content">
+              {entries.map((entry, entryIndex) => (
+                <React.Fragment
+                  key={`${entry.block.id}-${entry.lineItemStart ?? 'full'}-${entryIndex}`}
+                >
+                  {renderTopLevelBlock(
+                    entry.block,
+                    Boolean(editable),
+                    entry.lineItemStart,
+                    entry.lineItemEnd,
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
+      <div
+        ref={measurementRef}
+        aria-hidden="true"
+        style={{
+          boxSizing: 'border-box',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          zIndex: -1,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+          padding: pagePadding,
+          width: `${pageWidth}mm`,
+          maxWidth: 'none',
+        }}
+      >
+        <div
+          data-doc-page-height-probe
+          style={{ position: 'absolute', width: 0, height: `${pageHeight}mm` }}
+        />
+        {doc.body.map((block, index) => (
+          <div
+            key={`measure-${block.id}-${index}`}
+            data-doc-measure-block={index}
+            style={{ display: 'flow-root' }}
+          >
+            {renderBlock(block)}
+          </div>
+        ))}
+      </div>
+      <div className="invoice-print-area doc-print-flow relative">
+        {letterhead ? (
+          <img
+            data-letterhead-background="true"
+            className="doc-letterhead-background"
+            src={letterhead}
+            alt=""
+            aria-hidden="true"
+          />
+        ) : null}
+        {renderWatermark()}
+        <div className="doc-render-content">
+          {doc.body.map((block) => renderTopLevelBlock(block, false))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -342,10 +619,12 @@ export function DocRenderer({
 
 const alignClass: Record<string, React.CSSProperties['textAlign']> = { left: 'left', center: 'center', right: 'right' };
 
-function LineItemsView({ block, ctx, theme, money, template, style }: {
+function LineItemsView({ block, ctx, theme, money, template, style, lineItems, rowOffset = 0 }: {
   block: LineItemsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme'];
   money: (v: number) => React.ReactNode; template?: InvoiceTemplate; style: React.CSSProperties;
+  lineItems?: Invoice['lineItems']; rowOffset?: number;
 }) {
+  const rows = lineItems ?? ctx.invoice.lineItems;
   const columns = (block.columns?.length ? block.columns : (template?.columns?.length ? template!.columns : DEFAULT_COLUMNS)).filter((c) => c.visible);
   const cell = (col: InvoiceColumn, line: typeof ctx.invoice.lineItems[number]) => {
     switch (col.key) {
@@ -368,8 +647,8 @@ function LineItemsView({ block, ctx, theme, money, template, style }: {
         </tr>
       </thead>
       <tbody>
-        {ctx.invoice.lineItems.map((line, i) => (
-          <tr key={i} style={{ background: i % 2 ? '#f8fafc' : '#fff' }}>
+        {rows.map((line, i) => (
+          <tr key={rowOffset + i} style={{ background: (rowOffset + i) % 2 ? '#f8fafc' : '#fff' }}>
             {columns.map((c) => <td key={c.id} style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', textAlign: alignClass[defaultAlign(c)] }}>{cell(c, line)}</td>)}
           </tr>
         ))}

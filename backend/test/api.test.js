@@ -499,6 +499,101 @@ test('invoice document designs are validated and partial saves preserve template
   assert.deepEqual(persisted.doc, doc);
 });
 
+test('invoice templates accept an eight-megabyte letterhead on create and update', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+  const templatesResponse = await auth(request(app).get('/companies/1/invoice-templates'));
+  assert.equal(templatesResponse.status, 200);
+  const template = templatesResponse.body[0];
+  assert.ok(template);
+
+  // Base64 expands binary data by roughly 4/3. This represents the largest
+  // upload promised by the invoice template UI without allocating binary data.
+  const encodedLetterhead = `data:application/pdf;base64,${'A'.repeat(Math.ceil(8 * 1024 * 1024 * 4 / 3))}`;
+  const saved = await auth(request(app).put(`/invoice-templates/${template.id}`)).send({
+    letterheadPdfUrl: encodedLetterhead,
+    letterheadImageUrl: 'data:image/png;base64,preview',
+  });
+
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.letterheadPdfUrl.length, encodedLetterhead.length);
+
+  const created = await auth(request(app).post('/companies/1/invoice-templates')).send({
+    name: 'Large Letterhead',
+    layout: 'letterhead',
+    primaryColor: '#111827',
+    accentColor: '#2563eb',
+    letterheadPdfUrl: encodedLetterhead,
+    letterheadImageUrl: 'data:image/png;base64,preview',
+  });
+
+  assert.equal(created.status, 201);
+  assert.equal(created.body.letterheadPdfUrl.length, encodedLetterhead.length);
+});
+
+test('visual templates preserve and filter generic document types', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+
+  const created = await auth(request(app).post('/companies/1/invoice-templates')).send({
+    name: 'Client Letter',
+    docType: 'letter',
+    layout: 'letterhead',
+    primaryColor: '#111827',
+    accentColor: '#2563eb',
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.docType, 'letter');
+
+  const letters = await auth(request(app).get('/companies/1/invoice-templates?docType=letter'));
+  assert.equal(letters.status, 200);
+  assert.ok(letters.body.some((template) => template.id === created.body.id));
+  assert.ok(letters.body.every((template) => template.docType === 'letter'));
+});
+
+test('generic template defaults and deletion stay scoped to their document type', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+  const createLetter = (name, isDefault) =>
+    auth(request(app).post('/companies/1/invoice-templates')).send({
+      name,
+      docType: 'letter',
+      layout: 'letterhead',
+      primaryColor: '#111827',
+      accentColor: '#2563eb',
+      isDefault,
+    });
+
+  const first = await createLetter('Primary Letter', true);
+  const second = await createLetter('ZZZ Backup Letter', false);
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+  assert.equal(first.body.isDefault, true);
+  assert.equal(second.body.isDefault, false);
+
+  const lettersBeforeDelete = await auth(request(app).get('/companies/1/invoice-templates?docType=letter'));
+  assert.equal(lettersBeforeDelete.body.find((template) => template.id === first.body.id)?.isDefault, true);
+
+  const deletedDefault = await auth(request(app).delete(`/invoice-templates/${first.body.id}`));
+  assert.equal(deletedDefault.status, 200);
+
+  const remainingLetters = await auth(request(app).get('/companies/1/invoice-templates?docType=letter'));
+  assert.equal(remainingLetters.status, 200);
+  assert.equal(remainingLetters.body.length, 1);
+  assert.equal(remainingLetters.body[0].id, second.body.id);
+  assert.equal(remainingLetters.body[0].isDefault, true);
+
+  const deletedLastLetter = await auth(request(app).delete(`/invoice-templates/${second.body.id}`));
+  assert.equal(deletedLastLetter.status, 200);
+
+  const noLetters = await auth(request(app).get('/companies/1/invoice-templates?docType=letter'));
+  assert.equal(noLetters.status, 200);
+  assert.equal(noLetters.body.length, 0);
+});
+
 test('issued invoices freeze a template snapshot that survives later template edits', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
@@ -3681,7 +3776,11 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		  assert.equal(updatedDeliverableResponse.status, 200);
 		  assert.equal(updatedDeliverableResponse.body.status, 'Published');
 
-		  const plRange = 'from=2026-06-01T00:00:00.000Z&to=2026-06-30T23:59:59.999Z';
+		  const now = Date.now();
+		  const plRange = new URLSearchParams({
+		    from: new Date(now - 24 * 60 * 60 * 1000).toISOString(),
+		    to: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+		  }).toString();
 		  const plBefore = await request(app)
 		    .get(`/companies/1/finance/profit-and-loss?${plRange}`)
 		    .set('Authorization', `Bearer ${token}`);
@@ -3742,7 +3841,7 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
 		      contactId,
 		      description: 'Boosting spend',
 		      amount: 120,
-		      expenseDate: '2026-06-12T00:00:00.000Z',
+		      expenseDate: new Date(now).toISOString(),
 		      billable: true,
 		      status: 'Submitted',
 		    });
@@ -4761,4 +4860,221 @@ test('syncing a campaign invoice self-heals when the linked invoice was deleted'
   assert.notEqual(result.invoice.id, invoice.id);
   assert.equal(result.invoice.total, 5500);
   assert.equal(store.getCrmCampaignById(campaign.id).invoiceId, result.invoice.id);
+});
+
+test('deleting an invoice releases tasks and follow-ups and retires linked commissions', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-invoice-delete-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const company = store.createCompany({ name: 'Invoice Lifecycle Co', website: '', address: '' });
+  const client = store.createContact({ companyId: company.id, name: 'Invoice Client' });
+  const user = store.createUser({
+    name: 'Commission User',
+    email: 'commission-delete@test.com',
+    password: 'password',
+    role: 'Employee',
+    companyIds: [company.id],
+    companyRoles: [{ companyId: company.id, role: 'Employee' }],
+    commissionEligible: true,
+  });
+  const project = store.createProject({
+    name: 'Invoice Project',
+    description: '',
+    color: '#fff',
+    companyId: company.id,
+    clientId: client.id,
+    visibility: 'Public',
+  });
+  const task = store.createTask({
+    title: 'Reusable billable task',
+    description: '',
+    status: 'Done',
+    priority: 'Medium',
+    tags: [],
+    companyId: company.id,
+    projectId: project.id,
+    assignedUserIds: [user.id],
+    invoiceAmount: 500,
+  });
+  const replacementTask = store.createTask({
+    title: 'Replacement billable task',
+    description: '',
+    status: 'Done',
+    priority: 'Medium',
+    tags: [],
+    companyId: company.id,
+    projectId: project.id,
+    assignedUserIds: [user.id],
+    invoiceAmount: 500,
+  });
+  store.createCommissionRule({
+    companyId: company.id,
+    serviceType: '',
+    role: 'Contributor',
+    basis: 'Revenue',
+    rateType: 'Percent',
+    rate: 10,
+  });
+  const invoice = store.createInvoice({
+    companyId: company.id,
+    clientId: client.id,
+    issueDate: new Date(),
+    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    lineItems: [{
+      taskId: task.id,
+      itemType: 'Task',
+      description: task.title,
+      quantity: 1,
+      unitPrice: 500,
+      amount: 500,
+    }],
+    total: 500,
+    status: 'Draft',
+  });
+  assert.equal(
+    store.getTaskById(task.id)?.generatedInvoiceId,
+    invoice.id,
+    'invoice creation should link its task atomically',
+  );
+  store.updateInvoice(invoice.id, {
+    lineItems: [{
+      taskId: replacementTask.id,
+      itemType: 'Task',
+      description: replacementTask.title,
+      quantity: 1,
+      unitPrice: 500,
+      amount: 500,
+    }],
+  });
+  assert.equal(store.getTaskById(task.id)?.generatedInvoiceId, null);
+  assert.equal(store.getTaskById(replacementTask.id)?.generatedInvoiceId, invoice.id);
+  store.setContribution({
+    companyId: company.id,
+    userId: user.id,
+    userName: user.name,
+    sourceType: 'invoice',
+    sourceId: invoice.id,
+    role: 'Contributor',
+    weightPercent: 100,
+  });
+  store.recomputeCommissionsForInvoice(invoice.id);
+  const followup = store.createFollowup({
+    companyId: company.id,
+    entityType: 'invoice',
+    entityId: invoice.id,
+    title: 'Confirm receipt',
+    sourceTrigger: 'InvoiceSent',
+    sourceType: 'invoice',
+    sourceId: invoice.id,
+  });
+  const commission = store.listCommissions(company.id).find((item) => item.invoiceId === invoice.id);
+  assert.ok(commission, 'invoice creation should calculate the task contributor commission');
+  assert.equal(store.approveCommission(commission.id)?.status, 'Approved');
+
+  store.deleteInvoice(invoice.id);
+
+  assert.equal(store.getTaskById(replacementTask.id).generatedInvoiceId, null);
+  assert.equal(store.getFollowupById(followup.id), undefined);
+  const retiredCommission = store.getCommissionById(commission.id);
+  assert.equal(retiredCommission.status, 'Voided');
+  assert.equal(retiredCommission.invoiceId, undefined);
+  const commissionJournals = store
+    .listJournalEntries(company.id)
+    .filter((entry) => entry.sourceId === commission.id);
+  assert.deepEqual(
+    new Set(commissionJournals.map((entry) => entry.sourceType)),
+    new Set(['commission_accrual', 'commission_reversal']),
+  );
+});
+
+test('deleting a generated vendor bill releases its campaign deliverable for regeneration', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-bill-delete-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const company = store.createCompany({ name: 'Bill Lifecycle Co', website: '', address: '' });
+  const vendor = store.createContact({ companyId: company.id, name: 'Campaign Vendor' });
+  const campaign = store.createCrmCampaign({
+    companyId: company.id,
+    name: 'Campaign',
+    status: 'Active',
+    visibility: 'Public',
+    proposalId: null,
+    opportunityId: null,
+    contactId: null,
+    projectId: null,
+    startDate: null,
+    endDate: null,
+    budget: null,
+    ownerUserId: null,
+    ownerName: null,
+    notes: null,
+  });
+  const deliverable = store.createCampaignDeliverable({
+    companyId: company.id,
+    campaignId: campaign.id,
+    title: 'External production',
+    fulfillment: 'External',
+    vendorContactId: vendor.id,
+    cost: 900,
+  });
+  const [bill] = store.generateCampaignVendorBills(company.id, campaign.id);
+  assert.ok(bill);
+  assert.equal(store.getCampaignDeliverableById(deliverable.id).vendorBillId, bill.id);
+
+  store.deleteVendorBill(bill.id);
+
+  assert.equal(store.getCampaignDeliverableById(deliverable.id).vendorBillId, undefined);
+  const [replacement] = store.generateCampaignVendorBills(company.id, campaign.id);
+  assert.ok(replacement);
+  assert.notEqual(replacement.id, bill.id);
+});
+
+test('deleting a purchase order reopens its converted requisition', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-po-delete-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const company = store.createCompany({ name: 'PO Lifecycle Co', website: '', address: '' });
+  const supplier = store.createSupplier({ companyId: company.id, name: 'PO Supplier' });
+  const requisition = store.createPurchaseRequisition({
+    companyId: company.id,
+    items: [{ description: 'Production material', quantity: 2, estimatedUnitCost: 100 }],
+  });
+  store.submitPurchaseRequisition(requisition.id);
+  store.approvePurchaseRequisition(requisition.id);
+  const order = store.convertRequisitionToPurchaseOrder(requisition.id, supplier.id);
+  assert.equal(store.getPurchaseRequisitionById(requisition.id).purchaseOrderId, order.id);
+
+  store.deletePurchaseOrder(order.id);
+
+  const reopened = store.getPurchaseRequisitionById(requisition.id);
+  assert.equal(reopened.status, 'Approved');
+  assert.equal(reopened.purchaseOrderId, undefined);
+  const replacement = store.convertRequisitionToPurchaseOrder(requisition.id, supplier.id);
+  assert.notEqual(replacement.id, order.id);
+});
+
+test('deleting a sales order clears opportunity links to the removed order', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-so-delete-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
+  const company = store.createCompany({ name: 'SO Lifecycle Co', website: '', address: '' });
+  const client = store.createContact({ companyId: company.id, name: 'Opportunity Client' });
+  const order = store.createSalesOrder({
+    companyId: company.id,
+    clientId: client.id,
+    orderDate: new Date(),
+    status: 'Draft',
+    items: [{ description: 'Campaign package', quantity: 1, unitPrice: 1000 }],
+  });
+  const opportunity = store.createOpportunity({
+    companyId: company.id,
+    contactId: client.id,
+    title: 'Won opportunity',
+    serviceType: 'General',
+    stage: 'Won',
+    expectedRevenue: 1000,
+    probability: 100,
+    wonSalesOrderId: order.id,
+  });
+  assert.equal(store.getOpportunityById(opportunity.id).wonSalesOrderId, order.id);
+
+  store.deleteSalesOrder(order.id);
+
+  assert.equal(store.getOpportunityById(opportunity.id).wonSalesOrderId, undefined);
 });

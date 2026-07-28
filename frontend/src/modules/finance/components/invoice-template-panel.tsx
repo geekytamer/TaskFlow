@@ -26,7 +26,7 @@ import {
   updateInvoiceTemplate,
 } from '@/services/financeService';
 import type { InvoiceTemplateInput } from '@/services/financeService';
-import type { InvoiceTemplate, InvoiceTemplateLayout, InvoiceColumn, InvoiceColumnAlign, InvoiceBankAccount, InvoiceSectionKey, Invoice, Client } from '../types';
+import type { InvoiceTemplate, InvoiceTemplateLayout, InvoiceColumn, InvoiceColumnAlign, InvoiceBankAccount, InvoiceSectionKey, Invoice, Client, TemplateDocumentType } from '../types';
 import { invoiceSections } from '../types';
 import type { Company } from '@/modules/companies/types';
 import { InvoiceDocument } from './invoice-document';
@@ -248,11 +248,22 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
   );
 }
 
-export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoice' | 'delivery' } = {}) {
+export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: TemplateDocumentType } = {}) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
+  const financialDocument = ['invoice', 'quote', 'statement'].includes(docType);
+  const documentTypeLabel = {
+    invoice: tr('Invoice', 'فاتورة'),
+    delivery: tr('Delivery note', 'إشعار تسليم'),
+    quote: tr('Quotation', 'عرض سعر'),
+    letter: tr('Business letter', 'خطاب عمل'),
+    memo: tr('Internal memo', 'مذكرة داخلية'),
+    certificate: tr('Certificate', 'شهادة'),
+    statement: tr('Account statement', 'كشف حساب'),
+    custom: tr('Custom document', 'مستند مخصص'),
+  }[docType];
   const layoutLabel = (layout: InvoiceTemplateLayout) => {
     const map: Record<InvoiceTemplateLayout, string> = {
       classic: tr('Classic', 'كلاسيكي'),
@@ -366,7 +377,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
       setForm(toForm(saved));
       toast({
         title: tr('Template saved', 'تم حفظ القالب'),
-        description: tr(`${saved.name} is ready for new invoices.`, `${saved.name} جاهز للفواتير الجديدة.`),
+        description: tr(`${saved.name} is ready to use.`, `${saved.name} جاهز للاستخدام.`),
       });
     } catch (error: any) {
       toast({
@@ -511,7 +522,11 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle>{selectedTemplateId ? tr('Edit Invoice Template', 'تعديل قالب الفاتورة') : tr('New Invoice Template', 'قالب فاتورة جديد')}</CardTitle>
+          <CardTitle>
+            {selectedTemplateId
+              ? tr(`Edit ${documentTypeLabel} Template`, `تعديل قالب ${documentTypeLabel}`)
+              : tr(`New ${documentTypeLabel} Template`, `قالب ${documentTypeLabel} جديد`)}
+          </CardTitle>
           <div className="flex gap-2">
             {selectedTemplateId && (
               <Button type="button" variant="secondary" size="sm" onClick={() => setDesigning(true)}>
@@ -524,7 +539,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
                 variant="outline"
                 size="sm"
                 onClick={handleDelete}
-                disabled={saving || templates.length <= 1}
+                disabled={saving || (docType === 'invoice' && templates.length <= 1)}
               >
                 <Trash2 className="me-2 h-4 w-4" />
                 {tr('Delete', 'حذف')}
@@ -628,7 +643,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
               accept="image/*"
               onFileSelected={(file) => handleAssetUpload('stampUrl', file)}
               onClear={() => updateForm('stampUrl', '')}
-              hint={tr('Shown near the signature on the invoice.', 'يظهر بجانب التوقيع على الفاتورة.')}
+              hint={tr('Shown near the signature on the document.', 'يظهر بجانب التوقيع على المستند.')}
             />
             <AssetUploadField
               label={tr('Signature', 'التوقيع')}
@@ -649,7 +664,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-1">
+            <div className={financialDocument ? 'space-y-1' : 'hidden'}>
               <Label>{tr('Payment Instructions', 'تعليمات الدفع')}</Label>
               <Textarea
                 value={form.paymentInstructions || ''}
@@ -676,7 +691,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
           </div>
 
           {/* Line-item columns */}
-          <div className="rounded-lg border p-4 space-y-3">
+          <div className={`${financialDocument ? '' : 'hidden'} rounded-lg border p-4 space-y-3`}>
             <div className="flex items-center justify-between">
               <div>
                 <Label className="text-sm font-semibold">{tr('Line-item columns', 'أعمدة البنود')}</Label>
@@ -719,7 +734,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
           </div>
 
           {/* Payment / bank accounts */}
-          <div className="rounded-lg border p-4 space-y-3">
+          <div className={`${financialDocument ? '' : 'hidden'} rounded-lg border p-4 space-y-3`}>
             <div className="flex items-center justify-between">
               <div>
                 <Label className="text-sm font-semibold">{tr('Bank accounts', 'الحسابات البنكية')}</Label>
@@ -756,7 +771,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
             <div className="flex items-center justify-between gap-4">
               <div>
                 <Label className="text-sm font-semibold">{tr('QR code', 'رمز الاستجابة السريعة')}</Label>
-                <p className="text-xs text-muted-foreground">{tr('A scannable code linking to a public, downloadable copy of the invoice.', 'رمز قابل للمسح يربط بنسخة عامة قابلة للتنزيل من الفاتورة.')}</p>
+                <p className="text-xs text-muted-foreground">{tr('A scannable code linking to a public, downloadable copy of the document.', 'رمز قابل للمسح يربط بنسخة عامة قابلة للتنزيل من المستند.')}</p>
               </div>
               <Switch checked={form.qrEnabled !== false} onCheckedChange={(v) => updateForm('qrEnabled', v)} />
             </div>
@@ -776,7 +791,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: 'invoi
           </div>
 
           {/* Page placement */}
-          <div className="rounded-lg border p-4 space-y-3">
+          <div className={`${financialDocument ? '' : 'hidden'} rounded-lg border p-4 space-y-3`}>
             <div>
               <Label className="text-sm font-semibold">{tr('Page placement', 'توزيع الصفحات')}</Label>
               <p className="text-xs text-muted-foreground">{tr('Push a section onto its own page when printing. Everything from that section onward starts on a new page.', 'دفع قسم إلى صفحة خاصة به عند الطباعة. كل ما يلي ذلك القسم يبدأ في صفحة جديدة.')}</p>

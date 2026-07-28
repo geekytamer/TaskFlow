@@ -712,7 +712,17 @@ export interface InvoiceBankAccount {
   currency?: string;
 }
 
-export type TemplateDocType = 'invoice' | 'delivery';
+export const templateDocTypes = [
+  'invoice',
+  'delivery',
+  'quote',
+  'letter',
+  'memo',
+  'certificate',
+  'statement',
+  'custom',
+] as const;
+export type TemplateDocType = (typeof templateDocTypes)[number];
 
 // ── General document builder ───────────────────────────────────────────────
 // Reusable letterhead-backed documents (letters, memos, quotes, certificates)

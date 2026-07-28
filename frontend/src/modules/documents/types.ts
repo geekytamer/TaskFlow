@@ -28,12 +28,21 @@ export interface DocBlockStyle {
   marginBottom?: number;
 }
 
+export interface DocTableBlock {
+  id: string;
+  type: 'table';
+  columns: string[];
+  rows: string[][];
+  striped?: boolean;
+}
+
 export type DocBlock =
   | { id: string; type: 'heading'; text: string; style?: DocBlockStyle }
   | { id: string; type: 'text'; text: string; style?: DocBlockStyle }
   | { id: string; type: 'image'; url: string; width?: number; align?: DocAlign }
   | { id: string; type: 'divider' }
-  | { id: string; type: 'spacer'; height?: number };
+  | { id: string; type: 'spacer'; height?: number }
+  | DocTableBlock;
 
 export interface DocumentModel {
   version: 1;

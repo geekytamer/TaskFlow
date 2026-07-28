@@ -34,6 +34,31 @@ function renderBlock(block: DocBlock, ctx: TokenContext, key: number) {
       return <hr key={key} style={{ border: 0, borderTop: '1px solid #ccc', margin: '12px 0' }} />;
     case 'spacer':
       return <div key={key} style={{ height: block.height ?? 24 }} />;
+    case 'table':
+      return (
+        <table key={key} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 12, margin: '10px 0 14px' }}>
+          <thead>
+            <tr>
+              {block.columns.map((column, index) => (
+                <th key={index} style={{ border: '1px solid #cbd5e1', background: '#f1f5f9', padding: '7px 8px', textAlign: 'left', fontWeight: 600 }}>
+                  {resolveTokens(column, ctx)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, rowIndex) => (
+              <tr key={rowIndex} style={{ background: block.striped && rowIndex % 2 === 1 ? '#f8fafc' : '#fff' }}>
+                {block.columns.map((_, columnIndex) => (
+                  <td key={columnIndex} style={{ border: '1px solid #cbd5e1', padding: '7px 8px', verticalAlign: 'top', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                    {resolveTokens(row[columnIndex] ?? '', ctx)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      );
     default:
       return null;
   }

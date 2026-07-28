@@ -30,7 +30,6 @@ import { runSeedDatabase } from '@/actions/seedActions';
 import { useI18n } from '@/context/i18n-context';
 import { NumberingSettingsPanel } from './numbering-settings-panel';
 import { CustomFieldsPanel } from './custom-fields-panel';
-import { DocumentsPanel } from '@/modules/documents/components/documents-panel';
 import { WhatsappSettingsPanel } from './whatsapp-settings-panel';
 import { PositionTable } from '@/modules/companies/components/position-table';
 import { useCompany } from '@/context/company-context';
@@ -138,8 +137,6 @@ export function SettingsPage() {
       </div>
 
       <NumberingSettingsPanel />
-
-      {selectedCompany && <DocumentsPanel />}
 
       {selectedCompany && <CustomFieldsPanel />}
 

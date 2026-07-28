@@ -15,10 +15,12 @@ import {
   type Invoice,
   type InvoiceTemplate,
   type InvoiceTemplateLayout,
+  type TemplateDocType,
   type InvoiceColumn,
   type InvoiceBankAccount,
   type InvoiceSectionKey,
   invoiceSectionKeys,
+  templateDocTypes,
   type InvoiceLineItem,
   type JournalEntryLine,
 	  type Project,
@@ -604,8 +606,17 @@ export function createServer(options: CreateServerOptions = {}) {
       credentials: true,
     }),
   );
-  // Uploaded images are sent as base64 data URLs. A 2 MB image expands to
-  // roughly 2.7 MB in JSON, so the parser must allow more than the file limit.
+  // Template assets are sent as base64 data URLs. The UI accepts letterhead
+  // files up to 8 MiB, which expand to roughly 10.7 MiB inside JSON. Keep the
+  // larger parser scoped to document templates so unrelated endpoints retain
+  // the stricter global upload limit.
+  const templateAssetJson = express.json({ limit: '12mb' });
+  app.use((req, res, next) => (
+    /^\/(?:companies\/[^/]+\/)?(?:invoice-templates|document-templates|documents)(?:\/|$)/
+      .test(req.path)
+      ? templateAssetJson(req, res, next)
+      : next()
+  ));
   app.use(express.json({ limit: '4mb' }));
 
   app.use((req, res, next) => {
@@ -1138,7 +1149,10 @@ export function createServer(options: CreateServerOptions = {}) {
     const partial = Boolean(options.partial);
     const payload = {
       name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
-      docType: record.docType === 'delivery' ? ('delivery' as const) : record.docType === 'invoice' ? ('invoice' as const) : undefined,
+      docType:
+        record.docType !== undefined
+          ? enumValue(record.docType, 'docType', templateDocTypes)
+          : undefined,
       layout:
         record.layout !== undefined
           ? enumValue(record.layout, 'layout', invoiceTemplateLayouts)
@@ -1965,7 +1979,11 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const docType = req.query.docType === 'delivery' ? 'delivery' : 'invoice';
+      const docType = (
+        typeof req.query.docType === 'string' && templateDocTypes.includes(req.query.docType as TemplateDocType)
+          ? req.query.docType
+          : 'invoice'
+      ) as TemplateDocType;
       res.json(store.listInvoiceTemplates(req.params.companyId, docType));
     }),
   );

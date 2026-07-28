@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { getProjectById, getCommentsByTaskId, createComment, updateTask, deleteTask, getTasks, markTasksAsInvoiced } from '@/services/projectService';
+import { getProjectById, getCommentsByTaskId, createComment, updateTask, deleteTask, getTasks } from '@/services/projectService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { TaskTimePanel } from './task-time-panel';
 import { getCompanyMembers, type CompanyMember } from '@/services/userService';
@@ -196,8 +196,6 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         status: 'Draft',
         notes: editableTask.description || undefined,
       });
-
-      await markTasksAsInvoiced([editableTask.id], invoice.id);
       setEditableTask((prev) => ({
         ...prev,
         generatedInvoiceId: invoice.id,

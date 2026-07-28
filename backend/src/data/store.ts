@@ -81,6 +81,8 @@ import {
   contributionRoles,
   Invoice,
   InvoiceTemplate,
+  TemplateDocType,
+  templateDocTypes,
   InvoiceTemplateLayout,
   InvoiceColumn,
   InvoiceBankAccount,
@@ -4598,6 +4600,46 @@ export class DataStore {
     trx();
   }
 
+  private syncInvoiceTaskLinks(invoiceId: string, taskIds: string[], companyId: string): void {
+    const uniqueTaskIds = [...new Set(taskIds.filter(Boolean))];
+    const taskLookup = this.db.prepare(
+      'SELECT id, companyId, generatedInvoiceId FROM tasks WHERE id = ?',
+    );
+
+    for (const taskId of uniqueTaskIds) {
+      const task = taskLookup.get(taskId) as
+        | { id: string; companyId: string; generatedInvoiceId?: string | null }
+        | undefined;
+      if (!task || task.companyId !== companyId) {
+        throw new Error(`Task ${taskId} does not belong to this company.`);
+      }
+      if (
+        task.generatedInvoiceId &&
+        task.generatedInvoiceId !== invoiceId &&
+        this.getInvoiceById(task.generatedInvoiceId)
+      ) {
+        throw new Error(`Task ${taskId} is already linked to another invoice.`);
+      }
+    }
+
+    if (uniqueTaskIds.length === 0) {
+      this.db
+        .prepare('UPDATE tasks SET generatedInvoiceId = NULL WHERE generatedInvoiceId = ?')
+        .run(invoiceId);
+      return;
+    }
+
+    const placeholders = uniqueTaskIds.map(() => '?').join(', ');
+    this.db
+      .prepare(
+        `UPDATE tasks SET generatedInvoiceId = NULL
+         WHERE generatedInvoiceId = ? AND id NOT IN (${placeholders})`,
+      )
+      .run(invoiceId, ...uniqueTaskIds);
+    const linkTask = this.db.prepare('UPDATE tasks SET generatedInvoiceId = ? WHERE id = ?');
+    uniqueTaskIds.forEach((taskId) => linkTask.run(invoiceId, taskId));
+  }
+
   listCommentsByTask(taskId: string): Comment[] {
     const rows = this.db.prepare('SELECT * FROM comments WHERE taskId = ?').all(taskId) as any[];
     return rows.map((r) => ({
@@ -5079,7 +5121,40 @@ export class DataStore {
       'invoice',
     );
     const trx = this.db.transaction(() => {
+      const commissions = this.db
+        .prepare('SELECT id, status FROM commissions WHERE invoiceId = ?')
+        .all(id) as Array<{ id: string; status: CommissionStatus }>;
+      commissions.forEach(({ id: commissionId, status }) => {
+        this.voidCommission(commissionId, 'Source invoice deleted.');
+        if (status === 'Approved' || status === 'Paid') {
+          const accrualReversal = this.db
+            .prepare(
+              "SELECT 1 FROM journal_entries WHERE sourceType = 'commission_reversal' AND sourceId = ? LIMIT 1",
+            )
+            .get(commissionId);
+          if (!accrualReversal) {
+            throw new Error('Cannot delete invoice because its commission accrual could not be reversed.');
+          }
+        }
+        if (status === 'Paid') {
+          const paymentReversal = this.db
+            .prepare(
+              "SELECT 1 FROM journal_entries WHERE sourceType = 'commission_reversal' AND sourceId = ? LIMIT 1",
+            )
+            .get(`${commissionId}:payment`);
+          if (!paymentReversal) {
+            throw new Error('Cannot delete invoice because its commission payment could not be reversed.');
+          }
+        }
+      });
+      this.db.prepare('UPDATE commissions SET invoiceId = NULL WHERE invoiceId = ?').run(id);
       this.removeJournalEntriesBySource('invoice', id);
+      this.db.prepare('UPDATE tasks SET generatedInvoiceId = NULL WHERE generatedInvoiceId = ?').run(id);
+      this.db
+        .prepare(
+          "DELETE FROM follow_ups WHERE (entityType = 'invoice' AND entityId = ?) OR (sourceType = 'invoice' AND sourceId = ?)",
+        )
+        .run(id, id);
       // Release any sales order that was invoiced from this invoice.
       this.db
         .prepare(
@@ -5105,7 +5180,11 @@ export class DataStore {
     if (delivery) {
       throw new Error('Cannot delete a sales order that has recorded deliveries.');
     }
-    this.db.prepare('DELETE FROM sales_orders WHERE id = ?').run(id);
+    const trx = this.db.transaction(() => {
+      this.db.prepare('UPDATE opportunities SET wonSalesOrderId = NULL WHERE wonSalesOrderId = ?').run(id);
+      this.db.prepare('DELETE FROM sales_orders WHERE id = ?').run(id);
+    });
+    trx();
   }
 
   /** Delete a purchase order. Blocks if it has a vendor bill or received stock. */
@@ -5120,7 +5199,15 @@ export class DataStore {
     if (receipt || order.status === 'Received' || order.status === 'Partially Received') {
       throw new Error('Cannot delete a purchase order that has received stock.');
     }
-    this.db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(id);
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          "UPDATE purchase_requisitions SET purchaseOrderId = NULL, status = CASE WHEN status = 'Converted' THEN 'Approved' ELSE status END, updatedAt = ? WHERE purchaseOrderId = ?",
+        )
+        .run(new Date().toISOString(), id);
+      this.db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(id);
+    });
+    trx();
   }
 
   /** Delete a vendor bill. Blocks if it has payments; otherwise reverses its journal entries. */
@@ -5133,6 +5220,9 @@ export class DataStore {
     }
     const trx = this.db.transaction(() => {
       this.removeJournalEntriesBySource('vendor_bill', id);
+      this.db
+        .prepare('UPDATE campaign_deliverables SET vendorBillId = NULL, updatedAt = ? WHERE vendorBillId = ?')
+        .run(new Date().toISOString(), id);
       this.db.prepare('DELETE FROM vendor_bills WHERE id = ?').run(id);
     });
     trx();
@@ -9146,7 +9236,7 @@ export class DataStore {
       id: row.id,
       companyId: row.companyId,
       name: row.name,
-      docType: row.docType === 'delivery' ? 'delivery' : 'invoice',
+      docType: templateDocTypes.includes(row.docType) ? row.docType : 'invoice',
       layout: invoiceTemplateLayouts.includes(row.layout) ? row.layout : 'classic',
       isDefault: Boolean(row.isDefault),
       primaryColor: row.primaryColor || '#111827',
@@ -9178,7 +9268,7 @@ export class DataStore {
     };
   }
 
-  listInvoiceTemplates(companyId: string, docType: 'invoice' | 'delivery' = 'invoice'): InvoiceTemplate[] {
+  listInvoiceTemplates(companyId: string, docType: TemplateDocType = 'invoice'): InvoiceTemplate[] {
     this.ensureInvoiceTemplateDefaults();
     const rows = this.db
       .prepare(
@@ -9230,8 +9320,8 @@ export class DataStore {
     const trx = this.db.transaction(() => {
       if (newTemplate.isDefault) {
         this.db
-          .prepare('UPDATE invoice_templates SET isDefault = 0, updatedAt = ? WHERE companyId = ?')
-          .run(nowIso, newTemplate.companyId);
+          .prepare('UPDATE invoice_templates SET isDefault = 0, updatedAt = ? WHERE companyId = ? AND COALESCE(docType, \'invoice\') = ?')
+          .run(nowIso, newTemplate.companyId, newTemplate.docType ?? 'invoice');
       }
       this.db
         .prepare(
@@ -9251,7 +9341,9 @@ export class DataStore {
         )
         .run({
           ...newTemplate,
-          docType: newTemplate.docType === 'delivery' ? 'delivery' : 'invoice',
+          docType: templateDocTypes.includes(newTemplate.docType ?? 'invoice')
+            ? newTemplate.docType
+            : 'invoice',
           isDefault: newTemplate.isDefault ? 1 : 0,
           logoUrl: newTemplate.logoUrl ?? null,
           headerImageUrl: newTemplate.headerImageUrl ?? null,
@@ -9310,8 +9402,8 @@ export class DataStore {
     const trx = this.db.transaction(() => {
       if (merged.isDefault) {
         this.db
-          .prepare('UPDATE invoice_templates SET isDefault = 0, updatedAt = ? WHERE companyId = ? AND id != ?')
-          .run(nowIso, existing.companyId, id);
+          .prepare('UPDATE invoice_templates SET isDefault = 0, updatedAt = ? WHERE companyId = ? AND COALESCE(docType, \'invoice\') = ? AND id != ?')
+          .run(nowIso, existing.companyId, existing.docType ?? 'invoice', id);
       }
       this.db
         .prepare(
@@ -9363,20 +9455,33 @@ export class DataStore {
   deleteInvoiceTemplate(id: string): boolean {
     const existing = this.getInvoiceTemplateById(id);
     if (!existing) return false;
+    const docType = existing.docType ?? 'invoice';
     const templateCount = this.db
-      .prepare('SELECT COUNT(*) as count FROM invoice_templates WHERE companyId = ?')
-      .get(existing.companyId) as { count: number };
-    if (templateCount.count <= 1) {
+      .prepare(
+        `SELECT COUNT(*) as count
+         FROM invoice_templates
+         WHERE companyId = ? AND COALESCE(docType, 'invoice') = ?`,
+      )
+      .get(existing.companyId, docType) as { count: number };
+    if (docType === 'invoice' && templateCount.count <= 1) {
       throw new Error('At least one invoice template is required.');
     }
     this.db.prepare('UPDATE invoices SET templateId = NULL WHERE templateId = ?').run(id);
     this.db.prepare('DELETE FROM invoice_templates WHERE id = ?').run(id);
     if (existing.isDefault) {
       const replacement = this.db
-        .prepare('SELECT id FROM invoice_templates WHERE companyId = ? ORDER BY name ASC LIMIT 1')
-        .get(existing.companyId) as { id: string } | undefined;
+        .prepare(
+          `SELECT id
+           FROM invoice_templates
+           WHERE companyId = ? AND COALESCE(docType, 'invoice') = ?
+           ORDER BY name ASC
+           LIMIT 1`,
+        )
+        .get(existing.companyId, docType) as { id: string } | undefined;
       if (replacement) {
-        this.updateInvoiceTemplate(replacement.id, { isDefault: true });
+        this.db
+          .prepare('UPDATE invoice_templates SET isDefault = 1, updatedAt = ? WHERE id = ?')
+          .run(new Date().toISOString(), replacement.id);
       }
     }
     return true;
@@ -12219,35 +12324,42 @@ export class DataStore {
     this.assertOpenFinancialDate(newInvoice.companyId, newInvoice.issueDate, 'Invoice issue date');
     this.assertUniqueInvoiceNumber(newInvoice.companyId, newInvoice.invoiceNumber);
     const snapshot = this.resolveInvoiceTemplateSnapshot(newInvoice.companyId, newInvoice.templateId);
-    this.db
-      .prepare(
-        'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, templateSnapshot, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @templateSnapshot, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
-      )
-      .run({
-        ...newInvoice,
-        contactId: newInvoice.contactId ?? null,
-        salesOrderId: newInvoice.salesOrderId ?? null,
-        templateId: newInvoice.templateId ?? null,
-        templateSnapshot: snapshot ? JSON.stringify(snapshot) : null,
-        campaignId: newInvoice.campaignId ?? null,
-        issueDate: newInvoice.issueDate.toISOString(),
-        dueDate: newInvoice.dueDate.toISOString(),
-        lineItems: JSON.stringify(normalizedLineItems),
-        notes: newInvoice.notes ?? null,
-        currency: newInvoice.currency ?? 'USD',
-        taxRate: newInvoice.taxRate ?? 0,
-        sentAt: newInvoice.sentAt ? newInvoice.sentAt.toISOString() : null,
-        paidAt: newInvoice.paidAt ? newInvoice.paidAt.toISOString() : null,
-      });
-
-    if (invoice.contactId) {
-      this.addContactRole(invoice.contactId, invoice.companyId, 'Client', 'Invoice');
-    }
-    if (newInvoice.salesOrderId) {
+    const createCore = this.db.transaction(() => {
       this.db
-        .prepare('UPDATE sales_orders SET status = ?, invoiceId = ? WHERE id = ?')
-        .run('Invoiced', newInvoice.id, newInvoice.salesOrderId);
-    }
+        .prepare(
+          'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, templateSnapshot, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @templateSnapshot, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
+        )
+        .run({
+          ...newInvoice,
+          contactId: newInvoice.contactId ?? null,
+          salesOrderId: newInvoice.salesOrderId ?? null,
+          templateId: newInvoice.templateId ?? null,
+          templateSnapshot: snapshot ? JSON.stringify(snapshot) : null,
+          campaignId: newInvoice.campaignId ?? null,
+          issueDate: newInvoice.issueDate.toISOString(),
+          dueDate: newInvoice.dueDate.toISOString(),
+          lineItems: JSON.stringify(normalizedLineItems),
+          notes: newInvoice.notes ?? null,
+          currency: newInvoice.currency ?? 'USD',
+          taxRate: newInvoice.taxRate ?? 0,
+          sentAt: newInvoice.sentAt ? newInvoice.sentAt.toISOString() : null,
+          paidAt: newInvoice.paidAt ? newInvoice.paidAt.toISOString() : null,
+        });
+      this.syncInvoiceTaskLinks(
+        newInvoice.id,
+        normalizedLineItems.flatMap((item) => (item.taskId ? [item.taskId] : [])),
+        newInvoice.companyId,
+      );
+      if (invoice.contactId) {
+        this.addContactRole(invoice.contactId, invoice.companyId, 'Client', 'Invoice');
+      }
+      if (newInvoice.salesOrderId) {
+        this.db
+          .prepare('UPDATE sales_orders SET status = ?, invoiceId = ? WHERE id = ?')
+          .run('Invoiced', newInvoice.id, newInvoice.salesOrderId);
+      }
+    });
+    createCore();
     // Only recognise revenue once the invoice leaves Draft. A Draft (e.g. a
     // freshly generated campaign invoice) is a working document and must not
     // hit the ledger until it is issued/Sent. postInvoiceJournal is idempotent,
@@ -12421,21 +12533,29 @@ export class DataStore {
     const nextSnapshot = templateChanged
       ? this.resolveInvoiceTemplateSnapshot(merged.companyId, merged.templateId ?? undefined)
       : (existing as any).templateSnapshot;
-    this.db
-      .prepare(
-        'UPDATE invoices SET invoiceNumber=@invoiceNumber, companyId=@companyId, clientId=@clientId, salesOrderId=@salesOrderId, templateId=@templateId, templateSnapshot=@templateSnapshot, issueDate=@issueDate, dueDate=@dueDate, lineItems=@lineItems, total=@total, status=@status, notes=@notes, currency=@currency, taxRate=@taxRate, sentAt=@sentAt, paidAt=@paidAt WHERE id=@id',
-      )
-      .run({
-        ...merged,
-        id: invoiceId,
-        salesOrderId: merged.salesOrderId ?? null,
-        templateId: merged.templateId ?? null,
-        templateSnapshot: nextSnapshot
-          ? typeof nextSnapshot === 'string'
-            ? nextSnapshot
-            : JSON.stringify(nextSnapshot)
-          : null,
-      });
+    const updateCore = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'UPDATE invoices SET invoiceNumber=@invoiceNumber, companyId=@companyId, clientId=@clientId, salesOrderId=@salesOrderId, templateId=@templateId, templateSnapshot=@templateSnapshot, issueDate=@issueDate, dueDate=@dueDate, lineItems=@lineItems, total=@total, status=@status, notes=@notes, currency=@currency, taxRate=@taxRate, sentAt=@sentAt, paidAt=@paidAt WHERE id=@id',
+        )
+        .run({
+          ...merged,
+          id: invoiceId,
+          salesOrderId: merged.salesOrderId ?? null,
+          templateId: merged.templateId ?? null,
+          templateSnapshot: nextSnapshot
+            ? typeof nextSnapshot === 'string'
+              ? nextSnapshot
+              : JSON.stringify(nextSnapshot)
+            : null,
+        });
+      this.syncInvoiceTaskLinks(
+        invoiceId,
+        nextLineItems.flatMap((item) => (item.taskId ? [item.taskId] : [])),
+        merged.companyId,
+      );
+    });
+    updateCore();
     this.refreshInvoicePaymentStatus(invoiceId);
     const saved = this.getInvoiceById(invoiceId);
     // Recognise revenue if the edit moved the invoice out of Draft (idempotent).
