@@ -196,7 +196,7 @@ export function StockCountPage() {
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex justify-end">
-            <Button onClick={create} disabled={creating}>
+            <Button data-tutorial="count-create" onClick={create} disabled={creating}>
               <Plus className="me-2 h-4 w-4" />{creating ? tr('Opening…', 'جارٍ الفتح…') : tr('New count', 'جرد جديد')}
             </Button>
           </div>

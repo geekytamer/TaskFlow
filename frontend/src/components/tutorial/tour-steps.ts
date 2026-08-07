@@ -3,12 +3,23 @@ export interface TourStep {
   en: { title: string; desc: string };
   ar: { title: string; desc: string };
   position?: 'top' | 'bottom' | 'left' | 'right';
+  /** Navigate here before showing this step (overrides the tour route). */
+  route?: string;
+  /**
+   * Interaction to perform before the step is measured — used to open a dialog
+   * or sheet so the guide can walk through it. `click` is a CSS selector.
+   */
+  action?: { click: string; delay?: number };
+  /** If the target may not exist (feature/role-gated), don't stall the tour. */
+  optional?: boolean;
 }
 
 export interface Tour {
   id: string;
   en: string;
   ar: string;
+  /** Page this tour lives on; the guide navigates here when it starts. */
+  route?: string;
   steps: TourStep[];
 }
 
@@ -20,6 +31,7 @@ export const TOURS: Tour[] = [
     id: 'overview',
     en: 'System Overview',
     ar: 'نظرة عامة على النظام',
+    route: '/',
     steps: [
       {
         target: '[data-tutorial="sidebar-nav"]',
@@ -97,6 +109,7 @@ export const TOURS: Tour[] = [
     id: 'dashboard',
     en: 'Dashboard Tour',
     ar: 'جولة لوحة التحكم',
+    route: '/',
     steps: [
       {
         target: '[data-tutorial="dash-primary-metric"]',
@@ -138,6 +151,7 @@ export const TOURS: Tour[] = [
     id: 'finance',
     en: 'Finance Module',
     ar: 'وحدة المالية',
+    route: '/finance',
     steps: [
       {
         target: '[data-tutorial="finance-tabs"]',
@@ -179,6 +193,7 @@ export const TOURS: Tour[] = [
     id: 'invoicing',
     en: 'Invoicing Workflow',
     ar: 'سير عمل الفوترة',
+    route: '/finance',
     steps: [
       {
         target: '[data-tutorial="finance-metric-receivables"]',
@@ -205,9 +220,12 @@ export const TOURS: Tour[] = [
         position: 'bottom',
       },
       {
+        // Opens the invoice creation panel so the rest of the tour can walk
+        // through it live.
+        action: { click: '[data-tutorial="invoice-create-btn"]', delay: 250 },
         target: '[data-tutorial="invoice-form-client"]',
-        en: { title: 'Select Client', desc: 'Choose the client this invoice is for. Only contacts with the "Client" role appear here. Once you select a client, the system loads their billable tasks — completed work that has an invoice amount attached but hasn\'t been invoiced yet.' },
-        ar: { title: 'اختيار العميل', desc: 'اختر العميل الذي تخص الفاتورة. تظهر هنا فقط جهات الاتصال ذات دور "العميل". بمجرد اختيار عميل، يقوم النظام بتحميل مهامه القابلة للفوترة — العمل المكتمل الذي يحتوي على مبلغ فاتورة مرفق ولم يتم فوترته بعد.' },
+        en: { title: 'Select Client', desc: 'The invoice panel is now open. Choose the client this invoice is for — only contacts with the "Client" role appear here. Once you select a client, the system loads their billable tasks: completed work that has an invoice amount attached but hasn\'t been invoiced yet.' },
+        ar: { title: 'اختيار العميل', desc: 'لوحة الفاتورة مفتوحة الآن. اختر العميل الذي تخص الفاتورة — تظهر هنا فقط جهات الاتصال ذات دور "العميل". بمجرد اختيار عميل، يحمّل النظام مهامه القابلة للفوترة: العمل المكتمل الذي يحتوي على مبلغ فاتورة مرفق ولم يُفوتر بعد.' },
         position: 'right',
       },
       {
@@ -262,6 +280,7 @@ export const TOURS: Tour[] = [
     id: 'ledger',
     en: 'Ledger & Chart of Accounts',
     ar: 'دفتر الأستاذ ودليل الحسابات',
+    route: '/finance',
     steps: [
       {
         target: '[data-tutorial="coa-stats"]',
@@ -309,6 +328,7 @@ export const TOURS: Tour[] = [
     id: 'sales',
     en: 'Sales Orders',
     ar: 'أوامر البيع',
+    route: '/sales',
     steps: [
       {
         target: '[data-tutorial="sales-metrics"]',
@@ -350,6 +370,7 @@ export const TOURS: Tour[] = [
     id: 'purchases',
     en: 'Purchase Orders',
     ar: 'أوامر الشراء',
+    route: '/purchases',
     steps: [
       {
         target: '[data-tutorial="purchases-metrics"]',
@@ -391,6 +412,7 @@ export const TOURS: Tour[] = [
     id: 'inventory',
     en: 'Inventory Management',
     ar: 'إدارة المخزون',
+    route: '/inventory',
     steps: [
       {
         target: '[data-tutorial="inventory-metrics"]',
@@ -438,6 +460,7 @@ export const TOURS: Tour[] = [
     id: 'projects',
     en: 'Projects & Tasks',
     ar: 'المشاريع والمهام',
+    route: '/projects',
     steps: [
       {
         target: '[data-tutorial="projects-create-btn"]',
@@ -467,6 +490,7 @@ export const TOURS: Tour[] = [
     id: 'contacts',
     en: 'Contacts & Leads',
     ar: 'جهات الاتصال والعملاء المحتملون',
+    route: '/contacts',
     steps: [
       {
         target: '[data-tutorial="contacts-create"]',
@@ -496,6 +520,7 @@ export const TOURS: Tour[] = [
     id: 'crm-panel',
     en: 'CRM Panel',
     ar: 'لوحة إدارة العلاقات',
+    route: '/contacts',
     steps: [
       {
         target: '[data-tutorial="crm-lead-status"]',
@@ -543,6 +568,7 @@ export const TOURS: Tour[] = [
     id: 'pipeline',
     en: 'CRM Pipeline',
     ar: 'خط أنابيب المبيعات',
+    route: '/crm/opportunities',
     steps: [
       {
         target: '[data-tutorial="pipeline-tabs"]',
@@ -578,6 +604,7 @@ export const TOURS: Tour[] = [
     id: 'followups',
     en: 'Follow-Up Center',
     ar: 'مركز المتابعة',
+    route: '/crm/followups',
     steps: [
       {
         target: '[data-tutorial="followups-filters"]',
@@ -601,6 +628,7 @@ export const TOURS: Tour[] = [
     id: 'performance',
     en: 'Performance Dashboard',
     ar: 'لوحة الأداء',
+    route: '/crm/performance',
     steps: [
       {
         target: '[data-tutorial="perf-stats"]',
@@ -619,6 +647,173 @@ export const TOURS: Tour[] = [
         en: { title: 'Team Leaderboard', desc: 'A ranked list of all sales team members showing their stats for the selected metric. The top three get gold, silver, and bronze medals with colored row highlighting. The leaderboard encourages healthy competition and gives management instant visibility into who\'s performing, who needs support, and whether coaching interventions are working.' },
         ar: { title: 'لوحة صدارة الفريق', desc: 'قائمة مرتبة لجميع أعضاء فريق المبيعات تُظهر إحصائياتهم للمقياس المحدد. يحصل الثلاثة الأوائل على ميداليات ذهبية وفضية وبرونزية مع تمييز ملون للصف. تشجع لوحة الصدارة المنافسة الصحية وتمنح الإدارة رؤية فورية لمن يؤدي بشكل جيد ومن يحتاج دعماً وما إذا كانت تدخلات التدريب تعمل.' },
         position: 'top',
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────
+  // MANUFACTURING
+  // ─────────────────────────────────────────────
+  {
+    id: 'manufacturing',
+    en: 'Manufacturing',
+    ar: 'التصنيع',
+    route: '/manufacturing',
+    steps: [
+      {
+        target: '[data-tutorial="nav-manufacturing"]',
+        route: '/',
+        en: { title: 'Manufacturing Module', desc: 'Manufacturing turns raw materials into finished goods. It has two parts: Recipes (a bill of materials — what each product is made of) and Work Orders (a production run that consumes components and produces output). Let\'s open it.' },
+        ar: { title: 'وحدة التصنيع', desc: 'تحوّل وحدة التصنيع المواد الخام إلى منتجات نهائية. تتكوّن من جزأين: الوصفات (قائمة المكوّنات — ممّ يتكوّن كل منتج) وأوامر العمل (دورة إنتاج تستهلك المكوّنات وتنتج المخرجات). لنفتحها.' },
+        position: 'right',
+      },
+      {
+        target: '[role="tablist"]',
+        en: { title: 'Work Orders & Recipes', desc: 'The page opens on Work Orders — your production runs. Switch to the Recipes tab to define what each product is built from. A recipe says: "one batch of French Fries = 10 kg potatoes + 2 L oil → 8 kg fries." You define the recipe once and reuse it for every production run.' },
+        ar: { title: 'أوامر العمل والوصفات', desc: 'تفتح الصفحة على أوامر العمل — دورات الإنتاج. انتقل إلى تبويب الوصفات لتحديد مكوّنات كل منتج. تقول الوصفة: "دفعة واحدة من البطاطس المقلية = 10 كجم بطاطس + 2 لتر زيت ← 8 كجم بطاطس". تُعرّف الوصفة مرة وتُعاد لكل دورة إنتاج.' },
+        position: 'bottom',
+        optional: true,
+      },
+      {
+        action: { click: '[data-tutorial="mfg-create-wo"]', delay: 200 },
+        target: '[role="dialog"], [data-tutorial="mfg-create-wo"]',
+        en: { title: 'Create a Work Order', desc: 'Pick a recipe and the number of batches, then create the work order. When you complete it, the system atomically deducts every component from stock, adds the finished goods to inventory, and records the material cost — so your Yield (produced vs expected) and unit cost are calculated automatically. If any component is short, the whole run rolls back.' },
+        ar: { title: 'إنشاء أمر عمل', desc: 'اختر وصفة وعدد الدفعات ثم أنشئ أمر العمل. عند إكماله، يخصم النظام كل مكوّن من المخزون، ويضيف المنتجات النهائية، ويسجّل تكلفة المواد — فيُحتسب العائد (المنتَج مقابل المتوقع) وتكلفة الوحدة تلقائياً. وإن نقص أي مكوّن، تُلغى العملية بالكامل.' },
+        position: 'left',
+        optional: true,
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────
+  // RFQ / REQUEST FOR QUOTATION
+  // ─────────────────────────────────────────────
+  {
+    id: 'rfq',
+    en: 'Requests for Quotation',
+    ar: 'طلبات عروض الأسعار',
+    route: '/purchases/rfq',
+    steps: [
+      {
+        target: '[data-tutorial="nav-rfq"]',
+        route: '/',
+        en: { title: 'Requests for Quotation', desc: 'Before you commit to a purchase order, an RFQ lets you shop around. You list what you need, collect price quotes from several suppliers, compare them side by side, and award the winner. This drives down cost and creates an audit trail of why a supplier was chosen.' },
+        ar: { title: 'طلبات عروض الأسعار', desc: 'قبل إصدار أمر شراء، يتيح لك طلب عروض الأسعار المقارنة. تُدرج ما تحتاجه، وتجمع عروض الأسعار من عدة موردين، وتقارنها جنباً إلى جنب، وترسي على الأفضل. هذا يخفض التكلفة ويوثّق سبب اختيار المورّد.' },
+        position: 'right',
+      },
+      {
+        action: { click: '[data-tutorial="rfq-create"]', delay: 200 },
+        target: '[role="dialog"], [data-tutorial="rfq-create"]',
+        en: { title: 'Raise an RFQ', desc: 'Give the request a title and list the line items you need — description, quantity, and unit. Once saved, you record each supplier\'s quote against it. The cheapest quote is flagged automatically, and awarding one stamps the RFQ as decided. This is the first step of a disciplined procurement process.' },
+        ar: { title: 'إنشاء طلب عروض', desc: 'أعطِ الطلب عنواناً وأدرج الأصناف المطلوبة — الوصف والكمية والوحدة. بعد الحفظ، تسجّل عرض كل مورّد مقابله. يُميَّز أقل عرض تلقائياً، والترسية تُثبّت الطلب كمحسوم. هذه أولى خطوات عملية شراء منضبطة.' },
+        position: 'left',
+        optional: true,
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────
+  // 3-WAY INVOICE MATCHING
+  // ─────────────────────────────────────────────
+  {
+    id: 'invoice-matching',
+    en: 'Invoice Matching',
+    ar: 'مطابقة الفواتير',
+    route: '/purchases/matching',
+    steps: [
+      {
+        target: '[data-tutorial="nav-matching"]',
+        route: '/',
+        en: { title: 'Three-Way Matching', desc: 'A financial control that catches over-billing and short deliveries before you pay. For every vendor bill it compares three numbers: what you ordered (the purchase order), what you received (goods receipts), and what you were billed. When they agree it\'s "Matched"; when they don\'t it\'s flagged as a "Variance" for you to investigate.' },
+        ar: { title: 'المطابقة الثلاثية', desc: 'ضابط مالي يكشف الفوترة الزائدة والتوريد الناقص قبل الدفع. لكل فاتورة مورّد يقارن ثلاثة أرقام: ما طلبته (أمر الشراء)، وما استلمته (سندات الاستلام)، وما فُوترت به. عند التطابق تكون "مطابقة"، وعند الاختلاف تُوسم بـ "اختلاف" لتتحقق منها.' },
+        position: 'right',
+      },
+      {
+        target: 'table, .rounded-lg.border',
+        en: { title: 'Reading the Match', desc: 'The summary tiles at the top count how many bills are matched, have a variance, or have no linked PO. In the table, each row shows the billed / ordered / received figures with the price and receipt variances colour-coded — red where you were billed more than received. Focus your review on the variance rows; the matched ones are safe to pay.' },
+        ar: { title: 'قراءة المطابقة', desc: 'تُظهر البطاقات العلوية عدد الفواتير المطابقة وذات الاختلاف وتلك بلا أمر شراء مرتبط. في الجدول، يعرض كل صف قيم المفوتر/المطلوب/المستلَم مع فروق السعر والاستلام بألوان — الأحمر حيث فُوترت أكثر ممّا استلمت. ركّز مراجعتك على صفوف الاختلاف؛ أما المطابقة فآمنة للدفع.' },
+        position: 'top',
+        optional: true,
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────
+  // CYCLE COUNTS
+  // ─────────────────────────────────────────────
+  {
+    id: 'stock-counts',
+    en: 'Stock Counts',
+    ar: 'جرد المخزون',
+    route: '/inventory/counts',
+    steps: [
+      {
+        target: '[data-tutorial="nav-stock-counts"]',
+        route: '/',
+        en: { title: 'Cycle Counts', desc: 'System stock and physical stock drift apart over time — breakage, miscounts, theft. A cycle count reconciles them. You open a count, walk the warehouse entering what you physically see, and post it. On posting, the system adjusts on-hand to match your count and records an audit movement for every difference.' },
+        ar: { title: 'جرد المخزون', desc: 'يتباعد مخزون النظام عن المخزون الفعلي مع الوقت — كسر أو أخطاء عدّ أو سرقة. يوفّق الجرد بينهما. تفتح جرداً، وتتجوّل في المستودع مُدخلاً ما تراه فعلياً، ثم تُرحّله. عند الترحيل يعدّل النظام المخزون ليطابق جردك ويسجّل حركة تدقيق لكل فرق.' },
+        position: 'right',
+      },
+      {
+        action: { click: '[data-tutorial="count-create"]', delay: 250 },
+        target: 'table, .rounded-lg.border',
+        en: { title: 'Open & Post a Count', desc: 'Opening a count snapshots the current on-hand for every tracked item. Enter the physical quantity next to each — the variance is shown live and colour-coded. When you post, those variances become real stock adjustments and the count is locked so it can\'t be edited afterward. Count little and often (a "cycle") rather than one giant annual stocktake.' },
+        ar: { title: 'فتح الجرد وترحيله', desc: 'فتح الجرد يلتقط المخزون الحالي لكل صنف مُتتبَّع. أدخل الكمية الفعلية بجانب كلٍّ — ويظهر الفرق مباشرةً بالألوان. عند الترحيل تصبح تلك الفروق تعديلات مخزون فعلية ويُقفل الجرد فلا يمكن تعديله. اجرد قليلاً وبتكرار ("دورة") بدل جرد سنوي ضخم واحد.' },
+        position: 'top',
+        optional: true,
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────
+  // PAYROLL
+  // ─────────────────────────────────────────────
+  {
+    id: 'payroll',
+    en: 'Payroll',
+    ar: 'الرواتب',
+    route: '/hr/payroll',
+    steps: [
+      {
+        target: '[data-tutorial="nav-payroll"]',
+        route: '/',
+        en: { title: 'Payroll', desc: 'Run monthly payroll from the salaries stored on each employee record. First set each employee\'s basic salary, allowances, deductions and bank/IBAN under Employees. Then here you pick a pay period and generate a run — a payslip per active employee, with net = basic + allowances − deductions.' },
+        ar: { title: 'الرواتب', desc: 'شغّل مسير الرواتب الشهري من الرواتب المخزّنة في سجل كل موظف. أولاً حدّد الراتب الأساسي والبدلات والاستقطاعات وبيانات البنك/الآيبان لكل موظف في صفحة الموظفين. ثم هنا تختار فترة الدفع وتُنشئ مسيراً — قسيمة راتب لكل موظف نشط، حيث الصافي = الأساسي + البدلات − الاستقطاعات.' },
+        position: 'right',
+      },
+      {
+        action: { click: '[data-tutorial="payroll-run"]', delay: 250 },
+        target: '.rounded-lg.border, table',
+        en: { title: 'Run & Export WPS', desc: 'Each run expands into its payslips. When you\'re ready to pay salaries, download the WPS file — a bank-ready CSV containing every employee\'s ID, bank, IBAN, and net pay, formatted for the Wage Protection System. Upload it to your bank and salaries are paid in one batch.' },
+        ar: { title: 'التشغيل وتصدير حماية الأجور', desc: 'يتوسّع كل مسير إلى قسائم رواتبه. وعند الاستعداد لدفع الرواتب، نزّل ملف حماية الأجور (WPS) — ملف CSV جاهز للبنك يحتوي على رقم كل موظف وبنكه والآيبان وصافي راتبه، بصيغة نظام حماية الأجور. ارفعه إلى بنكك لتُدفع الرواتب دفعة واحدة.' },
+        position: 'top',
+        optional: true,
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────
+  // DOCUMENT BUILDER
+  // ─────────────────────────────────────────────
+  {
+    id: 'documents',
+    en: 'Document Builder',
+    ar: 'منشئ المستندات',
+    route: '/settings',
+    steps: [
+      {
+        target: '[data-tutorial="nav-settings"]',
+        route: '/',
+        en: { title: 'Document Builder', desc: 'Design letterhead-backed documents — letters, memos, quotes, certificates — with live merge fields. Templates live in Settings. Upload your letterhead PDF, drag a content box that clears the printed header and footer, then lay out text blocks with fields like {{client.name}} or {{today}} that fill in automatically.' },
+        ar: { title: 'منشئ المستندات', desc: 'صمّم مستندات بترويسة — خطابات ومذكّرات وعروض أسعار وشهادات — بحقول دمج مباشرة. القوالب في الإعدادات. ارفع ملف الترويسة PDF، واسحب صندوق محتوى يتجنّب الترويسة والتذييل المطبوعين، ثم رتّب كتل النص بحقول مثل {{client.name}} أو {{today}} تُملأ تلقائياً.' },
+        position: 'right',
+      },
+      {
+        target: '[role="tablist"], .rounded-lg.border',
+        en: { title: 'Templates → Documents', desc: 'Under the Documents panel you build reusable templates, then generate individual documents from them. Creating a document freezes a snapshot of the design, binds it to a record (a client, an invoice), and resolves the merge fields. From there you download a pixel-perfect, multi-page PDF rendered on the server.' },
+        ar: { title: 'من القوالب إلى المستندات', desc: 'في لوحة المستندات تبني قوالب قابلة لإعادة الاستخدام، ثم تُنشئ منها مستندات فردية. إنشاء مستند يجمّد نسخة من التصميم، ويربطه بسجلّ (عميل أو فاتورة)، ويحلّ حقول الدمج. ومن هناك تنزّل ملف PDF متعدد الصفحات دقيقاً يُولَّد على الخادم.' },
+        position: 'bottom',
+        optional: true,
       },
     ],
   },

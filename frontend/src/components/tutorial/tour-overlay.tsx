@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useTour } from './tour-context';
 import { useI18n } from '@/context/i18n-context';
 import { Button } from '@/components/ui/button';
@@ -14,68 +15,119 @@ interface TargetRect {
 }
 
 const PAD = 8;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function TourOverlay() {
   const { activeTour, currentStep, stepIndex, totalSteps, nextStep, prevStep, endTour } = useTour();
   const { language: locale, isRtl } = useI18n();
+  const router = useRouter();
   const [rect, setRect] = React.useState<TargetRect | null>(null);
   const [tooltipPos, setTooltipPos] = React.useState({ top: 0, left: 0 });
   const tooltipRef = React.useRef<HTMLDivElement>(null);
 
-  // Measure target element and position tooltip
-  React.useEffect(() => {
-    if (!currentStep) { setRect(null); return; }
+  const positionFor = React.useCallback((el: Element | null) => {
+    const TW = 340;
+    const TH = 200;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (!el) {
+      // No target — center the card.
+      setRect(null);
+      setTooltipPos({ top: vh / 2 - TH / 2, left: vw / 2 - TW / 2 });
+      return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const r = el.getBoundingClientRect();
+    setRect({ x: r.left, y: r.top, width: r.width, height: r.height });
 
-    const measure = () => {
-      const el = document.querySelector(currentStep.target);
-      if (!el) { setRect(null); return; }
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      const r = el.getBoundingClientRect();
-      const target: TargetRect = { x: r.left, y: r.top, width: r.width, height: r.height };
-      setRect(target);
-
-      // Tooltip positioning
-      const TW = 320;
-      const TH = 180;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      let top: number;
-      let left: number;
-      const pos = currentStep.position ?? 'auto';
-
-      if (pos === 'right' || (pos === 'auto' && r.right + TW + 24 < vw)) {
-        top = r.top + r.height / 2 - TH / 2;
-        left = r.right + 16;
-      } else if (pos === 'left' || (pos === 'auto' && r.left - TW - 24 > 0)) {
-        top = r.top + r.height / 2 - TH / 2;
-        left = r.left - TW - 16;
-      } else if (pos === 'bottom' || (pos === 'auto' && r.bottom + TH + 24 < vh)) {
-        top = r.bottom + 12;
-        left = r.left + r.width / 2 - TW / 2;
-      } else {
-        top = r.top - TH - 12;
-        left = r.left + r.width / 2 - TW / 2;
-      }
-
-      // Clamp to viewport
-      top = Math.max(12, Math.min(top, vh - TH - 12));
-      left = Math.max(12, Math.min(left, vw - TW - 12));
-      setTooltipPos({ top, left });
-    };
-
-    const t = setTimeout(measure, 80);
-    window.addEventListener('resize', measure);
-    return () => { clearTimeout(t); window.removeEventListener('resize', measure); };
+    let top: number;
+    let left: number;
+    const pos = currentStep?.position ?? 'auto';
+    if (pos === 'right' || (pos === 'auto' && r.right + TW + 24 < vw)) {
+      top = r.top + r.height / 2 - TH / 2;
+      left = r.right + 16;
+    } else if (pos === 'left' || (pos === 'auto' && r.left - TW - 24 > 0)) {
+      top = r.top + r.height / 2 - TH / 2;
+      left = r.left - TW - 16;
+    } else if (pos === 'bottom' || (pos === 'auto' && r.bottom + TH + 24 < vh)) {
+      top = r.bottom + 12;
+      left = r.left + r.width / 2 - TW / 2;
+    } else {
+      top = r.top - TH - 12;
+      left = r.left + r.width / 2 - TW / 2;
+    }
+    top = Math.max(12, Math.min(top, vh - TH - 12));
+    left = Math.max(12, Math.min(left, vw - TW - 12));
+    setTooltipPos({ top, left });
   }, [currentStep]);
+
+  // Set up each step: navigate to its page, run its action (open a dialog),
+  // then wait for the target to appear before spotlighting it.
+  React.useEffect(() => {
+    if (!currentStep || !activeTour) { setRect(null); return; }
+    let cancelled = false;
+    const desiredRoute = currentStep.route ?? activeTour.route;
+
+    const run = async () => {
+      setRect(null);
+      // 1) Navigate to the right page if we're not already there.
+      if (desiredRoute && window.location.pathname !== desiredRoute) {
+        // Close any dialog/sheet a previous step opened before leaving.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        router.push(desiredRoute);
+        for (let i = 0; i < 40 && !cancelled; i++) {
+          if (window.location.pathname === desiredRoute) break;
+          await sleep(75);
+        }
+        await sleep(250); // let the destination render/fetch
+      }
+      if (cancelled) return;
+      // 2) Perform the step action (e.g. open a dialog to walk through it).
+      if (currentStep.action) {
+        await sleep(currentStep.action.delay ?? 350);
+        if (cancelled) return;
+        const trigger = document.querySelector(currentStep.action.click) as HTMLElement | null;
+        trigger?.click();
+      }
+      // 3) Poll for the target element (page + data + dialog take time).
+      let el: Element | null = null;
+      for (let i = 0; i < 40 && !cancelled; i++) {
+        el = document.querySelector(currentStep.target);
+        if (el) break;
+        await sleep(100);
+      }
+      if (cancelled) return;
+      positionFor(el); // el may be null (optional/role-gated) → centered card
+    };
+    run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, activeTour]);
+
+  // Keep the spotlight aligned on scroll/resize.
+  React.useEffect(() => {
+    if (!currentStep) return;
+    const remeasure = () => {
+      const el = document.querySelector(currentStep.target);
+      if (el) positionFor(el);
+    };
+    window.addEventListener('resize', remeasure);
+    window.addEventListener('scroll', remeasure, true);
+    return () => {
+      window.removeEventListener('resize', remeasure);
+      window.removeEventListener('scroll', remeasure, true);
+    };
+  }, [currentStep, positionFor]);
 
   // Keyboard navigation
   React.useEffect(() => {
     if (!activeTour) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') endTour();
-      if (e.key === 'ArrowRight' || e.key === 'Enter') nextStep();
-      if (e.key === 'ArrowLeft') prevStep();
+      // Ignore the synthetic Escape the step setup dispatches to close dialogs —
+      // only a real user keypress should end the tour.
+      if (e.key === 'Escape' && e.isTrusted) endTour();
+      if ((e.key === 'ArrowRight' || e.key === 'Enter') && e.isTrusted) nextStep();
+      if (e.key === 'ArrowLeft' && e.isTrusted) prevStep();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

@@ -238,7 +238,7 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
           <Label className="text-xs">{tr('Batches', 'عدد الدفعات')}</Label>
           <Input type="number" className="w-28" value={batches} onChange={(e) => setBatches(e.target.value)} />
         </div>
-        <Button onClick={create} disabled={creating || recipes.length === 0}>
+        <Button data-tutorial="mfg-create-wo" onClick={create} disabled={creating || recipes.length === 0}>
           <Plus className="me-2 h-4 w-4" />{tr('Create work order', 'إنشاء أمر عمل')}
         </Button>
         {recipes.length === 0 && <p className="text-xs text-muted-foreground">{tr('Add a recipe first.', 'أضف وصفة أولاً.')}</p>}

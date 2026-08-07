@@ -159,7 +159,7 @@ export function PayrollPage() {
           <Label className="text-xs">{tr('Pay period', 'فترة الدفع')}</Label>
           <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} className="w-48" />
         </div>
-        <Button onClick={run} disabled={running}>
+        <Button data-tutorial="payroll-run" onClick={run} disabled={running}>
           <Plus className="me-2 h-4 w-4" />{running ? tr('Running…', 'جارٍ التشغيل…') : tr('Run payroll', 'تشغيل مسير الرواتب')}
         </Button>
       </div>

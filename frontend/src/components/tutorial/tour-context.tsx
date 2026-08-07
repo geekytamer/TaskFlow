@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { TOURS, type Tour, type TourStep } from './tour-steps';
 
 interface TourContextValue {
@@ -20,6 +21,7 @@ const TourContext = React.createContext<TourContextValue | null>(null);
 const SEEN_KEY = 'taskflow_tour_seen';
 
 export function TourProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [activeTour, setActiveTour] = React.useState<Tour | null>(null);
   const [stepIndex, setStepIndex] = React.useState(0);
 
@@ -28,6 +30,11 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     if (!tour) return;
     setActiveTour(tour);
     setStepIndex(0);
+    // Take the user straight to the page this tour explains.
+    const dest = tour.steps[0]?.route ?? tour.route;
+    if (dest && typeof window !== 'undefined' && window.location.pathname !== dest) {
+      router.push(dest);
+    }
     // Mark as seen
     try {
       const seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]');
@@ -35,7 +42,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem(SEEN_KEY, JSON.stringify([...seen, tourId]));
       }
     } catch {}
-  }, []);
+  }, [router]);
 
   const endTour = React.useCallback(() => {
     setActiveTour(null);

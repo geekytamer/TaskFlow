@@ -78,11 +78,11 @@ const sections: NavSection[] = [
     items: [
       { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
       { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
-      { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, roles: ['Admin', 'Manager', 'Accountant'] },
-      { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-rfq' },
+      { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-matching' },
       { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
-      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'] },
-      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-stock-counts' },
+      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-manufacturing' },
     ],
   },
   {
@@ -116,9 +116,9 @@ const sections: NavSection[] = [
     labelKey: 'nav.section.hr',
     items: [
       { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-employees' },
-      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-attendance' },
       { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-leave' },
-      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-payroll' },
     ],
   },
   {

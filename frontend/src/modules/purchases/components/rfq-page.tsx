@@ -66,7 +66,7 @@ function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button><Plus className="me-2 h-4 w-4" />{tr('New RFQ', 'طلب عروض جديد')}</Button>
+        <Button data-tutorial="rfq-create"><Plus className="me-2 h-4 w-4" />{tr('New RFQ', 'طلب عروض جديد')}</Button>
       </SheetTrigger>
       <SheetContent className="w-full sm:max-w-lg flex flex-col">
         <SheetHeader><SheetTitle>{tr('New request for quotation', 'طلب عروض أسعار جديد')}</SheetTitle></SheetHeader>
