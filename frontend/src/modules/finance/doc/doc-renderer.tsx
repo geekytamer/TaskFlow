@@ -212,11 +212,15 @@ export function DocRenderer({
   onSelectBlock,
   onReorderBlock,
 }: DocRendererProps) {
-  const subtotal = invoice.lineItems.reduce((sum, item) => sum + item.amount, 0);
+  const subtotal = Number(invoice.lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
   const taxRate = invoice.taxRate || 0;
   const taxAmount = Number((subtotal * (taxRate / 100)).toFixed(2));
-  const total = invoice.total || subtotal + taxAmount;
-  const money = (value: number) => <CurrencyAmount value={value} currencyCode={invoice.currency || 'USD'} />;
+  // Always derive the total from subtotal + tax so the document adds up. The
+  // stored invoice.total is tax-inclusive and agrees with this; falling back to
+  // it here would let a stale/net total contradict the lines above it.
+  const total = Number((subtotal + taxAmount).toFixed(2));
+  const docCurrency = invoice.currency || (doc.page as { currency?: string }).currency || 'USD';
+  const money = (value: number) => <CurrencyAmount value={value} currencyCode={docCurrency} />;
 
   const ctx: DocDataContext = {
     invoice,

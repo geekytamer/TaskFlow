@@ -248,7 +248,13 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
   );
 }
 
-export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: TemplateDocumentType } = {}) {
+export function InvoiceTemplatePanel({
+  docType = 'invoice',
+  onChanged,
+}: {
+  docType?: TemplateDocumentType;
+  onChanged?: () => void;
+} = {}) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -375,6 +381,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: Templa
       setTemplates(data);
       setSelectedTemplateId(saved.id);
       setForm(toForm(saved));
+      onChanged?.();
       toast({
         title: tr('Template saved', 'تم حفظ القالب'),
         description: tr(`${saved.name} is ready to use.`, `${saved.name} جاهز للاستخدام.`),
@@ -396,6 +403,7 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: Templa
     try {
       await deleteInvoiceTemplate(selectedTemplateId);
       await loadTemplates();
+      onChanged?.();
       toast({
         title: tr('Template deleted', 'تم حذف القالب'),
         description: tr('The template was removed.', 'تمت إزالة القالب.'),
@@ -426,27 +434,36 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: Templa
     }
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      updateForm(field, dataUrl);
-      // The letterhead backs the page: images are used as-is; a PDF's first
-      // page is rasterized to an image so it can render as the page background.
+      // The letterhead backs the page, and only letterheadImageUrl is ever
+      // rendered. Keeping the raw upload as well used to store the same asset
+      // twice inside one request, which pushed large letterheads past the body
+      // limit and failed the save with a 413. Store the rendered background
+      // only, downscaled and JPEG-encoded so it stays small.
       if (field === 'letterheadPdfUrl') {
-        if (dataUrl.startsWith('data:image/')) {
-          updateForm('letterheadImageUrl', dataUrl);
-        } else {
-          try {
-            const { rasterizePdfFirstPage } = await import('@/lib/pdf-raster');
-            const image = await rasterizePdfFirstPage(dataUrl);
-            updateForm('letterheadImageUrl', image);
-            toast({ title: tr('Letterhead ready', 'الترويسة جاهزة'), description: tr('First page set as the page background.', 'تم تعيين الصفحة الأولى كخلفية للصفحة.') });
-          } catch (rasterError: any) {
-            toast({
-              variant: 'destructive',
-              title: tr('Could not render letterhead', 'تعذّر عرض الترويسة'),
-              description: rasterError?.message || tr('The PDF could not be converted to a background image.', 'تعذّر تحويل ملف PDF إلى صورة خلفية.'),
-            });
-          }
+        try {
+          const isImage = dataUrl.startsWith('data:image/');
+          const { rasterizePdfFirstPage, rasterizeImageToBackground } = await import('@/lib/pdf-raster');
+          const image = isImage
+            ? await rasterizeImageToBackground(dataUrl)
+            : await rasterizePdfFirstPage(dataUrl);
+          updateForm('letterheadImageUrl', image);
+          updateForm('letterheadPdfUrl', '');
+          toast({
+            title: tr('Letterhead ready', 'الترويسة جاهزة'),
+            description: isImage
+              ? tr('Image set as the page background.', 'تم تعيين الصورة كخلفية للصفحة.')
+              : tr('First page set as the page background.', 'تم تعيين الصفحة الأولى كخلفية للصفحة.'),
+          });
+        } catch (rasterError: any) {
+          toast({
+            variant: 'destructive',
+            title: tr('Could not render letterhead', 'تعذّر عرض الترويسة'),
+            description: rasterError?.message || tr('The file could not be converted to a background image.', 'تعذّر تحويل الملف إلى صورة خلفية.'),
+          });
         }
+        return;
       }
+      updateForm(field, dataUrl);
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -473,7 +490,11 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: Templa
         template={selectedTemplate}
         company={selectedCompany}
         onClose={() => setDesigning(false)}
-        onSaved={() => { setDesigning(false); loadTemplates(); }}
+        onSaved={() => {
+          setDesigning(false);
+          loadTemplates();
+          onChanged?.();
+        }}
       />
     );
   }
@@ -631,7 +652,9 @@ export function InvoiceTemplatePanel({ docType = 'invoice' }: { docType?: Templa
             />
             <AssetUploadField
               label={tr('Letterhead Background', 'خلفية الترويسة')}
-              value={form.letterheadPdfUrl || ''}
+              // Preview the rendered background — that is what actually prints,
+              // and the raw upload is no longer retained.
+              value={form.letterheadImageUrl || form.letterheadPdfUrl || ''}
               accept="image/*,application/pdf"
               onFileSelected={(file) => handleAssetUpload('letterheadPdfUrl', file)}
               onClear={() => { updateForm('letterheadPdfUrl', ''); updateForm('letterheadImageUrl', ''); }}

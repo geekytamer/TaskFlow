@@ -169,6 +169,8 @@ export interface Delivery {
   dispatchedAt?: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
+  templateId?: string;
+  templateSnapshot?: InvoiceTemplate;
   createdAt: Date;
 }
 
@@ -542,6 +544,8 @@ export interface RecordAttachment {
   note?: string;
   uploadedByUserId?: string;
   uploadedByName?: string;
+  /** True when file bytes are stored and can be viewed/downloaded from the server. */
+  hasContent?: boolean;
   createdAt: Date;
 }
 

@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { useCompanyCurrency } from '@/lib/currency';
+import { chooseTemplateId } from '@/modules/finance/template-selection';
 
 interface CreateInvoiceSheetProps {
     children: React.ReactNode;
@@ -68,6 +69,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [minAmount, setMinAmount] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'Done' | 'In Progress' | 'To Do' | 'all'>('Done');
   const [sortBy, setSortBy] = React.useState<'date' | 'amount'>('date');
+  const [taxRate, setTaxRate] = React.useState('');
   const [manualDescription, setManualDescription] = React.useState('');
   const [manualQuantity, setManualQuantity] = React.useState('1');
   const [manualUnitPrice, setManualUnitPrice] = React.useState('');
@@ -78,6 +80,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [manualLines, setManualLines] = React.useState<InvoiceLineItem[]>([]);
 
   React.useEffect(() => {
+    let cancelled = false;
     async function loadClients() {
       if (!selectedCompany) {
         setClients([]);
@@ -91,13 +94,13 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
           getInvoiceTemplates(selectedCompany.id),
         ]);
         const orderData = await getSalesOrders(selectedCompany.id);
+        if (cancelled) return;
         setClients(clientData);
         setTemplates(templateData);
         setSalesOrders(orderData.filter((order) => order.status === 'Confirmed' && !order.invoiceId));
-        setSelectedTemplateId((current) =>
-          current || templateData.find((template) => template.isDefault)?.id || templateData[0]?.id,
-        );
+        setSelectedTemplateId((current) => chooseTemplateId(templateData, current));
       } catch (error: any) {
+        if (cancelled) return;
         setClients([]);
         setTemplates([]);
         setSalesOrders([]);
@@ -107,12 +110,15 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
           description: error?.message || tr('Could not load clients.', 'تعذر تحميل العملاء.'),
         });
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     if (open) {
       loadClients();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [open, selectedCompany]);
   
   React.useEffect(() => {
@@ -182,9 +188,17 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       i === index ? { ...line, custom: { ...(line.custom || {}), [colId]: value } } : line));
   };
 
-  const invoiceTotal = React.useMemo(() =>
+  const invoiceSubtotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
+  const invoiceTaxAmount = React.useMemo(
+    () => Number((invoiceSubtotal * ((Number(taxRate) || 0) / 100)).toFixed(2)),
+    [invoiceSubtotal, taxRate],
+  );
+  const invoiceTotal = React.useMemo(
+    () => Number((invoiceSubtotal + invoiceTaxAmount).toFixed(2)),
+    [invoiceSubtotal, invoiceTaxAmount],
+  );
 
   const confirmedOrdersForClient = React.useMemo(
     () => salesOrders.filter((order) => !selectedClient || order.clientId === selectedClient),
@@ -308,6 +322,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         dueDate,
         lineItems: selectedLineItems,
         total: invoiceTotal,
+        taxRate: Number(taxRate) || 0,
         currency: currencyCode,
         status: 'Draft',
       });
@@ -620,9 +635,32 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     </Table>
                   </div>
                 )}
-                <div className="flex justify-end items-center gap-4 p-4 bg-muted/50 rounded-lg" data-tutorial="invoice-form-total">
-                    <p className="font-semibold">{tr('Invoice Total:', 'إجمالي الفاتورة:')}</p>
-                    <p className="text-2xl font-bold">{amount(invoiceTotal)}</p>
+                <div className="space-y-2 p-4 bg-muted/50 rounded-lg" data-tutorial="invoice-form-total">
+                    <div className="flex justify-end items-center gap-4">
+                      <p className="text-sm text-muted-foreground">{tr('Subtotal', 'المجموع الفرعي')}</p>
+                      <p className="w-32 text-end text-sm tabular-nums">{amount(invoiceSubtotal)}</p>
+                    </div>
+                    <div className="flex justify-end items-center gap-4">
+                      <Label htmlFor="invoice-tax-rate" className="text-sm text-muted-foreground">
+                        {tr('Tax rate %', 'نسبة الضريبة %')}
+                      </Label>
+                      <Input
+                        id="invoice-tax-rate"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={taxRate}
+                        onChange={(event) => setTaxRate(event.target.value)}
+                        placeholder="0"
+                        className="h-8 w-20 text-end"
+                      />
+                      <p className="w-32 text-end text-sm tabular-nums">{amount(invoiceTaxAmount)}</p>
+                    </div>
+                    <div className="flex justify-end items-center gap-4 border-t pt-2">
+                      <p className="font-semibold">{tr('Invoice Total:', 'إجمالي الفاتورة:')}</p>
+                      <p className="w-32 text-end text-2xl font-bold tabular-nums">{amount(invoiceTotal)}</p>
+                    </div>
                 </div>
             </div>
         </div>

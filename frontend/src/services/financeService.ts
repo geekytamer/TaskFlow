@@ -126,6 +126,10 @@ const mapSalesOrder = (order: any): SalesOrder => ({
 
 const mapDelivery = (delivery: any): import('@/modules/finance/types').Delivery => ({
   ...delivery,
+  templateId: stringId(delivery.templateId),
+  templateSnapshot: delivery.templateSnapshot
+    ? mapInvoiceTemplate(delivery.templateSnapshot)
+    : undefined,
   items: Array.isArray(delivery.items)
     ? delivery.items.map((item: any) => ({
         salesOrderLineIndex: Number(item.salesOrderLineIndex || 0),
@@ -599,6 +603,7 @@ export async function createDelivery(
   salesOrderId: string,
   data: {
     items: Array<{ salesOrderLineIndex: number; quantity: number; location?: string }>;
+    templateId?: string;
     carrier?: string;
     trackingNumber?: string;
     notes?: string;
@@ -1151,6 +1156,8 @@ export async function createRecordAttachment(
     mimeType?: string;
     sizeBytes?: number;
     note?: string;
+    /** Base64-encoded file bytes (a bare base64 string or a full data: URL). */
+    contentBase64?: string;
   },
 ): Promise<RecordAttachment> {
   const attachment = await apiFetch<RecordAttachment>(
@@ -1165,6 +1172,63 @@ export async function createRecordAttachment(
 
 export async function deleteRecordAttachment(attachmentId: string): Promise<void> {
   await apiFetch(`/record-attachments/${attachmentId}`, { method: 'DELETE' });
+}
+
+/** Reads a File as a base64 data URL (used to ship attachment bytes to the API). */
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Fetches a stored attachment's bytes through the authenticated API and either
+ * opens them in a new tab (view) or saves them to disk (download). A plain
+ * anchor can't be used because the download endpoint requires a bearer token.
+ */
+async function fetchAttachmentBlob(attachmentId: string, download: boolean): Promise<Blob> {
+  const token = getStoredToken();
+  const query = download ? '?download=1' : '';
+  const res = await fetch(`${API_BASE_URL}/record-attachments/${attachmentId}/content${query}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = 'Could not load the attachment.';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch {
+      // non-JSON error body; keep the default message
+    }
+    throw new Error(message);
+  }
+  return res.blob();
+}
+
+export async function viewRecordAttachment(attachmentId: string): Promise<void> {
+  const blob = await fetchAttachmentBlob(attachmentId, false);
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, '_blank', 'noopener,noreferrer');
+  // The tab keeps the blob alive; revoke after a delay so it has time to load.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+export async function downloadRecordAttachment(
+  attachmentId: string,
+  fileName: string,
+): Promise<void> {
+  const blob = await fetchAttachmentBlob(attachmentId, true);
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName || 'attachment';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export async function getRecordTimeline(

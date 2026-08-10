@@ -37,8 +37,9 @@ import Link from 'next/link';
 import {
   Phone, MessageCircle, Mail, Users as UsersIcon, CalendarClock, CheckCircle2, Clock, Zap,
   Search, Plus, MoreHorizontal, UserPlus, Pencil, ListTodo, LayoutList, X,
-  LayoutGrid, AlertTriangle, Shuffle, TrendingDown,
+  LayoutGrid, AlertTriangle, Shuffle, TrendingDown, ChevronRight,
 } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 type View = 'today' | 'list' | 'team';
 
@@ -67,6 +68,13 @@ const OUTCOMES_BY_CHANNEL: Record<string, FollowUpOutcome[]> = {
 const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const isOverdue = (d?: Date) => !!d && d < new Date();
 const isToday = (d?: Date) => !!d && startOfDay(d).getTime() === startOfDay(new Date()).getTime();
+const isThisWeek = (d?: Date) => {
+  if (!d) return false;
+  const now = new Date();
+  const in7 = new Date(now);
+  in7.setDate(now.getDate() + 7);
+  return d > now && d <= in7;
+};
 const fmt = (d?: Date) => (d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—');
 const fmtTime = (d?: Date) => (d ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
 const atNineAm = (days: number) => { const x = new Date(); x.setDate(x.getDate() + days); x.setHours(9, 0, 0, 0); return x; };
@@ -86,6 +94,8 @@ export function FollowupsPage() {
   const [search, setSearch] = React.useState('');
   const [ownerFilter, setOwnerFilter] = React.useState<'all' | 'mine'>(canManage ? 'all' : 'mine');
   const [channelFilter, setChannelFilter] = React.useState<'all' | FollowUpChannel>('all');
+  const [groupBy, setGroupBy] = React.useState<'time' | 'channel' | 'priority' | 'owner'>('time');
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 
   const [createOpen, setCreateOpen] = React.useState(false);
   const [completeFor, setCompleteFor] = React.useState<Followup | null>(null);
@@ -139,6 +149,61 @@ export function FollowupsPage() {
 
   const overdueCt = groups.overdue.length;
   const todayCt = groups.today.length;
+
+  // Foldable category panels — the grouping dimension is user-selectable.
+  type Category = { key: string; label: string; accent: string; items: Followup[]; defaultOpen: boolean };
+  const categories = React.useMemo<Category[]>(() => {
+    const dueOf = (f: Followup) => f.dueAt ?? f.nextActionDueDate;
+    if (groupBy === 'time') {
+      const buckets: Record<string, Followup[]> = { overdue: [], today: [], week: [], later: [], none: [] };
+      for (const f of filtered) {
+        const d = dueOf(f);
+        if (!d) buckets.none.push(f);
+        else if (isOverdue(d) && !isToday(d)) buckets.overdue.push(f);
+        else if (isToday(d)) buckets.today.push(f);
+        else if (isThisWeek(d)) buckets.week.push(f);
+        else buckets.later.push(f);
+      }
+      return [
+        { key: 'overdue', label: tr('Overdue', 'متأخرة'), accent: 'text-red-600', items: buckets.overdue, defaultOpen: true },
+        { key: 'today', label: tr('Today', 'اليوم'), accent: 'text-orange-600', items: buckets.today, defaultOpen: true },
+        { key: 'week', label: tr('This week', 'هذا الأسبوع'), accent: 'text-blue-600', items: buckets.week, defaultOpen: true },
+        { key: 'later', label: tr('Later', 'لاحقاً'), accent: 'text-muted-foreground', items: buckets.later, defaultOpen: false },
+        { key: 'none', label: tr('No date', 'بدون تاريخ'), accent: 'text-muted-foreground', items: buckets.none, defaultOpen: false },
+      ].filter((c) => c.items.length > 0);
+    }
+    if (groupBy === 'channel') {
+      const byChannel = new Map<string, Followup[]>();
+      for (const f of filtered) {
+        const k = f.channel || 'other';
+        (byChannel.get(k) || byChannel.set(k, []).get(k)!).push(f);
+      }
+      return [...byChannel.entries()].map(([k, items]) => ({
+        key: k, label: k, accent: 'text-foreground', items, defaultOpen: true,
+      }));
+    }
+    if (groupBy === 'priority') {
+      const order: Array<{ k: string; label: string; accent: string }> = [
+        { k: 'High', label: tr('High', 'عالية'), accent: 'text-red-600' },
+        { k: 'Medium', label: tr('Medium', 'متوسطة'), accent: 'text-amber-600' },
+        { k: 'Low', label: tr('Low', 'منخفضة'), accent: 'text-emerald-600' },
+      ];
+      return order
+        .map(({ k, label, accent }) => ({ key: k, label, accent, items: filtered.filter((f) => (f.priority || 'Medium') === k), defaultOpen: true }))
+        .filter((c) => c.items.length > 0);
+    }
+    // owner
+    const byOwner = new Map<string, Followup[]>();
+    for (const f of filtered) {
+      const k = f.ownerUserId || 'unassigned';
+      (byOwner.get(k) || byOwner.set(k, []).get(k)!).push(f);
+    }
+    return [...byOwner.entries()].map(([k, items]) => ({
+      key: k,
+      label: k === 'unassigned' ? tr('Unassigned', 'غير مُسند') : (memberName(k) || tr('Unknown', 'غير معروف')),
+      accent: 'text-foreground', items, defaultOpen: true,
+    }));
+  }, [filtered, groupBy, tr, memberName]);
 
   const optimisticRemove = (id: string) => setFollowups((prev) => prev.filter((x) => x.id !== id));
 
@@ -208,6 +273,17 @@ export function FollowupsPage() {
                   </SelectContent>
                 </Select>
               )}
+              {view === 'today' && (
+                <Select value={groupBy} onValueChange={(v) => setGroupBy(v as any)}>
+                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="time">{tr('Group by time', 'تجميع حسب الوقت')}</SelectItem>
+                    <SelectItem value="channel">{tr('Group by channel', 'تجميع حسب القناة')}</SelectItem>
+                    <SelectItem value="priority">{tr('Group by priority', 'تجميع حسب الأولوية')}</SelectItem>
+                    {canManage && <SelectItem value="owner">{tr('Group by owner', 'تجميع حسب المالك')}</SelectItem>}
+                  </SelectContent>
+                </Select>
+              )}
             </>
           )}
           <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="me-1.5 h-4 w-4" />{tr('New follow-up', 'متابعة جديدة')}</Button>
@@ -221,22 +297,35 @@ export function FollowupsPage() {
       ) : filtered.length === 0 ? (
         <EmptyState tr={tr} onNew={() => setCreateOpen(true)} />
       ) : view === 'today' ? (
-        <div className="mt-4 space-y-5">
-          {([['overdue', tr('Overdue', 'متأخرة'), 'text-red-600'], ['today', tr('Today', 'اليوم'), 'text-orange-600'], ['upcoming', tr('Upcoming', 'القادمة'), 'text-muted-foreground']] as const).map(([key, label, color]) =>
-            groups[key].length === 0 ? null : (
-              <section key={key}>
-                <h3 className={`mb-2 text-xs font-semibold uppercase tracking-wide ${color}`}>{label} · {groups[key].length}</h3>
-                <div className="space-y-2">
-                  {groups[key].map((f) => (
-                    <FollowupCard key={f.id} f={f} tr={tr} meId={currentUser?.id}
-                      memberName={memberName}
-                      onComplete={() => setCompleteFor(f)} onLog={() => setLogFor(f)}
-                      onSnooze={(d, h) => doSnooze(f, d, h)} onReschedule={(d) => doReschedule(f, d)}
-                      onQuickDone={() => doQuickDone(f)} onShareOpen={() => setShareFor(f)} />
-                  ))}
-                </div>
-              </section>
-            ))}
+        <div className="mt-4 flex flex-col gap-3">
+          {categories.map((cat) => {
+            const open = collapsed[cat.key] === undefined ? cat.defaultOpen : !collapsed[cat.key];
+            return (
+              <Collapsible
+                key={cat.key}
+                open={open}
+                onOpenChange={(v) => setCollapsed((p) => ({ ...p, [cat.key]: !v }))}
+                className="rounded-lg border bg-card"
+              >
+                <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-semibold">
+                  <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`} />
+                  <span className={`uppercase tracking-wide text-xs ${cat.accent}`}>{cat.label}</span>
+                  <span className="ms-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{cat.items.length}</span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-2 border-t p-3">
+                    {cat.items.map((f) => (
+                      <FollowupCard key={f.id} f={f} tr={tr} meId={currentUser?.id}
+                        memberName={memberName}
+                        onComplete={() => setCompleteFor(f)} onLog={() => setLogFor(f)}
+                        onSnooze={(d, h) => doSnooze(f, d, h)} onReschedule={(d) => doReschedule(f, d)}
+                        onQuickDone={() => doQuickDone(f)} onShareOpen={() => setShareFor(f)} />
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
         </div>
       ) : (
         <div className="mt-4 overflow-x-auto rounded-lg border">

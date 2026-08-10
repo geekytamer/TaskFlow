@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/i18n-context';
+import { useCompanyCurrency, supportedCurrencies, currencyLabel } from '@/lib/currency';
 import { updateInvoiceTemplate } from '@/services/financeService';
 import type { InvoiceTemplate, Invoice, Client, InvoiceColumn } from '../types';
 import type { Company } from '@/modules/companies/types';
@@ -315,11 +316,17 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
       default: return fallback;
     }
   };
+  const { currencyCode: companyCurrency } = useCompanyCurrency();
   const initialDoc = React.useMemo(
     () => isInvoiceDoc(template.doc) ? template.doc : templateToDoc(template),
     [template],
   );
-  const [doc, setDoc] = React.useState<InvoiceDoc>(() => cloneInvoiceDoc(initialDoc));
+  const [doc, setDoc] = React.useState<InvoiceDoc>(() => {
+    const d = cloneInvoiceDoc(initialDoc);
+    // Amounts default to the company's currency unless the template overrides it.
+    if (!d.page.currency) d.page.currency = companyCurrency;
+    return d;
+  });
   const [selectedId, setSelectedId] = React.useState<string | null>(doc.body[0]?.id ?? null);
   const [history, setHistory] = React.useState<InvoiceDoc[]>([]);
   const [future, setFuture] = React.useState<InvoiceDoc[]>([]);
@@ -742,6 +749,16 @@ function DocumentProperties({
               <SelectContent>
                 <SelectItem value="portrait">{tr('Portrait', 'عمودي')}</SelectItem>
                 <SelectItem value="landscape">{tr('Landscape', 'أفقي')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label={tr('Currency', 'العملة')}>
+            <Select value={doc.page.currency || ''} onValueChange={(currency) => onChange({ page: { ...doc.page, currency } })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {supportedCurrencies.map((c) => (
+                  <SelectItem key={c.code} value={c.code}>{c.code} — {currencyLabel(c, language)}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </Field>

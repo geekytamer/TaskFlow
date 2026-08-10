@@ -16,10 +16,16 @@ import type { RecordAttachment, RecordEntityType, RecordTimelineItem } from '@/m
 import {
   createRecordAttachment,
   deleteRecordAttachment,
+  downloadRecordAttachment,
   getRecordAttachments,
   getRecordTimeline,
+  readFileAsDataUrl,
+  viewRecordAttachment,
 } from '@/services/financeService';
-import { FileText, Link as LinkIcon, Paperclip, Trash2 } from 'lucide-react';
+import { Download, Eye, FileText, Link as LinkIcon, Paperclip, Trash2 } from 'lucide-react';
+
+/** Files larger than this can't be stored inline; keep in step with the API limit. */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 interface RecordSupportPanelProps {
   companyId?: string;
@@ -97,18 +103,28 @@ export function RecordSupportPanel({
       toast({
         variant: 'destructive',
         title: tr('Missing file name', 'اسم الملف مفقود'),
-        description: tr('Add a file name or choose a local file.', 'أضف اسم ملف أو اختر ملفاً محلياً.'),
+        description: tr('Add a file name, choose a file, or paste a link.', 'أضف اسم ملف أو اختر ملفاً أو الصق رابطاً.'),
+      });
+      return;
+    }
+    if (localFile && localFile.size > MAX_ATTACHMENT_BYTES) {
+      toast({
+        variant: 'destructive',
+        title: tr('File too large', 'الملف كبير جداً'),
+        description: tr('Attachments must be 20 MB or smaller.', 'يجب أن يكون حجم المرفق 20 ميغابايت أو أقل.'),
       });
       return;
     }
     setSaving(true);
     try {
+      const contentBase64 = localFile ? await readFileAsDataUrl(localFile) : undefined;
       await createRecordAttachment(resolvedCompanyId, entityType, entityId, {
         fileName: finalFileName,
         url: url.trim() || undefined,
         mimeType: localFile?.type || undefined,
         sizeBytes: localFile?.size,
         note: note.trim() || undefined,
+        contentBase64,
       });
       setFileName('');
       setUrl('');
@@ -124,6 +140,30 @@ export function RecordSupportPanel({
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleView = async (attachment: RecordAttachment) => {
+    try {
+      await viewRecordAttachment(attachment.id);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: tr('Could not open file', 'تعذّر فتح الملف'),
+        description: error?.message,
+      });
+    }
+  };
+
+  const handleDownload = async (attachment: RecordAttachment) => {
+    try {
+      await downloadRecordAttachment(attachment.id, attachment.fileName);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: tr('Download failed', 'فشل التنزيل'),
+        description: error?.message,
+      });
     }
   };
 
@@ -188,7 +228,7 @@ export function RecordSupportPanel({
             <Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={tr('What is this attachment for?', 'لماذا هذا المرفق؟')} />
           </div>
           <p className="text-xs text-muted-foreground md:col-span-3">
-            {tr('Local files are recorded as metadata for now. Add a URL when the file is stored in Drive, S3, or another document system.', 'تُسجَّل الملفات المحلية كبيانات وصفية حالياً. أضف رابطاً عندما يكون الملف مخزّناً في Drive أو S3 أو نظام مستندات آخر.')}
+            {tr('Choose a file to store it here (viewable and downloadable, up to 20 MB), or paste an external link instead.', 'اختر ملفاً لتخزينه هنا (قابل للعرض والتنزيل، حتى 20 ميغابايت)، أو الصق رابطاً خارجياً بدلاً من ذلك.')}
           </p>
         </div>
 
@@ -205,6 +245,26 @@ export function RecordSupportPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <span className="font-medium">{attachment.fileName}</span>
+                    {attachment.hasContent && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleView(attachment)}
+                          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        >
+                          <Eye className="h-3 w-3" />
+                          {tr('View', 'عرض')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(attachment)}
+                          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        >
+                          <Download className="h-3 w-3" />
+                          {tr('Download', 'تنزيل')}
+                        </button>
+                      </>
+                    )}
                     {attachment.url && (
                       <a
                         href={attachment.url}
@@ -213,7 +273,7 @@ export function RecordSupportPanel({
                         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                       >
                         <LinkIcon className="h-3 w-3" />
-                        {tr('Open', 'فتح')}
+                        {tr('Open link', 'فتح الرابط')}
                       </a>
                     )}
                   </div>

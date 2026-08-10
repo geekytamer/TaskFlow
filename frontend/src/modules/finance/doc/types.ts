@@ -159,6 +159,8 @@ export interface DocPageSetup {
   size: 'A4' | 'Letter';
   orientation: 'portrait' | 'landscape';
   margin: BoxSpacing; // mm
+  /** Currency for amounts on this document. Defaults to the company currency. */
+  currency?: string;
 }
 
 export interface DocTheme {

@@ -21,7 +21,7 @@ export type CampaignAssignmentStatus = 'Planned' | 'Contacted' | 'Confirmed' | '
 export type CampaignExpenseStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | 'Paid';
 export type CommissionBasis = 'Revenue' | 'Paid Amount' | 'Profit';
 export type CommissionRateType = 'Percent' | 'Fixed';
-export type CommissionStatus = 'Draft' | 'Approved' | 'Paid' | 'Void';
+export type CommissionStatus = 'Draft' | 'Approved' | 'Paid' | 'Voided';
 
 export const activityCategories: ActivityCategory[] = ['Call', 'WhatsApp', 'Email', 'Meeting', 'Proposal Sent', 'Follow-up', 'Note', 'Other'];
 export const leadStatuses: LeadStatus[] = ['New', 'Qualified', 'Follow-up', 'Proposal', 'Won', 'Lost', 'Archived'];
@@ -291,7 +291,7 @@ export interface Commission {
   ratePercent?: number;
   fixedAmount?: number;
   amount: number;
-  status: CommissionStatus | 'Voided';
+  status: CommissionStatus;
   calculatedAt: Date;
   approvedAt?: Date;
   paidAt?: Date;
