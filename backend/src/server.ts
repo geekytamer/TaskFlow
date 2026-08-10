@@ -104,6 +104,8 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
     }));
 }
 
+/** Largest file (in raw bytes) accepted as a record attachment. */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const invoiceColumnKeys: InvoiceColumn['key'][] = ['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom'];
 const invoiceColumnAligns: NonNullable<InvoiceColumn['align']>[] = ['left', 'center', 'right'];
 
@@ -617,6 +619,15 @@ export function createServer(options: CreateServerOptions = {}) {
       ? templateAssetJson(req, res, next)
       : next()
   ));
+  // Record attachments carry base64-encoded file bytes, which inflate ~33%. Allow
+  // a generous parser only on the attachment upload path so real files (receipts,
+  // scans, small PDFs) go through while other endpoints keep the stricter limit.
+  const attachmentJson = express.json({ limit: '28mb' });
+  app.use((req, res, next) => (
+    /^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) && req.method === 'POST'
+      ? attachmentJson(req, res, next)
+      : next()
+  ));
   app.use(express.json({ limit: '4mb' }));
 
   app.use((req, res, next) => {
@@ -1128,6 +1139,7 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       notes: record.notes !== undefined ? optionalString(record.notes) : undefined,
       currency: record.currency !== undefined ? optionalString(record.currency) : undefined,
+      exchangeRate: record.exchangeRate !== undefined ? optionalNumber(record.exchangeRate) : undefined,
       taxRate: record.taxRate !== undefined ? optionalNumber(record.taxRate) : undefined,
       sentAt: record.sentAt !== undefined ? optionalDateInput(record.sentAt) : undefined,
       paidAt: record.paidAt !== undefined ? optionalDateInput(record.paidAt) : undefined,
@@ -1267,7 +1279,12 @@ export function createServer(options: CreateServerOptions = {}) {
       const order = delivery.salesOrderId ? store.getSalesOrderById(delivery.salesOrderId) : undefined;
       const companyRecord = store.getCompanyById(delivery.companyId);
       const deliveryTemplates = store.listInvoiceTemplates(delivery.companyId, 'delivery');
-      const template = deliveryTemplates.find((t) => t.isDefault) || deliveryTemplates[0] || undefined;
+      const template =
+        delivery.templateSnapshot
+        || (delivery.templateId ? store.getInvoiceTemplateById(delivery.templateId) : undefined)
+        || deliveryTemplates.find((t) => t.isDefault)
+        || deliveryTemplates[0]
+        || undefined;
       const client = order?.clientId ? store.getClientById(order.clientId) : undefined;
       res.json({
         delivery,
@@ -1296,7 +1313,11 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!delivery) throw new HttpError(404, 'Delivery not found.');
       requireCompanyAccess(req, delivery.companyId);
       const templates = store.listInvoiceTemplates(delivery.companyId, 'delivery');
-      const tpl = templates.find((t) => t.isDefault) || templates[0];
+      const tpl =
+        delivery.templateSnapshot
+        || (delivery.templateId ? store.getInvoiceTemplateById(delivery.templateId) : undefined)
+        || templates.find((t) => t.isDefault)
+        || templates[0];
       const docPage = (tpl as any)?.doc?.page as { size?: string; orientation?: string } | undefined;
       const format: 'A4' | 'Letter' = docPage?.size === 'Letter' ? 'Letter' : 'A4';
       const landscape = docPage?.orientation === 'landscape';
@@ -1882,6 +1903,9 @@ export function createServer(options: CreateServerOptions = {}) {
         recordType: body.recordType !== undefined ? (enumValue(body.recordType, 'recordType', DOCUMENT_SOURCES as any) as any) : undefined,
         recordId: optionalString(body.recordId),
         fieldValues: (body.fieldValues && typeof body.fieldValues === 'object') ? (body.fieldValues as Record<string, string>) : undefined,
+        status: body.status !== undefined
+          ? (enumValue(body.status, 'status', ['draft', 'final']) as any)
+          : undefined,
       }));
       res.status(201).json(d);
     } catch (error) {
@@ -1947,10 +1971,33 @@ export function createServer(options: CreateServerOptions = {}) {
   app.get('/public/documents/:id', handler((req, res) => {
     const doc = store.getDocumentById(req.params.id);
     if (!doc) throw new HttpError(404, 'Document not found.');
+    const company = store.getCompanyById(doc.companyId);
+    const client = doc.recordType === 'client' && doc.recordId
+      ? store.getClientById(doc.recordId)
+      : undefined;
     res.json({
       title: doc.title,
       doc: doc.docSnapshot ?? null,
       letterhead: doc.letterheadSnapshot ?? null,
+      template: doc.templateSnapshot ?? null,
+      invoice: doc.templateSnapshot
+        ? {
+            id: doc.id,
+            invoiceNumber: doc.title,
+            companyId: doc.companyId,
+            clientId: client?.id ?? '',
+            issueDate: doc.createdAt,
+            dueDate: doc.createdAt,
+            lineItems: [],
+            total: 0,
+            status: doc.status === 'final' ? 'Sent' : 'Draft',
+            notes: doc.fieldValues['document.notes'] ?? '',
+            currency: '',
+            taxRate: 0,
+          }
+        : null,
+      company: company ?? null,
+      client: client ?? null,
       context: resolveDocumentContext(doc),
     });
   }));
@@ -1960,11 +2007,18 @@ export function createServer(options: CreateServerOptions = {}) {
     if (!doc) throw new HttpError(404, 'Document not found.');
     requireCompanyRoles(req, doc.companyId, companyManagementRoles);
     const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
-    const format: 'A4' | 'Letter' = (doc.letterheadSnapshot as any)?.pageSize === 'Letter' ? 'Letter' : 'A4';
+    const typedPage = doc.templateSnapshot?.doc && typeof doc.templateSnapshot.doc === 'object'
+      ? (doc.templateSnapshot.doc as any).page
+      : undefined;
+    const format: 'A4' | 'Letter' =
+      typedPage?.size === 'Letter' || (doc.letterheadSnapshot as any)?.pageSize === 'Letter'
+        ? 'Letter'
+        : 'A4';
+    const landscape = typedPage?.orientation === 'landscape';
     const url = `${appUrl}/document/${doc.id}`;
     let pdf: Buffer;
     try {
-      pdf = await renderInvoicePdf({ url, format });
+      pdf = await renderInvoicePdf({ url, format, landscape });
     } catch (err) {
       throw new HttpError(503, 'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.');
     }
@@ -2925,8 +2979,15 @@ export function createServer(options: CreateServerOptions = {}) {
         'Employee',
       ]);
       const companyId = contact.companyId;
-      const linkedClientId = contact.clientId;
-      const linkedSupplierId = contact.supplierId;
+
+      // Clients and suppliers are contact-backed: the "client" id an invoice/order
+      // carries is `contact.clientId || contact.id` (see contactToClient), and the
+      // supplier id is `contact.supplierId || contact.id`. A contact created in the
+      // CRM without an explicit clientId is still a valid client — its own id is the
+      // client id used across invoices, sales orders, and projects. Matching only on
+      // contact.clientId therefore misses every unlinked contact and shows all zeros.
+      const linkedClientId = contact.clientId || contact.id;
+      const linkedSupplierId = contact.supplierId || contact.id;
 
       const invoices = store
         .listInvoices(companyId)
@@ -4604,6 +4665,26 @@ export function createServer(options: CreateServerOptions = {}) {
       if (sizeBytes !== undefined && sizeBytes < 0) {
         throw new HttpError(400, 'sizeBytes must not be negative.');
       }
+
+      // Accept the file bytes as base64 (optionally a full data: URL). The bytes
+      // are stored so the attachment can actually be viewed and downloaded later.
+      let content: Buffer | undefined;
+      const rawContent = optionalString(body.contentBase64);
+      if (rawContent) {
+        const base64 = rawContent.includes(',') ? rawContent.slice(rawContent.indexOf(',') + 1) : rawContent;
+        try {
+          content = Buffer.from(base64, 'base64');
+        } catch {
+          throw new HttpError(400, 'contentBase64 is not valid base64 data.');
+        }
+        if (content.length === 0) {
+          throw new HttpError(400, 'contentBase64 decoded to an empty file.');
+        }
+        if (content.length > MAX_ATTACHMENT_BYTES) {
+          throw new HttpError(413, `Attachment exceeds the ${Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB limit.`);
+        }
+      }
+
       const attachment = withActor(req, () =>
         store.createRecordAttachment({
           companyId: req.params.companyId,
@@ -4614,9 +4695,28 @@ export function createServer(options: CreateServerOptions = {}) {
           mimeType: optionalString(body.mimeType),
           sizeBytes,
           note: optionalString(body.note),
+          content,
         }),
       );
       res.status(201).json(attachment);
+    }),
+  );
+
+  app.get(
+    '/record-attachments/:id/content',
+    authMiddleware,
+    handler((req, res) => {
+      const attachment = store.getRecordAttachmentById(req.params.id);
+      if (!attachment) throw new HttpError(404, 'Attachment not found.');
+      requireRecordSupportAccess(req, attachment.companyId, attachment.entityType, attachment.entityId);
+      const file = store.getRecordAttachmentContent(req.params.id);
+      if (!file) throw new HttpError(404, 'This attachment has no stored file to download.');
+      const disposition = req.query.download !== undefined ? 'attachment' : 'inline';
+      const safeName = file.fileName.replace(/[^a-zA-Z0-9._ -]+/g, '_') || 'attachment';
+      res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `${disposition}; filename="${safeName}"`);
+      res.setHeader('Content-Length', String(file.content.length));
+      res.send(file.content);
     }),
   );
 
@@ -4837,6 +4937,10 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   }));
   app.get('/work-orders/:id', authMiddleware, handler((req, res) => { res.json(loadWorkOrder(req)); }));
+  app.get('/work-orders/:id/material-availability', authMiddleware, handler((req, res) => {
+    loadWorkOrder(req);
+    res.json(store.getWorkOrderMaterialAvailability(req.params.id));
+  }));
   app.post('/work-orders/:id/complete', authMiddleware, handler((req, res) => {
     loadWorkOrder(req);
     const body = asRecord(req.body, 'body');
@@ -5909,12 +6013,23 @@ export function createServer(options: CreateServerOptions = {}) {
       const issueDate = optionalDateInput(body.issueDate) || new Date().toISOString();
       const dueDate = optionalDateInput(body.dueDate)
         || new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+      const templateId = optionalString(body.templateId);
+      if (templateId) {
+        const template = store.getInvoiceTemplateById(templateId);
+        if (
+          !template
+          || template.companyId !== order.companyId
+          || (template.docType ?? 'invoice') !== 'invoice'
+        ) {
+          throw new HttpError(400, 'Invoice template does not belong to this company or document type.');
+        }
+      }
       const invoice = withActor(req, () =>
         store.createInvoice({
           companyId: order.companyId,
           clientId: order.clientId,
           salesOrderId: order.id,
-          templateId: optionalString(body.templateId),
+          templateId,
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
           lineItems: order.items.map((item) => ({
@@ -5929,6 +6044,7 @@ export function createServer(options: CreateServerOptions = {}) {
           status: 'Draft',
           notes: optionalString(body.notes) || `Created from sales order ${order.orderNumber}.`,
           currency: optionalString(body.currency),
+          exchangeRate: optionalNumber(body.exchangeRate),
           taxRate: optionalNumber(body.taxRate),
         }),
       );
@@ -5982,6 +6098,7 @@ export function createServer(options: CreateServerOptions = {}) {
           store.createDelivery({
             salesOrderId: order.id,
             items,
+            templateId: optionalString(body.templateId),
             carrier: optionalString(body.carrier),
             trackingNumber: optionalString(body.trackingNumber),
             notes: optionalString(body.notes),
@@ -6527,7 +6644,11 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       if (payload.templateId) {
         const template = store.getInvoiceTemplateById(payload.templateId);
-        if (!template || template.companyId !== payload.companyId) {
+        if (
+          !template
+          || template.companyId !== payload.companyId
+          || (template.docType ?? 'invoice') !== 'invoice'
+        ) {
           throw new HttpError(400, 'Invoice template does not belong to this company.');
         }
       }
@@ -6625,7 +6746,11 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       if (targetTemplateId) {
         const template = store.getInvoiceTemplateById(targetTemplateId);
-        if (!template || template.companyId !== targetCompanyId) {
+        if (
+          !template
+          || template.companyId !== targetCompanyId
+          || (template.docType ?? 'invoice') !== 'invoice'
+        ) {
           throw new HttpError(400, 'Invoice template does not belong to this company.');
         }
       }
@@ -6959,6 +7084,7 @@ export function createServer(options: CreateServerOptions = {}) {
             issueDate,
             dueDate,
             amount,
+            taxRate: optionalNumber(body.taxRate),
             status: enumValue(body.status ?? 'Draft', 'status', vendorBillStatuses),
             notes: optionalString(body.notes),
             expenseAccountId,
@@ -7174,6 +7300,36 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'to must be a valid date.');
       }
       res.json(store.getProfitAndLoss(req.params.companyId, from, to));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/finance/revalue-foreign-balances',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const asOf = body.asOf ? new Date(requiredDateInput(body.asOf, 'asOf')) : new Date();
+      if (Number.isNaN(asOf.getTime())) {
+        throw new HttpError(400, 'asOf must be a valid date.');
+      }
+      const rawRates = asRecord(body.rates, 'rates');
+      const rates: Record<string, number> = {};
+      for (const [code, value] of Object.entries(rawRates)) {
+        const rate = optionalNumber(value);
+        if (rate === undefined || !(rate > 0)) {
+          throw new HttpError(400, `rates.${code} must be a positive number.`);
+        }
+        rates[code] = rate;
+      }
+      if (Object.keys(rates).length === 0) {
+        throw new HttpError(400, 'Supply at least one closing rate, e.g. { "rates": { "OMR": 2.6 } }.');
+      }
+      try {
+        res.json(withActor(req, () => store.revalueForeignBalances(req.params.companyId, asOf, rates)));
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not revalue balances.');
+      }
     }),
   );
 
@@ -7723,7 +7879,13 @@ export function createServer(options: CreateServerOptions = {}) {
       && 'type' in error
       && error.type === 'entity.too.large'
     ) {
-      return res.status(413).json({ message: 'Request is too large. Uploaded images must be 2 MB or smaller.' });
+      // The limit depends on the route (templates and attachments get larger
+      // parsers), so name the one that actually applied instead of a fixed size.
+      const limitBytes = Number((error as { limit?: number }).limit) || 0;
+      const limitLabel = limitBytes > 0 ? `${Math.round(limitBytes / (1024 * 1024))} MB` : 'the limit';
+      return res.status(413).json({
+        message: `Request is too large for this endpoint (max ${limitLabel}). Try a smaller image or PDF.`,
+      });
     }
     logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);
     res.status(500).json({ message: 'Internal server error.' });

@@ -334,11 +334,13 @@ type CreateVendorBillPaymentInput = Omit<VendorBillPayment, 'id'>;
 type CreateInvoiceTemplateInput = Omit<InvoiceTemplate, 'id' | 'createdAt' | 'updatedAt'>;
 type CreateRecordAttachmentInput = Omit<
   RecordAttachment,
-  'id' | 'createdAt' | 'uploadedByUserId' | 'uploadedByName'
+  'id' | 'createdAt' | 'uploadedByUserId' | 'uploadedByName' | 'hasContent'
 > & {
   createdAt?: Date | string;
   uploadedByUserId?: string;
   uploadedByName?: string;
+  /** Raw file bytes to persist so the attachment can be viewed/downloaded later. */
+  content?: Buffer | null;
 };
 
 const defaultLedgerAccounts: Array<
@@ -372,6 +374,7 @@ const defaultLedgerAccounts: Array<
   { code: '5700', name: 'Marketing Expense', type: 'Expense', detailType: 'Marketing', description: 'Promotional and campaign spend.', isActive: true, isSystem: true },
   { code: '5800', name: 'Travel Expense', type: 'Expense', detailType: 'Travel', description: 'Business travel and related costs.', isActive: true, isSystem: true },
   { code: '5900', name: 'Commission Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Sales commissions earned by staff (accrual basis).', isActive: true, isSystem: true },
+  { code: '5950', name: 'Foreign Exchange Gain / (Loss)', type: 'Expense', detailType: 'Currency revaluation', description: 'Movement on foreign-currency balances; a debit is a loss, a credit a gain.', isActive: true, isSystem: true },
 ];
 
 const ledgerAccountCodeBases: Record<LedgerAccountType, number> = {
@@ -3199,12 +3202,100 @@ export class DataStore {
               fieldValues TEXT NOT NULL DEFAULT '{}',
               docSnapshot TEXT,
               letterheadSnapshot TEXT,
+              templateSnapshot TEXT,
               status TEXT NOT NULL DEFAULT 'draft',
               createdAt TEXT NOT NULL,
               updatedAt TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_documents_company ON documents(companyId, createdAt);
           `);
+        },
+      },
+      {
+        id: '070_typed_document_template_links',
+        run: () => {
+          const documentColumns = (this.db.prepare('PRAGMA table_info(documents)').all() as any[])
+            .map((column) => column.name);
+          if (!documentColumns.includes('templateSnapshot')) {
+            this.db.exec('ALTER TABLE documents ADD COLUMN templateSnapshot TEXT;');
+          }
+          const deliveryColumns = (this.db.prepare('PRAGMA table_info(deliveries)').all() as any[])
+            .map((column) => column.name);
+          if (!deliveryColumns.includes('templateId')) {
+            this.db.exec('ALTER TABLE deliveries ADD COLUMN templateId TEXT;');
+          }
+          if (!deliveryColumns.includes('templateSnapshot')) {
+            this.db.exec('ALTER TABLE deliveries ADD COLUMN templateSnapshot TEXT;');
+          }
+        },
+      },
+      {
+        // Attachments used to store only metadata (a file name + optional URL), so
+        // uploaded files could never be viewed or downloaded. Add a BLOB column so
+        // the actual bytes live with the record and can be served back on demand.
+        id: '071_attachment_content',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(record_attachments)').all() as any[])
+            .map((column) => column.name);
+          if (!columns.includes('content')) {
+            this.db.exec('ALTER TABLE record_attachments ADD COLUMN content BLOB;');
+          }
+        },
+      },
+      {
+        // Vendor bills had no tax field, so recoverable input VAT could never be
+        // separated from the expense — leaving the VAT return with nothing to claim.
+        id: '072_vendor_bill_tax',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(vendor_bills)').all() as any[])
+            .map((column) => column.name);
+          if (!columns.includes('taxRate')) {
+            this.db.exec('ALTER TABLE vendor_bills ADD COLUMN taxRate REAL NOT NULL DEFAULT 0;');
+          }
+        },
+      },
+      {
+        // Foreign-currency invoices used to post their face value straight into the
+        // ledger, so USD, OMR and JPY amounts were added together as plain numbers.
+        // Carry an explicit rate so the ledger can hold base-currency amounts.
+        id: '073_invoice_exchange_rate',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(invoices)').all() as any[])
+            .map((column) => column.name);
+          if (!columns.includes('exchangeRate')) {
+            this.db.exec('ALTER TABLE invoices ADD COLUMN exchangeRate REAL NOT NULL DEFAULT 1;');
+          }
+        },
+      },
+      {
+        // The commission status enum declared 'Void' while the store wrote and
+        // compared 'Voided'. Rows written through the API validator therefore
+        // landed as 'Void' and were invisible to the void logic. Normalise on the
+        // value the data and UI already use.
+        id: '074_commission_voided_status',
+        run: () => {
+          this.db.exec("UPDATE commissions SET status = 'Voided' WHERE status = 'Void';");
+        },
+      },
+      {
+        // Somewhere to book the movement on open foreign-currency balances.
+        id: '075_fx_revaluation_account',
+        run: () => {
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+          const exists = this.db.prepare('SELECT 1 FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1');
+          const insert = this.db.prepare(
+            'INSERT INTO ledger_accounts (id, companyId, code, name, type, detailType, description, isActive, isSystem) VALUES (@id, @companyId, @code, @name, @type, @detailType, @description, @isActive, @isSystem)',
+          );
+          for (const c of companies) {
+            if (!exists.get(c.id, '5950')) {
+              insert.run({
+                id: uuid(), companyId: c.id, code: '5950', name: 'Foreign Exchange Gain / (Loss)',
+                type: 'Expense', detailType: 'Currency revaluation',
+                description: 'Movement on foreign-currency balances; a debit is a loss, a credit a gain.',
+                isActive: 1, isSystem: 1,
+              });
+            }
+          }
         },
       },
     ];
@@ -5111,6 +5202,9 @@ export class DataStore {
   deleteInvoice(id: string): void {
     const invoice = this.getInvoiceById(id);
     if (!invoice) throw new Error('Invoice not found.');
+    // Deleting hard-removes the journal entries too, so it would silently rewrite
+    // a closed period. Guard it exactly like posting does.
+    this.assertOpenFinancialDate(invoice.companyId, invoice.issueDate, 'Invoice issue date');
     const payment = this.db.prepare('SELECT 1 FROM payments WHERE invoiceId = ? LIMIT 1').get(id);
     if (payment) {
       throw new Error('Cannot delete an invoice that has recorded payments. Reverse the payments first.');
@@ -5125,7 +5219,9 @@ export class DataStore {
         .prepare('SELECT id, status FROM commissions WHERE invoiceId = ?')
         .all(id) as Array<{ id: string; status: CommissionStatus }>;
       commissions.forEach(({ id: commissionId, status }) => {
-        this.voidCommission(commissionId, 'Source invoice deleted.');
+        // The sale itself is being withdrawn, so a paid commission is reversed
+        // here deliberately — the guard below verifies the reversal landed.
+        this.voidCommission(commissionId, 'Source invoice deleted.', { allowPaid: true });
         if (status === 'Approved' || status === 'Paid') {
           const accrualReversal = this.db
             .prepare(
@@ -5214,6 +5310,9 @@ export class DataStore {
   deleteVendorBill(id: string): void {
     const bill = this.getVendorBillById(id);
     if (!bill) throw new Error('Vendor bill not found.');
+    // As with invoices: removing the bill also removes its ledger entries, so a
+    // locked period must stay locked against deletion.
+    this.assertOpenFinancialDate(bill.companyId, bill.issueDate, 'Vendor invoice issue date');
     const payment = this.db.prepare('SELECT 1 FROM vendor_bill_payments WHERE billId = ? LIMIT 1').get(id);
     if (payment) {
       throw new Error('Cannot delete a vendor bill that has recorded payments. Reverse the payments first.');
@@ -5232,6 +5331,7 @@ export class DataStore {
   deleteCreditNote(id: string): void {
     const note = this.getCreditNoteById(id);
     if (!note) throw new Error('Credit note not found.');
+    this.assertOpenFinancialDate(note.companyId, note.issueDate, 'Credit note date');
     const trx = this.db.transaction(() => {
       this.removeJournalEntriesBySource('credit_note', id);
       this.db.prepare('DELETE FROM credit_notes WHERE id = ?').run(id);
@@ -5527,6 +5627,13 @@ export class DataStore {
   /** Create a payroll run for a period, generating a payslip for each active employee. */
   createPayrollRun(companyId: string, period: string, notes?: string): PayrollRun {
     if (!/^\d{4}-\d{2}$/.test(period)) throw new Error('period must be YYYY-MM.');
+    // Two runs for one period means two WPS files and a real risk of paying twice.
+    const duplicate = this.db
+      .prepare('SELECT id FROM payroll_runs WHERE companyId = ? AND period = ? LIMIT 1')
+      .get(companyId, period) as { id?: string } | undefined;
+    if (duplicate?.id) {
+      throw new Error(`A payroll run already exists for ${period}. Delete it first, or use a different period.`);
+    }
     const employees = this.listEmployees(companyId).filter((e) => e.status === 'Active');
     if (employees.length === 0) throw new Error('No active employees to run payroll for.');
     const id = uuid();
@@ -5559,14 +5666,79 @@ export class DataStore {
   }
 
   updatePayrollRunStatus(id: string, status: PayrollRunStatus): PayrollRun | undefined {
-    if (!this.getPayrollRunById(id)) return undefined;
+    const run = this.getPayrollRunById(id);
+    if (!run) return undefined;
+    // Payroll only moves forward. Reverting a paid run would strip its ledger
+    // entries and leave wages that were actually disbursed unrecorded.
+    const order: PayrollRunStatus[] = ['draft', 'approved', 'paid'];
+    if (order.indexOf(status) < order.indexOf(run.status)) {
+      throw new Error(`A ${run.status} payroll run cannot be moved back to ${status}.`);
+    }
     this.db.prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run(status, id);
-    return this.getPayrollRunById(id);
+    const updated = this.getPayrollRunById(id);
+    // Wages hit the ledger once the run is approved for payment.
+    if (updated && (status === 'approved' || status === 'paid')) {
+      this.postPayrollJournal(updated);
+    }
+    return updated;
+  }
+
+  /**
+   * Recognises payroll in the ledger: Dr Salaries Expense / Cr Cash for the run's
+   * total net pay. Without this, wages — usually the largest operating cost —
+   * never appeared in the P&L or in budget variance at all. Idempotent.
+   */
+  private postPayrollJournal(run: PayrollRun) {
+    const amount = Number(Number(run.totalNet || 0).toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const existing = this.db
+      .prepare("SELECT id FROM journal_entries WHERE sourceType = 'payroll' AND sourceId = ? LIMIT 1")
+      .get(run.id) as { id?: string } | undefined;
+    if (existing?.id) return;
+
+    // Period is YYYY-MM; book it at period end, but never in the future — a run
+    // approved mid-month would otherwise be invisible on an as-of-today trial
+    // balance while still showing in the period's P&L.
+    const [year, month] = run.period.split('-').map(Number);
+    const now = new Date();
+    const periodEnd = Number.isFinite(year) && Number.isFinite(month)
+      ? new Date(year, month, 0)
+      : run.createdAt;
+    const entryDate = periodEnd > now ? now : periodEnd;
+
+    this.createJournalEntry({
+      companyId: run.companyId,
+      sourceType: 'payroll',
+      sourceId: run.id,
+      memo: `Payroll ${run.period} (${run.payslips.length} employees)`,
+      entryDate,
+      lines: [
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(run.companyId, '5200'),
+          description: 'Salaries and wages',
+          debit: amount,
+          credit: 0,
+        },
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(run.companyId, '1000'),
+          description: 'Net pay disbursed',
+          debit: 0,
+          credit: amount,
+        },
+      ],
+    });
   }
 
   deletePayrollRun(id: string): boolean {
-    if (!this.getPayrollRunById(id)) return false;
+    const run = this.getPayrollRunById(id);
+    if (!run) return false;
+    if (run.status === 'paid') {
+      throw new Error('A paid payroll run cannot be deleted; its wages are already posted.');
+    }
     const trx = this.db.transaction(() => {
+      this.removeJournalEntriesBySource('payroll', id);
       this.db.prepare('DELETE FROM payslips WHERE runId = ?').run(id);
       this.db.prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
     });
@@ -6013,6 +6185,60 @@ export class DataStore {
     return this.getWorkOrderById(id)!;
   }
 
+  /**
+   * Component availability for a work order: what each component needs, what is
+   * on hand, and what is already committed to other open work orders. Lets a
+   * planner see a shortage before completion fails, instead of discovering it
+   * mid-run when the stock guard throws.
+   */
+  getWorkOrderMaterialAvailability(id: string): Array<{
+    componentItemId: string;
+    name: string;
+    required: number;
+    onHand: number;
+    committedElsewhere: number;
+    available: number;
+    shortfall: number;
+  }> {
+    const wo = this.getWorkOrderById(id);
+    if (!wo) return [];
+    const recipe = this.getRecipeById(wo.recipeId);
+    if (!recipe) return [];
+
+    // Quantities already promised to other planned/in-progress work orders.
+    const openOrders = this.listWorkOrders(wo.companyId).filter(
+      (o) => o.id !== wo.id && (o.status === 'planned' || o.status === 'in_progress'),
+    );
+    const committed = new Map<string, number>();
+    for (const other of openOrders) {
+      const otherRecipe = this.getRecipeById(other.recipeId);
+      if (!otherRecipe) continue;
+      for (const c of otherRecipe.components) {
+        committed.set(
+          c.componentItemId,
+          (committed.get(c.componentItemId) || 0) + c.quantity * other.batches,
+        );
+      }
+    }
+
+    return recipe.components.map((c) => {
+      const item = this.getInventoryItemById(c.componentItemId);
+      const required = Number((c.quantity * wo.batches).toFixed(3));
+      const onHand = Number(item?.onHand || 0);
+      const committedElsewhere = Number((committed.get(c.componentItemId) || 0).toFixed(3));
+      const available = Number((onHand - committedElsewhere).toFixed(3));
+      return {
+        componentItemId: c.componentItemId,
+        name: item?.name || 'Unknown item',
+        required,
+        onHand,
+        committedElsewhere,
+        available,
+        shortfall: Number(Math.max(0, required - available).toFixed(3)),
+      };
+    });
+  }
+
   /** Complete a work order: consume components, produce output, record cost. */
   completeWorkOrder(id: string, producedQuantity?: number): WorkOrder | undefined {
     const wo = this.getWorkOrderById(id);
@@ -6024,6 +6250,11 @@ export class DataStore {
     const produced = producedQuantity !== undefined ? Number(producedQuantity) : wo.expectedQuantity;
     if (!(produced > 0)) throw new Error('Produced quantity must be greater than zero.');
     let materialCost = 0;
+    // Materials are issued per the recipe regardless of how much came out the
+    // other end — an under-run means the inputs were still consumed. Rather than
+    // silently scaling consumption, record the shortfall as an explicit yield
+    // variance so process loss is visible instead of hidden in the cost.
+    const yieldVariance = Number((produced - wo.expectedQuantity).toFixed(3));
     const trx = this.db.transaction(() => {
       for (const c of recipe.components) {
         const consume = Number((c.quantity * wo.batches).toFixed(3));
@@ -6032,12 +6263,38 @@ export class DataStore {
         this.createInventoryAdjustment(wo.companyId, c.componentItemId, -consume, `Work order ${wo.reference} consumption`);
         materialCost += Number(item?.unitCost || 0) * consume;
       }
+      // Capitalize what the run actually cost into the finished good before the
+      // output quantity lands, so the item carries a real cost basis instead of
+      // whatever stale figure it held. Under-runs raise the per-unit cost, which
+      // is the correct signal.
+      this.applyWeightedAverageCost(
+        wo.companyId,
+        recipe.outputItemId,
+        produced,
+        materialCost / produced,
+      );
       this.createInventoryAdjustment(wo.companyId, recipe.outputItemId, produced, `Work order ${wo.reference} output`);
       this.db.prepare("UPDATE work_orders SET status='completed', producedQuantity=?, materialCost=?, completedAt=? WHERE id=?")
         .run(produced, Number(materialCost.toFixed(2)), new Date().toISOString(), id);
     });
     trx();
-    this.createActivityEvent({ companyId: wo.companyId, entityType: 'work_order', entityId: id, action: 'completed', summary: `Work order ${wo.reference} completed: ${produced} produced.`, metadata: { produced, materialCost: Number(materialCost.toFixed(2)) } });
+    const unitCost = Number((materialCost / produced).toFixed(4));
+    this.createActivityEvent({
+      companyId: wo.companyId,
+      entityType: 'work_order',
+      entityId: id,
+      action: 'completed',
+      summary: yieldVariance === 0
+        ? `Work order ${wo.reference} completed: ${produced} produced.`
+        : `Work order ${wo.reference} completed: ${produced} produced (${yieldVariance > 0 ? '+' : ''}${yieldVariance} vs expected ${wo.expectedQuantity}).`,
+      metadata: {
+        produced,
+        expected: wo.expectedQuantity,
+        yieldVariance,
+        materialCost: Number(materialCost.toFixed(2)),
+        unitCost,
+      },
+    });
     return this.getWorkOrderById(id);
   }
 
@@ -6136,12 +6393,18 @@ export class DataStore {
   // ─── Document builder: document instances ──────────────────────────────────
 
   private decodeDocument(row: any): DocumentRecord {
-    const template = this.getDocumentTemplateById(row.templateId);
+    const legacyTemplate = this.getDocumentTemplateById(row.templateId);
+    const templateSnapshot = row.templateSnapshot
+      ? this.parseJson<InvoiceTemplate>(row.templateSnapshot)
+      : undefined;
+    const typedTemplate = templateSnapshot || this.getInvoiceTemplateById(row.templateId);
     return {
       id: row.id,
       companyId: row.companyId,
       templateId: row.templateId,
-      templateName: template?.name,
+      templateName: typedTemplate?.name ?? legacyTemplate?.name,
+      templateType: typedTemplate?.docType,
+      templateSnapshot,
       title: row.title,
       recordType: (row.recordType ?? undefined) as DocumentDataSource | undefined,
       recordId: row.recordId ?? undefined,
@@ -6169,23 +6432,43 @@ export class DataStore {
     templateId: string; title?: string; recordType?: DocumentDataSource; recordId?: string;
     fieldValues?: Record<string, string>; status?: DocumentStatus;
   }): DocumentRecord {
-    const template = this.getDocumentTemplateById(input.templateId);
-    if (!template || template.companyId !== companyId) throw new Error('Template does not belong to this company.');
+    const legacyTemplate = this.getDocumentTemplateById(input.templateId);
+    const typedTemplate = this.getInvoiceTemplateById(input.templateId);
+    const genericDocumentTypes = new Set<TemplateDocType>([
+      'quote',
+      'letter',
+      'memo',
+      'certificate',
+      'statement',
+      'custom',
+    ]);
+    if (typedTemplate) {
+      if (typedTemplate.companyId !== companyId) {
+        throw new Error('Template does not belong to this company.');
+      }
+      if (!genericDocumentTypes.has(typedTemplate.docType ?? 'invoice')) {
+        throw new Error('Template document type is not compatible with generic document creation.');
+      }
+    } else if (!legacyTemplate || legacyTemplate.companyId !== companyId) {
+      throw new Error('Template does not belong to this company.');
+    }
+    const templateName = typedTemplate?.name ?? legacyTemplate!.name;
     const id = uuid();
     const nowIso = new Date().toISOString();
-    this.db.prepare('INSERT INTO documents (id, companyId, templateId, title, recordType, recordId, fieldValues, docSnapshot, letterheadSnapshot, status, createdAt, updatedAt) VALUES (@id,@companyId,@templateId,@title,@recordType,@recordId,@fieldValues,@docSnapshot,@letterheadSnapshot,@status,@createdAt,@updatedAt)')
+    this.db.prepare('INSERT INTO documents (id, companyId, templateId, title, recordType, recordId, fieldValues, docSnapshot, letterheadSnapshot, templateSnapshot, status, createdAt, updatedAt) VALUES (@id,@companyId,@templateId,@title,@recordType,@recordId,@fieldValues,@docSnapshot,@letterheadSnapshot,@templateSnapshot,@status,@createdAt,@updatedAt)')
       .run({
-        id, companyId, templateId: template.id,
-        title: (input.title || template.name).trim(),
-        recordType: input.recordType ?? template.dataSource ?? null,
+        id, companyId, templateId: input.templateId,
+        title: (input.title || templateName).trim(),
+        recordType: input.recordType ?? legacyTemplate?.dataSource ?? null,
         recordId: input.recordId ?? null,
         fieldValues: JSON.stringify(input.fieldValues || {}),
-        docSnapshot: template.doc ? JSON.stringify(template.doc) : null,
-        letterheadSnapshot: template.letterhead ? JSON.stringify(template.letterhead) : null,
+        docSnapshot: legacyTemplate?.doc ? JSON.stringify(legacyTemplate.doc) : null,
+        letterheadSnapshot: legacyTemplate?.letterhead ? JSON.stringify(legacyTemplate.letterhead) : null,
+        templateSnapshot: typedTemplate ? JSON.stringify(typedTemplate) : null,
         status: input.status ?? 'draft',
         createdAt: nowIso, updatedAt: nowIso,
       });
-    this.createActivityEvent({ companyId, entityType: 'document', entityId: id, action: 'created', summary: `Document "${(input.title || template.name).trim()}" created.` });
+    this.createActivityEvent({ companyId, entityType: 'document', entityId: id, action: 'created', summary: `Document "${(input.title || templateName).trim()}" created.` });
     return this.getDocumentById(id)!;
   }
 
@@ -6214,6 +6497,19 @@ export class DataStore {
   buildWpsCsv(id: string): string {
     const run = this.getPayrollRunById(id);
     if (!run) throw new Error('Payroll run not found.');
+
+    // A SIF file with missing IBANs is rejected by the bank — or worse, silently
+    // skips those employees. Fail loudly here, naming who needs bank details.
+    const missing = run.payslips
+      .map((slip) => ({ slip, employee: this.getEmployeeById(slip.employeeId) }))
+      .filter(({ employee }) => !(employee?.iban || '').trim())
+      .map(({ slip }) => slip.employeeName);
+    if (missing.length > 0) {
+      throw new Error(
+        `Cannot build the WPS file: missing IBAN for ${missing.join(', ')}. Add bank details for these employees first.`,
+      );
+    }
+
     const header = ['EmployeeID', 'EmployeeName', 'BankName', 'IBAN', 'Period', 'NetSalary'];
     const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = run.payslips.map((s) => {
@@ -8534,10 +8830,19 @@ export class DataStore {
 		  updateCommissionStatus(id: string, status: CommissionStatus): Commission | undefined {
 		    if (status === 'Approved') return this.approveCommission(id);
 		    if (status === 'Paid')     return this.payCommission(id);
-		    // Reset to Draft: only clear approval/payment metadata; don't reverse a
-		    // posted journal automatically — caller should use voidCommission.
+		    // Voiding must go through voidCommission so the accrual is reversed;
+		    // writing the status straight to the row would strand the ledger entries.
+		    if (status === 'Voided')   return this.voidCommission(id);
+		    // Reverting to Draft used to leave the accrual posted, so the books carried
+		    // an expense and a payable for a commission that showed as unapproved.
+		    // Void is the only way back out of an approved state.
 		    const existing = this.getCommissionById(id);
 		    if (!existing) return undefined;
+		    if (status === 'Draft' && (existing.status === 'Approved' || existing.status === 'Paid')) {
+		      throw new Error(
+		        `A ${existing.status.toLowerCase()} commission cannot be reset to draft. Void it instead so the ledger is reversed.`,
+		      );
+		    }
 		    this.db
 		      .prepare('UPDATE commissions SET status = ? WHERE id = ?')
 		      .run(status, id);
@@ -8610,9 +8915,10 @@ export class DataStore {
 		    if (!existing.amount || existing.amount <= 0) {
 		      throw new Error('Cannot pay a commission with zero amount.');
 		    }
-		    // If somehow paying a Draft directly, post the accrual first.
+		    // Approval is the control that authorises the spend; paying straight from
+		    // Draft would walk around it entirely.
 		    if (existing.status === 'Draft') {
-		      this.approveCommission(id);
+		      throw new Error('Approve the commission before paying it.');
 		    }
 		    const now = new Date();
 		    const actorUserId = this.currentActor?.userId ?? null;
@@ -8649,12 +8955,22 @@ export class DataStore {
 		   * previously posted, so the ledger ends up flat. Paid commissions
 		   * reverse both the accrual and the payment.
 		   */
-		  voidCommission(id: string, reason?: string): Commission | undefined {
+		  voidCommission(id: string, reason?: string, options: { allowPaid?: boolean } = {}): Commission | undefined {
 		    const existing = this.getCommissionById(id);
 		    if (!existing) return undefined;
 		    if (existing.status === 'Voided') return existing;
-		    const wasApproved = existing.status === 'Approved' || existing.status === 'Paid';
-		    const wasPaid = existing.status === 'Paid';
+		    // Voiding a paid commission unwinds the cash disbursement in the books
+		    // even though the money actually left. Blocked for direct callers; the
+		    // invoice-deletion path opts in explicitly, because it has already
+		    // established that the whole sale is being withdrawn.
+		    if (existing.status === 'Paid' && !options.allowPaid) {
+		      throw new Error(
+		        'A paid commission cannot be voided; the payment has already been disbursed. Record a repayment or reversing entry instead.',
+		      );
+		    }
+		    const status: CommissionStatus = existing.status;
+		    const wasApproved = status === 'Approved' || status === 'Paid';
+		    const wasPaid = status === 'Paid';
 		    const now = new Date();
 		    this.db
 		      .prepare('UPDATE commissions SET status = ?, voidedAt = ? WHERE id = ?')
@@ -10038,6 +10354,46 @@ export class DataStore {
     return rows.map((row) => this.decodeStockMovement(row));
   }
 
+  /**
+   * Rolls an incoming quantity into the item's moving weighted-average cost.
+   *
+   * newCost = (onHandValue + incomingValue) / (onHand + incomingQty)
+   *
+   * Called whenever stock arrives at a known cost (purchase receipt, production
+   * output). Without this the item's unitCost is whatever someone typed once, and
+   * every downstream valuation — stock value, COGS, production cost — inherits
+   * that drift. Quantities on hand are read *before* the caller adds the receipt.
+   */
+  private applyWeightedAverageCost(
+    companyId: string,
+    inventoryItemId: string,
+    incomingQuantity: number,
+    incomingUnitCost: number,
+  ) {
+    const quantity = Number(incomingQuantity);
+    const unitCost = Number(incomingUnitCost);
+    if (!(quantity > 0) || !Number.isFinite(unitCost) || unitCost < 0) return;
+
+    const row = this.db
+      .prepare('SELECT onHand, unitCost FROM inventory_items WHERE id = ? AND companyId = ?')
+      .get(inventoryItemId, companyId) as { onHand?: number; unitCost?: number } | undefined;
+    if (!row) return;
+
+    const priorQty = Number(row.onHand) || 0;
+    const priorCost = Number(row.unitCost) || 0;
+    // Negative or zero prior stock has no meaningful value to average against;
+    // the incoming cost simply becomes the new basis.
+    const totalQty = priorQty + quantity;
+    const nextCost =
+      priorQty > 0 && totalQty > 0
+        ? (priorQty * priorCost + quantity * unitCost) / totalQty
+        : unitCost;
+
+    this.db
+      .prepare('UPDATE inventory_items SET unitCost = ? WHERE id = ? AND companyId = ?')
+      .run(Number(nextCost.toFixed(4)), inventoryItemId, companyId);
+  }
+
   createInventoryAdjustment(
     companyId: string,
     inventoryItemId: string,
@@ -10624,6 +10980,7 @@ export class DataStore {
   createDelivery(input: {
     salesOrderId: string;
     items: Array<{ salesOrderLineIndex: number; quantity: number; location?: string }>;
+    templateId?: string;
     carrier?: string;
     trackingNumber?: string;
     notes?: string;
@@ -10635,6 +10992,20 @@ export class DataStore {
     }
     if (order.status === 'Cancelled' || order.status === 'Draft') {
       throw new Error('Only confirmed or invoiced sales orders can be fulfilled.');
+    }
+    const deliveryTemplates = this.listInvoiceTemplates(order.companyId, 'delivery');
+    const selectedTemplate = input.templateId
+      ? this.getInvoiceTemplateById(input.templateId)
+      : deliveryTemplates.find((template) => template.isDefault) ?? deliveryTemplates[0];
+    if (
+      input.templateId
+      && (
+        !selectedTemplate
+        || selectedTemplate.companyId !== order.companyId
+        || selectedTemplate.docType !== 'delivery'
+      )
+    ) {
+      throw new Error('Delivery template does not belong to this company or document type.');
     }
 
     const deliveredByLine = this.getDeliveredQuantityByLine(order.id);
@@ -10684,13 +11055,15 @@ export class DataStore {
       trackingNumber: input.trackingNumber,
       notes: input.notes,
       scheduledFor: input.scheduledFor,
+      templateId: selectedTemplate?.id,
+      templateSnapshot: selectedTemplate,
       createdAt: new Date(),
     };
 
     this.db
       .prepare(
-        `INSERT INTO deliveries (id, companyId, deliveryNumber, salesOrderId, status, items, carrier, trackingNumber, notes, scheduledFor, dispatchedAt, deliveredAt, cancelledAt, createdAt)
-         VALUES (@id, @companyId, @deliveryNumber, @salesOrderId, @status, @items, @carrier, @trackingNumber, @notes, @scheduledFor, @dispatchedAt, @deliveredAt, @cancelledAt, @createdAt)`,
+        `INSERT INTO deliveries (id, companyId, deliveryNumber, salesOrderId, status, items, carrier, trackingNumber, notes, scheduledFor, dispatchedAt, deliveredAt, cancelledAt, templateId, templateSnapshot, createdAt)
+         VALUES (@id, @companyId, @deliveryNumber, @salesOrderId, @status, @items, @carrier, @trackingNumber, @notes, @scheduledFor, @dispatchedAt, @deliveredAt, @cancelledAt, @templateId, @templateSnapshot, @createdAt)`,
       )
       .run({
         ...delivery,
@@ -10702,6 +11075,8 @@ export class DataStore {
         dispatchedAt: null,
         deliveredAt: null,
         cancelledAt: null,
+        templateId: delivery.templateId ?? null,
+        templateSnapshot: delivery.templateSnapshot ? JSON.stringify(delivery.templateSnapshot) : null,
         createdAt: delivery.createdAt.toISOString(),
       });
 
@@ -10731,12 +11106,16 @@ export class DataStore {
       'UPDATE inventory_items SET onHand = onHand - ? WHERE id = ? AND companyId = ?',
     );
 
+    // Carrying cost of everything dispatched, recognised as COGS after the move.
+    let dispatchedCost = 0;
+
     const trx = this.db.transaction(() => {
       delivery.items.forEach((line) => {
         if (!line.inventoryItemId) return;
         const inventoryItem = this.getInventoryItemById(line.inventoryItemId);
         if (!inventoryItem || !inventoryItem.tracksInventory) return;
         const location = this.normalizeInventoryLocation(line.location || inventoryItem.location);
+        dispatchedCost += Number(line.quantity) * (Number(inventoryItem.unitCost) || 0);
         // decrement on-hand (allow negative; surface warnings on stock movement)
         updateItemQty.run(line.quantity, line.inventoryItemId, delivery.companyId);
         this.incrementLocationBalance(
@@ -10763,6 +11142,14 @@ export class DataStore {
     });
 
     trx();
+
+    this.postDeliveryCogsJournal(
+      delivery.companyId,
+      delivery.id,
+      delivery.deliveryNumber,
+      shipAt,
+      dispatchedCost,
+    );
 
     const updated = this.getDeliveryById(id);
     if (!updated) throw new Error('Delivery not found after dispatch.');
@@ -11577,6 +11964,10 @@ export class DataStore {
       'UPDATE purchase_orders SET status = ?, receivedAt = ? WHERE id = ?',
     );
 
+    // Value of tracked stock actually received, capitalized to the balance sheet
+    // once the transaction succeeds (see postPurchaseReceiptJournal).
+    let receiptValue = 0;
+
     const trx = this.db.transaction(() => {
       insertReceipt.run({
         ...receipt,
@@ -11596,7 +11987,16 @@ export class DataStore {
           if (!inventoryItem?.tracksInventory) {
             return;
           }
+          receiptValue += Number(item.quantity) * Number(item.unitCost || 0);
           const stockLocation = this.resolveStockLocation(order.companyId, inventoryItem?.location);
+          // Roll the purchase price into the item's carrying cost before the
+          // quantity lands, so the average is taken against the prior balance.
+          this.applyWeightedAverageCost(
+            order.companyId,
+            inventoryItemId,
+            item.quantity,
+            item.unitCost,
+          );
           if (item.lotNumber) {
             // GRN with batch capture: createInventoryLot handles the onHand +
             // location balance + traceable stock movement for this lot.
@@ -11654,6 +12054,10 @@ export class DataStore {
     });
 
     trx();
+
+    // Goods are on the balance sheet the moment they arrive, offset by an accrual
+    // that the vendor bill later clears.
+    this.postPurchaseReceiptJournal(order.companyId, receipt.id, receipt.receivedAt, receiptValue);
 
     const updated = this.getPurchaseOrderById(order.id);
     if (!updated) {
@@ -11951,6 +12355,7 @@ export class DataStore {
         createdAt: nowIso,
         updatedAt: nowIso,
       });
+    this.postExpenseJournal(expense);
     this.createActivityEvent({
       companyId: expense.companyId,
       entityType: 'expense',
@@ -11962,9 +12367,49 @@ export class DataStore {
     return expense;
   }
 
+  /**
+   * Recognises a standalone expense in the ledger: Dr Operating Expenses /
+   * Cr Cash. Without this, spend entered on the Expenses screen never reached the
+   * P&L at all, so operating costs were understated. Idempotent.
+   */
+  private postExpenseJournal(expense: Expense) {
+    if (!(expense.amount > 0)) return;
+    const existing = this.db
+      .prepare("SELECT id FROM journal_entries WHERE sourceType = 'expense' AND sourceId = ? LIMIT 1")
+      .get(expense.id) as { id?: string } | undefined;
+    if (existing?.id) return;
+
+    this.createJournalEntry({
+      companyId: expense.companyId,
+      sourceType: 'expense',
+      sourceId: expense.id,
+      memo: `Expense: ${expense.category}${expense.vendor ? ` — ${expense.vendor}` : ''}`,
+      entryDate: expense.expenseDate,
+      lines: [
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(expense.companyId, '5000'),
+          description: expense.description || expense.category,
+          debit: expense.amount,
+          credit: 0,
+        },
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(expense.companyId, '1000'),
+          description: 'Cash paid',
+          debit: 0,
+          credit: expense.amount,
+        },
+      ],
+    });
+  }
+
   deleteExpense(id: string): boolean {
     const existing = this.getExpenseById(id);
     if (!existing) return false;
+    // Deleting removes the ledger entry too, so a closed period must stay closed.
+    this.assertOpenFinancialDate(existing.companyId, existing.expenseDate, 'Expense date');
+    this.removeJournalEntriesBySource('expense', id);
     this.db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
     return true;
   }
@@ -12204,6 +12649,91 @@ export class DataStore {
     return Number(this.normalBalanceMovement(type, Number(row.debit) || 0, Number(row.credit) || 0).toFixed(2));
   }
 
+  /**
+   * Restates open foreign-currency receivables at period-end rates.
+   *
+   * Invoices are posted to the ledger at the rate on their issue date and stay
+   * there, so once rates move, the base-currency value of what is still owed
+   * drifts from reality. This books the difference to 5950 against receivables:
+   *
+   *   revalued = outstanding (foreign) × closing rate
+   *   carrying = outstanding (foreign) × the invoice's original rate
+   *   delta    = revalued − carrying     (positive = gain, AR worth more)
+   *
+   * `rates` maps currency code → units of base currency, e.g. { OMR: 2.6 }. Only
+   * currencies supplied are revalued; anything missing is reported as skipped so
+   * the caller can see what still needs a rate. Idempotent per company and date.
+   */
+  revalueForeignBalances(
+    companyId: string,
+    asOf: Date,
+    rates: Record<string, number>,
+  ): {
+    asOf: Date;
+    entryId?: string;
+    netAdjustment: number;
+    lines: Array<{ invoiceId: string; invoiceNumber: string; currency: string; outstanding: number; fromRate: number; toRate: number; delta: number }>;
+    skippedCurrencies: string[];
+  } {
+    const base = this.getCompanyFinanceSettings(companyId).currencyCode;
+    const normalizedRates = new Map<string, number>();
+    for (const [code, rate] of Object.entries(rates || {})) {
+      const value = Number(rate);
+      if (Number.isFinite(value) && value > 0) normalizedRates.set(code.toUpperCase(), value);
+    }
+
+    const lines: Array<{ invoiceId: string; invoiceNumber: string; currency: string; outstanding: number; fromRate: number; toRate: number; delta: number }> = [];
+    const skipped = new Set<string>();
+
+    for (const invoice of this.listInvoices(companyId)) {
+      const currency = (invoice.currency || base).toUpperCase();
+      if (currency === base) continue;
+      if (invoice.issueDate.getTime() > asOf.getTime()) continue;
+      const outstanding = Number(invoice.outstandingAmount || 0);
+      if (!(outstanding > 0.0001)) continue;
+
+      const toRate = normalizedRates.get(currency);
+      if (toRate === undefined) { skipped.add(currency); continue; }
+      const fromRate = Number(invoice.exchangeRate) > 0 ? Number(invoice.exchangeRate) : 1;
+      const delta = Number((outstanding * (toRate - fromRate)).toFixed(2));
+      if (delta === 0) continue;
+      lines.push({ invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, currency, outstanding, fromRate, toRate, delta });
+    }
+
+    const netAdjustment = Number(lines.reduce((sum, l) => sum + l.delta, 0).toFixed(2));
+    const result = { asOf, netAdjustment, lines, skippedCurrencies: [...skipped] };
+    if (netAdjustment === 0) return result;
+
+    // One entry per company per revaluation date; re-running replaces it so a
+    // corrected rate doesn't stack on top of the previous adjustment.
+    const sourceId = `${companyId}:${asOf.toISOString().slice(0, 10)}`;
+    this.removeJournalEntriesBySource('fx_revaluation', sourceId);
+
+    const arAccountId = this.getSystemAccountId(companyId, '1100');
+    const fxAccountId = this.getSystemAccountId(companyId, '5950');
+    const gain = netAdjustment > 0;
+    const magnitude = Math.abs(netAdjustment);
+
+    const entry = this.createJournalEntry({
+      companyId,
+      sourceType: 'fx_revaluation',
+      sourceId,
+      memo: `Foreign currency revaluation to ${asOf.toISOString().slice(0, 10)}`,
+      entryDate: asOf,
+      lines: gain
+        ? [
+            { id: uuid(), accountId: arAccountId, description: 'Receivables revaluation', debit: magnitude, credit: 0 },
+            { id: uuid(), accountId: fxAccountId, description: 'FX gain', debit: 0, credit: magnitude },
+          ]
+        : [
+            { id: uuid(), accountId: fxAccountId, description: 'FX loss', debit: magnitude, credit: 0 },
+            { id: uuid(), accountId: arAccountId, description: 'Receivables revaluation', debit: 0, credit: magnitude },
+          ],
+    });
+
+    return { ...result, entryId: (entry as any)?.id };
+  }
+
   /** Compute VAT figures from the ledger for a period. Oman standard rate is 5%. */
   computeVatFigures(companyId: string, from: Date, to: Date): VatReturnPreview {
     const OMAN_VAT_RATE = 0.05;
@@ -12303,6 +12833,41 @@ export class DataStore {
     }
   }
 
+  /**
+   * Splits an invoice into net, tax and gross. `taxRate` is a percentage applied
+   * to the sum of line amounts; the stored `total` is the gross (tax-inclusive)
+   * figure, which is what the customer owes and what posts to receivables.
+   */
+  private computeInvoiceTotals(lineItems: Array<{ amount: number }>, taxRate?: number) {
+    const net = Number(lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+    const rate = Number(taxRate) > 0 ? Number(taxRate) : 0;
+    const tax = Number((net * (rate / 100)).toFixed(2));
+    return { net, tax, gross: Number((net + tax).toFixed(2)) };
+  }
+
+  /**
+   * Resolves the currency and base-currency conversion rate for a transaction.
+   * Defaults to the company's own currency at rate 1. A different currency needs
+   * an explicit rate — guessing one would silently corrupt the ledger, so we
+   * refuse instead.
+   */
+  private resolveTransactionCurrency(
+    companyId: string,
+    currency?: string,
+    exchangeRate?: number,
+  ): { currency: string; exchangeRate: number } {
+    const base = this.getCompanyFinanceSettings(companyId).currencyCode;
+    const resolved = (currency || base).toUpperCase();
+    if (resolved === base) return { currency: resolved, exchangeRate: 1 };
+    const rate = Number(exchangeRate);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new Error(
+        `Invoices in ${resolved} need an exchange rate to ${base}. Provide exchangeRate, or bill in ${base}.`,
+      );
+    }
+    return { currency: resolved, exchangeRate: rate };
+  }
+
   createInvoice(
     invoice: Omit<Invoice, 'id' | 'invoiceNumber'> & {
       invoiceNumber?: string;
@@ -12311,9 +12876,16 @@ export class DataStore {
     },
   ) {
     const normalizedLineItems = this.normalizeInvoiceLineItems(invoice.lineItems);
-    const computedTotal = normalizedLineItems.reduce((sum, item) => sum + item.amount, 0);
+    const computedTotal = this.computeInvoiceTotals(normalizedLineItems, invoice.taxRate).gross;
+    const money = this.resolveTransactionCurrency(
+      invoice.companyId,
+      invoice.currency,
+      invoice.exchangeRate,
+    );
     const newInvoice: Invoice = {
       ...invoice,
+      currency: money.currency,
+      exchangeRate: money.exchangeRate,
       id: uuid(),
       invoiceNumber: invoice.invoiceNumber || this.nextSalesInvoiceNumber(invoice.companyId),
       issueDate: new Date(invoice.issueDate),
@@ -12323,11 +12895,21 @@ export class DataStore {
     };
     this.assertOpenFinancialDate(newInvoice.companyId, newInvoice.issueDate, 'Invoice issue date');
     this.assertUniqueInvoiceNumber(newInvoice.companyId, newInvoice.invoiceNumber);
+    if (newInvoice.templateId) {
+      const selectedTemplate = this.getInvoiceTemplateById(newInvoice.templateId);
+      if (
+        !selectedTemplate
+        || selectedTemplate.companyId !== newInvoice.companyId
+        || (selectedTemplate.docType ?? 'invoice') !== 'invoice'
+      ) {
+        throw new Error('Invoice template does not belong to this company or document type.');
+      }
+    }
     const snapshot = this.resolveInvoiceTemplateSnapshot(newInvoice.companyId, newInvoice.templateId);
     const createCore = this.db.transaction(() => {
       this.db
         .prepare(
-          'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, templateSnapshot, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @templateSnapshot, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @taxRate, @sentAt, @paidAt)',
+          'INSERT INTO invoices (id, invoiceNumber, companyId, clientId, contactId, salesOrderId, templateId, templateSnapshot, campaignId, issueDate, dueDate, lineItems, total, status, notes, currency, exchangeRate, taxRate, sentAt, paidAt) VALUES (@id, @invoiceNumber, @companyId, @clientId, @contactId, @salesOrderId, @templateId, @templateSnapshot, @campaignId, @issueDate, @dueDate, @lineItems, @total, @status, @notes, @currency, @exchangeRate, @taxRate, @sentAt, @paidAt)',
         )
         .run({
           ...newInvoice,
@@ -12341,6 +12923,7 @@ export class DataStore {
           lineItems: JSON.stringify(normalizedLineItems),
           notes: newInvoice.notes ?? null,
           currency: newInvoice.currency ?? 'USD',
+          exchangeRate: Number(newInvoice.exchangeRate) > 0 ? Number(newInvoice.exchangeRate) : 1,
           taxRate: newInvoice.taxRate ?? 0,
           sentAt: newInvoice.sentAt ? newInvoice.sentAt.toISOString() : null,
           paidAt: newInvoice.paidAt ? newInvoice.paidAt.toISOString() : null,
@@ -12502,7 +13085,10 @@ export class DataStore {
     const nextLineItems = this.normalizeInvoiceLineItems(
       updates.lineItems ?? currentLineItems,
     );
-    const computedTotal = nextLineItems.reduce((sum, item) => sum + item.amount, 0);
+    const computedTotal = this.computeInvoiceTotals(
+      nextLineItems,
+      updates.taxRate ?? existing.taxRate,
+    ).gross;
     const paidAmount = this.getInvoicePaidAmount(invoiceId);
     if (computedTotal + 0.0001 < paidAmount) {
       throw new Error('Invoice total cannot be lower than recorded payments.');
@@ -12517,7 +13103,11 @@ export class DataStore {
       notes: updates.notes ?? existing.notes,
       salesOrderId: updates.salesOrderId ?? existing.salesOrderId,
       templateId: updates.templateId ?? existing.templateId,
-      currency: updates.currency ?? existing.currency ?? 'USD',
+      ...this.resolveTransactionCurrency(
+        existing.companyId,
+        updates.currency ?? existing.currency,
+        updates.exchangeRate ?? existing.exchangeRate,
+      ),
       taxRate: updates.taxRate ?? existing.taxRate ?? 0,
       sentAt: updates.sentAt ? new Date(updates.sentAt).toISOString() : existing.sentAt,
       paidAt: updates.paidAt ? new Date(updates.paidAt).toISOString() : existing.paidAt,
@@ -12536,7 +13126,7 @@ export class DataStore {
     const updateCore = this.db.transaction(() => {
       this.db
         .prepare(
-          'UPDATE invoices SET invoiceNumber=@invoiceNumber, companyId=@companyId, clientId=@clientId, salesOrderId=@salesOrderId, templateId=@templateId, templateSnapshot=@templateSnapshot, issueDate=@issueDate, dueDate=@dueDate, lineItems=@lineItems, total=@total, status=@status, notes=@notes, currency=@currency, taxRate=@taxRate, sentAt=@sentAt, paidAt=@paidAt WHERE id=@id',
+          'UPDATE invoices SET invoiceNumber=@invoiceNumber, companyId=@companyId, clientId=@clientId, salesOrderId=@salesOrderId, templateId=@templateId, templateSnapshot=@templateSnapshot, issueDate=@issueDate, dueDate=@dueDate, lineItems=@lineItems, total=@total, status=@status, notes=@notes, currency=@currency, exchangeRate=@exchangeRate, taxRate=@taxRate, sentAt=@sentAt, paidAt=@paidAt WHERE id=@id',
         )
         .run({
           ...merged,
@@ -12585,6 +13175,7 @@ export class DataStore {
       total,
       notes: row.notes ?? undefined,
       currency: row.currency ?? 'USD',
+      exchangeRate: Number(row.exchangeRate) > 0 ? Number(row.exchangeRate) : 1,
       taxRate: row.taxRate ?? 0,
       sentAt: row.sentAt ? new Date(row.sentAt) : undefined,
       paidAt: row.paidAt ? new Date(row.paidAt) : undefined,
@@ -12709,19 +13300,38 @@ export class DataStore {
           reason: note.reason ?? null,
           createdAt: note.createdAt.toISOString(),
         });
-      // Reverse the sale: Dr Revenue, Cr Accounts Receivable.
+      // Reverse the sale. The credited amount is gross, so it has to be split the
+      // same way the invoice was posted: revenue takes only the net back, and the
+      // VAT already declared in 2200 is reversed too. Crediting the full gross to
+      // revenue would understate revenue and leave the tax permanently declared.
       const arAccountId = this.getSystemAccountId(input.companyId, '1100');
       const revenueAccountId = this.getSystemAccountId(input.companyId, '4000');
+      const sourceInvoice = note.invoiceId ? this.getInvoiceById(note.invoiceId) : undefined;
+      const rate = Number(sourceInvoice?.taxRate) > 0 ? Number(sourceInvoice!.taxRate) : 0;
+      const netCredit = rate > 0 ? Number((total / (1 + rate / 100)).toFixed(2)) : total;
+      const taxCredit = Number((total - netCredit).toFixed(2));
+
+      const creditLines = [
+        { id: uuid(), accountId: revenueAccountId, description: 'Revenue reversal', debit: netCredit, credit: 0 },
+      ];
+      if (taxCredit > 0) {
+        creditLines.push({
+          id: uuid(),
+          accountId: this.getSystemAccountId(input.companyId, '2200'),
+          description: `Output VAT reversal ${rate}%`,
+          debit: taxCredit,
+          credit: 0,
+        });
+      }
+      creditLines.push({ id: uuid(), accountId: arAccountId, description: 'Accounts receivable', debit: 0, credit: total });
+
       this.createJournalEntry({
         companyId: input.companyId,
         sourceType: 'credit_note',
         sourceId: note.id,
         memo: `Credit note ${note.creditNoteNumber}${note.invoiceId ? ` for invoice` : ''}`,
         entryDate: note.issueDate,
-        lines: [
-          { id: uuid(), accountId: revenueAccountId, description: 'Revenue reversal', debit: total, credit: 0 },
-          { id: uuid(), accountId: arAccountId, description: 'Accounts receivable', debit: 0, credit: total },
-        ],
+        lines: creditLines,
       });
     });
     tx();
@@ -13607,10 +14217,11 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO vendor_bills (id, companyId, vendorName, supplierId, purchaseOrderId, campaignId, billNumber, referenceInvoiceNumber, issueDate, dueDate, amount, status, notes, expenseAccountId, paidAt) VALUES (@id, @companyId, @vendorName, @supplierId, @purchaseOrderId, @campaignId, @billNumber, @referenceInvoiceNumber, @issueDate, @dueDate, @amount, @status, @notes, @expenseAccountId, @paidAt)',
+        'INSERT INTO vendor_bills (id, companyId, vendorName, supplierId, purchaseOrderId, campaignId, billNumber, referenceInvoiceNumber, issueDate, dueDate, amount, taxRate, status, notes, expenseAccountId, paidAt) VALUES (@id, @companyId, @vendorName, @supplierId, @purchaseOrderId, @campaignId, @billNumber, @referenceInvoiceNumber, @issueDate, @dueDate, @amount, @taxRate, @status, @notes, @expenseAccountId, @paidAt)',
       )
       .run({
         ...bill,
+        taxRate: Number(bill.taxRate) || 0,
         supplierId: bill.supplierId ?? null,
         purchaseOrderId: bill.purchaseOrderId ?? null,
         campaignId: bill.campaignId ?? null,
@@ -14949,6 +15560,12 @@ export class DataStore {
     };
   }
 
+  // Never SELECT the content BLOB into list/metadata queries — it would ship
+  // (potentially large) file bytes on every list. Instead expose a boolean via
+  // `length(content)` and serve the bytes only through getRecordAttachmentContent.
+  private static readonly recordAttachmentColumns =
+    'id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, uploadedByUserId, uploadedByName, createdAt, (content IS NOT NULL) AS hasContent';
+
   listRecordAttachments(
     companyId: string,
     entityType: RecordEntityType,
@@ -14956,25 +15573,48 @@ export class DataStore {
   ): RecordAttachment[] {
     const rows = this.db
       .prepare(
-        'SELECT * FROM record_attachments WHERE companyId = ? AND entityType = ? AND entityId = ? ORDER BY createdAt DESC',
+        `SELECT ${DataStore.recordAttachmentColumns} FROM record_attachments WHERE companyId = ? AND entityType = ? AND entityId = ? ORDER BY createdAt DESC`,
       )
       .all(companyId, entityType, entityId) as any[];
     return rows.map((row) => this.decodeRecordAttachment(row));
   }
 
   getRecordAttachmentById(id: string): RecordAttachment | undefined {
-    const row = this.db.prepare('SELECT * FROM record_attachments WHERE id = ?').get(id) as any;
+    const row = this.db
+      .prepare(`SELECT ${DataStore.recordAttachmentColumns} FROM record_attachments WHERE id = ?`)
+      .get(id) as any;
     return row ? this.decodeRecordAttachment(row) : undefined;
   }
 
+  /** Returns the stored file bytes (and metadata needed to serve them), if any. */
+  getRecordAttachmentContent(
+    id: string,
+  ): { fileName: string; mimeType?: string; content: Buffer } | undefined {
+    const row = this.db
+      .prepare('SELECT fileName, mimeType, content FROM record_attachments WHERE id = ?')
+      .get(id) as any;
+    if (!row || row.content === null || row.content === undefined) return undefined;
+    return {
+      fileName: row.fileName,
+      mimeType: row.mimeType ?? undefined,
+      content: Buffer.isBuffer(row.content) ? row.content : Buffer.from(row.content),
+    };
+  }
+
   createRecordAttachment(input: CreateRecordAttachmentInput): RecordAttachment {
+    const content = Buffer.isBuffer(input.content) ? input.content : null;
+    const { content: _omitContent, ...meta } = input;
     const attachment: RecordAttachment = {
-      ...input,
+      ...meta,
       id: uuid(),
-      sizeBytes:
-        input.sizeBytes === undefined || input.sizeBytes === null
+      // When bytes are stored, the true byte length is authoritative over any
+      // client-declared size.
+      sizeBytes: content
+        ? content.length
+        : input.sizeBytes === undefined || input.sizeBytes === null
           ? undefined
           : Math.max(0, Number(input.sizeBytes)),
+      hasContent: content !== null,
       uploadedByUserId: input.uploadedByUserId ?? this.currentActor?.userId,
       uploadedByName: input.uploadedByName ?? this.currentActor?.name,
       createdAt: input.createdAt ? new Date(input.createdAt) : new Date(),
@@ -14982,16 +15622,21 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO record_attachments (id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, uploadedByUserId, uploadedByName, createdAt) VALUES (@id, @companyId, @entityType, @entityId, @fileName, @url, @mimeType, @sizeBytes, @note, @uploadedByUserId, @uploadedByName, @createdAt)',
+        'INSERT INTO record_attachments (id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, uploadedByUserId, uploadedByName, content, createdAt) VALUES (@id, @companyId, @entityType, @entityId, @fileName, @url, @mimeType, @sizeBytes, @note, @uploadedByUserId, @uploadedByName, @content, @createdAt)',
       )
       .run({
-        ...attachment,
+        id: attachment.id,
+        companyId: attachment.companyId,
+        entityType: attachment.entityType,
+        entityId: attachment.entityId,
+        fileName: attachment.fileName,
         url: attachment.url ?? null,
         mimeType: attachment.mimeType ?? null,
         sizeBytes: attachment.sizeBytes ?? null,
         note: attachment.note ?? null,
         uploadedByUserId: attachment.uploadedByUserId ?? null,
         uploadedByName: attachment.uploadedByName ?? null,
+        content,
         createdAt: attachment.createdAt.toISOString(),
       });
 
@@ -16425,6 +17070,10 @@ export class DataStore {
       dispatchedAt: row.dispatchedAt ? new Date(row.dispatchedAt) : undefined,
       deliveredAt: row.deliveredAt ? new Date(row.deliveredAt) : undefined,
       cancelledAt: row.cancelledAt ? new Date(row.cancelledAt) : undefined,
+      templateId: row.templateId ?? undefined,
+      templateSnapshot: row.templateSnapshot
+        ? this.parseJson<InvoiceTemplate>(row.templateSnapshot)
+        : undefined,
       createdAt: new Date(row.createdAt),
     };
   }
@@ -16828,6 +17477,7 @@ export class DataStore {
       issueDate: new Date(row.issueDate),
       dueDate: new Date(row.dueDate),
       amount,
+      taxRate: Number(row.taxRate) || 0,
       status: row.status as VendorBillStatus,
       notes: row.notes ?? undefined,
       expenseAccountId: row.expenseAccountId ?? undefined,
@@ -17173,6 +17823,10 @@ export class DataStore {
       note: row.note ?? undefined,
       uploadedByUserId: row.uploadedByUserId ?? undefined,
       uploadedByName: row.uploadedByName ?? undefined,
+      hasContent:
+        row.hasContent !== undefined
+          ? Boolean(row.hasContent)
+          : row.content !== undefined && row.content !== null,
       createdAt: new Date(row.createdAt),
     };
   }
@@ -17318,43 +17972,79 @@ export class DataStore {
       return;
     }
 
-    const lineItemTotal = Number(
-      (invoice.lineItems || []).reduce((sum, line) => {
-        const amount = Number((line as any)?.amount);
-        return sum + (Number.isFinite(amount) ? amount : 0);
-      }, 0).toFixed(2),
+    // Line amounts are net of tax; the stored total is gross. Derive both from the
+    // same helper the invoice itself was totalled with, so the ledger can never
+    // drift from the document. Legacy invoices with no lines fall back to the
+    // stored total, treated as gross.
+    const rate = Number(invoice.taxRate) > 0 ? Number(invoice.taxRate) : 0;
+    const fromLines = this.computeInvoiceTotals(
+      (invoice.lineItems || []).map((line) => ({
+        amount: Number.isFinite(Number((line as any)?.amount)) ? Number((line as any).amount) : 0,
+      })),
+      rate,
     );
-    const invoiceTotal = Number(invoice.total);
-    const postingTotal = lineItemTotal > 0 ? lineItemTotal : Number.isFinite(invoiceTotal) ? invoiceTotal : 0;
-    if (!Number.isFinite(postingTotal) || postingTotal <= 0) {
+    const storedTotal = Number(invoice.total);
+    let net = fromLines.net;
+    let tax = fromLines.tax;
+    let gross = fromLines.gross;
+    if (net <= 0) {
+      gross = Number.isFinite(storedTotal) ? storedTotal : 0;
+      net = rate > 0 ? Number((gross / (1 + rate / 100)).toFixed(2)) : gross;
+      tax = Number((gross - net).toFixed(2));
+    }
+    if (!Number.isFinite(gross) || gross <= 0) {
       return;
+    }
+
+    // The ledger is kept in the company's base currency, so convert before
+    // posting. Rate is 1 for same-currency invoices, making this a no-op there.
+    const fx = Number(invoice.exchangeRate) > 0 ? Number(invoice.exchangeRate) : 1;
+    if (fx !== 1) {
+      net = Number((net * fx).toFixed(2));
+      tax = Number((tax * fx).toFixed(2));
+      gross = Number((net + tax).toFixed(2));
     }
 
     const arAccountId = this.getSystemAccountId(invoice.companyId, '1100');
     const revenueAccountId = this.getSystemAccountId(invoice.companyId, '4000');
+
+    // Receivables carry the gross, revenue only the net, and the VAT collected
+    // sits in 2200 until remitted — which is what makes the VAT return computable.
+    const lines = [
+      {
+        id: uuid(),
+        accountId: arAccountId,
+        description: 'Accounts receivable',
+        debit: gross,
+        credit: 0,
+      },
+      {
+        id: uuid(),
+        accountId: revenueAccountId,
+        description: 'Revenue',
+        debit: 0,
+        credit: net,
+      },
+    ];
+    if (tax > 0) {
+      lines.push({
+        id: uuid(),
+        accountId: this.getSystemAccountId(invoice.companyId, '2200'),
+        description: `Output VAT ${rate}%`,
+        debit: 0,
+        credit: tax,
+      });
+    }
+
     this.createJournalEntry({
       companyId: invoice.companyId,
       sourceType: 'invoice',
       sourceId: invoice.id,
       memo: `Invoice ${invoice.invoiceNumber} posted`,
       entryDate: invoice.issueDate,
-      lines: [
-        {
-          id: uuid(),
-          accountId: arAccountId,
-          description: 'Accounts receivable',
-          debit: postingTotal,
-          credit: 0,
-        },
-        {
-          id: uuid(),
-          accountId: revenueAccountId,
-          description: 'Revenue',
-          debit: 0,
-          credit: postingTotal,
-        },
-      ],
+      lines,
     });
+
   }
 
   private postInvoicePaymentJournal(payment: Payment) {
@@ -17375,6 +18065,11 @@ export class DataStore {
     const cashAccountId = this.getSystemAccountId(invoice.companyId, '1000');
     const arAccountId = this.getSystemAccountId(invoice.companyId, '1100');
 
+    // Payments are recorded in the invoice's currency; the ledger holds base
+    // currency, so clear receivables at the invoice's own rate.
+    const fx = Number(invoice.exchangeRate) > 0 ? Number(invoice.exchangeRate) : 1;
+    const baseAmount = Number((payment.amount * fx).toFixed(2));
+
     this.createJournalEntry({
       companyId: invoice.companyId,
       sourceType: 'invoice_payment',
@@ -17386,7 +18081,7 @@ export class DataStore {
           id: uuid(),
           accountId: cashAccountId,
           description: 'Cash receipt',
-          debit: payment.amount,
+          debit: baseAmount,
           credit: 0,
         },
         {
@@ -17394,7 +18089,96 @@ export class DataStore {
           accountId: arAccountId,
           description: 'Accounts receivable settlement',
           debit: 0,
-          credit: payment.amount,
+          credit: baseAmount,
+        },
+      ],
+    });
+  }
+
+  /**
+   * Capitalizes received stock: Dr Inventory / Cr Accrued Expenses (the
+   * goods-received-not-invoiced accrual). The vendor bill for the same purchase
+   * order later debits that accrual instead of an expense, so the cost is
+   * recognised exactly once and lands in COGS only when the goods are sold.
+   */
+  private postPurchaseReceiptJournal(
+    companyId: string,
+    receiptId: string,
+    receivedAt: Date,
+    value: number,
+  ) {
+    const amount = Number(Number(value).toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const existing = this.db
+      .prepare("SELECT id FROM journal_entries WHERE sourceType = 'purchase_receipt' AND sourceId = ? LIMIT 1")
+      .get(receiptId) as { id?: string } | undefined;
+    if (existing?.id) return;
+
+    this.createJournalEntry({
+      companyId,
+      sourceType: 'purchase_receipt',
+      sourceId: receiptId,
+      memo: 'Goods received into inventory',
+      entryDate: receivedAt,
+      lines: [
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(companyId, '1200'),
+          description: 'Inventory received',
+          debit: amount,
+          credit: 0,
+        },
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(companyId, '2100'),
+          description: 'Goods received not invoiced',
+          debit: 0,
+          credit: amount,
+        },
+      ],
+    });
+  }
+
+  /**
+   * Recognises cost of sales when goods are dispatched: Dr COGS / Cr Inventory at
+   * the carrying cost of what physically left. Tied to the delivery rather than
+   * the invoice so the ledger's inventory balance tracks actual on-hand stock —
+   * invoicing alone moves no goods.
+   */
+  private postDeliveryCogsJournal(
+    companyId: string,
+    deliveryId: string,
+    deliveryNumber: string,
+    dispatchedAt: Date,
+    cost: number,
+  ) {
+    const amount = Number(Number(cost).toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const existing = this.db
+      .prepare("SELECT id FROM journal_entries WHERE sourceType = 'delivery_cogs' AND sourceId = ? LIMIT 1")
+      .get(deliveryId) as { id?: string } | undefined;
+    if (existing?.id) return;
+
+    this.createJournalEntry({
+      companyId,
+      sourceType: 'delivery_cogs',
+      sourceId: deliveryId,
+      memo: `Cost of goods sold on ${deliveryNumber}`,
+      entryDate: dispatchedAt,
+      lines: [
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(companyId, '5100'),
+          description: 'Cost of goods sold',
+          debit: amount,
+          credit: 0,
+        },
+        {
+          id: uuid(),
+          accountId: this.getSystemAccountId(companyId, '1200'),
+          description: 'Inventory relieved',
+          debit: 0,
+          credit: amount,
         },
       ],
     });
@@ -17411,8 +18195,45 @@ export class DataStore {
     }
 
     const apAccountId = this.getSystemAccountId(bill.companyId, '2000');
-    const expenseAccountId =
-      bill.expenseAccountId ?? this.getSystemAccountId(bill.companyId, '5000');
+    // A bill against a purchase order settles stock that was already capitalized
+    // on receipt, so it clears the goods-received accrual rather than booking a
+    // second expense — the cost reaches the P&L through COGS when the goods sell.
+    // Bills with no purchase order (services, overheads) still hit an expense.
+    const expenseAccountId = bill.purchaseOrderId
+      ? this.getSystemAccountId(bill.companyId, '2100')
+      : bill.expenseAccountId ?? this.getSystemAccountId(bill.companyId, '5000');
+
+    // Mirror of the sales side: payables carry the gross, the expense only the
+    // net, and recoverable input VAT is held as an asset in 1150.
+    const rate = Number(bill.taxRate) > 0 ? Number(bill.taxRate) : 0;
+    const net = rate > 0 ? Number((bill.amount / (1 + rate / 100)).toFixed(2)) : bill.amount;
+    const tax = Number((bill.amount - net).toFixed(2));
+
+    const lines = [
+      {
+        id: uuid(),
+        accountId: expenseAccountId,
+        description: bill.vendorName,
+        debit: net,
+        credit: 0,
+      },
+      {
+        id: uuid(),
+        accountId: apAccountId,
+        description: 'Accounts payable',
+        debit: 0,
+        credit: bill.amount,
+      },
+    ];
+    if (tax > 0) {
+      lines.splice(1, 0, {
+        id: uuid(),
+        accountId: this.getSystemAccountId(bill.companyId, '1150'),
+        description: `Recoverable input VAT ${rate}%`,
+        debit: tax,
+        credit: 0,
+      });
+    }
 
     this.createJournalEntry({
       companyId: bill.companyId,
@@ -17420,22 +18241,7 @@ export class DataStore {
       sourceId: bill.id,
       memo: `Vendor bill ${bill.billNumber} posted`,
       entryDate: bill.issueDate,
-      lines: [
-        {
-          id: uuid(),
-          accountId: expenseAccountId,
-          description: bill.vendorName,
-          debit: bill.amount,
-          credit: 0,
-        },
-        {
-          id: uuid(),
-          accountId: apAccountId,
-          description: 'Accounts payable',
-          debit: 0,
-          credit: bill.amount,
-        },
-      ],
+      lines,
     });
   }
 

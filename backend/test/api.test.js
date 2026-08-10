@@ -951,6 +951,12 @@ test('health endpoint reports status and applied migrations', async () => {
     '067_rfqs',
     '068_manufacturing',
     '069_documents',
+    '070_typed_document_template_links',
+    '071_attachment_content',
+    '072_vendor_bill_tax',
+    '073_invoice_exchange_rate',
+    '074_commission_voided_status',
+    '075_fx_revaluation_account',
   ]);
 });
 
@@ -1413,6 +1419,71 @@ test('document templates + instances: snapshot freezes the design at creation', 
   assert.equal(denied.status, 403);
 });
 
+test('typed document templates create compatible documents with frozen snapshots', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const auth = (req) => req.set('Authorization', `Bearer ${token}`);
+  const originalDoc = {
+    version: 1,
+    page: { size: 'A4', orientation: 'portrait', margin: { top: 20, right: 20, bottom: 20, left: 20 } },
+    theme: { fontFamily: 'Inter', primaryColor: '#112233', accentColor: '#445566', textColor: '#111827' },
+    body: [{ id: 'title', type: 'heading', level: 1, content: 'CUSTOM LETTER' }],
+  };
+  const template = await auth(request(app).post('/companies/1/invoice-templates')).send({
+    name: 'Canonical Letter',
+    docType: 'letter',
+    layout: 'letterhead',
+    primaryColor: '#112233',
+    accentColor: '#445566',
+    letterheadImageUrl: 'data:image/png;base64,letterhead',
+    showCompanyAddress: true,
+    showTaxId: true,
+    doc: originalDoc,
+  });
+  assert.equal(template.status, 201);
+
+  const created = await auth(request(app).post('/companies/1/documents')).send({
+    templateId: template.body.id,
+    title: 'Letter to Acme',
+    recordType: 'client',
+    recordId: 'client-1',
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.templateId, template.body.id);
+  assert.equal(created.body.templateName, 'Canonical Letter');
+  assert.equal(created.body.templateType, 'letter');
+  assert.equal(created.body.templateSnapshot.id, template.body.id);
+  assert.deepEqual(created.body.templateSnapshot.doc, originalDoc);
+
+  await auth(request(app).put(`/invoice-templates/${template.body.id}`)).send({
+    doc: { ...originalDoc, body: [{ id: 'changed', type: 'text', content: 'CHANGED' }] },
+  });
+  const after = await auth(request(app).get(`/documents/${created.body.id}`));
+  assert.deepEqual(after.body.templateSnapshot.doc, originalDoc);
+
+  const publicDocument = await request(app).get(`/public/documents/${created.body.id}`);
+  assert.equal(publicDocument.status, 200);
+  assert.equal(publicDocument.body.template.id, template.body.id);
+  assert.equal(publicDocument.body.template.docType, 'letter');
+  assert.equal(publicDocument.body.client.id, 'client-1');
+
+  const invoiceTemplate = await auth(request(app).post('/companies/1/invoice-templates')).send({
+    name: 'Not a Generic Document',
+    docType: 'invoice',
+    layout: 'classic',
+    primaryColor: '#111827',
+    accentColor: '#2563eb',
+    showCompanyAddress: true,
+    showTaxId: true,
+  });
+  const incompatible = await auth(request(app).post('/companies/1/documents')).send({
+    templateId: invoiceTemplate.body.id,
+    title: 'Invalid generic document',
+  });
+  assert.equal(incompatible.status, 400);
+  assert.match(incompatible.body.message, /document type/i);
+});
+
 test('users can update their own profile without gaining company-management access', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
@@ -1480,9 +1551,11 @@ test('profile uploads accept valid base64 payloads and reject oversized requests
   const oversizedImage = `data:image/png;base64,${'a'.repeat(4_300_000)}`;
   const rejected = await auth(request(app).put('/auth/me')).send({ avatar: oversizedImage });
   assert.equal(rejected.status, 413);
+  // The message names the limit that actually applied — this route uses the
+  // 4 MB parser, while templates and attachments get larger ones.
   assert.equal(
     rejected.body.message,
-    'Request is too large. Uploaded images must be 2 MB or smaller.',
+    'Request is too large for this endpoint (max 4 MB). Try a smaller image or PDF.',
   );
 });
 
@@ -2931,9 +3004,9 @@ test('chart of accounts supports rich custom account CRUD while protecting syste
       isActive: true,
     });
   assert.equal(createResponse.status, 201);
-  // Next available Expense code after the seeded defaults (…, 5700 Marketing,
-  // 5900 Commission Expense) is 5910.
-  assert.equal(createResponse.body.code, '5910');
+  // Next available Expense code after the seeded defaults (…, 5900 Commission
+  // Expense, 5950 Foreign Exchange Gain/(Loss)) is 5960.
+  assert.equal(createResponse.body.code, '5960');
   assert.equal(createResponse.body.detailType, 'Staff development');
   const accountId = createResponse.body.id;
 
@@ -2948,7 +3021,7 @@ test('chart of accounts supports rich custom account CRUD while protecting syste
     });
   assert.equal(updateResponse.status, 200);
   // Code is immutable — the attempted change to 9999 is ignored.
-  assert.equal(updateResponse.body.code, '5910');
+  assert.equal(updateResponse.body.code, '5960');
   assert.equal(updateResponse.body.name, 'Learning and Training Expense');
   assert.equal(updateResponse.body.isActive, false);
 
@@ -4436,14 +4509,30 @@ test('sales orders confirm and create draft invoices', async () => {
   assert.equal(confirmResponse.status, 200);
   assert.equal(confirmResponse.body.status, 'Confirmed');
 
+  const templateResponse = await request(app)
+    .post('/companies/1/invoice-templates')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      name: 'Sales Order Invoice',
+      docType: 'invoice',
+      layout: 'modern',
+      primaryColor: '#123456',
+      accentColor: '#654321',
+      showCompanyAddress: true,
+      showTaxId: true,
+    });
+  assert.equal(templateResponse.status, 201);
+
   const invoiceResponse = await request(app)
     .post(`/sales-orders/${orderId}/invoice`)
     .set('Authorization', `Bearer ${token}`)
-    .send({});
+    .send({ templateId: templateResponse.body.id });
   assert.equal(invoiceResponse.status, 201);
   assert.equal(invoiceResponse.body.status, 'Draft');
   assert.equal(invoiceResponse.body.salesOrderId, orderId);
   assert.equal(invoiceResponse.body.total, 500);
+  assert.equal(invoiceResponse.body.templateId, templateResponse.body.id);
+  assert.equal(invoiceResponse.body.templateSnapshot.id, templateResponse.body.id);
 
   const listResponse = await request(app)
     .get('/companies/1/sales-orders')
@@ -4724,8 +4813,15 @@ test('delivery-note templates are separate and a public delivery payload renders
   await auth(request(app).patch(`/sales-orders/${so.body.id}/status`)).send({ status: 'Confirmed' });
   const delivery = await auth(request(app).post(`/sales-orders/${so.body.id}/deliveries`)).send({
     items: [{ salesOrderLineIndex: 0, quantity: 3 }],
+    templateId: tpl.body.id,
   });
   assert.equal(delivery.status, 201);
+  assert.equal(delivery.body.templateId, tpl.body.id);
+  assert.equal(delivery.body.templateSnapshot.id, tpl.body.id);
+
+  await auth(request(app).put(`/invoice-templates/${tpl.body.id}`)).send({
+    primaryColor: '#abcdef',
+  });
 
   // The public delivery payload exposes the delivery, its order, client, company, and a delivery template.
   const pub = await request(app).get(`/public/deliveries/${delivery.body.id}`);
@@ -4733,6 +4829,8 @@ test('delivery-note templates are separate and a public delivery payload renders
   assert.equal(pub.body.delivery.id, delivery.body.id);
   assert.equal(pub.body.salesOrder.id, so.body.id);
   assert.ok(pub.body.client && pub.body.client.name);
+  assert.equal(pub.body.template.id, tpl.body.id);
+  assert.equal(pub.body.template.primaryColor, '#111827');
   assert.equal(pub.body.template.docType, 'delivery');
   assert.ok(pub.body.company && pub.body.company.id === '1');
 });

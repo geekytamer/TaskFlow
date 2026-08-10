@@ -599,6 +599,12 @@ export interface Invoice {
   status: InvoiceStatus;
   notes?: string;
   currency?: string;
+  /**
+   * Units of company (base) currency per unit of `currency`. 1 when the invoice
+   * is in the company's own currency. The ledger always records base-currency
+   * amounts, so foreign-currency invoices must carry a rate.
+   */
+  exchangeRate?: number;
   taxRate?: number;
   sentAt?: Date;
   paidAt?: Date;
@@ -685,6 +691,9 @@ export interface Delivery {
   dispatchedAt?: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
+  templateId?: string;
+  /** Frozen delivery-note design selected when the delivery was created. */
+  templateSnapshot?: InvoiceTemplate;
   createdAt: Date;
 }
 
@@ -770,6 +779,10 @@ export interface DocumentRecord {
   companyId: string;
   templateId: string;
   templateName?: string;
+  /** Canonical typed-template category for documents created by the shared builder. */
+  templateType?: TemplateDocType;
+  /** Frozen canonical template selected when this document was created. */
+  templateSnapshot?: InvoiceTemplate;
   title: string;
   recordType?: DocumentDataSource;
   recordId?: string;
@@ -864,7 +877,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note';
+  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note';
   sourceId?: string;
   memo?: string;
   entryDate: Date;
@@ -949,7 +962,10 @@ export interface VendorBill {
   referenceInvoiceNumber?: string;
   issueDate: Date;
   dueDate: Date;
+  /** Gross (tax-inclusive) amount payable to the vendor. */
   amount: number;
+  /** VAT percentage included in `amount`; drives recoverable input tax. */
+  taxRate?: number;
   status: VendorBillStatus;
   notes?: string;
   expenseAccountId?: string;
@@ -1266,10 +1282,10 @@ export const campaignExpenseStatuses: CampaignExpenseStatus[] = ['Draft', 'Submi
 
 export type CommissionBasis = 'Revenue' | 'Paid Amount' | 'Profit';
 export type CommissionRateType = 'Percent' | 'Fixed';
-export type CommissionStatus = 'Draft' | 'Approved' | 'Paid' | 'Void';
+export type CommissionStatus = 'Draft' | 'Approved' | 'Paid' | 'Voided';
 export const commissionBases: CommissionBasis[] = ['Revenue', 'Paid Amount', 'Profit'];
 export const commissionRateTypes: CommissionRateType[] = ['Percent', 'Fixed'];
-export const commissionStatuses: CommissionStatus[] = ['Draft', 'Approved', 'Paid', 'Void'];
+export const commissionStatuses: CommissionStatus[] = ['Draft', 'Approved', 'Paid', 'Voided'];
 
 export interface Opportunity {
   id: string;
@@ -1612,6 +1628,8 @@ export interface RecordAttachment {
   note?: string;
   uploadedByUserId?: string;
   uploadedByName?: string;
+  /** True when the file bytes are stored in the system and can be viewed/downloaded. */
+  hasContent?: boolean;
   createdAt: Date;
 }
 
