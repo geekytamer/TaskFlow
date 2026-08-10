@@ -15,6 +15,18 @@ export const DOCUMENT_TEMPLATE_TYPES: Array<{
   { value: 'custom', label: 'Custom document', labelAr: 'مستند مخصص' },
 ];
 
+export const DOCUMENT_CREATION_TYPES = DOCUMENT_TEMPLATE_TYPES.filter(
+  ({ value }) => value !== 'invoice' && value !== 'delivery',
+);
+
+const DOCUMENT_CREATION_TYPE_VALUES = new Set(
+  DOCUMENT_CREATION_TYPES.map(({ value }) => value),
+);
+
+export function isDocumentCreationType(type: TemplateDocumentType): boolean {
+  return DOCUMENT_CREATION_TYPE_VALUES.has(type);
+}
+
 const FINANCIAL_DOCUMENT_TYPES = new Set<TemplateDocumentType>([
   'invoice',
   'quote',

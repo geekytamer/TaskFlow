@@ -8,18 +8,20 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getDocumentTemplates,
   getDocuments, deleteDocument, downloadDocumentPdf,
 } from '@/services/documentService';
-import type { DocumentTemplate, DocumentInstance } from '@/modules/documents/types';
-import type { TemplateDocumentType } from '@/modules/finance/types';
+import { getInvoiceTemplates } from '@/services/financeService';
+import type { DocumentInstance } from '@/modules/documents/types';
+import type { InvoiceTemplate, TemplateDocumentType } from '@/modules/finance/types';
 import {
   DOCUMENT_WORKSPACE_TABS,
   getDocumentWorkspaceTab,
 } from '@/modules/documents/document-tabs';
 import {
+  DOCUMENT_CREATION_TYPES,
   DOCUMENT_TEMPLATE_TYPES,
 } from '@/modules/documents/document-template-types';
+import { chooseTemplateId } from '@/modules/finance/template-selection';
 import { DocumentComposer } from './document-composer';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,7 +47,7 @@ const InvoiceTemplatePanel = dynamic(
 
 type View =
   | { mode: 'list' }
-  | { mode: 'compose'; template: DocumentTemplate };
+  | { mode: 'compose'; template: InvoiceTemplate };
 
 export function DocumentsPanel() {
   const { selectedCompany } = useCompany();
@@ -57,11 +59,13 @@ export function DocumentsPanel() {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const companyId = selectedCompany?.id;
 
-  const [templates, setTemplates] = React.useState<DocumentTemplate[]>([]);
+  const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [documents, setDocuments] = React.useState<DocumentInstance[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [view, setView] = React.useState<View>({ mode: 'list' });
   const [composeTemplateId, setComposeTemplateId] = React.useState('');
+  const [composeType, setComposeType] = React.useState<TemplateDocumentType>('letter');
+  const loadRequest = React.useRef(0);
   const activeTab = getDocumentWorkspaceTab(searchParams.get('tab'));
   const requestedTemplateType = searchParams.get('type');
   const activeTemplateType = (
@@ -84,14 +88,41 @@ export function DocumentsPanel() {
   };
 
   const load = React.useCallback(async () => {
-    if (!companyId) return;
+    const requestId = ++loadRequest.current;
+    if (!companyId) {
+      setTemplates([]);
+      setDocuments([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const [t, d] = await Promise.all([getDocumentTemplates(companyId), getDocuments(companyId)]);
-      setTemplates(t); setDocuments(d);
-    } catch { setTemplates([]); setDocuments([]); }
-    finally { setLoading(false); }
+      const [templateGroups, d] = await Promise.all([
+        Promise.all(
+          DOCUMENT_CREATION_TYPES.map(({ value }) => getInvoiceTemplates(companyId, value)),
+        ),
+        getDocuments(companyId),
+      ]);
+      if (requestId !== loadRequest.current) return;
+      setTemplates(templateGroups.flat());
+      setDocuments(d);
+    } catch {
+      if (requestId !== loadRequest.current) return;
+      setTemplates([]);
+      setDocuments([]);
+    } finally {
+      if (requestId === loadRequest.current) setLoading(false);
+    }
   }, [companyId]);
+
+  const creationTemplates = React.useMemo(
+    () => templates.filter((template) => template.docType === composeType),
+    [composeType, templates],
+  );
+
+  React.useEffect(() => {
+    setComposeTemplateId((current) => chooseTemplateId(creationTemplates, current));
+  }, [creationTemplates]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -178,21 +209,62 @@ export function DocumentsPanel() {
                   </p>
                 </div>
               </div>
-              <InvoiceTemplatePanel key={activeTemplateType} docType={activeTemplateType} />
+              <InvoiceTemplatePanel
+                key={activeTemplateType}
+                docType={activeTemplateType}
+                onChanged={load}
+              />
             </TabsContent>
 
             <TabsContent value="documents" className="space-y-3">
-              {templates.length > 0 && (
-                <div className="flex items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {tr('Document type', 'نوع المستند')}
+                    </p>
+                    <Select
+                      value={composeType}
+                      onValueChange={(value) => setComposeType(value as TemplateDocumentType)}
+                    >
+                      <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {DOCUMENT_CREATION_TYPES.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {tr(item.label, item.labelAr)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                {creationTemplates.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {tr('Template', 'القالب')}
+                    </p>
                   <Select value={composeTemplateId} onValueChange={setComposeTemplateId}>
                     <SelectTrigger className="w-64"><SelectValue placeholder={tr('Pick a template', 'اختر قالباً')} /></SelectTrigger>
-                    <SelectContent>{templates.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {creationTemplates.map((template) => (
+                          <SelectItem key={template.id} value={template.id}>
+                            {template.name}{template.isDefault ? tr(' (Default)', ' (افتراضي)') : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                   </Select>
+                  </div>
+                )}
                   <Button disabled={!composeTemplateId} onClick={() => {
                     const t = templates.find((x) => x.id === composeTemplateId);
                     if (t) setView({ mode: 'compose', template: t });
                   }}><Plus className="me-2 h-4 w-4" />{tr('New document', 'مستند جديد')}</Button>
-                </div>
+              </div>
+              {creationTemplates.length === 0 && (
+                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  {tr(
+                    'Create a template for this document type before generating a document.',
+                    'أنشئ قالباً لهذا النوع قبل إنشاء المستند.',
+                  )}
+                </p>
               )}
               {documents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center">

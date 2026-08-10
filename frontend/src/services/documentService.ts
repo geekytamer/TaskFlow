@@ -3,6 +3,8 @@ import type {
   DocumentTemplate, DocumentInstance, DocumentModel, Letterhead,
   DocumentType, DocumentDataSource, DocumentManualField,
 } from '@/modules/documents/types';
+import type { Company } from '@/modules/companies/types';
+import type { Client, Invoice, InvoiceTemplate } from '@/modules/finance/types';
 
 export async function getDocumentTemplates(companyId: string): Promise<DocumentTemplate[]> {
   if (!companyId) return [];
@@ -42,7 +44,14 @@ export async function getDocument(id: string): Promise<DocumentInstance> {
 
 export async function createDocument(
   companyId: string,
-  data: { templateId: string; title?: string; recordType?: DocumentDataSource; recordId?: string; fieldValues?: Record<string, string> },
+  data: {
+    templateId: string;
+    title?: string;
+    recordType?: DocumentDataSource;
+    recordId?: string;
+    fieldValues?: Record<string, string>;
+    status?: 'draft' | 'final';
+  },
 ): Promise<DocumentInstance> {
   return apiFetch<DocumentInstance>(`/companies/${companyId}/documents`, { method: 'POST', body: JSON.stringify(data) });
 }
@@ -65,6 +74,10 @@ export async function getPublicDocument(id: string): Promise<{
   title: string;
   doc: DocumentModel | null;
   letterhead: Letterhead | null;
+  template: InvoiceTemplate | null;
+  invoice: Invoice | null;
+  company: Company | null;
+  client: Client | null;
   context: Record<string, string>;
 }> {
   const res = await fetch(`${API_BASE}/public/documents/${id}`);

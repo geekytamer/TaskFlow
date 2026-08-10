@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import { getPublicDocument } from '@/services/documentService';
 import type { DocBlock, DocumentModel, Letterhead } from '@/modules/documents/types';
 import { resolveTokens, type TokenContext } from '@/modules/documents/tokens';
+import { DocRenderer } from '@/modules/finance/doc/doc-renderer';
+import { templateToDoc } from '@/modules/finance/doc/template-to-doc';
 
 function renderBlock(block: DocBlock, ctx: TokenContext, key: number) {
   switch (block.type) {
@@ -67,7 +69,7 @@ function renderBlock(block: DocBlock, ctx: TokenContext, key: number) {
 export default function DocumentPrintPage() {
   const params = useParams();
   const id = String(params?.id || '');
-  const [data, setData] = React.useState<{ title: string; doc: DocumentModel | null; letterhead: Letterhead | null; context: TokenContext } | null>(null);
+  const [data, setData] = React.useState<Awaited<ReturnType<typeof getPublicDocument>> | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -83,6 +85,20 @@ export default function DocumentPrintPage() {
   const pageSize = data?.letterhead?.pageSize === 'Letter' ? 'Letter' : 'A4';
 
   if (error) return <div style={{ padding: 40, fontFamily: 'sans-serif' }}>{error}</div>;
+
+  if (data?.template && data.invoice) {
+    return (
+      <div data-document-rendered="true">
+        <DocRenderer
+          doc={data.template.doc || templateToDoc(data.template)}
+          invoice={data.invoice}
+          client={data.client}
+          company={data.company}
+          template={data.template}
+        />
+      </div>
+    );
+  }
 
   return (
     <>

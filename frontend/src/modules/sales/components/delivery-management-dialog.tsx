@@ -16,6 +16,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -26,15 +33,18 @@ import {
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
+import { chooseTemplateId } from '@/modules/finance/template-selection';
 import type {
   Delivery,
   DeliveryStatus,
+  InvoiceTemplate,
   SalesOrder,
 } from '@/modules/finance/types';
 import {
   cancelDelivery,
   createDelivery,
   getDeliveriesForSalesOrder,
+  getInvoiceTemplates,
   updateDeliveryStatus,
 } from '@/services/financeService';
 import { publicDeliveryUrl } from '@/services/publicService';
@@ -69,6 +79,8 @@ export function DeliveryManagementDialog({
   const { toast } = useToast();
   const { amount } = useCompanyCurrency();
   const [deliveries, setDeliveries] = React.useState<Delivery[]>([]);
+  const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
+  const [templateId, setTemplateId] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [carrier, setCarrier] = React.useState('');
@@ -109,8 +121,13 @@ export function DeliveryManagementDialog({
     if (!order) return;
     setLoading(true);
     try {
-      const list = await getDeliveriesForSalesOrder(order.id);
+      const [list, availableTemplates] = await Promise.all([
+        getDeliveriesForSalesOrder(order.id),
+        getInvoiceTemplates(order.companyId, 'delivery'),
+      ]);
       setDeliveries(list);
+      setTemplates(availableTemplates);
+      setTemplateId((current) => chooseTemplateId(availableTemplates, current));
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -158,6 +175,7 @@ export function DeliveryManagementDialog({
     try {
       await createDelivery(order.id, {
         items,
+        templateId: templateId || undefined,
         carrier: carrier.trim() || undefined,
         trackingNumber: trackingNumber.trim() || undefined,
         notes: notes.trim() || undefined,
@@ -317,6 +335,21 @@ export function DeliveryManagementDialog({
           <div className="space-y-3 rounded-lg border p-4">
             <h4 className="text-sm font-semibold">{t('deliveries.newHeading')}</h4>
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1 sm:col-span-2">
+                <Label>{t('finance.invoiceTemplate', 'Delivery-note template')}</Label>
+                <Select value={templateId} onValueChange={setTemplateId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('createInvoice.selectTemplate', 'Select a template')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}{template.isDefault ? ' (Default)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1">
                 <Label>{t('deliveries.carrier')}</Label>
                 <Input

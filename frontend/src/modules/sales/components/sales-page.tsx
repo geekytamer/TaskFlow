@@ -30,13 +30,22 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
+import { chooseTemplateId } from '@/modules/finance/template-selection';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import type { InventoryItem } from '@/modules/operations/types';
-import type { SalesOrder, SalesOrderStatus } from '@/modules/finance/types';
-import { createInvoiceFromSalesOrder, createSalesOrder, deleteSalesOrder, getInvoices, getSalesOrders, updateSalesOrderStatus } from '@/services/financeService';
+import type { InvoiceTemplate, SalesOrder, SalesOrderStatus } from '@/modules/finance/types';
+import {
+  createInvoiceFromSalesOrder,
+  createSalesOrder,
+  deleteSalesOrder,
+  getInvoices,
+  getInvoiceTemplates,
+  getSalesOrders,
+  updateSalesOrderStatus,
+} from '@/services/financeService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
@@ -100,6 +109,10 @@ export function SalesPage() {
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
   const [invoiceIds, setInvoiceIds] = React.useState<Set<string>>(new Set());
+  const [invoiceTemplates, setInvoiceTemplates] = React.useState<InvoiceTemplate[]>([]);
+  const [invoiceOrder, setInvoiceOrder] = React.useState<SalesOrder | null>(null);
+  const [invoiceTemplateId, setInvoiceTemplateId] = React.useState('');
+  const [invoicing, setInvoicing] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [openCreate, setOpenCreate] = React.useState(false);
   const [selectedOrderForDocs, setSelectedOrderForDocs] = React.useState<SalesOrder | null>(null);
@@ -128,21 +141,24 @@ export function SalesPage() {
       setClients([]);
       setItems([]);
       setInvoiceIds(new Set());
+      setInvoiceTemplates([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [orderData, clientData, itemData, invoiceData] = await Promise.all([
+      const [orderData, clientData, itemData, invoiceData, templateData] = await Promise.all([
         getSalesOrders(selectedCompany.id),
         getContacts(selectedCompany.id, 'Client'),
         getInventoryItems(selectedCompany.id),
         getInvoices(selectedCompany.id),
+        getInvoiceTemplates(selectedCompany.id, 'invoice'),
       ]);
       setOrders(orderData);
       setClients(clientData);
       setItems(itemData);
       setInvoiceIds(new Set(invoiceData.map((invoice) => invoice.id)));
+      setInvoiceTemplates(templateData);
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -295,19 +311,31 @@ export function SalesPage() {
     }
   };
 
-  const handleCreateInvoice = async (order: SalesOrder) => {
+  const openInvoiceDialog = (order: SalesOrder) => {
+    setInvoiceTemplateId(chooseTemplateId(invoiceTemplates));
+    setInvoiceOrder(order);
+  };
+
+  const handleCreateInvoice = async () => {
+    if (!invoiceOrder) return;
+    setInvoicing(true);
     try {
-      const invoice = await createInvoiceFromSalesOrder(order.id);
+      const invoice = await createInvoiceFromSalesOrder(invoiceOrder.id, {
+        templateId: invoiceTemplateId || undefined,
+      });
       await load();
       toast({
         title: t('sales.invoiceCreatedToast'),
         description: interpolate(t('sales.invoiceCreatedDescription'), {
           invoiceNumber: invoice.invoiceNumber,
-          orderNumber: order.orderNumber,
+          orderNumber: invoiceOrder.orderNumber,
         }),
       });
+      setInvoiceOrder(null);
     } catch (error: any) {
       toast({ variant: 'destructive', title: t('sales.invoiceFailedTitle'), description: error?.message || t('sales.invoiceFailedDescription') });
+    } finally {
+      setInvoicing(false);
     }
   };
 
@@ -594,7 +622,7 @@ export function SalesPage() {
                       <Truck className="me-2 h-4 w-4" />
                       {t('sales.deliveries')}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleCreateInvoice(order)} disabled={order.status !== 'Confirmed' || Boolean(order.invoiceId)}>
+                    <Button variant="outline" size="sm" onClick={() => openInvoiceDialog(order)} disabled={order.status !== 'Confirmed' || Boolean(order.invoiceId)}>
                       <FileText className="me-2 h-4 w-4" />
                       {t('sales.createInvoice')}
                     </Button>
@@ -640,6 +668,42 @@ export function SalesPage() {
         onOpenChange={(open) => { if (!open) setDeliveryOrder(null); }}
         onChanged={() => { load(); }}
       />
+
+      <Dialog open={Boolean(invoiceOrder)} onOpenChange={(open) => { if (!open) setInvoiceOrder(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('sales.createInvoice')}</DialogTitle>
+            <DialogDescription>
+              {invoiceOrder
+                ? `${invoiceOrder.orderNumber} — ${amount(invoiceOrder.totalAmount)}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>{t('finance.invoiceTemplate')}</Label>
+            <Select value={invoiceTemplateId} onValueChange={setInvoiceTemplateId}>
+              <SelectTrigger>
+                <SelectValue placeholder={t('createInvoice.selectTemplate')} />
+              </SelectTrigger>
+              <SelectContent>
+                {invoiceTemplates.map((template) => (
+                  <SelectItem key={template.id} value={template.id}>
+                    {template.name}{template.isDefault ? ' (Default)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInvoiceOrder(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleCreateInvoice} disabled={invoicing || !invoiceTemplateId}>
+              {invoicing ? t('common.loading') : t('sales.createInvoice')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(selectedOrderForDocs)} onOpenChange={(open) => !open && setSelectedOrderForDocs(null)}>
         <DialogContent className="sm:max-w-3xl">

@@ -21,3 +21,18 @@ test('only transactional document types expose financial controls', async () => 
   assert.equal(isFinancialDocumentType?.('letter'), false);
   assert.equal(isFinancialDocumentType?.('certificate'), false);
 });
+
+test('document creation excludes templates owned by dedicated transaction flows', async () => {
+  const typesModule = await import('./document-template-types').catch(() => ({}));
+  const creationTypes = Reflect.get(typesModule, 'DOCUMENT_CREATION_TYPES');
+  const isDocumentCreationType = Reflect.get(typesModule, 'isDocumentCreationType');
+
+  assert.deepEqual(
+    creationTypes?.map((item: { value: string }) => item.value),
+    ['quote', 'letter', 'memo', 'certificate', 'statement', 'custom'],
+  );
+  assert.equal(isDocumentCreationType?.('quote'), true);
+  assert.equal(isDocumentCreationType?.('letter'), true);
+  assert.equal(isDocumentCreationType?.('invoice'), false);
+  assert.equal(isDocumentCreationType?.('delivery'), false);
+});

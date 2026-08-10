@@ -1,4 +1,5 @@
 // General document builder — model shared by the editor, renderer, and services.
+import type { InvoiceTemplate, TemplateDocumentType } from '@/modules/finance/types';
 
 export type DocumentType = 'letter' | 'memo' | 'quote' | 'certificate' | 'statement' | 'custom';
 
@@ -83,6 +84,8 @@ export interface DocumentInstance {
   companyId: string;
   templateId: string;
   templateName?: string;
+  templateType?: TemplateDocumentType;
+  templateSnapshot?: InvoiceTemplate;
   title: string;
   recordType?: DocumentDataSource;
   recordId?: string;
