@@ -14,13 +14,61 @@ export interface TourStep {
   optional?: boolean;
 }
 
+/** Groups tours on the guide page. Mirrors how the sidebar is organised. */
+export type TourCategory =
+  | 'start'
+  | 'operations'
+  | 'finance'
+  | 'crm'
+  | 'people'
+  | 'admin';
+
+export const TOUR_CATEGORIES: Array<{ id: TourCategory; en: string; ar: string; blurb_en: string; blurb_ar: string }> = [
+  { id: 'start', en: 'Getting Started', ar: 'البداية',
+    blurb_en: 'Begin here for the shape of the whole system.',
+    blurb_ar: 'ابدأ هنا لفهم شكل النظام بالكامل.' },
+  { id: 'operations', en: 'Operations', ar: 'العمليات',
+    blurb_en: 'Selling, buying, stock and production.',
+    blurb_ar: 'البيع والشراء والمخزون والإنتاج.' },
+  { id: 'finance', en: 'Finance', ar: 'المالية',
+    blurb_en: 'Invoicing, the ledger, and what the numbers mean.',
+    blurb_ar: 'الفوترة ودفتر الأستاذ ومعنى الأرقام.' },
+  { id: 'crm', en: 'CRM & Marketing', ar: 'إدارة العلاقات والتسويق',
+    blurb_en: 'Contacts, pipeline, campaigns and follow-ups.',
+    blurb_ar: 'جهات الاتصال وخط الأنابيب والحملات والمتابعات.' },
+  { id: 'people', en: 'People & Projects', ar: 'الأفراد والمشاريع',
+    blurb_en: 'Work, time, employees and payroll.',
+    blurb_ar: 'العمل والوقت والموظفون والرواتب.' },
+  { id: 'admin', en: 'Administration', ar: 'الإدارة',
+    blurb_en: 'Companies, users and system settings.',
+    blurb_ar: 'الشركات والمستخدمون وإعدادات النظام.' },
+];
+
+/** Roles as used by the page guards. */
+export type TourRole = 'Admin' | 'Manager' | 'Employee' | 'Accountant';
+
 export interface Tour {
   id: string;
   en: string;
   ar: string;
   /** Page this tour lives on; the guide navigates here when it starts. */
   route?: string;
+  /** Which section of the guide page this tour belongs to. */
+  category?: TourCategory;
+  /**
+   * Roles that can actually open this tour's page. Mirrors the route's own
+   * guard — offering a walkthrough of a page the user would be bounced out of
+   * is worse than not offering it. Omit when the page is open to everyone.
+   */
+  roles?: TourRole[];
   steps: TourStep[];
+}
+
+/** Does this tour apply to the given role? Unrestricted tours apply to all. */
+export function tourAllowsRole(tour: Tour, role?: string | null): boolean {
+  if (!tour.roles) return true;
+  if (!role) return false;
+  return tour.roles.includes(role as TourRole);
 }
 
 export const TOURS: Tour[] = [
@@ -29,6 +77,7 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'overview',
+    category: 'start',
     en: 'System Overview',
     ar: 'نظرة عامة على النظام',
     route: '/',
@@ -107,6 +156,7 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'dashboard',
+    category: 'start',
     en: 'Dashboard Tour',
     ar: 'جولة لوحة التحكم',
     route: '/',
@@ -149,6 +199,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'finance',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'finance',
     en: 'Finance Module',
     ar: 'وحدة المالية',
     route: '/finance',
@@ -178,6 +230,18 @@ export const TOURS: Tour[] = [
         position: 'bottom',
       },
       {
+        target: '[data-tutorial="finance-tab-expenses"]',
+        en: { title: 'Expenses Tab', desc: 'Day-to-day spend that does not arrive as a supplier bill — fuel, stationery, small cash purchases. Each expense you record posts to the ledger as an operating cost, so it lands in the P&L and counts against any budget you set for that account.' },
+        ar: { title: 'تبويب المصروفات', desc: 'الإنفاق اليومي الذي لا يصل كفاتورة مورّد — الوقود والقرطاسية والمشتريات النقدية الصغيرة. كل مصروف تسجله يُقيَّد في دفتر الأستاذ كتكلفة تشغيلية، فيظهر في قائمة الدخل ويُحتسب ضمن أي موازنة حددتها لذلك الحساب.' },
+        position: 'bottom',
+      },
+      {
+        target: '[data-tutorial="finance-tab-reports"]',
+        en: { title: 'Reports Tab', desc: 'Trial balance, profit and loss, budget variance and the VAT return, all built from the ledger rather than from the operational tables. Because they read the journals directly, they only tell the truth if the underlying transactions post — which is why receipts, payroll and expenses all reach the ledger.' },
+        ar: { title: 'تبويب التقارير', desc: 'ميزان المراجعة وقائمة الدخل وانحراف الموازنة وإقرار ضريبة القيمة المضافة، جميعها مبنية من دفتر الأستاذ لا من الجداول التشغيلية. ولأنها تقرأ القيود مباشرة، فهي صادقة فقط إذا كانت المعاملات تُقيَّد — ولهذا تصل الاستلامات والرواتب والمصروفات جميعها إلى دفتر الأستاذ.' },
+        position: 'bottom',
+      },
+      {
         target: '[data-tutorial="finance-tab-ledger"]',
         en: { title: 'Ledger Tab', desc: 'The accounting core — your Chart of Accounts and Journal Entries live here. Every transaction (invoice payment, purchase, expense) creates a journal entry automatically. You can also post manual journal entries for adjustments and accruals. The chart of accounts is pre-seeded with a standard structure.' },
         ar: { title: 'تبويب دفتر الأستاذ', desc: 'القلب المحاسبي — دليل الحسابات وقيود اليومية موجودة هنا. كل معاملة (دفع فاتورة، شراء، مصروف) تُنشئ قيد يومية تلقائياً. يمكنك أيضاً ترحيل قيود يومية يدوية للتسويات والاستحقاقات. يأتي دليل الحسابات مُزوَّداً مسبقاً ببنية قياسية.' },
@@ -191,6 +255,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'invoicing',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'finance',
     en: 'Invoicing Workflow',
     ar: 'سير عمل الفوترة',
     route: '/finance',
@@ -214,6 +280,24 @@ export const TOURS: Tour[] = [
         position: 'bottom',
       },
       {
+        target: '[data-tutorial="invoice-search"]',
+        en: { title: 'Search Invoices', desc: 'Search by invoice number, client, or any line-item text. It filters as you type and stacks with the status filter, so "unpaid invoices for Acme" is two clicks and a few keystrokes.' },
+        ar: { title: 'البحث في الفواتير', desc: 'ابحث برقم الفاتورة أو العميل أو أي نص في البنود. يصفّي أثناء الكتابة ويتراكب مع فلتر الحالة، فتصبح "فواتير Acme غير المدفوعة" نقرتين وبضع ضغطات.' },
+        position: 'bottom',
+      },
+      {
+        target: '[data-tutorial="invoice-status-filter"]',
+        en: { title: 'Status Filter', desc: 'Narrow to Draft, Sent, Paid or Overdue. Status is not decorative: a Draft has not touched the ledger yet, Sent means the revenue and any VAT are recognised, and Overdue is derived from the due date against what is still outstanding.' },
+        ar: { title: 'فلتر الحالة', desc: 'ضيّق النتائج إلى مسودة أو مُرسلة أو مدفوعة أو متأخرة. الحالة ليست شكلية: المسودة لم تمس دفتر الأستاذ بعد، و"مُرسلة" تعني الاعتراف بالإيراد وأي ضريبة، و"متأخرة" تُشتق من تاريخ الاستحقاق مقابل المبلغ المتبقي.' },
+        position: 'bottom',
+      },
+      {
+        target: '[data-tutorial="invoice-bulk-actions"]',
+        en: { title: 'Bulk Actions', desc: 'Select several invoices and act on them together — send, mark paid, or export. Useful at month end when you are issuing a batch, rather than opening each one in turn.' },
+        ar: { title: 'الإجراءات الجماعية', desc: 'حدد عدة فواتير ونفّذ عليها معاً — إرسال أو تعليم كمدفوعة أو تصدير. مفيد في نهاية الشهر عند إصدار دفعة، بدلاً من فتح كل واحدة على حدة.' },
+        position: 'bottom',
+      },
+      {
         target: '[data-tutorial="invoice-create-btn"]',
         en: { title: 'Create Invoice Button', desc: 'Click this to open the invoice creation panel. You\'ll be able to select a client, optionally link to a sales order or template, pick billable tasks from that client\'s project history, and add manual line items. The invoice is saved as a Draft until you\'re ready to send it.' },
         ar: { title: 'زر إنشاء فاتورة', desc: 'انقر هنا لفتح لوحة إنشاء الفاتورة. ستتمكن من اختيار عميل، والربط اختيارياً بأمر بيع أو قالب، واختيار المهام القابلة للفوترة من سجل مشاريع ذلك العميل، وإضافة عناصر بنود يدوية. تُحفظ الفاتورة كمسودة حتى تكون مستعداً لإرسالها.' },
@@ -223,9 +307,10 @@ export const TOURS: Tour[] = [
         // Opens the invoice creation panel so the rest of the tour can walk
         // through it live.
         action: { click: '[data-tutorial="invoice-create-btn"]', delay: 250 },
+        optional: true,
         target: '[data-tutorial="invoice-form-client"]',
-        en: { title: 'Select Client', desc: 'The invoice panel is now open. Choose the client this invoice is for — only contacts with the "Client" role appear here. Once you select a client, the system loads their billable tasks: completed work that has an invoice amount attached but hasn\'t been invoiced yet.' },
-        ar: { title: 'اختيار العميل', desc: 'لوحة الفاتورة مفتوحة الآن. اختر العميل الذي تخص الفاتورة — تظهر هنا فقط جهات الاتصال ذات دور "العميل". بمجرد اختيار عميل، يحمّل النظام مهامه القابلة للفوترة: العمل المكتمل الذي يحتوي على مبلغ فاتورة مرفق ولم يُفوتر بعد.' },
+        en: { title: 'Select Client', desc: 'This is where you choose the client this invoice is for — only contacts with the "Client" role appear here. Once you select a client, the system loads their billable tasks: completed work that has an invoice amount attached but hasn\'t been invoiced yet.' },
+        ar: { title: 'اختيار العميل', desc: 'هنا تختار العميل الذي تخص الفاتورة — تظهر هنا فقط جهات الاتصال ذات دور "العميل". بمجرد اختيار عميل، يحمّل النظام مهامه القابلة للفوترة: العمل المكتمل الذي يحتوي على مبلغ فاتورة مرفق ولم يُفوتر بعد.' },
         position: 'right',
       },
       {
@@ -278,6 +363,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'ledger',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'finance',
     en: 'Ledger & Chart of Accounts',
     ar: 'دفتر الأستاذ ودليل الحسابات',
     route: '/finance',
@@ -326,6 +413,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'sales',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Sales Orders',
     ar: 'أوامر البيع',
     route: '/sales',
@@ -341,6 +430,33 @@ export const TOURS: Tour[] = [
         en: { title: 'New Order Button', desc: 'Create a new sales order. You\'ll select a client, set an order date and expected delivery date, choose the initial status (Draft or Confirmed), add notes, and build the line items by selecting inventory items with quantities and prices. The order number is auto-generated.' },
         ar: { title: 'زر الأمر الجديد', desc: 'أنشئ أمر بيع جديداً. ستختار عميلاً وتحدد تاريخ الأمر وتاريخ التسليم المتوقع وتختار الحالة الأولية (مسودة أو مؤكدة) وتضيف ملاحظات وتبني بنود الأسطر باختيار عناصر المخزون مع الكميات والأسعار. يتم إنشاء رقم الأمر تلقائياً.' },
         position: 'bottom',
+      },
+      {
+        // Opens the sales order dialog so the guide can walk it live.
+        action: { click: '[data-tutorial="sales-create-btn"]', delay: 250 },
+        optional: true,
+        target: '[data-tutorial="sales-form-client"]',
+        en: { title: 'Choose the Client', desc: 'This is where you pick the client this order is for — only contacts carrying the "Client" role appear. The order number is generated for you from your numbering settings, so you never have to invent one or worry about duplicates.' },
+        ar: { title: 'اختيار العميل', desc: 'هنا تختار العميل الذي يخصه هذا الأمر — تظهر فقط جهات الاتصال التي تحمل دور "العميل". يُنشأ رقم الأمر تلقائياً من إعدادات الترقيم، فلا داعي لاختياره يدوياً أو القلق من التكرار.' },
+        position: 'right',
+      },
+      {
+        target: '[data-tutorial="sales-form-expected"]',
+        en: { title: 'Expected Delivery Date', desc: 'When you have promised the goods. This drives the delivery schedule: once the order is confirmed you can raise deliveries against it, and each dispatch draws stock down and books the cost of what left. Setting a realistic date here keeps the fulfilment view honest.' },
+        ar: { title: 'تاريخ التسليم المتوقع', desc: 'الموعد الذي وعدت بتسليم البضاعة فيه. يقود هذا جدول التسليم: بمجرد تأكيد الأمر يمكنك إنشاء عمليات تسليم مقابله، وكل شحنة تخصم المخزون وتسجل تكلفة ما خرج. تحديد تاريخ واقعي هنا يبقي عرض التنفيذ دقيقاً.' },
+        position: 'right',
+      },
+      {
+        target: '[data-tutorial="sales-form-status"]',
+        en: { title: 'Draft or Confirmed', desc: 'Draft keeps the order editable and commits nothing. Confirmed is the commitment: it makes the order available to invoice and to deliver against. Start as Draft while you are still agreeing terms, then confirm once the customer has signed off.' },
+        ar: { title: 'مسودة أم مؤكد', desc: 'المسودة تبقي الأمر قابلاً للتعديل ولا تلتزم بشيء. المؤكد هو الالتزام: يجعل الأمر متاحاً للفوترة وللتسليم مقابله. ابدأ كمسودة أثناء الاتفاق على الشروط، ثم أكّد بعد موافقة العميل.' },
+        position: 'right',
+      },
+      {
+        target: '[data-tutorial="sales-form-items"]',
+        en: { title: 'Order Line Items', desc: 'Add a row per item being sold: pick the inventory item, set quantity and unit price, and apply a per-line discount if you have agreed one. The order total adds up from these lines, and they carry through to the invoice when you bill the order — so you only enter them once.' },
+        ar: { title: 'بنود الأمر', desc: 'أضف صفاً لكل صنف مُباع: اختر صنف المخزون، وحدد الكمية وسعر الوحدة، وطبّق خصماً على السطر إن اتفقت عليه. يُجمع إجمالي الأمر من هذه البنود، وتنتقل إلى الفاتورة عند فوترة الأمر — فتُدخلها مرة واحدة فقط.' },
+        position: 'right',
       },
       {
         target: '[data-tutorial="sales-search"]',
@@ -368,6 +484,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'purchases',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Purchase Orders',
     ar: 'أوامر الشراء',
     route: '/purchases',
@@ -383,6 +501,27 @@ export const TOURS: Tour[] = [
         en: { title: 'New Purchase Order', desc: 'Create a purchase order from your inventory catalog. Select a supplier from your contacts, set the order and expected dates, and add line items using your inventory items. Each item shows its current cost price. Once you receive the goods, use the "Receive" button on the table row to update inventory automatically.' },
         ar: { title: 'أمر شراء جديد', desc: 'أنشئ أمر شراء من كتالوج مخزونك. اختر مورداً من جهات اتصالك وحدد تواريخ الأمر والتوقع وأضف بنوداً باستخدام عناصر مخزونك. يُظهر كل صنف سعر تكلفته الحالي. بمجرد استلام البضائع، استخدم زر "استلام" في صف الجدول لتحديث المخزون تلقائياً.' },
         position: 'bottom',
+      },
+      {
+        // Opens the purchase order dialog to walk it live.
+        action: { click: '[data-tutorial="purchases-create-btn"]', delay: 250 },
+        optional: true,
+        target: '[data-tutorial="purchases-form-supplier"]',
+        en: { title: 'Choose the Supplier', desc: 'This is where you pick who you are buying from — the supplier carries the payment terms and default currency that follow through to the bill. The order number is generated from your numbering settings.' },
+        ar: { title: 'اختيار المورّد', desc: 'هنا تختار الجهة التي تشتري منها — يحمل المورّد شروط الدفع والعملة الافتراضية التي تنتقل إلى الفاتورة. يُنشأ رقم الأمر من إعدادات الترقيم.' },
+        position: 'right',
+      },
+      {
+        target: '[data-tutorial="purchases-form-expected"]',
+        en: { title: 'Expected Arrival', desc: 'When the goods are due. Receiving against this order is what puts stock on hand and capitalises its value — the receipt debits Inventory and raises a goods-received accrual that the supplier bill later clears, so the cost is recognised exactly once.' },
+        ar: { title: 'تاريخ الوصول المتوقع', desc: 'موعد استحقاق البضاعة. الاستلام مقابل هذا الأمر هو ما يضيف المخزون ويرسمل قيمته — يقيّد الاستلام المخزون مديناً وينشئ استحقاق بضاعة مستلمة تسدده فاتورة المورّد لاحقاً، فتُعترف التكلفة مرة واحدة فقط.' },
+        position: 'right',
+      },
+      {
+        target: '[data-tutorial="purchases-form-status"]',
+        en: { title: 'Initial Status & Approval', desc: 'Draft is a working copy; Ordered commits it to the supplier. If the order value is at or above your company approval threshold, it must be approved before anyone can receive against it — the gate is enforced on the server, not just hidden in the UI.' },
+        ar: { title: 'الحالة الأولية والموافقة', desc: 'المسودة نسخة عمل؛ و"مطلوب" يلتزم بها تجاه المورّد. إذا كانت قيمة الأمر عند حد الموافقة في شركتك أو أعلى، فيجب اعتمادها قبل أن يتمكن أحد من الاستلام مقابلها — والقيد مطبَّق على الخادم لا مخفي في الواجهة فقط.' },
+        position: 'right',
       },
       {
         target: '[data-tutorial="purchases-search"]',
@@ -410,6 +549,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'inventory',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Inventory Management',
     ar: 'إدارة المخزون',
     route: '/inventory',
@@ -445,6 +586,13 @@ export const TOURS: Tour[] = [
         position: 'top',
       },
       {
+        target: '[data-tutorial="inventory-warehouses"]',
+        optional: true,
+        en: { title: 'Warehouses', desc: 'Stock is held per location, not just as one company-wide number. Transfers move quantity between warehouses, and every issue is checked against the balance at that specific location — which is why a delivery can fail even when the item shows stock elsewhere.' },
+        ar: { title: 'المستودعات', desc: 'يُحفظ المخزون لكل موقع، لا كرقم واحد على مستوى الشركة. تنقل التحويلات الكمية بين المستودعات، ويُفحص كل صرف مقابل رصيد ذلك الموقع تحديداً — ولهذا قد يفشل التسليم رغم ظهور رصيد للصنف في مكان آخر.' },
+        position: 'bottom',
+      },
+      {
         target: '[data-tutorial="inventory-movements"]',
         en: { title: 'Stock Movements Log', desc: 'A complete audit trail of every stock movement — receipts from purchase orders, issuances to projects, adjustments, transfers between locations, and sales fulfillments. Each row shows the date, affected item, movement type, quantity change (positive or negative), reference ID, and any notes. This is your inventory history and cannot be modified.' },
         ar: { title: 'سجل حركات المخزون', desc: 'سجل تدقيق كامل لكل حركة مخزون — الاستلامات من أوامر الشراء والصرف للمشاريع والتسويات والتحويلات بين المواقع والوفاء بالمبيعات. تُظهر كل صف التاريخ والعنصر المتأثر ونوع الحركة وتغيير الكمية (إيجابي أو سلبي) ومعرف المرجع وأي ملاحظات. هذا هو تاريخ مخزونك ولا يمكن تعديله.' },
@@ -458,6 +606,7 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'projects',
+    category: 'people',
     en: 'Projects & Tasks',
     ar: 'المشاريع والمهام',
     route: '/projects',
@@ -488,6 +637,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'contacts',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
     en: 'Contacts & Leads',
     ar: 'جهات الاتصال والعملاء المحتملون',
     route: '/contacts',
@@ -518,10 +669,33 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'crm-panel',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
     en: 'CRM Panel',
     ar: 'لوحة إدارة العلاقات',
     route: '/contacts',
     steps: [
+      {
+        target: '[data-tutorial="proposals-create"]',
+        optional: true,
+        en: { title: 'Proposals', desc: 'Draft a priced proposal against an opportunity. It is the document you send before anything is committed — win it and the numbers carry into a sales order rather than being retyped.' },
+        ar: { title: 'العروض', desc: 'أنشئ عرضاً مسعّراً مقابل فرصة. هو المستند الذي ترسله قبل أي التزام — وعند الفوز تنتقل الأرقام إلى أمر بيع بدلاً من إعادة كتابتها.' },
+        position: 'bottom',
+      },
+      {
+        target: '[data-tutorial="campaigns-create"]',
+        optional: true,
+        en: { title: 'Campaigns', desc: 'Group marketing spend and deliverables under one campaign. Deliverables can generate supplier bills, and campaign expenses post to the ledger when approved — so a campaign shows real cost, not just a plan.' },
+        ar: { title: 'الحملات', desc: 'اجمع الإنفاق التسويقي والمخرجات تحت حملة واحدة. يمكن للمخرجات إنشاء فواتير موردين، وتُقيَّد مصروفات الحملة في دفتر الأستاذ عند اعتمادها — فتظهر الحملة بتكلفة حقيقية لا مجرد خطة.' },
+        position: 'bottom',
+      },
+      {
+        target: '[data-tutorial="vendor-requests-create"]',
+        optional: true,
+        en: { title: 'Vendor Requests', desc: 'Ask a vendor to quote or schedule work for a campaign deliverable. Accepted requests carry their cost forward, which is what lets a campaign be measured against what it actually spent.' },
+        ar: { title: 'طلبات الموردين', desc: 'اطلب من مورّد تسعيراً أو جدولة عمل لمخرج حملة. تحمل الطلبات المقبولة تكلفتها للأمام، وهو ما يتيح قياس الحملة مقابل ما أنفقته فعلاً.' },
+        position: 'bottom',
+      },
       {
         target: '[data-tutorial="crm-lead-status"]',
         en: { title: 'Lead Status', desc: 'Track where this contact is in your sales funnel: New → Qualified → Follow-up → Proposal → Won / Lost. The status automatically changes to Won when you create an invoice for this contact. Tracking status accurately is critical for pipeline reporting and commission calculations.' },
@@ -566,10 +740,19 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'pipeline',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
     en: 'CRM Pipeline',
     ar: 'خط أنابيب المبيعات',
     route: '/crm/opportunities',
     steps: [
+      {
+        target: '[data-tutorial="opportunities-kanban"]',
+        optional: true,
+        en: { title: 'Opportunity Board', desc: 'Drag an opportunity between stages to move it through the pipeline. Closing one as Won is what triggers the commission calculation for everyone credited on it; closing as Lost records the outcome without any accrual.' },
+        ar: { title: 'لوحة الفرص', desc: 'اسحب الفرصة بين المراحل لتحريكها في خط الأنابيب. إغلاقها كـ"مكسوبة" هو ما يشغّل احتساب العمولة لكل من له نصيب فيها؛ وإغلاقها كـ"مفقودة" يسجل النتيجة دون أي استحقاق.' },
+        position: 'bottom',
+      },
       {
         target: '[data-tutorial="pipeline-tabs"]',
         en: { title: 'Pipeline Sections', desc: 'The Pipeline module is divided into four sections. Opportunities tracks your active deals through stages. Vendor Requests handles employee requests to add new vendors. Campaigns tracks marketing campaigns. Commissions shows what your sales team has earned based on won deals.' },
@@ -602,6 +785,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'followups',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
     en: 'Follow-Up Center',
     ar: 'مركز المتابعة',
     route: '/crm/followups',
@@ -626,10 +811,19 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'performance',
+    roles: ['Admin', 'Manager'],
+    category: 'crm',
     en: 'Performance Dashboard',
     ar: 'لوحة الأداء',
     route: '/crm/performance',
     steps: [
+      {
+        target: '[data-tutorial="perf-period"]',
+        optional: true,
+        en: { title: 'Reporting Period', desc: 'Every figure on this page is scoped to the period you pick here. Change it before reading anything — a target that looks missed this month may simply be measured against the wrong window.' },
+        ar: { title: 'فترة التقرير', desc: 'كل رقم في هذه الصفحة محصور بالفترة التي تختارها هنا. غيّرها قبل قراءة أي شيء — فالهدف الذي يبدو غير محقق هذا الشهر قد يكون مقيساً على نافذة زمنية خاطئة فحسب.' },
+        position: 'bottom',
+      },
       {
         target: '[data-tutorial="perf-stats"]',
         en: { title: 'Company-Wide Stats', desc: 'The header row shows aggregated numbers across the whole company: total leads in the system, active deals in the pipeline, total revenue in the pipeline, and deals won this period. These are the baseline numbers for the leaderboard below — context for individual rankings.' },
@@ -656,6 +850,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'manufacturing',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Manufacturing',
     ar: 'التصنيع',
     route: '/manufacturing',
@@ -676,11 +872,11 @@ export const TOURS: Tour[] = [
       },
       {
         action: { click: '[data-tutorial="mfg-create-wo"]', delay: 200 },
+        optional: true,
         target: '[role="dialog"], [data-tutorial="mfg-create-wo"]',
         en: { title: 'Create a Work Order', desc: 'Pick a recipe and the number of batches, then create the work order. When you complete it, the system atomically deducts every component from stock, adds the finished goods to inventory, and records the material cost — so your Yield (produced vs expected) and unit cost are calculated automatically. If any component is short, the whole run rolls back.' },
         ar: { title: 'إنشاء أمر عمل', desc: 'اختر وصفة وعدد الدفعات ثم أنشئ أمر العمل. عند إكماله، يخصم النظام كل مكوّن من المخزون، ويضيف المنتجات النهائية، ويسجّل تكلفة المواد — فيُحتسب العائد (المنتَج مقابل المتوقع) وتكلفة الوحدة تلقائياً. وإن نقص أي مكوّن، تُلغى العملية بالكامل.' },
         position: 'left',
-        optional: true,
       },
     ],
   },
@@ -690,6 +886,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'rfq',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Requests for Quotation',
     ar: 'طلبات عروض الأسعار',
     route: '/purchases/rfq',
@@ -703,11 +901,11 @@ export const TOURS: Tour[] = [
       },
       {
         action: { click: '[data-tutorial="rfq-create"]', delay: 200 },
+        optional: true,
         target: '[role="dialog"], [data-tutorial="rfq-create"]',
         en: { title: 'Raise an RFQ', desc: 'Give the request a title and list the line items you need — description, quantity, and unit. Once saved, you record each supplier\'s quote against it. The cheapest quote is flagged automatically, and awarding one stamps the RFQ as decided. This is the first step of a disciplined procurement process.' },
         ar: { title: 'إنشاء طلب عروض', desc: 'أعطِ الطلب عنواناً وأدرج الأصناف المطلوبة — الوصف والكمية والوحدة. بعد الحفظ، تسجّل عرض كل مورّد مقابله. يُميَّز أقل عرض تلقائياً، والترسية تُثبّت الطلب كمحسوم. هذه أولى خطوات عملية شراء منضبطة.' },
         position: 'left',
-        optional: true,
       },
     ],
   },
@@ -717,6 +915,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'invoice-matching',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Invoice Matching',
     ar: 'مطابقة الفواتير',
     route: '/purchases/matching',
@@ -743,6 +943,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'stock-counts',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
     en: 'Stock Counts',
     ar: 'جرد المخزون',
     route: '/inventory/counts',
@@ -756,11 +958,11 @@ export const TOURS: Tour[] = [
       },
       {
         action: { click: '[data-tutorial="count-create"]', delay: 250 },
+        optional: true,
         target: 'table, .rounded-lg.border',
         en: { title: 'Open & Post a Count', desc: 'Opening a count snapshots the current on-hand for every tracked item. Enter the physical quantity next to each — the variance is shown live and colour-coded. When you post, those variances become real stock adjustments and the count is locked so it can\'t be edited afterward. Count little and often (a "cycle") rather than one giant annual stocktake.' },
         ar: { title: 'فتح الجرد وترحيله', desc: 'فتح الجرد يلتقط المخزون الحالي لكل صنف مُتتبَّع. أدخل الكمية الفعلية بجانب كلٍّ — ويظهر الفرق مباشرةً بالألوان. عند الترحيل تصبح تلك الفروق تعديلات مخزون فعلية ويُقفل الجرد فلا يمكن تعديله. اجرد قليلاً وبتكرار ("دورة") بدل جرد سنوي ضخم واحد.' },
         position: 'top',
-        optional: true,
       },
     ],
   },
@@ -770,6 +972,8 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'payroll',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'people',
     en: 'Payroll',
     ar: 'الرواتب',
     route: '/hr/payroll',
@@ -783,11 +987,11 @@ export const TOURS: Tour[] = [
       },
       {
         action: { click: '[data-tutorial="payroll-run"]', delay: 250 },
+        optional: true,
         target: '.rounded-lg.border, table',
         en: { title: 'Run & Export WPS', desc: 'Each run expands into its payslips. When you\'re ready to pay salaries, download the WPS file — a bank-ready CSV containing every employee\'s ID, bank, IBAN, and net pay, formatted for the Wage Protection System. Upload it to your bank and salaries are paid in one batch.' },
         ar: { title: 'التشغيل وتصدير حماية الأجور', desc: 'يتوسّع كل مسير إلى قسائم رواتبه. وعند الاستعداد لدفع الرواتب، نزّل ملف حماية الأجور (WPS) — ملف CSV جاهز للبنك يحتوي على رقم كل موظف وبنكه والآيبان وصافي راتبه، بصيغة نظام حماية الأجور. ارفعه إلى بنكك لتُدفع الرواتب دفعة واحدة.' },
         position: 'top',
-        optional: true,
       },
     ],
   },
@@ -797,9 +1001,11 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'documents',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'finance',
     en: 'Document Builder',
     ar: 'منشئ المستندات',
-    route: '/settings',
+    route: '/documents',
     steps: [
       {
         target: '[data-tutorial="nav-settings"]',
@@ -817,4 +1023,437 @@ export const TOURS: Tour[] = [
       },
     ],
   },
+  {
+    id: 'clients',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'finance',
+    en: 'Client Directory',
+    ar: 'دليل العملاء',
+    route: '/clients',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Who Your Clients Are', desc: 'Every contact carrying the Client role appears here with their billing history attached. Clients are not a separate table — they are contacts with a role, which is why the same organisation can be both a client and a supplier without being entered twice.' },
+        ar: { title: 'من هم عملاؤك', desc: 'تظهر هنا كل جهة اتصال تحمل دور العميل مع سجل الفوترة الخاص بها. العملاء ليسوا جدولاً منفصلاً — بل جهات اتصال تحمل دوراً، ولهذا يمكن أن تكون المؤسسة نفسها عميلاً ومورّداً دون إدخالها مرتين.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Balances and Exposure', desc: 'Each row carries what has been billed and what is still outstanding. Outstanding is the invoice total less payments and any credit notes applied — so a credited invoice stops inflating what the client appears to owe.' },
+        ar: { title: 'الأرصدة والانكشاف', desc: 'يحمل كل صف ما تمت فوترته وما زال مستحقاً. المستحق هو إجمالي الفاتورة ناقص المدفوعات وأي إشعارات دائنة مطبّقة — فلا تضخّم الفاتورة المدائنة ما يبدو أن العميل مديناً به.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Opening a Client', desc: 'Selecting a client opens their 360° profile: invoices, sales orders, projects and opportunities in one place, counted from the records actually linked to them.' },
+        ar: { title: 'فتح ملف العميل', desc: 'اختيار عميل يفتح ملفه الشامل: الفواتير وأوامر البيع والمشاريع والفرص في مكان واحد، محسوبة من السجلات المرتبطة به فعلاً.' },
+      },
+    ],
+  },
+  {
+    id: 'suppliers',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'operations',
+    en: 'Supplier Directory',
+    ar: 'دليل الموردين',
+    route: '/suppliers',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Your Supply Base', desc: 'Contacts carrying the Vendor role, with their purchase orders and payables alongside. Payment terms set here flow into every bill you raise against them.' },
+        ar: { title: 'قاعدة التوريد', desc: 'جهات الاتصال التي تحمل دور المورّد، ومعها أوامر الشراء والذمم الدائنة. تنتقل شروط الدفع المحددة هنا إلى كل فاتورة تصدرها مقابلهم.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Open Payables', desc: 'What you still owe each supplier, net of payments already made. This is the same figure the finance module reports — both read the vendor bills rather than keeping separate counts.' },
+        ar: { title: 'الذمم الدائنة المفتوحة', desc: 'ما زلت مديناً به لكل مورّد بعد خصم المدفوعات. وهو الرقم نفسه الذي تعرضه وحدة المالية — كلاهما يقرأ فواتير الموردين بدل الاحتفاظ بأرقام منفصلة.' },
+      },
+    ],
+  },
+  {
+    id: 'tasks',
+    category: 'people',
+    en: 'Tasks & Time',
+    ar: 'المهام والوقت',
+    route: '/tasks',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Work in Flight', desc: 'Every task across your projects, filterable by status, assignee and priority. Tasks are where billable work is captured before it reaches an invoice.' },
+        ar: { title: 'العمل الجاري', desc: 'كل المهام عبر مشاريعك، قابلة للتصفية حسب الحالة والمسؤول والأولوية. المهام هي حيث يُلتقط العمل القابل للفوترة قبل وصوله إلى الفاتورة.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Private Tasks', desc: 'A task marked private is visible only to its owner and assignees — it overrides the usual role-based visibility, so a manager does not automatically see it.' },
+        ar: { title: 'المهام الخاصة', desc: 'المهمة المعلّمة كخاصة مرئية لمالكها والمكلفين بها فقط — وهي تتجاوز الرؤية المعتادة القائمة على الدور، فلا يراها المدير تلقائياً.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Time and Cost', desc: 'Logging time against a task records a cost using the user\'s hourly rate at the moment it is logged. That is what makes project profitability measurable rather than estimated.' },
+        ar: { title: 'الوقت والتكلفة', desc: 'تسجيل الوقت على مهمة يسجّل تكلفة بسعر ساعة المستخدم وقت التسجيل. وهذا ما يجعل ربحية المشروع قابلة للقياس بدل التقدير.' },
+      },
+    ],
+  },
+  {
+    id: 'campaigns',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
+    en: 'Marketing Campaigns',
+    ar: 'الحملات التسويقية',
+    route: '/crm/campaigns',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Campaigns', desc: 'Group deliverables, vendors and spend under one campaign so its true cost is visible. Approved campaign expenses post to the ledger, so a campaign is measured against money actually recognised.' },
+        ar: { title: 'الحملات', desc: 'اجمع المخرجات والموردين والإنفاق تحت حملة واحدة لتظهر تكلفتها الحقيقية. تُقيَّد مصروفات الحملة المعتمدة في دفتر الأستاذ، فتُقاس الحملة مقابل مال معترف به فعلاً.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Deliverables', desc: 'Each deliverable can generate a supplier bill when fulfilled, linking what you promised to what you paid for it.' },
+        ar: { title: 'المخرجات', desc: 'يمكن لكل مخرج إنشاء فاتورة مورّد عند تنفيذه، فيربط ما وعدت به بما دفعته مقابله.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Campaign Invoice', desc: 'A campaign can raise a single invoice covering its deliverables, and re-syncing it after a change issues a supplementary invoice or a credit note rather than silently editing an issued document.' },
+        ar: { title: 'فاتورة الحملة', desc: 'يمكن للحملة إصدار فاتورة واحدة تغطي مخرجاتها، وإعادة مزامنتها بعد التغيير تُصدر فاتورة تكميلية أو إشعاراً دائناً بدل التعديل الصامت لمستند صادر.' },
+      },
+    ],
+  },
+  {
+    id: 'commissions',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
+    en: 'Commissions',
+    ar: 'العمولات',
+    route: '/crm/commissions',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'How Commission Is Earned', desc: 'Commission is calculated when an opportunity closes as Won, split across everyone credited on it by their contribution weight. Nothing accrues from a Lost opportunity.' },
+        ar: { title: 'كيف تُكتسب العمولة', desc: 'تُحتسب العمولة عند إغلاق الفرصة كمكسوبة، وتُقسَّم على كل من له نصيب فيها حسب وزن مساهمته. ولا يُستحق شيء من فرصة مفقودة.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Approve Before Paying', desc: 'Draft, Approved, Paid — in that order. Approving posts the expense and the payable; paying clears the payable against cash. Paying without approving is refused, because approval is the control that authorises the spend.' },
+        ar: { title: 'الاعتماد قبل الدفع', desc: 'مسودة، معتمدة، مدفوعة — بهذا الترتيب. الاعتماد يقيّد المصروف والالتزام؛ والدفع يسدد الالتزام مقابل النقد. ويُرفض الدفع دون اعتماد، لأن الاعتماد هو الضابط الذي يجيز الإنفاق.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Voiding', desc: 'Void reverses an approved accrual cleanly. A commission that has already been paid cannot be voided — the money has left, so it is recovered with a repayment rather than erased from the books.' },
+        ar: { title: 'الإلغاء', desc: 'يعكس الإلغاء الاستحقاق المعتمد بشكل نظيف. أما العمولة المدفوعة فلا يمكن إلغاؤها — فالمال قد خرج، ويُسترد بسداد عكسي بدل محوه من الدفاتر.' },
+      },
+    ],
+  },
+  {
+    id: 'vendor-requests',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
+    en: 'Vendor Requests',
+    ar: 'طلبات الموردين',
+    route: '/crm/vendor-requests',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Asking Vendors to Quote', desc: 'Send a scoped request to a vendor for a campaign deliverable — scope, schedule and cost in one place, so what was agreed is recorded rather than living in email.' },
+        ar: { title: 'طلب عروض من الموردين', desc: 'أرسل طلباً محدد النطاق إلى مورّد لمخرج حملة — النطاق والجدول والتكلفة في مكان واحد، فيُسجَّل ما اتُفق عليه بدل بقائه في البريد.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'From Request to Cost', desc: 'An accepted request carries its agreed cost onto the deliverable, which is what lets a campaign be compared against what it actually spent.' },
+        ar: { title: 'من الطلب إلى التكلفة', desc: 'الطلب المقبول ينقل تكلفته المتفق عليها إلى المخرج، وهو ما يتيح مقارنة الحملة بما أنفقته فعلاً.' },
+      },
+    ],
+  },
+  {
+    id: 'pipeline-board',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
+    en: 'Opportunity Board',
+    ar: 'لوحة الفرص',
+    route: '/crm/pipeline',
+    steps: [
+      {
+        optional: true,
+        target: '[data-tutorial="opportunities-kanban"]',
+        en: { title: 'Dragging Through Stages', desc: 'Move an opportunity between stages to reflect where it really is. The board is the same data as the list — this view just makes the shape of the pipeline obvious at a glance.' },
+        ar: { title: 'السحب بين المراحل', desc: 'حرّك الفرصة بين المراحل لتعكس موقعها الحقيقي. اللوحة هي البيانات نفسها الموجودة في القائمة — لكن هذا العرض يُظهر شكل خط الأنابيب بوضوح.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Closing an Opportunity', desc: 'Closing as Won is the event that triggers commission and lets the opportunity convert into a sales order. Closing as Lost records the outcome and the reason without any financial effect.' },
+        ar: { title: 'إغلاق الفرصة', desc: 'الإغلاق كمكسوبة هو الحدث الذي يشغّل العمولة ويتيح تحويل الفرصة إلى أمر بيع. والإغلاق كمفقودة يسجل النتيجة والسبب دون أي أثر مالي.' },
+      },
+    ],
+  },
+  {
+    id: 'hr-employees',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'people',
+    en: 'Employee Directory',
+    ar: 'دليل الموظفين',
+    route: '/hr/employees',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'The Employee Record', desc: 'Job details, manager, employment type and salary components live here. Basic, allowances and deductions are what payroll reads when it builds a payslip — so a wrong figure here becomes a wrong payment.' },
+        ar: { title: 'سجل الموظف', desc: 'تفاصيل الوظيفة والمدير ونوع التوظيف ومكوّنات الراتب موجودة هنا. الأساسي والبدلات والاستقطاعات هي ما تقرؤه الرواتب عند إنشاء قسيمة الراتب — فالرقم الخاطئ هنا يصبح دفعة خاطئة.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Bank Details Matter', desc: 'The IBAN recorded here is what goes into the WPS bank file. An employee without one now blocks the file from being generated at all, rather than being silently skipped at the bank.' },
+        ar: { title: 'أهمية البيانات البنكية', desc: 'رقم الآيبان المسجَّل هنا هو ما يدخل ملف حماية الأجور. والموظف الذي بلا آيبان يمنع الآن إنشاء الملف بالكامل بدل تخطيه بصمت لدى البنك.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Linking to a User', desc: 'An employee can be linked to a login account. That link is what lets time logged by a user turn into a labour cost against the right person.' },
+        ar: { title: 'الربط بحساب مستخدم', desc: 'يمكن ربط الموظف بحساب دخول. هذا الربط هو ما يجعل الوقت الذي يسجله المستخدم يتحول إلى تكلفة عمالة على الشخص الصحيح.' },
+      },
+    ],
+  },
+  {
+    id: 'hr-leave',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'people',
+    en: 'Leave Management',
+    ar: 'إدارة الإجازات',
+    route: '/hr/leave',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Requests and Balances', desc: 'Employees request leave against an annual allowance; approving one draws the balance down. Leave types can be paid or unpaid, which is what decides whether the balance is touched.' },
+        ar: { title: 'الطلبات والأرصدة', desc: 'يطلب الموظفون إجازة من رصيد سنوي؛ والموافقة تخصم من الرصيد. وأنواع الإجازات قد تكون مدفوعة أو غير مدفوعة، وهو ما يحدد إن كان الرصيد سيُمس.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Approval Flow', desc: 'A request stays pending until a manager acts on it. Nothing is deducted while it is pending, so a rejected request leaves the balance untouched.' },
+        ar: { title: 'مسار الموافقة', desc: 'يبقى الطلب معلقاً حتى يتصرف فيه المدير. ولا يُخصم شيء أثناء التعليق، فالطلب المرفوض يترك الرصيد كما هو.' },
+      },
+    ],
+  },
+  {
+    id: 'hr-attendance',
+    roles: ['Admin', 'Manager', 'Accountant'],
+    category: 'people',
+    en: 'Attendance',
+    ar: 'الحضور',
+    route: '/hr/attendance',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Daily Attendance', desc: 'Present, absent, on leave or holiday, recorded per employee per day. Approved leave shows here automatically, so the two views never disagree.' },
+        ar: { title: 'الحضور اليومي', desc: 'حاضر أو غائب أو في إجازة أو عطلة، مسجَّل لكل موظف يومياً. وتظهر الإجازات المعتمدة هنا تلقائياً، فلا يتعارض العرضان أبداً.' },
+      },
+    ],
+  },
+  {
+    id: 'influencers',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
+    en: 'Influencers',
+    ar: 'المؤثرون',
+    route: '/influencers',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Influencer Profiles', desc: 'Reach, platform and rate for each influencer you work with, kept alongside the campaigns they appear in. They can be imported from a CSV and exported back out.' },
+        ar: { title: 'ملفات المؤثرين', desc: 'الوصول والمنصة والسعر لكل مؤثر تتعامل معه، محفوظة إلى جانب الحملات التي يظهرون فيها. ويمكن استيرادهم من ملف CSV وتصديرهم مجدداً.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'From Profile to Deliverable', desc: 'An influencer attached to a campaign deliverable carries their agreed rate with them, so the campaign cost builds itself rather than being retyped.' },
+        ar: { title: 'من الملف إلى المخرج', desc: 'المؤثر المرتبط بمخرج حملة يحمل معه سعره المتفق عليه، فتُبنى تكلفة الحملة تلقائياً بدل إعادة كتابتها.' },
+      },
+    ],
+  },
+  {
+    id: 'whatsapp',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'crm',
+    en: 'WhatsApp Inbox',
+    ar: 'صندوق واتساب',
+    route: '/whatsapp',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Conversations in Context', desc: 'Inbound messages are matched to the contact they came from, so a conversation sits with that contact\'s history rather than in a separate silo.' },
+        ar: { title: 'المحادثات في سياقها', desc: 'تُطابق الرسائل الواردة مع جهة الاتصال التي أرسلتها، فتبقى المحادثة مع سجل تلك الجهة بدل أن تكون في صومعة منفصلة.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Automatic Follow-Ups', desc: 'An inbound message from a known contact schedules a same-day reply reminder, so an enquiry does not quietly go cold.' },
+        ar: { title: 'المتابعات التلقائية', desc: 'الرسالة الواردة من جهة معروفة تجدول تذكيراً بالرد في اليوم نفسه، فلا يبرد الاستفسار بصمت.' },
+      },
+    ],
+  },
+  {
+    id: 'notifications',
+    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
+    category: 'admin',
+    en: 'Notifications',
+    ar: 'الإشعارات',
+    route: '/notifications',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'What Reaches You', desc: 'Task assignments, due dates, overdue invoices, low stock and expiring lots all raise notifications. Critical ones email immediately; the rest collect into a digest.' },
+        ar: { title: 'ما يصلك', desc: 'تُنشئ إسنادات المهام وتواريخ الاستحقاق والفواتير المتأخرة وانخفاض المخزون والدفعات المنتهية إشعارات. العاجلة تُرسل بالبريد فوراً، والباقي يُجمع في ملخص.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Preferences', desc: 'Choose which categories reach you. Preferences are per user, so a manager and an accountant can watch entirely different things without affecting each other.' },
+        ar: { title: 'التفضيلات', desc: 'اختر الفئات التي تصلك. التفضيلات لكل مستخدم على حدة، فيمكن للمدير والمحاسب متابعة أمور مختلفة تماماً دون تأثير متبادل.' },
+      },
+    ],
+  },
+  {
+    id: 'diagram',
+    category: 'start',
+    en: 'Company Diagram',
+    ar: 'مخطط الشركة',
+    route: '/diagram',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Seeing the Shape of the Business', desc: 'A visual map of how your records connect — clients to orders, orders to invoices, invoices to payments. Useful for spotting where a chain breaks before it shows up as a wrong number.' },
+        ar: { title: 'رؤية شكل العمل', desc: 'خريطة بصرية لكيفية ارتباط سجلاتك — العملاء بالأوامر، والأوامر بالفواتير، والفواتير بالمدفوعات. مفيدة لاكتشاف انقطاع السلسلة قبل أن يظهر كرقم خاطئ.' },
+      },
+    ],
+  },
+  {
+    id: 'users',
+    roles: ['Admin', 'Manager'],
+    category: 'admin',
+    en: 'Users & Roles',
+    ar: 'المستخدمون والأدوار',
+    route: '/users',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Roles Decide Access', desc: 'Admin, Manager, Employee and Accountant each see a different system. Roles are assigned per company, so the same person can be an Admin in one and an Employee in another.' },
+        ar: { title: 'الأدوار تحدد الوصول', desc: 'المدير العام والمدير والموظف والمحاسب — كل منهم يرى نظاماً مختلفاً. وتُسند الأدوار لكل شركة، فيمكن للشخص نفسه أن يكون مديراً عاماً في واحدة وموظفاً في أخرى.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Commission Profile', desc: 'A user can be marked commission-eligible with a default rate and basis. These are the defaults the commission engine falls back to when a rule does not specify its own.' },
+        ar: { title: 'ملف العمولة', desc: 'يمكن تعليم المستخدم كمستحق للعمولة مع نسبة وأساس افتراضيين. وهذه هي القيم التي يرجع إليها محرك العمولات عندما لا تحدد القاعدة قيمها الخاصة.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Cost Rate', desc: 'The hourly cost rate is what turns logged time into a labour cost. Without it, time is recorded but contributes nothing to project profitability.' },
+        ar: { title: 'سعر التكلفة', desc: 'سعر التكلفة بالساعة هو ما يحوّل الوقت المسجل إلى تكلفة عمالة. وبدونه يُسجَّل الوقت لكنه لا يسهم في ربحية المشروع.' },
+      },
+    ],
+  },
+  {
+    id: 'companies',
+    category: 'admin',
+    en: 'Multi-Company',
+    ar: 'تعدد الشركات',
+    // /companies only redirects (super-admins to /admin, everyone else home), so
+    // this runs against the switcher in the header, which is on every page.
+    route: '/',
+    steps: [
+      {
+        optional: true,
+        target: '[data-tutorial="company-switcher"]',
+        en: { title: 'One Company at a Time', desc: 'Each company keeps its own ledger, numbering, currency and data. Nothing crosses between them — a user must be assigned to a company to see anything in it at all.' },
+        ar: { title: 'تعدد الشركات', desc: 'تحتفظ كل شركة بدفتر أستاذها وترقيمها وعملتها وبياناتها. ولا يعبر شيء بينها — فيجب إسناد المستخدم إلى شركة ليرى أي شيء فيها.' },
+      },
+      {
+        optional: true,
+        target: '[data-tutorial="company-switcher"]',
+        en: { title: 'Switching Company', desc: 'This control changes which company you are working in. Every figure on every page is scoped to it, so check it before reading anything that surprises you.' },
+        ar: { title: 'تبديل الشركة', desc: 'يغيّر المبدّل في الأعلى الشركة التي تعمل فيها. وكل رقم في كل صفحة محصور بها، فتحقق منه قبل قراءة أي شيء يفاجئك.' },
+      },
+    ],
+  },
+  {
+    id: 'company-profile',
+    roles: ['Admin', 'Manager'],
+    category: 'admin',
+    en: 'Company Profile',
+    ar: 'ملف الشركة',
+    route: '/company-profile',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Details That Print', desc: 'Legal name, address, tax number and logo are pulled onto every invoice, quotation and delivery note. Setting them once here means never retyping them onto a document.' },
+        ar: { title: 'التفاصيل التي تُطبع', desc: 'يُسحب الاسم القانوني والعنوان والرقم الضريبي والشعار إلى كل فاتورة وعرض سعر وإشعار تسليم. وضبطها مرة هنا يعني عدم إعادة كتابتها على أي مستند.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Tax Details', desc: 'The tax registration shown on documents comes from here. If you are VAT registered, this is what makes your invoices compliant documents rather than just receipts.' },
+        ar: { title: 'التفاصيل الضريبية', desc: 'يأتي التسجيل الضريبي الظاهر على المستندات من هنا. وإن كنت مسجلاً في ضريبة القيمة المضافة، فهذا ما يجعل فواتيرك مستندات مطابقة لا مجرد إيصالات.' },
+      },
+    ],
+  },
+
+  {
+    id: 'settings',
+    roles: ['Admin'],
+    category: 'admin',
+    en: 'Settings & Numbering',
+    ar: 'الإعدادات والترقيم',
+    route: '/settings',
+    steps: [
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Document Numbering', desc: 'Prefix, padding and next number for each document type — invoices, orders, deliveries. Numbers are generated from these settings, which is what guarantees they are sequential and never collide.' },
+        ar: { title: 'ترقيم المستندات', desc: 'البادئة وعدد الخانات والرقم التالي لكل نوع مستند — الفواتير والأوامر والتسليمات. تُنشأ الأرقام من هذه الإعدادات، وهو ما يضمن تسلسلها وعدم تكرارها.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Currency & Fiscal Year', desc: 'The company currency is the currency the ledger is kept in. Everything posts here in base currency, and a foreign-currency invoice must carry a rate so it can be converted rather than silently added as a plain number.' },
+        ar: { title: 'العملة والسنة المالية', desc: 'عملة الشركة هي العملة التي يُمسك بها دفتر الأستاذ. ويُقيَّد كل شيء هنا بالعملة الأساسية، ويجب أن تحمل الفاتورة بالعملة الأجنبية سعر صرف ليتم تحويلها بدل جمعها كرقم عادي.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Locking a Period', desc: 'Setting a lock date closes everything on or before it. Postings, edits and deletions in a locked period are all refused — including deleting a document, which would otherwise remove its ledger entries and quietly rewrite a closed month.' },
+        ar: { title: 'إقفال الفترة', desc: 'تحديد تاريخ إقفال يغلق كل ما قبله وحتى تاريخه. وتُرفض القيود والتعديلات والحذف في الفترة المقفلة — بما في ذلك حذف مستند، وهو ما كان سيزيل قيوده ويعيد كتابة شهر مقفل بصمت.' },
+      },
+      {
+        optional: true,
+        target: 'main',
+        en: { title: 'Approval Threshold', desc: 'Purchase orders at or above this amount must be approved before anyone can receive against them. The gate is enforced on the server, so it cannot be bypassed by going around the interface.' },
+        ar: { title: 'حد الموافقة', desc: 'يجب اعتماد أوامر الشراء عند هذا المبلغ أو أعلى قبل أن يتمكن أحد من الاستلام مقابلها. والقيد مطبَّق على الخادم، فلا يمكن تجاوزه بالالتفاف على الواجهة.' },
+      },
+    ],
+  },
+
 ];

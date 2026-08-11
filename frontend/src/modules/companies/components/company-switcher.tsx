@@ -38,6 +38,7 @@ export function CompanySwitcher() {
           role="combobox"
           aria-expanded={open}
           className="w-[250px] justify-between"
+          data-tutorial="company-switcher"
         >
           <div className="flex items-center gap-2">
             <CompanyMark company={selectedCompany} className="h-6 w-6" />

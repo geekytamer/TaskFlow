@@ -597,7 +597,7 @@ export function PurchasesPage() {
                 </div>
               </div>
                 <div className="space-y-1">
-                  <Label>{tr('Supplier', 'المورّد')}</Label>
+                  <Label data-tutorial="purchases-form-supplier">{tr('Supplier', 'المورّد')}</Label>
                   <Combobox
                     options={suppliers.map((c: Contact) => ({ value: c.id, label: c.name }))}
                     value={form.contactId}
@@ -617,7 +617,7 @@ export function PurchasesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>{tr('Expected Date', 'التاريخ المتوقع')}</Label>
+                <Label data-tutorial="purchases-form-expected">{tr('Expected Date', 'التاريخ المتوقع')}</Label>
                 <Input
                   type="date"
                   value={form.expectedDate}
@@ -627,7 +627,7 @@ export function PurchasesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>{tr('Initial Status', 'الحالة الأولية')}</Label>
+                <Label data-tutorial="purchases-form-status">{tr('Initial Status', 'الحالة الأولية')}</Label>
                 <Select
                   value={form.status}
                   onValueChange={(value) =>

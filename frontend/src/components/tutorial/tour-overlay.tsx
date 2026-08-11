@@ -17,12 +17,39 @@ interface TargetRect {
 const PAD = 8;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Any dialog/sheet currently on screen, or null. */
+const openOverlay = () =>
+  document.querySelector<HTMLElement>(
+    '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+  );
+
+/**
+ * Close a dialog a previous step opened, unless this step is still working
+ * inside it. Without this, a tour that ends inside a dialog leaves it covering
+ * whatever the next step points at — including the next tour, when both live on
+ * the same route and no navigation happens to clear it.
+ */
+async function closeStaleOverlay(target: string) {
+  const overlay = openOverlay();
+  if (!overlay) return;
+  // Still inside the same dialog — leave it alone.
+  if (target && overlay.querySelector(target)) return;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  for (let i = 0; i < 20; i += 1) {
+    if (!openOverlay()) break;
+    await sleep(50);
+  }
+}
+
 export function TourOverlay() {
   const { activeTour, currentStep, stepIndex, totalSteps, nextStep, prevStep, endTour } = useTour();
   const { language: locale, isRtl } = useI18n();
   const router = useRouter();
   const [rect, setRect] = React.useState<TargetRect | null>(null);
   const [tooltipPos, setTooltipPos] = React.useState({ top: 0, left: 0 });
+  // Set when a step wanted to open a dialog but its trigger was unavailable —
+  // usually because the feature needs data that does not exist yet.
+  const [actionBlocked, setActionBlocked] = React.useState(false);
   const tooltipRef = React.useRef<HTMLDivElement>(null);
 
   const positionFor = React.useCallback((el: Element | null) => {
@@ -70,10 +97,13 @@ export function TourOverlay() {
 
     const run = async () => {
       setRect(null);
+      // 0) Dismiss a dialog left open by an earlier step unless this step is
+      //    still inside it. Runs before navigation and before this step's own
+      //    action, so switching between dialogs works too.
+      await closeStaleOverlay(currentStep.target);
+      if (cancelled) return;
       // 1) Navigate to the right page if we're not already there.
       if (desiredRoute && window.location.pathname !== desiredRoute) {
-        // Close any dialog/sheet a previous step opened before leaving.
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         router.push(desiredRoute);
         for (let i = 0; i < 40 && !cancelled; i++) {
           if (window.location.pathname === desiredRoute) break;
@@ -83,15 +113,26 @@ export function TourOverlay() {
       }
       if (cancelled) return;
       // 2) Perform the step action (e.g. open a dialog to walk through it).
+      let blocked = false;
       if (currentStep.action) {
         await sleep(currentStep.action.delay ?? 350);
         if (cancelled) return;
         const trigger = document.querySelector(currentStep.action.click) as HTMLElement | null;
-        trigger?.click();
+        const unusable =
+          !trigger
+          || (trigger as HTMLButtonElement).disabled
+          || trigger.getAttribute('aria-disabled') === 'true';
+        // Create buttons are commonly disabled until prerequisite data exists —
+        // no clients, no suppliers. Clicking would be a no-op and the step would
+        // then describe a dialog that never opened, so say so instead.
+        if (unusable) blocked = true;
+        else trigger.click();
       }
+      setActionBlocked(blocked);
       // 3) Poll for the target element (page + data + dialog take time).
       let el: Element | null = null;
-      for (let i = 0; i < 40 && !cancelled; i++) {
+      const attempts = blocked ? 3 : 40;
+      for (let i = 0; i < attempts && !cancelled; i++) {
         el = document.querySelector(currentStep.target);
         if (el) break;
         await sleep(100);
@@ -103,6 +144,35 @@ export function TourOverlay() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, activeTour]);
+
+  // The initial placement uses an estimated card height. Long descriptions make
+  // the real card much taller, which pushed the footer — and the Next button —
+  // off the bottom of the screen. Re-clamp against the measured height.
+  React.useLayoutEffect(() => {
+    const card = tooltipRef.current;
+    if (!card || !currentStep) return;
+    const height = card.offsetHeight;
+    const maxTop = Math.max(12, window.innerHeight - height - 12);
+    setTooltipPos((prev) => (prev.top > maxTop ? { ...prev, top: maxTop } : prev));
+  }, [currentStep, tooltipPos.top, stepIndex]);
+
+  /**
+   * A dialog opened by a step dismisses itself when it sees a pointerdown outside
+   * its own content — and the guide card is outside it, so clicking Next closed
+   * the very dialog the step was explaining.
+   *
+   * Swallow only the events dialogs dismiss on (pointerdown / mousedown /
+   * touchstart / focusin) before they reach the document listener. `click` is
+   * deliberately left alone so the card's own buttons still work.
+   */
+  React.useEffect(() => {
+    const card = tooltipRef.current;
+    if (!card || !activeTour) return;
+    const stop = (event: Event) => event.stopPropagation();
+    const dismissEvents = ['pointerdown', 'mousedown', 'touchstart', 'focusin'];
+    dismissEvents.forEach((type) => card.addEventListener(type, stop));
+    return () => dismissEvents.forEach((type) => card.removeEventListener(type, stop));
+  }, [activeTour, currentStep]);
 
   // Keep the spotlight aligned on scroll/resize.
   React.useEffect(() => {
@@ -186,12 +256,19 @@ export function TourOverlay() {
       {/* Tooltip card */}
       <div
         ref={tooltipRef}
-        className="fixed z-[10000] w-80 rounded-xl border bg-card shadow-2xl"
+        className="fixed z-[10000] flex w-80 flex-col overflow-hidden rounded-xl border bg-card shadow-2xl"
         style={{
           top: tooltipPos.top,
           left: tooltipPos.left,
+          // Never taller than the viewport, so the footer buttons stay reachable
+          // however verbose a step's description is.
+          maxHeight: 'calc(100vh - 24px)',
           transition: 'all 0.2s ease',
           direction: isRtl ? 'rtl' : 'ltr',
+          // A modal dialog sets pointer-events:none on the body and only re-enables
+          // them inside its own content. The guide lives outside that content, so
+          // it has to opt itself back in or its buttons cannot be clicked at all.
+          pointerEvents: 'auto',
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -213,10 +290,17 @@ export function TourOverlay() {
           />
         </div>
 
-        {/* Content */}
-        <div className="px-4 pt-3 pb-2">
+        {/* Content — scrolls on its own so the footer never leaves the screen. */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-2">
           <h3 className="font-semibold text-base mb-1">{content.title}</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">{content.desc}</p>
+          {actionBlocked && (
+            <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              {locale === 'ar'
+                ? 'لا يمكن فتح هذه النافذة بعد — فالزر معطّل حتى تتوفر البيانات المطلوبة (مثل عميل أو مورّد). الشرح أعلاه يصف ما ستراه بمجرد إضافتها.'
+                : 'This panel cannot open yet — its button stays disabled until the data it needs exists (a client or supplier, for example). The description above covers what you will see once you have added some.'}
+            </p>
+          )}
         </div>
 
         {/* Navigation */}

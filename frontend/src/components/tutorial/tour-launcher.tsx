@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useTour, useSeenTours } from './tour-context';
 import { useI18n } from '@/context/i18n-context';
 import { Button } from '@/components/ui/button';
@@ -10,15 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { HelpCircle, Play, CheckCircle2 } from 'lucide-react';
+import { HelpCircle, Play } from 'lucide-react';
 import { TOURS } from './tour-steps';
 
 // Welcome modal shown on first ever visit
@@ -76,54 +70,28 @@ export function WelcomeTourModal() {
   );
 }
 
-// Help button shown in sidebar footer — opens dropdown to pick a tour
+// Sidebar entry — opens the guide page. It used to be a dropdown listing every
+// tour, which stopped scaling once the guide covered the whole system: a flat
+// list of 38 names with no grouping, no progress and nowhere to search.
 export function TourHelpButton() {
-  const { startTour } = useTour();
   const { language: locale } = useI18n();
-  const seenTours = useSeenTours();
+  const pathname = usePathname();
+  const active = pathname === '/guide';
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-          data-tutorial="tour-help-button"
-        >
-          <HelpCircle className="h-4 w-4" />
-          <span className="group-data-[collapsible=icon]:hidden">
-            {locale === 'ar' ? 'الدليل التفاعلي' : 'Interactive Guide'}
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-56">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          {locale === 'ar' ? 'اختر جولة' : 'Choose a tour'}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {TOURS.map(tour => {
-          const seen = seenTours.includes(tour.id);
-          return (
-            <DropdownMenuItem
-              key={tour.id}
-              className="gap-2 cursor-pointer"
-              onClick={() => startTour(tour.id)}
-            >
-              {seen
-                ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                : <Play className="h-3.5 w-3.5 text-primary shrink-0" />
-              }
-              <span>{locale === 'ar' ? tour.ar : tour.en}</span>
-              {!seen && (
-                <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                  {locale === 'ar' ? 'جديد' : 'New'}
-                </span>
-              )}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className={`w-full justify-start gap-2 ${active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+      data-tutorial="tour-help-button"
+    >
+      <Link href="/guide">
+        <HelpCircle className="h-4 w-4" />
+        <span className="group-data-[collapsible=icon]:hidden">
+          {locale === 'ar' ? 'الدليل التفاعلي' : 'Interactive Guide'}
+        </span>
+      </Link>
+    </Button>
   );
 }
