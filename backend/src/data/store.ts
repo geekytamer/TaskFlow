@@ -119,6 +119,8 @@ import {
   NumberingEntityType,
   CompanyNumberingSetting,
   RecordAttachment,
+  GratuityLine,
+  GratuityLiabilityReport,
   RecordEntityType,
   RecordTimelineItem,
   AccountActivityReport,
@@ -358,6 +360,7 @@ const defaultLedgerAccounts: Array<
   { code: '2100', name: 'Accrued Expenses', type: 'Liability', detailType: 'Accruals', description: 'Expenses incurred but not yet invoiced.', isActive: true, isSystem: true },
   { code: '2200', name: 'Sales Tax Payable', type: 'Liability', detailType: 'Tax liability', description: 'Collected VAT and sales tax payable.', isActive: true, isSystem: true },
   { code: '2300', name: 'Commissions Payable', type: 'Liability', detailType: 'Accrued payroll', description: 'Approved but unpaid sales commissions owed to staff.', isActive: true, isSystem: true },
+  { code: '2400', name: 'End-of-Service Benefits Payable', type: 'Liability', detailType: 'Employee benefits', description: 'Accrued end-of-service gratuity owed to staff. Grows every month staff are employed.', isActive: true, isSystem: true },
   { code: '3000', name: "Owner's Capital", type: 'Equity', detailType: 'Capital', description: 'Owner invested capital.', isActive: true, isSystem: true },
   { code: '3100', name: 'Retained Earnings', type: 'Equity', detailType: 'Retained earnings', description: 'Accumulated prior-year earnings.', isActive: true, isSystem: true },
   { code: '3200', name: 'Current Year Earnings', type: 'Equity', detailType: 'Current earnings', description: 'Current period net earnings.', isActive: true, isSystem: true },
@@ -375,6 +378,7 @@ const defaultLedgerAccounts: Array<
   { code: '5800', name: 'Travel Expense', type: 'Expense', detailType: 'Travel', description: 'Business travel and related costs.', isActive: true, isSystem: true },
   { code: '5900', name: 'Commission Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Sales commissions earned by staff (accrual basis).', isActive: true, isSystem: true },
   { code: '5950', name: 'Foreign Exchange Gain / (Loss)', type: 'Expense', detailType: 'Currency revaluation', description: 'Movement on foreign-currency balances; a debit is a loss, a credit a gain.', isActive: true, isSystem: true },
+  { code: '5250', name: 'End-of-Service Gratuity Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Monthly accrual of end-of-service benefits earned by staff.', isActive: true, isSystem: true },
 ];
 
 const ledgerAccountCodeBases: Record<LedgerAccountType, number> = {
@@ -3294,6 +3298,42 @@ export class DataStore {
                 description: 'Movement on foreign-currency balances; a debit is a loss, a credit a gain.',
                 isActive: 1, isSystem: 1,
               });
+            }
+          }
+        },
+      },
+      {
+        // End-of-service gratuity is a statutory liability that accrues every
+        // month staff are employed. Without it the balance sheet omits a real
+        // and growing obligation. Policy is stored per company rather than
+        // hard-coded, because entitlement rules are legal and contractual.
+        id: '076_gratuity_accrual',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(company_finance_settings)').all() as any[])
+            .map((c) => c.name);
+          const add = (name: string, ddl: string) => {
+            if (!cols.includes(name)) this.db.exec(`ALTER TABLE company_finance_settings ADD COLUMN ${ddl};`);
+          };
+          add('gratuityEnabled', 'gratuityEnabled INTEGER NOT NULL DEFAULT 0');
+          add('gratuityDaysFirstTier', 'gratuityDaysFirstTier REAL NOT NULL DEFAULT 15');
+          add('gratuityTierYears', 'gratuityTierYears REAL NOT NULL DEFAULT 3');
+          add('gratuityDaysAfterTier', 'gratuityDaysAfterTier REAL NOT NULL DEFAULT 30');
+          add('gratuityMinServiceMonths', 'gratuityMinServiceMonths REAL NOT NULL DEFAULT 12');
+
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+          const exists = this.db.prepare('SELECT 1 FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1');
+          const insert = this.db.prepare(
+            'INSERT INTO ledger_accounts (id, companyId, code, name, type, detailType, description, isActive, isSystem) VALUES (@id, @companyId, @code, @name, @type, @detailType, @description, @isActive, @isSystem)',
+          );
+          const accounts = [
+            { code: '2400', name: 'End-of-Service Benefits Payable', type: 'Liability', detailType: 'Employee benefits', description: 'Accrued end-of-service gratuity owed to staff.' },
+            { code: '5250', name: 'End-of-Service Gratuity Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Monthly accrual of end-of-service benefits earned by staff.' },
+          ];
+          for (const c of companies) {
+            for (const a of accounts) {
+              if (!exists.get(c.id, a.code)) {
+                insert.run({ id: uuid(), companyId: c.id, ...a, isActive: 1, isSystem: 1 });
+              }
             }
           }
         },
@@ -9476,6 +9516,11 @@ export class DataStore {
       lockedThroughDate: row.lockedThroughDate ? new Date(row.lockedThroughDate) : undefined,
       currencyCode: String(row.currencyCode || 'USD').toUpperCase(),
       poApprovalThreshold: Math.max(0, Number(row.poApprovalThreshold) || 0),
+      gratuityEnabled: Boolean(row.gratuityEnabled),
+      gratuityDaysFirstTier: Number(row.gratuityDaysFirstTier ?? 15),
+      gratuityTierYears: Number(row.gratuityTierYears ?? 3),
+      gratuityDaysAfterTier: Number(row.gratuityDaysAfterTier ?? 30),
+      gratuityMinServiceMonths: Number(row.gratuityMinServiceMonths ?? 12),
       updatedAt: new Date(row.updatedAt),
     };
   }
@@ -9497,13 +9542,28 @@ export class DataStore {
       fiscalYearStartMonth: 1,
       currencyCode: 'USD',
       poApprovalThreshold: 0,
+      gratuityEnabled: false,
+      gratuityDaysFirstTier: 15,
+      gratuityTierYears: 3,
+      gratuityDaysAfterTier: 30,
+      gratuityMinServiceMonths: 12,
       updatedAt: new Date(nowIso),
     };
   }
 
   updateCompanyFinanceSettings(
     companyId: string,
-    updates: { fiscalYearStartMonth?: number; lockedThroughDate?: Date | null; currencyCode?: string; poApprovalThreshold?: number },
+    updates: {
+      fiscalYearStartMonth?: number;
+      lockedThroughDate?: Date | null;
+      currencyCode?: string;
+      poApprovalThreshold?: number;
+      gratuityEnabled?: boolean;
+      gratuityDaysFirstTier?: number;
+      gratuityTierYears?: number;
+      gratuityDaysAfterTier?: number;
+      gratuityMinServiceMonths?: number;
+    },
   ): CompanyFinanceSettings {
     const existing = this.getCompanyFinanceSettings(companyId);
     const fiscalYearStartMonth =
@@ -9532,15 +9592,30 @@ export class DataStore {
         ? existing.poApprovalThreshold
         : Math.max(0, Number(updates.poApprovalThreshold) || 0);
 
+    const num = (value: number | undefined, fallback: number, min = 0) =>
+      value === undefined ? fallback : Math.max(min, Number(value) || 0);
+    const gratuityEnabled = updates.gratuityEnabled === undefined
+      ? existing.gratuityEnabled
+      : Boolean(updates.gratuityEnabled);
+    const gratuityDaysFirstTier = num(updates.gratuityDaysFirstTier, existing.gratuityDaysFirstTier);
+    const gratuityTierYears = num(updates.gratuityTierYears, existing.gratuityTierYears);
+    const gratuityDaysAfterTier = num(updates.gratuityDaysAfterTier, existing.gratuityDaysAfterTier);
+    const gratuityMinServiceMonths = num(updates.gratuityMinServiceMonths, existing.gratuityMinServiceMonths);
+
     this.db
       .prepare(
-        'UPDATE company_finance_settings SET fiscalYearStartMonth = ?, lockedThroughDate = ?, currencyCode = ?, poApprovalThreshold = ?, updatedAt = ? WHERE companyId = ?',
+        'UPDATE company_finance_settings SET fiscalYearStartMonth = ?, lockedThroughDate = ?, currencyCode = ?, poApprovalThreshold = ?, gratuityEnabled = ?, gratuityDaysFirstTier = ?, gratuityTierYears = ?, gratuityDaysAfterTier = ?, gratuityMinServiceMonths = ?, updatedAt = ? WHERE companyId = ?',
       )
       .run(
         fiscalYearStartMonth,
         lockedThroughDate ? lockedThroughDate.toISOString() : null,
         currencyCode,
         poApprovalThreshold,
+        gratuityEnabled ? 1 : 0,
+        gratuityDaysFirstTier,
+        gratuityTierYears,
+        gratuityDaysAfterTier,
+        gratuityMinServiceMonths,
         new Date().toISOString(),
         companyId,
       );
@@ -12732,6 +12807,150 @@ export class DataStore {
     });
 
     return { ...result, entryId: (entry as any)?.id };
+  }
+
+  /**
+   * End-of-service gratuity owed to every employee at a point in time.
+   *
+   * Entitlement is a tiered accrual on service length: `daysFirstTier` days of
+   * wage for each year up to `tierYears`, then `daysAfterTier` days per year
+   * beyond it, with nothing owed below `minServiceMonths`. A day of wage is
+   * taken as monthly basic ÷ 30, which is the usual convention.
+   *
+   * This is a *liability that already exists* — staff earn it by being employed,
+   * whether or not it is recorded. Reporting it is what stops the balance sheet
+   * understating what the business owes.
+   *
+   * The policy numbers come from company settings rather than being hard-coded,
+   * because entitlement is set by law and contract and varies by jurisdiction.
+   */
+  getGratuityLiability(companyId: string, asOf: Date = new Date()): GratuityLiabilityReport {
+    const settings = this.getCompanyFinanceSettings(companyId);
+    const policy = {
+      daysFirstTier: settings.gratuityDaysFirstTier,
+      tierYears: settings.gratuityTierYears,
+      daysAfterTier: settings.gratuityDaysAfterTier,
+      minServiceMonths: settings.gratuityMinServiceMonths,
+    };
+
+    const lines: GratuityLine[] = [];
+    for (const employee of this.listEmployees(companyId)) {
+      // Someone who has left is settled at exit, not carried as an accrual.
+      if (employee.status !== 'Active') continue;
+
+      const monthlyWage = Number(employee.basicSalary || 0);
+      const hireDate = employee.hireDate ? new Date(employee.hireDate) : undefined;
+      const base: GratuityLine = {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        hireDate,
+        serviceYears: 0,
+        monthlyWage,
+        dailyWage: Number((monthlyWage / 30).toFixed(4)),
+        entitledDays: 0,
+        entitlement: 0,
+      };
+
+      if (!hireDate || Number.isNaN(hireDate.getTime())) {
+        lines.push({ ...base, reason: 'No hire date recorded' });
+        continue;
+      }
+      if (!(monthlyWage > 0)) {
+        lines.push({ ...base, reason: 'No basic salary recorded' });
+        continue;
+      }
+
+      const serviceYears = (asOf.getTime() - hireDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      if (serviceYears <= 0) {
+        lines.push({ ...base, reason: 'Not yet started' });
+        continue;
+      }
+      if (serviceYears * 12 < policy.minServiceMonths) {
+        lines.push({
+          ...base,
+          serviceYears: Number(serviceYears.toFixed(3)),
+          reason: `Under the ${policy.minServiceMonths}-month qualifying period`,
+        });
+        continue;
+      }
+
+      const firstTierYears = Math.min(serviceYears, policy.tierYears);
+      const laterYears = Math.max(0, serviceYears - policy.tierYears);
+      const entitledDays = firstTierYears * policy.daysFirstTier + laterYears * policy.daysAfterTier;
+      const dailyWage = monthlyWage / 30;
+
+      lines.push({
+        ...base,
+        serviceYears: Number(serviceYears.toFixed(3)),
+        entitledDays: Number(entitledDays.toFixed(2)),
+        entitlement: Number((entitledDays * dailyWage).toFixed(2)),
+      });
+    }
+
+    const totalEntitlement = Number(lines.reduce((sum, l) => sum + l.entitlement, 0).toFixed(2));
+    // What the ledger already carries, so the accrual only ever posts the change.
+    // Cumulative movement from the beginning of time is the account balance;
+    // normalBalanceMovement already orients a liability so credits are positive.
+    const alreadyAccrued = Number(
+      Math.max(0, this.accountMovementByCode(companyId, '2400', new Date(0), asOf)).toFixed(2),
+    );
+
+    return {
+      companyId,
+      asOf,
+      enabled: settings.gratuityEnabled,
+      policy,
+      lines: lines.sort((a, b) => b.entitlement - a.entitlement),
+      totalEntitlement,
+      alreadyAccrued,
+      movement: Number((totalEntitlement - alreadyAccrued).toFixed(2)),
+    };
+  }
+
+  /**
+   * Brings the gratuity liability up to date: posts the difference between what
+   * staff have now earned and what the ledger already carries.
+   *   Dr 5250 Gratuity Expense / Cr 2400 End-of-Service Benefits Payable
+   * Idempotent per company per date — re-running replaces that date's entry
+   * rather than stacking a second one on top.
+   */
+  accrueGratuity(companyId: string, asOf: Date = new Date()): GratuityLiabilityReport {
+    const report = this.getGratuityLiability(companyId, asOf);
+    if (!report.enabled) {
+      throw new Error('Gratuity accrual is disabled for this company. Enable it in finance settings first.');
+    }
+    this.assertOpenFinancialDate(companyId, asOf, 'Gratuity accrual date');
+
+    const sourceId = `${companyId}:${asOf.toISOString().slice(0, 10)}`;
+    this.removeJournalEntriesBySource('gratuity_accrual', sourceId);
+    // Recompute after removing this date's own entry, so re-running is a true
+    // replacement rather than an accrual on top of itself.
+    const fresh = this.getGratuityLiability(companyId, asOf);
+    const movement = fresh.movement;
+    if (movement === 0) return { ...fresh, posted: 0 };
+
+    const expenseAccountId = this.getSystemAccountId(companyId, '5250');
+    const liabilityAccountId = this.getSystemAccountId(companyId, '2400');
+    const magnitude = Math.abs(movement);
+
+    this.createJournalEntry({
+      companyId,
+      sourceType: 'gratuity_accrual',
+      sourceId,
+      memo: `End-of-service gratuity accrual to ${asOf.toISOString().slice(0, 10)}`,
+      entryDate: asOf,
+      lines: movement > 0
+        ? [
+            { id: uuid(), accountId: expenseAccountId, description: 'Gratuity earned', debit: magnitude, credit: 0 },
+            { id: uuid(), accountId: liabilityAccountId, description: 'End-of-service benefits payable', debit: 0, credit: magnitude },
+          ]
+        : [
+            { id: uuid(), accountId: liabilityAccountId, description: 'Gratuity liability release', debit: magnitude, credit: 0 },
+            { id: uuid(), accountId: expenseAccountId, description: 'Gratuity reversal', debit: 0, credit: magnitude },
+          ],
+    });
+
+    return { ...this.getGratuityLiability(companyId, asOf), posted: movement };
   }
 
   /** Compute VAT figures from the ledger for a period. Oman standard rate is 5%. */

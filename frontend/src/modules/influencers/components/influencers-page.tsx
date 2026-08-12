@@ -149,10 +149,13 @@ function InfluencerCard({
   c,
   money,
   onEdit,
+  showPricing,
 }: {
   c: Contact;
   money: (value: number) => string;
   onEdit: () => void;
+  /** Rate cards are negotiated pricing — the API withholds them from staff too. */
+  showPricing: boolean;
 }) {
   const { t } = useI18n();
   const followers = totalFollowers(c);
@@ -190,12 +193,14 @@ function InfluencerCard({
           <p className="text-sm font-semibold">{engagement != null ? `${engagement}%` : '—'}</p>
           <p className="text-[11px] text-muted-foreground">{t('crm.engagementRate')}</p>
         </div>
-        <div className="rounded-md bg-muted/50 px-2 py-1.5">
-          <p className="truncate text-sm font-semibold">
-            {c.rateCardAmount != null ? money(c.rateCardAmount) : '—'}
-          </p>
-          <p className="text-[11px] text-muted-foreground">{t('crm.rateCard')}</p>
-        </div>
+        {showPricing && (
+          <div className="rounded-md bg-muted/50 px-2 py-1.5">
+            <p className="truncate text-sm font-semibold">
+              {c.rateCardAmount != null ? money(c.rateCardAmount) : '—'}
+            </p>
+            <p className="text-[11px] text-muted-foreground">{t('crm.rateCard')}</p>
+          </div>
+        )}
       </div>
 
       {(c.location || (c.languages && c.languages.length)) ? (
@@ -240,7 +245,11 @@ function InfluencerCard({
 }
 
 export function InfluencersPage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentRole } = useCompany();
+  // Mirrors the server: it strips rateCardAmount for anyone outside these roles,
+  // so the tile would render an empty value rather than a number anyway.
+  const showPricing =
+    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant';
   const { t } = useI18n();
   const { toast } = useToast();
   const { money } = useCompanyCurrency();
@@ -526,7 +535,7 @@ export function InfluencersPage() {
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((c) => (
-              <InfluencerCard key={c.id} c={c} money={money} onEdit={() => setEditing(c)} />
+              <InfluencerCard key={c.id} c={c} money={money} onEdit={() => setEditing(c)} showPricing={showPricing} />
             ))}
           </div>
         </>

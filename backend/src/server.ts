@@ -104,6 +104,30 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
     }));
 }
 
+/**
+ * Commercial terms on a contact that rank-and-file staff should not see. An
+ * influencer's rate card is negotiated pricing — hiding it in the UI alone is
+ * not enough, because the value still ships in the API response and in CSV
+ * exports. Strip it from the payload instead.
+ */
+const COMMERCIAL_CONTACT_FIELDS = ['rateCardAmount'] as const;
+
+function canSeeContactPricing(role?: string | null): boolean {
+  return role === 'Admin' || role === 'Manager' || role === 'Accountant';
+}
+
+function redactContact<T>(contact: T, role?: string | null): T {
+  if (!contact || canSeeContactPricing(role)) return contact;
+  const copy: any = { ...(contact as any) };
+  for (const field of COMMERCIAL_CONTACT_FIELDS) delete copy[field];
+  return copy as T;
+}
+
+function redactContacts<T>(contacts: T[], role?: string | null): T[] {
+  if (canSeeContactPricing(role)) return contacts;
+  return contacts.map((c) => redactContact(c, role));
+}
+
 /** Largest file (in raw bytes) accepted as a record attachment. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const invoiceColumnKeys: InvoiceColumn['key'][] = ['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom'];
@@ -1729,6 +1753,11 @@ export function createServer(options: CreateServerOptions = {}) {
                 ? requiredNumber(body.fiscalYearStartMonth, 'fiscalYearStartMonth')
                 : undefined,
             lockedThroughDate,
+            gratuityEnabled: body.gratuityEnabled !== undefined ? Boolean(body.gratuityEnabled) : undefined,
+            gratuityDaysFirstTier: optionalNumber(body.gratuityDaysFirstTier),
+            gratuityTierYears: optionalNumber(body.gratuityTierYears),
+            gratuityDaysAfterTier: optionalNumber(body.gratuityDaysAfterTier),
+            gratuityMinServiceMonths: optionalNumber(body.gratuityMinServiceMonths),
             currencyCode:
               body.currencyCode !== undefined
                 ? requiredString(body.currencyCode, 'currencyCode', { min: 3 })
@@ -2710,7 +2739,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
 	      const viewer = { userId: req.user!.id, role: effectiveRole ?? 'Employee' };
 	      const contacts = store.listContacts(req.params.companyId, role as any, viewer);
-	      res.json(contacts);
+	      res.json(redactContacts(contacts, effectiveRole));
 	    }),
 	  );
 
@@ -2776,9 +2805,13 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      const exportRole = getEffectiveRole(req.user!, req.params.companyId);
+      const showPricing = canSeeContactPricing(exportRole);
       const influencers = store.listContacts(req.params.companyId, 'Influencer' as any);
       const csv = toCsv(
-        INFLUENCER_CSV_COLUMNS,
+        showPricing
+          ? INFLUENCER_CSV_COLUMNS
+          : INFLUENCER_CSV_COLUMNS.filter((col) => col !== 'rateCard'),
         influencers.map((c) => [
           c.name,
           c.email ?? '',
@@ -2788,7 +2821,7 @@ export function createServer(options: CreateServerOptions = {}) {
           c.influencerNiche ?? '',
           c.followerCount ?? '',
           c.engagementRate ?? '',
-          c.rateCardAmount ?? '',
+          ...(showPricing ? [c.rateCardAmount ?? ''] : []),
           c.location ?? '',
           (c.languages ?? []).join('; '),
           c.availabilityStatus ?? '',
@@ -3048,7 +3081,7 @@ export function createServer(options: CreateServerOptions = {}) {
       };
 
       res.json({
-        contact,
+        contact: redactContact(contact, getEffectiveRole(req.user!, contact.companyId)),
         totals,
         invoices: invoices.slice(0, 50),
         salesOrders: salesOrders.slice(0, 50),
@@ -7300,6 +7333,33 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'to must be a valid date.');
       }
       res.json(store.getProfitAndLoss(req.params.companyId, from, to));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/hr/gratuity',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : new Date();
+      if (Number.isNaN(asOf.getTime())) throw new HttpError(400, 'asOf must be a valid date.');
+      res.json(store.getGratuityLiability(req.params.companyId, asOf));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/hr/gratuity/accrue',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body ?? {}, 'body');
+      const asOf = body.asOf ? new Date(requiredDateInput(body.asOf, 'asOf')) : new Date();
+      if (Number.isNaN(asOf.getTime())) throw new HttpError(400, 'asOf must be a valid date.');
+      try {
+        res.json(withActor(req, () => store.accrueGratuity(req.params.companyId, asOf)));
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not accrue gratuity.');
+      }
     }),
   );
 

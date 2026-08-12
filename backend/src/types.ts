@@ -45,7 +45,59 @@ export interface CompanyFinanceSettings {
   currencyCode: string;
   /** Purchase orders at or above this amount require approval before ordering. 0 disables the gate. */
   poApprovalThreshold: number;
+  /**
+   * End-of-service gratuity policy. Deliberately configurable rather than
+   * hard-coded: entitlement rules are set by law and by contract, they differ
+   * per jurisdiction, and they change. The defaults below follow the common
+   * Omani private-sector shape — confirm them against current law and your
+   * contracts before relying on the numbers.
+   */
+  gratuityEnabled: boolean;
+  /** Days of wage accrued per year of service, up to gratuityTierYears. */
+  gratuityDaysFirstTier: number;
+  /** Service years after which the higher rate applies. */
+  gratuityTierYears: number;
+  /** Days of wage accrued per year of service beyond gratuityTierYears. */
+  gratuityDaysAfterTier: number;
+  /** No entitlement below this much service. */
+  gratuityMinServiceMonths: number;
   updatedAt: Date;
+}
+
+/** One employee's accrued end-of-service entitlement at a point in time. */
+export interface GratuityLine {
+  employeeId: string;
+  employeeName: string;
+  hireDate?: Date;
+  serviceYears: number;
+  monthlyWage: number;
+  dailyWage: number;
+  entitledDays: number;
+  entitlement: number;
+  reason?: string;
+}
+
+export interface GratuityLiabilityReport {
+  companyId: string;
+  asOf: Date;
+  enabled: boolean;
+  policy: {
+    daysFirstTier: number;
+    tierYears: number;
+    daysAfterTier: number;
+    minServiceMonths: number;
+  };
+  lines: GratuityLine[];
+  totalEntitlement: number;
+  alreadyAccrued: number;
+  /** What still needs posting to bring the ledger in line. */
+  movement: number;
+  /**
+   * Set by accrueGratuity: the amount this date's accrual entry now carries.
+   * Re-running a date replaces its entry rather than adding a second one, so
+   * this is the entry's value, not an increment on top of a previous run.
+   */
+  posted?: number;
 }
 
 export interface Position {
@@ -877,7 +929,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note';
+  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'gratuity_accrual' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note';
   sourceId?: string;
   memo?: string;
   entryDate: Date;

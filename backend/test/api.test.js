@@ -875,6 +875,54 @@ test('passwords are hashed at rest and login upgrades legacy plaintext', async (
   assert.equal(wrong.status, 401);
 });
 
+test('gratuity accrues per service tier and posts the movement to the ledger', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-gratuity-'));
+  const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: true });
+  const asOf = new Date('2026-08-11');
+  const yearsAgo = (y) => new Date(asOf.getTime() - y * 365.25 * 24 * 3600 * 1000);
+
+  store.createEmployee({ companyId: '1', name: 'Two Years', basicSalary: 600, status: 'Active', hireDate: yearsAgo(2) });
+  store.createEmployee({ companyId: '1', name: 'Five Years', basicSalary: 600, status: 'Active', hireDate: yearsAgo(5) });
+  store.createEmployee({ companyId: '1', name: 'Six Months', basicSalary: 600, status: 'Active', hireDate: yearsAgo(0.5) });
+  store.createEmployee({ companyId: '1', name: 'Left', basicSalary: 600, status: 'Inactive', hireDate: yearsAgo(4) });
+
+  const report = store.getGratuityLiability('1', asOf);
+  const owed = (name) => report.lines.find((l) => l.employeeName === name).entitlement;
+  // Daily wage is 600/30 = 20. First three years accrue 15 days/yr, then 30.
+  assert.equal(owed('Two Years'), 600);            // 2 x 15 x 20
+  assert.equal(owed('Five Years'), 2100);          // (3x15 + 2x30) x 20
+  assert.equal(owed('Six Months'), 0);             // under the qualifying period
+  assert.equal(report.lines.some((l) => l.employeeName === 'Left'), false); // leavers are settled, not accrued
+  assert.equal(report.totalEntitlement, 2700);
+
+  // Disabled by default: nothing posts by accident.
+  assert.throws(() => store.accrueGratuity('1', asOf), /disabled/i);
+
+  store.updateCompanyFinanceSettings('1', { gratuityEnabled: true });
+  const first = store.accrueGratuity('1', asOf);
+  assert.equal(first.posted, 2700);
+
+  const balance = (code, at) => {
+    const line = store.getTrialBalance('1', at).lines.find((l) => l.code === code);
+    return line ? Number((line.debitBalance - line.creditBalance).toFixed(2)) : 0;
+  };
+  assert.equal(balance('5250', asOf), 2700);   // expense
+  assert.equal(balance('2400', asOf), -2700);  // liability, credit balance
+
+  // Re-running the same date replaces that date's entry rather than stacking a
+  // second one, so the liability stays put even though an entry is rewritten.
+  const again = store.accrueGratuity('1', asOf);
+  assert.equal(again.posted, 2700);
+  assert.equal(balance('2400', asOf), -2700);
+  assert.equal(again.movement, 0, 'nothing further outstanding after accrual');
+
+  // A month on, only the increment posts.
+  const later = new Date('2026-09-11');
+  store.accrueGratuity('1', later);
+  assert.ok(balance('2400', later) < -2700, 'liability should grow with service');
+  assert.equal(store.getTrialBalance('1', later).isBalanced, true);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');
@@ -957,6 +1005,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '073_invoice_exchange_rate',
     '074_commission_voided_status',
     '075_fx_revaluation_account',
+    '076_gratuity_accrual',
   ]);
 });
 
