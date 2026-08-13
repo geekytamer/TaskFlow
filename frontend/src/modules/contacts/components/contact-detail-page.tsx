@@ -17,9 +17,13 @@ import {
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
+import { useCompany } from '@/context/company-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import {
   ArrowLeft,
+  BadgeCheck,
+  ExternalLink,
+  Users,
   Briefcase,
   FileText,
   Loader2,
@@ -34,11 +38,37 @@ import {
 
 const empty = '—';
 
+/** 52000 -> 52K. Follower counts are unreadable at full precision. */
+function compact(value: number): string {
+  if (!Number.isFinite(value)) return empty;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(value);
+}
+
+/**
+ * Reach across every platform, falling back to the legacy single-platform
+ * field for contacts recorded before per-account tracking existed.
+ */
+function totalFollowers(contact: { influencerAccounts?: { followers?: number }[]; followerCount?: number }): number {
+  const accounts = contact.influencerAccounts ?? [];
+  if (accounts.length > 0) {
+    return accounts.reduce((sum, a) => sum + (Number(a.followers) || 0), 0);
+  }
+  return Number(contact.followerCount) || 0;
+}
+
 export function ContactDetailPage({ contactId }: { contactId: string }) {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const { money, amount } = useCompanyCurrency();
+  const { currentRole } = useCompany();
+  // The API strips rateCardAmount for anyone outside these roles; mirror that
+  // here so the tile is absent rather than rendering an empty value.
+  const canSeePricing =
+    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant';
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -163,6 +193,88 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Influencer profile — only for contacts carrying the role. */}
+      {(c.roles || []).includes('Influencer') && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <Users className="h-4 w-4" />
+              {tr('Influencer Profile', 'ملف المؤثر')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat
+                icon={<Users className="h-4 w-4 text-fuchsia-600" />}
+                label={tr('Followers', 'المتابعون')}
+                value={totalFollowers(c) ? compact(totalFollowers(c)) : empty}
+              />
+              <Stat
+                icon={<TrendingUp className="h-4 w-4 text-emerald-600" />}
+                label={tr('Engagement', 'التفاعل')}
+                value={c.engagementRate != null ? `${c.engagementRate}%` : empty}
+              />
+              <Stat
+                icon={<BadgeCheck className="h-4 w-4 text-sky-600" />}
+                label={tr('Niche', 'المجال')}
+                value={c.influencerNiche || empty}
+              />
+              {canSeePricing && (
+                <Stat
+                  icon={<Receipt className="h-4 w-4 text-amber-600" />}
+                  label={tr('Rate card', 'قائمة الأسعار')}
+                  value={c.rateCardAmount != null ? money(c.rateCardAmount) : empty}
+                />
+              )}
+            </div>
+
+            {(c.influencerAccounts || []).length > 0 ? (
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {tr('Social accounts', 'الحسابات الاجتماعية')}
+                </h4>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(c.influencerAccounts || []).map((acc) => (
+                    <div key={acc.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{acc.platform}</span>
+                          {acc.handle && (
+                            <span className="truncate text-xs text-muted-foreground">{acc.handle}</span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {acc.followers ? `${compact(acc.followers)} ${tr('followers', 'متابع')}` : tr('No follower count', 'لا يوجد عدد متابعين')}
+                          {acc.engagementRate != null ? ` · ${acc.engagementRate}%` : ''}
+                        </p>
+                      </div>
+                      {acc.url && (
+                        <a
+                          href={acc.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 text-primary hover:underline"
+                          title={tr('Open profile', 'فتح الملف')}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                {tr(
+                  'No social accounts recorded yet. Add them when editing this influencer.',
+                  'لا توجد حسابات اجتماعية مسجلة بعد. أضفها عند تعديل هذا المؤثر.',
+                )}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Detailed sections */}
       <RecordTable

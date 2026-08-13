@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -166,9 +167,11 @@ function InfluencerCard({
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <button type="button" onClick={onEdit} className="text-start font-semibold hover:underline">
+          {/* The name opens the full profile; editing stays on its own control,
+              so browsing an influencer no longer means opening an edit form. */}
+          <Link href={`/contacts/${c.id}`} className="text-start font-semibold hover:underline">
             {c.name}
-          </button>
+          </Link>
           {c.influencerNiche ? (
             <p className="truncate text-sm text-muted-foreground">{c.influencerNiche}</p>
           ) : null}
