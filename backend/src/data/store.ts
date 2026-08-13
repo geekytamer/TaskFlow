@@ -119,6 +119,7 @@ import {
   NumberingEntityType,
   CompanyNumberingSetting,
   RecordAttachment,
+  PendingPayable,
   GratuityLine,
   GratuityLiabilityReport,
   RecordEntityType,
@@ -12807,6 +12808,135 @@ export class DataStore {
     });
 
     return { ...result, entryId: (entry as any)?.id };
+  }
+
+  /**
+   * Everything the business owes that has not been turned into a vendor bill.
+   *
+   * Two things create an obligation without producing a bill on their own: a
+   * purchase order with value still to be billed, and an externally-fulfilled
+   * campaign deliverable that has a cost and no bill yet. Both are gathered
+   * here with the document that created them, so raising the bill starts from
+   * the source rather than from someone's recollection of it.
+   */
+  listPendingPayables(companyId: string): PendingPayable[] {
+    const settings = this.getCompanyFinanceSettings(companyId);
+    const currency = settings.currencyCode;
+    const pending: PendingPayable[] = [];
+
+    // 1) Purchase orders with value left to bill.
+    const companyBills = this.listVendorBills(companyId);
+    for (const order of this.listPurchaseOrders(companyId)) {
+      if (order.status === 'Cancelled') continue;
+      const billed = Number(
+        companyBills
+          .filter((b) => b.purchaseOrderId === order.id)
+          .reduce((sum, b) => sum + b.amount, 0)
+          .toFixed(2),
+      );
+      const remaining = Number((Number(order.totalAmount || 0) - billed).toFixed(2));
+      if (remaining <= 0.0001) continue;
+      pending.push({
+        sourceType: 'purchase_order',
+        sourceId: order.id,
+        sourceLabel: order.orderNumber,
+        sourceRoute: `/purchases?q=${encodeURIComponent(order.orderNumber)}`,
+        // The vendor already has its own column; what is useful here is when
+        // the order was raised, so an old unbilled receipt stands out.
+        sourceContext: order.orderDate ? new Date(order.orderDate).toISOString().slice(0, 10) : undefined,
+        vendorName: order.supplierName,
+        supplierId: order.supplierId ?? undefined,
+        amount: remaining,
+        currency,
+        description: `Remaining value on ${order.orderNumber}`,
+        alreadyBilled: billed,
+      });
+    }
+
+    // 2) External campaign deliverables with a cost and no bill.
+    for (const campaign of this.listCrmCampaigns(companyId)) {
+      for (const d of this.listCampaignDeliverables(campaign.id)) {
+        if (d.vendorBillId) continue;
+        if ((d.fulfillment ?? 'Internal') !== 'External') continue;
+        const cost = Number(d.cost || 0);
+        if (cost <= 0) continue;
+        const vendorContactId = d.vendorContactId ?? d.contactId;
+        const vendor = vendorContactId ? this.getContactById(vendorContactId) : undefined;
+        if (!vendor) continue;
+        pending.push({
+          sourceType: 'campaign_deliverable',
+          sourceId: d.id,
+          sourceLabel: d.title,
+          sourceRoute: `/crm/campaigns?campaign=${encodeURIComponent(campaign.id)}`,
+          sourceContext: campaign.name,
+          vendorName: vendor.name,
+          vendorContactId: vendor.id,
+          supplierId: vendor.supplierId ?? undefined,
+          amount: cost,
+          currency,
+          // Our cost, never the price charged to the client.
+          description: `Campaign deliverable: ${d.title}`,
+        });
+      }
+    }
+
+    return pending.sort((a, b) => b.amount - a.amount);
+  }
+
+  /**
+   * Raises the vendor bill for one pending payable and links it back to its
+   * source, so the same obligation cannot be billed twice.
+   */
+  billPendingPayable(
+    companyId: string,
+    input: {
+      sourceType: PendingPayable['sourceType'];
+      sourceId: string;
+      amount?: number;
+      issueDate?: Date;
+      dueDate?: Date;
+      notes?: string;
+      referenceInvoiceNumber?: string;
+    },
+  ): VendorBill {
+    const candidate = this.listPendingPayables(companyId).find(
+      (p) => p.sourceType === input.sourceType && p.sourceId === input.sourceId,
+    );
+    if (!candidate) {
+      throw new Error('That payable is no longer outstanding — it may already have been billed.');
+    }
+
+    const amount = input.amount === undefined ? candidate.amount : Number(input.amount);
+    if (!(amount > 0)) throw new Error('Bill amount must be greater than zero.');
+    if (amount > candidate.amount + 0.0001) {
+      throw new Error(
+        `Amount exceeds what is outstanding on this source (${candidate.amount.toFixed(2)}).`,
+      );
+    }
+
+    const issueDate = input.issueDate ?? new Date();
+    const dueDate = input.dueDate ?? new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const bill = this.createVendorBill({
+      companyId,
+      vendorName: candidate.vendorName,
+      supplierId: candidate.supplierId,
+      purchaseOrderId: candidate.sourceType === 'purchase_order' ? candidate.sourceId : undefined,
+      referenceInvoiceNumber: input.referenceInvoiceNumber,
+      issueDate,
+      dueDate,
+      amount,
+      status: 'Draft',
+      notes: input.notes ?? candidate.description,
+    });
+
+    if (candidate.sourceType === 'campaign_deliverable') {
+      this.db
+        .prepare('UPDATE campaign_deliverables SET vendorBillId = ?, updatedAt = ? WHERE id = ?')
+        .run(bill.id, new Date().toISOString(), candidate.sourceId);
+    }
+
+    return bill;
   }
 
   /**

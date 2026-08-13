@@ -64,6 +64,31 @@ export interface CompanyFinanceSettings {
   updatedAt: Date;
 }
 
+/**
+ * An amount the business owes that has not been turned into a vendor bill yet.
+ * Gathered from the documents that create the obligation, so the origin of
+ * every figure stays visible rather than someone re-keying it from memory.
+ */
+export interface PendingPayable {
+  /** What created the obligation. */
+  sourceType: 'purchase_order' | 'campaign_deliverable';
+  sourceId: string;
+  /** Human reference for the source, e.g. PO-0007 or the deliverable title. */
+  sourceLabel: string;
+  /** Where to go to inspect it. */
+  sourceRoute: string;
+  /** Extra context: the campaign a deliverable belongs to, or the PO supplier. */
+  sourceContext?: string;
+  vendorName: string;
+  vendorContactId?: string;
+  supplierId?: string;
+  amount: number;
+  currency: string;
+  description: string;
+  /** Set when part of it has already been billed (purchase orders). */
+  alreadyBilled?: number;
+}
+
 /** One employee's accrued end-of-service entitlement at a point in time. */
 export interface GratuityLine {
   employeeId: string;

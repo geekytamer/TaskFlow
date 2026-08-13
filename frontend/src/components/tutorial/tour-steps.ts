@@ -230,6 +230,14 @@ export const TOURS: Tour[] = [
         position: 'bottom',
       },
       {
+        target: '[data-tutorial="finance-pending-payables"]',
+        action: { click: '[data-tutorial="finance-tab-payables"]', delay: 300 },
+        optional: true,
+        en: { title: 'Payables Awaiting a Bill', desc: 'Above the bill list sits everything you already owe but have not billed: stock received against a purchase order, and campaign deliverables handed to an outside vendor. Until a bill exists these sit outside AP, so your payables understate reality. Preview any line to see the order or campaign that created it, then raise a draft bill for all or part of the balance — partial bills leave the rest outstanding.' },
+        ar: { title: 'مستحقات بانتظار الفوترة', desc: 'فوق قائمة الفواتير يظهر كل ما تدين به فعلياً ولم تُصدر له فاتورة بعد: بضاعة مستلمة على أمر شراء، ومخرجات حملات أُسندت إلى مورّد خارجي. وطالما لم تُنشأ فاتورة تبقى هذه المبالغ خارج الذمم الدائنة، فتظهر التزاماتك أقل من حقيقتها. عاين أي سطر لترى الأمر أو الحملة التي أنشأته، ثم أنشئ مسودة فاتورة بكامل الرصيد أو بجزء منه — والفوترة الجزئية تُبقي الباقي مستحقاً.' },
+        position: 'bottom',
+      },
+      {
         target: '[data-tutorial="finance-tab-expenses"]',
         en: { title: 'Expenses Tab', desc: 'Day-to-day spend that does not arrive as a supplier bill — fuel, stationery, small cash purchases. Each expense you record posts to the ledger as an operating cost, so it lands in the P&L and counts against any budget you set for that account.' },
         ar: { title: 'تبويب المصروفات', desc: 'الإنفاق اليومي الذي لا يصل كفاتورة مورّد — الوقود والقرطاسية والمشتريات النقدية الصغيرة. كل مصروف تسجله يُقيَّد في دفتر الأستاذ كتكلفة تشغيلية، فيظهر في قائمة الدخل ويُحتسب ضمن أي موازنة حددتها لذلك الحساب.' },

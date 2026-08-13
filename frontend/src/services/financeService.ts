@@ -945,6 +945,46 @@ export async function getProfitAndLossReport(
   return mapProfitAndLossReport(report);
 }
 
+export interface PendingPayable {
+  sourceType: 'purchase_order' | 'campaign_deliverable';
+  sourceId: string;
+  sourceLabel: string;
+  sourceRoute: string;
+  sourceContext?: string;
+  vendorName: string;
+  vendorContactId?: string;
+  supplierId?: string;
+  amount: number;
+  currency: string;
+  description: string;
+  alreadyBilled?: number;
+}
+
+/** Amounts owed that have not been turned into a vendor bill yet. */
+export async function getPendingPayables(companyId: string): Promise<PendingPayable[]> {
+  if (!companyId) return [];
+  return apiFetch<PendingPayable[]>(`/companies/${companyId}/payables/pending`);
+}
+
+export async function billPendingPayable(
+  companyId: string,
+  data: {
+    sourceType: PendingPayable['sourceType'];
+    sourceId: string;
+    amount?: number;
+    issueDate?: Date;
+    dueDate?: Date;
+    notes?: string;
+    referenceInvoiceNumber?: string;
+  },
+): Promise<VendorBill> {
+  const bill = await apiFetch<VendorBill>(`/companies/${companyId}/payables/pending/bill`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return mapVendorBill(bill);
+}
+
 export async function getVendorBills(companyId: string): Promise<VendorBill[]> {
   if (!companyId) return [];
   const bills = await apiFetch<VendorBill[]>(`/companies/${companyId}/finance/vendor-bills`);

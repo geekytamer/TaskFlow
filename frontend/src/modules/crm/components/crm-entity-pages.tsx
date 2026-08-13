@@ -484,6 +484,21 @@ export function CampaignsPage() {
   }, []);
 
   React.useEffect(() => { loadCampaigns(); }, [loadCampaigns]);
+
+  // Deep link from elsewhere in the system (e.g. an unbilled deliverable in
+  // Finance) — open the campaign that was linked to instead of dropping the
+  // user on an unselected list.
+  const requestedCampaignId = React.useRef<string | null>(null);
+  if (requestedCampaignId.current === null && typeof window !== 'undefined') {
+    requestedCampaignId.current = new URLSearchParams(window.location.search).get('campaign') || '';
+  }
+  React.useEffect(() => {
+    const wanted = requestedCampaignId.current;
+    if (!wanted || selectedCampaign) return;
+    const match = campaigns.find((c) => c.id === wanted);
+    if (match) setSelectedCampaign(match);
+  }, [campaigns, selectedCampaign]);
+
   React.useEffect(() => {
     if (selectedCampaign) loadExecution(selectedCampaign.id);
     else { setDeliverables([]); setAssignments([]); setExpenses([]); }

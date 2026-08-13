@@ -116,7 +116,11 @@ export function PurchasesPage() {
   const [openCreate, setOpenCreate] = React.useState(false);
   const [selectedOrderForDocs, setSelectedOrderForDocs] = React.useState<PurchaseOrder | null>(null);
   const [form, setForm] = React.useState<PurchaseForm>(emptyPurchaseForm);
-  const [search, setSearch] = React.useState('');
+  // Deep link from elsewhere (e.g. an unbilled payable in Finance) arrives as
+  // ?q=PO-1003, so the order it names is the one on screen.
+  const [search, setSearch] = React.useState(() =>
+    typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('q') || '',
+  );
   const [statusFilter, setStatusFilter] = React.useState<'all' | PurchaseOrderStatus>('all');
   const [receiptState, setReceiptState] = React.useState<ReceiptState>({
     open: false,

@@ -923,6 +923,106 @@ test('gratuity accrues per service tier and posts the movement to the ledger', a
   assert.equal(store.getTrialBalance('1', later).isBalanced, true);
 });
 
+test('pending payables expose their source and bill down to zero', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-payables-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+
+  const po = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-04-01T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 100, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po.id, {
+    receivedAt: new Date(), items: po.items.map((it, lineIndex) => ({ lineIndex, quantity: it.quantity })),
+  });
+
+  const find = () => store.listPendingPayables('1').find((p) => p.sourceId === po.id);
+  const before = find();
+  assert.ok(before, 'a received order with no bill is outstanding');
+  assert.equal(before.amount, 1000);
+  assert.equal(before.sourceLabel, po.orderNumber);
+  assert.equal(before.sourceType, 'purchase_order');
+  // The link has to name the order, otherwise "source" is just a page name.
+  assert.ok(before.sourceRoute.includes(encodeURIComponent(po.orderNumber)));
+
+  // Part-billing leaves the balance outstanding rather than clearing the row.
+  const partial = store.billPendingPayable('1', {
+    sourceType: 'purchase_order', sourceId: po.id, amount: 400,
+  });
+  assert.equal(partial.status, 'Draft');
+  assert.equal(partial.amount, 400);
+  const mid = find();
+  assert.equal(mid.amount, 600);
+  assert.equal(mid.alreadyBilled, 400);
+
+  store.billPendingPayable('1', { sourceType: 'purchase_order', sourceId: po.id, amount: 600 });
+  assert.equal(find(), undefined, 'fully billed orders drop off the list');
+
+  // And nothing can be billed twice.
+  assert.throws(
+    () => store.billPendingPayable('1', { sourceType: 'purchase_order', sourceId: po.id, amount: 100 }),
+    /no longer outstanding/i,
+  );
+
+  // Over-billing an outstanding source is refused too.
+  const po2 = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-04-02T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 10, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po2.id, { receivedAt: new Date(), items: [{ lineIndex: 0, quantity: 10 }] });
+  assert.throws(
+    () => store.billPendingPayable('1', { sourceType: 'purchase_order', sourceId: po2.id, amount: 500 }),
+    /exceed/i,
+  );
+
+  // An externally fulfilled deliverable is a payable too, and it points at the
+  // campaign that created it rather than at a purchase order.
+  const vendor = store.createContact({ companyId: '1', name: 'Reel Studio', roles: ['Supplier'] });
+  const campaign = store.createCrmCampaign({ companyId: '1', name: 'Spring Push', status: 'Active', visibility: 'Public', contactId: vendor.id });
+  const external = store.createCampaignDeliverable({
+    companyId: '1', campaignId: campaign.id, title: 'Launch reel', status: 'Planned',
+    fulfillment: 'External', vendorContactId: vendor.id, cost: 300, price: 800,
+  });
+  const internal = store.createCampaignDeliverable({
+    companyId: '1', campaignId: campaign.id, title: 'In-house edit', status: 'Planned',
+    fulfillment: 'Internal', vendorContactId: vendor.id, cost: 200,
+  });
+
+  const pendingDeliverables = store.listPendingPayables('1').filter((p) => p.sourceType === 'campaign_deliverable');
+  assert.equal(pendingDeliverables.length, 1, 'internal work is a cost, not a payable');
+  const [row] = pendingDeliverables;
+  assert.equal(row.sourceId, external.id);
+  assert.equal(row.vendorName, 'Reel Studio');
+  assert.equal(row.amount, 300, 'the payable is our cost, never the client price');
+  assert.ok(row.sourceRoute.includes(campaign.id), 'the link opens the campaign it came from');
+  assert.equal(store.listPendingPayables('1').some((p) => p.sourceId === internal.id), false);
+
+  const deliverableBill = store.billPendingPayable('1', {
+    sourceType: 'campaign_deliverable', sourceId: external.id,
+  });
+  assert.equal(deliverableBill.amount, 300);
+  assert.equal(store.getCampaignDeliverableById(external.id).vendorBillId, deliverableBill.id);
+  assert.equal(store.listPendingPayables('1').some((p) => p.sourceId === external.id), false);
+
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const adminToken = await login(app, 'admin@taskflow.com');
+  const listed = await request(app)
+    .get('/companies/1/payables/pending')
+    .set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(listed.status, 200);
+  assert.ok(Array.isArray(listed.body));
+
+  // Employees have no business raising bills.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app)
+    .get('/companies/1/payables/pending')
+    .set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');

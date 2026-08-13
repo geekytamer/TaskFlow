@@ -7360,6 +7360,44 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   app.get(
+    '/companies/:companyId/payables/pending',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listPendingPayables(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/payables/pending/bill',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const sourceType = enumValue(body.sourceType, 'sourceType', [
+        'purchase_order',
+        'campaign_deliverable',
+      ] as const) as 'purchase_order' | 'campaign_deliverable';
+      try {
+        const bill = withActor(req, () =>
+          store.billPendingPayable(req.params.companyId, {
+            sourceType,
+            sourceId: requiredString(body.sourceId, 'sourceId', { min: 1 }),
+            amount: optionalNumber(body.amount),
+            issueDate: body.issueDate ? new Date(requiredDateInput(body.issueDate, 'issueDate')) : undefined,
+            dueDate: body.dueDate ? new Date(requiredDateInput(body.dueDate, 'dueDate')) : undefined,
+            notes: optionalString(body.notes),
+            referenceInvoiceNumber: optionalString(body.referenceInvoiceNumber),
+          }),
+        );
+        res.status(201).json(bill);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not raise the bill.');
+      }
+    }),
+  );
+
+  app.get(
     '/companies/:companyId/hr/gratuity',
     authMiddleware,
     handler((req, res) => {

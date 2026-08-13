@@ -8,6 +8,7 @@ import { ExpenseTable } from './expense-table';
 import { StandaloneExpenseTable } from './standalone-expense-table';
 import { FinanceOverviewPanel } from './finance-overview';
 import { VendorBillTable } from './vendor-bill-table';
+import { PendingPayablesPanel } from './pending-payables-panel';
 import { JournalTable } from './journal-table';
 import { ReportsPanel } from './reports-panel';
 import { ActivityLogPanel } from './activity-log-panel';
@@ -40,6 +41,8 @@ export function FinancePage() {
   const tabFromUrl = searchParams.get('tab');
   const initialTab =
     tabFromUrl && VALID_TABS.has(tabFromUrl) ? tabFromUrl : 'overview';
+
+  const [billsVersion, setBillsVersion] = React.useState(0);
 
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(Array.from(searchParams.entries()));
@@ -78,8 +81,10 @@ export function FinancePage() {
         <TabsContent value="delivery-templates">
           <InvoiceTemplatePanel docType="delivery" />
         </TabsContent>
-        <TabsContent value="payables">
-          <VendorBillTable />
+        <TabsContent value="payables" className="space-y-4">
+          <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
+          {/* Remount so a freshly raised draft shows up without a manual reload. */}
+          <VendorBillTable key={billsVersion} />
         </TabsContent>
         <TabsContent value="ledger">
           <JournalTable />
