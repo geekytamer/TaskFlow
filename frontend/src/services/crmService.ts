@@ -68,6 +68,10 @@ export interface Followup extends CrmActivity {
   isAuto?: boolean;
   // First-class follow-up fields (Phase 0+).
   entityType?: FollowUpEntityType;
+  /** What the follow-up is about: invoice number, opportunity title. */
+  entityLabel?: string;
+  /** Outstanding amount, when the follow-up hangs off an invoice. */
+  entityAmount?: number;
   status?: FollowUpStatus;
   priority?: FollowUpPriority;
   channel?: FollowUpChannel;

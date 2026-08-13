@@ -95,6 +95,10 @@ export function FollowupsPage() {
   const [ownerFilter, setOwnerFilter] = React.useState<'all' | 'mine'>(canManage ? 'all' : 'mine');
   const [channelFilter, setChannelFilter] = React.useState<'all' | FollowUpChannel>('all');
   const [groupBy, setGroupBy] = React.useState<'time' | 'channel' | 'priority' | 'owner'>('time');
+  // Chasing a lead and chasing an unpaid invoice are different jobs, usually
+  // done by different people. Mixing them in one queue means neither gets a
+  // clean worklist, so the stream is the top-level split.
+  const [stream, setStream] = React.useState<'all' | 'sales' | 'finance'>('all');
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -125,16 +129,29 @@ export function FollowupsPage() {
 
   const memberName = React.useCallback((id?: string) => members.find((m) => m.id === id)?.name, [members]);
 
+  /** Which worklist a follow-up belongs to, from what it hangs off. */
+  const streamOf = React.useCallback(
+    (f: Followup): 'sales' | 'finance' => (f.entityType === 'invoice' ? 'finance' : 'sales'),
+    [],
+  );
+
+  const streamCounts = React.useMemo(() => {
+    const counts = { all: followups.length, sales: 0, finance: 0 };
+    for (const f of followups) counts[streamOf(f)] += 1;
+    return counts;
+  }, [followups, streamOf]);
+
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     return followups.filter((f) => {
+      if (stream !== 'all' && streamOf(f) !== stream) return false;
       if (channelFilter !== 'all' && f.channel !== channelFilter) return false;
       if (!q) return true;
       return (f.summary || '').toLowerCase().includes(q)
         || (f.contact?.name || '').toLowerCase().includes(q)
         || (f.nextAction || '').toLowerCase().includes(q);
     });
-  }, [followups, search, channelFilter]);
+  }, [followups, search, channelFilter, stream, streamOf]);
 
   const groups = React.useMemo(() => {
     const g: { overdue: Followup[]; today: Followup[]; upcoming: Followup[] } = { overdue: [], today: [], upcoming: [] };
@@ -290,6 +307,38 @@ export function FollowupsPage() {
         </div>
       </div>
 
+      {/* Stream split — sales chasing vs collections are different jobs. */}
+      {view !== 'team' && (
+        <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-muted/30 p-1">
+          {([
+            { id: 'all', en: 'All', ar: 'الكل', hint_en: 'Everything on your plate', hint_ar: 'كل ما لديك' },
+            { id: 'sales', en: 'Leads & Sales', ar: 'العملاء المحتملون والمبيعات', hint_en: 'Contacts and opportunities', hint_ar: 'جهات الاتصال والفرص' },
+            { id: 'finance', en: 'Collections', ar: 'التحصيل', hint_en: 'Chasing unpaid invoices', hint_ar: 'متابعة الفواتير غير المدفوعة' },
+          ] as const).map((s) => {
+            const active = stream === s.id;
+            const count = streamCounts[s.id];
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setStream(s.id)}
+                title={language === 'ar' ? s.hint_ar : s.hint_en}
+                className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  active ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {language === 'ar' ? s.ar : s.en}
+                <span className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                  active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {view === 'team' && selectedCompany ? (
         <TeamView companyId={selectedCompany.id} tr={tr} members={members} meId={currentUser?.id} />
       ) : loading ? (
@@ -439,8 +488,32 @@ function FollowupCard({
             <span className={`h-2 w-2 rounded-full ${PRIORITY_DOT[f.priority ?? 'normal']}`} title={f.priority} />
             {f.contact ? (
               <Link href={`/contacts/${f.contact.id}`} className="font-medium hover:underline">{f.contact.name}</Link>
-            ) : <span className="font-medium italic text-muted-foreground">{tr('Deleted contact', 'جهة اتصال محذوفة')}</span>}
+            ) : f.entityLabel ? (
+              // An invoice or opportunity follow-up with no contact behind it is
+              // not a deleted contact — name the thing it is actually about.
+              <span className="font-medium">{f.entityLabel}</span>
+            ) : (
+              <span className="font-medium italic text-muted-foreground">{tr('Deleted contact', 'جهة اتصال محذوفة')}</span>
+            )}
+            {f.entityType === 'invoice' && f.entityLabel && f.contact && (
+              <span className="text-xs text-muted-foreground">· {f.entityLabel}</span>
+            )}
             <DueBadge due={due} />
+            {/* What this is actually about — in a mixed list you otherwise cannot
+                tell a sales call from an invoice chase without opening it. */}
+            {f.entityType === 'invoice' ? (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                {tr('Invoice', 'فاتورة')}
+              </span>
+            ) : f.entityType === 'opportunity' ? (
+              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+                {tr('Opportunity', 'فرصة')}
+              </span>
+            ) : (
+              <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+                {tr('Lead', 'عميل محتمل')}
+              </span>
+            )}
             {f.status === 'snoozed' && <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-purple-700">{tr('Snoozed', 'مؤجل')}</span>}
             {f.isAuto && <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700" title={f.trigger}>{tr('Auto', 'تلقائي')}</span>}
             {ownerIsOther && <span className="text-xs text-muted-foreground">· {memberName(f.ownerUserId) || f.ownerName}</span>}

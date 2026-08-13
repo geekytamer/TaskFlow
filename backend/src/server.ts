@@ -3441,18 +3441,41 @@ export function createServer(options: CreateServerOptions = {}) {
       const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
       const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit });
-      // Enrich with contact info (resolve the contact behind opp/invoice too).
+      // Enrich with the contact behind the follow-up, and a label for what it is
+      // actually about. A collections queue that cannot name the invoice, or that
+      // reports every row as a deleted contact because invoices have none, is not
+      // a worklist anyone can act on.
+      const viewerRole = getEffectiveRole(req.user!, req.params.companyId);
       const enriched = followups.map((f) => {
         let contact = store.getContactById(f.entityId);
-        if (!contact && f.entityType === 'opportunity') {
+        let entityLabel: string | undefined;
+        let entityAmount: number | undefined;
+
+        if (f.entityType === 'opportunity') {
           const opp = store.getOpportunityById(f.entityId);
-          if (opp?.contactId) contact = store.getContactById(opp.contactId);
+          if (opp) {
+            entityLabel = opp.title;
+            if (!contact && opp.contactId) contact = store.getContactById(opp.contactId);
+          }
+        } else if (f.entityType === 'invoice') {
+          const invoice = store.getInvoiceById(f.entityId);
+          if (invoice) {
+            entityLabel = invoice.invoiceNumber;
+            entityAmount = invoice.outstandingAmount ?? invoice.total;
+            if (!contact && invoice.clientId) contact = store.getContactById(invoice.clientId);
+          }
         }
+
         return {
           ...f,
           contact: contact
-            ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles }
+            ? redactContact(
+                { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles },
+                viewerRole,
+              )
             : null,
+          entityLabel,
+          entityAmount,
         };
       });
 	      res.json(enriched);
