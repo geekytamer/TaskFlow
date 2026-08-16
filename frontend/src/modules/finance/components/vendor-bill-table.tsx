@@ -1011,10 +1011,11 @@ export function VendorBillTable() {
               </div>
               {preview.templates.length === 0 && (
                 <p className="text-xs text-muted-foreground print:hidden">
-                  {tr(
-                    'No bill template has been designed yet — this is the built-in fallback. Create one under Finance › Bill Templates to control the layout.',
-                    'لم يُصمَّم أي قالب فواتير بعد — هذا هو القالب الاحتياطي المدمج. أنشئ قالباً من المالية › قوالب الفواتير للتحكم في التصميم.',
-                  )}
+                  {tr('No bill template has been designed yet — this is the built-in fallback. Design one in ', 'لم يُصمَّم أي قالب فواتير بعد — هذا هو القالب الاحتياطي المدمج. صمّم قالباً في ')}
+                  <Link href="/documents?tab=templates&type=bill" className="text-primary hover:underline">
+                    {tr('Documents › Templates', 'المستندات › القوالب')}
+                  </Link>
+                  {tr(' to control the layout.', ' للتحكم في التصميم.')}
                 </p>
               )}
               <div className="rounded-lg border bg-white">

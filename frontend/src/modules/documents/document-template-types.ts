@@ -7,6 +7,7 @@ export const DOCUMENT_TEMPLATE_TYPES: Array<{
 }> = [
   { value: 'invoice', label: 'Invoice', labelAr: 'فاتورة' },
   { value: 'delivery', label: 'Delivery note', labelAr: 'إشعار تسليم' },
+  { value: 'bill', label: 'Vendor bill', labelAr: 'فاتورة مورّد' },
   { value: 'quote', label: 'Quotation', labelAr: 'عرض سعر' },
   { value: 'letter', label: 'Business letter', labelAr: 'خطاب عمل' },
   { value: 'memo', label: 'Internal memo', labelAr: 'مذكرة داخلية' },
@@ -15,8 +16,11 @@ export const DOCUMENT_TEMPLATE_TYPES: Array<{
   { value: 'custom', label: 'Custom document', labelAr: 'مستند مخصص' },
 ];
 
+// Invoices, delivery notes and vendor bills are generated from a record that
+// already exists, so their templates are designed here but the documents
+// themselves are not composed by hand.
 export const DOCUMENT_CREATION_TYPES = DOCUMENT_TEMPLATE_TYPES.filter(
-  ({ value }) => value !== 'invoice' && value !== 'delivery',
+  ({ value }) => value !== 'invoice' && value !== 'delivery' && value !== 'bill',
 );
 
 const DOCUMENT_CREATION_TYPE_VALUES = new Set(
@@ -31,6 +35,7 @@ const FINANCIAL_DOCUMENT_TYPES = new Set<TemplateDocumentType>([
   'invoice',
   'quote',
   'statement',
+  'bill',
 ]);
 
 export function isFinancialDocumentType(type: TemplateDocumentType): boolean {

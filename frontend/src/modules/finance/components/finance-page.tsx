@@ -24,7 +24,6 @@ const VALID_TABS = new Set([
   'invoices',
   'invoice-templates',
   'delivery-templates',
-  'bill-templates',
   'payables',
   'ledger',
   'accounting',
@@ -60,7 +59,6 @@ export function FinancePage() {
           <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
           <TabsTrigger value="invoice-templates">{t('finance.tabInvoiceTemplates')}</TabsTrigger>
           <TabsTrigger value="delivery-templates">{t('finance.tabDeliveryTemplates', 'Delivery Notes')}</TabsTrigger>
-          <TabsTrigger value="bill-templates">{t('finance.tabBillTemplates', 'Bill Templates')}</TabsTrigger>
           <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
           <TabsTrigger value="ledger" data-tutorial="finance-tab-ledger">{t('finance.tabLedger')}</TabsTrigger>
           <TabsTrigger value="accounting">{t('finance.tabAccountingReports')}</TabsTrigger>
@@ -82,9 +80,6 @@ export function FinancePage() {
         </TabsContent>
         <TabsContent value="delivery-templates">
           <InvoiceTemplatePanel docType="delivery" />
-        </TabsContent>
-        <TabsContent value="bill-templates">
-          <InvoiceTemplatePanel docType="bill" />
         </TabsContent>
         <TabsContent value="payables" className="space-y-4">
           <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
