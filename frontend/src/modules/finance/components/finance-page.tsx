@@ -13,7 +13,6 @@ import { JournalTable } from './journal-table';
 import { ReportsPanel } from './reports-panel';
 import { ActivityLogPanel } from './activity-log-panel';
 import { FinancialReportsPanel } from './financial-reports-panel';
-import { InvoiceTemplatePanel } from './invoice-template-panel';
 import { BudgetPanel } from './budget-panel';
 import { VatPanel } from './vat-panel';
 import { useI18n } from '@/context/i18n-context';
@@ -22,8 +21,6 @@ import { SectionPageShell } from '@/modules/operations/components/section-page-s
 const VALID_TABS = new Set([
   'overview',
   'invoices',
-  'invoice-templates',
-  'delivery-templates',
   'payables',
   'ledger',
   'accounting',
@@ -44,6 +41,19 @@ export function FinancePage() {
 
   const [billsVersion, setBillsVersion] = React.useState(0);
 
+  // Template design lives in the document builder now. Anyone arriving on an
+  // old ?tab=invoice-templates link is sent there rather than dropped on the
+  // Overview with no explanation.
+  React.useEffect(() => {
+    const movedToDocuments: Record<string, string> = {
+      'invoice-templates': 'invoice',
+      'delivery-templates': 'delivery',
+      'bill-templates': 'bill',
+    };
+    const docType = tabFromUrl ? movedToDocuments[tabFromUrl] : undefined;
+    if (docType) router.replace(`/documents?tab=templates&type=${docType}`);
+  }, [router, tabFromUrl]);
+
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(Array.from(searchParams.entries()));
     params.set('tab', value);
@@ -57,8 +67,6 @@ export function FinancePage() {
           <TabsList className="flex h-auto min-w-max justify-start gap-1" data-tutorial="finance-tabs">
           <TabsTrigger value="overview" data-tutorial="finance-tab-overview">{t('finance.tabOverview')}</TabsTrigger>
           <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
-          <TabsTrigger value="invoice-templates">{t('finance.tabInvoiceTemplates')}</TabsTrigger>
-          <TabsTrigger value="delivery-templates">{t('finance.tabDeliveryTemplates', 'Delivery Notes')}</TabsTrigger>
           <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
           <TabsTrigger value="ledger" data-tutorial="finance-tab-ledger">{t('finance.tabLedger')}</TabsTrigger>
           <TabsTrigger value="accounting">{t('finance.tabAccountingReports')}</TabsTrigger>
@@ -74,12 +82,6 @@ export function FinancePage() {
         </TabsContent>
         <TabsContent value="invoices">
           <InvoiceTable />
-        </TabsContent>
-        <TabsContent value="invoice-templates">
-          <InvoiceTemplatePanel />
-        </TabsContent>
-        <TabsContent value="delivery-templates">
-          <InvoiceTemplatePanel docType="delivery" />
         </TabsContent>
         <TabsContent value="payables" className="space-y-4">
           <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />

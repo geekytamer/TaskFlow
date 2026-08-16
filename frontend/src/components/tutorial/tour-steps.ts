@@ -329,8 +329,8 @@ export const TOURS: Tour[] = [
       },
       {
         target: '[data-tutorial="invoice-form-template"]',
-        en: { title: 'Invoice Template', desc: 'Choose how the printed or PDF version of this invoice looks. Templates control the layout, logo placement, colors, and footer text. The default template is selected automatically, but you can switch to any custom template you\'ve created in the Invoice Templates tab.' },
-        ar: { title: 'قالب الفاتورة', desc: 'اختر شكل النسخة المطبوعة أو PDF من هذه الفاتورة. تتحكم القوالب في التخطيط وموضع الشعار والألوان ونص التذييل. يتم تحديد القالب الافتراضي تلقائياً، لكن يمكنك التبديل إلى أي قالب مخصص أنشأته في تبويب قوالب الفواتير.' },
+        en: { title: 'Invoice Template', desc: 'Choose how the printed or PDF version of this invoice looks. Templates control the layout, logo placement, colors, and footer text. The default template is selected automatically, but you can switch to any custom template you\'ve designed under Documents \u203a Templates.' },
+        ar: { title: 'قالب الفاتورة', desc: 'اختر شكل النسخة المطبوعة أو PDF من هذه الفاتورة. تتحكم القوالب في التخطيط وموضع الشعار والألوان ونص التذييل. يتم تحديد القالب الافتراضي تلقائياً، لكن يمكنك التبديل إلى أي قالب مخصص صمّمته في المستندات › القوالب.' },
         position: 'right',
       },
       {
