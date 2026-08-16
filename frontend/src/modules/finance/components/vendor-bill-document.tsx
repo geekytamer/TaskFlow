@@ -10,7 +10,7 @@ import type { VendorBillDocumentPayload } from '@/services/financeService';
 
 /**
  * A vendor bill drawn by the same document engine as invoices and delivery
- * notes, so a company designs its bill layout once in Finance > Bill Templates
+ * notes, so a company designs its bill layout once in Documents > Templates
  * and the preview, the print page and the server-side PDF all follow it.
  *
  * The engine speaks invoices, so the bill is adapted into that shape: the

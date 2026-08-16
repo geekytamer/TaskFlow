@@ -243,6 +243,34 @@ cd backend && npm ci && npm run build && pm2 restart taskflow-api
 
 After this, the DB lives outside the repo and future `git pull`s never touch it.
 
+## PDF rendering (invoices, delivery notes, vendor bills)
+
+PDFs are produced by rendering the app's own print page in headless Chrome, so
+the server needs a real browser. Puppeteer downloads its own matching build —
+do not point it at a distro package, and on Ubuntu do not use the snap
+`chromium`, which cannot run in this container.
+
+```bash
+apt-get install -y unzip                       # without this the download silently extracts to nothing
+cd backend && npx puppeteer browsers install chrome
+
+# Shared libraries headless Chrome needs on a bare Ubuntu 24.04 server:
+apt-get install -y libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 \
+  libasound2t64 libgbm1 libcairo2 libpango-1.0-0 libxcomposite1 libxdamage1 \
+  libxfixes3 libxrandr2 libatspi2.0-0t64 libnss3 libnspr4 libxkbcommon0 \
+  libdrm2 libxshmfence1 fonts-liberation
+```
+
+Leave `PUPPETEER_EXECUTABLE_PATH` **unset** so puppeteer resolves the version it
+was built against. `APP_PUBLIC_URL` must point at the running frontend, because
+that is the URL the headless browser fetches.
+
+Verify with the browser itself rather than trusting the install:
+
+```bash
+/root/.cache/puppeteer/chrome/*/chrome-linux64/chrome --version
+```
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -253,4 +281,6 @@ After this, the DB lives outside the repo and future `git pull`s never touch it.
 | Admin login fails after fresh deploy | `ADMIN_PASSWORD` was changed AFTER the user got created — env changes don't update an existing admin, you must reset via the API or wipe the DB and re-bootstrap |
 | Migrations look stuck | Stop the process, back up `taskflow.db`, restart. Migrations are idempotent. |
 | `SQLITE_READONLY_DBMOVED` / login fails after deploy | The DB file was swapped out from under the running process (git pull replaced it). Relocate the DB to `TASKFLOW_DB_PATH` outside the repo (see Section 8) and restart the API. |
+| PDF download returns "PDF rendering is unavailable" | No usable Chrome on the server. Most often `npx puppeteer browsers install chrome` was run without `unzip` present, which leaves an **empty version directory** that looks installed. Check the size of `~/.cache/puppeteer` — a real install is ~380 MB, a failed one is 8 KB. See "PDF rendering" above. |
+| Chrome installed but exits with `error while loading shared libraries` | The headless system libraries are missing; install the list in "PDF rendering" above. |
 | Welcome emails fail: "domain is not verified" | `RESEND_FROM_EMAIL` has a malformed domain (e.g. `...com.com`) or the domain isn't verified in Resend. Fix the env value and verify the domain. |
