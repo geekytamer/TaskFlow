@@ -68,13 +68,19 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   // A delivery note is the same engine without the money side: a quantity-only
   // items table, a "Delivery Note" heading, and no totals/payment sections.
   const isDelivery = docType === 'delivery';
+  // A vendor bill runs the money side exactly like an invoice, but it is a
+  // document we receive rather than issue: the counterparty billed us, and
+  // there is nobody to hand a scan-to-pay code to.
+  const isBill = docType === 'bill';
   const documentHeading = docType === 'quote'
     ? 'QUOTATION'
     : docType === 'statement'
       ? 'ACCOUNT STATEMENT'
       : isDelivery
         ? (s.deliveryNote ?? 'Delivery Note')
-        : s.invoice;
+        : isBill
+          ? (s.vendorBill ?? 'VENDOR BILL')
+          : s.invoice;
   const deliveryColumns = [
     { id: 'dn-sku', key: 'sku' as const, label: s.sku ?? 'SKU', visible: true, width: 22, align: 'left' as const },
     { id: 'dn-desc', key: 'description' as const, label: s.description ?? 'Description', visible: true, align: 'left' as const },
@@ -125,7 +131,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
     layout: 'row',
     style: { margin: { top: 16, bottom: 8 } },
     children: [
-      { id: id('billto'), type: 'details', title: s.billTo, fields: [
+      { id: id('billto'), type: 'details', title: isBill ? (s.billedBy ?? 'Billed By') : s.billTo, fields: [
         { label: '', value: '{{client.name}}' },
         { label: '', value: '{{client.address}}' },
         { label: '', value: '{{client.email}}' },
@@ -145,8 +151,12 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   body.push({ id: id('items'), type: 'lineItems', columns: isDelivery ? deliveryColumns : undefined, style: { margin: { top: 24 } } });
   if (!isDelivery) {
     body.push({ id: id('totals'), type: 'totals', style: { margin: { top: 24 } } });
-    if (breaks.has('payment')) body.push(pageBreak());
-    body.push({ id: id('payment'), type: 'payment', style: { margin: { top: 32 } } });
+    // The payment block prints our own bank details for a customer to pay into.
+    // On a bill we are the payer, so printing them there is backwards.
+    if (!isBill) {
+      if (breaks.has('payment')) body.push(pageBreak());
+      body.push({ id: id('payment'), type: 'payment', style: { margin: { top: 32 } } });
+    }
   }
   if (breaks.has('terms')) body.push(pageBreak());
   if (template?.terms) {
@@ -180,8 +190,9 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   if (breaks.has('signature')) body.push(pageBreak());
   body.push({ id: id('sig'), type: 'signature', style: { margin: { top: 40 } } });
 
-  // QR
-  if (template?.qrEnabled !== false) {
+  // QR — a link to the public copy, which only exists for documents we issue.
+  // A vendor bill has no public page, so the code would point nowhere.
+  if (!isBill && template?.qrEnabled !== false) {
     if (breaks.has('qr')) body.push(pageBreak());
     body.push({ id: id('qr'), type: 'qr', style: { margin: { top: 32 }, align: template?.qrPosition ?? 'center' } });
   }

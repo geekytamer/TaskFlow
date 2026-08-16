@@ -178,6 +178,7 @@ export type InvoiceTemplateLayout = 'classic' | 'modern' | 'compact' | 'letterhe
 export type TemplateDocumentType =
   | 'invoice'
   | 'delivery'
+  | 'bill'
   | 'quote'
   | 'letter'
   | 'memo'
@@ -457,9 +458,22 @@ export interface VendorBill {
   status: VendorBillStatus;
   notes?: string;
   expenseAccountId?: string;
+  /** VAT percentage included in `amount`; drives recoverable input tax. */
+  taxRate?: number;
+  /** Template used to render the bill document; falls back to the default. */
+  templateId?: string;
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+  /** What generated this bill. Computed server-side on read. */
+  source?: VendorBillSource;
+}
+
+export interface VendorBillSource {
+  type: 'purchase_order' | 'campaign_deliverable' | 'manual';
+  label: string;
+  route?: string;
+  context?: string;
 }
 
 export interface VendorBillPayment {

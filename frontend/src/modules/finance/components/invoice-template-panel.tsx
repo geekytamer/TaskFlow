@@ -259,10 +259,13 @@ export function InvoiceTemplatePanel({
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
-  const financialDocument = ['invoice', 'quote', 'statement'].includes(docType);
+  // A vendor bill carries amounts and tax like an invoice does, so it gets the
+  // same money-aware editing controls.
+  const financialDocument = ['invoice', 'quote', 'statement', 'bill'].includes(docType);
   const documentTypeLabel = {
     invoice: tr('Invoice', 'فاتورة'),
     delivery: tr('Delivery note', 'إشعار تسليم'),
+    bill: tr('Vendor bill', 'فاتورة مورّد'),
     quote: tr('Quotation', 'عرض سعر'),
     letter: tr('Business letter', 'خطاب عمل'),
     memo: tr('Internal memo', 'مذكرة داخلية'),

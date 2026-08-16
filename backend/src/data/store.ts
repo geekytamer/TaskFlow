@@ -3339,6 +3339,17 @@ export class DataStore {
           }
         },
       },
+      {
+        // Vendor bills render through the same template engine as invoices, so
+        // they need somewhere to record which template to use.
+        id: '077_vendor_bill_template',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(vendor_bills)').all() as any[]).map((c) => c.name);
+          if (!cols.includes('templateId')) {
+            this.db.exec('ALTER TABLE vendor_bills ADD COLUMN templateId TEXT;');
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -14434,7 +14445,71 @@ export class DataStore {
     const rows = this.db
       .prepare('SELECT * FROM vendor_bills WHERE companyId = ? ORDER BY dueDate ASC')
       .all(companyId) as any[];
-    return rows.map((row) => this.decodeVendorBill(row));
+    const bills = rows.map((row) => this.decodeVendorBill(row));
+    return this.attachVendorBillSources(companyId, bills);
+  }
+
+  /**
+   * Tag each bill with what generated it. A bill that arrived from a purchase
+   * order or a campaign deliverable should say so and link back, otherwise the
+   * only way to answer "why do we owe this?" is to remember. Both lookups are
+   * one query for the whole list rather than one per bill.
+   */
+  private attachVendorBillSources(companyId: string, bills: VendorBill[]): VendorBill[] {
+    if (bills.length === 0) return bills;
+
+    const orderNumbers = new Map<string, string>();
+    for (const row of this.db
+      .prepare('SELECT id, orderNumber FROM purchase_orders WHERE companyId = ?')
+      .all(companyId) as any[]) {
+      orderNumbers.set(String(row.id), String(row.orderNumber || ''));
+    }
+
+    const deliverables = new Map<string, { title: string; campaignId: string }>();
+    for (const row of this.db
+      .prepare(
+        'SELECT id, title, campaignId, vendorBillId FROM campaign_deliverables WHERE companyId = ? AND vendorBillId IS NOT NULL',
+      )
+      .all(companyId) as any[]) {
+      deliverables.set(String(row.vendorBillId), {
+        title: String(row.title || ''),
+        campaignId: String(row.campaignId || ''),
+      });
+    }
+
+    const campaignNames = new Map<string, string>();
+    for (const row of this.db
+      .prepare('SELECT id, name FROM crm_campaigns WHERE companyId = ?')
+      .all(companyId) as any[]) {
+      campaignNames.set(String(row.id), String(row.name || ''));
+    }
+
+    return bills.map((bill) => {
+      if (bill.purchaseOrderId && orderNumbers.has(bill.purchaseOrderId)) {
+        const orderNumber = orderNumbers.get(bill.purchaseOrderId)!;
+        return {
+          ...bill,
+          source: {
+            type: 'purchase_order' as const,
+            label: orderNumber,
+            route: `/purchases?q=${encodeURIComponent(orderNumber)}`,
+          },
+        };
+      }
+      const deliverable = deliverables.get(bill.id);
+      if (deliverable) {
+        return {
+          ...bill,
+          source: {
+            type: 'campaign_deliverable' as const,
+            label: deliverable.title,
+            route: `/crm/campaigns?campaign=${encodeURIComponent(deliverable.campaignId)}`,
+            context: campaignNames.get(deliverable.campaignId),
+          },
+        };
+      }
+      return { ...bill, source: { type: 'manual' as const, label: 'Entered manually' } };
+    });
   }
 
   listPurchaseOrderPayables(companyId: string): PurchaseOrderPayableSummary[] {
@@ -14493,9 +14568,25 @@ export class DataStore {
     });
   }
 
+  /** Pick which template renders a bill's document. `null` clears it. */
+  setVendorBillTemplate(id: string, templateId: string | null): VendorBill {
+    const bill = this.getVendorBillById(id);
+    if (!bill) throw new Error('Vendor bill not found.');
+    if (templateId) {
+      const template = this.getInvoiceTemplateById(templateId);
+      if (!template || template.companyId !== bill.companyId) {
+        throw new Error('That template does not belong to this company.');
+      }
+    }
+    this.db.prepare('UPDATE vendor_bills SET templateId = ? WHERE id = ?').run(templateId, id);
+    return this.getVendorBillById(id)!;
+  }
+
   getVendorBillById(id: string): VendorBill | undefined {
     const row = this.db.prepare('SELECT * FROM vendor_bills WHERE id = ?').get(id) as any;
-    return row ? this.decodeVendorBill(row) : undefined;
+    if (!row) return undefined;
+    const bill = this.decodeVendorBill(row);
+    return this.attachVendorBillSources(bill.companyId, [bill])[0];
   }
 
   private assertUniqueVendorReference(
@@ -17830,6 +17921,7 @@ export class DataStore {
       status: row.status as VendorBillStatus,
       notes: row.notes ?? undefined,
       expenseAccountId: row.expenseAccountId ?? undefined,
+      templateId: row.templateId ?? undefined,
       paidAt: row.paidAt ? new Date(row.paidAt) : undefined,
       paidAmount,
       outstandingAmount: Number(Math.max(0, amount - paidAmount).toFixed(2)),

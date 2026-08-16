@@ -24,6 +24,8 @@ export interface DocStrings {
   signature: string;
   scan: string;
   deliveryNote: string;
+  vendorBill: string;
+  billedBy: string;
   sku: string;
   description: string;
   quantity: string;
@@ -48,6 +50,8 @@ const EN: DocStrings = {
   signature: 'Authorized signature',
   scan: 'Scan to view & download',
   deliveryNote: 'Delivery Note',
+  vendorBill: 'VENDOR BILL',
+  billedBy: 'Billed By',
   sku: 'SKU',
   description: 'Description',
   quantity: 'Quantity',
@@ -72,6 +76,8 @@ const AR: DocStrings = {
   signature: 'التوقيع المعتمد',
   scan: 'امسح للعرض والتحميل',
   deliveryNote: 'إشعار تسليم',
+  vendorBill: 'فاتورة مورّد',
+  billedBy: 'الفاتورة من',
   sku: 'الرمز',
   description: 'الوصف',
   quantity: 'الكمية',

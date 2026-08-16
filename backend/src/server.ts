@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
-import type { Notification, NotificationPrefs } from './types';
+import type { Notification, NotificationPrefs, VendorBill } from './types';
 import { renderInvoicePdf } from './pdf/invoice-pdf';
 import {
   influencerPlatforms,
@@ -1395,6 +1395,152 @@ export function createServer(options: CreateServerOptions = {}) {
       const safeNumber = invoice.invoiceNumber.replace(/[^a-zA-Z0-9._-]+/g, '-');
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="Invoice-${safeNumber}.pdf"`);
+      res.setHeader('Content-Length', pdf.length);
+      res.end(pdf);
+    }),
+  );
+
+  /**
+   * A vendor bill is an internal document — unlike a customer invoice it is
+   * never meant to be shared by link, so the print view is not public. The PDF
+   * route mints a short-lived single-use ticket and hands it to the headless
+   * browser, which is the only reader that needs unauthenticated access.
+   */
+  const billPrintTickets = new Map<string, { billId: string; expiresAt: number }>();
+  const issueBillPrintTicket = (billId: string): string => {
+    const now = Date.now();
+    for (const [key, value] of billPrintTickets) {
+      if (value.expiresAt <= now) billPrintTickets.delete(key);
+    }
+    const ticket = randomUUID();
+    billPrintTickets.set(ticket, { billId, expiresAt: now + 60_000 });
+    return ticket;
+  };
+  const redeemBillPrintTicket = (ticket: string, billId: string): boolean => {
+    const found = billPrintTickets.get(ticket);
+    if (!found) return false;
+    // Single use: a ticket that has been spent cannot be replayed.
+    billPrintTickets.delete(ticket);
+    return found.billId === billId && found.expiresAt > Date.now();
+  };
+
+  const buildBillDocument = (bill: VendorBill) => {
+    const companyRecord = store.getCompanyById(bill.companyId);
+    const supplier = bill.supplierId ? store.getContactById(bill.supplierId) : undefined;
+    const order = bill.purchaseOrderId ? store.getPurchaseOrderById(bill.purchaseOrderId) : undefined;
+    const payments = store.listVendorBillPayments(bill.id);
+    const currency = store.getCompanyFinanceSettings(bill.companyId)?.currencyCode || 'USD';
+    // Explicit choice first, then the company's default bill template, then any
+    // bill template at all. A company that never set one still gets a document.
+    const billTemplates = store.listInvoiceTemplates(bill.companyId, 'bill');
+    const template =
+      (bill.templateId ? store.getInvoiceTemplateById(bill.templateId) : undefined) ||
+      billTemplates.find((t) => t.isDefault) ||
+      billTemplates[0] ||
+      undefined;
+    return {
+      bill,
+      currency,
+      template,
+      templates: billTemplates.map((t) => ({ id: t.id, name: t.name, isDefault: Boolean(t.isDefault) })),
+      company: companyRecord
+        ? {
+            id: companyRecord.id,
+            name: companyRecord.name,
+            address: companyRecord.address,
+            logoUrl: companyRecord.logoUrl,
+            taxId: (companyRecord as any).taxId,
+          }
+        : undefined,
+      vendor: supplier
+        ? { id: supplier.id, name: supplier.name, address: supplier.address, email: supplier.email, phone: supplier.phone }
+        : { name: bill.vendorName },
+      // The ordered lines are the closest thing a bill has to a body, but they
+      // only belong on the document when the bill covers the whole order. On a
+      // partial bill they would show line totals that contradict the total,
+      // which is worse than no breakdown at all.
+      lines:
+        order && Math.abs(Number(order.totalAmount || 0) - bill.amount) < 0.01
+          ? order.items?.map((item: any) => ({
+              description: String(item.description || ''),
+              quantity: Number(item.quantity || 0),
+              unitCost: Number(item.unitCost || 0),
+              lineTotal: Number(item.quantity || 0) * Number(item.unitCost || 0),
+            })) ?? []
+          : [],
+      orderNumber: order?.orderNumber,
+      payments,
+    };
+  };
+
+  app.get(
+    '/vendor-bills/:id/document',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      res.json(buildBillDocument(bill));
+    }),
+  );
+
+  // Read by the headless browser only, and only with a live ticket.
+  app.get(
+    '/public/vendor-bills/:id',
+    handler((req, res) => {
+      const ticket = typeof req.query.t === 'string' ? req.query.t : '';
+      if (!ticket || !redeemBillPrintTicket(ticket, req.params.id)) {
+        throw new HttpError(403, 'This print link has expired.');
+      }
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      res.json(buildBillDocument(bill));
+    }),
+  );
+
+  app.patch(
+    '/vendor-bills/:id/template',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const templateId = body.templateId === null ? null : optionalString(body.templateId) ?? null;
+      try {
+        res.json(withActor(req, () => store.setVendorBillTemplate(req.params.id, templateId)));
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not set the template.');
+      }
+    }),
+  );
+
+  app.get(
+    '/vendor-bills/:id/pdf',
+    authMiddleware,
+    handler(async (req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+
+      const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
+      const lang = typeof req.query.lang === 'string' && /^[a-z-]{2,8}$/i.test(req.query.lang) ? req.query.lang : '';
+      const ticket = issueBillPrintTicket(bill.id);
+      const url = `${appUrl}/vendor-bill/${bill.id}?t=${encodeURIComponent(ticket)}${lang ? `&lang=${encodeURIComponent(lang)}` : ''}`;
+
+      let pdf: Buffer;
+      try {
+        pdf = await renderInvoicePdf({ url, format: 'A4', landscape: false });
+      } catch {
+        throw new HttpError(
+          503,
+          'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.',
+        );
+      }
+
+      const safeNumber = bill.billNumber.replace(/[^a-zA-Z0-9._-]+/g, '-');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="Bill-${safeNumber}.pdf"`);
       res.setHeader('Content-Length', pdf.length);
       res.end(pdf);
     }),

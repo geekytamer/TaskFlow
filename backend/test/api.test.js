@@ -1023,6 +1023,96 @@ test('pending payables expose their source and bill down to zero', async () => {
   assert.equal(denied.status, 403);
 });
 
+test('vendor bills carry their source and print only behind a live ticket', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-billdoc-'));
+  const dbPath = path.join(tmpDir, 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+
+  const po = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-05-01T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 10, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po.id, { receivedAt: new Date(), items: [{ lineIndex: 0, quantity: 10 }] });
+  const fromPo = store.billPendingPayable('1', { sourceType: 'purchase_order', sourceId: po.id, amount: 100 });
+  const manual = store.createVendorBill({
+    companyId: '1', vendorName: 'Globex', amount: 500,
+    issueDate: new Date(), dueDate: new Date(), status: 'Draft',
+  });
+
+  const byId = (id) => store.listVendorBills('1').find((b) => b.id === id);
+  assert.equal(byId(fromPo.id).source.type, 'purchase_order');
+  assert.equal(byId(fromPo.id).source.label, po.orderNumber);
+  assert.ok(byId(fromPo.id).source.route.includes(encodeURIComponent(po.orderNumber)));
+  // A hand-typed bill says so rather than showing a blank that reads as missing.
+  assert.equal(byId(manual.id).source.type, 'manual');
+  assert.equal(store.getVendorBillById(fromPo.id).source.type, 'purchase_order');
+
+  const app = createServer({
+    dbPath, seedOnEmpty: false, allowSeedReset: false,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const adminToken = await login(app, 'admin@taskflow.com');
+
+  const doc = await request(app)
+    .get(`/vendor-bills/${fromPo.id}/document`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(doc.status, 200);
+  assert.equal(doc.body.bill.billNumber, fromPo.billNumber);
+  assert.equal(doc.body.orderNumber, po.orderNumber);
+  assert.equal(doc.body.vendor.name, 'Acme');
+  // Full-value bill, so the ordered lines are safe to show.
+  assert.equal(doc.body.lines.length, 1);
+
+  // A partial bill must not show line totals that contradict its own total.
+  const po2 = store.createPurchaseOrder({
+    companyId: '1', supplierName: 'Acme', status: 'Ordered', orderDate: new Date('2026-05-02T00:00:00.000Z'),
+    items: [{ description: 'Widget', quantity: 10, unitCost: 10 }],
+  });
+  store.receivePurchaseOrder(po2.id, { receivedAt: new Date(), items: [{ lineIndex: 0, quantity: 10 }] });
+  const partial = store.billPendingPayable('1', { sourceType: 'purchase_order', sourceId: po2.id, amount: 40 });
+  const partialDoc = await request(app)
+    .get(`/vendor-bills/${partial.id}/document`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(partialDoc.body.lines.length, 0);
+
+  // Template resolution: bill templates are their own doc type, so an invoice
+  // template must never be picked up as a bill's layout.
+  assert.deepEqual(doc.body.templates, []);
+  const invoiceTemplate = store.listInvoiceTemplates('1', 'invoice')[0];
+  assert.ok(invoiceTemplate, 'seed data ships invoice templates');
+  const billTemplate = store.createInvoiceTemplate({
+    companyId: '1', name: 'Standard Bill', docType: 'bill', layout: 'classic',
+  });
+  const withTemplate = await request(app)
+    .get(`/vendor-bills/${fromPo.id}/document`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  assert.equal(withTemplate.body.templates.length, 1);
+  assert.equal(withTemplate.body.template.id, billTemplate.id);
+
+  // An explicit choice wins, and a template from another doc type is refused.
+  const picked = await request(app)
+    .patch(`/vendor-bills/${fromPo.id}/template`)
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ templateId: billTemplate.id });
+  assert.equal(picked.status, 200);
+  assert.equal(picked.body.templateId, billTemplate.id);
+  assert.equal(store.getVendorBillById(fromPo.id).templateId, billTemplate.id);
+
+  // The print view is not public: vendor pricing must not be readable by URL.
+  const noTicket = await request(app).get(`/public/vendor-bills/${fromPo.id}`);
+  assert.equal(noTicket.status, 403);
+  const { randomUUID: uuid } = require('node:crypto');
+  const madeUp = await request(app).get(`/public/vendor-bills/${fromPo.id}?t=${uuid()}`);
+  assert.equal(madeUp.status, 403);
+
+  // Employees cannot read a bill document either.
+  const empToken = await login(app, 'charlie.d@innovatecorp.com');
+  const denied = await request(app)
+    .get(`/vendor-bills/${fromPo.id}/document`)
+    .set('Authorization', `Bearer ${empToken}`);
+  assert.equal(denied.status, 403);
+});
+
 test('health endpoint reports status and applied migrations', async () => {
   const app = makeApp();
   const response = await request(app).get('/health');
@@ -1106,6 +1196,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '074_commission_voided_status',
     '075_fx_revaluation_account',
     '076_gratuity_accrual',
+    '077_vendor_bill_template',
   ]);
 });
 

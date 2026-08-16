@@ -38,6 +38,9 @@ import {
   getPurchaseOrderPayables,
   getVendorBillPayments,
   getVendorBills,
+  getVendorBillDocument,
+  setVendorBillTemplate,
+  downloadVendorBillPdf,
   updateVendorBillStatus,
   deleteVendorBill,
 } from '@/services/financeService';
@@ -51,9 +54,12 @@ import type {
 } from '@/modules/finance/types';
 import { getPurchaseOrders, getSuppliers } from '@/services/operationsService';
 import type { PurchaseOrder, Supplier } from '@/modules/operations/types';
-import { CircleDollarSign, Download, FilePlus, ListChecks, Undo2, Trash2 } from 'lucide-react';
+import { ArrowUpRight, CircleDollarSign, Download, Eye, FilePlus, ListChecks, Printer, Undo2, Trash2 } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
+import Link from 'next/link';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { VendorBillDocument } from './vendor-bill-document';
+import type { VendorBillDocumentPayload } from '@/services/financeService';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { useI18n } from '@/context/i18n-context';
 
@@ -66,14 +72,82 @@ const statusColor: Record<VendorBillStatus, string> = {
   Overdue: 'bg-red-200 text-red-800',
 };
 
+/**
+ * Where the bill came from. A bill raised from a purchase order or a campaign
+ * deliverable links back to it; one typed in by hand says so plainly rather
+ * than showing an empty dash that reads like missing data.
+ */
+function BillSourceCell({ bill }: { bill: VendorBill }) {
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const source = bill.source;
+
+  if (!source || source.type === 'manual') {
+    return <span className="text-sm text-muted-foreground">{tr('Manual entry', 'إدخال يدوي')}</span>;
+  }
+
+  const kind =
+    source.type === 'purchase_order'
+      ? tr('Purchase order', 'أمر شراء')
+      : tr('Campaign deliverable', 'مخرج حملة');
+
+  return (
+    <div className="space-y-0.5">
+      {source.route ? (
+        <Link href={source.route} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+          {source.label}
+          <ArrowUpRight className="h-3 w-3" />
+        </Link>
+      ) : (
+        <span className="font-medium">{source.label}</span>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {kind}
+        {source.context ? ` \u00b7 ${source.context}` : ''}
+      </p>
+    </div>
+  );
+}
+
 export function VendorBillTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const confirm = useConfirm();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
   const canManageFinance = effectiveRole !== 'Employee';
+
+  const openPreview = async (bill: VendorBill) => {
+    setPreviewLoading(true);
+    try {
+      setPreview(await getVendorBillDocument(bill.id));
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: tr('Could not open the bill', 'تعذّر فتح الفاتورة'),
+        description: error?.message,
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleDownloadBillPdf = async (bill: VendorBill) => {
+    setDownloading(true);
+    try {
+      await downloadVendorBillPdf(bill.id, bill.billNumber, language);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: tr('Download failed', 'فشل التنزيل'),
+        description: error?.message,
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const vendorStatusLabel = (status: VendorBillStatus) => t(`vendorBills.status${status}`);
   const vendorMethodLabel = (method: string) => {
@@ -97,6 +171,9 @@ export function VendorBillTable() {
   const [statusFilter, setStatusFilter] = React.useState<'all' | VendorBillStatus>('all');
   const [openCreate, setOpenCreate] = React.useState(false);
   const [openPayment, setOpenPayment] = React.useState(false);
+  const [preview, setPreview] = React.useState<VendorBillDocumentPayload | null>(null);
+  const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [downloading, setDownloading] = React.useState(false);
   const [selectedBill, setSelectedBill] = React.useState<VendorBill | null>(null);
   const [billPayments, setBillPayments] = React.useState<VendorBillPayment[]>([]);
   const [paymentLoading, setPaymentLoading] = React.useState(false);
@@ -714,7 +791,7 @@ export function VendorBillTable() {
               <TableHead className="text-end">{t('vendorBills.colAmount')}</TableHead>
               <TableHead className="text-end">{t('vendorBills.colPaid')}</TableHead>
               <TableHead className="text-end">{t('vendorBills.colOutstanding')}</TableHead>
-              <TableHead>{t('vendorBills.colPurchaseOrder')}</TableHead>
+              <TableHead>{tr('Source', 'المصدر')}</TableHead>
               <TableHead>{t('vendorBills.colExpenseAccount')}</TableHead>
               <TableHead>{t('vendorBills.colStatus')}</TableHead>
               <TableHead className="text-end">{t('vendorBills.colPayment')}</TableHead>
@@ -750,7 +827,9 @@ export function VendorBillTable() {
                   <TableCell className="text-end">{amount(bill.amount)}</TableCell>
                   <TableCell className="text-end">{amount(bill.paidAmount || 0)}</TableCell>
                   <TableCell className="text-end">{amount(bill.outstandingAmount || 0)}</TableCell>
-                  <TableCell>{purchaseOrderMap.get(bill.purchaseOrderId || '')?.orderNumber || '—'}</TableCell>
+                  <TableCell>
+                    <BillSourceCell bill={bill} />
+                  </TableCell>
                   <TableCell>{accountNameMap.get(bill.expenseAccountId || '') || t('vendorBills.defaultAccountShort')}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -787,6 +866,15 @@ export function VendorBillTable() {
                   </TableCell>
                   <TableCell className="text-end">
                     <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={previewLoading}
+                      onClick={() => openPreview(bill)}
+                      title={tr('Preview bill', 'معاينة الفاتورة')}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                     {!canManageFinance ? null : bill.status === 'Draft' ? (
                       <Button
                         variant="outline"
@@ -853,6 +941,96 @@ export function VendorBillTable() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={Boolean(preview)} onOpenChange={(open) => !open && setPreview(null)}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{tr('Bill preview', 'معاينة الفاتورة')}</DialogTitle>
+            <DialogDescription>
+              {tr(
+                'The bill as it will be filed. Download it as a PDF or print it for your records.',
+                'الفاتورة كما ستُحفظ. نزّلها كملف PDF أو اطبعها لسجلاتك.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {preview && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{tr('Template', 'القالب')}</span>
+                  <Select
+                    value={preview.bill.templateId || preview.template?.id || ''}
+                    onValueChange={async (value) => {
+                      try {
+                        await setVendorBillTemplate(preview.bill.id, value);
+                        setPreview(await getVendorBillDocument(preview.bill.id));
+                        await load();
+                      } catch (error: any) {
+                        toast({
+                          variant: 'destructive',
+                          title: tr('Could not change the template', 'تعذّر تغيير القالب'),
+                          description: error?.message,
+                        });
+                      }
+                    }}
+                    disabled={preview.templates.length === 0}
+                  >
+                    <SelectTrigger className="w-[220px]">
+                      <SelectValue
+                        placeholder={
+                          preview.templates.length === 0
+                            ? tr('No bill template yet', 'لا يوجد قالب فواتير بعد')
+                            : tr('Choose a template', 'اختر قالباً')
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {preview.templates.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.name}
+                          {option.isDefault ? ` · ${tr('Default', 'افتراضي')}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => handleDownloadBillPdf(preview.bill)}
+                  disabled={downloading}
+                >
+                  <Download className="me-2 h-4 w-4" />
+                  {downloading ? tr('Preparing…', 'جارٍ التحضير…') : tr('Download PDF', 'تنزيل PDF')}
+                </Button>
+                <Button variant="outline" onClick={() => window.print()}>
+                  <Printer className="me-2 h-4 w-4" />
+                  {tr('Print', 'طباعة')}
+                </Button>
+                </div>
+              </div>
+              {preview.templates.length === 0 && (
+                <p className="text-xs text-muted-foreground print:hidden">
+                  {tr(
+                    'No bill template has been designed yet — this is the built-in fallback. Create one under Finance › Bill Templates to control the layout.',
+                    'لم يُصمَّم أي قالب فواتير بعد — هذا هو القالب الاحتياطي المدمج. أنشئ قالباً من المالية › قوالب الفواتير للتحكم في التصميم.',
+                  )}
+                </p>
+              )}
+              <div className="rounded-lg border bg-white">
+                <VendorBillDocument data={preview} />
+              </div>
+              <RecordSupportPanel
+                companyId={selectedCompany?.id}
+                entityType="vendor_bill"
+                entityId={preview.bill.id}
+                title={tr("Supplier's own document", 'مستند المورّد')}
+                compact
+              />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={openPayment}

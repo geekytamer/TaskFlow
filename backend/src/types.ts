@@ -801,6 +801,7 @@ export interface InvoiceBankAccount {
 export const templateDocTypes = [
   'invoice',
   'delivery',
+  'bill',
   'quote',
   'letter',
   'memo',
@@ -1046,9 +1047,21 @@ export interface VendorBill {
   status: VendorBillStatus;
   notes?: string;
   expenseAccountId?: string;
+  /** Template used to render the bill document; falls back to the default. */
+  templateId?: string;
   paidAt?: Date;
   paidAmount?: number;
   outstandingAmount?: number;
+  /** Where this bill came from. Computed on read, never stored. */
+  source?: VendorBillSource;
+}
+
+/** What generated a vendor bill, so a row can link back to its origin. */
+export interface VendorBillSource {
+  type: 'purchase_order' | 'campaign_deliverable' | 'manual';
+  label: string;
+  route?: string;
+  context?: string;
 }
 
 export type BillMatchStatus = 'matched' | 'no_po' | 'variance';

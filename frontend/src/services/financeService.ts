@@ -945,6 +945,95 @@ export async function getProfitAndLossReport(
   return mapProfitAndLossReport(report);
 }
 
+export interface VendorBillDocumentPayload {
+  bill: VendorBill;
+  currency: string;
+  template?: InvoiceTemplate;
+  templates: Array<{ id: string; name: string; isDefault: boolean }>;
+  company?: { id: string; name: string; address?: string; logoUrl?: string; taxId?: string };
+  vendor?: { id?: string; name: string; address?: string; email?: string; phone?: string };
+  lines: Array<{ description: string; quantity: number; unitCost: number; lineTotal: number }>;
+  orderNumber?: string;
+  payments: VendorBillPayment[];
+}
+
+const mapVendorBillDocument = (payload: any): VendorBillDocumentPayload => ({
+  ...payload,
+  bill: mapVendorBill(payload.bill),
+  template: payload.template ? mapInvoiceTemplate(payload.template) : undefined,
+  templates: Array.isArray(payload.templates) ? payload.templates : [],
+  lines: Array.isArray(payload.lines) ? payload.lines : [],
+  payments: Array.isArray(payload.payments) ? payload.payments.map(mapVendorBillPayment) : [],
+});
+
+export async function getVendorBillDocument(billId: string): Promise<VendorBillDocumentPayload> {
+  return mapVendorBillDocument(await apiFetch<any>(`/vendor-bills/${billId}/document`));
+}
+
+/** Print view fetch: authorised by the one-time ticket in the URL, not a token. */
+export async function getVendorBillPrintDocument(
+  billId: string,
+  ticket: string,
+): Promise<VendorBillDocumentPayload> {
+  const res = await fetch(
+    `${API_BASE_URL}/public/vendor-bills/${billId}?t=${encodeURIComponent(ticket)}`,
+  );
+  if (!res.ok) {
+    let message = 'Could not load this bill.';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch {
+      /* non-JSON error body; keep the default message */
+    }
+    throw new Error(message);
+  }
+  return mapVendorBillDocument(await res.json());
+}
+
+export async function setVendorBillTemplate(
+  billId: string,
+  templateId: string | null,
+): Promise<VendorBill> {
+  return mapVendorBill(
+    await apiFetch<any>(`/vendor-bills/${billId}/template`, {
+      method: 'PATCH',
+      body: JSON.stringify({ templateId }),
+    }),
+  );
+}
+
+export async function downloadVendorBillPdf(
+  billId: string,
+  billNumber: string,
+  lang?: string,
+): Promise<void> {
+  const token = getStoredToken();
+  const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+  const res = await fetch(`${API_BASE_URL}/vendor-bills/${billId}/pdf${query}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = 'Could not generate the PDF.';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch {
+      /* non-JSON error body; keep the default message */
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = `Bill-${billNumber.replace(/[^a-zA-Z0-9._-]+/g, '-')}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export interface PendingPayable {
   sourceType: 'purchase_order' | 'campaign_deliverable';
   sourceId: string;
