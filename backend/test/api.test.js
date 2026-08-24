@@ -1198,6 +1198,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '076_gratuity_accrual',
     '077_vendor_bill_template',
     '078_permission_groups',
+    '079_backfill_permission_groups',
   ]);
 });
 

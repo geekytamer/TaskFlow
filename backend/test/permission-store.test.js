@@ -11,6 +11,16 @@ const freshStore = () => {
   return new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
 };
 
+/**
+ * Detaches the built-in role group that createUser assigns automatically, so a
+ * test can measure only the custom group it set up.
+ */
+const isolate = (store, user, companyId) => {
+  for (const group of store.listUserGroupAssignments(user.id, companyId)) {
+    if (group.isSystem) store.removeUserFromGroup(user.id, companyId, group.id);
+  }
+};
+
 const makeUser = (store, companyIds, role, email) =>
   store.createUser({
     name: email,
@@ -30,6 +40,7 @@ test('a group grants exactly the permissions it is given', () => {
     { module: 'invoices', action: 'create' },
   ]);
   const user = makeUser(store, [co.id], 'Employee', 'sara@acme.test');
+  isolate(store, user, co.id);
   store.assignUserToGroup(user.id, co.id, group.id);
 
   assert.deepEqual(
@@ -42,6 +53,7 @@ test('a user with no group assignment has no permissions', () => {
   const store = freshStore();
   const co = store.createCompany({ name: 'Acme', website: '', address: '' });
   const user = makeUser(store, [co.id], 'Employee', 'nobody@acme.test');
+  isolate(store, user, co.id);
   assert.deepEqual(store.getEffectivePermissions(user.id, co.id), []);
 });
 
@@ -60,6 +72,7 @@ test('permissions are inherited transitively through implications', () => {
   store.addGroupImplication(mid.id, base.id);
 
   const user = makeUser(store, [co.id], 'Manager', 'ali@acme.test');
+  isolate(store, user, co.id);
   store.assignUserToGroup(user.id, co.id, top.id);
 
   assert.deepEqual(
@@ -78,6 +91,7 @@ test('inheritance does not flow upward from child to parent', () => {
   store.addGroupImplication(parent.id, child.id);
 
   const user = makeUser(store, [co.id], 'Employee', 'child@acme.test');
+  isolate(store, user, co.id);
   store.assignUserToGroup(user.id, co.id, child.id);
 
   assert.deepEqual(store.getEffectivePermissions(user.id, co.id), ['tasks:create'],
@@ -94,6 +108,7 @@ test('an implication cycle terminates instead of hanging', () => {
   store.addGroupImplication(b.id, a.id);
 
   const user = makeUser(store, [co.id], 'Employee', 'cycle@acme.test');
+  isolate(store, user, co.id);
   store.assignUserToGroup(user.id, co.id, a.id);
 
   assert.deepEqual(store.getEffectivePermissions(user.id, co.id), ['tasks:create']);
@@ -107,6 +122,8 @@ test('permissions do not leak across companies', () => {
   store.setGroupPermissions(g1.id, [{ module: 'invoices', action: 'read' }]);
 
   const user = makeUser(store, [co1.id, co2.id], 'Employee', 'multi@acme.test');
+  isolate(store, user, co1.id);
+  isolate(store, user, co2.id);
   store.assignUserToGroup(user.id, co1.id, g1.id);
 
   assert.deepEqual(store.getEffectivePermissions(user.id, co1.id), ['invoices:read']);
@@ -121,6 +138,7 @@ test('setGroupPermissions replaces rather than accumulates', () => {
   store.setGroupPermissions(g.id, [{ module: 'tasks', action: 'create' }]);
 
   const user = makeUser(store, [co.id], 'Employee', 'replace@acme.test');
+  isolate(store, user, co.id);
   store.assignUserToGroup(user.id, co.id, g.id);
   assert.deepEqual(store.getEffectivePermissions(user.id, co.id), ['tasks:create']);
 });
@@ -150,5 +168,7 @@ test('listPermissionGroups returns only the requested company groups', () => {
   store.createPermissionGroup({ companyId: co1.id, key: 'a', name: 'A' });
   store.createPermissionGroup({ companyId: co2.id, key: 'b', name: 'B' });
 
-  assert.deepEqual(store.listPermissionGroups(co1.id).map((g) => g.key), ['a']);
+  const custom = store.listPermissionGroups(co1.id).filter((g) => !g.isSystem);
+  assert.deepEqual(custom.map((g) => g.key), ['a']);
+  assert.equal(store.listPermissionGroups(co1.id).length, 5, 'four built-ins plus the custom one');
 });

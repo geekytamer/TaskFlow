@@ -2,6 +2,7 @@ import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { seedData } from './seed-data';
 import {
   Company,
@@ -3420,6 +3421,20 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Reproduce today's four roles as editable per-company groups, and give
+        // every user the group matching the role they already hold. Reads
+        // users.role / users.companyRoles; never writes them. Idempotent.
+        id: '079_backfill_permission_groups',
+        run: () => {
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{
+            id: string;
+          }>;
+          companies.forEach(({ id }) => this.seedPermissionGroupsForCompanyInTrx(id));
+          const users = this.db.prepare('SELECT id FROM users').all() as Array<{ id: string }>;
+          users.forEach(({ id }) => this.syncUserGroupAssignmentsInTrx(id));
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3793,6 +3808,24 @@ export class DataStore {
 
     trx();
     this.ensureNumberingDefaults();
+    // The seed inserts companies and users with raw bulk statements, bypassing
+    // createCompany / createUser, so their permission groups are seeded here.
+    this.backfillPermissionGroups();
+  }
+
+  /**
+   * Gives every company its built-in groups and every user the group matching
+   * their legacy role. Idempotent — this is both the migration-079 body and
+   * the repair path for data inserted outside createCompany / createUser.
+   */
+  backfillPermissionGroups(): void {
+    const trx = this.db.transaction(() => {
+      const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+      companies.forEach(({ id }) => this.seedPermissionGroupsForCompanyInTrx(id));
+      const users = this.db.prepare('SELECT id FROM users').all() as Array<{ id: string }>;
+      users.forEach(({ id }) => this.syncUserGroupAssignmentsInTrx(id));
+    });
+    trx();
   }
 
   runAsActor<T>(
@@ -4115,7 +4148,9 @@ export class DataStore {
     this.ensureFinanceDefaults();
     this.ensureNumberingDefaults();
     this.ensureCompanyFinanceSettings();
+    this.seedPermissionGroupsForCompany(newCompany.id);
     return newCompany;
+
   }
 
   updateCompany(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
@@ -4152,6 +4187,26 @@ export class DataStore {
         taxDetails: updated.taxDetails ?? null,
       });
     return this.getCompanyById(id);
+  }
+
+  private purgeCompanyPermissionData(companyId: string): void {
+    this.db
+      .prepare(
+        `DELETE FROM group_implications WHERE parentGroupId IN
+           (SELECT id FROM permission_groups WHERE companyId = ?)
+          OR childGroupId IN
+           (SELECT id FROM permission_groups WHERE companyId = ?)`,
+      )
+      .run(companyId, companyId);
+    this.db
+      .prepare(
+        `DELETE FROM group_permissions WHERE groupId IN
+           (SELECT id FROM permission_groups WHERE companyId = ?)`,
+      )
+      .run(companyId);
+    this.db.prepare('DELETE FROM user_group_assignments WHERE companyId = ?').run(companyId);
+    this.db.prepare('DELETE FROM permission_groups WHERE companyId = ?').run(companyId);
+    this.bumpAuthzVersionInTrx();
   }
 
   deleteCompany(id: string, options: { cascade?: boolean } = {}) {
@@ -4285,6 +4340,127 @@ export class DataStore {
   // SQL is the source of truth for groups, grants and assignments; OpenFGA
   // holds a projection of them. Every mutation here bumps authz_version, which
   // is what invalidates the in-process permission cache across pm2 workers.
+
+  /**
+   * Creates the four built-in groups for a company and fills them from the
+   * seed matrix. Idempotent, so it is safe to call on every company creation
+   * and again from the backfill migration.
+   */
+  seedPermissionGroupsForCompany(companyId: string): void {
+    const roles: Array<[UserRole, string]> = [
+      ['Admin', 'admin'],
+      ['Manager', 'manager'],
+      ['Employee', 'employee'],
+      ['Accountant', 'accountant'],
+    ];
+    const now = new Date().toISOString();
+    const insertGroup = this.db.prepare(
+      `INSERT OR IGNORE INTO permission_groups
+         (id, companyId, key, name, isSystem, isActive, createdAt)
+       VALUES (?, ?, ?, ?, 1, 1, ?)`,
+    );
+    const insertPerm = this.db.prepare(
+      'INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)',
+    );
+    const trx = this.db.transaction(() => {
+      roles.forEach(([roleName, key]) => {
+        insertGroup.run(uuid(), companyId, key, roleName, now);
+        const group = this.getPermissionGroupByKey(companyId, key);
+        if (!group) return;
+        (SEED_MATRIX[roleName] || []).forEach((permission) => {
+          const [module, action] = permission.split(':');
+          insertPerm.run(group.id, module, action);
+        });
+      });
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  /**
+   * Brings a user's group assignments in line with their legacy role in each
+   * company. Called whenever a user is created or their roles change, so the
+   * group system tracks the role system for as long as roles remain
+   * authoritative. Assignments to non-system groups are left alone — those are
+   * deliberate admin choices, not derived from the role.
+   */
+  syncUserGroupAssignments(userId: string): void {
+    const trx = this.db.transaction(() => this.syncUserGroupAssignmentsInTrx(userId));
+    trx();
+  }
+
+  /** Transaction-free variant, for callers that already hold one (migrations). */
+  private syncUserGroupAssignmentsInTrx(userId: string): void {
+    const row = this.db
+      .prepare('SELECT id, role, companyIds, companyRoles FROM users WHERE id = ?')
+      .get(userId) as
+      | { id: string; role: string; companyIds: string; companyRoles: string | null }
+      | undefined;
+    if (!row) return;
+
+    const parsed = (this.parseJson<Array<{ companyId: string; role: string }>>(row.companyRoles) ||
+      []) as Array<{ companyId: string; role: string }>;
+    // Same fallback getEffectiveRole applies in http.ts.
+    const assignments = parsed.length
+      ? parsed
+      : (this.parseJson<string[]>(row.companyIds) || []).map((companyId) => ({
+          companyId,
+          role: row.role,
+        }));
+
+    {
+      assignments.forEach(({ companyId, role }) => {
+        this.seedPermissionGroupsForCompanyInTrx(companyId);
+        const key = String(role || '').toLowerCase();
+        const target = this.getPermissionGroupByKey(companyId, key);
+        if (!target) return;
+        // Drop any other *system* group in this company, so a promoted user
+        // does not keep their previous role's grants.
+        this.db
+          .prepare(
+            `DELETE FROM user_group_assignments
+              WHERE userId = ? AND companyId = ? AND groupId IN (
+                SELECT id FROM permission_groups
+                 WHERE companyId = ? AND isSystem = 1 AND id != ?
+              )`,
+          )
+          .run(userId, companyId, companyId, target.id);
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
+          )
+          .run(userId, companyId, target.id);
+      });
+      this.bumpAuthzVersionInTrx();
+    }
+  }
+
+  private seedPermissionGroupsForCompanyInTrx(companyId: string): void {
+    const roles: Array<[UserRole, string]> = [
+      ['Admin', 'admin'],
+      ['Manager', 'manager'],
+      ['Employee', 'employee'],
+      ['Accountant', 'accountant'],
+    ];
+    const now = new Date().toISOString();
+    const insertGroup = this.db.prepare(
+      `INSERT OR IGNORE INTO permission_groups
+         (id, companyId, key, name, isSystem, isActive, createdAt)
+       VALUES (?, ?, ?, ?, 1, 1, ?)`,
+    );
+    const insertPerm = this.db.prepare(
+      'INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)',
+    );
+    roles.forEach(([roleName, key]) => {
+      insertGroup.run(uuid(), companyId, key, roleName, now);
+      const group = this.getPermissionGroupByKey(companyId, key);
+      if (!group) return;
+      (SEED_MATRIX[roleName] || []).forEach((permission) => {
+        const [module, action] = permission.split(':');
+        insertPerm.run(group.id, module, action);
+      });
+    });
+  }
 
   createPermissionGroup(input: {
     companyId: string;
@@ -4550,6 +4726,7 @@ export class DataStore {
         if (!persisted) {
           throw new Error('Unable to update existing user.');
         }
+        this.syncUserGroupAssignments(persisted.id);
         return persisted;
       }
       throw new Error('Email already exists');
@@ -4586,6 +4763,7 @@ export class DataStore {
     if (!persisted) {
       throw new Error('Unable to create user.');
     }
+    this.syncUserGroupAssignments(persisted.id);
     return persisted;
   }
 
@@ -4650,10 +4828,13 @@ export class DataStore {
         'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
       )
       .run(updated);
+    this.syncUserGroupAssignments(userId);
     return this.getUserById(userId);
   }
 
   deleteUser(userId: string) {
+    this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ?').run(userId);
+    this.bumpAuthzVersion();
     this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
 
