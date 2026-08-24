@@ -1,16 +1,22 @@
 /**
  * The canonical list of grantable permissions.
  *
- * Generated from docs/superpowers/plans/gate-matrix.csv, which is itself
- * extracted from the gates in server.ts. It lives in code rather than the
- * database on purpose: if administrators could invent permissions, they would
- * create ones no route enforces, and the UI would promise security it does not
- * deliver. The database stores *grants*; this file owns what is *grantable*.
+ * GENERATED from docs/superpowers/plans/gate-matrix.csv, which is extracted
+ * from the gates in server.ts. Regenerate rather than editing by hand.
  *
- * Note that `projects` and `tasks` have no `read` action. Read access to those
- * is decided per-record by requireProjectViewAccess / canViewTask, not by
- * group membership, so exposing a group-level read checkbox for them would be
- * a lie. See the design doc's non-goals.
+ * It lives in code, not the database, on purpose: if administrators could
+ * invent permissions they would create ones no route enforces, and the UI
+ * would promise security it does not deliver. The database stores *grants*;
+ * this file owns what is *grantable*.
+ *
+ * Some actions are qualified with a sub-resource, e.g. `settings:users.read`
+ * beside `settings:read`. That happens where the underlying routes disagree
+ * about which roles may use them: granting the union would widen access and
+ * the intersection would revoke it, so the permission is split instead. See
+ * splitConflictingPermissions in scripts/extract-gates.ts.
+ *
+ * projects and tasks have no plain read action — their reads are decided per
+ * record by requireProjectViewAccess / canViewTask, not by group membership.
  */
 
 export type ModuleGroup = 'operations' | 'finance' | 'crm' | 'hr' | 'core';
@@ -22,37 +28,126 @@ export interface PermissionModule {
   actions: readonly string[];
 }
 
-const CRUD = ['read', 'create', 'write', 'delete'] as const;
-
 export const MODULES: readonly PermissionModule[] = [
-  // ── Operations ───────────────────────────────────────────────────
-  { key: 'dashboard',     labelKey: 'perm.module.dashboard',     group: 'operations', actions: ['read'] },
-  { key: 'projects',      labelKey: 'perm.module.projects',      group: 'operations', actions: ['create', 'write', 'delete'] },
-  { key: 'tasks',         labelKey: 'perm.module.tasks',         group: 'operations', actions: ['create', 'write'] },
-  { key: 'inventory',     labelKey: 'perm.module.inventory',     group: 'operations', actions: [...CRUD, 'post'] },
-  { key: 'manufacturing', labelKey: 'perm.module.manufacturing', group: 'operations', actions: [...CRUD, 'cancel'] },
-  { key: 'purchasing',    labelKey: 'perm.module.purchasing',    group: 'operations', actions: [...CRUD, 'approve'] },
-  { key: 'sales',         labelKey: 'perm.module.sales',         group: 'operations', actions: ['read', 'create', 'write', 'cancel'] },
-
-  // ── Finance ──────────────────────────────────────────────────────
-  { key: 'finance',       labelKey: 'perm.module.finance',       group: 'finance',    actions: CRUD },
-  { key: 'invoices',      labelKey: 'perm.module.invoices',      group: 'finance',    actions: [...CRUD, 'pay'] },
-  { key: 'vendor-bills',  labelKey: 'perm.module.vendorBills',   group: 'finance',    actions: [...CRUD, 'pay'] },
-  { key: 'commissions',   labelKey: 'perm.module.commissions',   group: 'finance',    actions: [...CRUD, 'approve', 'void'] },
-
-  // ── CRM ──────────────────────────────────────────────────────────
-  { key: 'crm',           labelKey: 'perm.module.crm',           group: 'crm',        actions: CRUD },
-  { key: 'contacts',      labelKey: 'perm.module.contacts',      group: 'crm',        actions: CRUD },
-  { key: 'campaigns',     labelKey: 'perm.module.campaigns',     group: 'crm',        actions: CRUD },
-  { key: 'whatsapp',      labelKey: 'perm.module.whatsapp',      group: 'crm',        actions: [...CRUD, 'send'] },
-
-  // ── HR ───────────────────────────────────────────────────────────
-  { key: 'hr',            labelKey: 'perm.module.hr',            group: 'hr',         actions: CRUD },
-  { key: 'payroll',       labelKey: 'perm.module.payroll',       group: 'hr',         actions: CRUD },
-
-  // ── Core ─────────────────────────────────────────────────────────
-  { key: 'documents',     labelKey: 'perm.module.documents',     group: 'core',       actions: CRUD },
-  { key: 'settings',      labelKey: 'perm.module.settings',      group: 'core',       actions: CRUD },
+  // ── Operations ───────────────────────────────────────
+  {
+    key: 'dashboard',
+    labelKey: 'perm.module.dashboard',
+    group: 'operations',
+    actions: ["read"],
+  },
+  {
+    key: 'inventory',
+    labelKey: 'perm.module.inventory',
+    group: 'operations',
+    actions: ["create","delete","post","read","stock-counts.delete","stock-counts.write","warehouses.create","write"],
+  },
+  {
+    key: 'manufacturing',
+    labelKey: 'perm.module.manufacturing',
+    group: 'operations',
+    actions: ["cancel","create","delete","read","write"],
+  },
+  {
+    key: 'projects',
+    labelKey: 'perm.module.projects',
+    group: 'operations',
+    actions: ["create","delete","write"],
+  },
+  {
+    key: 'purchasing',
+    labelKey: 'perm.module.purchasing',
+    group: 'operations',
+    actions: ["approve","create","delete","purchase-orders.reject.create","purchase-requisitions.reject.create","read","write"],
+  },
+  {
+    key: 'sales',
+    labelKey: 'perm.module.sales',
+    group: 'operations',
+    actions: ["cancel","create","deliveries.pdf.read","read","write"],
+  },
+  {
+    key: 'tasks',
+    labelKey: 'perm.module.tasks',
+    group: 'operations',
+    actions: ["tasks.create","write"],
+  },
+  // ── Finance ───────────────────────────────────────
+  {
+    key: 'commissions',
+    labelKey: 'perm.module.commissions',
+    group: 'finance',
+    actions: ["approve","create","delete","read","void","write"],
+  },
+  {
+    key: 'finance',
+    labelKey: 'perm.module.finance',
+    group: 'finance',
+    actions: ["create","delete","finance.settings.read","finance.settings.write","read","write"],
+  },
+  {
+    key: 'invoices',
+    labelKey: 'perm.module.invoices',
+    group: 'finance',
+    actions: ["create","delete","invoices.pdf.read","pay","read","write"],
+  },
+  {
+    key: 'vendor-bills',
+    labelKey: 'perm.module.vendorBills',
+    group: 'finance',
+    actions: ["create","delete","pay","read","write"],
+  },
+  // ── Crm ───────────────────────────────────────
+  {
+    key: 'campaigns',
+    labelKey: 'perm.module.campaigns',
+    group: 'crm',
+    actions: ["campaigns.delete","campaigns.generate-invoice.create","campaigns.sync-invoice.create","create","delete","read","write"],
+  },
+  {
+    key: 'contacts',
+    labelKey: 'perm.module.contacts',
+    group: 'crm',
+    actions: ["clients.read","contacts.activities.read","contacts.create","contacts.read","contacts.write","create","delete","read","suppliers.read","write"],
+  },
+  {
+    key: 'crm',
+    labelKey: 'perm.module.crm',
+    group: 'crm',
+    actions: ["contributions.create","contributions.delete","create","crm-performance.read","delete","followups.bulk-reassign.create","followups.coverage-gaps.read","followups.sweep-overdue.create","followups.workload.read","opportunities.commissions.recalculate.create","read","vendor-requests.status.write","write"],
+  },
+  {
+    key: 'whatsapp',
+    labelKey: 'perm.module.whatsapp',
+    group: 'crm',
+    actions: ["create","delete","read","send","whatsapp.chats.read","whatsapp.chats.settings.read","whatsapp.chats.settings.write","whatsapp.configure-webhook.create","whatsapp.logout.create","whatsapp.messages.read","write"],
+  },
+  // ── Hr ───────────────────────────────────────
+  {
+    key: 'hr',
+    labelKey: 'perm.module.hr',
+    group: 'hr',
+    actions: ["attendance.read","create","delete","hr.gratuity.read","read","write"],
+  },
+  {
+    key: 'payroll',
+    labelKey: 'perm.module.payroll',
+    group: 'hr',
+    actions: ["create","delete","read","write"],
+  },
+  // ── Core ───────────────────────────────────────
+  {
+    key: 'documents',
+    labelKey: 'perm.module.documents',
+    group: 'core',
+    actions: ["create","delete","read","write"],
+  },
+  {
+    key: 'settings',
+    labelKey: 'perm.module.settings',
+    group: 'core',
+    actions: ["activity-events.read","companies.read","custom-fields.create","custom-fields.delete","custom-fields.read","members.read","numbering-settings.read","users.read","write"],
+  },
 ] as const;
 
 const INDEX = new Map(MODULES.map((m) => [m.key, new Set(m.actions)]));

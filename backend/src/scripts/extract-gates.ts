@@ -5,6 +5,9 @@ export interface GateRow {
   method: string;
   route: string;
   module: string;
+  /** Dotted sub-resource path, e.g. "whatsapp.instances" — used to split
+   *  permissions whose routes disagree about which roles may use them. */
+  resource: string;
   action: string;
   roles: string[];
   line: number;
@@ -101,6 +104,18 @@ const MODULE_ALIASES: Record<string, string> = {
   'activity-events': 'settings', 'numbering-settings': 'settings',
   members: 'settings',
 };
+
+/**
+ * The sub-resource a route addresses: every non-parameter segment after any
+ * /companies/:companyId prefix, joined with dots. Distinguishes, for example,
+ * /whatsapp/instances from /whatsapp/chats, which carry different role gates.
+ */
+export function inferResource(route: string): string {
+  const segments = route.split('/').filter(Boolean);
+  const start = segments[0] === 'companies' ? 2 : 0;
+  const parts = segments.slice(start).filter((seg) => !seg.startsWith(':'));
+  return parts.length ? parts.join('.') : (segments[0] ?? 'unknown');
+}
 
 export function inferModule(route: string): string {
   const segments = route.split('/').filter(Boolean);
@@ -242,6 +257,7 @@ export function extractGates(source: string): GateRow[] {
       method: route.method,
       route: path,
       module: inferModule(path),
+      resource: inferResource(path),
       action: inferAction(route.method, path),
       roles: Array.from(new Set(roles)).sort(),
       line: source.slice(0, route.index).split('\n').length,
@@ -249,9 +265,22 @@ export function extractGates(source: string): GateRow[] {
     });
   });
 
-  return expandFactoryRoutes(source, rows, constants);
+  return splitConflictingPermissions(expandFactoryRoutes(source, rows, constants));
 }
 
+/**
+ * Consolidating 62 tables into 19 modules merges routes that do not agree about
+ * who may use them. Granting the union would widen access; granting the
+ * intersection would revoke it. Both are wrong for a migration that must change
+ * nothing.
+ *
+ * So permission granularity follows the code's own distinctions: where every
+ * route behind a module:action carries the same role set, the coarse permission
+ * stands. Where they disagree, the most widely-used role set keeps the plain
+ * name and only the dissenting routes get a qualified one
+ * (settings:read alongside settings:users.read), until each permission has
+ * exactly one role set.
+ */
 /**
  * Some routes are registered by a factory that takes the path suffix and the
  * role list as parameters, e.g. requisitionAction('approve', [...], run). Those
@@ -272,7 +301,6 @@ function expandFactoryRoutes(
   while (def) {
     const [, factoryName, suffixParam, rolesParam] = def;
 
-    // The placeholder row this factory produced, if any.
     const placeholderIndex = expanded.findIndex((r) => r.route.includes(`\${${suffixParam}}`));
     if (placeholderIndex === -1) {
       def = FACTORY_DEF_RE.exec(source);
@@ -297,6 +325,7 @@ function expandFactoryRoutes(
         method: placeholder.method,
         route,
         module: inferModule(route),
+        resource: inferResource(route),
         action: inferAction(placeholder.method, route),
         roles: Array.from(new Set(parseRoles(rolesArg, constants))).sort(),
         line: source.slice(0, call.index).split('\n').length,
@@ -311,14 +340,73 @@ function expandFactoryRoutes(
   return expanded;
 }
 
+function splitConflictingPermissions(rows: GateRow[]): GateRow[] {
+  const roleKey = (r: GateRow) => [...r.roles].sort().join('+');
+
+  const groupBy = (list: GateRow[], keyOf: (r: GateRow) => string) => {
+    const map = new Map<string, GateRow[]>();
+    list.forEach((r) => {
+      const k = keyOf(r);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(r);
+    });
+    return map;
+  };
+
+  const qualify = (list: GateRow[], depth: number): GateRow[] => {
+    const groups = groupBy(list, (r) => `${r.module}:${r.action}`);
+    const out: GateRow[] = [];
+
+    groups.forEach((group) => {
+      const bySet = groupBy(group, roleKey);
+      if (bySet.size <= 1) {
+        out.push(...group);
+        return;
+      }
+
+      // The widest-used role set keeps the plain permission name; only the
+      // routes that disagree get a qualified one. This keeps the permission
+      // count near the coarse ideal while staying exact.
+      let majority = '';
+      let majorityCount = -1;
+      bySet.forEach((members, set) => {
+        if (members.length > majorityCount) {
+          majorityCount = members.length;
+          majority = set;
+        }
+      });
+
+      bySet.forEach((members, set) => {
+        if (set === majority) {
+          out.push(...members);
+          return;
+        }
+        members.forEach((r) => {
+          const suffix = depth === 0 ? r.resource : `${r.method.toLowerCase()}.${r.resource}`;
+          out.push({ ...r, action: `${suffix}.${r.action}` });
+        });
+      });
+    });
+
+    return out;
+  };
+
+  // One pass by sub-resource; a second by method for the rare case where two
+  // routes share a resource path but not a role set.
+  let result = qualify(rows, 0);
+  result = qualify(result, 1);
+  return result;
+}
+
 if (require.main === module) {
   const serverPath = path.join(__dirname, '..', '..', 'src', 'server.ts');
   const rows = extractGates(fs.readFileSync(serverPath, 'utf8'));
-  const header = 'method,route,module,action,roles,line,gate';
+  const header = 'method,route,module,action,roles,line,gate,resource';
   const body = rows
     .map(
       (r) =>
-        `${r.method},${r.route},${r.module},${r.action},"${r.roles.join(' ')}",${r.line},${r.gate}`,
+        `${r.method},${r.route},${r.module},${r.action},"${r.roles.join(' ')}",` +
+        `${r.line},${r.gate},${r.resource}`,
     )
     .join('\n');
   process.stdout.write(`${header}\n${body}\n`);
