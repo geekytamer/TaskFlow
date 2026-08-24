@@ -12,6 +12,7 @@
     "ops:migrate": "npm run ops -- migrate"
   },
   "dependencies": {
+    "@openfga/sdk": "^0.9.7",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.5",
