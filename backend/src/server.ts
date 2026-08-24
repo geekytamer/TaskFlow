@@ -8,6 +8,9 @@ import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } 
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
 import type { Notification, NotificationPrefs, VendorBill } from './types';
 import { renderInvoicePdf } from './pdf/invoice-pdf';
+import { PermissionService } from './permissions/permission-service';
+import { recordShadowCheck } from './permissions/shadow';
+import { getFgaConfig } from './permissions/fga-client';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -520,6 +523,13 @@ export function createServer(options: CreateServerOptions = {}) {
     seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
   });
 
+  // Shadow mode only: queried in parallel with the legacy role check so
+  // disagreements can be logged. It does not decide anything yet.
+  const permissionService = new PermissionService({
+    store,
+    onWarning: (message) => logger.warn(message),
+  });
+
   // Critical notifications email immediately; normal ones wait for the digest.
   const dispatchCriticalEmails = async (notifications: Notification[]) => {
     for (const n of notifications) {
@@ -712,13 +722,35 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
+  const shadowMode = getFgaConfig().engine === 'shadow';
+  if (shadowMode) {
+    logger.info('AUTHZ_ENGINE=shadow: OpenFGA is being compared against role checks.');
+  }
+
   const requireCompanyRoles = (
     req: AuthedRequest,
     companyId: string,
     roles: UserRole[],
   ) => {
     requireCompanyAccess(req, companyId);
-    if (!requireCompanyRole(req.user!, companyId, roles)) {
+    const allowed = requireCompanyRole(req.user!, companyId, roles);
+
+    // Shadow mode observes; the legacy answer below still decides. This lives
+    // inside the gate rather than at the call sites so all 233 of them can be
+    // compared against real production traffic before any are refactored.
+    if (shadowMode && req.user) {
+      recordShadowCheck({
+        store,
+        service: permissionService,
+        userId: req.user.id,
+        companyId,
+        method: req.method,
+        routePath: req.route?.path ?? req.path,
+        legacyAllowed: allowed,
+      });
+    }
+
+    if (!allowed) {
       throw new HttpError(403, 'You do not have permission to perform this action.');
     }
   };

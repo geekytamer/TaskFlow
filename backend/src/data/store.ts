@@ -4699,6 +4699,33 @@ export class DataStore {
     return trx();
   }
 
+  recordAuthzDivergence(entry: {
+    userId: string;
+    companyId: string;
+    module: string;
+    action: string;
+    route: string;
+    legacyAllowed: boolean;
+    openfgaAllowed: boolean;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO authz_divergence
+           (userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        entry.userId,
+        entry.companyId,
+        entry.module,
+        entry.action,
+        entry.route,
+        entry.legacyAllowed ? 1 : 0,
+        entry.openfgaAllowed ? 1 : 0,
+        new Date().toISOString(),
+      );
+  }
+
   listAuthzDivergences(limit = 200) {
     return this.db
       .prepare('SELECT * FROM authz_divergence ORDER BY id DESC LIMIT ?')
