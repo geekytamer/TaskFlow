@@ -16,20 +16,21 @@ const freshStore = () => {
 };
 
 /** Stands in for OpenFGA, so these tests need no running server. */
+/** Permissions are given as 'company/module/action' triples. */
 const stubFga = (permissions, opts = {}) => ({
   calls: 0,
   permissions,
   throws: opts.throws || false,
-  async listPermissions() {
+  async listGrantedObjects() {
     this.calls += 1;
     if (this.throws) throw new Error('connection refused');
-    return this.permissions;
+    return this.permissions.map((p) => `permission:${p}`);
   },
 });
 
 test('permissions are fetched once and served from cache thereafter', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read']);
+  const fga = stubFga(['c1/invoices/read']);
   const svc = new PermissionService({ store, fga });
 
   assert.equal(await svc.has('u1', 'c1', 'invoices', 'read'), true);
@@ -40,7 +41,7 @@ test('permissions are fetched once and served from cache thereafter', async () =
 
 test('bumping the authz version invalidates the cache', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read']);
+  const fga = stubFga(['c1/invoices/read']);
   const svc = new PermissionService({ store, fga });
 
   await svc.has('u1', 'c1', 'invoices', 'read');
@@ -51,29 +52,57 @@ test('bumping the authz version invalidates the cache', async () => {
 
 test('a permission granted after a refetch takes effect', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read']);
+  const fga = stubFga(['c1/invoices/read']);
   const svc = new PermissionService({ store, fga });
 
   assert.equal(await svc.has('u1', 'c1', 'invoices', 'delete'), false);
-  fga.permissions = ['invoices:read', 'invoices:delete'];
+  fga.permissions = ['c1/invoices/read', 'c1/invoices/delete'];
   store.bumpAuthzVersion();
   assert.equal(await svc.has('u1', 'c1', 'invoices', 'delete'), true);
 });
 
-test('different users and companies are cached separately', async () => {
+test('one fetch covers every company the user belongs to', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read']);
+  const fga = stubFga(['c1/invoices/read', 'c2/tasks/create']);
+  const svc = new PermissionService({ store, fga });
+
+  assert.equal(await svc.has('u1', 'c1', 'invoices', 'read'), true);
+  assert.equal(await svc.has('u1', 'c2', 'tasks', 'create'), true);
+  assert.equal(fga.calls, 1, 'a second company must not cost a second round trip');
+});
+
+test('different users are cached separately', async () => {
+  const store = freshStore();
+  const fga = stubFga(['c1/invoices/read']);
   const svc = new PermissionService({ store, fga });
 
   await svc.has('u1', 'c1', 'invoices', 'read');
   await svc.has('u2', 'c1', 'invoices', 'read');
-  await svc.has('u1', 'c2', 'invoices', 'read');
-  assert.equal(fga.calls, 3, 'cache key must include both user and company');
+  assert.equal(fga.calls, 2, 'the cache key must include the user');
+});
+
+test('a company the user has nothing in yields an empty set, not an error', async () => {
+  const store = freshStore();
+  const svc = new PermissionService({ store, fga: stubFga(['c1/invoices/read']) });
+  assert.equal((await svc.getPermissions('u1', 'c-other')).size, 0);
+  assert.equal(await svc.has('u1', 'c-other', 'invoices', 'read'), false);
+});
+
+test('allows() checks a resolved map synchronously', async () => {
+  const store = freshStore();
+  const svc = new PermissionService({ store, fga: stubFga(['c1/invoices/read']) });
+  const map = await svc.getAllPermissions('u1');
+
+  assert.equal(PermissionService.allows(map, 'c1', 'invoices', 'read'), true);
+  assert.equal(PermissionService.allows(map, 'c1', 'invoices', 'delete'), false);
+  assert.equal(PermissionService.allows(map, 'c2', 'invoices', 'read'), false);
+  assert.equal(PermissionService.allows(undefined, 'c1', 'invoices', 'read'), false,
+    'an unresolved map must deny, never throw');
 });
 
 test('an unknown permission is denied rather than erroring', async () => {
   const store = freshStore();
-  const svc = new PermissionService({ store, fga: stubFga(['invoices:read']) });
+  const svc = new PermissionService({ store, fga: stubFga(['c1/invoices/read']) });
   assert.equal(await svc.has('u1', 'c1', 'invoices', 'delete'), false);
 });
 
@@ -92,7 +121,7 @@ test('an unreachable OpenFGA with a cold cache raises 503, not a denial', async 
 
 test('an unreachable OpenFGA with a warm cache keeps serving the stale set', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read']);
+  const fga = stubFga(['c1/invoices/read']);
   const svc = new PermissionService({ store, fga });
   await svc.has('u1', 'c1', 'invoices', 'read');
 
@@ -104,7 +133,7 @@ test('an unreachable OpenFGA with a warm cache keeps serving the stale set', asy
 
 test('a failed refetch never silently grants something new', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read']);
+  const fga = stubFga(['c1/invoices/read']);
   const svc = new PermissionService({ store, fga });
   await svc.has('u1', 'c1', 'invoices', 'read');
 
@@ -115,7 +144,7 @@ test('a failed refetch never silently grants something new', async () => {
 
 test('getPermissions returns the whole set for one round trip', async () => {
   const store = freshStore();
-  const fga = stubFga(['invoices:read', 'invoices:create', 'tasks:create']);
+  const fga = stubFga(['c1/invoices/read', 'c1/invoices/create', 'c1/tasks/create']);
   const svc = new PermissionService({ store, fga });
 
   const perms = await svc.getPermissions('u1', 'c1');

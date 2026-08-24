@@ -1,44 +1,17 @@
-import fs from 'fs';
-import path from 'path';
 import type { DataStore } from '../data/store';
 import type { PermissionService } from './permission-service';
+import { lookupRoutePermission, type RoutePermission } from './route-permissions';
 
-export interface RouteMapping {
-  module: string;
-  action: string;
-}
-
-let routeMap: Map<string, RouteMapping> | undefined;
+export type RouteMapping = RoutePermission;
 
 /**
- * The route -> permission map comes from the same generated matrix the seed
- * data was built from, so shadow mode compares exactly the permission the
- * refactor will later enforce at that route.
+ * Resolves an express route to the permission that governs it.
+ *
+ * Backed by a compiled map rather than a CSV read at runtime, so a deployment
+ * cannot silently lose every mapping because a docs/ path failed to resolve.
  */
-function loadRouteMap(): Map<string, RouteMapping> {
-  if (routeMap) return routeMap;
-  routeMap = new Map();
-  const candidates = [
-    path.join(__dirname, '..', '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv'),
-    path.join(process.cwd(), '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv'),
-  ];
-  const csvPath = candidates.find((candidate) => fs.existsSync(candidate));
-  if (!csvPath) return routeMap;
-
-  fs.readFileSync(csvPath, 'utf8')
-    .trim()
-    .split('\n')
-    .slice(1)
-    .forEach((line) => {
-      const [method, route, module, action, , , gate] = line.split(',');
-      if (gate === 'none') return;
-      routeMap!.set(`${method.toUpperCase()} ${route}`, { module, action });
-    });
-  return routeMap;
-}
-
 export function routeToPermission(method: string, routePath: string): RouteMapping | undefined {
-  return loadRouteMap().get(`${method.toUpperCase()} ${routePath}`);
+  return lookupRoutePermission(method, routePath);
 }
 
 export function recordDivergence(

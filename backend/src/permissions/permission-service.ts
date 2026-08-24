@@ -12,38 +12,39 @@ export class AuthzUnavailableError extends Error {
   }
 }
 
+/** Permissions for one user, grouped by company. */
+export type PermissionMap = Map<string, Set<string>>;
+
 export interface FgaReader {
-  listPermissions(userId: string, companyId: string): Promise<string[]>;
+  /** Every permission object granted to the user, across all companies. */
+  listGrantedObjects(userId: string): Promise<string[]>;
 }
 
-/**
- * Resolves a user's whole permission set for a company in one ListObjects call,
- * rather than one Check per gate. A request that touches several gates then
- * costs a single round trip at most, and usually none.
- */
 export class OpenFgaReader implements FgaReader {
-  async listPermissions(userId: string, companyId: string): Promise<string[]> {
+  async listGrantedObjects(userId: string): Promise<string[]> {
     const response = await getFgaClient().listObjects({
       user: `user:${userId}`,
       relation: 'granted',
       type: 'permission',
     });
-    const permissions: string[] = [];
-    for (const object of response.objects ?? []) {
-      const parsed = parsePermissionObject(object);
-      if (parsed && parsed.companyId === companyId) {
-        permissions.push(permissionKey(parsed.module, parsed.action));
-      }
-    }
-    return permissions;
+    return response.objects ?? [];
   }
 }
 
 interface CacheEntry {
   version: number;
-  permissions: Set<string>;
+  permissions: PermissionMap;
 }
 
+/**
+ * Resolves permissions for a user in a single round trip covering every company
+ * they belong to, then serves synchronous lookups from the result.
+ *
+ * That shape is deliberate. The 233 existing gates are synchronous calls buried
+ * inside route handlers; making them async would mean touching every one. So
+ * the whole map is prefetched once per request in middleware, and the gates
+ * stay synchronous reads against it.
+ */
 export class PermissionService {
   private readonly store: DataStore;
 
@@ -64,46 +65,57 @@ export class PermissionService {
   }
 
   /**
-   * The cache is keyed by the authz_version counter, which every group, grant
-   * and assignment change bumps. Reading that counter is a local SQLite read
-   * measured in microseconds, and under pm2 cluster mode every worker reads the
-   * same counter, so all workers invalidate in lockstep.
+   * Cached against the authz_version counter, which every group, grant and
+   * assignment change bumps. Reading it is a local SQLite read measured in
+   * microseconds, and under pm2 cluster mode all workers read the same counter,
+   * so they invalidate in lockstep.
    */
-  async getPermissions(userId: string, companyId: string): Promise<Set<string>> {
-    const cacheKey = `${userId}:${companyId}`;
+  async getAllPermissions(userId: string): Promise<PermissionMap> {
     const version = this.store.getAuthzVersion();
-    const cached = this.cache.get(cacheKey);
+    const cached = this.cache.get(userId);
     if (cached && cached.version === version) return cached.permissions;
 
     try {
-      const permissions = new Set(await this.fga.listPermissions(userId, companyId));
-      this.cache.set(cacheKey, { version, permissions });
+      const objects = await this.fga.listGrantedObjects(userId);
+      const permissions: PermissionMap = new Map();
+      for (const object of objects) {
+        const parsed = parsePermissionObject(object);
+        if (!parsed) continue;
+        if (!permissions.has(parsed.companyId)) permissions.set(parsed.companyId, new Set());
+        permissions.get(parsed.companyId)!.add(permissionKey(parsed.module, parsed.action));
+      }
+      this.cache.set(userId, { version, permissions });
       return permissions;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Serving a stale set beats locking everyone out. A cold cache has
-      // nothing to fall back on, and that is the only case that fails — as a
-      // 503, never a 403, because the user does hold the permission; we simply
-      // cannot confirm it.
+      // A stale set beats locking everyone out. A cold cache has nothing to
+      // fall back on, and that is the only case that fails — as 503, never 403,
+      // because the user may well hold the permission; we cannot confirm it.
       if (cached) {
-        this.onWarning?.(
-          `OpenFGA unreachable (${message}); serving stale permissions for ${cacheKey}.`,
-        );
+        this.onWarning?.(`OpenFGA unreachable (${message}); serving stale permissions for ${userId}.`);
         return cached.permissions;
       }
-      this.onWarning?.(`OpenFGA unreachable (${message}); no cached permissions for ${cacheKey}.`);
+      this.onWarning?.(`OpenFGA unreachable (${message}); no cached permissions for ${userId}.`);
       throw new AuthzUnavailableError();
     }
   }
 
-  async has(
-    userId: string,
+  async getPermissions(userId: string, companyId: string): Promise<Set<string>> {
+    return (await this.getAllPermissions(userId)).get(companyId) ?? new Set();
+  }
+
+  async has(userId: string, companyId: string, module: string, action: string): Promise<boolean> {
+    return (await this.getPermissions(userId, companyId)).has(permissionKey(module, action));
+  }
+
+  /** Synchronous check against an already-resolved map. Used by the gates. */
+  static allows(
+    permissions: PermissionMap | undefined,
     companyId: string,
     module: string,
     action: string,
-  ): Promise<boolean> {
-    const permissions = await this.getPermissions(userId, companyId);
-    return permissions.has(permissionKey(module, action));
+  ): boolean {
+    return permissions?.get(companyId)?.has(permissionKey(module, action)) ?? false;
   }
 
   /** Test seam. */

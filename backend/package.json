@@ -9,7 +9,9 @@
     "test": "npm run build && NODE_ENV=test node --test test/**/*.test.js",
     "ops": "tsx src/ops.ts",
     "ops:status": "npm run ops -- status",
-    "ops:migrate": "npm run ops -- migrate"
+    "ops:migrate": "npm run ops -- migrate",
+    "authz:routemap": "tsx src/scripts/generate-route-map.ts",
+    "authz:extract": "tsx src/scripts/extract-gates.ts > ../docs/superpowers/plans/gate-matrix.csv && npm run authz:routemap"
   },
   "dependencies": {
     "@openfga/sdk": "^0.9.7",

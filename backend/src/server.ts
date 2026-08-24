@@ -8,9 +8,14 @@ import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } 
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
 import type { Notification, NotificationPrefs, VendorBill } from './types';
 import { renderInvoicePdf } from './pdf/invoice-pdf';
-import { PermissionService } from './permissions/permission-service';
-import { recordShadowCheck } from './permissions/shadow';
-import { getFgaConfig } from './permissions/fga-client';
+import {
+  PermissionService,
+  AuthzUnavailableError,
+  type PermissionMap,
+  type FgaReader,
+} from './permissions/permission-service';
+import { recordShadowCheck, routeToPermission } from './permissions/shadow';
+import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -86,7 +91,11 @@ import {
 } from './validation';
 import { validateInvoiceDoc } from './invoice-doc';
 
-type AuthedRequest = Request & { user?: SanitizedUser };
+type AuthedRequest = Request & {
+  user?: SanitizedUser;
+  /** Prefetched by authMiddleware when AUTHZ_ENGINE is not 'legacy'. */
+  permissions?: PermissionMap;
+};
 
 // Sanitizes the influencer social accounts array from a request body.
 function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined {
@@ -176,6 +185,10 @@ function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
 export interface CreateServerOptions extends DataStoreOptions {
   allowSeedReset?: boolean;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
+  /** Overrides the authorization engine, bypassing AUTHZ_ENGINE. For tests. */
+  authzEngine?: AuthzEngine;
+  /** Supplies permissions instead of querying OpenFGA. For tests. */
+  permissionReader?: FgaReader;
 }
 
 const invoiceStatuses: InvoiceStatus[] = ['Draft', 'Sent', 'Paid', 'Overdue'];
@@ -527,6 +540,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // disagreements can be logged. It does not decide anything yet.
   const permissionService = new PermissionService({
     store,
+    fga: options.permissionReader,
     onWarning: (message) => logger.warn(message),
   });
 
@@ -679,7 +693,18 @@ export function createServer(options: CreateServerOptions = {}) {
     const user = store.getUserByToken(token);
     if (!user) return next(new HttpError(401, 'Unauthorized'));
     req.user = user;
-    next();
+
+    if (authzEngine === 'legacy') return next();
+
+    // One ListObjects covers every company this user belongs to, so the 233
+    // synchronous gates downstream can read the result without awaiting.
+    return permissionService
+      .getAllPermissions(user.id)
+      .then((permissions) => {
+        req.permissions = permissions;
+        next();
+      })
+      .catch((error) => next(error));
   };
 
   const withActor = <T>(req: AuthedRequest, fn: () => T): T =>
@@ -722,9 +747,12 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  const shadowMode = getFgaConfig().engine === 'shadow';
-  if (shadowMode) {
-    logger.info('AUTHZ_ENGINE=shadow: OpenFGA is being compared against role checks.');
+  const authzEngine = options.authzEngine ?? getFgaConfig().engine;
+  const shadowMode = authzEngine === 'shadow';
+  if (authzEngine !== 'legacy') {
+    logger.info(`AUTHZ_ENGINE=${authzEngine}: OpenFGA is ${
+      shadowMode ? 'being compared against role checks' : 'deciding permissions'
+    }.`);
   }
 
   const requireCompanyRoles = (
@@ -733,11 +761,12 @@ export function createServer(options: CreateServerOptions = {}) {
     roles: UserRole[],
   ) => {
     requireCompanyAccess(req, companyId);
-    const allowed = requireCompanyRole(req.user!, companyId, roles);
+    const legacyAllowed = requireCompanyRole(req.user!, companyId, roles);
+    const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
 
-    // Shadow mode observes; the legacy answer below still decides. This lives
-    // inside the gate rather than at the call sites so all 233 of them can be
-    // compared against real production traffic before any are refactored.
+    // Shadow mode observes; the legacy answer still decides. Living inside the
+    // gate rather than at the call sites means all 233 of them are compared
+    // against real traffic without any of them being touched.
     if (shadowMode && req.user) {
       recordShadowCheck({
         store,
@@ -746,8 +775,28 @@ export function createServer(options: CreateServerOptions = {}) {
         companyId,
         method: req.method,
         routePath: req.route?.path ?? req.path,
-        legacyAllowed: allowed,
+        legacyAllowed,
       });
+    }
+
+    let allowed = legacyAllowed;
+    if (authzEngine === 'openfga' && req.user) {
+      if (mapping) {
+        allowed = PermissionService.allows(
+          req.permissions,
+          companyId,
+          mapping.module,
+          mapping.action,
+        );
+      } else {
+        // A gated route missing from the generated map would otherwise be
+        // silently denied. Fall back to the role check and say so loudly —
+        // it means the map needs regenerating.
+        logger.warn(
+          `No permission mapping for ${req.method} ${req.route?.path ?? req.path}; `
+            + 'falling back to the legacy role check. Run: npm run authz:extract',
+        );
+      }
     }
 
     if (!allowed) {
@@ -8170,6 +8219,11 @@ export function createServer(options: CreateServerOptions = {}) {
 
   app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    if (error instanceof AuthzUnavailableError) {
+      // Never a 403: the user may well hold the permission, we just cannot
+      // confirm it while the authorization service is unreachable.
       return res.status(error.status).json({ message: error.message });
     }
     if (
