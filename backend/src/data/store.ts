@@ -4603,6 +4603,85 @@ export class DataStore {
       .all(userId, companyId) as Array<{ id: string; key: string; name: string }>;
   }
 
+  // ── Tuple projection sources ───────────────────────────────────────
+  // Read models for building the OpenFGA tuple set. Exposed as methods so the
+  // projection code never has to reach into the private database handle.
+
+  listAllGroupAssignments() {
+    return this.db
+      .prepare('SELECT userId, companyId, groupId FROM user_group_assignments')
+      .all() as Array<{ userId: string; companyId: string; groupId: string }>;
+  }
+
+  listAllGroupImplications() {
+    return this.db
+      .prepare('SELECT parentGroupId, childGroupId FROM group_implications')
+      .all() as Array<{ parentGroupId: string; childGroupId: string }>;
+  }
+
+  listAllGroupGrants() {
+    return this.db
+      .prepare(
+        `SELECT gp.groupId, gp.module, gp.action, pg.companyId
+           FROM group_permissions gp
+           JOIN permission_groups pg ON pg.id = gp.groupId`,
+      )
+      .all() as Array<{ groupId: string; module: string; action: string; companyId: string }>;
+  }
+
+  listSuperAdminCompanyPairs() {
+    const rows = this.db
+      .prepare('SELECT id, companyIds FROM users WHERE isSuperAdmin = 1')
+      .all() as Array<{ id: string; companyIds: string }>;
+    return rows.flatMap((row) =>
+      (this.parseJson<string[]>(row.companyIds) || []).map((companyId) => ({
+        userId: row.id,
+        companyId,
+      })),
+    );
+  }
+
+  // ── FGA outbox ─────────────────────────────────────────────────────
+
+  /** Appends tuple deltas. Call inside the same transaction as the SQL change. */
+  enqueueFgaTuples(op: 'write' | 'delete', tuples: Array<Record<string, string>>): void {
+    if (!tuples.length) return;
+    const insert = this.db.prepare(
+      'INSERT INTO fga_outbox (op, tuple, createdAt) VALUES (?, ?, ?)',
+    );
+    const now = new Date().toISOString();
+    const trx = this.db.transaction(() => {
+      tuples.forEach((t) => insert.run(op, JSON.stringify(t), now));
+    });
+    trx();
+  }
+
+  takeFgaOutboxBatch(limit = 100) {
+    return this.db
+      .prepare('SELECT id, op, tuple FROM fga_outbox ORDER BY id ASC LIMIT ?')
+      .all(limit) as Array<{ id: number; op: string; tuple: string }>;
+  }
+
+  deleteFgaOutboxRows(ids: number[]): void {
+    if (!ids.length) return;
+    const remove = this.db.prepare('DELETE FROM fga_outbox WHERE id = ?');
+    const trx = this.db.transaction(() => ids.forEach((id) => remove.run(id)));
+    trx();
+  }
+
+  markFgaOutboxFailure(ids: number[], message: string): void {
+    if (!ids.length) return;
+    const bump = this.db.prepare(
+      'UPDATE fga_outbox SET attempts = attempts + 1, lastError = ? WHERE id = ?',
+    );
+    const trx = this.db.transaction(() => ids.forEach((id) => bump.run(message, id)));
+    trx();
+  }
+
+  countFgaOutbox(): number {
+    return (this.db.prepare('SELECT COUNT(*) c FROM fga_outbox').get() as { c: number }).c;
+  }
+
   getAuthzVersion(): number {
     const row = this.db.prepare('SELECT version FROM authz_version WHERE id = 1').get() as
       | { version: number }
