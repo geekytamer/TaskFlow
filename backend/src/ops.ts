@@ -21,9 +21,12 @@ Commands:
   seed                         Reset and reseed demo data (requires --force)
   prune-orphans                Delete every row whose company no longer exists (requires --force)
   delete-company <id>          Delete a company and all its data (requires --force)
+  fga:sync [--dry-run]         Reconcile OpenFGA tuples with the database
+  fga:status                   Show OpenFGA connectivity, outbox depth and authz version
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
+  AUTHZ_ENGINE, FGA_API_URL, FGA_API_TOKEN, FGA_STORE_ID, FGA_MODEL_ID
 `);
 }
 
@@ -134,7 +137,48 @@ function deleteCompany() {
   console.log(`Deleted company "${company.name}" (${id}) and all its related data.`);
 }
 
+async function fgaSync() {
+  const { syncTuples } = await import('./permissions/sync');
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const dryRun = args.includes('--dry-run');
+  const result = await syncTuples(store, { dryRun });
+  console.log(`Database: ${dbPath}`);
+  console.log(`To write: ${result.toWrite.length}`);
+  console.log(`To delete: ${result.toDelete.length}`);
+  if (dryRun) {
+    console.log('Dry run — nothing was changed.');
+  } else {
+    console.log(`Written: ${result.written}, deleted: ${result.deleted}`);
+  }
+}
+
+async function fgaStatus() {
+  const { fgaHealthy, getFgaConfig } = await import('./permissions/fga-client');
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const config = getFgaConfig();
+  console.log(`Database: ${dbPath}`);
+  console.log(`Engine: ${config.engine}`);
+  console.log(`API: ${config.apiUrl}`);
+  console.log(`Store: ${config.storeId || '(unset)'}`);
+  console.log(`Reachable: ${(await fgaHealthy()) ? 'yes' : 'no'}`);
+  console.log(`Outbox depth: ${store.countFgaOutbox()}`);
+  console.log(`Authz version: ${store.getAuthzVersion()}`);
+  const divergences = store.listAuthzDivergences(1000);
+  console.log(`Logged divergences: ${divergences.length}`);
+}
+
+const fail = (error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+};
+
 switch (command) {
+  case 'fga:sync':
+    fgaSync().catch(fail);
+    break;
+  case 'fga:status':
+    fgaStatus().catch(fail);
+    break;
   case 'status':
     showStatus();
     break;
