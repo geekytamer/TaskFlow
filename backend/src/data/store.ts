@@ -4281,6 +4281,175 @@ export class DataStore {
     return results;
   }
 
+  // ── Permission groups ──────────────────────────────────────────────
+  // SQL is the source of truth for groups, grants and assignments; OpenFGA
+  // holds a projection of them. Every mutation here bumps authz_version, which
+  // is what invalidates the in-process permission cache across pm2 workers.
+
+  createPermissionGroup(input: {
+    companyId: string;
+    key: string;
+    name: string;
+    nameAr?: string;
+    description?: string;
+    isSystem?: boolean;
+  }) {
+    const row = {
+      id: uuid(),
+      companyId: input.companyId,
+      key: input.key,
+      name: input.name,
+      nameAr: input.nameAr ?? null,
+      description: input.description ?? null,
+      isSystem: input.isSystem ? 1 : 0,
+      isActive: 1,
+      createdAt: new Date().toISOString(),
+    };
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO permission_groups
+             (id, companyId, key, name, nameAr, description, isSystem, isActive, createdAt)
+           VALUES (@id, @companyId, @key, @name, @nameAr, @description, @isSystem, @isActive, @createdAt)`,
+        )
+        .run(row);
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+    return row;
+  }
+
+  listPermissionGroups(companyId: string) {
+    return this.db
+      .prepare('SELECT * FROM permission_groups WHERE companyId = ? ORDER BY name ASC')
+      .all(companyId) as Array<{
+      id: string;
+      companyId: string;
+      key: string;
+      name: string;
+      nameAr: string | null;
+      description: string | null;
+      isSystem: number;
+      isActive: number;
+      createdAt: string;
+    }>;
+  }
+
+  getPermissionGroupByKey(companyId: string, key: string) {
+    return this.db
+      .prepare('SELECT * FROM permission_groups WHERE companyId = ? AND key = ?')
+      .get(companyId, key) as { id: string } | undefined;
+  }
+
+  /** Replaces the group's grants wholesale — grants are not accumulated. */
+  setGroupPermissions(groupId: string, permissions: Array<{ module: string; action: string }>) {
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM group_permissions WHERE groupId = ?').run(groupId);
+      const insert = this.db.prepare(
+        'INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)',
+      );
+      permissions.forEach((p) => insert.run(groupId, p.module, p.action));
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  /** Members of parentGroupId additionally receive childGroupId's grants. */
+  addGroupImplication(parentGroupId: string, childGroupId: string) {
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO group_implications (parentGroupId, childGroupId) VALUES (?, ?)',
+        )
+        .run(parentGroupId, childGroupId);
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  assignUserToGroup(userId: string, companyId: string, groupId: string) {
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
+        )
+        .run(userId, companyId, groupId);
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  removeUserFromGroup(userId: string, companyId: string, groupId: string) {
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          'DELETE FROM user_group_assignments WHERE userId = ? AND companyId = ? AND groupId = ?',
+        )
+        .run(userId, companyId, groupId);
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  /**
+   * Effective permissions for one user in one company, with implications
+   * resolved. UNION rather than UNION ALL is what makes an A->B->A cycle
+   * terminate: a group id already seen is discarded instead of re-expanded.
+   * The admin UI reads this for display; authorization decisions come from
+   * OpenFGA, never from here.
+   */
+  getEffectivePermissions(userId: string, companyId: string): string[] {
+    const rows = this.db
+      .prepare(
+        `WITH RECURSIVE reachable(groupId) AS (
+           SELECT groupId FROM user_group_assignments
+             WHERE userId = @userId AND companyId = @companyId
+           UNION
+           SELECT gi.childGroupId FROM group_implications gi
+             JOIN reachable r ON gi.parentGroupId = r.groupId
+         )
+         SELECT DISTINCT gp.module, gp.action
+           FROM group_permissions gp
+           JOIN reachable r ON gp.groupId = r.groupId`,
+      )
+      .all({ userId, companyId }) as Array<{ module: string; action: string }>;
+    return rows.map((r) => `${r.module}:${r.action}`);
+  }
+
+  listUserGroupAssignments(userId: string, companyId: string) {
+    return this.db
+      .prepare(
+        `SELECT pg.* FROM user_group_assignments uga
+           JOIN permission_groups pg ON pg.id = uga.groupId
+          WHERE uga.userId = ? AND uga.companyId = ?
+          ORDER BY pg.name ASC`,
+      )
+      .all(userId, companyId) as Array<{ id: string; key: string; name: string }>;
+  }
+
+  getAuthzVersion(): number {
+    const row = this.db.prepare('SELECT version FROM authz_version WHERE id = 1').get() as
+      | { version: number }
+      | undefined;
+    return row?.version ?? 1;
+  }
+
+  private bumpAuthzVersionInTrx(): number {
+    this.db.prepare('UPDATE authz_version SET version = version + 1 WHERE id = 1').run();
+    return this.getAuthzVersion();
+  }
+
+  bumpAuthzVersion(): number {
+    const trx = this.db.transaction(() => this.bumpAuthzVersionInTrx());
+    return trx();
+  }
+
+  listAuthzDivergences(limit = 200) {
+    return this.db
+      .prepare('SELECT * FROM authz_divergence ORDER BY id DESC LIMIT ?')
+      .all(limit) as Array<Record<string, unknown>>;
+  }
+
   listPositions(): Position[] {
     return this.db.prepare('SELECT * FROM positions').all() as Position[];
   }
