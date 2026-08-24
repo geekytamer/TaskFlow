@@ -3350,6 +3350,76 @@ export class DataStore {
           }
         },
       },
+      {
+        // Configurable per-company permission groups. Purely additive: the
+        // legacy users.role / users.companyRoles columns stay authoritative
+        // until the OpenFGA cutover completes, so this migration cannot change
+        // anyone's access on its own.
+        id: '078_permission_groups',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS permission_groups (
+              id          TEXT PRIMARY KEY,
+              companyId   TEXT NOT NULL,
+              key         TEXT NOT NULL,
+              name        TEXT NOT NULL,
+              nameAr      TEXT,
+              description TEXT,
+              isSystem    INTEGER NOT NULL DEFAULT 0,
+              isActive    INTEGER NOT NULL DEFAULT 1,
+              createdAt   TEXT NOT NULL,
+              UNIQUE (companyId, key)
+            );
+            CREATE TABLE IF NOT EXISTS group_implications (
+              parentGroupId TEXT NOT NULL,
+              childGroupId  TEXT NOT NULL,
+              PRIMARY KEY (parentGroupId, childGroupId)
+            );
+            CREATE TABLE IF NOT EXISTS group_permissions (
+              groupId TEXT NOT NULL,
+              module  TEXT NOT NULL,
+              action  TEXT NOT NULL,
+              PRIMARY KEY (groupId, module, action)
+            );
+            CREATE TABLE IF NOT EXISTS user_group_assignments (
+              userId    TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              groupId   TEXT NOT NULL,
+              PRIMARY KEY (userId, companyId, groupId)
+            );
+            CREATE TABLE IF NOT EXISTS authz_version (
+              id      INTEGER PRIMARY KEY CHECK (id = 1),
+              version INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS fga_outbox (
+              id        INTEGER PRIMARY KEY AUTOINCREMENT,
+              op        TEXT NOT NULL,
+              tuple     TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              attempts  INTEGER NOT NULL DEFAULT 0,
+              lastError TEXT
+            );
+            CREATE TABLE IF NOT EXISTS authz_divergence (
+              id             INTEGER PRIMARY KEY AUTOINCREMENT,
+              userId         TEXT NOT NULL,
+              companyId      TEXT NOT NULL,
+              module         TEXT NOT NULL,
+              action         TEXT NOT NULL,
+              route          TEXT NOT NULL,
+              legacyAllowed  INTEGER NOT NULL,
+              openfgaAllowed INTEGER NOT NULL,
+              observedAt     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_group_permissions_group
+              ON group_permissions (groupId);
+            CREATE INDEX IF NOT EXISTS idx_user_group_assignments_user
+              ON user_group_assignments (userId, companyId);
+            CREATE INDEX IF NOT EXISTS idx_permission_groups_company
+              ON permission_groups (companyId);
+            INSERT OR IGNORE INTO authz_version (id, version) VALUES (1, 1);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
