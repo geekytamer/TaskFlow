@@ -8,6 +8,9 @@ export interface GateRow {
   action: string;
   roles: string[];
   line: number;
+  /** Where the roles came from: an explicit role gate, a bare company-access
+   *  check (any member), or no gate at all. */
+  gate: 'roles' | 'access' | 'none';
 }
 
 /**
@@ -48,13 +51,68 @@ export function inferAction(method: string, route: string): string {
   }
 }
 
+/**
+ * Collapses the 62 route-level table names into application modules, so the
+ * admin grant matrix stays legible. Roughly mirrors Odoo's application groups
+ * and this app's own sidebar sections. Payroll is deliberately kept out of hr:
+ * salary data is usually granted to a narrower set of people than the rest of
+ * the HR module.
+ */
+const MODULE_ALIASES: Record<string, string> = {
+  clients: 'contacts', suppliers: 'contacts', influencers: 'contacts',
+
+  opportunities: 'crm', followups: 'crm', proposals: 'crm',
+  'crm-dashboard': 'crm', 'crm-performance': 'crm',
+  'vendor-requests': 'crm', contributions: 'crm',
+
+  'campaign-expenses': 'campaigns', 'campaign-deliverables': 'campaigns',
+  'campaign-assignments': 'campaigns',
+
+  'commission-rules': 'commissions',
+
+  'sales-orders': 'sales', deliveries: 'sales',
+
+  'credit-notes': 'invoices', 'invoice-templates': 'invoices',
+
+  'purchase-orders': 'purchasing', 'purchase-requisitions': 'purchasing',
+  'purchase-receipts': 'purchasing', rfqs: 'purchasing',
+  'purchase-order-payables': 'purchasing', 'bill-matches': 'purchasing',
+
+  payables: 'vendor-bills',
+
+  budgets: 'finance', expenses: 'finance', vat: 'finance',
+  'vat-returns': 'finance', reports: 'finance',
+
+  'inventory-items': 'inventory', 'inventory-lots': 'inventory',
+  'inventory-location-balances': 'inventory', 'stock-movements': 'inventory',
+  'stock-counts': 'inventory', warehouses: 'inventory',
+
+  'work-orders': 'manufacturing', recipes: 'manufacturing',
+
+  employees: 'hr', departments: 'hr', attendance: 'hr',
+  'leave-requests': 'hr', 'leave-types': 'hr',
+
+  'payroll-runs': 'payroll',
+
+  'document-templates': 'documents', 'record-attachments': 'documents',
+  records: 'documents',
+
+  companies: 'settings', users: 'settings', 'custom-fields': 'settings',
+  'activity-events': 'settings', 'numbering-settings': 'settings',
+  members: 'settings',
+};
+
 export function inferModule(route: string): string {
   const segments = route.split('/').filter(Boolean);
   const start = segments[0] === 'companies' ? 2 : 0;
+  let raw = segments[0] ?? 'unknown';
   for (let i = start; i < segments.length; i += 1) {
-    if (!segments[i].startsWith(':')) return segments[i];
+    if (!segments[i].startsWith(':')) {
+      raw = segments[i];
+      break;
+    }
   }
-  return segments[0] ?? 'unknown';
+  return MODULE_ALIASES[raw] ?? raw;
 }
 
 /** Fallbacks for snippets that do not carry their own declarations. */
@@ -94,6 +152,8 @@ const ROUTE_RE = /app\.(get|post|put|patch|delete)\(/g;
 const PATH_RE = /['"`](\/[^'"`]*)['"`]/;
 // [\s\S] rather than . so a call split across lines is still matched.
 const ROLES_RE = /requireCompanyRoles\(\s*[\s\S]*?,\s*[\s\S]*?,\s*(\[[\s\S]*?\]|\w+)\s*,?\s*\)/;
+const ACCESS_RE = /requireCompanyAccess\(/;
+const ALL_ROLES = ['Accountant', 'Admin', 'Employee', 'Manager'];
 
 function parseRoles(raw: string, constants: Record<string, string[]>): string[] {
   const trimmed = raw.trim();
@@ -165,6 +225,19 @@ export function extractGates(source: string): GateRow[] {
       if (new RegExp(`\\b${name}\\s*\\(`).test(block)) roles.push(...inherited);
     });
 
+    // A route checked only for company membership is readable by any member,
+    // which is all four roles. Recording that explicitly preserves today's
+    // behaviour instead of silently granting nobody.
+    let gate: GateRow['gate'] = 'roles';
+    if (!roles.length) {
+      if (ACCESS_RE.test(block)) {
+        roles.push(...ALL_ROLES);
+        gate = 'access';
+      } else {
+        gate = 'none';
+      }
+    }
+
     rows.push({
       method: route.method,
       route: path,
@@ -172,6 +245,7 @@ export function extractGates(source: string): GateRow[] {
       action: inferAction(route.method, path),
       roles: Array.from(new Set(roles)).sort(),
       line: source.slice(0, route.index).split('\n').length,
+      gate,
     });
   });
 
@@ -226,6 +300,7 @@ function expandFactoryRoutes(
         action: inferAction(placeholder.method, route),
         roles: Array.from(new Set(parseRoles(rolesArg, constants))).sort(),
         line: source.slice(0, call.index).split('\n').length,
+        gate: 'roles',
       });
       call = callRe.exec(source);
     }
@@ -239,12 +314,18 @@ function expandFactoryRoutes(
 if (require.main === module) {
   const serverPath = path.join(__dirname, '..', '..', 'src', 'server.ts');
   const rows = extractGates(fs.readFileSync(serverPath, 'utf8'));
-  const header = 'method,route,module,action,roles,line';
+  const header = 'method,route,module,action,roles,line,gate';
   const body = rows
-    .map((r) => `${r.method},${r.route},${r.module},${r.action},"${r.roles.join(' ')}",${r.line}`)
+    .map(
+      (r) =>
+        `${r.method},${r.route},${r.module},${r.action},"${r.roles.join(' ')}",${r.line},${r.gate}`,
+    )
     .join('\n');
   process.stdout.write(`${header}\n${body}\n`);
   process.stderr.write(
-    `\n${rows.length} routes; ${rows.filter((r) => !r.roles.length).length} with no role gate\n`,
+    `\n${rows.length} routes; ` +
+      `${rows.filter((r) => r.gate === 'roles').length} role-gated, ` +
+      `${rows.filter((r) => r.gate === 'access').length} company-access-only, ` +
+      `${rows.filter((r) => r.gate === 'none').length} ungated\n`,
   );
 }

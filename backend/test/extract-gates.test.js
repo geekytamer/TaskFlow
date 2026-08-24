@@ -177,3 +177,58 @@ test('a route factory is expanded into one row per call site', () => {
   assert.ok(!rows.some((r) => r.roles.includes('roles')),
     'a parameter name must never be emitted as a role');
 });
+
+test('related tables consolidate into one application module', () => {
+  assert.equal(inferModule('/companies/:companyId/inventory-items'), 'inventory');
+  assert.equal(inferModule('/companies/:companyId/stock-counts'), 'inventory');
+  assert.equal(inferModule('/warehouses/:id'), 'inventory');
+  assert.equal(inferModule('/companies/:companyId/campaign-deliverables'), 'campaigns');
+  assert.equal(inferModule('/companies/:companyId/leave-requests'), 'hr');
+  assert.equal(inferModule('/companies/:companyId/employees'), 'hr');
+  assert.equal(inferModule('/companies/:companyId/payroll-runs'), 'payroll', 'payroll stays separate');
+  assert.equal(inferModule('/purchase-requisitions/:id'), 'purchasing');
+  assert.equal(inferModule('/companies/:companyId/credit-notes'), 'invoices');
+});
+
+test('a route gated only by requireCompanyAccess grants every role', () => {
+  const source = [
+    "  app.get(",
+    "    '/companies/:companyId/leave-types',",
+    "    handler((req, res) => {",
+    "      requireCompanyAccess(req, req.params.companyId);",
+    "      res.json([]);",
+    "    }),",
+    "  );",
+  ].join('\n');
+
+  const rows = extractGates(source);
+  assert.deepEqual(rows[0].roles, ['Accountant', 'Admin', 'Employee', 'Manager'],
+    'company-access-only means any member, which is all four roles');
+  assert.equal(rows[0].gate, 'access');
+});
+
+test('a route with an explicit role gate is not treated as access-only', () => {
+  const source = [
+    "  app.get(",
+    "    '/companies/:companyId/invoices',",
+    "    handler((req, res) => {",
+    "      requireCompanyAccess(req, req.params.companyId);",
+    "      requireCompanyRoles(req, req.params.companyId, ['Admin']);",
+    "    }),",
+    "  );",
+  ].join('\n');
+
+  const rows = extractGates(source);
+  assert.deepEqual(rows[0].roles, ['Admin']);
+  assert.equal(rows[0].gate, 'roles');
+});
+
+test('a route with neither gate is marked none and grants nothing', () => {
+  const source = [
+    "  app.get('/health', handler((req, res) => { res.json({}); }));",
+  ].join('\n');
+
+  const rows = extractGates(source);
+  assert.deepEqual(rows[0].roles, []);
+  assert.equal(rows[0].gate, 'none');
+});
