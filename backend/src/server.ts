@@ -16,6 +16,8 @@ import {
 } from './permissions/permission-service';
 import { recordShadowCheck, routeToPermission } from './permissions/shadow';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
+import { registerPermissionRoutes } from './permissions/routes';
+import { syncTuples } from './permissions/sync';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -8212,6 +8214,37 @@ export function createServer(options: CreateServerOptions = {}) {
   deleteRoute('/employees/:id', (id) => store.getEmployeeById(id), (id) => store.deleteEmployee(id), 'Employee not found.', 'Could not delete employee.');
   deleteRoute('/leave-types/:id', (id) => store.getLeaveTypeById(id), (id) => store.deleteLeaveType(id), 'Leave type not found.', 'Could not delete leave type.');
   deleteRoute('/leave-requests/:id', (id) => store.getLeaveRequestById(id), (id) => store.deleteLeaveRequest(id), 'Leave request not found.', 'Could not delete leave request.');
+
+  registerPermissionRoutes({
+    app,
+    store,
+    authMiddleware,
+    handler,
+    requireCompanyRoles,
+    managementRoles: companyManagementRoles,
+    logger,
+    // After an admin edits groups, OpenFGA must reflect it before the next
+    // request is served. A full reconcile is used rather than a hand-computed
+    // delta: admin edits are rare, the tuple set is small, and reusing the
+    // tested reconciler removes a whole class of drift bug. In legacy mode
+    // there is nothing to project.
+    projectTuples: async () => {
+      if (authzEngine === 'legacy') return;
+      try {
+        await syncTuples(store);
+      } catch (error) {
+        logger.error(
+          `Failed to project permission changes to OpenFGA: ${
+            error instanceof Error ? error.message : String(error)
+          }. Run: npm run ops -- fga:sync`,
+        );
+        throw new HttpError(
+          503,
+          'The change was saved but could not be published to the authorization service. Retry, or run fga:sync.',
+        );
+      }
+    },
+  });
 
   app.use((_req, _res, next) => {
     next(new HttpError(404, 'Route not found.'));

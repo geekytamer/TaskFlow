@@ -4682,6 +4682,115 @@ export class DataStore {
     return (this.db.prepare('SELECT COUNT(*) c FROM fga_outbox').get() as { c: number }).c;
   }
 
+  getPermissionGroupById(id: string) {
+    return this.db.prepare('SELECT * FROM permission_groups WHERE id = ?').get(id) as
+      | {
+          id: string;
+          companyId: string;
+          key: string;
+          name: string;
+          nameAr: string | null;
+          description: string | null;
+          isSystem: number;
+          isActive: number;
+          createdAt: string;
+        }
+      | undefined;
+  }
+
+  updatePermissionGroup(
+    id: string,
+    updates: { name?: string; nameAr?: string; description?: string },
+  ): void {
+    const existing = this.getPermissionGroupById(id);
+    if (!existing) return;
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('UPDATE permission_groups SET name = ?, nameAr = ?, description = ? WHERE id = ?')
+        .run(
+          updates.name ?? existing.name,
+          updates.nameAr ?? existing.nameAr,
+          updates.description ?? existing.description,
+          id,
+        );
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  deletePermissionGroup(id: string): void {
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('DELETE FROM group_implications WHERE parentGroupId = ? OR childGroupId = ?')
+        .run(id, id);
+      this.db.prepare('DELETE FROM group_permissions WHERE groupId = ?').run(id);
+      this.db.prepare('DELETE FROM user_group_assignments WHERE groupId = ?').run(id);
+      this.db.prepare('DELETE FROM permission_groups WHERE id = ?').run(id);
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  listGroupPermissions(groupId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT module, action FROM group_permissions WHERE groupId = ? ORDER BY module, action')
+        .all(groupId) as Array<{ module: string; action: string }>
+    ).map((r) => `${r.module}:${r.action}`);
+  }
+
+  /** Alias used where the caller is reasoning about a hypothetical assignment. */
+  listGroupPermissionKeys(groupId: string): string[] {
+    return this.listGroupPermissions(groupId);
+  }
+
+  listGroupImplications(parentGroupId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT childGroupId FROM group_implications WHERE parentGroupId = ?')
+        .all(parentGroupId) as Array<{ childGroupId: string }>
+    ).map((r) => r.childGroupId);
+  }
+
+  setGroupImplications(parentGroupId: string, childGroupIds: string[]): void {
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM group_implications WHERE parentGroupId = ?').run(parentGroupId);
+      const insert = this.db.prepare(
+        'INSERT OR IGNORE INTO group_implications (parentGroupId, childGroupId) VALUES (?, ?)',
+      );
+      childGroupIds.forEach((childId) => insert.run(parentGroupId, childId));
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  countGroupMembers(groupId: string): number {
+    return (
+      this.db
+        .prepare('SELECT COUNT(*) c FROM user_group_assignments WHERE groupId = ?')
+        .get(groupId) as { c: number }
+    ).c;
+  }
+
+  /** Replaces a user's groups in one company. Other companies are untouched. */
+  setUserGroups(userId: string, companyId: string, groupIds: string[]): void {
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare('DELETE FROM user_group_assignments WHERE userId = ? AND companyId = ?')
+        .run(userId, companyId);
+      const insert = this.db.prepare(
+        'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
+      );
+      groupIds.forEach((groupId) => insert.run(userId, companyId, groupId));
+      this.bumpAuthzVersionInTrx();
+    });
+    trx();
+  }
+
+  listUsersByCompany(companyId: string) {
+    return this.getUsersByCompany(companyId);
+  }
+
   getAuthzVersion(): number {
     const row = this.db.prepare('SELECT version FROM authz_version WHERE id = 1').get() as
       | { version: number }
