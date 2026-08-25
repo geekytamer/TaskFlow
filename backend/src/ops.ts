@@ -21,6 +21,7 @@ Commands:
   seed                         Reset and reseed demo data (requires --force)
   prune-orphans                Delete every row whose company no longer exists (requires --force)
   delete-company <id>          Delete a company and all its data (requires --force)
+  authz:repair                 Re-seed missing permission groups and user assignments
   fga:sync [--dry-run]         Reconcile OpenFGA tuples with the database
   fga:status                   Show OpenFGA connectivity, outbox depth and authz version
 
@@ -172,7 +173,36 @@ const fail = (error: unknown) => {
   process.exitCode = 1;
 };
 
+function authzRepair() {
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const db = new Database(dbPath, { readonly: true });
+  const orphansBefore = (db.prepare(
+    `SELECT COUNT(*) c FROM users u
+      WHERE NOT EXISTS (SELECT 1 FROM user_group_assignments a WHERE a.userId = u.id)`,
+  ).get() as { c: number }).c;
+
+  store.backfillPermissionGroups();
+
+  const after = new Database(dbPath, { readonly: true });
+  const orphansAfter = (after.prepare(
+    `SELECT COUNT(*) c FROM users u
+      WHERE NOT EXISTS (SELECT 1 FROM user_group_assignments a WHERE a.userId = u.id)`,
+  ).get() as { c: number }).c;
+
+  console.log(`Database: ${dbPath}`);
+  console.log(`Users without a group before: ${orphansBefore}`);
+  console.log(`Users without a group after:  ${orphansAfter}`);
+  console.log(
+    orphansAfter === 0
+      ? 'All users have a group. Run "fga:sync" next to publish the tuples.'
+      : 'Some users still have no group — they belong to no company.',
+  );
+}
+
 switch (command) {
+  case 'authz:repair':
+    authzRepair();
+    break;
   case 'fga:sync':
     fgaSync().catch(fail);
     break;
