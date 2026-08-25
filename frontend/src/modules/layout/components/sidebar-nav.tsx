@@ -42,18 +42,27 @@ import {
   Factory,
   Building2,
   FileText,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { useCompany } from '@/context/company-context';
 import { getWhatsappChats } from '@/services/whatsappService';
+import { usePermissions } from '@/context/permissions-context';
 
 type NavItem = {
   href: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Legacy gate, kept as the fallback while AUTHZ_ENGINE=legacy. */
   roles: Array<'Admin' | 'Manager' | 'Employee' | 'Accountant'>;
+  /**
+   * "module:action" governing this item. Preferred over `roles` once the
+   * server has answered with a permission set. Items with no permission are
+   * governed per record (projects, tasks) and stay visible to any member.
+   */
+  permission?: string;
   tutorial?: string;
 };
 
@@ -66,67 +75,68 @@ const sections: NavSection[] = [
   {
     labelKey: 'nav.section.workspace',
     items: [
-      { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-dashboard' },
+      { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'dashboard:read', tutorial: 'nav-dashboard' },
       { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-projects' },
       { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-tasks' },
       { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-diagram' },
-      { href: '/documents', labelKey: 'nav.documents', icon: FileText, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/documents', labelKey: 'nav.documents', icon: FileText, roles: ['Admin', 'Manager', 'Accountant'], permission: 'documents:read' },
     ],
   },
   {
     labelKey: 'nav.section.operations',
     items: [
-      { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
-      { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
-      { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-rfq' },
-      { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-matching' },
-      { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
-      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-stock-counts' },
-      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-manufacturing' },
+      { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], permission: 'sales:read', tutorial: 'nav-sales' },
+      { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], permission: 'purchasing:read', tutorial: 'nav-purchases' },
+      { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, roles: ['Admin', 'Manager', 'Accountant'], permission: 'purchasing:read', tutorial: 'nav-rfq' },
+      { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'], permission: 'purchasing:read', tutorial: 'nav-matching' },
+      { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], permission: 'inventory:read', tutorial: 'nav-inventory' },
+      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], permission: 'inventory:read', tutorial: 'nav-stock-counts' },
+      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'], permission: 'manufacturing:read', tutorial: 'nav-manufacturing' },
     ],
   },
   {
     labelKey: 'nav.section.finance',
     items: [
-      { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-finance' },
-      { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-commissions' },
+      { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'], permission: 'finance:read', tutorial: 'nav-finance' },
+      { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'commissions:read', tutorial: 'nav-commissions' },
     ],
   },
   {
     labelKey: 'nav.section.crm',
     items: [
-      { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-contacts' },
-      { href: '/influencers', labelKey: 'nav.influencers', icon: Sparkles, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-influencers' },
-      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], tutorial: 'nav-whatsapp' },
-      { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
-      { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
-      { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
-      { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-vendor-requests' },
-      { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], tutorial: 'nav-performance' },
+      { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'contacts:contacts.read', tutorial: 'nav-contacts' },
+      { href: '/influencers', labelKey: 'nav.influencers', icon: Sparkles, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'contacts:read', tutorial: 'nav-influencers' },
+      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], permission: 'whatsapp:read', tutorial: 'nav-whatsapp' },
+      { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'crm:read', tutorial: 'nav-opportunities' },
+      { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'campaigns:read', tutorial: 'nav-campaigns' },
+      { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], permission: 'crm:read', tutorial: 'nav-followups' },
+      { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'crm:read', tutorial: 'nav-vendor-requests' },
+      { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], permission: 'crm:crm-performance.read', tutorial: 'nav-performance' },
     ],
   },
   {
     labelKey: 'nav.section.directory',
     items: [
-      { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-clients' },
-      { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-suppliers' },
+      { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'], permission: 'contacts:clients.read', tutorial: 'nav-clients' },
+      { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'], permission: 'contacts:suppliers.read', tutorial: 'nav-suppliers' },
     ],
   },
   {
     labelKey: 'nav.section.hr',
     items: [
-      { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-employees' },
-      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-attendance' },
-      { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-leave' },
-      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-payroll' },
+      { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'hr:read', tutorial: 'nav-employees' },
+      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, roles: ['Admin', 'Manager', 'Accountant'], permission: 'hr:attendance.read', tutorial: 'nav-attendance' },
+      { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], permission: 'hr:read', tutorial: 'nav-leave' },
+      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'], permission: 'payroll:read', tutorial: 'nav-payroll' },
     ],
   },
   {
     labelKey: 'nav.section.admin',
     items: [
-      { href: '/company-profile', labelKey: 'nav.companyProfile', icon: Building2, roles: ['Admin', 'Manager'], tutorial: 'nav-company-profile' },
-      { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
-      { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
+      { href: '/company-profile', labelKey: 'nav.companyProfile', icon: Building2, roles: ['Admin', 'Manager'], permission: 'settings:companies.read', tutorial: 'nav-company-profile' },
+      { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], permission: 'settings:users.read', tutorial: 'nav-users' },
+      { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], permission: 'settings:write', tutorial: 'nav-settings' },
+      { href: '/settings/permissions', labelKey: 'nav.permissions', icon: ShieldCheck, roles: ['Admin'], permission: 'settings:write' },
     ],
   },
 ];
@@ -134,6 +144,7 @@ const sections: NavSection[] = [
 export function SidebarNav() {
   const pathname = usePathname();
   const { user, loading, effectiveRole } = useAuthGuard();
+  const { can, loaded: permissionsLoaded } = usePermissions();
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
   const [whatsappUnread, setWhatsappUnread] = React.useState(0);
@@ -170,6 +181,14 @@ export function SidebarNav() {
   }
 
   const canSeeItem = (item: NavItem) => {
+    // Once the server has reported a permission set, it is the only authority.
+    // The frontend holds no rules of its own; it renders what the server says.
+    if (permissionsLoaded) {
+      if (!item.permission) return true; // record-level: projects, tasks, diagram
+      const [module, action] = item.permission.split(':');
+      return can(module, action);
+    }
+    // Fallback while AUTHZ_ENGINE=legacy, or before the feed has answered.
     if (item.href === '/settings') return effectiveRole === 'Admin';
     if (!effectiveRole) return false;
     return item.roles.includes(effectiveRole);
