@@ -67,6 +67,15 @@ const PROBES = [
   ['get', '/companies/:co/leave-requests'],
 ];
 
+/**
+ * Reduces a response to the authorization outcome, which is what this test is
+ * about. A 403 is a denial; anything else means authorization let the request
+ * through, and what the handler then did — 200, 404, 400 — is not an
+ * authorization difference. Comparing raw status codes made the test sensitive
+ * to unrelated handler behaviour.
+ */
+const outcome = (status) => (status === 403 ? 'denied' : 'allowed');
+
 const probeAll = async (agent, store) => {
   const results = {};
   for (const user of store.listUsers()) {
@@ -78,7 +87,7 @@ const probeAll = async (agent, store) => {
       for (const [method, tpl] of PROBES) {
         const url = tpl.replace(':co', co);
         const res = await agent[method](url).set('Authorization', `Bearer ${token}`);
-        results[`${user.email}|${co}|${method.toUpperCase()} ${url}`] = res.status;
+        results[`${user.email}|${co}|${method.toUpperCase()} ${url}`] = outcome(res.status);
       }
     }
   }
@@ -105,7 +114,7 @@ test('AUTHZ_ENGINE=openfga produces byte-identical authorization outcomes to leg
     `${diffs.length} outcome differences between engines:\n${diffs.slice(0, 20).join('\n')}`);
 
   // A probe set that never denies anything would pass trivially.
-  const denied = keys.filter((k) => legacyResults[k] === 403);
+  const denied = keys.filter((k) => legacyResults[k] === 'denied');
   assert.ok(denied.length > 0, 'the probe set must include denials to be meaningful');
 });
 
