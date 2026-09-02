@@ -17,6 +17,8 @@ import { useI18n } from '@/context/i18n-context';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInvoices, getSalesOrders } from '@/services/financeService';
 import type { Invoice, SalesOrder } from '@/modules/finance/types';
+import { usePermissions } from '@/context/permissions-context';
+import { navPermission } from '@/modules/layout/lib/nav-permissions';
 import {
   BarChart3,
   BadgeDollarSign,
@@ -78,6 +80,25 @@ export function CommandPalette() {
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
   const { effectiveRole } = useAuthGuard();
+  const { can, loaded: permissionsLoaded } = usePermissions();
+
+  /** Quick actions are shortcuts to pages, so they answer to the same rule. */
+  const allowsHref = React.useCallback((href: string) => {
+    const permission = navPermission(href);
+    if (!permissionsLoaded) return true; // legacy mode: the page guard decides
+    if (!permission) return true;
+    const [module, action] = [
+      permission.slice(0, permission.indexOf(':')),
+      permission.slice(permission.indexOf(':') + 1),
+    ];
+    return can(module, action);
+  }, [can, permissionsLoaded]);
+
+  const quickActions = React.useMemo(() => ([
+    { href: '/finance', labelKey: 'cmdk.openFinance', icon: Banknote },
+    { href: '/whatsapp', labelKey: 'cmdk.openWhatsapp', icon: MessageSquare },
+    { href: '/crm/followups', labelKey: 'cmdk.openFollowups', icon: CalendarClock },
+  ].filter((action) => allowsHref(action.href))), [allowsHref]);
   const [open, setOpen] = React.useState(false);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
@@ -111,6 +132,17 @@ export function CommandPalette() {
     () =>
       navTargets.filter((item) => {
         if (item.href === '/settings') return effectiveRole === 'Admin';
+        // Once the server reports a permission set it is the only authority;
+        // the role list below is the fallback while AUTHZ_ENGINE is legacy.
+        const permission = navPermission(item.href);
+        if (permissionsLoaded) {
+          if (!permission) return true; // record-level destinations stay listed
+          const [module, action] = [
+            permission.slice(0, permission.indexOf(':')),
+            permission.slice(permission.indexOf(':') + 1),
+          ];
+          return can(module, action);
+        }
         return effectiveRole ? item.roles.includes(effectiveRole) : false;
       }),
     [effectiveRole],
@@ -208,20 +240,16 @@ export function CommandPalette() {
         )}
 
         <CommandSeparator />
-        <CommandGroup heading={t('cmdk.quickActions')}>
-          <CommandItem onSelect={() => go('/finance')}>
-            <Banknote className="me-2 h-4 w-4" />
-            {t('cmdk.openFinance')}
-          </CommandItem>
-          <CommandItem onSelect={() => go('/whatsapp')}>
-            <MessageSquare className="me-2 h-4 w-4" />
-            {t('cmdk.openWhatsapp')}
-          </CommandItem>
-          <CommandItem onSelect={() => go('/crm/followups')}>
-            <CalendarClock className="me-2 h-4 w-4" />
-            {t('cmdk.openFollowups')}
-          </CommandItem>
-        </CommandGroup>
+        {quickActions.length > 0 && (
+          <CommandGroup heading={t('cmdk.quickActions')}>
+            {quickActions.map((action) => (
+              <CommandItem key={action.href} onSelect={() => go(action.href)}>
+                <action.icon className="me-2 h-4 w-4" />
+                {t(action.labelKey)}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
       </CommandList>
     </CommandDialog>
   );
