@@ -58,6 +58,7 @@ import { InventoryLotsDialog } from './inventory-lots-dialog';
 import { ExpiringLotsPanel } from './expiring-lots-panel';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
+import { optionalFetch } from '@/lib/optional-fetch';
 import { usePermissionOr } from '@/context/permissions-context';
 import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -202,13 +203,16 @@ export function InventoryPage() {
     try {
       const [itemData, orderData, supplierData, movementData, balanceData, warehouseData, expiringData, projectData] = await Promise.all([
         getInventoryItems(selectedCompany.id),
-        getPurchaseOrders(selectedCompany.id),
-        getSuppliers(selectedCompany.id),
+        // Purchasing, Contacts and Projects data enriches this page but is not
+        // what it is for. A viewer holding only inventory permissions is
+        // legitimately refused them, and that must not fail the whole load.
+        optionalFetch(getPurchaseOrders(selectedCompany.id), []),
+        optionalFetch(getSuppliers(selectedCompany.id), []),
         getStockMovements(selectedCompany.id),
         getInventoryLocationBalances(selectedCompany.id),
         getWarehouses(selectedCompany.id),
         getExpiringLots(selectedCompany.id, 30),
-        getProjects(),
+        optionalFetch(getProjects(), []),
       ]);
       setItems(itemData);
       setOrders(orderData);
