@@ -82,6 +82,7 @@ test('a super-admin (role Employee) can edit and delete users', async () => {
   assert.ok(target);
 
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1006,6 +1007,7 @@ test('pending payables expose their source and bill down to zero', async () => {
   assert.equal(store.listPendingPayables('1').some((p) => p.sourceId === external.id), false);
 
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1049,6 +1051,7 @@ test('vendor bills carry their source and print only behind a live ticket', asyn
   assert.equal(store.getVendorBillById(fromPo.id).source.type, 'purchase_order');
 
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1208,6 +1211,7 @@ test('budgets compute variance from ledger actuals and are management-only', asy
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1268,6 +1272,7 @@ test('VAT return computes output/input tax from the ledger and files a period', 
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1389,6 +1394,7 @@ test('cycle count posts on-hand adjustments from the physical count', async () =
     unitCost: 2, location: 'Main',
   });
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1500,6 +1506,7 @@ test('three-way match compares a vendor bill against its PO and receipts', async
   });
 
   const app = createServer({
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   });
@@ -1541,7 +1548,7 @@ test('work order consumes components, produces output, and records yield + cost'
   const oil = store.createInventoryItem({ companyId: '1', name: 'Oil', category: 'Raw', unit: 'L', vatApplicable: true, tracksInventory: true, onHand: 100, reorderPoint: 0, unitCost: 2, location: 'Main' });
   const fries = store.createInventoryItem({ companyId: '1', name: 'Frozen Fries', category: 'Finished', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 0, location: 'Main' });
 
-  const app = createServer({ dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
   const adminToken = await login(app, 'admin@taskflow.com');
   const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
 
@@ -1590,7 +1597,7 @@ test('work order refuses to complete without enough component stock', async () =
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const flour = store.createInventoryItem({ companyId: '1', name: 'Flour', category: 'Raw', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 5, reorderPoint: 0, unitCost: 1, location: 'Main' });
   const bread = store.createInventoryItem({ companyId: '1', name: 'Bread', category: 'Finished', unit: 'unit', vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 0, location: 'Main' });
-  const app = createServer({ dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
   const adminToken = await login(app, 'admin@taskflow.com');
   const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
 
@@ -1763,6 +1770,7 @@ test('super-admins can update company branding', async () => {
     isSuperAdmin: true,
   });
   const app = createServer({
+    store,
     dbPath,
     seedOnEmpty: false,
     allowSeedReset: false,
@@ -2004,6 +2012,7 @@ test('private tasks are visible only to their owner and assignees', async () => 
     isSuperAdmin: true,
   });
   const app = createServer({
+    store,
     dbPath,
     seedOnEmpty: false,
     allowSeedReset: false,

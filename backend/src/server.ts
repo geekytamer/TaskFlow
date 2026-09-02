@@ -187,6 +187,13 @@ function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
 export interface CreateServerOptions extends DataStoreOptions {
   allowSeedReset?: boolean;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
+  /**
+   * An already-open store to serve from, instead of opening a second
+   * connection to the same file. Callers that need direct store access
+   * alongside the server should pass theirs — two better-sqlite3 connections
+   * on one database contend over locks and complicate write visibility.
+   */
+  store?: DataStore;
   /** Overrides the authorization engine, bypassing AUTHZ_ENGINE. For tests. */
   authzEngine?: AuthzEngine;
   /** Supplies permissions instead of querying OpenFGA. For tests. */
@@ -533,7 +540,7 @@ export function createServer(options: CreateServerOptions = {}) {
   const logger = options.logger ?? console;
   const allowSeedReset =
     options.allowSeedReset ?? process.env.ALLOW_SEED_RESET === 'true';
-  const store = new DataStore({
+  const store = options.store ?? new DataStore({
     dbPath: options.dbPath,
     seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
   });
