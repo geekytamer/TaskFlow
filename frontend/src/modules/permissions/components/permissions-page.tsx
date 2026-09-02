@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { actionLabel, moduleLabel } from '@/modules/permissions/lib/labels';
 import { usePermissions } from '@/context/permissions-context';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
@@ -30,24 +31,6 @@ import {
 
 const ACTION_ORDER = ['read', 'create', 'write', 'delete'];
 
-/**
- * Renders an action label. A qualified action such as "users.read" shows the
- * translated verb plus its sub-resource, so "view · users" sits legibly beside
- * the plain "view" on the same module.
- */
-const actionLabel = (
-  action: string,
-  t: (key: string, fallback?: string) => string,
-) => {
-  const parts = action.split('.');
-  const verb = parts[parts.length - 1];
-  const scope = parts.slice(0, -1).join(' ').replace(/-/g, ' ');
-  const verbLabel = t(`perm.action.${verb}`, verb);
-  return scope ? `${verbLabel} · ${scope}` : verbLabel;
-};
-
-const prettyModule = (key: string) =>
-  key.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export function PermissionsPage() {
   const { selectedCompany } = useCompany();
@@ -416,7 +399,7 @@ export function PermissionsPage() {
                       return (
                         <div key={module.key} className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-start">
                           <p className="pt-0.5 text-sm font-medium">
-                            {t(module.labelKey, prettyModule(module.key))}
+                            {moduleLabel(module.key, t)}
                           </p>
                           <div className="flex flex-wrap gap-x-5 gap-y-2">
                             {sorted.map((action) => {

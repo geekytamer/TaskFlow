@@ -26,6 +26,7 @@ import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
+import { UserGroupsSheet } from './user-groups-sheet';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
@@ -65,6 +66,7 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
   const [loading, setLoading] = React.useState(true);
   const [editingUser, setEditingUser] = React.useState<User | null>(null);
   const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
+  const [groupsUser, setGroupsUser] = React.useState<User | null>(null);
   const { toast } = useToast();
 
   const managedCompanyIds = React.useMemo(() => {
@@ -282,6 +284,11 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                             <DropdownMenuContent align="end">
                             <DropdownMenuLabel>{tr('Actions', 'الإجراءات')}</DropdownMenuLabel>
                             <DropdownMenuItem onClick={() => setEditingUser(user)}>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
+                            {selectedCompany && (
+                              <DropdownMenuItem onClick={() => setGroupsUser(user)}>
+                                {tr('Permission Groups', 'مجموعات الصلاحيات')}
+                              </DropdownMenuItem>
+                            )}
                             <AlertDialogTrigger asChild>
                                 <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
                                 {tr('Delete User', 'حذف المستخدم')}
@@ -322,6 +329,18 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
           onUserAdded={handleUserUpdated}
           userToEdit={editingUser}
           currentUserRole={currentUserRole}
+        />
+      )}
+      {groupsUser && selectedCompany && (
+        <UserGroupsSheet
+          open={!!groupsUser}
+          onOpenChange={(isOpen) => !isOpen && setGroupsUser(null)}
+          userId={groupsUser.id}
+          userName={groupsUser.name}
+          companyId={selectedCompany.id}
+          companyName={selectedCompany.name}
+          canEdit={currentUserRole === 'Admin'}
+          onSaved={handleUserUpdated}
         />
       )}
     </>
