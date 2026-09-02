@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
+import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
@@ -27,21 +28,22 @@ import {
   type PermissionModule,
 } from '@/services/permissionService';
 
-const GROUP_LABELS: Record<string, string> = {
-  operations: 'Operations',
-  finance: 'Finance',
-  crm: 'CRM',
-  hr: 'People',
-  core: 'Administration',
-};
-
 const ACTION_ORDER = ['read', 'create', 'write', 'delete'];
 
-const prettyAction = (action: string) => {
+/**
+ * Renders an action label. A qualified action such as "users.read" shows the
+ * translated verb plus its sub-resource, so "view · users" sits legibly beside
+ * the plain "view" on the same module.
+ */
+const actionLabel = (
+  action: string,
+  t: (key: string, fallback?: string) => string,
+) => {
   const parts = action.split('.');
   const verb = parts[parts.length - 1];
-  const scope = parts.slice(0, -1).join(' ');
-  return scope ? `${verb} · ${scope.replace(/-/g, ' ')}` : verb;
+  const scope = parts.slice(0, -1).join(' ').replace(/-/g, ' ');
+  const verbLabel = t(`perm.action.${verb}`, verb);
+  return scope ? `${verbLabel} · ${scope}` : verbLabel;
 };
 
 const prettyModule = (key: string) =>
@@ -51,6 +53,7 @@ export function PermissionsPage() {
   const { selectedCompany } = useCompany();
   const { refresh: refreshMyPermissions } = usePermissions();
   const { toast } = useToast();
+  const { t } = useI18n();
   const confirm = useConfirm();
 
   const [modules, setModules] = React.useState<PermissionModule[]>([]);
@@ -91,8 +94,8 @@ export function PermissionsPage() {
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Could not load permissions',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: t('perm.err.load'),
+        description: error instanceof Error ? error.message : t('perm.err.unknown'),
       });
     } finally {
       setLoading(false);
@@ -153,7 +156,7 @@ export function PermissionsPage() {
         await load(); // roll the optimistic edit back to server truth
         toast({
           variant: 'destructive',
-          title: 'Could not save',
+          title: t('perm.err.save'),
           description: error instanceof Error ? error.message : 'Unknown error',
         });
       })
@@ -176,7 +179,7 @@ export function PermissionsPage() {
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Could not update inheritance',
+        title: t('perm.err.inheritance'),
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
@@ -195,7 +198,7 @@ export function PermissionsPage() {
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Could not create group',
+        title: t('perm.err.create'),
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
@@ -205,11 +208,11 @@ export function PermissionsPage() {
 
   const handleDelete = async (group: PermissionGroup) => {
     const ok = await confirm({
-      title: `Delete "${group.name}"?`,
+      title: t('perm.deleteTitle', undefined, { name: group.name }),
       description: group.memberCount
-        ? `${group.memberCount} user(s) are in this group and will lose its permissions.`
-        : 'This group has no members.',
-      confirmText: 'Delete',
+        ? t('perm.deleteWithMembers', undefined, { count: group.memberCount })
+        : t('perm.deleteNoMembers'),
+      confirmText: t('common.delete', 'Delete'),
       destructive: true,
     });
     if (!ok) return;
@@ -221,7 +224,7 @@ export function PermissionsPage() {
     } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Could not delete group',
+        title: t('perm.err.delete'),
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     }
@@ -239,7 +242,7 @@ export function PermissionsPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center gap-2 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading permissions…
+        <Loader2 className="h-4 w-4 animate-spin" /> {t('perm.loading')}
       </div>
     );
   }
@@ -248,17 +251,15 @@ export function PermissionsPage() {
     <TooltipProvider>
       <div className="flex flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Permission groups</h1>
-          <p className="text-sm text-muted-foreground">
-            Grant access per module and action. A user gets the union of every group they are in.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('perm.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('perm.subtitle')}</p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
           {/* ── Group list ─────────────────────────────────────────── */}
           <Card className="h-fit">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Groups</CardTitle>
+              <CardTitle className="text-base">{t('perm.groups')}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-1 px-2">
               {groups.map((group) => (
@@ -291,7 +292,7 @@ export function PermissionsPage() {
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-                  placeholder="New group name"
+                  placeholder={t('perm.newGroupName')}
                   className="h-8 text-sm"
                 />
                 <Button size="sm" className="h-8 shrink-0" onClick={handleCreate} disabled={creating || !newName.trim()}>
@@ -309,14 +310,19 @@ export function PermissionsPage() {
                   <div className="min-w-0">
                     <CardTitle className="flex items-center gap-2 text-base">
                       {selected.name}
-                      {selected.isSystem && <Badge variant="secondary">Built-in</Badge>}
+                      {selected.isSystem && <Badge variant="secondary">{t('perm.builtIn')}</Badge>}
                       {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                     </CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {selected.memberCount} member{selected.memberCount === 1 ? '' : 's'} ·{' '}
-                      {selected.permissions.length} direct permission
-                      {selected.permissions.length === 1 ? '' : 's'}
-                      {inherited.size > 0 && ` · ${inherited.size} inherited`}
+                      {selected.memberCount === 1
+                        ? t('perm.memberCountOne')
+                        : t('perm.memberCount', undefined, { count: selected.memberCount })}
+                      {' · '}
+                      {selected.permissions.length === 1
+                        ? t('perm.directCountOne')
+                        : t('perm.directCount', undefined, { count: selected.permissions.length })}
+                      {inherited.size > 0
+                        && ` · ${t('perm.inheritedCount', undefined, { count: inherited.size })}`}
                     </p>
                   </div>
                   {!selected.isSystem && (
@@ -327,7 +333,7 @@ export function PermissionsPage() {
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-1.5">
-                    <Label htmlFor="group-name">Name</Label>
+                    <Label htmlFor="group-name">{t('perm.name')}</Label>
                     <Input
                       id="group-name"
                       defaultValue={selected.name}
@@ -340,7 +346,7 @@ export function PermissionsPage() {
                     />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor="group-name-ar">Name (Arabic)</Label>
+                    <Label htmlFor="group-name-ar">{t('perm.nameAr')}</Label>
                     <Input
                       id="group-name-ar"
                       dir="rtl"
@@ -354,7 +360,7 @@ export function PermissionsPage() {
                     />
                   </div>
                   <div className="grid gap-1.5 sm:col-span-2">
-                    <Label htmlFor="group-desc">Description</Label>
+                    <Label htmlFor="group-desc">{t('perm.description')}</Label>
                     <Textarea
                       id="group-desc"
                       rows={2}
@@ -373,9 +379,9 @@ export function PermissionsPage() {
               {groups.length > 1 && (
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Inherits from</CardTitle>
+                    <CardTitle className="text-base">{t('perm.inheritsFrom')}</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      Members of {selected.name} also receive everything these groups grant.
+                      {t('perm.inheritsHint', undefined, { name: selected.name })}
                     </p>
                   </CardHeader>
                   <CardContent className="flex flex-wrap gap-x-6 gap-y-2">
@@ -395,7 +401,7 @@ export function PermissionsPage() {
               {[...byGroup.entries()].map(([groupKey, groupModules]) => (
                 <Card key={groupKey}>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{GROUP_LABELS[groupKey] ?? groupKey}</CardTitle>
+                    <CardTitle className="text-base">{t(`perm.group.${groupKey}`, groupKey)}</CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
                     {groupModules.map((module) => {
@@ -409,7 +415,9 @@ export function PermissionsPage() {
                       });
                       return (
                         <div key={module.key} className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-start">
-                          <p className="pt-0.5 text-sm font-medium">{prettyModule(module.key)}</p>
+                          <p className="pt-0.5 text-sm font-medium">
+                            {t(module.labelKey, prettyModule(module.key))}
+                          </p>
                           <div className="flex flex-wrap gap-x-5 gap-y-2">
                             {sorted.map((action) => {
                               const key = `${module.key}:${action}`;
@@ -427,14 +435,14 @@ export function PermissionsPage() {
                                     className={!isDirect && via ? 'opacity-50' : undefined}
                                   />
                                   <span className={!isDirect && via ? 'text-muted-foreground' : undefined}>
-                                    {prettyAction(action)}
+                                    {actionLabel(action, t)}
                                   </span>
                                 </label>
                               );
                               return via && !isDirect ? (
                                 <Tooltip key={key}>
                                   <TooltipTrigger asChild>{checkbox}</TooltipTrigger>
-                                  <TooltipContent>Inherited from {via}</TooltipContent>
+                                  <TooltipContent>{t('perm.inheritedFrom', undefined, { name: via })}</TooltipContent>
                                 </Tooltip>
                               ) : (
                                 checkbox
@@ -450,7 +458,7 @@ export function PermissionsPage() {
             </div>
           ) : (
             <Card className="flex h-48 items-center justify-center">
-              <p className="text-sm text-muted-foreground">Select a group to edit its permissions.</p>
+              <p className="text-sm text-muted-foreground">{t('perm.selectGroup')}</p>
             </Card>
           )}
         </div>
