@@ -31,13 +31,15 @@ export function parsePermissionObject(
 }
 
 /**
- * Every tuple implied by the current SQL state. The reconciler diffs OpenFGA
- * against this, so it is the definition of "correct" for the tuple store.
+ * Every tuple implied by the current SQL state, optionally narrowed to one
+ * company. This is the definition of "correct" for the tuple store: the
+ * reconciler diffs OpenFGA against the unfiltered form, and admin edits diff
+ * the affected company against itself before and after the change.
  */
-export function tuplesForStore(store: DataStore): TupleKey[] {
+export function tuplesForStore(store: DataStore, companyId?: string): TupleKey[] {
   const tuples: TupleKey[] = [];
 
-  store.listAllGroupAssignments().forEach((a) => {
+  store.listAllGroupAssignments(companyId).forEach((a) => {
     tuples.push({
       user: `user:${a.userId}`,
       relation: 'direct_member',
@@ -46,7 +48,7 @@ export function tuplesForStore(store: DataStore): TupleKey[] {
   });
 
   // parent implies child: members of the parent inherit the child's grants.
-  store.listAllGroupImplications().forEach((i) => {
+  store.listAllGroupImplications(companyId).forEach((i) => {
     tuples.push({
       user: `group:${i.parentGroupId}`,
       relation: 'implied_by',
@@ -55,7 +57,7 @@ export function tuplesForStore(store: DataStore): TupleKey[] {
   });
 
   const owners = new Set<string>();
-  store.listAllGroupGrants().forEach((g) => {
+  store.listAllGroupGrants(companyId).forEach((g) => {
     const object = permissionObject(g.companyId, g.module, g.action);
     tuples.push({ user: `group:${g.groupId}#member`, relation: 'granted', object });
     if (!owners.has(object)) {
@@ -67,7 +69,7 @@ export function tuplesForStore(store: DataStore): TupleKey[] {
   // Platform staff pass ordinary permission checks without being assigned to
   // every company's groups. Separate from requireSuperAdmin, which stays a hard
   // gate on /admin/* and is never expressible as a grant.
-  store.listSuperAdminCompanyPairs().forEach((pair) => {
+  store.listSuperAdminCompanyPairs(companyId).forEach((pair) => {
     tuples.push({
       user: `user:${pair.userId}`,
       relation: 'super_admin',

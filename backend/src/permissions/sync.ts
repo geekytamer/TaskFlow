@@ -46,6 +46,37 @@ export function openFgaTupleStore(): TupleStore {
 }
 
 /**
+ * Publishes only what one company's change actually altered.
+ *
+ * A full reconcile reads every tuple in the store back from OpenFGA — around
+ * 470 per company, so roughly 23,000 reads at fifty companies, on every
+ * checkbox an administrator ticks. Diffing the affected company against itself
+ * before and after the change costs two local SQL reads and writes just the
+ * delta, with no read from OpenFGA at all.
+ */
+export async function projectCompanyDelta(
+  store: DataStore,
+  companyId: string,
+  before: TupleKey[],
+  tupleStore?: Pick<TupleStore, 'write'>,
+): Promise<{ written: number; deleted: number }> {
+  const writer = tupleStore ?? openFgaTupleStore();
+  const after = tuplesForStore(store, companyId);
+  const { toWrite, toDelete } = diffTuples(after, before);
+  if (!toWrite.length && !toDelete.length) return { written: 0, deleted: 0 };
+
+  const CHUNK = 100;
+  // Deletes first, so a repointed tuple never collides with its replacement.
+  for (let i = 0; i < toDelete.length; i += CHUNK) {
+    await writer.write({ deletes: toDelete.slice(i, i + CHUNK) });
+  }
+  for (let i = 0; i < toWrite.length; i += CHUNK) {
+    await writer.write({ writes: toWrite.slice(i, i + CHUNK) });
+  }
+  return { written: toWrite.length, deleted: toDelete.length };
+}
+
+/**
  * Reconciles OpenFGA with SQL. SQL is authoritative, so anything OpenFGA holds
  * that SQL does not imply is removed, and anything missing is written.
  *

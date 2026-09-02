@@ -17,7 +17,7 @@ import {
 import { recordShadowCheck, routeToPermission } from './permissions/shadow';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
-import { syncTuples } from './permissions/sync';
+import { projectCompanyDelta } from './permissions/sync';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -8224,14 +8224,14 @@ export function createServer(options: CreateServerOptions = {}) {
     managementRoles: companyManagementRoles,
     logger,
     // After an admin edits groups, OpenFGA must reflect it before the next
-    // request is served. A full reconcile is used rather than a hand-computed
-    // delta: admin edits are rare, the tuple set is small, and reusing the
-    // tested reconciler removes a whole class of drift bug. In legacy mode
-    // there is nothing to project.
-    projectTuples: async () => {
+    // request is served. Only the affected company's delta is published, so
+    // the cost does not grow with the number of other companies. `ops fga:sync`
+    // remains the full reconcile for drift. In legacy mode there is nothing
+    // to project.
+    projectTuples: async (companyId, before) => {
       if (authzEngine === 'legacy') return;
       try {
-        await syncTuples(store);
+        await projectCompanyDelta(store, companyId, before);
       } catch (error) {
         logger.error(
           `Failed to project permission changes to OpenFGA: ${

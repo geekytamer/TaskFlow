@@ -2,7 +2,8 @@ import type { Express, Response } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { MODULES, isValidPermission } from './catalogue';
-import { syncTuples } from './sync';
+import { projectCompanyDelta, syncTuples } from './sync';
+import { tuplesForStore } from './tuples';
 
 /** Permissions that a company must never lose its last holder of. */
 const LOCKOUT_GUARD = ['settings:write', 'settings:users.read'] as const;
@@ -14,7 +15,8 @@ export interface PermissionRoutesDeps {
   handler: (fn: (req: any, res: Response) => unknown) => any;
   requireCompanyRoles: (req: any, companyId: string, roles: any[]) => void;
   managementRoles: any[];
-  projectTuples: () => Promise<void>;
+  /** Publishes the delta a change made to one company's tuples. */
+  projectTuples: (companyId: string, before: ReturnType<typeof tuplesForStore>) => Promise<void>;
   logger: Pick<Console, 'info' | 'warn' | 'error'>;
 }
 
@@ -62,12 +64,13 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
    * reports failure, which is the worst of both outcomes.
    */
   const withProjection = async <T>(companyId: string, fn: () => T): Promise<T> => {
+    const before = tuplesForStore(store, companyId);
     const result = store.transaction(() => {
       const value = fn();
       assertNotLockingOut(companyId);
       return value;
     });
-    await deps.projectTuples();
+    await deps.projectTuples(companyId, before);
     return result;
   };
 

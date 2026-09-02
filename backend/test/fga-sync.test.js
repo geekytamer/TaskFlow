@@ -112,3 +112,75 @@ test('sync repairs drift after a group is revoked', async () => {
     'the revoked group must no longer grant invoices:delete',
   );
 });
+
+test('a company delta writes only what changed, and reads nothing back', async () => {
+  const store = freshStore();
+  const a = store.createCompany({ name: 'Alpha', website: '', address: '' });
+  const b = store.createCompany({ name: 'Beta', website: '', address: '' });
+
+  const { projectCompanyDelta } = require('../dist/permissions/sync');
+  const writes = [];
+  const writer = {
+    reads: 0,
+    async write(req) { writes.push(req); },
+    async readAll() { this.reads += 1; return []; },
+  };
+
+  const before = tuplesForStore(store, a.id);
+  const group = store.createPermissionGroup({ companyId: a.id, key: 'delta', name: 'Delta' });
+  store.setGroupPermissions(group.id, [{ module: 'invoices', action: 'read' }]);
+
+  const result = await projectCompanyDelta(store, a.id, before, writer);
+
+  assert.equal(writer.reads, 0, 'a delta must not read the tuple store back');
+  assert.ok(result.written > 0, 'the new grant must be published');
+  assert.equal(result.deleted, 0);
+
+  const published = writes.flatMap((w) => w.writes ?? []);
+  assert.ok(published.every((t) => !t.object.includes(b.id)),
+    'the other company must not appear in the delta');
+});
+
+test('a company delta publishes removals as deletes', async () => {
+  const store = freshStore();
+  const co = store.createCompany({ name: 'Gamma', website: '', address: '' });
+  const group = store.createPermissionGroup({ companyId: co.id, key: 'temp', name: 'Temp' });
+  store.setGroupPermissions(group.id, [{ module: 'invoices', action: 'delete' }]);
+
+  const { projectCompanyDelta } = require('../dist/permissions/sync');
+  const writer = { calls: [], async write(req) { this.calls.push(req); } };
+
+  const before = tuplesForStore(store, co.id);
+  store.setGroupPermissions(group.id, []);
+  const result = await projectCompanyDelta(store, co.id, before, writer);
+
+  assert.ok(result.deleted > 0, 'revoked grants must be deleted');
+  assert.equal(result.written, 0);
+});
+
+test('an unchanged company produces no traffic at all', async () => {
+  const store = freshStore();
+  const co = store.createCompany({ name: 'Delta Co', website: '', address: '' });
+  const { projectCompanyDelta } = require('../dist/permissions/sync');
+  const writer = { calls: 0, async write() { this.calls += 1; } };
+
+  const before = tuplesForStore(store, co.id);
+  const result = await projectCompanyDelta(store, co.id, before, writer);
+
+  assert.deepEqual(result, { written: 0, deleted: 0 });
+  assert.equal(writer.calls, 0);
+});
+
+test('the delta cost does not grow with the number of other companies', () => {
+  const store = freshStore();
+  const target = store.createCompany({ name: 'Target', website: '', address: '' });
+  const oneCompany = tuplesForStore(store, target.id).length;
+
+  for (let i = 0; i < 10; i += 1) {
+    store.createCompany({ name: `Filler ${i}`, website: '', address: '' });
+  }
+  assert.equal(tuplesForStore(store, target.id).length, oneCompany,
+    'scoping must ignore other companies');
+  assert.ok(tuplesForStore(store).length > oneCompany * 10,
+    'while the unscoped set does grow with them');
+});

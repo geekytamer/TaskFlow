@@ -4623,37 +4623,51 @@ export class DataStore {
   // Read models for building the OpenFGA tuple set. Exposed as methods so the
   // projection code never has to reach into the private database handle.
 
-  listAllGroupAssignments() {
-    return this.db
-      .prepare('SELECT userId, companyId, groupId FROM user_group_assignments')
-      .all() as Array<{ userId: string; companyId: string; groupId: string }>;
+  listAllGroupAssignments(companyId?: string) {
+    const sql = 'SELECT userId, companyId, groupId FROM user_group_assignments'
+      + (companyId ? ' WHERE companyId = ?' : '');
+    return (companyId
+      ? this.db.prepare(sql).all(companyId)
+      : this.db.prepare(sql).all()) as Array<{
+      userId: string; companyId: string; groupId: string;
+    }>;
   }
 
-  listAllGroupImplications() {
-    return this.db
-      .prepare('SELECT parentGroupId, childGroupId FROM group_implications')
-      .all() as Array<{ parentGroupId: string; childGroupId: string }>;
-  }
-
-  listAllGroupGrants() {
+  listAllGroupImplications(companyId?: string) {
+    if (!companyId) {
+      return this.db
+        .prepare('SELECT parentGroupId, childGroupId FROM group_implications')
+        .all() as Array<{ parentGroupId: string; childGroupId: string }>;
+    }
     return this.db
       .prepare(
-        `SELECT gp.groupId, gp.module, gp.action, pg.companyId
-           FROM group_permissions gp
-           JOIN permission_groups pg ON pg.id = gp.groupId`,
+        `SELECT gi.parentGroupId, gi.childGroupId FROM group_implications gi
+           JOIN permission_groups pg ON pg.id = gi.parentGroupId
+          WHERE pg.companyId = ?`,
       )
-      .all() as Array<{ groupId: string; module: string; action: string; companyId: string }>;
+      .all(companyId) as Array<{ parentGroupId: string; childGroupId: string }>;
   }
 
-  listSuperAdminCompanyPairs() {
+  listAllGroupGrants(companyId?: string) {
+    const sql = `SELECT gp.groupId, gp.module, gp.action, pg.companyId
+                   FROM group_permissions gp
+                   JOIN permission_groups pg ON pg.id = gp.groupId`
+      + (companyId ? ' WHERE pg.companyId = ?' : '');
+    return (companyId
+      ? this.db.prepare(sql).all(companyId)
+      : this.db.prepare(sql).all()) as Array<{
+      groupId: string; module: string; action: string; companyId: string;
+    }>;
+  }
+
+  listSuperAdminCompanyPairs(companyId?: string) {
     const rows = this.db
       .prepare('SELECT id, companyIds FROM users WHERE isSuperAdmin = 1')
       .all() as Array<{ id: string; companyIds: string }>;
     return rows.flatMap((row) =>
-      (this.parseJson<string[]>(row.companyIds) || []).map((companyId) => ({
-        userId: row.id,
-        companyId,
-      })),
+      (this.parseJson<string[]>(row.companyIds) || [])
+        .filter((id) => !companyId || id === companyId)
+        .map((id) => ({ userId: row.id, companyId: id })),
     );
   }
 
