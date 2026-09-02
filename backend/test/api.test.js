@@ -7,9 +7,10 @@ const request = require('supertest');
 
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const makeApp = () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-api-'));
+  const tmpDir = makeTmpDir('taskflow-api-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   return createServer({
     dbPath,
@@ -30,7 +31,7 @@ const login = async (app, email, password = 'password') => {
 };
 
 test('deleting a company cascades into related data only when requested', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-store-'));
+  const tmpDir = makeTmpDir('taskflow-store-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
 
   // Cascade: company and its related rows are all removed.
@@ -68,7 +69,7 @@ test('deleting a company cascades into related data only when requested', () => 
 });
 
 test('a super-admin (role Employee) can edit and delete users', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-su-'));
+  const tmpDir = makeTmpDir('taskflow-su-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   // Seed demo data, then add a super-admin whose company role is Employee —
   // the exact shape that previously got blocked by PUT /users/:id.
@@ -250,7 +251,7 @@ test('an invoice payment can be recorded and reversed', async () => {
 });
 
 test('reversing an invoice payment rolls back payment-based commissions', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-commission-reversal-'));
+  const tmpDir = makeTmpDir('taskflow-commission-reversal-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: true });
   const admin = store.listUsers().find((user) => user.email === 'admin@taskflow.com');
   assert.ok(admin);
@@ -835,7 +836,7 @@ test('credit notes reduce an invoice outstanding balance and post a reversing jo
 });
 
 test('low-stock sweep notifies managers when an item is at/below reorder point', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-ls-'));
+  const tmpDir = makeTmpDir('taskflow-ls-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const co = store.createCompany({ name: 'Stock Co', website: '', address: '' });
   const boss = store.createUser({ name: 'Boss', email: 'boss@stock.co', password: 'secret123', role: 'Admin', companyIds: [co.id] });
@@ -856,7 +857,7 @@ test('low-stock sweep notifies managers when an item is at/below reorder point',
 
 test('passwords are hashed at rest and login upgrades legacy plaintext', async () => {
   // Store-level: a created user's password is a bcrypt hash, never plaintext.
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-pw-'));
+  const tmpDir = makeTmpDir('taskflow-pw-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const co = store.createCompany({ name: 'PW Co', website: '', address: '' });
   store.createUser({ name: 'Pat', email: 'pat@pw.co', password: 'secret123', role: 'Employee', companyIds: [co.id] });
@@ -876,7 +877,7 @@ test('passwords are hashed at rest and login upgrades legacy plaintext', async (
 });
 
 test('gratuity accrues per service tier and posts the movement to the ledger', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-gratuity-'));
+  const tmpDir = makeTmpDir('taskflow-gratuity-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: true });
   const asOf = new Date('2026-08-11');
   const yearsAgo = (y) => new Date(asOf.getTime() - y * 365.25 * 24 * 3600 * 1000);
@@ -924,7 +925,7 @@ test('gratuity accrues per service tier and posts the movement to the ledger', a
 });
 
 test('pending payables expose their source and bill down to zero', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-payables-'));
+  const tmpDir = makeTmpDir('taskflow-payables-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
 
@@ -1024,7 +1025,7 @@ test('pending payables expose their source and bill down to zero', async () => {
 });
 
 test('vendor bills carry their source and print only behind a live ticket', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-billdoc-'));
+  const tmpDir = makeTmpDir('taskflow-billdoc-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
 
@@ -1203,7 +1204,7 @@ test('health endpoint reports status and applied migrations', async () => {
 });
 
 test('budgets compute variance from ledger actuals and are management-only', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-budget-'));
+  const tmpDir = makeTmpDir('taskflow-budget-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
@@ -1263,7 +1264,7 @@ test('budgets compute variance from ledger actuals and are management-only', asy
 });
 
 test('VAT return computes output/input tax from the ledger and files a period', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-vat-'));
+  const tmpDir = makeTmpDir('taskflow-vat-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
@@ -1377,7 +1378,7 @@ test('payroll run generates payslips from salaries and exports a WPS file', asyn
 });
 
 test('cycle count posts on-hand adjustments from the physical count', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-cc-'));
+  const tmpDir = makeTmpDir('taskflow-cc-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   // Seed a stock-tracked item at 100 on-hand directly (endpoint requires a
@@ -1464,7 +1465,7 @@ test('RFQ collects supplier quotes and awards the winning one', async () => {
 });
 
 test('three-way match compares a vendor bill against its PO and receipts', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-3w-'));
+  const tmpDir = makeTmpDir('taskflow-3w-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
 
@@ -1532,7 +1533,7 @@ test('three-way match compares a vendor bill against its PO and receipts', async
 });
 
 test('work order consumes components, produces output, and records yield + cost', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-mfg-'));
+  const tmpDir = makeTmpDir('taskflow-mfg-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   // Components: potatoes (200 on hand @ 1) and oil (100 @ 2). Output: fries (0 @ 0).
@@ -1584,7 +1585,7 @@ test('work order consumes components, produces output, and records yield + cost'
 });
 
 test('work order refuses to complete without enough component stock', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-mfg2-'));
+  const tmpDir = makeTmpDir('taskflow-mfg2-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const flour = store.createInventoryItem({ companyId: '1', name: 'Flour', category: 'Raw', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 5, reorderPoint: 0, unitCost: 1, location: 'Main' });
@@ -1749,7 +1750,7 @@ test('users can update their own profile without gaining company-management acce
 });
 
 test('super-admins can update company branding', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-company-branding-'));
+  const tmpDir = makeTmpDir('taskflow-company-branding-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   store.createUser({
@@ -1977,7 +1978,7 @@ test('task mutation follows the same access as viewing', async () => {
 });
 
 test('private tasks are visible only to their owner and assignees', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-priv-'));
+  const tmpDir = makeTmpDir('taskflow-priv-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   // A second, non-super-admin Manager in company 1 — the "other manager" who
@@ -4924,7 +4925,7 @@ test('custom field definitions drive validation and storage on contacts and item
 });
 
 test('records delete gracefully: block on dependents, cascade owned children, hard-delete when safe', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-del-'));
+  const tmpDir = makeTmpDir('taskflow-del-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const co = store.createCompany({ name: 'Del Co', website: '', address: '' });
   const item = (over) => store.createInventoryItem({
@@ -5175,7 +5176,7 @@ test('influencers import from CSV rows and export back out', async () => {
 });
 
 test('syncing a campaign invoice self-heals when the linked invoice was deleted', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-store-'));
+  const tmpDir = makeTmpDir('taskflow-store-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
 
   const co = store.createCompany({ name: 'Sync Co', website: '', address: '' });
@@ -5203,7 +5204,7 @@ test('syncing a campaign invoice self-heals when the linked invoice was deleted'
 });
 
 test('deleting an invoice releases tasks and follow-ups and retires linked commissions', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-invoice-delete-'));
+  const tmpDir = makeTmpDir('taskflow-invoice-delete-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const company = store.createCompany({ name: 'Invoice Lifecycle Co', website: '', address: '' });
   const client = store.createContact({ companyId: company.id, name: 'Invoice Client' });
@@ -5327,7 +5328,7 @@ test('deleting an invoice releases tasks and follow-ups and retires linked commi
 });
 
 test('deleting a generated vendor bill releases its campaign deliverable for regeneration', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-bill-delete-'));
+  const tmpDir = makeTmpDir('taskflow-bill-delete-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const company = store.createCompany({ name: 'Bill Lifecycle Co', website: '', address: '' });
   const vendor = store.createContact({ companyId: company.id, name: 'Campaign Vendor' });
@@ -5368,7 +5369,7 @@ test('deleting a generated vendor bill releases its campaign deliverable for reg
 });
 
 test('deleting a purchase order reopens its converted requisition', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-po-delete-'));
+  const tmpDir = makeTmpDir('taskflow-po-delete-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const company = store.createCompany({ name: 'PO Lifecycle Co', website: '', address: '' });
   const supplier = store.createSupplier({ companyId: company.id, name: 'PO Supplier' });
@@ -5391,7 +5392,7 @@ test('deleting a purchase order reopens its converted requisition', () => {
 });
 
 test('deleting a sales order clears opportunity links to the removed order', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-so-delete-'));
+  const tmpDir = makeTmpDir('taskflow-so-delete-');
   const store = new DataStore({ dbPath: path.join(tmpDir, 'taskflow.db'), seedOnEmpty: false });
   const company = store.createCompany({ name: 'SO Lifecycle Co', website: '', address: '' });
   const client = store.createContact({ companyId: company.id, name: 'Opportunity Client' });

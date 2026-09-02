@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
 const { isValidPermission } = require('../dist/permissions/catalogue');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const ROLES = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
@@ -28,7 +29,7 @@ const matrixRows = () => {
  * A failure here means somebody's access would change at cutover.
  */
 test('for every gated route and every role, group permissions match legacy roles', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-equiv-'));
+  const dir = makeTmpDir('taskflow-equiv-');
   const store = new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
   const company = store.createCompany({ name: 'Equivalence Co', website: '', address: '' });
 
@@ -76,7 +77,7 @@ test('for every gated route and every role, group permissions match legacy roles
 });
 
 test('the four built-in groups differ from each other', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-equiv-'));
+  const dir = makeTmpDir('taskflow-equiv-');
   const store = new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
   const company = store.createCompany({ name: 'Distinct Co', website: '', address: '' });
 

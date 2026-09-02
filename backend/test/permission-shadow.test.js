@@ -6,9 +6,10 @@ const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
 const { routeToPermission, recordDivergence } = require('../dist/permissions/shadow');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const freshStore = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-shadow-'));
+  const dir = makeTmpDir('taskflow-shadow-');
   return new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
 };
 

@@ -6,9 +6,10 @@ const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
 const { permissionObject, tuplesForStore } = require('../dist/permissions/tuples');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const freshStore = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-tuples-'));
+  const dir = makeTmpDir('taskflow-tuples-');
   return new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
 };
 

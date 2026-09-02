@@ -6,9 +6,10 @@ const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
 const { SEED_MATRIX } = require('../dist/permissions/seed-matrix');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const seededStore = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-backfill-'));
+  const dir = makeTmpDir('taskflow-backfill-');
   return new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: true });
 };
 
@@ -65,7 +66,7 @@ test('backfill leaves the legacy role columns untouched', () => {
 });
 
 test('backfill is idempotent across a second migration run', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-backfill-'));
+  const dir = makeTmpDir('taskflow-backfill-');
   const dbPath = path.join(dir, 'taskflow.db');
   const first = new DataStore({ dbPath, seedOnEmpty: true });
   const company = first.listCompanies()[0];

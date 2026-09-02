@@ -7,6 +7,7 @@ const request = require('supertest');
 
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
+const { makeTmpDir } = require('./helpers/tmp');
 
 /**
  * Serves permissions straight from the SQL group tables, standing in for
@@ -28,7 +29,7 @@ const sqlReader = (store) => ({
 });
 
 const build = (engine) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-enforce-'));
+  const dir = makeTmpDir('taskflow-enforce-');
   const dbPath = path.join(dir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({

@@ -6,9 +6,10 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 
 const { DataStore } = require('../dist/data/store');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const freshPath = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-perm-'));
+  const dir = makeTmpDir('taskflow-perm-');
   return path.join(dir, 'taskflow.db');
 };
 

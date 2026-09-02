@@ -6,9 +6,10 @@ const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
 const { enqueueTuples, drainOutbox } = require('../dist/permissions/outbox');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const freshStore = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-outbox-'));
+  const dir = makeTmpDir('taskflow-outbox-');
   return new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
 };
 

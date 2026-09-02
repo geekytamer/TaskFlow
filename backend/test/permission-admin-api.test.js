@@ -7,9 +7,10 @@ const request = require('supertest');
 
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
+const { makeTmpDir } = require('./helpers/tmp');
 
 const build = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-admin-'));
+  const dir = makeTmpDir('taskflow-admin-');
   const dbPath = path.join(dir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({

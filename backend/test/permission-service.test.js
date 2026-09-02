@@ -5,13 +5,14 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
+const { makeTmpDir } = require('./helpers/tmp');
 const {
   PermissionService,
   AuthzUnavailableError,
 } = require('../dist/permissions/permission-service');
 
 const freshStore = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskflow-svc-'));
+  const dir = makeTmpDir('taskflow-svc-');
   return new DataStore({ dbPath: path.join(dir, 'taskflow.db'), seedOnEmpty: false });
 };
 
