@@ -153,3 +153,30 @@ test('getPermissions returns the whole set for one round trip', async () => {
   assert.ok(perms.has('tasks:create'));
   assert.equal(fga.calls, 1);
 });
+
+test('the cache is bounded so a long-running process does not grow forever', async () => {
+  const store = freshStore();
+  const fga = stubFga(['c1/invoices/read']);
+  const svc = new PermissionService({ store, fga });
+
+  for (let i = 0; i < 600; i += 1) {
+    await svc.has(`user-${i}`, 'c1', 'invoices', 'read');
+  }
+  assert.ok(svc.cacheSize <= 500, `cache grew to ${svc.cacheSize}`);
+  assert.ok(svc.cacheSize >= 400, 'eviction must not empty the cache wholesale');
+});
+
+test('an evicted user is simply refetched', async () => {
+  const store = freshStore();
+  const fga = stubFga(['c1/invoices/read']);
+  const svc = new PermissionService({ store, fga });
+
+  await svc.has('user-0', 'c1', 'invoices', 'read');
+  for (let i = 1; i < 600; i += 1) {
+    await svc.has(`user-${i}`, 'c1', 'invoices', 'read');
+  }
+  const callsBefore = fga.calls;
+  assert.equal(await svc.has('user-0', 'c1', 'invoices', 'read'), true,
+    'an evicted user must still resolve correctly');
+  assert.equal(fga.calls, callsBefore + 1, 'and it costs one refetch');
+});

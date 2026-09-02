@@ -37,6 +37,14 @@ interface CacheEntry {
 }
 
 /**
+ * Upper bound on cached users. The cache exists to spare a network round trip
+ * per request, not to hold every user who has ever signed in — without a bound
+ * it grows for the life of the process. Eviction is oldest-first, which for a
+ * Map means insertion order.
+ */
+const MAX_CACHED_USERS = 500;
+
+/**
  * Resolves permissions for a user in a single round trip covering every company
  * they belong to, then serves synchronous lookups from the result.
  *
@@ -85,6 +93,7 @@ export class PermissionService {
         permissions.get(parsed.companyId)!.add(permissionKey(parsed.module, parsed.action));
       }
       this.cache.set(userId, { version, permissions });
+      this.evictIfOversized();
       return permissions;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -118,8 +127,21 @@ export class PermissionService {
     return permissions?.get(companyId)?.has(permissionKey(module, action)) ?? false;
   }
 
+  private evictIfOversized(): void {
+    while (this.cache.size > MAX_CACHED_USERS) {
+      const oldest = this.cache.keys().next();
+      if (oldest.done) return;
+      this.cache.delete(oldest.value);
+    }
+  }
+
   /** Test seam. */
   clearCache(): void {
     this.cache.clear();
+  }
+
+  /** Test seam. */
+  get cacheSize(): number {
+    return this.cache.size;
   }
 }

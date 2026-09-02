@@ -62,6 +62,21 @@ export function PermissionsPage() {
   const [newName, setNewName] = React.useState('');
 
   const companyId = selectedCompany?.id;
+
+  /**
+   * Ticking two boxes quickly used to lose one of them: each handler computed
+   * the new set from the same render-time snapshot, so the second request
+   * overwrote the first. Toggles now derive from a ref holding the latest
+   * state, and the requests are chained so they reach the server in order.
+   */
+  const groupsRef = React.useRef(groups);
+  React.useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+
+  const saveChain = React.useRef<Promise<unknown>>(Promise.resolve());
+  const inFlight = React.useRef(0);
+
   const selected = groups.find((g) => g.id === selectedId) ?? null;
 
   const load = React.useCallback(async () => {
@@ -70,6 +85,7 @@ export function PermissionsPage() {
     try {
       const [cat, list] = await Promise.all([fetchCatalogue(), fetchPermissionGroups(companyId)]);
       setModules(cat.modules);
+      groupsRef.current = list;
       setGroups(list);
       setSelectedId((current) => current ?? list[0]?.id ?? null);
     } catch (error) {
@@ -111,27 +127,40 @@ export function PermissionsPage() {
     return out;
   }, [selected, groups]);
 
-  const togglePermission = async (key: string, next: boolean) => {
+  const togglePermission = (key: string, next: boolean) => {
     if (!selected) return;
+    const groupId = selected.id;
+
+    const current = groupsRef.current.find((g) => g.id === groupId);
+    if (!current) return;
     const updated = next
-      ? [...selected.permissions, key]
-      : selected.permissions.filter((p) => p !== key);
-    setGroups((prev) =>
-      prev.map((g) => (g.id === selected.id ? { ...g, permissions: updated } : g)));
+      ? [...current.permissions, key]
+      : current.permissions.filter((p) => p !== key);
+
+    const optimistic = groupsRef.current.map((g) =>
+      (g.id === groupId ? { ...g, permissions: updated } : g));
+    groupsRef.current = optimistic;
+    setGroups(optimistic);
+
+    inFlight.current += 1;
     setSaving(true);
-    try {
-      await setGroupPermissions(selected.id, updated);
-      refreshMyPermissions();
-    } catch (error) {
-      await load(); // roll the optimistic edit back to server truth
-      toast({
-        variant: 'destructive',
-        title: 'Could not save',
-        description: error instanceof Error ? error.message : 'Unknown error',
+    saveChain.current = saveChain.current
+      .then(() => setGroupPermissions(groupId, updated))
+      .then(() => {
+        refreshMyPermissions();
+      })
+      .catch(async (error: unknown) => {
+        await load(); // roll the optimistic edit back to server truth
+        toast({
+          variant: 'destructive',
+          title: 'Could not save',
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      })
+      .finally(() => {
+        inFlight.current -= 1;
+        if (inFlight.current === 0) setSaving(false);
       });
-    } finally {
-      setSaving(false);
-    }
   };
 
   const toggleInheritance = async (childId: string, next: boolean) => {
