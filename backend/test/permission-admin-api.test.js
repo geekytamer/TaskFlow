@@ -14,15 +14,21 @@ const build = () => {
   const dbPath = path.join(dir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
+    // Share this test's connection: writes arrive through the server and are
+    // read back through `store`, and two connections on one file make that
+    // visibility question needlessly delicate.
+    store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     authzEngine: 'legacy',
     logger: { info() {}, warn() {}, error() {} },
   });
+  const server = app.listen(0);
+  server.unref();
   const admin = store.listUsers().find((u) => u.role === 'Admin');
   const employee = store.listUsers().find((u) => u.role === 'Employee');
   const companyId = (admin.companyRoles?.[0]?.companyId) ?? admin.companyIds[0];
   return {
-    app, store, admin, employee, companyId,
+    app: server, store, admin, employee, companyId,
     adminAuth: `Bearer ${store.issueToken(admin.id)}`,
     employeeAuth: employee ? `Bearer ${store.issueToken(employee.id)}` : undefined,
   };

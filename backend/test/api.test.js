@@ -9,10 +9,28 @@ const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
 const { makeTmpDir } = require('./helpers/tmp');
 
+/** Binds a server once so supertest reuses a single port — see makeApp. */
+const listening = (app) => {
+  const server = app.listen(0);
+  server.unref();
+  return server;
+};
+
+/**
+ * Returns a *listening* server rather than a bare express app.
+ *
+ * supertest binds a fresh ephemeral port for every request when handed an app,
+ * and this suite makes thousands of them. On a machine running anything that
+ * squats on ephemeral ports — AnyDesk, for one, which answers
+ * {"type":"Tier1","version":"1.0"} — a request occasionally lands on the other
+ * process and comes back as "Parse Error: Expected HTTP/", a socket hang up, or
+ * a status nobody wrote. Binding once per app and reusing it removes almost all
+ * of that churn.
+ */
 const makeApp = () => {
   const tmpDir = makeTmpDir('taskflow-api-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
-  return createServer({
+  const app = listening(createServer({
     dbPath,
     seedOnEmpty: true,
     allowSeedReset: false,
@@ -21,7 +39,8 @@ const makeApp = () => {
       warn() {},
       error() {},
     },
-  });
+  }));
+  return app;
 };
 
 const login = async (app, email, password = 'password') => {
@@ -81,11 +100,11 @@ test('a super-admin (role Employee) can edit and delete users', async () => {
   const target = store.findUserByEmail('samantha.b@innovatecorp.com');
   assert.ok(target);
 
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
   const token = await login(app, 'root@taskflow.com');
 
   const editResponse = await request(app)
@@ -1006,11 +1025,11 @@ test('pending payables expose their source and bill down to zero', async () => {
   assert.equal(store.getCampaignDeliverableById(external.id).vendorBillId, deliverableBill.id);
   assert.equal(store.listPendingPayables('1').some((p) => p.sourceId === external.id), false);
 
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
   const adminToken = await login(app, 'admin@taskflow.com');
   const listed = await request(app)
     .get('/companies/1/payables/pending')
@@ -1050,11 +1069,11 @@ test('vendor bills carry their source and print only behind a live ticket', asyn
   assert.equal(byId(manual.id).source.type, 'manual');
   assert.equal(store.getVendorBillById(fromPo.id).source.type, 'purchase_order');
 
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
   const adminToken = await login(app, 'admin@taskflow.com');
 
   const doc = await request(app)
@@ -1210,11 +1229,11 @@ test('budgets compute variance from ledger actuals and are management-only', asy
   const tmpDir = makeTmpDir('taskflow-budget-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
 
   // Company 1 ships with a default chart of accounts. Use the Salaries expense
   // account (5200) and post an actual expense of 8,000 in FY2026.
@@ -1271,11 +1290,11 @@ test('VAT return computes output/input tax from the ledger and files a period', 
   const tmpDir = makeTmpDir('taskflow-vat-');
   const dbPath = path.join(tmpDir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
 
   const accounts = store.listLedgerAccounts('1');
   const ar = accounts.find((a) => a.code === '1100');       // Accounts Receivable
@@ -1393,11 +1412,11 @@ test('cycle count posts on-hand adjustments from the physical count', async () =
     vatApplicable: true, tracksInventory: true, onHand: 100, reorderPoint: 0,
     unitCost: 2, location: 'Main',
   });
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
   const adminToken = await login(app, 'admin@taskflow.com');
   const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
   const itemId = seeded.id;
@@ -1505,11 +1524,11 @@ test('three-way match compares a vendor bill against its PO and receipts', async
     issueDate: new Date(), dueDate: new Date(), status: 'Approved',
   });
 
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
   const adminToken = await login(app, 'admin@taskflow.com');
   const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
 
@@ -1548,7 +1567,7 @@ test('work order consumes components, produces output, and records yield + cost'
   const oil = store.createInventoryItem({ companyId: '1', name: 'Oil', category: 'Raw', unit: 'L', vatApplicable: true, tracksInventory: true, onHand: 100, reorderPoint: 0, unitCost: 2, location: 'Main' });
   const fries = store.createInventoryItem({ companyId: '1', name: 'Frozen Fries', category: 'Finished', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 0, location: 'Main' });
 
-  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
+  const app = listening(createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } }));
   const adminToken = await login(app, 'admin@taskflow.com');
   const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
 
@@ -1597,7 +1616,7 @@ test('work order refuses to complete without enough component stock', async () =
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const flour = store.createInventoryItem({ companyId: '1', name: 'Flour', category: 'Raw', unit: 'kg', vatApplicable: true, tracksInventory: true, onHand: 5, reorderPoint: 0, unitCost: 1, location: 'Main' });
   const bread = store.createInventoryItem({ companyId: '1', name: 'Bread', category: 'Finished', unit: 'unit', vatApplicable: true, tracksInventory: true, onHand: 0, reorderPoint: 0, unitCost: 0, location: 'Main' });
-  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } });
+  const app = listening(createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } }));
   const adminToken = await login(app, 'admin@taskflow.com');
   const admin = (r) => r.set('Authorization', `Bearer ${adminToken}`);
 
@@ -1769,13 +1788,13 @@ test('super-admins can update company branding', async () => {
     password: 'password',
     isSuperAdmin: true,
   });
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath,
     seedOnEmpty: false,
     allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
   const token = await login(app, 'branding.root@taskflow.com');
   const company = await request(app)
     .put('/companies/1')
@@ -2011,13 +2030,13 @@ test('private tasks are visible only to their owner and assignees', async () => 
     password: 'password',
     isSuperAdmin: true,
   });
-  const app = createServer({
+  const app = listening(createServer({
     store,
     dbPath,
     seedOnEmpty: false,
     allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
-  });
+  }));
 
   const ownerToken = await login(app, 'samantha.b@innovatecorp.com'); // Manager (owner)
   const peerToken = await login(app, 'peer.manager@innovatecorp.com'); // Manager (peer)

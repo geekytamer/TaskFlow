@@ -33,6 +33,9 @@ const build = (engine) => {
   const dbPath = path.join(dir, 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
+    // One connection: the probe writes through the server and reads through
+    // `store`, so both must see the same database state.
+    store,
     dbPath,
     seedOnEmpty: false,
     allowSeedReset: false,
@@ -40,10 +43,13 @@ const build = (engine) => {
     permissionReader: sqlReader(store),
     logger: { info() {}, warn() {}, error() {} },
   });
-  // request(app) starts a fresh ephemeral listener for every call. This probe
-  // issues a few hundred, and that churn intermittently produced socket hang
-  // ups. An agent keeps one server for the whole run.
-  return { app, store, agent: request.agent(app) };
+  // supertest binds a new ephemeral port per request unless handed a server
+  // that is already listening. Thousands of binds occasionally collide with
+  // another process on the machine and come back as non-HTTP data, so bind
+  // once and reuse it.
+  const server = app.listen(0);
+  server.unref();
+  return { app, store, agent: request.agent(server) };
 };
 
 const PROBES = [
