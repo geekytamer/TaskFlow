@@ -261,11 +261,19 @@ There are now **two** datastores, and they must be backed up together:
 
 Back up the SQLite file nightly.
 
+The database runs in **WAL mode**, so recent commits may still be sitting in a
+`taskflow.db-wal` sidecar file. Copying `taskflow.db` on its own can therefore
+miss them. Use SQLite's own backup command, which is safe against a live
+writer and produces a single consistent file:
+
 ```bash
 crontab -e
-# Daily 02:00 backup
-0 2 * * * cp /path/to/TaskFlow/backend/taskflow.db /var/backups/taskflow-$(date +\%Y\%m\%d).db
+# Daily 02:00 backup — WAL-safe, unlike a plain cp
+0 2 * * * sqlite3 /path/to/TaskFlow/backend/taskflow.db ".backup '/var/backups/taskflow-$(date +\%Y\%m\%d).db'"
 ```
+
+If you must copy files instead, copy `taskflow.db`, `taskflow.db-wal` and
+`taskflow.db-shm` together, with the app stopped.
 
 Keep at least 7 daily and 4 weekly copies. SQLite is small; storage is cheap.
 

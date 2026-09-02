@@ -40,7 +40,10 @@ const build = (engine) => {
     permissionReader: sqlReader(store),
     logger: { info() {}, warn() {}, error() {} },
   });
-  return { app, store };
+  // request(app) starts a fresh ephemeral listener for every call. This probe
+  // issues a few hundred, and that churn intermittently produced socket hang
+  // ups. An agent keeps one server for the whole run.
+  return { app, store, agent: request.agent(app) };
 };
 
 const PROBES = [
@@ -64,7 +67,7 @@ const PROBES = [
   ['get', '/companies/:co/leave-requests'],
 ];
 
-const probeAll = async (app, store) => {
+const probeAll = async (agent, store) => {
   const results = {};
   for (const user of store.listUsers()) {
     const token = store.issueToken(user.id);
@@ -74,7 +77,7 @@ const probeAll = async (app, store) => {
     for (const co of companies) {
       for (const [method, tpl] of PROBES) {
         const url = tpl.replace(':co', co);
-        const res = await request(app)[method](url).set('Authorization', `Bearer ${token}`);
+        const res = await agent[method](url).set('Authorization', `Bearer ${token}`);
         results[`${user.email}|${co}|${method.toUpperCase()} ${url}`] = res.status;
       }
     }
@@ -86,8 +89,8 @@ test('AUTHZ_ENGINE=openfga produces byte-identical authorization outcomes to leg
   const legacy = build('legacy');
   const openfga = build('openfga');
 
-  const legacyResults = await probeAll(legacy.app, legacy.store);
-  const openfgaResults = await probeAll(openfga.app, openfga.store);
+  const legacyResults = await probeAll(legacy.agent, legacy.store);
+  const openfgaResults = await probeAll(openfga.agent, openfga.store);
 
   const keys = Object.keys(legacyResults);
   assert.ok(keys.length > 50, `expected a broad probe, got ${keys.length} results`);
@@ -107,7 +110,7 @@ test('AUTHZ_ENGINE=openfga produces byte-identical authorization outcomes to leg
 });
 
 test('openfga mode still denies a user outside the company', async () => {
-  const { app, store } = build('openfga');
+  const { agent, store } = build('openfga');
   const companies = store.listCompanies();
   const outsider = store.listUsers().find((u) => {
     const ids = u.companyRoles?.length ? u.companyRoles.map((r) => r.companyId) : (u.companyIds || []);
@@ -121,7 +124,7 @@ test('openfga mode still denies a user outside the company', async () => {
   const foreign = companies.find((c) => !ids.includes(c.id));
   const token = store.issueToken(outsider.id);
 
-  const res = await request(app)
+  const res = await agent
     .get(`/companies/${foreign.id}/invoices`)
     .set('Authorization', `Bearer ${token}`);
   assert.equal(res.status, 403, 'company scoping must survive the engine switch');

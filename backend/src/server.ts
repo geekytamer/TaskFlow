@@ -8251,6 +8251,10 @@ export function createServer(options: CreateServerOptions = {}) {
   });
 
   app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
+    if (process.env.AUTHZ_DEBUG_FAIL && error instanceof HttpError && error.status >= 400) {
+      // eslint-disable-next-line no-console
+      console.error(`[fail] ${req.method} ${req.originalUrl} -> ${error.status} ${error.message}`);
+    }
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
     }

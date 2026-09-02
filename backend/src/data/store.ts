@@ -584,6 +584,22 @@ export class DataStore {
 
   constructor(options: DataStoreOptions = {}) {
     this.db = new Database(options.dbPath ?? defaultDbPath);
+
+    // More than one connection is opened against the same file in normal use:
+    // the ops commands (fga:sync, authz:repair, status) run while the server
+    // holds its own, and several tests seed through a direct store while the
+    // server reads through another. SQLite's default rollback journal serialises
+    // those badly and its default busy timeout is zero, so a reader hits a lock
+    // and fails immediately rather than waiting.
+    //
+    // WAL lets readers proceed during a write, and the busy timeout absorbs the
+    // brief contention that remains. synchronous = NORMAL is the standard
+    // companion to WAL: durable across process crashes, and only at risk in an
+    // OS-level crash, which the nightly backup already covers.
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
+    this.db.pragma('synchronous = NORMAL');
+
     this.onNotificationsCreated = options.onNotificationsCreated;
     this.applyMigrations();
     if (options.seedOnEmpty ?? true) {
