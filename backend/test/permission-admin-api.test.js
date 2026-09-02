@@ -208,3 +208,88 @@ test('group assignments can be replaced wholesale', async () => {
   assert.deepEqual(res.body.groups.map((x) => x.key), ['replacement']);
   assert.deepEqual(store.getEffectivePermissions(employee.id, companyId), ['inventory:read']);
 });
+
+test('a rejected lockout change is not persisted', async () => {
+  const { app, adminAuth, companyId, store, admin } = build();
+  const employeeGroup = store.getPermissionGroupByKey(companyId, 'employee');
+  const before = store.listUserGroupAssignments(admin.id, companyId).map((g) => g.key).sort();
+
+  const res = await request(app)
+    .put(`/companies/${companyId}/users/${admin.id}/groups`)
+    .set('Authorization', adminAuth)
+    .send({ groupIds: [employeeGroup.id] });
+  assert.equal(res.status, 409);
+
+  const after = store.listUserGroupAssignments(admin.id, companyId).map((g) => g.key).sort();
+  assert.deepEqual(after, before,
+    'a refused change must leave the database untouched, not save and then complain');
+});
+
+test('stripping the last admin-capable user is refused and rolled back', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  // A group that grants nothing, applied to every non-super-admin in the company.
+  const empty = (await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth).send({ name: 'Nothing' })).body;
+
+  const holders = store.listUsersByCompany(companyId).filter((u) => !u.isSuperAdmin);
+  assert.ok(holders.length > 0);
+
+  let refusedAtLeastOnce = false;
+  for (const user of holders) {
+    const before = store.getEffectivePermissions(user.id, companyId).length;
+    const res = await request(app)
+      .put(`/companies/${companyId}/users/${user.id}/groups`)
+      .set('Authorization', adminAuth)
+      .send({ groupIds: [empty.id] });
+    if (res.status === 409) {
+      refusedAtLeastOnce = true;
+      assert.equal(store.getEffectivePermissions(user.id, companyId).length, before,
+        'the refused change must have been rolled back');
+    }
+  }
+  assert.ok(refusedAtLeastOnce, 'emptying every user must eventually hit the lockout guard');
+});
+
+test('the company-lockout guard rolls back rather than saving and complaining', async () => {
+  const { app, companyId, store } = build();
+
+  // A super-admin can strip other people's groups without tripping the
+  // self-lockout pre-check, which is the only path that reaches the
+  // company-wide guard.
+  const root = store.createUser({
+    name: 'Root', email: 'root@platform.test', role: 'Admin',
+    companyIds: [companyId], companyRoles: [{ companyId, role: 'Admin' }],
+    password: 'x', isSuperAdmin: true,
+  });
+  const rootAuth = `Bearer ${store.issueToken(root.id)}`;
+  const empty = (await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', rootAuth).send({ name: 'Void' })).body;
+
+  const guarded = ['settings:write', 'settings:users.read'];
+  const holders = store.listUsersByCompany(companyId).filter((u) => {
+    if (u.isSuperAdmin) return false;
+    const perms = new Set(store.getEffectivePermissions(u.id, companyId));
+    return guarded.every((p) => perms.has(p));
+  });
+  assert.ok(holders.length > 0, 'need at least one admin-capable user to strip');
+
+  let sawRefusal = false;
+  for (const user of holders) {
+    const before = store.getEffectivePermissions(user.id, companyId).sort();
+    const res = await request(app)
+      .put(`/companies/${companyId}/users/${user.id}/groups`)
+      .set('Authorization', rootAuth)
+      .send({ groupIds: [empty.id] });
+
+    if (res.status === 409) {
+      sawRefusal = true;
+      assert.deepEqual(
+        store.getEffectivePermissions(user.id, companyId).sort(), before,
+        'a refused change must be rolled back, not committed before the guard runs',
+      );
+    } else {
+      assert.equal(res.status, 200);
+    }
+  }
+  assert.ok(sawRefusal, 'stripping every admin-capable user must trip the lockout guard');
+});

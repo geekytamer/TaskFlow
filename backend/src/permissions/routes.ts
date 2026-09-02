@@ -52,9 +52,21 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     }
   };
 
+  /**
+   * Applies a change, verifies it did not lock the company out, then publishes
+   * the result to OpenFGA.
+   *
+   * The mutation and the guard share one transaction on purpose. The guard has
+   * to run *after* the change to see its effect, but if it rejects, the change
+   * must not survive — otherwise the company is locked out while the API
+   * reports failure, which is the worst of both outcomes.
+   */
   const withProjection = async <T>(companyId: string, fn: () => T): Promise<T> => {
-    const result = fn();
-    assertNotLockingOut(companyId);
+    const result = store.transaction(() => {
+      const value = fn();
+      assertNotLockingOut(companyId);
+      return value;
+    });
     await deps.projectTuples();
     return result;
   };

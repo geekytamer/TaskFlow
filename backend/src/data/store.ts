@@ -4682,6 +4682,18 @@ export class DataStore {
     return (this.db.prepare('SELECT COUNT(*) c FROM fga_outbox').get() as { c: number }).c;
   }
 
+  /**
+   * Runs fn inside a database transaction, rolling back if it throws.
+   *
+   * better-sqlite3 nests via savepoints, so store methods that open their own
+   * transaction compose correctly inside this one. Used by the admin routes so
+   * a guard that rejects a change also undoes it, rather than reporting an
+   * error over a change that already committed.
+   */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   getPermissionGroupById(id: string) {
     return this.db.prepare('SELECT * FROM permission_groups WHERE id = ?').get(id) as
       | {
