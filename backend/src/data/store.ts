@@ -4997,6 +4997,11 @@ export class DataStore {
   updateUser(userId: string, updates: Partial<Omit<User, 'id'>>) {
     const existing = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
     if (!existing) return undefined;
+    // Group assignments only track the legacy role, so they are re-synced when
+    // that role actually changes. Re-syncing on every edit would resurrect a
+    // role group an administrator had deliberately removed, silently undoing
+    // their change the next time anyone renamed the user.
+    const roleSignatureBefore = `${existing.role}|${existing.companyRoles ?? existing.companyIds}`;
     const existingCompanyRoles =
       this.parseJson<CompanyRoleAssignment[]>(existing.companyRoles) ||
       (this.parseJson<string[]>(existing.companyIds) || []).map((cid: string) => ({
@@ -5055,7 +5060,13 @@ export class DataStore {
         'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
       )
       .run(updated);
-    this.syncUserGroupAssignments(userId);
+    const after = this.db.prepare('SELECT role, companyRoles, companyIds FROM users WHERE id = ?').get(userId) as { role: string; companyRoles: string | null; companyIds: string } | undefined;
+    const roleSignatureAfter = after
+      ? `${after.role}|${after.companyRoles ?? after.companyIds}`
+      : roleSignatureBefore;
+    if (roleSignatureAfter !== roleSignatureBefore) {
+      this.syncUserGroupAssignments(userId);
+    }
     return this.getUserById(userId);
   }
 

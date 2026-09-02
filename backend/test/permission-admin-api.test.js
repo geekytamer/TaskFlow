@@ -293,3 +293,44 @@ test('the company-lockout guard rolls back rather than saving and complaining', 
   }
   assert.ok(sawRefusal, 'stripping every admin-capable user must trip the lockout guard');
 });
+
+test('editing an unrelated user field does not undo deliberate group changes', async () => {
+  const { app, adminAuth, companyId, store, employee } = build();
+
+  const custom = (await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth).send({ name: 'Bespoke' })).body;
+  await request(app).put(`/permission-groups/${custom.id}/permissions`)
+    .set('Authorization', adminAuth).send({ permissions: ['inventory:read'] });
+
+  // An admin deliberately puts this user on the custom group only.
+  await request(app).put(`/companies/${companyId}/users/${employee.id}/groups`)
+    .set('Authorization', adminAuth).send({ groupIds: [custom.id] });
+  assert.deepEqual(store.listUserGroupAssignments(employee.id, companyId).map((g) => g.key),
+    ['bespoke']);
+
+  // Someone renames the user. Their role has not changed.
+  store.updateUser(employee.id, { name: 'Renamed Person' });
+
+  assert.deepEqual(
+    store.listUserGroupAssignments(employee.id, companyId).map((g) => g.key).sort(),
+    ['bespoke'],
+    'renaming a user must not resurrect the role group an admin removed',
+  );
+});
+
+test('an actual role change still moves the user to the matching group', async () => {
+  const { app, adminAuth, companyId, store, employee } = build();
+  const custom = (await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth).send({ name: 'Extra' })).body;
+
+  await request(app).put(`/companies/${companyId}/users/${employee.id}/groups`)
+    .set('Authorization', adminAuth).send({ groupIds: [custom.id] });
+
+  store.updateUser(employee.id, {
+    role: 'Manager',
+    companyRoles: [{ companyId, role: 'Manager' }],
+  });
+
+  const keys = store.listUserGroupAssignments(employee.id, companyId).map((g) => g.key).sort();
+  assert.ok(keys.includes('manager'), `a real role change must apply the role group, got ${keys}`);
+});
