@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { PayrollPage } from '@/modules/hr/components/payroll-page';
 
 export default function PayrollRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'payroll:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

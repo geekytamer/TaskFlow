@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { PerformanceDashboard } from '@/modules/crm/components/performance-dashboard';
 
 export default function PerformancePage() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager'], { permission: 'crm:crm-performance.read' });
   const { t } = useI18n();
 
   if (loading || !user) {

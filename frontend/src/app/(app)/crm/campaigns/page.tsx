@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { CampaignsPage } from '@/modules/crm/components/crm-entity-pages';
 
 export default function CampaignsRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant'], { permission: 'campaigns:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

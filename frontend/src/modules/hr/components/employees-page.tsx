@@ -15,6 +15,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Plus, Trash2, Pencil, X } from 'lucide-react';
+import { usePermissionOr } from '@/context/permissions-context';
 import {
   createDepartment,
   createEmployee,
@@ -56,7 +57,7 @@ export function EmployeesPage() {
   const { toast } = useToast();
   const confirm = useConfirm();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const canManage = currentRole !== 'Employee';
+  const canManage = usePermissionOr('hr', 'write', currentRole !== 'Employee');
 
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [departments, setDepartments] = React.useState<Department[]>([]);

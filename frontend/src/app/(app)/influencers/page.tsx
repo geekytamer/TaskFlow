@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { InfluencersPage } from '@/modules/influencers/components/influencers-page';
 
 export default function InfluencersRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee'], { permission: 'contacts:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

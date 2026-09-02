@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { ManufacturingPage } from '@/modules/manufacturing/components/manufacturing-page';
 
 export default function ManufacturingRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'manufacturing:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

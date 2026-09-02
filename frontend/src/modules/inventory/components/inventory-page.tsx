@@ -58,6 +58,7 @@ import { InventoryLotsDialog } from './inventory-lots-dialog';
 import { ExpiringLotsPanel } from './expiring-lots-panel';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
+import { usePermissionOr } from '@/context/permissions-context';
 import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
@@ -124,7 +125,7 @@ const inventoryUnitOptions = ['pcs', 'box', 'pack', 'set', 'kg', 'g', 'ltr', 'ml
 export function InventoryPage() {
   const { selectedCompany, currentRole } = useCompany();
   const confirm = useConfirm();
-  const canManageInventory = currentRole !== 'Employee';
+  const canManageInventory = usePermissionOr('inventory', 'write', currentRole !== 'Employee');
   const { money, amount } = useCompanyCurrency();
   const { language } = useI18n();
   const { toast } = useToast();

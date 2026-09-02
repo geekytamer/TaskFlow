@@ -53,6 +53,7 @@ import { InvoiceCommissionsPanel } from './invoice-commissions-panel';
 import { useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
+import { usePermissionOr } from '@/context/permissions-context';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
@@ -84,7 +85,7 @@ export function InvoiceTable() {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
-  const canManageFinance = effectiveRole !== 'Employee';
+  const canManageFinance = usePermissionOr('invoices', 'write', effectiveRole !== 'Employee');
 
   const fetchData = React.useCallback(async () => {
     if (!selectedCompany) {

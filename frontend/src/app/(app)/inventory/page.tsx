@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { InventoryPage } from '@/modules/inventory/components/inventory-page';
 
 export default function InventoryRoute() {
-  const { user, loading, effectiveRole } = useAuthGuard(['Admin', 'Manager', 'Accountant']);
+  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
   const { t } = useI18n();
 
   if (loading || !user) {
@@ -17,7 +17,7 @@ export default function InventoryRoute() {
     );
   }
 
-  if (!effectiveRole || !['Admin', 'Manager', 'Accountant'].includes(effectiveRole)) {
+  if (!allowed) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <p className="text-muted-foreground">{t('auth.operationsOnly')}</p>

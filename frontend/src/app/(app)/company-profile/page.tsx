@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { CompanyProfilePanel } from '@/modules/companies/components/company-profile-panel';
 
 export default function CompanyProfileRoute() {
-  const { user, loading, effectiveRole } = useAuthGuard(['Admin', 'Manager']);
+  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager'], { permission: 'settings:companies.read' });
   const { t } = useI18n();
 
   if (loading || !user) {
@@ -17,7 +17,7 @@ export default function CompanyProfileRoute() {
     );
   }
 
-  if (!effectiveRole || !['Admin', 'Manager'].includes(effectiveRole)) {
+  if (!allowed) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <p className="text-muted-foreground">{t('auth.operationsOnly')}</p>

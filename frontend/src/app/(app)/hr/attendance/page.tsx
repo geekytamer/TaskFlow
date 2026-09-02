@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { AttendancePage } from '@/modules/hr/components/attendance-page';
 
 export default function AttendanceRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'hr:attendance.read' });
   const { t } = useI18n();
 
   if (loading || !user) {

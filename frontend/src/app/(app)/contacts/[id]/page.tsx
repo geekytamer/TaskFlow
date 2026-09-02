@@ -7,7 +7,7 @@ import { useI18n } from '@/context/i18n-context';
 import { ContactDetailPage } from '@/modules/contacts/components/contact-detail-page';
 
 export default function ContactDetailRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee'], { permission: 'contacts:contacts.read' });
   const { t } = useI18n();
   const params = useParams<{ id: string }>();
   const contactId = params?.id;

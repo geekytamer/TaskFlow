@@ -57,6 +57,7 @@ import type {
 import { PackageCheck, ShoppingCart, Trash2 } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissionOr } from '@/context/permissions-context';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
   Draft: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -101,7 +102,7 @@ const emptyPurchaseForm = (): PurchaseForm => ({
 
 export function PurchasesPage() {
   const { selectedCompany, currentRole } = useCompany();
-  const canApprove = currentRole === 'Admin' || currentRole === 'Manager';
+  const canApprove = usePermissionOr('purchasing', 'approve', currentRole === 'Admin' || currentRole === 'Manager');
   const { toast } = useToast();
   const confirm = useConfirm();
   const { money, amount } = useCompanyCurrency();

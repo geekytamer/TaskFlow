@@ -51,6 +51,7 @@ import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
 import { FileText, PlusCircle, Truck, Trash2 } from 'lucide-react';
 import { DeliveryManagementDialog } from './delivery-management-dialog';
+import { usePermissionOr } from '@/context/permissions-context';
 
 const formatDisplayDate = (value: Date, locale: string) =>
   new Intl.DateTimeFormat(locale, {
@@ -102,7 +103,7 @@ export function SalesPage() {
   const { selectedCompany, currentRole } = useCompany();
   const { toast } = useToast();
   const confirm = useConfirm();
-  const canManage = currentRole !== 'Employee';
+  const canManage = usePermissionOr('sales', 'write', currentRole !== 'Employee');
   const { t, language } = useI18n();
   const { money, amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);

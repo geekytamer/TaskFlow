@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { EmployeesPage } from '@/modules/hr/components/employees-page';
 
 export default function EmployeesRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant'], { permission: 'hr:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

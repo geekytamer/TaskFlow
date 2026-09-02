@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { BillMatchingPage } from '@/modules/purchases/components/bill-matching-page';
 
 export default function BillMatchingRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'purchasing:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

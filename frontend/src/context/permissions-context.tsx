@@ -74,6 +74,15 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
   return <PermissionsContext.Provider value={value}>{children}</PermissionsContext.Provider>;
 }
 
+/**
+ * Non-throwing variant, for hooks that may run outside the provider — the
+ * login screen sits above it in the tree. Returns undefined there, and callers
+ * fall back to their legacy behaviour.
+ */
+export function usePermissionsOptional(): PermissionsContextType | undefined {
+  return React.useContext(PermissionsContext);
+}
+
 export function usePermissions() {
   const context = React.useContext(PermissionsContext);
   if (context === undefined) {
@@ -84,4 +93,21 @@ export function usePermissions() {
 
 export function usePermission(module: string, action: string): boolean {
   return usePermissions().can(module, action);
+}
+
+/**
+ * Permission check with an explicit legacy fallback.
+ *
+ * While AUTHZ_ENGINE is 'legacy' the server reports no permission set, so the
+ * UI has to fall back to the old role test. Passing that test in keeps both
+ * paths visible at the call site instead of hiding a second rule somewhere
+ * else, and the fallback can simply be deleted after cutover.
+ */
+export function usePermissionOr(
+  module: string,
+  action: string,
+  legacyFallback: boolean,
+): boolean {
+  const { can, loaded } = usePermissions();
+  return loaded ? can(module, action) : legacyFallback;
 }

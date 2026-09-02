@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { CommissionsPageV2 as CommissionsPage } from '@/modules/crm/components/commissions-page-v2';
 
 export default function CommissionsRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant'], { permission: 'commissions:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

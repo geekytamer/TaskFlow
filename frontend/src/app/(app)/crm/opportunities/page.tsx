@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { PipelinePage } from '@/modules/crm/components/pipeline-page';
 
 export default function OpportunitiesRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant'], { permission: 'crm:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

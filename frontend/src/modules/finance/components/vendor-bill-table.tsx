@@ -58,6 +58,7 @@ import { ArrowUpRight, CircleDollarSign, Download, Eye, FilePlus, ListChecks, Pr
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import Link from 'next/link';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { usePermissionOr } from '@/context/permissions-context';
 import { VendorBillDocument } from './vendor-bill-document';
 import type { VendorBillDocumentPayload } from '@/services/financeService';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
@@ -117,7 +118,7 @@ export function VendorBillTable() {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
-  const canManageFinance = effectiveRole !== 'Employee';
+  const canManageFinance = usePermissionOr('vendor-bills', 'write', effectiveRole !== 'Employee');
 
   const openPreview = async (bill: VendorBill) => {
     setPreviewLoading(true);

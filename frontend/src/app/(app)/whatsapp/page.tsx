@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { WhatsappInboxPage } from '@/modules/whatsapp/components/whatsapp-inbox-page';
 
 export default function WhatsappRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee']);
+  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee'], { permission: 'whatsapp:read' });
   const { t } = useI18n();
 
   if (loading || !user) {
