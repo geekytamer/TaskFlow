@@ -68,13 +68,15 @@ env_value() { sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -1; }
 
 wait_http() { # url [header]
   for _ in $(seq 1 90); do
-    if curl -fsS -o /dev/null ${2:+-H "$2"} "$1"; then return 0; fi
+    if curl -fs -o /dev/null ${2:+-H "$2"} "$1"; then return 0; fi
     sleep 1
   done
   die "no healthy answer from $1 after 90s"
 }
 
-http_code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+# A refused or failed connection prints 000 and exits non-zero; without
+# `|| true` that exit trips the ERR trap and prints a misleading error.
+http_code() { curl -s -o /dev/null -m 20 -w '%{http_code}' "$@" || true; }
 
 staging_pids() {
   pm2 jlist 2>/dev/null | node -e '
@@ -238,6 +240,9 @@ if [ ! -f "$HTPASSWD" ]; then
   printf 'staging:%s\n' "$(openssl passwd -apr1 "$NEW_BASIC_PASSWORD")" > "$HTPASSWD"
   chown root:www-data "$HTPASSWD"
   chmod 640 "$HTPASSWD"
+  # Shown now, not only in the final summary: if a later step fails, the
+  # password is otherwise lost and only its hash remains on disk.
+  echo "Site password (shown once, store it now):  staging / $NEW_BASIC_PASSWORD"
 fi
 [ -f "$GATE_FILE" ] || { rand_hex > "$GATE_FILE"; chmod 600 "$GATE_FILE"; }
 
@@ -266,6 +271,13 @@ reload_nginx_or_restore "$tmp" "$backup"
 
 # ─────────────────────────────────────────────────────────────────────
 step "Verify"
+# `systemctl reload nginx` returns before the new workers take over, so the
+# first requests can still reach the old configuration, which has no staging
+# site. Wait for the new site to answer before judging it.
+for _ in $(seq 1 30); do
+  [ "$(http_code "https://$STAGING_DOMAIN/")" = 401 ] && break
+  sleep 1
+done
 fails=0
 check() { # label expected actual
   if [ "$2" = "$3" ]; then printf '  ok    %-52s %s\n' "$1" "$3"
