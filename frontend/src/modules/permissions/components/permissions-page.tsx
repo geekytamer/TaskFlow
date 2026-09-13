@@ -170,6 +170,49 @@ export function PermissionsPage() {
     }
   };
 
+  /**
+   * Saves one text field of a group when it loses focus.
+   *
+   * The fields are uncontrolled. An uncontrolled input follows its
+   * defaultValue only until someone edits it; after that it keeps its own text.
+   * An edit that ends where it started — type a character, delete it — saved
+   * nothing and reloaded nothing, so switching groups left that field showing
+   * the previous group's value, and the next blur saved it onto the newly
+   * selected group. The fields are now keyed by group id (see CardContent
+   * below), which remounts them clean on every switch. A refused save, such as
+   * a duplicate name, restores the saved value and says why instead of failing
+   * silently.
+   */
+  const saveGroupField = async (
+    input: HTMLInputElement | HTMLTextAreaElement,
+    groupId: string,
+    field: 'name' | 'nameAr' | 'description',
+    saved: string,
+  ) => {
+    const next = field === 'name' ? input.value.trim() : input.value;
+    if (field === 'name' && !next) {
+      input.value = saved;
+      return;
+    }
+    if (next === saved) return;
+    const update = field === 'name'
+      ? { name: next }
+      : field === 'nameAr'
+        ? { nameAr: next }
+        : { description: next };
+    try {
+      await updatePermissionGroup(groupId, update);
+      load();
+    } catch (error) {
+      input.value = saved;
+      toast({
+        variant: 'destructive',
+        title: t('perm.err.save'),
+        description: error instanceof Error ? error.message : t('perm.err.unknown'),
+      });
+    }
+  };
+
   const handleCreate = async () => {
     if (!companyId || !newName.trim()) return;
     setCreating(true);
@@ -314,18 +357,15 @@ export function PermissionsPage() {
                     </Button>
                   )}
                 </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-2">
+                {/* Keyed by group: an edited uncontrolled field ignores later defaultValues, so remount per group. */}
+                <CardContent key={selected.id} className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label htmlFor="group-name">{t('perm.name')}</Label>
                     <Input
                       id="group-name"
                       defaultValue={selected.name}
-                      onBlur={async (e) => {
-                        if (e.target.value.trim() && e.target.value !== selected.name) {
-                          await updatePermissionGroup(selected.id, { name: e.target.value.trim() });
-                          load();
-                        }
-                      }}
+                      maxLength={80}
+                      onBlur={(e) => saveGroupField(e.currentTarget, selected.id, 'name', selected.name)}
                     />
                   </div>
                   <div className="grid gap-1.5">
@@ -334,12 +374,7 @@ export function PermissionsPage() {
                       id="group-name-ar"
                       dir="rtl"
                       defaultValue={selected.nameAr ?? ''}
-                      onBlur={async (e) => {
-                        if (e.target.value !== (selected.nameAr ?? '')) {
-                          await updatePermissionGroup(selected.id, { nameAr: e.target.value });
-                          load();
-                        }
-                      }}
+                      onBlur={(e) => saveGroupField(e.currentTarget, selected.id, 'nameAr', selected.nameAr ?? '')}
                     />
                   </div>
                   <div className="grid gap-1.5 sm:col-span-2">
@@ -348,12 +383,7 @@ export function PermissionsPage() {
                       id="group-desc"
                       rows={2}
                       defaultValue={selected.description ?? ''}
-                      onBlur={async (e) => {
-                        if (e.target.value !== (selected.description ?? '')) {
-                          await updatePermissionGroup(selected.id, { description: e.target.value });
-                          load();
-                        }
-                      }}
+                      onBlur={(e) => saveGroupField(e.currentTarget, selected.id, 'description', selected.description ?? '')}
                     />
                   </div>
                 </CardContent>

@@ -30,6 +30,41 @@ const asString = (value: unknown, field: string, { min = 1 } = {}): string => {
 const slugify = (value: string): string =>
   value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+const MAX_GROUP_NAME = 80;
+
+/** Trims a group name and rejects blank or overlong ones. */
+function groupName(value: string): string {
+  const name = value.trim();
+  if (!name) throw new HttpError(400, 'Group name is required.');
+  if (name.length > MAX_GROUP_NAME) {
+    throw new HttpError(400, `Group name must be ${MAX_GROUP_NAME} characters or fewer.`);
+  }
+  return name;
+}
+
+/**
+ * Group names must be unique within a company, ignoring case.
+ *
+ * Administrators choose groups by name when assigning people, so two groups
+ * called "Accountant" make the choice a guess. Keys were already unique, but
+ * names were not, which let a stale form silently rename a new group to match
+ * an existing one.
+ */
+function assertGroupNameAvailable(
+  store: { listPermissionGroups(companyId: string): Array<{ id: string; name: string }> },
+  companyId: string,
+  name: string,
+  exceptGroupId?: string,
+): void {
+  const wanted = name.toLocaleLowerCase();
+  const clash = store
+    .listPermissionGroups(companyId)
+    .find((g) => g.id !== exceptGroupId && g.name.trim().toLocaleLowerCase() === wanted);
+  if (clash) {
+    throw new HttpError(409, `A group named "${clash.name}" already exists in this company.`);
+  }
+}
+
 export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   const { app, store, authMiddleware, handler, requireCompanyRoles, managementRoles } = deps;
 
@@ -113,7 +148,8 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   app.post('/companies/:companyId/permission-groups', authMiddleware as never, handler(async (req, res) => {
     requireCompanyRoles(req, req.params.companyId, ['Admin']);
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const name = asString(body.name, 'name');
+    const name = groupName(asString(body.name, 'name'));
+    assertGroupNameAvailable(store, req.params.companyId, name);
     const key = slugify(typeof body.key === 'string' && body.key ? body.key : name);
     if (!key) throw new HttpError(400, 'key could not be derived from the name.');
     if (store.getPermissionGroupByKey(req.params.companyId, key)) {
@@ -134,9 +170,11 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     const group = loadGroup(req.params.id);
     requireCompanyRoles(req, group.companyId, ['Admin']);
     const body = (req.body ?? {}) as Record<string, unknown>;
+    const name = typeof body.name === 'string' ? groupName(body.name) : undefined;
+    if (name !== undefined) assertGroupNameAvailable(store, group.companyId, name, group.id);
     await withProjection(group.companyId, () =>
       store.updatePermissionGroup(group.id, {
-        name: typeof body.name === 'string' ? body.name : undefined,
+        name,
         nameAr: typeof body.nameAr === 'string' ? body.nameAr : undefined,
         description: typeof body.description === 'string' ? body.description : undefined,
       }));

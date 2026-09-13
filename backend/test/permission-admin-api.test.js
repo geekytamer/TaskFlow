@@ -340,3 +340,66 @@ test('an actual role change still moves the user to the matching group', async (
   const keys = store.listUserGroupAssignments(employee.id, companyId).map((g) => g.key).sort();
   assert.ok(keys.includes('manager'), `a real role change must apply the role group, got ${keys}`);
 });
+
+test('group names must be unique within a company, ignoring case', async () => {
+  const { app, adminAuth, companyId } = build();
+  const res = await request(app)
+    .post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth)
+    .send({ name: 'accountant', key: 'accountant-two' });
+  assert.equal(res.status, 409);
+  assert.match(res.body.message, /already exists/);
+});
+
+test('renaming a group onto another group’s name is refused and changes nothing', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  const created = await request(app)
+    .post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth)
+    .send({ name: 'test' });
+  assert.equal(created.status, 201);
+
+  const res = await request(app)
+    .patch(`/permission-groups/${created.body.id}`)
+    .set('Authorization', adminAuth)
+    .send({ name: 'Accountant' });
+  assert.equal(res.status, 409);
+  assert.equal(store.getPermissionGroupById(created.body.id).name, 'test');
+});
+
+test('group names are trimmed, and blank or overlong names are refused', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  const created = await request(app)
+    .post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth)
+    .send({ name: '  Warehouse  ' });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.name, 'Warehouse');
+
+  const blank = await request(app)
+    .patch(`/permission-groups/${created.body.id}`)
+    .set('Authorization', adminAuth)
+    .send({ name: '   ' });
+  assert.equal(blank.status, 400);
+
+  const long = await request(app)
+    .patch(`/permission-groups/${created.body.id}`)
+    .set('Authorization', adminAuth)
+    .send({ name: 'x'.repeat(81) });
+  assert.equal(long.status, 400);
+  assert.equal(store.getPermissionGroupById(created.body.id).name, 'Warehouse');
+});
+
+test('a group may be renamed to a different case of its own name', async () => {
+  const { app, adminAuth, companyId } = build();
+  const created = await request(app)
+    .post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth)
+    .send({ name: 'Stock clerk' });
+  const res = await request(app)
+    .patch(`/permission-groups/${created.body.id}`)
+    .set('Authorization', adminAuth)
+    .send({ name: 'Stock Clerk' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.name, 'Stock Clerk');
+});
