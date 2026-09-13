@@ -151,6 +151,13 @@ async function fgaSync() {
     console.log('Dry run — nothing was changed.');
   } else {
     console.log(`Written: ${result.written}, deleted: ${result.deleted}`);
+    if (result.written || result.deleted) {
+      // A running API caches decisions per authz version. Without a bump it
+      // keeps serving what OpenFGA answered before this sync until it restarts,
+      // which defeats running fga:sync to repair drift in the first place.
+      store.bumpAuthzVersion();
+      console.log('Authz version bumped; running servers will refetch permissions.');
+    }
   }
 }
 
@@ -200,6 +207,8 @@ function authzRepair() {
   ).get() as { c: number }).c;
 
   store.backfillPermissionGroups();
+  // Assignments may have changed underneath a running API; make it refetch.
+  store.bumpAuthzVersion();
 
   const after = new Database(dbPath, { readonly: true });
   const orphansAfter = (after.prepare(

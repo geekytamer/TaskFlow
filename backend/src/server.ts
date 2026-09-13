@@ -17,7 +17,8 @@ import {
 import { recordShadowCheck, routeToPermission } from './permissions/shadow';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
-import { projectCompanyDelta } from './permissions/sync';
+import { projectCompanyDelta, type TupleStore } from './permissions/sync';
+import { tuplesForStore } from './permissions/tuples';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -198,6 +199,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   authzEngine?: AuthzEngine;
   /** Supplies permissions instead of querying OpenFGA. For tests. */
   permissionReader?: FgaReader;
+  /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
+  tupleWriter?: Pick<TupleStore, 'write'>;
 }
 
 const invoiceStatuses: InvoiceStatus[] = ['Draft', 'Sent', 'Paid', 'Overdue'];
@@ -758,6 +761,53 @@ export function createServer(options: CreateServerOptions = {}) {
 
   const authzEngine = options.authzEngine ?? getFgaConfig().engine;
   const shadowMode = authzEngine === 'shadow';
+
+  /**
+   * Captures, per company, the tuples a change may alter. Take it before the
+   * change and hand it to publishAuthzChange afterwards.
+   */
+  const snapshotAuthz = (companyIds: Iterable<string>) =>
+    new Map<string, ReturnType<typeof tuplesForStore>>(
+      [...new Set(companyIds)].map((id) => [id, tuplesForStore(store, id)]),
+    );
+
+  /**
+   * Publishes to OpenFGA whatever a change did to the snapshotted companies,
+   * then invalidates cached decisions.
+   *
+   * Every route that changes membership, roles, super-admin status or
+   * companies must come through here. Before it existed only the
+   * permission-group screens did, so under the openfga engine a newly added
+   * user was denied everything and a demoted one kept their old access until
+   * someone ran fga:sync by hand.
+   *
+   * The version bump comes after publishing on purpose. The store already
+   * bumps inside the change, and a request landing between that bump and
+   * publication re-caches OpenFGA's old answer under the new version, where
+   * nothing would ever evict it.
+   */
+  const publishAuthzChange = async (before: Map<string, ReturnType<typeof tuplesForStore>>) => {
+    if (authzEngine === 'legacy' || before.size === 0) return;
+    let changed = 0;
+    try {
+      for (const [companyId, tuples] of before) {
+        const result = await projectCompanyDelta(store, companyId, tuples, options.tupleWriter);
+        changed += result.written + result.deleted;
+      }
+    } catch (error) {
+      store.bumpAuthzVersion(); // the state is unknown; drop anything cached meanwhile
+      logger.error(
+        `Failed to project permission changes to OpenFGA: ${
+          error instanceof Error ? error.message : String(error)
+        }. Run: npm run ops -- fga:sync`,
+      );
+      throw new HttpError(
+        503,
+        'The change was saved but could not be published to the authorization service. Retry, or run fga:sync.',
+      );
+    }
+    if (changed > 0) store.bumpAuthzVersion();
+  };
   if (authzEngine !== 'legacy') {
     logger.info(`AUTHZ_ENGINE=${authzEngine}: OpenFGA is ${
       shadowMode ? 'being compared against role checks' : 'deciding permissions'
@@ -1871,7 +1921,7 @@ export function createServer(options: CreateServerOptions = {}) {
   app.post(
     '/companies',
     authMiddleware,
-    handler((req, res) => {
+    handler(async (req, res) => {
       requireSuperAdmin(req);
       const body = asRecord(req.body, 'body');
       const company = store.createCompany({
@@ -1880,6 +1930,8 @@ export function createServer(options: CreateServerOptions = {}) {
         address: optionalString(body.address),
         logoUrl: optionalString(body.logoUrl),
       });
+      // A new company had no tuples, so everything it has now is the delta.
+      await publishAuthzChange(new Map([[company.id, []]]));
       res.status(201).json(company);
     }),
   );
@@ -1916,10 +1968,12 @@ export function createServer(options: CreateServerOptions = {}) {
   app.delete(
     '/companies/:id',
     authMiddleware,
-    handler((req, res) => {
+    handler(async (req, res) => {
       requireSuperAdmin(req);
       const cascade = req.query.cascade === 'true' || req.query.cascade === '1';
+      const authzBefore = snapshotAuthz([req.params.id]);
       store.deleteCompany(req.params.id, { cascade });
+      await publishAuthzChange(authzBefore);
       res.json({ success: true });
     }),
   );
@@ -2486,6 +2540,10 @@ export function createServer(options: CreateServerOptions = {}) {
     handler(async (req, res) => {
       const payload = parseUserPayload(req.body);
       assertUserManagementPermission(req.user!, payload.companyRoles!);
+      const authzBefore = snapshotAuthz([
+        ...(payload.companyIds ?? []),
+        ...payload.companyRoles!.map((assignment) => assignment.companyId),
+      ]);
       // Only an existing super-admin may grant the super-admin flag.
       const isSuperAdmin =
         payload.isSuperAdmin === true && req.user?.isSuperAdmin === true
@@ -2512,6 +2570,7 @@ export function createServer(options: CreateServerOptions = {}) {
         name: user.name,
         password: payload.password!,
       }).catch((error) => logger.error('Failed to send welcome email', error));
+      await publishAuthzChange(authzBefore);
       res.status(201).json({ user });
     }),
   );
@@ -2519,7 +2578,7 @@ export function createServer(options: CreateServerOptions = {}) {
   app.put(
     '/users/:id',
     authMiddleware,
-    handler((req, res) => {
+    handler(async (req, res) => {
       const existing = store.getUserById(req.params.id);
       if (!existing) throw new HttpError(404, 'User not found.');
       const payload = parseUserPayload(req.body, { partial: true });
@@ -2589,6 +2648,12 @@ export function createServer(options: CreateServerOptions = {}) {
       const safePayload = req.user?.isSuperAdmin === true
         ? payload
         : { ...payload, isSuperAdmin: undefined };
+      const authzBefore = snapshotAuthz([
+        ...existing.companyIds,
+        ...existingAssignments.map((assignment) => assignment.companyId),
+        ...targetAssignments.map((assignment) => assignment.companyId),
+        ...(payload.companyIds ?? []),
+      ]);
       const updated = store.updateUser(req.params.id, {
         ...safePayload,
         companyIds: payload.companyIds || targetAssignments.map((assignment) => assignment.companyId),
@@ -2596,6 +2661,7 @@ export function createServer(options: CreateServerOptions = {}) {
         role: payload.role || targetAssignments[0]?.role || existing.role,
       });
       if (!updated) throw new HttpError(404, 'User not found.');
+      await publishAuthzChange(authzBefore);
       res.json(updated);
     }),
   );
@@ -2603,7 +2669,7 @@ export function createServer(options: CreateServerOptions = {}) {
   app.delete(
     '/users/:id',
     authMiddleware,
-    handler((req, res) => {
+    handler(async (req, res) => {
       const existing = store.getUserById(req.params.id);
       if (!existing) throw new HttpError(404, 'User not found.');
       const targetAssignments =
@@ -2614,7 +2680,12 @@ export function createServer(options: CreateServerOptions = {}) {
           positionId: existing.positionId,
         }));
       assertUserManagementPermission(req.user!, targetAssignments);
+      const authzBefore = snapshotAuthz([
+        ...existing.companyIds,
+        ...targetAssignments.map((assignment) => assignment.companyId),
+      ]);
       store.deleteUser(req.params.id);
+      await publishAuthzChange(authzBefore);
       res.json({ success: true });
     }),
   );
@@ -8235,22 +8306,7 @@ export function createServer(options: CreateServerOptions = {}) {
     // the cost does not grow with the number of other companies. `ops fga:sync`
     // remains the full reconcile for drift. In legacy mode there is nothing
     // to project.
-    projectTuples: async (companyId, before) => {
-      if (authzEngine === 'legacy') return;
-      try {
-        await projectCompanyDelta(store, companyId, before);
-      } catch (error) {
-        logger.error(
-          `Failed to project permission changes to OpenFGA: ${
-            error instanceof Error ? error.message : String(error)
-          }. Run: npm run ops -- fga:sync`,
-        );
-        throw new HttpError(
-          503,
-          'The change was saved but could not be published to the authorization service. Retry, or run fga:sync.',
-        );
-      }
-    },
+    projectTuples: (companyId, before) => publishAuthzChange(new Map([[companyId, before]])),
   });
 
   app.use((_req, _res, next) => {
