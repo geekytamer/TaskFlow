@@ -60,15 +60,15 @@ RESEND_FROM_EMAIL=TaskFlow <no-reply@alyarubi-group.com>
 # CORS — the public origin of the frontend
 ALLOWED_ORIGINS=https://erp.alyarubi-group.com
 
-# WhatsApp token encryption — DO NOT LOSE THIS
-WHATSAPP_ENCRYPTION_KEY=4700c4d5a80fef34b1f12f99edc6d09d1ae1fa2f436da8d08bcdd73e6302653e
+# WhatsApp token encryption — DO NOT LOSE THIS. Generate with: openssl rand -hex 32
+WHATSAPP_ENCRYPTION_KEY=
 
 # Used to register the WhatsApp webhook callback
 PUBLIC_BASE_URL=https://erp.alyarubi-group.com
 
 # Bootstrap admin (only used when no Admin user exists yet)
 ADMIN_EMAIL=admin@alyarubi-group.com
-ADMIN_PASSWORD=Admin@IMiC0ITOBxQ
+ADMIN_PASSWORD=
 ADMIN_NAME=Administrator
 
 # First company (only used when DB has no companies yet)
@@ -77,9 +77,11 @@ COMPANY_WEBSITE=https://alyarubi-group.com
 ```
 
 **Important credentials to record before you boot:**
-- `WHATSAPP_ENCRYPTION_KEY`: `4700c4d5a80fef34b1f12f99edc6d09d1ae1fa2f436da8d08bcdd73e6302653e`
+- `WHATSAPP_ENCRYPTION_KEY`: the value you generated for `backend/.env`
 - `ADMIN_EMAIL`: `admin@alyarubi-group.com`
-- `ADMIN_PASSWORD`: `Admin@IMiC0ITOBxQ`
+- `ADMIN_PASSWORD`: the value you chose for `backend/.env`
+
+Keep the real values in a password manager. Never commit them to this repository.
 
 > **Note on roles:** the bootstrap admin gets `role: 'Admin'` *and*
 > `isSuperAdmin: true`. The first flag is your per-company admin role;
@@ -236,7 +238,7 @@ sudo certbot --nginx -d erp.alyarubi-group.com   # if you haven't already
 
 Open `https://erp.alyarubi-group.com`, log in with:
 - Email: `admin@alyarubi-group.com`
-- Password: `Admin@IMiC0ITOBxQ`
+- Password: the `ADMIN_PASSWORD` you set in `backend/.env`
 
 Then:
 
