@@ -539,6 +539,30 @@ const loginRateLimiter = rateLimit({
   message: { message: 'Too many login attempts. Please try again in a few minutes.' },
 });
 
+/**
+ * Which upstream proxies may speak for the client's address.
+ *
+ * Behind nginx every request reaches the API from 127.0.0.1. Without this,
+ * the login rate limiter keyed every visitor to that one address, so the
+ * whole company shared ten login attempts per fifteen minutes and anyone
+ * could lock everyone out. Loopback is the default because nginx runs on the
+ * same host; a request arriving directly from the internet is not loopback,
+ * so its X-Forwarded-For is still ignored.
+ *
+ * TRUST_PROXY overrides it with "false", a hop count, or a subnet list.
+ */
+export function trustProxySetting(raw = process.env.TRUST_PROXY): boolean | number | string {
+  const value = raw?.trim();
+  if (!value) return 'loopback';
+  if (value === 'false') return false;
+  if (value === 'true') {
+    throw new Error(
+      'TRUST_PROXY=true trusts an address any client can supply. Use a hop count or a subnet such as "loopback".',
+    );
+  }
+  return /^\d+$/.test(value) ? Number(value) : value;
+}
+
 export function createServer(options: CreateServerOptions = {}) {
   const logger = options.logger ?? console;
   const allowSeedReset =
@@ -660,6 +684,8 @@ export function createServer(options: CreateServerOptions = {}) {
   }
 
   const app = express();
+
+  app.set('trust proxy', trustProxySetting());
   app.use(
     cors({
       origin(origin, callback) {

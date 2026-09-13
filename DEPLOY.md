@@ -60,6 +60,10 @@ RESEND_FROM_EMAIL=TaskFlow <no-reply@alyarubi-group.com>
 # CORS — the public origin of the frontend
 ALLOWED_ORIGINS=https://erp.alyarubi-group.com
 
+# Proxy trust. The default, loopback, is right when nginx runs on this server:
+# it lets the login rate limiter tell visitors apart. Never set it to true.
+# TRUST_PROXY=loopback
+
 # WhatsApp token encryption — DO NOT LOSE THIS. Generate with: openssl rand -hex 32
 WHATSAPP_ENCRYPTION_KEY=
 
