@@ -297,7 +297,10 @@ step "Staging is live: https://$STAGING_DOMAIN"
 if [ -n "$NEW_BASIC_PASSWORD" ]; then
   echo "  Site password (shown once, store it now):  staging / $NEW_BASIC_PASSWORD"
 fi
-if [ "$FROM_PRODUCTION" -eq 1 ]; then
+# Report the data actually in use, not the flag passed to this run: a redeploy
+# without --from-production leaves an earlier production snapshot in place, and
+# telling people to sign in with demo credentials would then be wrong.
+if [ "$(env_value SEED_ON_EMPTY "$ENV_FILE")" = false ]; then
   echo "  Data: snapshot of production. Sign in with production accounts."
 else
   echo "  Data: demo. Sign in as admin@taskflow.com / password."
