@@ -1,0 +1,10 @@
+# Temporary HTTP-only site so certbot can prove control of __STAGING_DOMAIN__.
+# deploy-staging.sh swaps in nginx.conf.template once the certificate exists.
+server {
+    listen 80;
+    server_name __STAGING_DOMAIN__;
+
+    location / {
+        return 404;
+    }
+}
