@@ -8,6 +8,7 @@ import { Logo } from '@/components/icons/logo';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
+import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { logout } from '@/services/authService';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { ShieldCheck, LogOut } from 'lucide-react';
@@ -47,6 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <StagingBanner />
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-card/95 px-4 backdrop-blur sm:px-6">
         <div className="flex items-center gap-3">
           <Logo className="h-6 w-6 text-primary" />

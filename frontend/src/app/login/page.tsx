@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/icons/logo';
 import { login } from '@/services/authService';
 import { useI18n } from '@/context/i18n-context';
+import { StagingBanner } from '@/modules/layout/components/staging-banner';
 
 function LoginPageInner() {
   const router = useRouter();
@@ -51,51 +52,54 @@ function LoginPageInner() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="mx-auto w-full max-w-sm">
-        <CardHeader className="text-center">
-            <div className="flex justify-center items-center gap-2 mb-4">
-                <Logo className="h-8 w-8 text-primary" />
-                <h1 className="text-3xl font-bold text-primary font-headline">TaskFlow</h1>
-            </div>
-          <CardTitle className="text-2xl">{t('login.title')}</CardTitle>
-          <CardDescription>
-            {t('login.subtitle')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="email">{t('login.email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="m@example.com"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={isLoading}
-              />
-            </div>
-            <div className="grid gap-2">
-              <div className="flex items-center">
-                <Label htmlFor="password">{t('login.password')}</Label>
+    <div className="flex min-h-screen flex-col bg-background">
+      <StagingBanner />
+      <div className="flex flex-1 items-center justify-center p-4">
+        <Card className="mx-auto w-full max-w-sm">
+          <CardHeader className="text-center">
+              <div className="flex justify-center items-center gap-2 mb-4">
+                  <Logo className="h-8 w-8 text-primary" />
+                  <h1 className="text-3xl font-bold text-primary font-headline">TaskFlow</h1>
               </div>
-              <Input 
-                id="password" 
-                type="password" 
-                required 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? t('login.signingIn') : t('login.signIn')}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+            <CardTitle className="text-2xl">{t('login.title')}</CardTitle>
+            <CardDescription>
+              {t('login.subtitle')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleLogin} className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="email">{t('login.email')}</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="m@example.com"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="grid gap-2">
+                <div className="flex items-center">
+                  <Label htmlFor="password">{t('login.password')}</Label>
+                </div>
+                <Input 
+                  id="password" 
+                  type="password" 
+                  required 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? t('login.signingIn') : t('login.signIn')}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

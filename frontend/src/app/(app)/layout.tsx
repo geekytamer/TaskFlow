@@ -26,6 +26,7 @@ import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-lau
 import { CommandPalette } from '@/modules/layout/components/command-palette';
 import { NotificationBell } from '@/modules/layout/components/notification-bell';
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
+import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { isImpersonating } from '@/services/adminService';
 import { Search } from 'lucide-react';
 
@@ -104,6 +105,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
+        <StagingBanner />
         <ImpersonationBanner />
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6">
           <SidebarTrigger className="md:hidden" />
