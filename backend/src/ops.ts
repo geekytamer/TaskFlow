@@ -24,6 +24,7 @@ Commands:
   authz:repair                 Re-seed missing permission groups and user assignments
   fga:sync [--dry-run]         Reconcile OpenFGA tuples with the database
   fga:status                   Show OpenFGA connectivity, outbox depth and authz version
+  fga:bootstrap [--force]      Create the OpenFGA store and model; prints FGA_STORE_ID and FGA_MODEL_ID
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
@@ -168,6 +169,23 @@ async function fgaStatus() {
   console.log(`Logged divergences: ${divergences.length}`);
 }
 
+/**
+ * Creates the OpenFGA store and writes the authorization model, printing the
+ * ids as .env lines for a deploy script to capture. Refuses when a store is
+ * already configured: a second store silently orphans every tuple in the first.
+ */
+async function fgaBootstrap() {
+  if (process.env.FGA_STORE_ID && !force) {
+    throw new Error(
+      `FGA_STORE_ID is already set (${process.env.FGA_STORE_ID}). Pass --force to create another store anyway.`,
+    );
+  }
+  const { bootstrapFgaStore } = await import('./permissions/fga-model');
+  const { storeId, modelId } = await bootstrapFgaStore();
+  console.log(`FGA_STORE_ID=${storeId}`);
+  console.log(`FGA_MODEL_ID=${modelId}`);
+}
+
 const fail = (error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
@@ -208,6 +226,9 @@ switch (command) {
     break;
   case 'fga:status':
     fgaStatus().catch(fail);
+    break;
+  case 'fga:bootstrap':
+    fgaBootstrap().catch(fail);
     break;
   case 'status':
     showStatus();

@@ -45,6 +45,12 @@ export function getFgaConfig(): FgaConfig {
   return config;
 }
 
+function credentialsFor(apiToken: string) {
+  return apiToken
+    ? { method: CredentialsMethod.ApiToken as const, config: { token: apiToken } }
+    : { method: CredentialsMethod.None as const };
+}
+
 let cached: OpenFgaClient | undefined;
 
 export function getFgaClient(): OpenFgaClient {
@@ -54,11 +60,24 @@ export function getFgaClient(): OpenFgaClient {
     apiUrl: config.apiUrl,
     storeId: config.storeId,
     authorizationModelId: config.modelId || undefined,
-    credentials: config.apiToken
-      ? { method: CredentialsMethod.ApiToken, config: { token: config.apiToken } }
-      : { method: CredentialsMethod.None },
+    credentials: credentialsFor(config.apiToken),
   });
   return cached;
+}
+
+/**
+ * A client for creating the store, before any store or model exists.
+ *
+ * getFgaClient refuses to build a client without FGA_STORE_ID whenever the
+ * engine is not legacy. That is right for serving requests and exactly wrong
+ * for bootstrap, which runs precisely when there is no store yet. It is never
+ * cached, so bootstrapping cannot repoint the shared client at a new store.
+ */
+export function createBootstrapFgaClient(): OpenFgaClient {
+  return new OpenFgaClient({
+    apiUrl: process.env.FGA_API_URL ?? 'http://127.0.0.1:8080',
+    credentials: credentialsFor(process.env.FGA_API_TOKEN ?? ''),
+  });
 }
 
 /** Test seam: drop the memoised client so a caller can change env and re-read it. */

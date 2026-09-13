@@ -1,4 +1,4 @@
-import { getFgaClient } from './fga-client';
+import { createBootstrapFgaClient } from './fga-client';
 
 /**
  * The authorization model, mirroring the DSL in the design doc:
@@ -92,10 +92,10 @@ export const AUTHORIZATION_MODEL = {
 export async function bootstrapFgaStore(
   name = 'taskflow',
 ): Promise<{ storeId: string; modelId: string }> {
-  const client = getFgaClient();
+  const client = createBootstrapFgaClient();
   const store = await client.createStore({ name });
   const storeId = store.id!;
-  client.storeId = storeId;
+  client.storeId = storeId; // this throwaway client only, never the shared one
   const model = await client.writeAuthorizationModel(AUTHORIZATION_MODEL as never);
   return { storeId, modelId: model.authorization_model_id! };
 }
