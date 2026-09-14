@@ -111,28 +111,13 @@ test('duplicate group keys are rejected', async () => {
   assert.equal(second.status, 409);
 });
 
-test('built-in groups cannot be deleted', async () => {
+test('a built-in group people rely on cannot be deleted', async () => {
   const { app, adminAuth, companyId, store } = build();
   const builtIn = store.getPermissionGroupByKey(companyId, 'manager');
   const res = await request(app)
     .delete(`/permission-groups/${builtIn.id}`).set('Authorization', adminAuth);
   assert.equal(res.status, 409);
-  assert.match(res.body.message, /Built-in groups cannot be deleted/);
-});
-
-test('a group with members cannot be deleted without force', async () => {
-  const { app, adminAuth, companyId, store, employee } = build();
-  const created = await request(app).post(`/companies/${companyId}/permission-groups`)
-    .set('Authorization', adminAuth).send({ name: 'Temp Group' });
-  store.assignUserToGroup(employee.id, companyId, created.body.id);
-
-  const blocked = await request(app)
-    .delete(`/permission-groups/${created.body.id}`).set('Authorization', adminAuth);
-  assert.equal(blocked.status, 409);
-
-  const forced = await request(app)
-    .delete(`/permission-groups/${created.body.id}?force=true`).set('Authorization', adminAuth);
-  assert.equal(forced.status, 204);
+  assert.match(res.body.message, /Remove them from the group/);
 });
 
 test('inheritance can be set and is reflected in effective permissions', async () => {
@@ -402,4 +387,96 @@ test('a group may be renamed to a different case of its own name', async () => {
     .send({ name: 'Stock Clerk' });
   assert.equal(res.status, 200);
   assert.equal(res.body.name, 'Stock Clerk');
+});
+
+test('an empty built-in group can be deleted, and seeding does not bring it back', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  const accountant = store.getPermissionGroupByKey(companyId, 'accountant');
+  assert.equal(store.countGroupMembers(accountant.id), 0, 'fixture: Accountant starts empty');
+
+  const res = await request(app).delete(`/permission-groups/${accountant.id}`).set('Authorization', adminAuth);
+  assert.equal(res.status, 204);
+
+  store.backfillPermissionGroups(); // what startup and authz:repair run
+  assert.equal(store.getPermissionGroupByKey(companyId, 'accountant'), undefined);
+  assert.equal(store.isRoleAvailable(companyId, 'Accountant'), false);
+  assert.equal(store.isRoleAvailable(companyId, 'Manager'), true);
+});
+
+test('a group with members cannot be deleted, even with the old force flag', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  const employee = store.getPermissionGroupByKey(companyId, 'employee');
+  assert.ok(store.countGroupMembers(employee.id) > 0, 'fixture: Employee has members');
+
+  for (const url of [`/permission-groups/${employee.id}`, `/permission-groups/${employee.id}?force=true`]) {
+    const res = await request(app).delete(url).set('Authorization', adminAuth);
+    assert.equal(res.status, 409);
+    assert.match(res.body.message, /Remove them from the group/);
+  }
+  assert.ok(store.getPermissionGroupById(employee.id));
+});
+
+test('a group other groups inherit from cannot be deleted', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  const parent = (await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth).send({ name: 'Senior clerk' })).body;
+  const child = (await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth).send({ name: 'Clerk' })).body;
+  const link = await request(app).put(`/permission-groups/${parent.id}/implications`)
+    .set('Authorization', adminAuth).send({ impliedGroupIds: [child.id] });
+  assert.equal(link.status, 200);
+
+  const res = await request(app).delete(`/permission-groups/${child.id}`).set('Authorization', adminAuth);
+  assert.equal(res.status, 409);
+  assert.match(res.body.message, /Senior clerk/);
+  assert.ok(store.getPermissionGroupById(child.id));
+});
+
+test('a custom group never takes a built-in key, even after that built-in is deleted', async () => {
+  const { app, adminAuth, companyId, store } = build();
+  const accountant = store.getPermissionGroupByKey(companyId, 'accountant');
+  await request(app).delete(`/permission-groups/${accountant.id}`).set('Authorization', adminAuth);
+
+  const created = await request(app).post(`/companies/${companyId}/permission-groups`)
+    .set('Authorization', adminAuth).send({ name: 'Accountant' });
+  assert.equal(created.status, 201);
+  assert.notEqual(created.body.key, 'accountant');
+
+  const person = store.createUser({
+    name: 'New Accountant', email: 'new.accountant@taskflow.test', password: 'x', role: 'Accountant',
+    companyIds: [companyId], companyRoles: [{ companyId, role: 'Accountant' }],
+  });
+  assert.deepEqual(store.listUserGroupAssignments(person.id, companyId), [],
+    'the role must not silently attach to the look-alike custom group');
+});
+
+test('a role whose built-in group was deleted cannot be newly assigned, but existing holders stay editable', async () => {
+  const { app, adminAuth, companyId, store, employee } = build();
+  const keeper = store.createUser({
+    name: 'Keeps Role', email: 'keeps.role@taskflow.test', password: 'x', role: 'Accountant',
+    companyIds: [companyId], companyRoles: [{ companyId, role: 'Accountant' }],
+  });
+  const employeeGroup = store.getPermissionGroupByKey(companyId, 'employee');
+  const moved = await request(app).put(`/companies/${companyId}/users/${keeper.id}/groups`)
+    .set('Authorization', adminAuth).send({ groupIds: [employeeGroup.id] });
+  assert.equal(moved.status, 200);
+
+  const accountant = store.getPermissionGroupByKey(companyId, 'accountant');
+  const deleted = await request(app).delete(`/permission-groups/${accountant.id}`).set('Authorization', adminAuth);
+  assert.equal(deleted.status, 204);
+
+  const renamed = await request(app).put(`/users/${keeper.id}`)
+    .set('Authorization', adminAuth).send({ name: 'Keeps Role Renamed' });
+  assert.equal(renamed.status, 200, 'an unchanged role must not block editing');
+
+  const created = await request(app).post('/users').set('Authorization', adminAuth).send({
+    name: 'Blocked Hire', email: 'blocked.hire@taskflow.test', password: 'password',
+    role: 'Accountant', companyRoles: [{ companyId, role: 'Accountant' }],
+  });
+  assert.equal(created.status, 400);
+  assert.match(created.body.message, /no longer offered/);
+
+  const promoted = await request(app).put(`/users/${employee.id}`).set('Authorization', adminAuth)
+    .send({ role: 'Accountant', companyRoles: [{ companyId, role: 'Accountant' }] });
+  assert.equal(promoted.status, 400);
 });

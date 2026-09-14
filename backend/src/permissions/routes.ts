@@ -31,6 +31,7 @@ const slugify = (value: string): string =>
   value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 const MAX_GROUP_NAME = 80;
+const BUILT_IN_GROUP_KEYS = new Set(['admin', 'manager', 'employee', 'accountant']);
 
 /** Trims a group name and rejects blank or overlong ones. */
 function groupName(value: string): string {
@@ -150,7 +151,10 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const name = groupName(asString(body.name, 'name'));
     assertGroupNameAvailable(store, req.params.companyId, name);
-    const key = slugify(typeof body.key === 'string' && body.key ? body.key : name);
+    let key = slugify(typeof body.key === 'string' && body.key ? body.key : name);
+    // Built-in keys are how roles find their group. A custom group must never
+    // take one, or it would silently become that role's group.
+    if (BUILT_IN_GROUP_KEYS.has(key)) key = `${key}-group`;
     if (!key) throw new HttpError(400, 'key could not be derived from the name.');
     if (store.getPermissionGroupByKey(req.params.companyId, key)) {
       throw new HttpError(409, `A group with key "${key}" already exists in this company.`);
@@ -184,17 +188,21 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   app.delete('/permission-groups/:id', authMiddleware as never, handler(async (req, res) => {
     const group = loadGroup(req.params.id);
     requireCompanyRoles(req, group.companyId, ['Admin']);
-    if (group.isSystem) {
+    // Any group, built-in or custom, may be deleted once nobody depends on it.
+    // Deleting a group people are in, directly or through inheritance, would
+    // silently take their access away.
+    const members = store.countGroupMembers(group.id);
+    if (members > 0) {
       throw new HttpError(
         409,
-        'Built-in groups cannot be deleted. Edit their permissions instead, or deactivate them.',
+        `${members} user(s) are still in "${group.name}". Remove them from the group before deleting it.`,
       );
     }
-    const members = store.countGroupMembers(group.id);
-    if (members > 0 && req.query.force !== 'true') {
+    const inheritors = store.listGroupsInheriting(group.id);
+    if (inheritors.length > 0) {
       throw new HttpError(
         409,
-        `${members} user(s) are still in this group. Reassign them first, or repeat with ?force=true.`,
+        `${inheritors.map((name) => `"${name}"`).join(', ')} inherit from "${group.name}". Remove that inheritance first.`,
       );
     }
     await withProjection(group.companyId, () => store.deletePermissionGroup(group.id));

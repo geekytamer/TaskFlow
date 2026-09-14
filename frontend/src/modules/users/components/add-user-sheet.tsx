@@ -35,6 +35,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
 import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
+import { fetchPermissionGroups } from '@/services/permissionService';
 import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Building, BadgeDollarSign } from 'lucide-react';
@@ -114,6 +115,45 @@ export function AddUserSheet({
     }
     return [];
   }, [currentUserRole]);
+
+  /**
+   * Built-in group keys that still exist, per company. A role whose built-in
+   * group was deleted is not offered there; the server refuses it anyway.
+   * Until a company's groups are known, or if they cannot be read, every role
+   * is offered and the server decides.
+   */
+  const [builtInKeysByCompany, setBuiltInKeysByCompany] = React.useState<Record<string, Set<string>>>({});
+  const companyIdsKey = (selectedCompanyIds || []).join(',');
+  React.useEffect(() => {
+    const missing = (selectedCompanyIds || []).filter((cid) => !(cid in builtInKeysByCompany));
+    if (missing.length === 0) return;
+    let active = true;
+    Promise.all(
+      missing.map((cid) =>
+        fetchPermissionGroups(cid)
+          .then((groups) => [cid, new Set(groups.filter((g) => g.isSystem).map((g) => g.key))] as const)
+          .catch(() => null)),
+    ).then((rows) => {
+      if (!active) return;
+      setBuiltInKeysByCompany((prev) => {
+        const next = { ...prev };
+        rows.forEach((row) => {
+          if (row) next[row[0]] = row[1];
+        });
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyIdsKey]);
+
+  const rolesFor = (companyId: string, current?: UserRole) => {
+    const keys = builtInKeysByCompany[companyId];
+    if (!keys) return availableRoles;
+    return availableRoles.filter((role) => keys.has(role.toLowerCase()) || role === current);
+  };
 
   // Only platform super-admins manage users across companies. A company admin
   // manages users only within the company they administer.
@@ -399,7 +439,7 @@ export function AddUserSheet({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {availableRoles.map((role) => (
+                            {rolesFor(cid, assignment.role).map((role) => (
                               <SelectItem key={role} value={role}>
                                 {role}
                               </SelectItem>

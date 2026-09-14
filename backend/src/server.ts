@@ -1133,6 +1133,23 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
+  /**
+   * Refuses roles whose built-in group an administrator deleted in that
+   * company. Assigning one would give the person a role that grants nothing
+   * and matches no group.
+   */
+  const assertRolesAvailable = (assignments: CompanyRoleAssignment[]) => {
+    const unavailable = assignments.find(
+      (assignment) => !store.isRoleAvailable(assignment.companyId, assignment.role),
+    );
+    if (unavailable) {
+      throw new HttpError(
+        400,
+        `The ${unavailable.role} role is no longer offered in this company, because its built-in group was deleted.`,
+      );
+    }
+  };
+
   const assertUserManagementPermission = (
     actor: SanitizedUser,
     assignments: CompanyRoleAssignment[],
@@ -2566,6 +2583,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler(async (req, res) => {
       const payload = parseUserPayload(req.body);
       assertUserManagementPermission(req.user!, payload.companyRoles!);
+      assertRolesAvailable(payload.companyRoles!);
       const authzBefore = snapshotAuthz([
         ...(payload.companyIds ?? []),
         ...payload.companyRoles!.map((assignment) => assignment.companyId),
@@ -2674,6 +2692,16 @@ export function createServer(options: CreateServerOptions = {}) {
       const safePayload = req.user?.isSuperAdmin === true
         ? payload
         : { ...payload, isSuperAdmin: undefined };
+      // Only a new or changed role must still be available; an unchanged one
+      // stays, so a user can be edited after their role's group was deleted.
+      const existingRoleByCompany = new Map(
+        existingAssignments.map((assignment) => [assignment.companyId, assignment.role]),
+      );
+      assertRolesAvailable(
+        targetAssignments.filter(
+          (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
+        ),
+      );
       const authzBefore = snapshotAuthz([
         ...existing.companyIds,
         ...existingAssignments.map((assignment) => assignment.companyId),

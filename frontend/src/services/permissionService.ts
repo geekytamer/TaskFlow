@@ -61,8 +61,8 @@ export function updatePermissionGroup(
   });
 }
 
-export function deletePermissionGroup(groupId: string, force = false) {
-  return apiFetch<void>(`/permission-groups/${groupId}${force ? '?force=true' : ''}`, {
+export function deletePermissionGroup(groupId: string) {
+  return apiFetch<void>(`/permission-groups/${groupId}`, {
     method: 'DELETE',
   });
 }

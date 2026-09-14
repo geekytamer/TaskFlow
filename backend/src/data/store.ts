@@ -3451,6 +3451,23 @@ export class DataStore {
           users.forEach(({ id }) => this.syncUserGroupAssignmentsInTrx(id));
         },
       },
+      {
+        // Built-in groups may now be deleted once they are empty. Seeding
+        // recreates any missing built-in group, so a deletion is recorded here
+        // and seeding respects it; the matching role then stops being offered
+        // in that company.
+        id: '080_permission_group_deletions',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS permission_group_deletions (
+              companyId TEXT NOT NULL,
+              key       TEXT NOT NULL,
+              deletedAt TEXT NOT NULL,
+              PRIMARY KEY (companyId, key)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4467,7 +4484,10 @@ export class DataStore {
     const insertPerm = this.db.prepare(
       'INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)',
     );
+    const deleted = this.deletedBuiltInGroupKeys(companyId);
     roles.forEach(([roleName, key]) => {
+      // An administrator deleted this built-in group; do not bring it back.
+      if (deleted.has(key)) return;
       insertGroup.run(uuid(), companyId, key, roleName, now);
       const group = this.getPermissionGroupByKey(companyId, key);
       if (!group) return;
@@ -4760,7 +4780,42 @@ export class DataStore {
     trx();
   }
 
+  /**
+   * Keys of built-in groups an administrator deleted in this company.
+   *
+   * Migration 079 seeds groups before migration 080 creates the table, so a
+   * missing table simply means nothing has been deleted yet.
+   */
+  deletedBuiltInGroupKeys(companyId: string): Set<string> {
+    const table = this.db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'permission_group_deletions'`)
+      .get();
+    if (!table) return new Set();
+    const rows = this.db
+      .prepare('SELECT key FROM permission_group_deletions WHERE companyId = ?')
+      .all(companyId) as Array<{ key: string }>;
+    return new Set(rows.map((row) => row.key));
+  }
+
+  /** Whether a role can still be assigned in a company: its built-in group was not deleted. */
+  isRoleAvailable(companyId: string, role: string): boolean {
+    return !this.deletedBuiltInGroupKeys(companyId).has(String(role).toLowerCase());
+  }
+
+  /** Names of the groups that inherit from this one, whose members would lose access if it went. */
+  listGroupsInheriting(groupId: string): string[] {
+    return (this.db
+      .prepare(
+        `SELECT pg.name FROM group_implications gi
+           JOIN permission_groups pg ON pg.id = gi.parentGroupId
+          WHERE gi.childGroupId = ?
+          ORDER BY pg.name`,
+      )
+      .all(groupId) as Array<{ name: string }>).map((row) => row.name);
+  }
+
   deletePermissionGroup(id: string): void {
+    const group = this.getPermissionGroupById(id);
     const trx = this.db.transaction(() => {
       this.db
         .prepare('DELETE FROM group_implications WHERE parentGroupId = ? OR childGroupId = ?')
@@ -4768,6 +4823,13 @@ export class DataStore {
       this.db.prepare('DELETE FROM group_permissions WHERE groupId = ?').run(id);
       this.db.prepare('DELETE FROM user_group_assignments WHERE groupId = ?').run(id);
       this.db.prepare('DELETE FROM permission_groups WHERE id = ?').run(id);
+      if (group && Number(group.isSystem) === 1) {
+        this.db
+          .prepare(
+            'INSERT OR REPLACE INTO permission_group_deletions (companyId, key, deletedAt) VALUES (?, ?, ?)',
+          )
+          .run(group.companyId, group.key, new Date().toISOString());
+      }
       this.bumpAuthzVersionInTrx();
     });
     trx();

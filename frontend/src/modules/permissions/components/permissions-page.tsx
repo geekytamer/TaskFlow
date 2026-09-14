@@ -113,15 +113,13 @@ export function PermissionsPage() {
     return out;
   }, [selected, groups]);
 
-  const togglePermission = (key: string, next: boolean) => {
+  const updatePermissions = (change: (current: string[]) => string[]) => {
     if (!selected) return;
     const groupId = selected.id;
 
     const current = groupsRef.current.find((g) => g.id === groupId);
     if (!current) return;
-    const updated = next
-      ? [...current.permissions, key]
-      : current.permissions.filter((p) => p !== key);
+    const updated = change(current.permissions);
 
     const optimistic = groupsRef.current.map((g) =>
       (g.id === groupId ? { ...g, permissions: updated } : g));
@@ -148,6 +146,17 @@ export function PermissionsPage() {
         if (inFlight.current === 0) setSaving(false);
       });
   };
+
+  const togglePermission = (key: string, next: boolean) =>
+    updatePermissions((current) => (next
+      ? [...current.filter((p) => p !== key), key]
+      : current.filter((p) => p !== key)));
+
+  /** Grants every action of a module to the group, or clears them all. */
+  const toggleModule = (keys: string[], grant: boolean) =>
+    updatePermissions((current) => (grant
+      ? [...new Set([...current, ...keys])]
+      : current.filter((p) => !keys.includes(p))));
 
   const toggleInheritance = async (childId: string, next: boolean) => {
     if (!selected) return;
@@ -202,6 +211,7 @@ export function PermissionsPage() {
         : { description: next };
     try {
       await updatePermissionGroup(groupId, update);
+      toast({ title: t('perm.saved') });
       load();
     } catch (error) {
       input.value = saved;
@@ -235,15 +245,15 @@ export function PermissionsPage() {
   const handleDelete = async (group: PermissionGroup) => {
     const ok = await confirm({
       title: t('perm.deleteTitle', undefined, { name: group.name }),
-      description: group.memberCount
-        ? t('perm.deleteWithMembers', undefined, { count: group.memberCount })
+      description: group.isSystem
+        ? t('perm.deleteBuiltIn', undefined, { name: group.name })
         : t('perm.deleteNoMembers'),
       confirmText: t('common.delete', 'Delete'),
       destructive: true,
     });
     if (!ok) return;
     try {
-      await deletePermissionGroup(group.id, group.memberCount > 0);
+      await deletePermissionGroup(group.id);
       setSelectedId(null);
       await load();
       refreshMyPermissions();
@@ -351,11 +361,26 @@ export function PermissionsPage() {
                         && ` · ${t('perm.inheritedCount', undefined, { count: inherited.size })}`}
                     </p>
                   </div>
-                  {!selected.isSystem && (
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(selected)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={t('perm.deleteGroup')}
+                          disabled={selected.memberCount > 0}
+                          onClick={() => handleDelete(selected)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {selected.memberCount > 0 && (
+                      <TooltipContent>
+                        {t('perm.deleteBlockedMembers', undefined, { count: selected.memberCount })}
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
                 </CardHeader>
                 {/* Keyed by group: an edited uncontrolled field ignores later defaultValues, so remount per group. */}
                 <CardContent key={selected.id} className="grid gap-4 sm:grid-cols-2">
@@ -365,6 +390,7 @@ export function PermissionsPage() {
                       id="group-name"
                       defaultValue={selected.name}
                       maxLength={80}
+                      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                       onBlur={(e) => saveGroupField(e.currentTarget, selected.id, 'name', selected.name)}
                     />
                   </div>
@@ -374,6 +400,7 @@ export function PermissionsPage() {
                       id="group-name-ar"
                       dir="rtl"
                       defaultValue={selected.nameAr ?? ''}
+                      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                       onBlur={(e) => saveGroupField(e.currentTarget, selected.id, 'nameAr', selected.nameAr ?? '')}
                     />
                   </div>
@@ -428,9 +455,23 @@ export function PermissionsPage() {
                       });
                       return (
                         <div key={module.key} className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-start">
-                          <p className="pt-0.5 text-sm font-medium">
-                            {moduleLabel(module.key, t)}
-                          </p>
+                          {(() => {
+                            const keys = sorted.map((action) => `${module.key}:${action}`);
+                            const held = keys.filter((k) => selected.permissions.includes(k) || inherited.has(k));
+                            const state = held.length === 0 ? false : held.length === keys.length ? true : 'indeterminate';
+                            const onlyInherited = keys.every((k) => inherited.has(k) && !selected.permissions.includes(k));
+                            return (
+                              <label className="flex cursor-pointer items-center gap-2 pt-0.5 text-sm font-medium">
+                                <Checkbox
+                                  checked={state}
+                                  disabled={onlyInherited}
+                                  aria-label={t('perm.moduleAll', undefined, { module: moduleLabel(module.key, t) })}
+                                  onCheckedChange={() => toggleModule(keys, state !== true)}
+                                />
+                                {moduleLabel(module.key, t)}
+                              </label>
+                            );
+                          })()}
                           <div className="flex flex-wrap gap-x-5 gap-y-2">
                             {sorted.map((action) => {
                               const key = `${module.key}:${action}`;
