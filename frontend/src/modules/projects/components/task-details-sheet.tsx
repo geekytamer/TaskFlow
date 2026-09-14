@@ -31,7 +31,6 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { TaskTimePanel } from './task-time-panel';
 import { getCompanyMembers, type CompanyMember } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
-import type { User } from '@/modules/users/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -230,7 +229,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         });
         onTaskUpdate();
         onOpenChange(false);
-    } catch (error) {
+    } catch {
          toast({
             variant: 'destructive',
             title: tr('Error', 'خطأ'),
@@ -267,7 +266,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
         });
         setComments(prevComments => [...prevComments, newCommentObject]);
         setNewComment('');
-    } catch (error) {
+    } catch {
          toast({
             variant: 'destructive',
             title: tr('Error', 'خطأ'),

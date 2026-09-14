@@ -92,7 +92,7 @@ export function JournalTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const { t } = useI18n();
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
   const typeLabel = (type: LedgerAccountType) => t(`journal.type${type}`);
   const typeDescription = (type: LedgerAccountType) => t(accountTypeDescriptionKeys[type]);
   const [entries, setEntries] = React.useState<JournalEntry[]>([]);

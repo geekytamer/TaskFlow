@@ -7,8 +7,8 @@ const templates = [
 ] as never[];
 
 test('template selection keeps a compatible choice and otherwise uses the type default', async () => {
-  const module = await import('./template-selection').catch(() => ({}));
-  const chooseTemplateId = Reflect.get(module, 'chooseTemplateId');
+  const mod = await import('./template-selection').catch(() => ({}));
+  const chooseTemplateId = Reflect.get(mod, 'chooseTemplateId');
 
   assert.equal(chooseTemplateId?.(templates, 'first'), 'first');
   assert.equal(chooseTemplateId?.(templates, 'other-company'), 'default');

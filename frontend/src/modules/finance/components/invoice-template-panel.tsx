@@ -31,7 +31,6 @@ import { invoiceSections } from '../types';
 import type { Company } from '@/modules/companies/types';
 import { InvoiceDocument } from './invoice-document';
 import { InvoiceDesigner } from './invoice-designer';
-import { useCompanyCurrency } from '@/lib/currency';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 
 const makeId = () =>

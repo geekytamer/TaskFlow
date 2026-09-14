@@ -78,7 +78,6 @@ import {
   BadgeDollarSign,
   Send,
   XCircle,
-  ChevronRight,
   ChevronLeft,
   Calendar,
   DollarSign,
@@ -412,7 +411,7 @@ export function ProposalsPage() {
 // ─── Campaigns Page ───────────────────────────────────────────────────────────
 
 export function CampaignsPage() {
-  const { selectedCompany, loading, contacts, opportunities, contactName } = useCrmBaseData();
+  const { selectedCompany, contacts, opportunities, contactName } = useCrmBaseData();
   const { currentRole } = useCompany();
   const canManageFinance = usePermissionOr('campaigns', 'campaigns.generate-invoice.create', currentRole !== 'Employee');
   const { amount, money } = useCompanyCurrency();

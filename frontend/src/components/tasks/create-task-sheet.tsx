@@ -25,7 +25,7 @@ import {
 import {
   placeholderUsers,
 } from '@/lib/placeholder-data';
-import { taskPriorities, type TaskPriority } from '@/lib/types';
+import { taskPriorities } from '@/lib/types';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, X } from 'lucide-react';
 import { Calendar } from '../ui/calendar';

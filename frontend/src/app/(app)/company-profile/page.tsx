@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { CompanyProfilePanel } from '@/modules/companies/components/company-profile-panel';
 
 export default function CompanyProfileRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager'], { permission: 'settings:companies.read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager'], { permission: 'settings:companies.read' });
   const { t } = useI18n();
 
   if (loading || !user) {

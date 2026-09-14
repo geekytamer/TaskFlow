@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useTour, useSeenTours } from './tour-context';
+import { useTour } from './tour-context';
 import { useI18n } from '@/context/i18n-context';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { HelpCircle, Play } from 'lucide-react';
-import { TOURS } from './tour-steps';
 
 // Welcome modal shown on first ever visit
 export function WelcomeTourModal() {

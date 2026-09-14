@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { getPublicDocument } from '@/services/documentService';
-import type { DocBlock, DocumentModel, Letterhead } from '@/modules/documents/types';
+import type { DocBlock } from '@/modules/documents/types';
 import { resolveTokens, type TokenContext } from '@/modules/documents/tokens';
 import { DocRenderer } from '@/modules/finance/doc/doc-renderer';
 import { templateToDoc } from '@/modules/finance/doc/template-to-doc';

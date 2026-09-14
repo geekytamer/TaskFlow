@@ -5,7 +5,6 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { getBillMatches, type BillMatch, type BillMatchStatus } from '@/services/operationsService';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,

@@ -117,7 +117,6 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
   const [amount, setAmount] = React.useState('');
   const [lead, setLead] = React.useState('');
 
-  const refresh = async () => setRfq(await getRfq(rfq.id));
 
   const addQuote = async () => {
     const nameFromSupplier = suppliers.find((s) => s.id === supplierId)?.name;

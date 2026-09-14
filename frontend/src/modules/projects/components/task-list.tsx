@@ -496,7 +496,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
       );
       try {
         await updateTask(task.id, { status: next });
-      } catch (error: any) {
+      } catch {
         setTasks((prev) =>
           prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t)),
         );

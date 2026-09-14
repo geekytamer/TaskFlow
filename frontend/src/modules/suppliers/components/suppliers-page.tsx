@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,10 +14,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useI18n } from '@/context/i18n-context';
@@ -77,7 +76,7 @@ export function SuppliersPage() {
       try {
         const [contactData, orderData, payableData] = await Promise.all([
           getContacts(selectedCompany.id, 'Vendor'),
-          getPurchaseOrders(selectedCompany.id),
+          isModuleOn(selectedCompany, 'purchasing') ? getPurchaseOrders(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getPurchaseOrders>>),
           getSupplierPayables(selectedCompany.id),
         ]);
         if (!cancelled) {

@@ -108,7 +108,7 @@ export function CreateProjectSheet() {
       setSelectedMembers([]);
       setSelectedClient(undefined);
       setOpen(false);
-    } catch (error) {
+    } catch {
        toast({
         variant: 'destructive',
         title: tr('Error', 'خطأ'),

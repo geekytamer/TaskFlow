@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -215,8 +216,8 @@ export function VendorBillTable() {
         getVendorBills(selectedCompany.id),
         getLedgerAccounts(selectedCompany.id),
         getSuppliers(selectedCompany.id),
-        getPurchaseOrders(selectedCompany.id),
-        getPurchaseOrderPayables(selectedCompany.id),
+        isModuleOn(selectedCompany, 'purchasing') ? getPurchaseOrders(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getPurchaseOrders>>),
+        isModuleOn(selectedCompany, 'purchasing') ? getPurchaseOrderPayables(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getPurchaseOrderPayables>>),
       ]);
       setBills(billData);
       setAccounts(accountData);

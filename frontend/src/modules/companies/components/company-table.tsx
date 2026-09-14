@@ -60,7 +60,7 @@ export function CompanyTable() {
       });
       refreshCompanies();
       setCompanyToDelete(null);
-    } catch (error) {
+    } catch {
        toast({
         variant: 'destructive',
         title: tr('Error', 'خطأ'),

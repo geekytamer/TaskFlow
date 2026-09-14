@@ -17,6 +17,7 @@ import { BudgetPanel } from './budget-panel';
 import { VatPanel } from './vat-panel';
 import { useI18n } from '@/context/i18n-context';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
+import { usePermissions } from '@/context/permissions-context';
 
 const VALID_TABS = new Set([
   'overview',
@@ -31,13 +32,18 @@ const VALID_TABS = new Set([
   'vat',
 ]);
 
+const TAB_MODULES: Record<string, string> = { invoices: 'invoices', payables: 'vendor-bills' };
+
 export function FinancePage() {
   const { t } = useI18n();
+  const { moduleOn } = usePermissions();
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
+  // A tab whose module the company switched off is not offered.
+  const tabOn = (tab: string) => !TAB_MODULES[tab] || moduleOn(TAB_MODULES[tab]);
   const initialTab =
-    tabFromUrl && VALID_TABS.has(tabFromUrl) ? tabFromUrl : 'overview';
+    tabFromUrl && VALID_TABS.has(tabFromUrl) && tabOn(tabFromUrl) ? tabFromUrl : 'overview';
 
   const [billsVersion, setBillsVersion] = React.useState(0);
 
@@ -66,8 +72,12 @@ export function FinancePage() {
         <div className="overflow-x-auto pb-1">
           <TabsList className="flex h-auto min-w-max justify-start gap-1" data-tutorial="finance-tabs">
           <TabsTrigger value="overview" data-tutorial="finance-tab-overview">{t('finance.tabOverview')}</TabsTrigger>
-          <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
-          <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
+          {tabOn('invoices') && (
+            <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
+          )}
+          {tabOn('payables') && (
+            <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
+          )}
           <TabsTrigger value="ledger" data-tutorial="finance-tab-ledger">{t('finance.tabLedger')}</TabsTrigger>
           <TabsTrigger value="accounting">{t('finance.tabAccountingReports')}</TabsTrigger>
           <TabsTrigger value="reports" data-tutorial="finance-tab-reports">{t('finance.tabReports')}</TabsTrigger>
@@ -80,14 +90,18 @@ export function FinancePage() {
         <TabsContent value="overview">
           <FinanceOverviewPanel />
         </TabsContent>
-        <TabsContent value="invoices">
-          <InvoiceTable />
-        </TabsContent>
-        <TabsContent value="payables" className="space-y-4">
-          <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
-          {/* Remount so a freshly raised draft shows up without a manual reload. */}
-          <VendorBillTable key={billsVersion} />
-        </TabsContent>
+        {tabOn('invoices') && (
+          <TabsContent value="invoices">
+            <InvoiceTable />
+          </TabsContent>
+        )}
+        {tabOn('payables') && (
+          <TabsContent value="payables" className="space-y-4">
+            <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
+            {/* Remount so a freshly raised draft shows up without a manual reload. */}
+            <VendorBillTable key={billsVersion} />
+          </TabsContent>
+        )}
         <TabsContent value="ledger">
           <JournalTable />
         </TabsContent>
@@ -102,7 +116,8 @@ export function FinancePage() {
         </TabsContent>
         <TabsContent value="expenses" className="space-y-4">
           <StandaloneExpenseTable />
-          <ExpenseTable />
+          {/* Task expenses come from the tasks module. */}
+          {moduleOn('tasks') && <ExpenseTable />}
         </TabsContent>
         <TabsContent value="budgets">
           <BudgetPanel />

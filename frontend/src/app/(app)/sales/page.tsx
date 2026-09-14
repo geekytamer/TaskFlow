@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { SalesPage } from '@/modules/sales/components/sales-page';
 
 export default function SalesRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'sales:read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'sales:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

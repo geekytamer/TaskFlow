@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 test('letter templates start as letters rather than invoices', async () => {
-  const module = await import('./template-to-doc');
-  const doc = module.templateToDoc({
+  const mod = await import('./template-to-doc');
+  const doc = mod.templateToDoc({
     docType: 'letter',
     name: 'Client Letter',
     primaryColor: '#111827',
@@ -20,7 +20,7 @@ test('letter templates start as letters rather than invoices', async () => {
 });
 
 test('generic document tokens resolve through the existing preview context', async () => {
-  const module = await import('./tokens');
+  const mod = await import('./tokens');
   const context = {
     invoice: {
       invoiceNumber: 'DOC-42',
@@ -33,6 +33,6 @@ test('generic document tokens resolve through the existing preview context', asy
     publicUrl: '',
   } as never;
 
-  assert.equal(module.resolveToken('document.number', context), 'DOC-42');
-  assert.notEqual(module.resolveToken('document.date', context), '');
+  assert.equal(mod.resolveToken('document.number', context), 'DOC-42');
+  assert.notEqual(mod.resolveToken('document.date', context), '');
 });

@@ -51,7 +51,6 @@ import {
   TrendingUp,
   DollarSign,
   Target,
-  BadgeDollarSign,
   Calendar,
   ChevronRight,
   ChevronLeft,

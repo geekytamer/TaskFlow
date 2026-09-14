@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { ClientsPage } from '@/modules/clients/components/clients-page';
 
 export default function ClientsRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'contacts:clients.read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'contacts:clients.read' });
   const { t } = useI18n();
 
   if (loading || !user) {

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -127,7 +128,7 @@ export function InventoryPage() {
   const { selectedCompany, currentRole } = useCompany();
   const confirm = useConfirm();
   const canManageInventory = usePermissionOr('inventory', 'write', currentRole !== 'Employee');
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = React.useCallback(
@@ -206,13 +207,13 @@ export function InventoryPage() {
         // Purchasing, Contacts and Projects data enriches this page but is not
         // what it is for. A viewer holding only inventory permissions is
         // legitimately refused them, and that must not fail the whole load.
-        optionalFetch(getPurchaseOrders(selectedCompany.id), []),
-        optionalFetch(getSuppliers(selectedCompany.id), []),
+        isModuleOn(selectedCompany, 'purchasing') ? optionalFetch(getPurchaseOrders(selectedCompany.id), []) : Promise.resolve([] as Awaited<ReturnType<typeof getPurchaseOrders>>),
+        isModuleOn(selectedCompany, 'contacts') ? optionalFetch(getSuppliers(selectedCompany.id), []) : Promise.resolve([] as Awaited<ReturnType<typeof getSuppliers>>),
         getStockMovements(selectedCompany.id),
         getInventoryLocationBalances(selectedCompany.id),
         getWarehouses(selectedCompany.id),
         getExpiringLots(selectedCompany.id, 30),
-        optionalFetch(getProjects(), []),
+        isModuleOn(selectedCompany, 'projects') ? optionalFetch(getProjects(), []) : Promise.resolve([] as Awaited<ReturnType<typeof getProjects>>),
       ]);
       setItems(itemData);
       setOrders(orderData);

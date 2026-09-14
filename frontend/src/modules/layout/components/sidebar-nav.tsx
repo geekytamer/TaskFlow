@@ -49,7 +49,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { useCompany } from '@/context/company-context';
 import { getWhatsappChats } from '@/services/whatsappService';
-import { usePermissions } from '@/context/permissions-context';
+import { usePermissions, usePermissionOr } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
@@ -102,7 +102,7 @@ const sections: NavSection[] = [
     items: [
       { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-contacts' },
       { href: '/influencers', labelKey: 'nav.influencers', icon: Sparkles, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-influencers' },
-      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], tutorial: 'nav-whatsapp' },
+      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-whatsapp' },
       { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
       { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
       { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
@@ -144,9 +144,14 @@ export function SidebarNav() {
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
   const [whatsappUnread, setWhatsappUnread] = React.useState(0);
+  const canReadChats = usePermissionOr(
+    'whatsapp',
+    'whatsapp.chats.read',
+    effectiveRole === 'Admin' || effectiveRole === 'Manager' || effectiveRole === 'Accountant',
+  );
 
   React.useEffect(() => {
-    if (!selectedCompany?.id) {
+    if (!selectedCompany?.id || !canReadChats) {
       setWhatsappUnread(0);
       return;
     }
@@ -160,7 +165,7 @@ export function SidebarNav() {
     fetchUnread();
     const id = window.setInterval(fetchUnread, 30000);
     return () => window.clearInterval(id);
-  }, [selectedCompany?.id]);
+  }, [selectedCompany?.id, canReadChats]);
 
   const badges: Record<string, number> = {
     '/whatsapp': whatsappUnread,

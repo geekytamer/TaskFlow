@@ -6,7 +6,7 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 
 export default function UsersRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager'], { permission: 'settings:users.read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager'], { permission: 'settings:users.read' });
   const { t } = useI18n();
 
   if (loading || !user) {

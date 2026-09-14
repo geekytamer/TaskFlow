@@ -15,7 +15,6 @@ import type { Client } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 import { usePermissionOr } from '@/context/permissions-context';
-import { cn } from '@/lib/utils';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();

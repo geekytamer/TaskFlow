@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { format, startOfMonth } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -105,7 +106,7 @@ export function PurchasesPage() {
   const canApprove = usePermissionOr('purchasing', 'approve', currentRole === 'Admin' || currentRole === 'Manager');
   const { toast } = useToast();
   const confirm = useConfirm();
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
@@ -144,8 +145,8 @@ export function PurchasesPage() {
     try {
       const [orderData, itemData, supplierData, receiptData, payableData] = await Promise.all([
         getPurchaseOrders(selectedCompany.id),
-        getInventoryItems(selectedCompany.id),
-        getContacts(selectedCompany.id, 'Vendor'),
+        isModuleOn(selectedCompany, 'inventory') ? getInventoryItems(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getInventoryItems>>),
+        isModuleOn(selectedCompany, 'contacts') ? getContacts(selectedCompany.id, 'Vendor') : Promise.resolve([] as Awaited<ReturnType<typeof getContacts>>),
         getPurchaseReceipts(selectedCompany.id),
         getPurchaseOrderPayables(selectedCompany.id),
       ]);

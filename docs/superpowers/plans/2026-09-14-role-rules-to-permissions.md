@@ -148,3 +148,46 @@ kept, so switching back on restores the same access.
   /hr/payroll shows the turned-off page, /hr/employees still renders, the group
   editor marks both. API: 403 with a clear message; feed lists them.
 - [ ] Browser: the switches in the create and edit company dialogs.
+
+## Part 5 — Module gaps and a bug sweep
+
+Gaps left by Part 4, now closed:
+
+- [x] A switched-off module produces nothing: no notifications (and existing
+  ones are hidden from the bell, unread count and digest), no automatic
+  follow-ups from its records, no WhatsApp intake (the webhook still answers
+  200 so the provider stops retrying).
+- [x] The dashboard, management report, contact summary, and record
+  attachments and timelines leave out switched-off modules.
+- [x] In-page sections: Finance hides the Invoices and Payables tabs and task
+  expenses; invoice, client, bill, supplier, purchase, inventory pages, the
+  command palette and the onboarding checklist stop loading data from
+  switched-off modules.
+- [x] Frontend lint: ESLint 9 with Next's rules. 81 errors fixed; `any` is a
+  warning (about 400 remain). Builds now fail on type or lint errors instead of
+  ignoring them (`next.config.ts`).
+
+Bugs found and fixed:
+
+- **Saving some company details erased the others.** Unsent fields were
+  written as NULL, so renaming a company cleared its legal name, tax number
+  and phone. Reproduced, fixed, tested.
+- **SQL injection in the contact list.** The viewer's user id was pasted into
+  the query, and `POST /users` accepted any caller-chosen id. An old-query
+  control returned a private contact to a crafted id. Now bound, and ids must
+  be plain.
+- **Contacts created as Private were saved as Public** through the API, and
+  visible to everyone in the company. Reproduced with an Employee, fixed,
+  tested.
+- **Report print windows ran record names as HTML** in a window sharing the
+  app's origin. Names are escaped. Both print views also passed `noopener`,
+  which makes `window.open` return null by spec, so Print did nothing.
+- **WhatsApp for Employees:** the menu and page offered the inbox while its
+  API refuses them, and the bell and sidebar polled it every 30 seconds for
+  403s. Menu, page and polling now follow `whatsapp.chats.read`.
+
+Verification: backend 268/268; frontend type-check clean, lint 0 errors,
+`next build` passes with checks enforced. Browser (legacy engine, Invoices,
+Tasks and WhatsApp off): Finance without Invoices (a `?tab=invoices` link lands
+on Overview), sidebar without Tasks and WhatsApp, dashboard without task or
+invoice figures, checklist without the invoice step, WhatsApp page turned off.

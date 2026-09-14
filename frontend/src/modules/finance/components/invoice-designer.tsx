@@ -335,7 +335,8 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const toggleCollapsed = (id: string) =>
     setCollapsedIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   const savedSnapshot = React.useRef(JSON.stringify(initialDoc));

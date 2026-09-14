@@ -25,7 +25,7 @@ export function ExpenseTable() {
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
   const { t } = useI18n();
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
 
   React.useEffect(() => {
     async function load() {

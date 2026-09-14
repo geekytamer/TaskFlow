@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { escapeHtml } from '@/lib/html';
 import { getCurrentLocale } from '@/lib/locale';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ const renderPrintDocument = (
 ) => `
   <html>
     <head>
-      <title>${companyName} ${tr('Management Report', 'تقرير إداري')}</title>
+      <title>${escapeHtml(companyName)} ${tr('Management Report', 'تقرير إداري')}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
         h1, h2 { margin: 0 0 12px; }
@@ -38,7 +39,7 @@ const renderPrintDocument = (
       </style>
     </head>
     <body>
-      <h1>${companyName} ${tr('Management Report', 'تقرير إداري')}</h1>
+      <h1>${escapeHtml(companyName)} ${tr('Management Report', 'تقرير إداري')}</h1>
       <div class="label">${tr('Generated', 'تم الإنشاء')} ${new Date().toLocaleString(getCurrentLocale())}</div>
       <h2>${tr('KPIs', 'مؤشرات الأداء')}</h2>
       <div class="grid">
@@ -54,14 +55,14 @@ const renderPrintDocument = (
       <table>
         <thead><tr><th>${tr('Client', 'العميل')}</th><th>${tr('Total Billed', 'إجمالي المفوتر')}</th><th>${tr('Paid', 'المدفوع')}</th><th>${tr('Outstanding', 'المستحق')}</th></tr></thead>
         <tbody>
-          ${summary.topClients.map((client) => `<tr><td>${client.clientName}</td><td>${money(client.totalBilled)}</td><td>${money(client.paidAmount)}</td><td>${money(client.outstandingAmount)}</td></tr>`).join('')}
+          ${summary.topClients.map((client) => `<tr><td>${escapeHtml(client.clientName)}</td><td>${money(client.totalBilled)}</td><td>${money(client.paidAmount)}</td><td>${money(client.outstandingAmount)}</td></tr>`).join('')}
         </tbody>
       </table>
       <h2>${tr('Top Suppliers', 'أهم الموردين')}</h2>
       <table>
         <thead><tr><th>${tr('Supplier', 'المورّد')}</th><th>${tr('Ordered', 'المطلوب')}</th><th>${tr('Open Payables', 'الذمم الدائنة المفتوحة')}</th><th>${tr('Remaining To Bill', 'المتبقي للفوترة')}</th></tr></thead>
         <tbody>
-          ${summary.topSuppliers.map((supplier) => `<tr><td>${supplier.supplierName}</td><td>${money(supplier.totalOrderedAmount)}</td><td>${money(supplier.openPayables)}</td><td>${money(supplier.remainingToBill)}</td></tr>`).join('')}
+          ${summary.topSuppliers.map((supplier) => `<tr><td>${escapeHtml(supplier.supplierName)}</td><td>${money(supplier.totalOrderedAmount)}</td><td>${money(supplier.openPayables)}</td><td>${money(supplier.remainingToBill)}</td></tr>`).join('')}
         </tbody>
       </table>
     </body>
@@ -120,8 +121,11 @@ export function ReportsPanel() {
 
   const handlePrint = () => {
     if (!summary || !selectedCompany) return;
-    const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
+    // No 'noopener' here: with it, window.open returns null and nothing prints.
+    // The link back to this page is cut right after opening instead.
+    const reportWindow = window.open('', '_blank', 'width=1200,height=900');
     if (!reportWindow) return;
+    reportWindow.opener = null;
     reportWindow.document.write(renderPrintDocument(summary, selectedCompany.name, money, tr));
     reportWindow.document.close();
     reportWindow.focus();

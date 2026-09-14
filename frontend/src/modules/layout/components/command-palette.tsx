@@ -25,7 +25,6 @@ import {
   BadgeDollarSign,
   Banknote,
   BookUser,
-  Building,
   CalendarClock,
   ChartNoAxesCombined,
   CheckSquare,
@@ -64,7 +63,7 @@ const navTargets: PaletteNavItem[] = [
   { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant', 'Employee'] },
+  { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant'] },
   { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'] },
@@ -125,11 +124,11 @@ export function CommandPalette() {
     if (!open || !selectedCompany?.id) return;
     const cid = selectedCompany.id;
     Promise.allSettled([
-      getContacts(cid).then((d) => setContacts(d)),
-      getInvoices(cid).then((d) => setInvoices(d)),
-      getSalesOrders(cid).then((d) => setOrders(d)),
+      (moduleOn('contacts') ? getContacts(cid) : Promise.resolve([])).then((d) => setContacts(d)),
+      (moduleOn('invoices') ? getInvoices(cid) : Promise.resolve([])).then((d) => setInvoices(d)),
+      (moduleOn('sales') ? getSalesOrders(cid) : Promise.resolve([])).then((d) => setOrders(d)),
     ]);
-  }, [open, selectedCompany?.id]);
+  }, [open, selectedCompany?.id, moduleOn]);
 
   const visibleNav = React.useMemo(
     () =>
@@ -150,7 +149,7 @@ export function CommandPalette() {
         if (item.href === '/settings') return effectiveRole === 'Admin';
         return effectiveRole ? item.roles.includes(effectiveRole) : false;
       }),
-    [effectiveRole, can, permissionsLoaded],
+    [effectiveRole, can, moduleOn, permissionsLoaded],
   );
 
   const go = (href: string) => {

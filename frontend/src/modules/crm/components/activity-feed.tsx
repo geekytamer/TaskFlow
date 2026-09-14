@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/context/i18n-context';
 import type { CrmActivity } from '@/services/crmService';
 import { Phone, MessageCircle, Mail, Users, FileText, Clock, StickyNote, Zap, CalendarClock } from 'lucide-react';

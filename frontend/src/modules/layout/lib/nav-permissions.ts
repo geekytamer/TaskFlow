@@ -23,7 +23,8 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/crm/commissions': 'commissions:read',
   '/contacts': 'contacts:contacts.read',
   '/influencers': 'contacts:read',
-  '/whatsapp': 'whatsapp:read',
+  // The inbox lists chats. whatsapp:read covers only the Admin's connection screens.
+  '/whatsapp': 'whatsapp:whatsapp.chats.read',
   '/crm/opportunities': 'crm:read',
   '/crm/campaigns': 'campaigns:read',
   '/crm/followups': 'crm:read',

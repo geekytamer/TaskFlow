@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { InventoryPage } from '@/modules/inventory/components/inventory-page';
 
 export default function InventoryRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
   const { t } = useI18n();
 
   if (loading || !user) {

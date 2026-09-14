@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { notFound, useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { addProjectMember, deleteProject, getProjectById, removeProjectMember, updateProject } from '@/services/projectService';
 import type { Project, User } from '@/lib/types';
 import { useCompany } from '@/context/company-context';
@@ -11,7 +11,6 @@ import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -62,7 +61,7 @@ export default function ProjectDetailsPage() {
   const [editOpen, setEditOpen] = React.useState(false);
   const [financeOpen, setFinanceOpen] = React.useState(false);
   const { toast } = useToast();
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
 
   React.useEffect(() => {
     async function fetchData() {
@@ -134,7 +133,7 @@ export default function ProjectDetailsPage() {
       setProject(updated);
       toast({ title: tr('Project updated', 'تم تحديث المشروع') });
       setEditOpen(false);
-    } catch (error) {
+    } catch {
       toast({ variant: 'destructive', title: tr('Update failed', 'فشل التحديث'), description: tr('Could not update project.', 'تعذر تحديث المشروع.') });
     } finally {
       setSaving(false);
@@ -149,7 +148,7 @@ export default function ProjectDetailsPage() {
       await deleteProject(project.id);
       toast({ title: tr('Project deleted', 'تم حذف المشروع') });
       router.push('/projects');
-    } catch (error) {
+    } catch {
       toast({ variant: 'destructive', title: tr('Delete failed', 'فشل الحذف'), description: tr('Could not delete project.', 'تعذر حذف المشروع.') });
     } finally {
       setDeleting(false);

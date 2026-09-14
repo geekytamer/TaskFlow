@@ -77,7 +77,7 @@ export function AddCompanyDialog({
       });
       onCompanyAdded();
       handleOpenChange(false);
-    } catch (error) {
+    } catch {
       toast({
         variant: 'destructive',
         title: tr('Error', 'خطأ'),

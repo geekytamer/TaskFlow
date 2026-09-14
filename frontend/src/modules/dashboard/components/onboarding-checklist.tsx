@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import Link from 'next/link';
 import { CheckCircle2, Circle, X } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
@@ -45,11 +46,12 @@ export function OnboardingChecklist() {
       setCounts(null);
       return;
     }
+    const on = (module: string) => isModuleOn(selectedCompany, module);
     Promise.allSettled([
-      getContacts(companyId),
-      getInventoryItems(companyId),
-      getInvoices(companyId),
-      getSalesOrders(companyId),
+      on('contacts') ? getContacts(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getContacts>>),
+      on('inventory') ? getInventoryItems(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getInventoryItems>>),
+      on('invoices') ? getInvoices(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getInvoices>>),
+      on('sales') ? getSalesOrders(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getSalesOrders>>),
     ]).then((res) => {
       const len = (idx: number) =>
         res[idx].status === 'fulfilled' ? (res[idx] as PromiseFulfilledResult<any[]>).value.length : 0;
@@ -60,7 +62,7 @@ export function OnboardingChecklist() {
         salesOrders: len(3),
       });
     });
-  }, [companyId]);
+  }, [companyId, selectedCompany]);
 
   const handleDismiss = () => {
     if (!companyId) return;
@@ -105,13 +107,17 @@ export function OnboardingChecklist() {
     },
   ];
 
-  const doneCount = items.filter((i) => i.done).length;
-  const allDone = doneCount === items.length;
+  // Steps for a module the company switched off are not asked for.
+  const stepModules: Record<string, string> = { contact: 'contacts', inventory: 'inventory', salesOrder: 'sales', invoice: 'invoices' };
+  const offered = items.filter((item) => isModuleOn(selectedCompany, stepModules[item.id]));
+  if (offered.length === 0) return null;
+  const doneCount = offered.filter((i) => i.done).length;
+  const allDone = doneCount === offered.length;
 
   // Only show when there is meaningful onboarding still to do
   if (allDone) return null;
 
-  const percent = Math.round((doneCount / items.length) * 100);
+  const percent = Math.round((doneCount / offered.length) * 100);
 
   return (
     <div className="relative rounded-2xl border bg-gradient-to-br from-indigo-50 via-white to-emerald-50 p-5 shadow-sm">
@@ -129,7 +135,7 @@ export function OnboardingChecklist() {
           <p className="text-sm text-slate-500">{t('onboarding.subtitle')}</p>
         </div>
         <div className="text-sm font-semibold text-emerald-700">
-          {doneCount}/{items.length} · {percent}%
+          {doneCount}/{offered.length} · {percent}%
         </div>
       </div>
       <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/70">
@@ -139,7 +145,7 @@ export function OnboardingChecklist() {
         />
       </div>
       <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-        {items.map((item) => (
+        {offered.map((item) => (
           <li key={item.id}>
             <Link
               href={item.href}

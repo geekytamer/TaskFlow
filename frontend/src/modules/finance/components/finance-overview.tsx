@@ -62,7 +62,7 @@ export function FinanceOverviewPanel() {
   const { toast } = useToast();
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
   const bucketLabel = (bucket: AgingBucket['bucket']) => t(bucketLabelKey[bucket]);
   const [overview, setOverview] = React.useState<FinanceOverview | null>(null);
   const [receivablesAging, setReceivablesAging] = React.useState<AgingBucket[]>([]);

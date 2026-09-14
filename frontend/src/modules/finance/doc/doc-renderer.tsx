@@ -677,7 +677,7 @@ function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock
   );
 }
 
-function DetailsView({ block, ctx, theme, style }: { block: DetailsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; style: React.CSSProperties }) {
+function DetailsView({ block, ctx, style }: { block: DetailsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; style: React.CSSProperties }) {
   return (
     <div style={style}>
       {block.title && <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: '#94a3b8' }}>{block.title}</div>}

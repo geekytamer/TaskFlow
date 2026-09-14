@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +31,6 @@ import {
 } from '@/components/ui/table';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
-import { useCompanyCurrency } from '@/lib/currency';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
 import type {
   Delivery,
@@ -77,7 +75,6 @@ export function DeliveryManagementDialog({
 }: DeliveryManagementDialogProps) {
   const { t } = useI18n();
   const { toast } = useToast();
-  const { amount } = useCompanyCurrency();
   const [deliveries, setDeliveries] = React.useState<Delivery[]>([]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [templateId, setTemplateId] = React.useState('');

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -37,7 +38,6 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { add, format } from 'date-fns';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { useCompanyCurrency } from '@/lib/currency';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
@@ -126,7 +126,9 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         if (selectedClient && selectedCompany) {
             setLoadingTasks(true);
             try {
-              const tasks = await getTasksByClient(selectedCompany.id, selectedClient);
+              const tasks = isModuleOn(selectedCompany, 'tasks')
+                ? await getTasksByClient(selectedCompany.id, selectedClient)
+                : [];
               const candidates = tasks.filter(t => t.invoiceAmount && !t.generatedInvoiceId);
               setBillableTasks(candidates);
               setSelectedTaskIds([]);

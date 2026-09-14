@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import {
   Table,
   TableBody,
@@ -43,7 +44,7 @@ export function ClientTable() {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -78,8 +79,8 @@ export function ClientTable() {
       try {
       const [clientData, invoiceData, projectData] = await Promise.all([
         getClients(selectedCompany.id),
-        getInvoices(selectedCompany.id),
-        getProjects(),
+        isModuleOn(selectedCompany, 'invoices') ? getInvoices(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getInvoices>>),
+        isModuleOn(selectedCompany, 'projects') ? getProjects() : Promise.resolve([] as Awaited<ReturnType<typeof getProjects>>),
       ]);
       setClients(clientData);
       setInvoices(invoiceData);

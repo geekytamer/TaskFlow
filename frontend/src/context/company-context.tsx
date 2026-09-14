@@ -7,7 +7,6 @@ import type { Project } from '@/modules/projects/types';
 import type { User } from '@/modules/users/types';
 import { getCompanies } from '@/services/companyService';
 import { getProjects } from '@/services/projectService';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useCurrentUser } from '@/hooks/use-current-user';
 
 interface CompanyContextType {

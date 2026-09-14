@@ -24,7 +24,7 @@ import {
 } from '../ui/select';
 import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { ChartContainer, ChartTooltipContent } from '../ui/chart';
+import { ChartContainer } from '../ui/chart';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { useI18n } from '@/context/i18n-context';
 

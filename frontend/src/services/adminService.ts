@@ -92,7 +92,7 @@ export const adminService = {
   refreshInvoiceStatuses: () =>
     apiFetch<{ refreshed: number }>('/admin/tools/refresh-invoice-statuses', { method: 'POST' }),
 
-  backupUrl: (baseUrl: string, token: string) =>
+  backupUrl: (baseUrl: string, _token: string) =>
     `${baseUrl}/admin/tools/backup`,
 
   impersonate: async (userId: string) => {

@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,7 +35,7 @@ import {
 import { LogActivityDialog } from './log-activity-dialog';
 import Link from 'next/link';
 import {
-  Phone, MessageCircle, Mail, Users as UsersIcon, CalendarClock, CheckCircle2, Clock, Zap,
+  Phone, MessageCircle, Mail, Users as UsersIcon, CheckCircle2, Clock,
   Search, Plus, MoreHorizontal, UserPlus, Pencil, ListTodo, LayoutList, X,
   LayoutGrid, AlertTriangle, Shuffle, TrendingDown, ChevronRight,
 } from 'lucide-react';

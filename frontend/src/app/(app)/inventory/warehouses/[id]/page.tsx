@@ -7,7 +7,7 @@ import { useI18n } from '@/context/i18n-context';
 import { WarehouseDetailPage } from '@/modules/inventory/components/warehouse-detail-page';
 
 export default function WarehouseDetailRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
   const { t } = useI18n();
   const params = useParams<{ id: string }>();
   const warehouseId = params?.id;

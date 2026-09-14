@@ -78,7 +78,7 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
       });
       fetchData();
       setPositionToDelete(null);
-    } catch (error) {
+    } catch {
        toast({
         variant: 'destructive',
         title: tr('Error', 'خطأ'),

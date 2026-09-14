@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { SuppliersPage } from '@/modules/suppliers/components/suppliers-page';
 
 export default function SuppliersRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'contacts:suppliers.read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'contacts:suppliers.read' });
   const { t } = useI18n();
 
   if (loading || !user) {

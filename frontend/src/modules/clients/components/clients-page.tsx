@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +14,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
@@ -76,8 +76,8 @@ export function ClientsPage() {
       try {
         const [contactData, invoiceData, projectData] = await Promise.all([
           getContacts(selectedCompany.id, 'Client'),
-          getInvoices(selectedCompany.id),
-          getProjects(),
+          isModuleOn(selectedCompany, 'invoices') ? getInvoices(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getInvoices>>),
+          isModuleOn(selectedCompany, 'projects') ? getProjects() : Promise.resolve([] as Awaited<ReturnType<typeof getProjects>>),
         ]);
         if (!cancelled) {
           setContacts(contactData);

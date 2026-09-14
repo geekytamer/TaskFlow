@@ -91,7 +91,7 @@ export function AddPositionDialog({
       });
       onPositionAdded();
       handleOpenChange(false);
-    } catch (error) {
+    } catch {
       toast({
         variant: 'destructive',
         title: tr('Error', 'خطأ'),

@@ -194,7 +194,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         form.reset();
         setOpen(false);
         router.refresh();
-    } catch (error) {
+    } catch {
          toast({
             variant: 'destructive',
             title: tr('Error', 'خطأ'),

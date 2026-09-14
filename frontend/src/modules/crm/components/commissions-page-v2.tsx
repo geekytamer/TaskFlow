@@ -139,7 +139,6 @@ export function CommissionsPageV2() {
   const draftTotal = commissions.filter((c) => c.status === 'Draft').reduce((s, c) => s + c.amount, 0);
   const approvedTotal = commissions.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.amount, 0);
   const paidTotal = commissions.filter((c) => c.status === 'Paid').reduce((s, c) => s + c.amount, 0);
-  const userMap = new Map(users.map((u) => [u.id, u]));
 
   return (
     <SectionPageShell title={t('commissions.title')} description={t('commissions.subtitle')}>
@@ -635,7 +634,6 @@ function RulesTab({
 // ─── Eligibility tab ────────────────────────────────────────────────────────
 
 function EligibilityTab({
-  companyId,
   users,
   onChanged,
 }: {

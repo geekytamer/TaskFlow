@@ -71,7 +71,7 @@ export function SettingsPage() {
       });
     } catch (error: any) {
       console.error(error);
-      let description = error?.message || t('settingsPage.couldNotCreateAdmin');
+      const description = error?.message || t('settingsPage.couldNotCreateAdmin');
       toast({
         variant: 'destructive',
         title: t('settingsPage.adminCreationFailed'),

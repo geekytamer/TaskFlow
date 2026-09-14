@@ -57,6 +57,8 @@ import {
 } from 'lucide-react';
 
 const AVAILABILITY = ['Available', 'Partially Available', 'Unavailable'] as const;
+// Used only for its type.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const SORTS = ['followers', 'engagement', 'rate', 'name'] as const;
 type SortKey = (typeof SORTS)[number];
 

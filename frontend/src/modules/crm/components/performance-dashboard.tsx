@@ -10,7 +10,7 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { getCrmPerformance, getCrmDashboard, type EmployeePerformance, type CrmDashboardSummary } from '@/services/crmService';
-import { TrendingUp, TrendingDown, Target, Users, AlertCircle, CheckCircle2, DollarSign, CalendarClock } from 'lucide-react';
+import { TrendingUp, Users, AlertCircle, DollarSign } from 'lucide-react';
 
 function StatCard({ label, value, sub, icon: Icon, color }: {
   label: string; value: React.ReactNode; sub?: string;

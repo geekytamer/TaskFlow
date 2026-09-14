@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import {
   Table,
   TableBody,
@@ -102,8 +103,8 @@ export function InvoiceTable() {
         getInvoices(selectedCompany.id),
         getClients(selectedCompany.id),
         getInvoiceTemplates(selectedCompany.id),
-        getTasks(),
-        getCampaigns(selectedCompany.id, true),
+        isModuleOn(selectedCompany, 'tasks') ? getTasks() : Promise.resolve([] as Awaited<ReturnType<typeof getTasks>>),
+        isModuleOn(selectedCompany, 'campaigns') ? getCampaigns(selectedCompany.id, true) : Promise.resolve([] as Awaited<ReturnType<typeof getCampaigns>>),
       ]);
       setInvoices(invoiceData);
       setClients(clientData);
@@ -825,7 +826,7 @@ export function InvoiceTable() {
                   template={previewInvoice.templateSnapshot || getTemplate(previewInvoice.templateId)}
                 />
               </div>
-              {selectedCompany && (
+              {selectedCompany && isModuleOn(selectedCompany, 'commissions') && (
                 <InvoiceCommissionsPanel
                   companyId={selectedCompany.id}
                   invoiceId={previewInvoice.id}

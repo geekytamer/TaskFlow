@@ -6,7 +6,7 @@ import { FinancePage } from '@/modules/finance/components/finance-page';
 import { useI18n } from '@/context/i18n-context';
 
 export default function FinanceRoute() {
-  const { user, loading, effectiveRole, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'finance:read' });
+  const { user, loading, allowed } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'finance:read' });
   const { t } = useI18n();
 
   if (loading || !user) {
