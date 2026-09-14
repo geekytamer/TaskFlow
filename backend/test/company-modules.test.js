@@ -154,3 +154,112 @@ test('the feed leaves out a switched-off module, and the groups keep their grant
   await switchOff(ctx, []);
   assert.deepEqual((await feed()).permissions, before.permissions, 'switching back on restores the same access');
 });
+
+const setModulesOff = (store, modules) => store.updateCompany(COMPANY, { disabledModules: modules });
+
+test('a switched-off module sends no notifications and hides the ones already sent', () => {
+  const { store, admin } = build();
+  const employee = store.listUsers().find((u) => u.email === 'charlie.d@innovatecorp.com');
+  const send = () => store.notify({ companyId: COMPANY, userIds: [employee.id], type: 'task_due', title: 'Due soon: probe' });
+
+  assert.equal(send().length, 1);
+  const visible = () => store.listNotifications(employee.id).filter((n) => n.title === 'Due soon: probe').length;
+  const unread = store.unreadNotificationCount(employee.id);
+  assert.equal(visible(), 1);
+
+  setModulesOff(store, ['tasks']);
+  assert.deepEqual(send(), [], 'nothing new is sent');
+  assert.equal(visible(), 0, 'earlier ones are hidden');
+  assert.equal(store.unreadNotificationCount(employee.id), unread - 1);
+  assert.ok(!store.listPendingDigestNotifications().some((n) => n.title === 'Due soon: probe'), 'and left out of the digest');
+
+  setModulesOff(store, []);
+  assert.equal(visible(), 1, 'switching back on shows them again');
+  assert.ok(admin);
+});
+
+test('automatic follow-ups need CRM and the module of their source record', () => {
+  const { store } = build();
+  const contact = store.createContact({ companyId: COMPANY, name: 'Follow-up Probe' });
+  const schedule = (sourceId) => store.scheduleAutomaticFollowup({
+    companyId: COMPANY, contactId: contact.id, trigger: 'InvoiceOverdue', sourceType: 'invoice', sourceId,
+    summary: 'probe', nextAction: 'probe', offsetDays: 0,
+  });
+  setModulesOff(store, ['crm']);
+  assert.equal(schedule('probe-1'), undefined);
+  setModulesOff(store, ['invoices']);
+  assert.equal(schedule('probe-2'), undefined);
+  setModulesOff(store, []);
+  assert.ok(schedule('probe-3'), 'with both on it is scheduled');
+});
+
+test('a switched-off WhatsApp module takes in no messages', async () => {
+  const { app, store } = build();
+  const instance = store.upsertWhatsappInstance(COMPANY, { idInstance: '1101', apiToken: 'probe-token' });
+  assert.ok(instance.webhookToken, 'the instance has a webhook token');
+  const deliver = (id) => request(app).post(`/whatsapp/webhook/${instance.webhookToken}`).send({
+    typeWebhook: 'incomingMessageReceived', idMessage: id, timestamp: Math.floor(Date.now() / 1000),
+    senderData: { chatId: '96890000000@c.us' }, messageData: { textMessageData: { textMessage: 'hello' } },
+  });
+  const stored = (id) => store.listWhatsappMessages(COMPANY, { limit: 500 }).some((m) => m.externalId === id);
+
+  setModulesOff(store, ['whatsapp']);
+  const ignored = await deliver('probe-off');
+  assert.equal(ignored.status, 200, 'still acknowledged, so the provider stops retrying');
+  assert.equal(ignored.body.ignored, true);
+  assert.equal(stored('probe-off'), false);
+
+  setModulesOff(store, []);
+  assert.equal((await deliver('probe-on')).status, 200);
+  assert.equal(stored('probe-on'), true);
+});
+
+test('the dashboard leaves out figures from a switched-off module', () => {
+  const { store, admin } = build();
+  const payload = () => store.getDashboardPayload(COMPANY, { userId: admin.id, role: 'Admin' });
+  const taskItems = (p) => [
+    ...p.metrics.map((m) => m.id), ...p.charts.map((c) => c.id), ...p.alerts.map((a) => a.id),
+  ].filter((id) => /task/.test(id));
+  assert.ok(taskItems(payload()).length > 0, 'tasks show while the module is on');
+  setModulesOff(store, ['tasks', 'projects']);
+  const off = payload();
+  assert.deepEqual(taskItems(off), []);
+  assert.ok(!off.quickActions.some((a) => a.route === '/projects'));
+  assert.ok(off.metrics.length > 0, 'other figures remain');
+});
+
+test('contact summaries and record timelines respect switched-off modules', async () => {
+  const ctx = build();
+  const { app, store, adminAuth } = ctx;
+  const summary = async (id) => (await request(app).get(`/contacts/${id}/summary`).set('Authorization', adminAuth)).body;
+  const client = store.createContact({ companyId: COMPANY, name: 'Summary Probe' });
+  const now = new Date();
+  const invoice = store.createInvoice({
+    companyId: COMPANY, clientId: client.id, contactId: client.id,
+    issueDate: now, dueDate: new Date(now.getTime() + 7 * 86400000), status: 'Sent', total: 100,
+    lineItems: [{ description: 'Probe', quantity: 1, unitPrice: 100, amount: 100, itemType: 'Manual' }],
+  });
+  assert.equal((await summary(client.id)).invoices.length, 1, 'the invoice shows while invoices are on');
+
+  const task = store.listTasks().find((t) => t.companyId === COMPANY && !t.isPrivate);
+  const timeline = () => request(app).get(`/companies/${COMPANY}/records/task/${task.id}/timeline`).set('Authorization', adminAuth);
+  assert.equal((await timeline()).status, 200);
+
+  setModulesOff(store, ['invoices', 'tasks']);
+  const off = await summary(client.id);
+  assert.deepEqual(off.invoices, []);
+  assert.equal(off.totals.invoiceCount, 0);
+  assert.equal((await timeline()).status, 403);
+  const attachments = await request(app).get(`/companies/${COMPANY}/records/invoice/${invoice.id}/attachments`).set('Authorization', adminAuth);
+  assert.equal(attachments.status, 403);
+});
+
+test('the management report leaves out switched-off modules', () => {
+  const { store } = build();
+  setModulesOff(store, ['inventory', 'purchasing']);
+  const summary = store.getManagementReportSummary(COMPANY);
+  assert.deepEqual(summary.inventory, { totalItems: 0, stockValue: 0, lowStockCount: 0, outOfStockCount: 0 });
+  assert.deepEqual(summary.lowStockItems, []);
+  assert.equal(summary.purchases.openOrders, 0);
+  assert.deepEqual(summary.topSuppliers, []);
+});

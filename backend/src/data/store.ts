@@ -4,7 +4,44 @@ import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
-import { normalizeDisabledModules } from '../permissions/company-modules';
+import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
+
+/** Which module each dashboard figure comes from, for companies that switched modules off. */
+const DASHBOARD_METRIC_MODULES: Readonly<Record<string, string>> = {
+  'open-tasks': 'tasks', 'overdue-tasks': 'tasks', 'due-soon': 'tasks', 'completion-rate': 'tasks',
+  'active-projects': 'projects',
+  'low-stock-items': 'inventory',
+  'open-receivables': 'invoices', 'billed-this-month': 'invoices', 'paid-this-month': 'invoices',
+  'open-payables': 'vendor-bills',
+};
+const DASHBOARD_CHART_MODULES: Readonly<Record<string, string>> = {
+  'task-status': 'tasks', 'priority-mix': 'tasks', 'deadline-pressure': 'tasks', 'task-load': 'tasks',
+  'purchase-lifecycle': 'purchasing',
+  'inventory-health': 'inventory',
+  'finance-exposure': 'invoices', 'cashflow-trend': 'invoices', aging: 'invoices',
+};
+/** Alert ids are prefixes: most carry the record id after them. */
+const DASHBOARD_ALERT_MODULES: Readonly<Record<string, string>> = {
+  'manager-overdue-tasks': 'tasks', 'admin-overdue-tasks': 'tasks',
+  'low-stock-': 'inventory', 'admin-low-stock-': 'inventory',
+  'awaiting-receipt': 'purchasing',
+  'overdue-invoice-': 'invoices', 'admin-overdue-invoice-': 'invoices',
+  'overdue-bill-': 'vendor-bills', 'admin-overdue-bill-': 'vendor-bills',
+};
+const DASHBOARD_ROUTE_MODULES: Readonly<Record<string, string>> = {
+  '/projects': 'projects', '/tasks': 'tasks', '/inventory': 'inventory', '/purchases': 'purchasing',
+  '/finance': 'finance', '/sales': 'sales', '/clients': 'contacts', '/contacts': 'contacts',
+};
+
+/** The module an automatic follow-up's source record belongs to. */
+const FOLLOWUP_SOURCE_MODULES: Readonly<Record<string, string>> = {
+  invoice: 'invoices',
+  delivery: 'sales',
+  opportunity: 'crm',
+  proposal: 'crm',
+  contact: 'contacts',
+  whatsapp_message: 'whatsapp',
+};
 import { seedData } from './seed-data';
 import {
   Company,
@@ -177,7 +214,7 @@ import {
   LeaveBalance,
 } from '../types';
 import {
-  NOTIFICATION_META,
+  NOTIFICATION_META, NOTIFICATION_MODULES,
   defaultNotificationPrefs,
   normalizeNotificationPrefs,
 } from '../notifications';
@@ -4252,9 +4289,15 @@ export class DataStore {
   updateCompany(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
     const existing = this.getCompanyById(id);
     if (!existing) return undefined;
+    // Absent fields keep their value. The route passes every field, with
+    // undefined for those the request left out, and spreading those would
+    // silently erase the stored details.
+    const provided = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined),
+    ) as Partial<Omit<Company, 'id'>>;
     const updated: Company = {
       ...existing,
-      ...updates,
+      ...provided,
       name: updates.name ?? existing.name,
       website: updates.website ?? existing.website,
       address: updates.address ?? existing.address,
@@ -5738,8 +5781,10 @@ export class DataStore {
     // Private contacts are visible to their owner, or to holders of contacts:private.read
     const visibilityClause =
       viewer && !viewer.seesPrivate
-        ? `AND (c.visibility = 'Public' OR c.ownerUserId = '${viewer.userId}')`
+        ? `AND (c.visibility = 'Public' OR c.ownerUserId = ?)`
         : '';
+    // Bound, never pasted into the SQL: user ids can come from API callers.
+    const visibilityParams = viewer && !viewer.seesPrivate ? [viewer.userId] : [];
 
     let rows: any[];
     if (roleFilter) {
@@ -5754,7 +5799,7 @@ export class DataStore {
            GROUP BY c.id
            ORDER BY c.name ASC`,
         )
-        .all(companyId, companyId, roleFilter) as any[];
+        .all(companyId, companyId, roleFilter, ...visibilityParams) as any[];
     } else {
       rows = this.db
         .prepare(
@@ -5766,7 +5811,7 @@ export class DataStore {
            GROUP BY c.id
            ORDER BY c.name ASC`,
         )
-        .all(companyId) as any[];
+        .all(companyId, ...visibilityParams) as any[];
     }
     return rows.map((row) => this.decodeContact(row));
   }
@@ -5804,6 +5849,8 @@ export class DataStore {
 			    priority?: Contact['priority'];
 			    ownerUserId?: string;
 			    ownerName?: string;
+			    /** Private contacts are visible to their owner and holders of contacts:private.read. */
+			    visibility?: 'Public' | 'Private';
 			    nextFollowupDate?: Date;
 			    nextFollowupNote?: string;
 			    influencerPlatform?: string;
@@ -5823,11 +5870,11 @@ export class DataStore {
     const customFields = this.normalizeCustomFields(input.companyId, 'contact', input.customFields);
 	  this.db.prepare(
 		      `INSERT INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, address, taxNumber, tags, notes, clientId, supplierId,
-		         leadStatus, leadSource, priority, ownerUserId, ownerName, nextFollowupDate, nextFollowupNote,
+		         leadStatus, leadSource, priority, ownerUserId, ownerName, visibility, nextFollowupDate, nextFollowupNote,
 		         influencerPlatform, influencerHandle, influencerNiche, followerCount, engagementRate, rateCardAmount, location, languages, availabilityStatus, influencerAccounts, customFields,
 		         createdAt, updatedAt)
 		       VALUES (@id, @companyId, @kind, @name, @legalName, @contactPerson, @email, @phone, @address, @taxNumber, @tags, @notes, @clientId, @supplierId,
-		         @leadStatus, @leadSource, @priority, @ownerUserId, @ownerName, @nextFollowupDate, @nextFollowupNote,
+		         @leadStatus, @leadSource, @priority, @ownerUserId, @ownerName, @visibility, @nextFollowupDate, @nextFollowupNote,
 		         @influencerPlatform, @influencerHandle, @influencerNiche, @followerCount, @engagementRate, @rateCardAmount, @location, @languages, @availabilityStatus, @influencerAccounts, @customFields,
 		         @now, @now)`,
 	    ).run({
@@ -5850,6 +5897,7 @@ export class DataStore {
 			      priority: input.priority ?? null,
 			      ownerUserId: input.ownerUserId ?? null,
 			      ownerName: input.ownerName ?? null,
+			      visibility: input.visibility === 'Private' ? 'Private' : 'Public',
 			      nextFollowupDate: input.nextFollowupDate ? new Date(input.nextFollowupDate).toISOString() : null,
 			      nextFollowupNote: input.nextFollowupNote ?? null,
 			      influencerPlatform: input.influencerPlatform ?? null,
@@ -16100,14 +16148,19 @@ export class DataStore {
           : event.summary,
     }));
 
+    // Sections from a module the company switched off are reported empty.
+    const on = (module: string) => this.isModuleEnabled(companyId, module);
     return {
       finance,
-      inventory,
-      purchases,
-      topClients,
-      topSuppliers,
-      lowStockItems,
-      recentActivity,
+      inventory: on('inventory') ? inventory : { totalItems: 0, stockValue: 0, lowStockCount: 0, outOfStockCount: 0 },
+      purchases: on('purchasing') ? purchases : { openOrders: 0, orderedSpend: 0, awaitingReceiptUnits: 0, unbilledValue: 0 },
+      topClients: on('invoices') ? topClients : [],
+      topSuppliers: on('purchasing') ? topSuppliers : [],
+      lowStockItems: on('inventory') ? lowStockItems : [],
+      recentActivity: recentActivity.filter((event) => {
+        const module = RECORD_ENTITY_MODULES[event.entityType];
+        return !module || on(module);
+      }),
     };
   }
 
@@ -16219,7 +16272,31 @@ export class DataStore {
     }));
   }
 
+  /**
+   * The dashboard, without anything from a module the company switched off:
+   * its metrics, charts, alerts, shortcuts and activity are left out.
+   */
   getDashboardPayload(
+    companyId: string,
+    viewer: { userId: string; role: UserRole },
+  ): DashboardPayload {
+    const payload = this.buildDashboardPayload(companyId, viewer);
+    const disabled = this.getDisabledModules(companyId);
+    if (disabled.length === 0) return payload;
+    const off = (module: string | undefined) => Boolean(module && disabled.includes(module));
+    const byPrefix = (id: string, prefixes: Record<string, string>) =>
+      Object.entries(prefixes).find(([prefix]) => id === prefix || id.startsWith(prefix))?.[1];
+    return {
+      ...payload,
+      metrics: payload.metrics.filter((metric) => !off(DASHBOARD_METRIC_MODULES[metric.id])),
+      charts: payload.charts.filter((chart) => !off(DASHBOARD_CHART_MODULES[chart.id])),
+      alerts: payload.alerts.filter((alert) => !off(byPrefix(alert.id, DASHBOARD_ALERT_MODULES))),
+      quickActions: payload.quickActions.filter((action) => !off(DASHBOARD_ROUTE_MODULES[action.route])),
+      activity: payload.activity.filter((item) => !off(RECORD_ENTITY_MODULES[item.entityType])),
+    };
+  }
+
+  private buildDashboardPayload(
     companyId: string,
     viewer: { userId: string; role: UserRole },
   ): DashboardPayload {
@@ -17169,6 +17246,7 @@ export class DataStore {
   }): Notification[] {
     const meta = NOTIFICATION_META[input.type];
     if (!meta) return [];
+    if (!this.notificationModuleOn(input.companyId, input.type)) return [];
     const actorId = this.currentActor?.userId;
     const recipients = Array.from(new Set(input.userIds.filter((id) => id && id !== actorId)));
     if (recipients.length === 0) return [];
@@ -17233,6 +17311,12 @@ export class DataStore {
   }
 
   /** List a user's notifications, filtered to categories they keep in-app. */
+  /** False when the notification's module is switched off for its company. */
+  private notificationModuleOn(companyId: string, type: string): boolean {
+    const module = NOTIFICATION_MODULES[type as keyof typeof NOTIFICATION_MODULES];
+    return !module || this.isModuleEnabled(companyId, module);
+  }
+
   listNotifications(userId: string, options: { limit?: number; unreadOnly?: boolean } = {}): Notification[] {
     const prefs = this.getNotificationPrefs(userId);
     const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
@@ -17246,8 +17330,12 @@ export class DataStore {
          WHERE userId = ? AND category IN (${placeholders}) ${unreadClause}
          ORDER BY createdAt DESC LIMIT ?`,
       )
-      .all(userId, ...inAppCategories, limit) as any[];
-    return rows.map((row) => this.decodeNotification(row));
+      // Over-fetch: notifications from a switched-off module are dropped below.
+      .all(userId, ...inAppCategories, limit * 4) as any[];
+    return rows
+      .filter((row) => this.notificationModuleOn(row.companyId, row.type))
+      .slice(0, limit)
+      .map((row) => this.decodeNotification(row));
   }
 
   unreadNotificationCount(userId: string): number {
@@ -17255,12 +17343,16 @@ export class DataStore {
     const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
     if (inAppCategories.length === 0) return 0;
     const placeholders = inAppCategories.map(() => '?').join(',');
-    const row = this.db
+    const rows = this.db
       .prepare(
-        `SELECT COUNT(*) AS c FROM notifications WHERE userId = ? AND readAt IS NULL AND category IN (${placeholders})`,
+        `SELECT companyId, type, COUNT(*) AS c FROM notifications
+          WHERE userId = ? AND readAt IS NULL AND category IN (${placeholders})
+          GROUP BY companyId, type`,
       )
-      .get(userId, ...inAppCategories) as any;
-    return Number(row?.c ?? 0);
+      .all(userId, ...inAppCategories) as Array<{ companyId: string; type: string; c: number }>;
+    return rows
+      .filter((row) => this.notificationModuleOn(row.companyId, row.type))
+      .reduce((sum, row) => sum + Number(row.c), 0);
   }
 
   markNotificationRead(userId: string, notificationId: string): boolean {
@@ -17297,7 +17389,9 @@ export class DataStore {
         "SELECT * FROM notifications WHERE priority = 'normal' AND emailedAt IS NULL ORDER BY userId, createdAt ASC",
       )
       .all() as any[];
-    return rows.map((row) => this.decodeNotification(row));
+    return rows
+      .filter((row) => this.notificationModuleOn(row.companyId, row.type))
+      .map((row) => this.decodeNotification(row));
   }
 
   /** Notify assignees of tasks that are due within 24h or already overdue (once/day). */
@@ -18098,6 +18192,11 @@ export class DataStore {
     category?: import('../types').ActivityCategory;
   }): FollowUp | undefined {
     if (!input.contactId) return undefined;
+    // Follow-ups live in CRM, and each one comes from a record in some module.
+    // Neither may be switched off.
+    if (!this.isModuleEnabled(input.companyId, 'crm')) return undefined;
+    const sourceModule = input.sourceType ? FOLLOWUP_SOURCE_MODULES[input.sourceType] : undefined;
+    if (sourceModule && !this.isModuleEnabled(input.companyId, sourceModule)) return undefined;
     const contact = this.getContactById(input.contactId);
     if (!contact || contact.companyId !== input.companyId) return undefined;
 

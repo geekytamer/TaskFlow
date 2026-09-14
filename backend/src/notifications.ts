@@ -30,6 +30,28 @@ export const NOTIFICATION_META: Record<
   po_approval_result: { category: 'finance', priority: 'normal' },
 };
 
+/**
+ * The module each notification belongs to. A company that switched the module
+ * off gets none of them (permissions/company-modules.ts). Typed against every
+ * notification type, so a new type cannot be added without choosing one.
+ */
+export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
+  task_assigned: 'tasks',
+  task_status: 'tasks',
+  task_comment: 'tasks',
+  task_due: 'tasks',
+  invoice_overdue: 'invoices',
+  invoice_payment: 'invoices',
+  vendor_bill_approval: 'vendor-bills',
+  followup_due: 'crm',
+  followup_assigned: 'crm',
+  lead_assigned: 'contacts',
+  low_stock: 'inventory',
+  expiry_warning: 'inventory',
+  po_approval: 'purchasing',
+  po_approval_result: 'purchasing',
+};
+
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
 
 /** Everything on by default — users opt out in preferences. */

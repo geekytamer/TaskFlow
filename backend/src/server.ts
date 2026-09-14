@@ -15,7 +15,7 @@ import {
   type FgaReader,
 } from './permissions/permission-service';
 import { recordShadowCheck, routeToPermission, recordDivergence } from './permissions/shadow';
-import { isSwitchableModule } from './permissions/company-modules';
+import { isSwitchableModule, RECORD_ENTITY_MODULES } from './permissions/company-modules';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
 import { projectCompanyDelta, type TupleStore } from './permissions/sync';
@@ -244,6 +244,19 @@ const activityEntityTypes = [
   'invoice',
   'vendor_bill',
 ] as const;
+/**
+ * A caller-chosen user id (imports keep ids stable). Ids reach queries and
+ * URLs, so only letters, digits, dash, underscore and dot are accepted.
+ */
+const userIdFromBody = (value: unknown): string | undefined => {
+  const id = optionalString(value);
+  if (id === undefined || id === '') return undefined;
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) {
+    throw new HttpError(400, 'id may contain only letters, digits, dot, dash and underscore (at most 64).');
+  }
+  return id;
+};
+
 const recordEntityTypes = [
   ...activityEntityTypes,
   'company',
@@ -1023,6 +1036,9 @@ export function createServer(options: CreateServerOptions = {}) {
     entityType: RecordEntityType,
     entityId: string,
   ) => {
+    requireCompanyAccess(req, companyId);
+    const recordModule = RECORD_ENTITY_MODULES[entityType];
+    if (recordModule) requireModuleOn(companyId, recordModule);
     if (entityType === 'project') {
       const project = store.getProjectById(entityId);
       if (!project || project.companyId !== companyId) {
@@ -2691,7 +2707,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ? true
           : false;
       const user = store.createUser({
-        id: optionalString(asRecord(req.body, 'body').id),
+        id: userIdFromBody(asRecord(req.body, 'body').id),
         name: payload.name!,
         email: payload.email!,
         password: payload.password!,
@@ -3362,6 +3378,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        priority: body.priority !== undefined ? enumValue(body.priority, 'priority', contactPriorities) : undefined,
 		        ownerUserId: !managesAll ? req.user!.id : optionalString(body.ownerUserId),
 		        ownerName: !managesAll ? req.user!.name : optionalString(body.ownerName),
+		        visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as const) : undefined,
 		        nextFollowupDate: body.nextFollowupDate ? new Date(optionalDateInput(body.nextFollowupDate)!) : undefined,
 		        nextFollowupNote: optionalString(body.nextFollowupNote),
 		        influencerPlatform: optionalString(body.influencerPlatform),
@@ -3469,6 +3486,8 @@ export function createServer(options: CreateServerOptions = {}) {
         'Employee',
       ]);
       const companyId = contact.companyId;
+      // Sections from a module the company switched off stay empty.
+      const on = (module: string) => store.isModuleEnabled(companyId, module);
 
       // Clients and suppliers are contact-backed: the "client" id an invoice/order
       // carries is `contact.clientId || contact.id` (see contactToClient), and the
@@ -3479,36 +3498,30 @@ export function createServer(options: CreateServerOptions = {}) {
       const linkedClientId = contact.clientId || contact.id;
       const linkedSupplierId = contact.supplierId || contact.id;
 
-      const invoices = store
-        .listInvoices(companyId)
+      const invoices = (on('invoices') ? store.listInvoices(companyId) : ([] as ReturnType<typeof store.listInvoices>))
         .filter(
           (inv) =>
             inv.contactId === contact.id ||
             (linkedClientId && inv.clientId === linkedClientId),
         );
-      const salesOrders = store
-        .listSalesOrders(companyId)
+      const salesOrders = (on('sales') ? store.listSalesOrders(companyId) : ([] as ReturnType<typeof store.listSalesOrders>))
         .filter(
           (order) =>
             order.contactId === contact.id ||
             (linkedClientId && order.clientId === linkedClientId),
         );
       const purchaseOrders = linkedSupplierId
-        ? store
-            .listPurchaseOrders(companyId)
+        ? (on('purchasing') ? store.listPurchaseOrders(companyId) : ([] as ReturnType<typeof store.listPurchaseOrders>))
             .filter((po) => po.supplierId === linkedSupplierId)
         : [];
       const vendorBills = linkedSupplierId
-        ? store
-            .listVendorBills(companyId)
+        ? (on('vendor-bills') ? store.listVendorBills(companyId) : ([] as ReturnType<typeof store.listVendorBills>))
             .filter((bill) => bill.supplierId === linkedSupplierId)
         : [];
-      const opportunities = store
-        .listOpportunities(companyId)
+      const opportunities = (on('crm') ? store.listOpportunities(companyId) : ([] as ReturnType<typeof store.listOpportunities>))
         .filter((opp) => opp.contactId === contact.id);
       const projects = linkedClientId
-        ? store
-            .listProjects()
+        ? (on('projects') ? store.listProjects() : ([] as ReturnType<typeof store.listProjects>))
             .filter(
               (project) =>
                 project.companyId === companyId && project.clientId === linkedClientId,
@@ -7005,7 +7018,9 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const token = req.params.webhookToken;
       const instance = store.getWhatsappInstanceByWebhookToken(token);
-      if (!instance) {
+      // A switched-off WhatsApp module takes in nothing. Still answer 200, or
+      // the provider keeps retrying the delivery.
+      if (!instance || !store.isModuleEnabled(instance.companyId, 'whatsapp')) {
         res.status(200).json({ ok: true, ignored: true });
         return;
       }

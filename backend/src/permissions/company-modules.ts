@@ -29,3 +29,17 @@ export function normalizeDisabledModules(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((v): v is string => typeof v === 'string' && isSwitchableModule(v)))].sort();
 }
+
+/** The module that owns each kind of record, for activity, attachments and timelines. */
+export const RECORD_ENTITY_MODULES: Readonly<Record<string, string>> = {
+  task: 'tasks', project: 'projects',
+  invoice: 'invoices', credit_note: 'invoices', payment: 'invoices',
+  vendor_bill: 'vendor-bills', vendor_payment: 'vendor-bills',
+  purchase_order: 'purchasing', purchase_receipt: 'purchasing',
+  sales_order: 'sales', delivery: 'sales', quotation: 'sales',
+  inventory_item: 'inventory', stock_movement: 'inventory',
+  client: 'contacts', supplier: 'contacts', contact: 'contacts',
+  opportunity: 'crm', campaign: 'campaigns', commission: 'commissions',
+  employee: 'hr', payroll_run: 'payroll', document: 'documents',
+  ledger_account: 'finance', journal_entry: 'finance',
+};
