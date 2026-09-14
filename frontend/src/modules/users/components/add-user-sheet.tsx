@@ -36,7 +36,7 @@ import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
-import { fetchPermissionGroups } from '@/services/permissionService';
+import { fetchPermissionGroups, fetchUserGroups, setUserGroups, type PermissionGroup } from '@/services/permissionService';
 import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Building, BadgeDollarSign } from 'lucide-react';
@@ -122,20 +122,17 @@ export function AddUserSheet({
    * Until a company's groups are known, or if they cannot be read, every role
    * is offered and the server decides.
    */
-  const [builtInKeysByCompany, setBuiltInKeysByCompany] = React.useState<Record<string, Set<string>>>({});
+  const [groupsByCompany, setGroupsByCompany] = React.useState<Record<string, PermissionGroup[]>>({});
   const companyIdsKey = (selectedCompanyIds || []).join(',');
   React.useEffect(() => {
-    const missing = (selectedCompanyIds || []).filter((cid) => !(cid in builtInKeysByCompany));
+    const missing = (selectedCompanyIds || []).filter((cid) => !(cid in groupsByCompany));
     if (missing.length === 0) return;
     let active = true;
     Promise.all(
-      missing.map((cid) =>
-        fetchPermissionGroups(cid)
-          .then((groups) => [cid, new Set(groups.filter((g) => g.isSystem).map((g) => g.key))] as const)
-          .catch(() => null)),
+      missing.map((cid) => fetchPermissionGroups(cid).then((groups) => [cid, groups] as const).catch(() => null)),
     ).then((rows) => {
       if (!active) return;
-      setBuiltInKeysByCompany((prev) => {
+      setGroupsByCompany((prev) => {
         const next = { ...prev };
         rows.forEach((row) => {
           if (row) next[row[0]] = row[1];
@@ -149,10 +146,60 @@ export function AddUserSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyIdsKey]);
 
+  const roleGroupId = (companyId: string, role: UserRole) =>
+    groupsByCompany[companyId]?.find((g) => g.isSystem && g.key === role.toLowerCase())?.id;
+
   const rolesFor = (companyId: string, current?: UserRole) => {
-    const keys = builtInKeysByCompany[companyId];
-    if (!keys) return availableRoles;
+    const groups = groupsByCompany[companyId];
+    if (!groups) return availableRoles;
+    const keys = new Set(groups.filter((g) => g.isSystem).map((g) => g.key));
     return availableRoles.filter((role) => keys.has(role.toLowerCase()) || role === current);
+  };
+
+  /**
+   * Permission groups per company, for people who administer the company.
+   *
+   * A company's selection starts as what the server would assign anyway — the
+   * person's current groups when editing, otherwise their role's built-in
+   * group — and follows role changes. Only a selection someone actually changed
+   * is saved; untouched companies are left to the server, which assigns the
+   * role's built-in group and keeps custom groups.
+   */
+  const canAssignGroups = canAssignElevatedRoles;
+  const [selectedGroups, setSelectedGroups] = React.useState<Record<string, string[]>>({});
+  const [groupsTouched, setGroupsTouched] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
+    if (!canAssignGroups) return;
+    let active = true;
+    (selectedCompanyIds || []).forEach((cid) => {
+      if (groupsTouched[cid] || !groupsByCompany[cid] || selectedGroups[cid]) return;
+      if (userToEdit && (userToEdit.companyIds || []).includes(cid)) {
+        fetchUserGroups(cid, userToEdit.id)
+          .then(({ groups }) => {
+            if (active) setSelectedGroups((prev) => (prev[cid] ? prev : { ...prev, [cid]: groups.map((g) => g.id) }));
+          })
+          .catch(() => undefined);
+      } else {
+        const id = roleGroupId(cid, companyAssignments[cid]?.role || 'Employee');
+        setSelectedGroups((prev) => (prev[cid] ? prev : { ...prev, [cid]: id ? [id] : [] }));
+      }
+    });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyIdsKey, groupsByCompany, userToEdit?.id, canAssignGroups]);
+
+  /** Swaps the built-in group for the new role's, keeping custom groups — as the server does. */
+  const followRoleChange = (companyId: string, role: UserRole) => {
+    setSelectedGroups((prev) => {
+      const current = prev[companyId];
+      if (!current) return prev;
+      const builtIns = new Set((groupsByCompany[companyId] || []).filter((g) => g.isSystem).map((g) => g.id));
+      const kept = current.filter((id) => !builtIns.has(id));
+      const id = roleGroupId(companyId, role);
+      return { ...prev, [companyId]: id ? [...kept, id] : kept };
+    });
   };
 
   // Only platform super-admins manage users across companies. A company admin
@@ -239,6 +286,8 @@ export function AddUserSheet({
         companyIds: editableCompanyIds,
       });
       setCompanyAssignments(existingAssignments);
+      setSelectedGroups({});
+      setGroupsTouched({});
       setCommission({
         eligible: Boolean(userToEdit.commissionEligible),
         rate: userToEdit.defaultCommissionRate != null ? String(userToEdit.defaultCommissionRate) : '',
@@ -257,6 +306,8 @@ export function AddUserSheet({
               : [],
       });
       setCompanyAssignments({});
+      setSelectedGroups({});
+      setGroupsTouched({});
       setCommission({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
     }
   }, [companyItems, form, manageableCompanyIds, selectedCompany, userToEdit]);
@@ -266,6 +317,27 @@ export function AddUserSheet({
       form.reset();
     }
     onOpenChange(isOpen);
+  };
+
+  const saveGroupSelections = async (userId: string | undefined, companyIds: string[]) => {
+    if (!canAssignGroups || !userId) return;
+    for (const cid of companyIds) {
+      if (!groupsTouched[cid]) continue;
+      try {
+        await setUserGroups(cid, userId, selectedGroups[cid] || []);
+      } catch (error) {
+        const company = companies.find((c) => c.id === cid)?.name || cid;
+        const reason = error instanceof Error ? error.message : '';
+        toast({
+          variant: 'destructive',
+          title: tr('Groups not saved', 'لم تُحفظ المجموعات'),
+          description: tr(
+            `The user was saved, but their groups in ${company} were not. ${reason}`,
+            `تم حفظ المستخدم، لكن لم تُحفظ مجموعاته في ${company}. ${reason}`,
+          ),
+        });
+      }
+    }
   };
 
   const onSubmit = async (data: AddUserFormValues) => {
@@ -296,6 +368,7 @@ export function AddUserSheet({
         costRatePerHour:
           commission.costRatePerHour.trim() === '' ? undefined : Number(commission.costRatePerHour),
       };
+      let savedUserId: string | undefined;
       if (isEditMode && userToEdit) {
         await updateUser(userToEdit.id, {
           ...data,
@@ -304,6 +377,7 @@ export function AddUserSheet({
           positionId: undefined,
           ...commissionPayload,
         });
+        savedUserId = userToEdit.id;
         toast({
           title: tr('User Updated', 'تم تحديث المستخدم'),
           description: tr(
@@ -320,6 +394,8 @@ export function AddUserSheet({
           avatar: undefined,
           ...commissionPayload,
         } as any);
+        const created = result as { user?: { id?: string }; id?: string };
+        savedUserId = created.user?.id ?? created.id;
         toast({
           title: tr('User Created', 'تم إنشاء المستخدم'),
           description: tr(
@@ -328,6 +404,7 @@ export function AddUserSheet({
           ),
         });
       }
+      await saveGroupSelections(savedUserId, data.companyIds || []);
       onUserAdded();
       handleOpenChange(false);
     } catch (error: any) {
@@ -426,12 +503,13 @@ export function AddUserSheet({
                         <p className="text-sm font-medium">{company?.name || cid}</p>
                         <Select
                           value={assignment.role}
-                          onValueChange={(value: UserRole) =>
+                          onValueChange={(value: UserRole) => {
                             setCompanyAssignments((prev) => ({
                               ...prev,
                               [cid]: { ...assignment, role: value },
-                            }))
-                          }
+                            }));
+                            followRoleChange(cid, value);
+                          }}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -479,6 +557,31 @@ export function AddUserSheet({
                           </SelectContent>
                         </Select>
                       </div>
+                      {canAssignGroups && groupsByCompany[cid] && (
+                        <div className="space-y-1 sm:col-span-2" data-testid={`groups-${cid}`}>
+                          <p className="text-sm font-medium">{tr('Permission groups', 'مجموعات الصلاحيات')}</p>
+                          <MultiSelect
+                            items={groupsByCompany[cid].map((g) => ({
+                              value: g.id,
+                              label: language === 'ar' && g.nameAr ? g.nameAr : g.name,
+                            }))}
+                            selected={selectedGroups[cid] || []}
+                            onChange={(ids) => {
+                              setSelectedGroups((prev) => ({ ...prev, [cid]: ids }));
+                              setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
+                            }}
+                            placeholder={tr('Select groups', 'اختر المجموعات')}
+                          />
+                          {(selectedGroups[cid] || []).length === 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {tr(
+                                'No groups: this person will have no access in this company.',
+                                'بلا مجموعات: لن تكون لهذا الشخص أي صلاحيات في هذه الشركة.',
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
