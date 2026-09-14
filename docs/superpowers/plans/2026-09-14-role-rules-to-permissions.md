@@ -191,3 +191,9 @@ Verification: backend 268/268; frontend type-check clean, lint 0 errors,
 Tasks and WhatsApp off): Finance without Invoices (a `?tab=invoices` link lands
 on Overview), sidebar without Tasks and WhatsApp, dashboard without task or
 invoice figures, checklist without the invoice step, WhatsApp page turned off.
+
+Staging: deploy run 9 stopped at the frontend's `npm ci`. The lock file written
+by npm 11 was missing nested optional packages, so the server's npm 10 refused
+it. Staging kept serving run 8. Rebuilt the lock file with npm 10.9.8 (da051f9).
+Run 10 went live: the build passed its type and lint checks, OpenFGA agrees
+with SQL, and the real-data comparison still shows 0 differences.
