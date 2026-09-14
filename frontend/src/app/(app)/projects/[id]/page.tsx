@@ -25,7 +25,8 @@ import { getClients, getInvoices } from '@/services/financeService';
 import { getTasks } from '@/services/projectService';
 import type { Client, Invoice, ProjectVisibility, Task } from '@/lib/types';
 import { format } from 'date-fns';
-import { canManageProjects, canViewProject } from '@/modules/projects/lib/access';
+import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modules/projects/lib/access';
+import { usePermissionOr } from '@/context/permissions-context';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { useCompanyCurrency } from '@/lib/currency';
 
@@ -35,6 +36,14 @@ export default function ProjectDetailsPage() {
   const id = params.id as string;
 
   const { selectedCompany, currentUser, currentRole } = useCompany();
+  const seesAllProjects = useSeesAllProjects(currentRole);
+  const isManager = useCanManageProjects(currentRole);
+  // What this page may load follows the permission each request needs; the
+  // role rule it replaced is the fallback under the legacy engine.
+  const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
+  const canLoadUsers = usePermissionOr('settings', 'users.read', managementFallback);
+  const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
+  const canLoadInvoices = usePermissionOr('invoices', 'read', managementFallback);
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [project, setProject] = React.useState<Project | null>(null);
@@ -68,7 +77,7 @@ export default function ProjectDetailsPage() {
         return;
       }
 
-      const canView = canViewProject(projectData, currentUser.id, currentRole);
+      const canView = canViewProject(projectData, currentUser.id, currentRole, seesAllProjects);
 
       if (!canView) {
         // User doesn't have permission to view this private project
@@ -82,12 +91,11 @@ export default function ProjectDetailsPage() {
       setEditVisibility(projectData.visibility);
       setEditClient(projectData.clientId);
 
-      const canLoadCompanyReferences = currentRole && currentRole !== 'Employee';
       const [companyUsers, clientData, taskData, invoiceData] = await Promise.all([
-        canLoadCompanyReferences ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
-        canLoadCompanyReferences ? getClients(selectedCompany.id) : Promise.resolve([]),
+        canLoadUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
+        canLoadClients ? getClients(selectedCompany.id) : Promise.resolve([]),
         getTasks(),
-        canLoadCompanyReferences ? getInvoices(selectedCompany.id) : Promise.resolve([]),
+        canLoadInvoices ? getInvoices(selectedCompany.id) : Promise.resolve([]),
       ]);
       setUsers(companyUsers);
       setClients(clientData);
@@ -97,7 +105,7 @@ export default function ProjectDetailsPage() {
     }
 
     fetchData();
-  }, [id, selectedCompany, router, currentUser, currentRole]);
+  }, [id, selectedCompany, router, currentUser, currentRole, seesAllProjects, canLoadUsers, canLoadClients, canLoadInvoices]);
 
   if (loading) {
     return (
@@ -173,7 +181,6 @@ export default function ProjectDetailsPage() {
 
   const projectMembers = (project?.memberIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean) as User[];
   const availableMembers = users.filter((u) => !(project?.memberIds || []).includes(u.id));
-  const isManager = canManageProjects(currentRole);
   const clientName = clients.find((client) => client.id === project.clientId)?.name;
   const projectTasks = tasks.filter((task) => task.projectId === project.id);
   const projectTaskIds = new Set(projectTasks.map((task) => task.id));

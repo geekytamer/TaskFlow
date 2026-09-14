@@ -7,11 +7,13 @@ import { PlusCircle } from 'lucide-react';
 import { AddUserSheet } from './add-user-sheet';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissionOr } from '@/context/permissions-context';
 
 export function UsersPage() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [refreshToken, setRefreshToken] = React.useState(0);
   const { user, effectiveRole } = useAuthGuard(['Admin', 'Manager']);
+  const canAddUsers = usePermissionOr('settings', 'users.write', Boolean(effectiveRole && ['Admin', 'Manager'].includes(effectiveRole)));
   const { t } = useI18n();
 
   const handleUsersChanged = () => {
@@ -28,7 +30,7 @@ export function UsersPage() {
             {t('users.subtitle')}
           </p>
         </div>
-        {user && effectiveRole && ['Admin', 'Manager'].includes(effectiveRole) && (
+        {user && canAddUsers && (
           <AddUserSheet
             open={isSheetOpen}
             onOpenChange={setIsSheetOpen}

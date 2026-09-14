@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { getTasks } from '@/services/projectService';
 import { format } from 'date-fns';
 import { ExternalLink, Receipt, Image as ImageIcon, Download } from 'lucide-react';
@@ -19,6 +20,7 @@ import { useI18n } from '@/context/i18n-context';
 
 export function ExpenseTable() {
   const { selectedCompany, projects, currentUser } = useCompany();
+  const seesAllProjects = usePermissionOr('projects', 'all.read', currentUser?.role === 'Admin');
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
@@ -53,12 +55,12 @@ export function ExpenseTable() {
   const expenses = React.useMemo(() => {
     if (!selectedCompany) return [];
     const visibleProjectIds = projects
-      .filter((p) => p.companyId === selectedCompany.id && (p.visibility === 'Public' || p.memberIds?.includes(currentUser?.id || '') || currentUser?.role === 'Admin'))
+      .filter((p) => p.companyId === selectedCompany.id && (p.visibility === 'Public' || p.memberIds?.includes(currentUser?.id || '') || seesAllProjects))
       .map((p) => p.id);
     return tasks
       .filter((t) => t.companyId === selectedCompany.id && visibleProjectIds.includes(t.projectId))
       .filter((t) => t.invoiceAmount || t.invoiceVendor || t.invoiceNumber);
-  }, [tasks, selectedCompany, projects, currentUser]);
+  }, [tasks, selectedCompany, projects, currentUser, seesAllProjects]);
 
   if (loading) {
     return (

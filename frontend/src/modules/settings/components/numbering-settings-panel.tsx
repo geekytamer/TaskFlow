@@ -17,6 +17,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { supportedCurrencies, normalizeCurrencyCode, currencyLabel } from '@/lib/currency';
 import type {
@@ -88,7 +89,7 @@ export function NumberingSettingsPanel() {
   const [loading, setLoading] = React.useState(true);
   const [savingFinance, setSavingFinance] = React.useState(false);
 
-  const canEdit = currentRole === 'Admin' || currentRole === 'Manager';
+  const canEdit = usePermissionOr('settings', 'write', currentRole === 'Admin' || currentRole === 'Manager');
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) {

@@ -38,8 +38,8 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/hr/payroll': 'payroll:read',
   '/company-profile': 'settings:companies.read',
   '/users': 'settings:users.read',
-  '/settings': 'settings:write',
-  '/settings/permissions': 'settings:write',
+  '/settings': 'settings:administration.write',
+  '/settings/permissions': 'settings:administration.write',
 };
 
 export function navPermission(href: string): string | undefined {

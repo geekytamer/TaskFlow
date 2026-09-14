@@ -1,4 +1,5 @@
 import type { Express, Response } from 'express';
+import type { RecordRuleName } from './record-rules';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { MODULES, isValidPermission } from './catalogue';
@@ -6,7 +7,7 @@ import { projectCompanyDelta, syncTuples } from './sync';
 import { tuplesForStore } from './tuples';
 
 /** Permissions that a company must never lose its last holder of. */
-const LOCKOUT_GUARD = ['settings:write', 'settings:users.read'] as const;
+const LOCKOUT_GUARD = ['settings:administration.write', 'settings:write', 'settings:users.read'] as const;
 
 export interface PermissionRoutesDeps {
   app: Express;
@@ -14,6 +15,10 @@ export interface PermissionRoutesDeps {
   authMiddleware: unknown;
   handler: (fn: (req: any, res: Response) => unknown) => any;
   requireCompanyRoles: (req: any, companyId: string, roles: any[]) => void;
+  /** Which engine decides access; the permission feed passes it on to the UI. */
+  authzEngine: 'legacy' | 'shadow' | 'openfga';
+  /** Company access plus a record rule (permissions/record-rules.ts). */
+  requireCompanyRule: (req: any, companyId: string, rule: RecordRuleName) => void;
   managementRoles: any[];
   /** Publishes the delta a change made to one company's tuples. */
   projectTuples: (companyId: string, before: ReturnType<typeof tuplesForStore>) => Promise<void>;
@@ -67,7 +72,7 @@ function assertGroupNameAvailable(
 }
 
 export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
-  const { app, store, authMiddleware, handler, requireCompanyRoles, managementRoles } = deps;
+  const { app, store, authMiddleware, handler, requireCompanyRule, authzEngine } = deps;
 
   /**
    * Refuses a change that would leave a company with nobody able to administer
@@ -128,13 +133,17 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     res.json({
       version: store.getAuthzVersion(),
       companyId,
+      // The UI may follow these permissions only when they are what decides.
+      // Under legacy and shadow the server still decides by role, so the UI
+      // must too, or a hand-edited group would change the UI but not the server.
+      engine: authzEngine,
       permissions: store.getEffectivePermissions(req.user!.id, companyId).sort(),
     });
   }));
 
   // ── Groups ─────────────────────────────────────────────────────────
   app.get('/companies/:companyId/permission-groups', authMiddleware as never, handler((req, res) => {
-    requireCompanyRoles(req, req.params.companyId, managementRoles);
+    requireCompanyRule(req, req.params.companyId, 'GROUPS_READ');
     const groups = store.listPermissionGroups(req.params.companyId).map((group) => ({
       ...group,
       isSystem: Boolean(group.isSystem),
@@ -147,7 +156,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   }));
 
   app.post('/companies/:companyId/permission-groups', authMiddleware as never, handler(async (req, res) => {
-    requireCompanyRoles(req, req.params.companyId, ['Admin']);
+    requireCompanyRule(req, req.params.companyId, 'ADMINISTRATION');
     const body = (req.body ?? {}) as Record<string, unknown>;
     const name = groupName(asString(body.name, 'name'));
     assertGroupNameAvailable(store, req.params.companyId, name);
@@ -172,7 +181,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
 
   app.patch('/permission-groups/:id', authMiddleware as never, handler(async (req, res) => {
     const group = loadGroup(req.params.id);
-    requireCompanyRoles(req, group.companyId, ['Admin']);
+    requireCompanyRule(req, group.companyId, 'ADMINISTRATION');
     const body = (req.body ?? {}) as Record<string, unknown>;
     const name = typeof body.name === 'string' ? groupName(body.name) : undefined;
     if (name !== undefined) assertGroupNameAvailable(store, group.companyId, name, group.id);
@@ -187,7 +196,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
 
   app.delete('/permission-groups/:id', authMiddleware as never, handler(async (req, res) => {
     const group = loadGroup(req.params.id);
-    requireCompanyRoles(req, group.companyId, ['Admin']);
+    requireCompanyRule(req, group.companyId, 'ADMINISTRATION');
     // Any group, built-in or custom, may be deleted once nobody depends on it.
     // Deleting a group people are in, directly or through inheritance, would
     // silently take their access away.
@@ -212,7 +221,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   // ── Grants ─────────────────────────────────────────────────────────
   app.put('/permission-groups/:id/permissions', authMiddleware as never, handler(async (req, res) => {
     const group = loadGroup(req.params.id);
-    requireCompanyRoles(req, group.companyId, ['Admin']);
+    requireCompanyRule(req, group.companyId, 'ADMINISTRATION');
     const body = (req.body ?? {}) as Record<string, unknown>;
     if (!Array.isArray(body.permissions)) {
       throw new HttpError(400, 'permissions must be an array of "module:action" strings.');
@@ -233,7 +242,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   // ── Inheritance ────────────────────────────────────────────────────
   app.put('/permission-groups/:id/implications', authMiddleware as never, handler(async (req, res) => {
     const group = loadGroup(req.params.id);
-    requireCompanyRoles(req, group.companyId, ['Admin']);
+    requireCompanyRule(req, group.companyId, 'ADMINISTRATION');
     const body = (req.body ?? {}) as Record<string, unknown>;
     if (!Array.isArray(body.impliedGroupIds)) {
       throw new HttpError(400, 'impliedGroupIds must be an array.');
@@ -254,7 +263,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
 
   // ── Assignments ────────────────────────────────────────────────────
   app.get('/companies/:companyId/users/:userId/groups', authMiddleware as never, handler((req, res) => {
-    requireCompanyRoles(req, req.params.companyId, managementRoles);
+    requireCompanyRule(req, req.params.companyId, 'GROUPS_READ');
     res.json({
       groups: store.listUserGroupAssignments(req.params.userId, req.params.companyId),
       effectivePermissions: store
@@ -265,7 +274,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
 
   app.put('/companies/:companyId/users/:userId/groups', authMiddleware as never, handler(async (req, res) => {
     const { companyId, userId } = req.params;
-    requireCompanyRoles(req, companyId, ['Admin']);
+    requireCompanyRule(req, companyId, 'ADMINISTRATION');
     const body = (req.body ?? {}) as Record<string, unknown>;
     if (!Array.isArray(body.groupIds)) throw new HttpError(400, 'groupIds must be an array.');
 

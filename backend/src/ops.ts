@@ -24,6 +24,7 @@ Commands:
   authz:repair                 Re-seed missing permission groups and user assignments
   fga:sync [--dry-run]         Reconcile OpenFGA tuples with the database
   fga:status                   Show OpenFGA connectivity, outbox depth and authz version
+  authz:compare                Compare role-only rules with what each member's groups grant (read-only)
   fga:bootstrap [--force]      Create the OpenFGA store and model; prints FGA_STORE_ID and FGA_MODEL_ID
 
 Environment:
@@ -193,6 +194,52 @@ async function fgaBootstrap() {
   console.log(`FGA_MODEL_ID=${modelId}`);
 }
 
+/**
+ * For every member of every company, compares what the role-only rules allowed
+ * with what the member's groups grant now (permissions/record-rules.ts).
+ *
+ * Differences are expected only where someone changed a person's groups by
+ * hand, or for super-admins, whom the authorization model grants everything in
+ * their companies. Anything else is a bug. Read-only; prints user and company
+ * ids, never names or contact details.
+ */
+async function authzCompare() {
+  const { RECORD_RULES } = await import('./permissions/record-rules');
+  const { getEffectiveRole } = await import('./http');
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const companies = store.listCompanies();
+  const users = store.listUsers();
+  let memberships = 0;
+  let decisions = 0;
+  const byMember = new Map<string, string[]>();
+  for (const company of companies) {
+    for (const user of users) {
+      const role = getEffectiveRole(user, company.id);
+      if (!role) continue;
+      memberships += 1;
+      const held = new Set(store.getEffectivePermissions(user.id, company.id));
+      const superAdmin = Boolean(user.isSuperAdmin);
+      for (const [name, rule] of Object.entries(RECORD_RULES)) {
+        decisions += 1;
+        const roleAllows = (rule.roles as readonly string[]).includes(role);
+        const groupsAllow = superAdmin || held.has(`${rule.module}:${rule.action}`);
+        if (roleAllows === groupsAllow) continue;
+        const groups = store.listUserGroupAssignments(user.id, company.id).map((g) => g.key).sort().join('+') || '(none)';
+        const key = `company ${company.id}  user ${user.id}  role ${role}${superAdmin ? '  super-admin' : ''}  groups ${groups}`;
+        byMember.set(key, [...(byMember.get(key) ?? []), `${name} (${roleAllows ? 'role allowed, groups deny' : 'role denied, groups allow'})`]);
+      }
+    }
+  }
+  const differences = [...byMember.values()].reduce((sum, list) => sum + list.length, 0);
+  console.log(`Database: ${dbPath}`);
+  console.log(`Companies: ${companies.length}  memberships: ${memberships}  rule decisions compared: ${decisions}`);
+  console.log(`Differences: ${differences} across ${byMember.size} membership(s)`);
+  for (const [member, rules] of byMember) {
+    console.log(`  ${member}`);
+    rules.forEach((line) => console.log(`      ${line}`));
+  }
+}
+
 const fail = (error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
@@ -235,6 +282,9 @@ switch (command) {
     break;
   case 'fga:status':
     fgaStatus().catch(fail);
+    break;
+  case 'authz:compare':
+    authzCompare().catch(fail);
     break;
   case 'fga:bootstrap':
     fgaBootstrap().catch(fail);

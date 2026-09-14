@@ -8,6 +8,7 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { getTasks } from '@/services/projectService';
 import type { Task } from '@/lib/types';
@@ -15,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function OverviewChart() {
   const { selectedCompany, currentUser } = useCompany();
+  const seesAllTasks = usePermissionOr('tasks', 'all.read', currentUser?.role !== 'Employee');
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const chartConfig = {
@@ -42,14 +44,14 @@ export function OverviewChart() {
       
       let tasksToDisplay: Task[];
 
-      if (currentUser.role === 'Employee') {
+      if (!seesAllTasks) {
         // For employees, show only their tasks within the selected company
         tasksToDisplay = allTasks.filter(t => 
             t.companyId === selectedCompany.id &&
             t.assignedUserIds?.includes(currentUser.id)
         );
       } else {
-        // For Admins and Managers, show all tasks for the company
+        // Holders of tasks:all.read see every task in the company
         tasksToDisplay = allTasks.filter(t => t.companyId === selectedCompany.id);
       }
       
@@ -67,7 +69,7 @@ export function OverviewChart() {
       setLoading(false);
     }
     loadTaskData();
-  }, [selectedCompany, currentUser]);
+  }, [selectedCompany, currentUser, seesAllTasks]);
 
   if (loading) {
       return <Skeleton className="h-[300px] w-full" />

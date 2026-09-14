@@ -18,6 +18,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import {
   ArrowLeft,
@@ -65,10 +66,13 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const { toast } = useToast();
   const { money, amount } = useCompanyCurrency();
   const { currentRole } = useCompany();
-  // The API strips rateCardAmount for anyone outside these roles; mirror that
-  // here so the tile is absent rather than rendering an empty value.
-  const canSeePricing =
-    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant';
+  // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
+  // tile is absent rather than empty. The role is the legacy fallback.
+  const canSeePricing = usePermissionOr(
+    'contacts',
+    'pricing.read',
+    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
+  );
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
 

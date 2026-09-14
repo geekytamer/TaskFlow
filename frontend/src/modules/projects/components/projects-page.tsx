@@ -8,12 +8,14 @@ import { ProjectList } from '@/modules/projects/components/project-list';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { canManageProjects } from '@/modules/projects/lib/access';
 
 export function ProjectsPage() {
   const { user } = useAuthGuard();
   const { t } = useI18n();
   const { currentRole } = useCompany();
+  const canCreateProjects = usePermissionOr('projects', 'create', canManageProjects(currentRole));
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -24,7 +26,7 @@ export function ProjectsPage() {
             {t('projects.subtitle')}
           </p>
         </div>
-        {user && canManageProjects(currentRole) && (
+        {user && canCreateProjects && (
            <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
               <CreateProjectSheet />
           </div>

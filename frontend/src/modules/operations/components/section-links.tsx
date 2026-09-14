@@ -6,6 +6,8 @@ import { Banknote, Handshake, Package, ShoppingCart, Truck } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
+import { navPermission } from '@/modules/layout/lib/nav-permissions';
 import { cn } from '@/lib/utils';
 import type { UserRole } from '@/lib/types';
 
@@ -57,10 +59,18 @@ export function SectionLinks() {
   const pathname = usePathname();
   const { currentRole } = useCompany();
   const { t } = useI18n();
+  const { can, loaded } = usePermissions();
 
-  const visibleItems = sectionItems.filter((item) =>
-    currentRole ? item.roles.includes(currentRole) : false,
-  );
+  // Same rule as the sidebar: the destination's permission once the server has
+  // answered, the role list before that and under the legacy engine.
+  const visibleItems = sectionItems.filter((item) => {
+    const permission = navPermission(item.href);
+    if (loaded && permission) {
+      const cut = permission.indexOf(':');
+      return can(permission.slice(0, cut), permission.slice(cut + 1));
+    }
+    return currentRole ? item.roles.includes(currentRole) : false;
+  });
 
   if (!visibleItems.length) return null;
 

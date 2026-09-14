@@ -8,7 +8,7 @@ interface PermissionsContextType {
   /** "module:action" keys the current user holds in the selected company. */
   permissions: Set<string>;
   loading: boolean;
-  /** True once the server has answered — before that, gates stay closed. */
+  /** True when the server's permissions decide (openfga engine); otherwise gates use their role fallback. */
   loaded: boolean;
   can: (module: string, action: string) => boolean;
   canAny: (module: string, ...actions: string[]) => boolean;
@@ -44,7 +44,10 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       .then((feed) => {
         if (!active) return;
         setPermissions(new Set(feed.permissions));
-        setLoaded(true);
+        // Permissions decide only under the openfga engine. Under legacy and
+        // shadow the server still decides by role, so `loaded` stays false and
+        // every gate uses its role fallback: the UI then matches the server.
+        setLoaded(feed.engine === 'openfga');
       })
       .catch(() => {
         // The server remains authoritative; a failed fetch must not be read as

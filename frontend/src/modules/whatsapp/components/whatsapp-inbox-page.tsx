@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -171,7 +172,7 @@ export function WhatsappInboxPage() {
   const { toast } = useToast();
   const { user, effectiveRole } = useAuthGuard();
   const locale = language === 'ar' ? 'ar' : 'en-US';
-  const isManager = effectiveRole === 'Admin' || effectiveRole === 'Manager';
+  const isManager = usePermissionOr('whatsapp', 'private.read', effectiveRole === 'Admin' || effectiveRole === 'Manager');
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
 
   const [instance, setInstance] = React.useState<WhatsAppInstance | null>(null);

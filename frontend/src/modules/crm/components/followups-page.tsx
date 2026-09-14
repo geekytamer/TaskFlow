@@ -19,6 +19,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
@@ -84,7 +85,7 @@ export function FollowupsPage() {
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
-  const canManage = currentRole === 'Admin' || currentRole === 'Manager';
+  const canManage = usePermissionOr('crm', 'followups.bulk-reassign.create', currentRole === 'Admin' || currentRole === 'Manager');
 
   const [followups, setFollowups] = React.useState<Followup[]>([]);
   const [members, setMembers] = React.useState<CompanyMember[]>([]);

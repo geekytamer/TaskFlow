@@ -131,7 +131,6 @@ export function CommandPalette() {
   const visibleNav = React.useMemo(
     () =>
       navTargets.filter((item) => {
-        if (item.href === '/settings') return effectiveRole === 'Admin';
         // Once the server reports a permission set it is the only authority;
         // the role list below is the fallback while AUTHZ_ENGINE is legacy.
         const permission = navPermission(item.href);
@@ -143,9 +142,10 @@ export function CommandPalette() {
           ];
           return can(module, action);
         }
+        if (item.href === '/settings') return effectiveRole === 'Admin';
         return effectiveRole ? item.roles.includes(effectiveRole) : false;
       }),
-    [effectiveRole],
+    [effectiveRole, can, permissionsLoaded],
   );
 
   const go = (href: string) => {

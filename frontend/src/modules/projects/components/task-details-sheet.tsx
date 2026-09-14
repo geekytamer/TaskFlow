@@ -40,6 +40,7 @@ import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVer
 import { Switch } from '@/components/ui/switch';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { createInvoice } from '@/services/financeService';
@@ -72,7 +73,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const confirm = useConfirm();
   const { selectedCompany, currentUser, currentRole } = useCompany();
-  const canCreateFinanceInvoice = currentRole && currentRole !== 'Employee';
+  const canCreateFinanceInvoice = usePermissionOr('invoices', 'create', Boolean(currentRole && currentRole !== 'Employee'));
 
   const [editableTask, setEditableTask] = React.useState<Task>(task);
   const [comments, setComments] = React.useState<Comment[]>([]);

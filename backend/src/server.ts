@@ -14,10 +14,11 @@ import {
   type PermissionMap,
   type FgaReader,
 } from './permissions/permission-service';
-import { recordShadowCheck, routeToPermission } from './permissions/shadow';
+import { recordShadowCheck, routeToPermission, recordDivergence } from './permissions/shadow';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
 import { projectCompanyDelta, type TupleStore } from './permissions/sync';
+import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
 import { tuplesForStore } from './permissions/tuples';
 import {
   influencerPlatforms,
@@ -127,20 +128,17 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
  */
 const COMMERCIAL_CONTACT_FIELDS = ['rateCardAmount'] as const;
 
-function canSeeContactPricing(role?: string | null): boolean {
-  return role === 'Admin' || role === 'Manager' || role === 'Accountant';
-}
-
-function redactContact<T>(contact: T, role?: string | null): T {
-  if (!contact || canSeeContactPricing(role)) return contact;
+/** Strips commercial fields unless the viewer may see pricing (contacts:pricing.read). */
+function redactContact<T>(contact: T, showPricing: boolean): T {
+  if (!contact || showPricing) return contact;
   const copy: any = { ...(contact as any) };
   for (const field of COMMERCIAL_CONTACT_FIELDS) delete copy[field];
   return copy as T;
 }
 
-function redactContacts<T>(contacts: T[], role?: string | null): T[] {
-  if (canSeeContactPricing(role)) return contacts;
-  return contacts.map((c) => redactContact(c, role));
+function redactContacts<T>(contacts: T[], showPricing: boolean): T[] {
+  if (showPricing) return contacts;
+  return contacts.map((c) => redactContact(c, false));
 }
 
 /** Largest file (in raw bytes) accepted as a record attachment. */
@@ -201,6 +199,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   permissionReader?: FgaReader;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
+  /** Observes every record-rule decision. For tests. */
+  onRuleDecision?: (decision: { rule: RecordRuleName; companyId: string; userId: string; allowed: boolean }) => void;
 }
 
 const invoiceStatuses: InvoiceStatus[] = ['Draft', 'Sent', 'Paid', 'Overdue'];
@@ -787,6 +787,45 @@ export function createServer(options: CreateServerOptions = {}) {
 
   const authzEngine = options.authzEngine ?? getFgaConfig().engine;
   const shadowMode = authzEngine === 'shadow';
+  store.setAuthzEngine(authzEngine);
+
+  /**
+   * Decides a record-level rule (permissions/record-rules.ts).
+   *
+   * openfga: the request's group permissions decide. legacy and shadow: the
+   * role list the rule replaced decides, and shadow also logs where groups
+   * would have answered differently.
+   */
+  const allowsRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): boolean => {
+    const user = req.user;
+    if (!user) return false;
+    const rule = RECORD_RULES[name];
+    if (authzEngine === 'openfga') {
+      const allowed = PermissionService.allows(req.permissions, companyId, rule.module, rule.action);
+      options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
+      return allowed;
+    }
+    const legacyAllowed = requireCompanyRole(user, companyId, [...rule.roles]);
+    if (shadowMode) {
+      permissionService
+        .has(user.id, companyId, rule.module, rule.action)
+        .then((openfgaAllowed) => recordDivergence(store, {
+          userId: user.id, companyId, module: rule.module, action: rule.action,
+          route: `rule ${name}`, legacyAllowed, openfgaAllowed,
+        }))
+        .catch(() => undefined);
+    }
+    options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: legacyAllowed });
+    return legacyAllowed;
+  };
+
+  /** Company access plus a record rule, for routes registered outside this file. */
+  const requireCompanyRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): void => {
+    requireCompanyAccess(req, companyId);
+    if (!allowsRule(req, companyId, name)) {
+      throw new HttpError(403, 'You do not have permission to perform this action.');
+    }
+  };
 
   /**
    * Captures, per company, the tuples a change may alter. Take it before the
@@ -889,27 +928,28 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  const canViewProject = (user: SanitizedUser, project: Project): boolean => {
-    const role = getEffectiveRole(user, project.companyId);
-    if (!role) return false;
-    if (role !== 'Employee') return true;
+  const canViewProject = (req: AuthedRequest, project: Project): boolean => {
+    const user = req.user!;
+    if (!getEffectiveRole(user, project.companyId)) return false;
+    if (allowsRule(req, project.companyId, 'PROJECTS_ALL_READ')) return true;
     return project.visibility === 'Public' || Boolean(project.memberIds?.includes(user.id));
   };
 
   const requireProjectViewAccess = (req: AuthedRequest, project: Project) => {
     requireCompanyAccess(req, project.companyId);
-    if (!canViewProject(req.user!, project)) {
+    if (!canViewProject(req, project)) {
       throw new HttpError(403, 'You do not have access to this project.');
     }
   };
 
-  // Task visibility: Admins/Managers/Accountants see every task in the company.
+  // Task visibility: holders of tasks:all.read (Admins, Managers and Accountants
+  // by default) see every task in the company.
   // For Employees, project access cascades to its tasks — anyone who can see a
   // project (Public, or one they're a member of) sees every task under it. A
   // project-less task, or one in a project they cannot see, is visible only if
   // it is directly assigned to them. Company scoping is enforced by the callers.
   const canViewTask = (
-    user: SanitizedUser,
+    req: AuthedRequest,
     task: {
       companyId: string;
       projectId?: string | null;
@@ -918,6 +958,7 @@ export function createServer(options: CreateServerOptions = {}) {
       isPrivate?: boolean;
     },
   ): boolean => {
+    const user = req.user!;
     const isAssignee = (task.assignedUserIds ?? []).includes(user.id);
     // A private task is visible ONLY to its owner and assignees — it overrides
     // the role-based default and the project cascade. The platform super-admin
@@ -926,12 +967,11 @@ export function createServer(options: CreateServerOptions = {}) {
       if (user.isSuperAdmin) return true;
       return task.ownerId === user.id || isAssignee;
     }
-    const role = getEffectiveRole(user, task.companyId);
-    if (role && role !== 'Employee') return true;
+    if (getEffectiveRole(user, task.companyId) && allowsRule(req, task.companyId, 'TASKS_ALL_READ')) return true;
     if (isAssignee) return true;
     if (task.projectId) {
       const project = store.getProjectById(task.projectId);
-      if (project && canViewProject(user, project)) return true;
+      if (project && canViewProject(req, project)) return true;
     }
     return false;
   };
@@ -941,7 +981,7 @@ export function createServer(options: CreateServerOptions = {}) {
     task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
   ) => {
     requireCompanyAccess(req, task.companyId);
-    if (!canViewTask(req.user!, task)) {
+    if (!canViewTask(req, task)) {
       throw new HttpError(403, 'You do not have access to this task.');
     }
   };
@@ -1151,13 +1191,17 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   const assertUserManagementPermission = (
-    actor: SanitizedUser,
+    req: AuthedRequest,
     assignments: CompanyRoleAssignment[],
   ) => {
+    const actor = req.user!;
     if (actor.isSuperAdmin) return;
+    // Platform-level shortcut on the global role, deliberately left as it was.
+    // It lets a user whose primary role is Admin manage users in companies
+    // where they are not an Admin; see the plan document.
     if (actor.role === 'Admin') return;
     const invalidCompany = assignments.find(
-      (assignment) => !requireCompanyRole(actor, assignment.companyId, ['Admin', 'Manager']),
+      (assignment) => !allowsRule(req, assignment.companyId, 'USERS_WRITE'),
     );
     if (invalidCompany) {
       throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
@@ -1165,7 +1209,7 @@ export function createServer(options: CreateServerOptions = {}) {
     const elevatedAssignment = assignments.find(
       (assignment) =>
         assignment.role !== 'Employee'
-        && !requireCompanyRole(actor, assignment.companyId, ['Admin']),
+        && !allowsRule(req, assignment.companyId, 'ADMINISTRATION'),
     );
     if (elevatedAssignment) {
       throw new HttpError(
@@ -2582,7 +2626,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler(async (req, res) => {
       const payload = parseUserPayload(req.body);
-      assertUserManagementPermission(req.user!, payload.companyRoles!);
+      assertUserManagementPermission(req, payload.companyRoles!);
       assertRolesAvailable(payload.companyRoles!);
       const authzBefore = snapshotAuthz([
         ...(payload.companyIds ?? []),
@@ -2640,7 +2684,7 @@ export function createServer(options: CreateServerOptions = {}) {
         // Super-admins have role 'Employee' but full user-management power via
         // the isSuperAdmin flag, so route them through the simple check (which
         // early-returns) instead of the per-company branch below.
-        assertUserManagementPermission(req.user!, targetAssignments);
+        assertUserManagementPermission(req, targetAssignments);
       } else {
         const existingByCompany = new Map(
           existingAssignments.map((assignment) => [assignment.companyId, assignment]),
@@ -2649,7 +2693,7 @@ export function createServer(options: CreateServerOptions = {}) {
           targetAssignments.map((assignment) => [assignment.companyId, assignment]),
         );
         const canManageAssignment = (companyId: string) =>
-          requireCompanyRole(req.user!, companyId, ['Admin', 'Manager']);
+          allowsRule(req, companyId, 'USERS_WRITE');
         const changedAssignments = targetAssignments.filter((assignment) => {
           const existingAssignment = existingByCompany.get(assignment.companyId);
           return (
@@ -2685,7 +2729,7 @@ export function createServer(options: CreateServerOptions = {}) {
         if (!assignmentsToAuthorize.length) {
           throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
         }
-        assertUserManagementPermission(req.user!, assignmentsToAuthorize);
+        assertUserManagementPermission(req, assignmentsToAuthorize);
       }
       // isSuperAdmin can only be toggled by an existing super-admin.
       // For non-super-admin callers, drop the field entirely from the patch.
@@ -2733,7 +2777,7 @@ export function createServer(options: CreateServerOptions = {}) {
           role: existing.role,
           positionId: existing.positionId,
         }));
-      assertUserManagementPermission(req.user!, targetAssignments);
+      assertUserManagementPermission(req, targetAssignments);
       const authzBefore = snapshotAuthz([
         ...existing.companyIds,
         ...targetAssignments.map((assignment) => assignment.companyId),
@@ -2754,7 +2798,7 @@ export function createServer(options: CreateServerOptions = {}) {
           .listProjects()
           .filter(
             (project) =>
-              accessible.has(project.companyId) && canViewProject(req.user!, project),
+              accessible.has(project.companyId) && canViewProject(req, project),
           ),
       );
     }),
@@ -2867,7 +2911,7 @@ export function createServer(options: CreateServerOptions = {}) {
         store
           .listTasks()
           .filter((task) => accessible.has(task.companyId))
-          .filter((task) => canViewTask(req.user!, task)),
+          .filter((task) => canViewTask(req, task)),
       );
     }),
   );
@@ -2893,7 +2937,7 @@ export function createServer(options: CreateServerOptions = {}) {
           .getTasksByClient(req.params.companyId, req.params.clientId)
           .filter((task) => {
             const project = store.getProjectById(task.projectId);
-            return Boolean(project && canViewProject(req.user!, project));
+            return Boolean(project && canViewProject(req, project));
           }),
       );
     }),
@@ -3079,9 +3123,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const entry = store.getTimeEntryById(req.params.id);
       if (!entry) throw new HttpError(404, 'Time entry not found.');
-      // Only the logger, or a manager/admin in the company, may delete.
-      const role = getEffectiveRole(req.user!, entry.companyId);
-      if (entry.userId !== req.user!.id && role !== 'Admin' && role !== 'Manager') {
+      // Only the logger, or someone allowed to delete others' entries, may delete.
+      if (entry.userId !== req.user!.id && !allowsRule(req, entry.companyId, 'TIME_ENTRIES_DELETE_OTHERS')) {
         throw new HttpError(403, 'You can only delete your own time entries.');
       }
       store.deleteTimeEntry(req.params.id);
@@ -3097,10 +3140,9 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const role = req.query.role as string | undefined;
-	      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-	      const viewer = { userId: req.user!.id, role: effectiveRole ?? 'Employee' };
+	      const viewer = { userId: req.user!.id, seesPrivate: allowsRule(req, req.params.companyId, 'CONTACTS_PRIVATE_READ') };
 	      const contacts = store.listContacts(req.params.companyId, role as any, viewer);
-	      res.json(redactContacts(contacts, effectiveRole));
+	      res.json(redactContacts(contacts, allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ')));
 	    }),
 	  );
 
@@ -3166,8 +3208,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-      const exportRole = getEffectiveRole(req.user!, req.params.companyId);
-      const showPricing = canSeeContactPricing(exportRole);
+      const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
       const influencers = store.listContacts(req.params.companyId, 'Influencer' as any);
       const csv = toCsv(
         showPricing
@@ -3245,7 +3286,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const { companyId } = req.params;
 	      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const body = asRecord(req.body, 'body');
-	      const effectiveRole = getEffectiveRole(req.user!, companyId);
+	      const managesAll = allowsRule(req, companyId, 'CONTACTS_ALL_WRITE');
 	      let contact;
 	      try {
 	      contact = store.createContact({
@@ -3264,8 +3305,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		        leadStatus: body.leadStatus !== undefined ? enumValue(body.leadStatus, 'leadStatus', leadStatuses) : undefined,
 		        leadSource: body.leadSource !== undefined ? enumValue(body.leadSource, 'leadSource', leadSources) : undefined,
 		        priority: body.priority !== undefined ? enumValue(body.priority, 'priority', contactPriorities) : undefined,
-		        ownerUserId: effectiveRole === 'Employee' ? req.user!.id : optionalString(body.ownerUserId),
-		        ownerName: effectiveRole === 'Employee' ? req.user!.name : optionalString(body.ownerName),
+		        ownerUserId: !managesAll ? req.user!.id : optionalString(body.ownerUserId),
+		        ownerName: !managesAll ? req.user!.name : optionalString(body.ownerName),
 		        nextFollowupDate: body.nextFollowupDate ? new Date(optionalDateInput(body.nextFollowupDate)!) : undefined,
 		        nextFollowupNote: optionalString(body.nextFollowupNote),
 		        influencerPlatform: optionalString(body.influencerPlatform),
@@ -3442,7 +3483,7 @@ export function createServer(options: CreateServerOptions = {}) {
       };
 
       res.json({
-        contact: redactContact(contact, getEffectiveRole(req.user!, contact.companyId)),
+        contact: redactContact(contact, allowsRule(req, contact.companyId, 'CONTACTS_PRICING_READ')),
         totals,
         invoices: invoices.slice(0, 50),
         salesOrders: salesOrders.slice(0, 50),
@@ -3526,9 +3567,9 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-      const effectiveRolePatch = getEffectiveRole(req.user!, contact.companyId);
+      const managesAll = allowsRule(req, contact.companyId, 'CONTACTS_ALL_WRITE');
       // Employees can only patch contacts they own
-      if (effectiveRolePatch === 'Employee' && contact.ownerUserId && contact.ownerUserId !== req.user!.id) {
+      if (!managesAll && contact.ownerUserId && contact.ownerUserId !== req.user!.id) {
         throw new HttpError(403, 'You can only update your own contacts.');
       }
       const body = asRecord(req.body, 'body');
@@ -3795,9 +3836,9 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const contactId = optionalString(req.query.contactId);
-	      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+	      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
 	      const requestedOwnerUserId = optionalString(req.query.ownerUserId);
-	      const ownerUserId = effectiveRole === 'Employee' ? req.user!.id : requestedOwnerUserId;
+	      const ownerUserId = !seesAll ? req.user!.id : requestedOwnerUserId;
 	      const overdueParam = req.query.overdue;
       const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
@@ -3806,7 +3847,7 @@ export function createServer(options: CreateServerOptions = {}) {
       // actually about. A collections queue that cannot name the invoice, or that
       // reports every row as a deleted contact because invoices have none, is not
       // a worklist anyone can act on.
-      const viewerRole = getEffectiveRole(req.user!, req.params.companyId);
+      const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
       const enriched = followups.map((f) => {
         let contact = store.getContactById(f.entityId);
         let entityLabel: string | undefined;
@@ -3832,7 +3873,7 @@ export function createServer(options: CreateServerOptions = {}) {
           contact: contact
             ? redactContact(
                 { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles },
-                viewerRole,
+                showPricing,
               )
             : null,
           entityLabel,
@@ -3922,8 +3963,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const opportunities = store.listOpportunities(req.params.companyId);
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-		      res.json(effectiveRole === 'Employee' ? opportunities.filter((item) => item.ownerUserId === req.user!.id) : opportunities);
+		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
+		      res.json(!seesAll ? opportunities.filter((item) => item.ownerUserId === req.user!.id) : opportunities);
 		    }),
 		  );
 
@@ -3933,13 +3974,13 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const body = asRecord(req.body, 'body');
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      const managesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_WRITE');
 		      const opportunity = withActor(req, () =>
 		        store.createOpportunity({
 	          companyId: req.params.companyId,
 	          contactId: requiredString(body.contactId, 'contactId'),
-		          ownerUserId: effectiveRole === 'Employee' ? req.user!.id : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : req.user!.id,
-		          ownerName: effectiveRole === 'Employee' ? req.user!.name : body.ownerName !== undefined ? optionalString(body.ownerName) : req.user!.name,
+		          ownerUserId: !managesAll ? req.user!.id : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : req.user!.id,
+		          ownerName: !managesAll ? req.user!.name : body.ownerName !== undefined ? optionalString(body.ownerName) : req.user!.name,
 	          title: requiredString(body.title, 'title', { min: 2 }),
 	          serviceType: requiredString(body.serviceType, 'serviceType', { min: 2 }),
 	          stage: body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : 'New',
@@ -3960,8 +4001,8 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const existing = store.getOpportunityById(req.params.id);
 	      if (!existing) throw new HttpError(404, 'Opportunity not found.');
 	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-	      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-	      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+	      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+	      if (!managesAll && existing.ownerUserId !== req.user!.id) {
 	        throw new HttpError(403, 'You can only update your own opportunities.');
 	      }
 	      const body = asRecord(req.body, 'body');
@@ -3983,16 +4024,16 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getOpportunityById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Opportunity not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-		      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
 		        throw new HttpError(403, 'You can only edit your own opportunities.');
 		      }
 		      const body = asRecord(req.body, 'body');
 		      const updated = withActor(req, () =>
 		        store.updateOpportunity(req.params.id, {
 		          contactId: body.contactId !== undefined ? requiredString(body.contactId, 'contactId') : undefined,
-		          ownerUserId: effectiveRole === 'Employee' ? existing.ownerUserId : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
-		          ownerName: effectiveRole === 'Employee' ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
+		          ownerUserId: !managesAll ? existing.ownerUserId : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
+		          ownerName: !managesAll ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
 		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,
 		          serviceType: body.serviceType !== undefined ? requiredString(body.serviceType, 'serviceType', { min: 2 }) : undefined,
 		          stage: body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : undefined,
@@ -4015,8 +4056,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getOpportunityById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Opportunity not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-		      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
 		        throw new HttpError(403, 'You can only archive your own opportunities.');
 		      }
 		      const updated = withActor(req, () => store.updateOpportunity(req.params.id, { stage: 'Cancelled' }));
@@ -4033,8 +4074,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const proposals = store.listCrmProposals(req.params.companyId);
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-		      if (effectiveRole !== 'Employee') {
+		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
+		      if (seesAll) {
 		        res.json(proposals);
 		        return;
 		      }
@@ -4057,8 +4098,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!opportunity || opportunity.companyId !== req.params.companyId) {
 		        throw new HttpError(400, 'Opportunity must belong to the selected company.');
 		      }
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-		      if (effectiveRole === 'Employee' && opportunity.ownerUserId !== req.user!.id) {
+		      const managesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_WRITE');
+		      if (!managesAll && opportunity.ownerUserId !== req.user!.id) {
 		        throw new HttpError(403, 'You can only create proposals for your own opportunities.');
 		      }
 		      const proposal = withActor(req, () =>
@@ -4084,8 +4125,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getCrmProposalById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Proposal not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-		      if (effectiveRole === 'Employee') {
+		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+		      if (!managesAll) {
 		        const opportunity = store.getOpportunityById(existing.opportunityId);
 		        if (opportunity?.ownerUserId !== req.user!.id) {
 		          throw new HttpError(403, 'You can only update your own proposals.');
@@ -4107,8 +4148,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getCrmProposalById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Proposal not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-		      if (effectiveRole === 'Employee') {
+		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+		      if (!managesAll) {
 		        const opportunity = store.getOpportunityById(existing.opportunityId);
 		        if (opportunity?.ownerUserId !== req.user!.id) {
 		          throw new HttpError(403, 'You can only edit your own proposals.');
@@ -4137,8 +4178,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getCrmProposalById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Proposal not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-		      if (effectiveRole === 'Employee') {
+		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+		      if (!managesAll) {
 		        const opportunity = store.getOpportunityById(existing.opportunityId);
 		        if (opportunity?.ownerUserId !== req.user!.id) {
 		          throw new HttpError(403, 'You can only archive your own proposals.');
@@ -4158,8 +4199,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const includeArchived = req.query.includeArchived === 'true';
 		      const campaigns = store.listCrmCampaigns(req.params.companyId, includeArchived);
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-		      res.json(effectiveRole === 'Employee' ? campaigns.filter((campaign) => campaign.ownerUserId === req.user!.id) : campaigns);
+		      const seesAll = allowsRule(req, req.params.companyId, 'CAMPAIGNS_ALL_READ');
+		      res.json(!seesAll ? campaigns.filter((campaign) => campaign.ownerUserId === req.user!.id) : campaigns);
 		    }),
 		  );
 
@@ -4174,7 +4215,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        const contact = store.getContactById(contactId);
 		        if (!contact || contact.companyId !== req.params.companyId) throw new HttpError(400, 'Contact must belong to the selected company.');
 		      }
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
+		      const managesAll = allowsRule(req, req.params.companyId, 'CAMPAIGNS_ALL_WRITE');
 		      const campaign = withActor(req, () =>
 		        store.createCrmCampaign({
 		          companyId: req.params.companyId,
@@ -4187,8 +4228,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		          startDate: body.startDate ? new Date(optionalDateInput(body.startDate)!) : undefined,
 		          endDate: body.endDate ? new Date(optionalDateInput(body.endDate)!) : undefined,
 		          budget: optionalNumber(body.budget),
-		          ownerUserId: effectiveRole === 'Employee' ? req.user!.id : optionalString(body.ownerUserId) ?? req.user!.id,
-		          ownerName: effectiveRole === 'Employee' ? req.user!.name : optionalString(body.ownerName) ?? req.user!.name,
+		          ownerUserId: !managesAll ? req.user!.id : optionalString(body.ownerUserId) ?? req.user!.id,
+		          ownerName: !managesAll ? req.user!.name : optionalString(body.ownerName) ?? req.user!.name,
 		          visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as ProjectVisibility[]) : 'Public',
 		          notes: optionalString(body.notes),
 		        }),
@@ -4208,8 +4249,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getCrmCampaignById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Campaign not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-		      if (effectiveRole === 'Employee' && existing.ownerUserId !== req.user!.id) {
+		      const managesAll = allowsRule(req, existing.companyId, 'CAMPAIGNS_ALL_WRITE');
+		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
 		        throw new HttpError(403, 'You can only edit your own campaigns.');
 		      }
 		      const body = asRecord(req.body, 'body');
@@ -4224,8 +4265,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		          startDate: body.startDate !== undefined && body.startDate ? new Date(optionalDateInput(body.startDate)!) : undefined,
 		          endDate: body.endDate !== undefined && body.endDate ? new Date(optionalDateInput(body.endDate)!) : undefined,
 		          budget: body.budget !== undefined ? optionalNumber(body.budget) : undefined,
-		          ownerUserId: effectiveRole === 'Employee' ? existing.ownerUserId : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
-		          ownerName: effectiveRole === 'Employee' ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
+		          ownerUserId: !managesAll ? existing.ownerUserId : body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
+		          ownerName: !managesAll ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
 		          visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as ProjectVisibility[]) : undefined,
 		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
 		        }),
@@ -4312,8 +4353,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    const campaign = store.getCrmCampaignById(campaignId);
 		    if (!campaign) throw new HttpError(404, 'Campaign not found.');
 		    requireCompanyRoles(req, campaign.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		    const effectiveRole = getEffectiveRole(req.user!, campaign.companyId);
-		    if (effectiveRole === 'Employee' && campaign.ownerUserId !== req.user!.id) {
+		    const managesAll = allowsRule(req, campaign.companyId, 'CAMPAIGNS_ALL_WRITE');
+		    if (!managesAll && campaign.ownerUserId !== req.user!.id) {
 		      throw new HttpError(403, `You can only ${action} your own campaigns.`);
 		    }
 		    return campaign;
@@ -4554,8 +4595,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const requests = store.listVendorRequests(req.params.companyId);
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-		      res.json(effectiveRole === 'Employee' ? requests.filter((request) => request.requestedByUserId === req.user!.id) : requests);
+		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
+		      res.json(!seesAll ? requests.filter((request) => request.requestedByUserId === req.user!.id) : requests);
 		    }),
 		  );
 
@@ -4615,8 +4656,8 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const existing = store.getVendorRequestById(req.params.id);
 	      if (!existing) throw new HttpError(404, 'Vendor request not found.');
 	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-	      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-	      if (effectiveRole === 'Employee' && existing.requestedByUserId !== req.user!.id) {
+	      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+	      if (!managesAll && existing.requestedByUserId !== req.user!.id) {
 	        throw new HttpError(403, 'You can only edit your own vendor requests.');
 	      }
 	      const body = asRecord(req.body, 'body');
@@ -4632,7 +4673,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          dueDate: body.dueDate !== undefined && body.dueDate ? new Date(optionalDateInput(body.dueDate)!) : undefined,
 	          cost: body.cost !== undefined ? optionalNumber(body.cost) : undefined,
 	          status:
-	            body.status !== undefined && effectiveRole !== 'Employee'
+	            body.status !== undefined && managesAll
 	              ? enumValue(body.status, 'status', vendorRequestStatuses)
 	              : undefined,
 	          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
@@ -4650,8 +4691,8 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const existing = store.getVendorRequestById(req.params.id);
 	      if (!existing) throw new HttpError(404, 'Vendor request not found.');
 	      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-	      const effectiveRole = getEffectiveRole(req.user!, existing.companyId);
-	      if (effectiveRole === 'Employee' && existing.requestedByUserId !== req.user!.id) {
+	      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+	      if (!managesAll && existing.requestedByUserId !== req.user!.id) {
 	        throw new HttpError(403, 'You can only archive your own vendor requests.');
 	      }
 	      if (!store.deleteVendorRequest(req.params.id)) throw new HttpError(404, 'Vendor request not found.');
@@ -4852,8 +4893,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const commissions = store.listCommissions(req.params.companyId);
-		      const effectiveRole = getEffectiveRole(req.user!, req.params.companyId);
-		      res.json(effectiveRole === 'Employee' ? commissions.filter((commission) => commission.userId === req.user!.id) : commissions);
+		      const seesAll = allowsRule(req, req.params.companyId, 'COMMISSIONS_ALL_READ');
+		      res.json(!seesAll ? commissions.filter((commission) => commission.userId === req.user!.id) : commissions);
 		    }),
 		  );
 
@@ -6763,7 +6804,7 @@ export function createServer(options: CreateServerOptions = {}) {
       // Privacy enforcement when filtering by chat
       if (chatId) {
         const settings = store.getWhatsappChatSettings(req.params.companyId, chatId);
-        const viewer = req.user ? { userId: req.user.id, role: req.user.role } : undefined;
+        const viewer = req.user ? { userId: req.user.id, seesPrivate: allowsRule(req, req.params.companyId, 'WHATSAPP_PRIVATE_READ') } : undefined;
         if (!store.canViewWhatsappChat(settings, viewer)) {
           throw new HttpError(403, 'You do not have access to this private chat.');
         }
@@ -6783,7 +6824,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const viewer = req.user ? { userId: req.user.id, role: req.user.role } : undefined;
+      const viewer = req.user ? { userId: req.user.id, seesPrivate: allowsRule(req, req.params.companyId, 'WHATSAPP_PRIVATE_READ') } : undefined;
       res.json(store.listWhatsappChats(req.params.companyId, viewer));
     }),
   );
@@ -6804,7 +6845,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       const current = store.getWhatsappChatSettings(req.params.companyId, req.params.chatId);
-      const viewer = req.user ? { userId: req.user.id, role: req.user.role } : undefined;
+      const viewer = req.user ? { userId: req.user.id, seesPrivate: allowsRule(req, req.params.companyId, 'WHATSAPP_PRIVATE_READ') } : undefined;
       // Only owner or Admin/Manager can change a private chat's settings.
       if (current.visibility === 'private' && !store.canViewWhatsappChat(current, viewer)) {
         throw new HttpError(403, 'Only the chat owner or a manager can change these settings.');
@@ -7820,16 +7861,18 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
-      const role = getEffectiveRole(req.user!, req.params.companyId);
-      if (!role) {
+      if (!getEffectiveRole(req.user!, req.params.companyId)) {
         throw new HttpError(403, 'You do not have a role in this company.');
       }
-      res.json(
-        store.getDashboardPayload(req.params.companyId, {
-          userId: req.user!.id,
-          role,
-        }),
-      );
+      // The variant follows permissions: operations and finance together is
+      // the full view, either alone its own view, neither the personal view.
+      // Each built-in role lands on the variant it always had.
+      const operations = allowsRule(req, req.params.companyId, 'DASHBOARD_OPERATIONS_READ');
+      const finance = allowsRule(req, req.params.companyId, 'DASHBOARD_FINANCE_READ');
+      const variant: UserRole = operations && finance
+        ? 'Admin'
+        : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
+      res.json(store.getDashboardPayload(req.params.companyId, { userId: req.user!.id, role: variant }));
     }),
   );
 
@@ -8353,6 +8396,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler,
     requireCompanyRoles,
+    requireCompanyRule,
+    authzEngine,
     managementRoles: companyManagementRoles,
     logger,
     // After an admin edits groups, OpenFGA must reflect it before the next

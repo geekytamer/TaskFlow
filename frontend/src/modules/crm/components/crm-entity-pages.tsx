@@ -20,6 +20,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Combobox } from '@/components/ui/combobox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -413,7 +414,7 @@ export function ProposalsPage() {
 export function CampaignsPage() {
   const { selectedCompany, loading, contacts, opportunities, contactName } = useCrmBaseData();
   const { currentRole } = useCompany();
-  const canManageFinance = currentRole !== 'Employee';
+  const canManageFinance = usePermissionOr('campaigns', 'campaigns.generate-invoice.create', currentRole !== 'Employee');
   const { amount, money } = useCompanyCurrency();
   const { toast } = useToast();
   const { t } = useI18n();

@@ -33,7 +33,8 @@ import { ProjectLegend } from './project-legend';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
-import { canViewProject } from '@/modules/projects/lib/access';
+import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
+import { usePermissionOr } from '@/context/permissions-context';
 
 
 const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
@@ -122,6 +123,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany, projects, currentUser, currentRole } = useCompany();
+  const seesAllProjects = useSeesAllProjects(currentRole);
+  const canLoadCompanyUsers = usePermissionOr('settings', 'users.read', Boolean(currentRole && currentRole !== 'Employee'));
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const chartRef = React.useRef<HTMLDivElement>(null);
@@ -131,7 +134,6 @@ export function GanttChart({ projectId }: GanttChartProps) {
         if (!selectedCompany) return;
         setLoading(true);
         try {
-          const canLoadCompanyUsers = currentRole && currentRole !== 'Employee';
           const [tasksData, usersData] = await Promise.all([
               getTasks(),
               canLoadCompanyUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
@@ -147,16 +149,16 @@ export function GanttChart({ projectId }: GanttChartProps) {
         }
     }
     loadData();
-  }, [currentRole, selectedCompany]);
+  }, [currentRole, selectedCompany, canLoadCompanyUsers]);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser) return [];
     return projects.filter(p => 
       p.companyId === selectedCompany?.id &&
       (!projectId || p.id === projectId) &&
-      canViewProject(p, currentUser.id, currentRole)
+      canViewProject(p, currentUser.id, currentRole, seesAllProjects)
     );
-  }, [projects, currentUser, currentRole, selectedCompany, projectId]);
+  }, [projects, currentUser, currentRole, selectedCompany, projectId, seesAllProjects]);
 
   const companyUsers = React.useMemo(() => {
       if (!selectedCompany) return [];

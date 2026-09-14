@@ -480,3 +480,30 @@ test('a role whose built-in group was deleted cannot be newly assigned, but exis
     .send({ role: 'Accountant', companyRoles: [{ companyId, role: 'Accountant' }] });
   assert.equal(promoted.status, 400);
 });
+
+test('editing a built-in group sticks when someone’s role changes', async () => {
+  const { app, adminAuth, companyId, store, employee } = build();
+  const accountant = store.getPermissionGroupByKey(companyId, 'accountant');
+  const before = store.listGroupPermissions(accountant.id);
+  assert.ok(before.includes('invoices:read'), 'fixture: Accountant starts with invoices:read');
+
+  const edited = await request(app).put(`/permission-groups/${accountant.id}/permissions`)
+    .set('Authorization', adminAuth).send({ permissions: before.filter((p) => p !== 'invoices:read') });
+  assert.equal(edited.status, 200);
+
+  const promoted = await request(app).put(`/users/${employee.id}`).set('Authorization', adminAuth)
+    .send({ role: 'Manager', companyRoles: [{ companyId, role: 'Manager' }] });
+  assert.equal(promoted.status, 200);
+  store.backfillPermissionGroups(); // startup and authz:repair
+
+  assert.equal(store.listGroupPermissions(accountant.id).includes('invoices:read'), false,
+    'a permission an administrator removed from a built-in group came back');
+});
+
+test('the permission feed says which engine decides, so the UI can match the server', async () => {
+  const { app, adminAuth, companyId } = build();
+  const res = await request(app).get(`/auth/permissions?companyId=${companyId}`).set('Authorization', adminAuth);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.engine, 'legacy');
+  assert.ok(res.body.permissions.includes('settings:administration.write'));
+});

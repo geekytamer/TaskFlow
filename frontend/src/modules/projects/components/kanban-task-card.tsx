@@ -10,6 +10,7 @@ import { getUsersByCompany } from '@/services/userService';
 import type { User } from '@/modules/users/types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 
 const priorityLabels: Record<Task['priority'], { en: string; ar: string }> = {
@@ -31,6 +32,7 @@ interface KanbanTaskCardProps {
 export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
     const [users, setUsers] = React.useState<User[]>([]);
     const { selectedCompany, currentUser, currentRole } = useCompany();
+    const canLoadUsers = usePermissionOr('settings', 'users.read', currentRole !== 'Employee');
     const { language } = useI18n();
     const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
@@ -41,7 +43,7 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                 setUsers([]);
                 return;
             }
-            if (currentRole === 'Employee') {
+            if (!canLoadUsers) {
                 setUsers(
                     currentUser && task.assignedUserIds?.includes(currentUser.id)
                         ? [currentUser]
@@ -59,7 +61,7 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
             }
         }
         loadUsers();
-    }, [currentRole, currentUser, selectedCompany, task.assignedUserIds, task.companyId]);
+    }, [currentRole, currentUser, selectedCompany, task.assignedUserIds, task.companyId, canLoadUsers]);
 
     return (
         <Card className="shadow-sm hover:shadow-md transition-shadow">

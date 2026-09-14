@@ -24,6 +24,8 @@ export interface PermissionGroup {
 }
 
 export interface PermissionFeed {
+  /** The engine that decides access. The UI follows `permissions` only under openfga. */
+  engine?: 'legacy' | 'shadow' | 'openfga';
   version: number;
   companyId: string;
   permissions: string[];

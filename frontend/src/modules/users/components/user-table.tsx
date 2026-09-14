@@ -26,6 +26,7 @@ import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { UserGroupsSheet } from './user-groups-sheet';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -78,6 +79,17 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
       .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
       .map((assignment) => assignment.companyId);
   }, [companies, currentUser]);
+
+  // Per company, managing users follows settings:users.write and assigning roles
+  // above Employee follows settings:administration.write; the role rules are the legacy
+  // fallback. The global-Admin shortcut below is platform-level and unchanged.
+  const canManageUsersHere = usePermissionOr(
+    'settings',
+    'users.write',
+    Boolean(selectedCompany && managedCompanyIds.includes(selectedCompany.id))
+      && (currentUserRole === 'Admin' || currentUserRole === 'Manager'),
+  );
+  const canAssignElevatedRolesHere = usePermissionOr('settings', 'administration.write', currentUserRole === 'Admin');
 
   const fetchData = React.useCallback(async () => {
       if (!selectedCompany && currentUser?.role !== 'Admin') {
@@ -171,11 +183,9 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
         ? targetUser.companyRoles.map((assignment) => assignment.companyId)
         : targetUser.companyIds || [];
     if (!assignmentCompanyIds.includes(selectedCompany.id)) return false;
-    if (!managedCompanyIds.includes(selectedCompany.id)) return false;
-    const targetRole = getRoleForCompany(targetUser);
-    if (currentUserRole === 'Admin') return true;
-    if (currentUserRole === 'Manager' && targetRole === 'Employee') return true;
-    return false;
+    if (!canManageUsersHere) return false;
+    if (canAssignElevatedRolesHere) return true;
+    return getRoleForCompany(targetUser) === 'Employee';
   }
 
   const getUserCompanies = (companyIds: string[]) => {
@@ -339,7 +349,7 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
           userName={groupsUser.name}
           companyId={selectedCompany.id}
           companyName={selectedCompany.name}
-          canEdit={currentUserRole === 'Admin'}
+          canEdit={canAssignElevatedRolesHere}
           onSaved={handleUserUpdated}
         />
       )}

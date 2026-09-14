@@ -52,7 +52,7 @@ import { Switch } from '@/components/ui/switch';
 import { Lock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Task } from '@/modules/projects/types';
-import { canViewProject } from '@/modules/projects/lib/access';
+import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 
 const priorityValues = ['Low', 'Medium', 'High'] as const;
 
@@ -84,6 +84,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { selectedCompany, currentUser, currentRole, projects } = useCompany();
+  const seesAllProjects = useSeesAllProjects(currentRole);
 
   const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
@@ -115,7 +116,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         
         const filteredProjects = projects.filter(p => 
             p.companyId === selectedCompany?.id &&
-            canViewProject(p, currentUser.id, currentRole)
+            canViewProject(p, currentUser.id, currentRole, seesAllProjects)
         );
         setVisibleProjects(filteredProjects);
         setCompanyTasks(tasks.filter(t => t.companyId === selectedCompany.id));
@@ -130,7 +131,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
     if (open) {
       loadData();
     }
-  }, [selectedCompany, open, currentUser, currentRole, projects]);
+  }, [selectedCompany, open, currentUser, currentRole, projects, seesAllProjects]);
 
   // When opened from inside a project, the task belongs to that project.
   React.useEffect(() => {

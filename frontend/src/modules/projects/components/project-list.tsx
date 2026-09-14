@@ -13,11 +13,14 @@ import { getClients } from '@/services/financeService';
 import { getTasks } from '@/services/projectService';
 import type { Client } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
-import { canViewProject } from '@/modules/projects/lib/access';
+import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
+import { usePermissionOr } from '@/context/permissions-context';
 import { cn } from '@/lib/utils';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();
+  const seesAllProjects = useSeesAllProjects(currentRole);
+  const canLoadClients = usePermissionOr('contacts', 'clients.read', currentRole !== 'Employee');
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [clients, setClients] = React.useState<Client[]>([]);
@@ -37,7 +40,7 @@ export function ProjectList() {
       } catch {
         if (!cancelled) setTasks([]);
       }
-      if (currentRole === 'Employee') {
+      if (!canLoadClients) {
         setClients([]);
         return;
       }
@@ -52,7 +55,7 @@ export function ProjectList() {
     return () => {
       cancelled = true;
     };
-  }, [currentRole, selectedCompany]);
+  }, [currentRole, selectedCompany, canLoadClients]);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];
@@ -60,10 +63,10 @@ export function ProjectList() {
       .filter(
         (p) =>
           p.companyId === selectedCompany.id &&
-          canViewProject(p, currentUser.id, currentRole),
+          canViewProject(p, currentUser.id, currentRole, seesAllProjects),
       )
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [projects, currentUser, currentRole, selectedCompany]);
+  }, [projects, currentUser, currentRole, selectedCompany, seesAllProjects]);
 
   const statsByProject = React.useMemo(() => {
     const todayStart = new Date();

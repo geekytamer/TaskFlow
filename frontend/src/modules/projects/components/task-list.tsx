@@ -13,6 +13,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask } from '@/services/projectService';
@@ -330,6 +331,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
   const { language } = useI18n();
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
+  const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
+  const canLoadUsers = usePermissionOr('settings', 'users.read', managementFallback);
+  const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
   const currentUserId = currentUser?.id;
 
   const tr = React.useCallback(
@@ -382,13 +386,12 @@ export function TaskList({ projectId }: { projectId?: string }) {
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const canLoadCompanyReferences = currentRole && currentRole !== 'Employee';
       const [tasksData, usersData, clientData] = await Promise.all([
         getTasks(),
-        canLoadCompanyReferences
+        canLoadUsers
           ? getUsersByCompany(selectedCompanyId)
           : Promise.resolve([]),
-        canLoadCompanyReferences
+        canLoadClients
           ? getClients(selectedCompanyId)
           : Promise.resolve([]),
       ]);
@@ -410,7 +413,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     } finally {
       setLoading(false);
     }
-  }, [currentRole, selectedCompanyId]);
+  }, [currentRole, selectedCompanyId, canLoadUsers, canLoadClients]);
 
   React.useEffect(() => {
     loadData();

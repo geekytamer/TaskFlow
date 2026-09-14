@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -249,10 +250,13 @@ function InfluencerCard({
 
 export function InfluencersPage() {
   const { selectedCompany, currentRole } = useCompany();
-  // Mirrors the server: it strips rateCardAmount for anyone outside these roles,
-  // so the tile would render an empty value rather than a number anyway.
-  const showPricing =
-    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant';
+  // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
+  // tile is absent rather than empty. The role is the legacy fallback.
+  const showPricing = usePermissionOr(
+    'contacts',
+    'pricing.read',
+    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
+  );
   const { t } = useI18n();
   const { toast } = useToast();
   const { money } = useCompanyCurrency();

@@ -33,6 +33,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
 import { fetchPermissionGroups } from '@/services/permissionService';
@@ -105,16 +106,15 @@ export function AddUserSheet({
 
   const selectedCompanyIds = form.watch('companyIds');
 
-  const availableRoles = React.useMemo(() => {
-    if (!currentUserRole || currentUserRole === 'Admin') {
-      return allUserRoles;
-    }
-    if (currentUserRole === 'Manager') {
-      // Managers can only create/edit Employees
-      return ['Employee'];
-    }
+  // settings:administration.write gives every role; settings:users.write alone gives only
+  // Employee. The legacy fallbacks are the Admin and Manager rules they replaced.
+  const canAssignElevatedRoles = usePermissionOr('settings', 'administration.write', !currentUserRole || currentUserRole === 'Admin');
+  const canManageUsers = usePermissionOr('settings', 'users.write', currentUserRole === 'Admin' || currentUserRole === 'Manager');
+  const availableRoles = React.useMemo((): UserRole[] => {
+    if (canAssignElevatedRoles) return allUserRoles;
+    if (canManageUsers) return ['Employee'];
     return [];
-  }, [currentUserRole]);
+  }, [canAssignElevatedRoles, canManageUsers]);
 
   /**
    * Built-in group keys that still exist, per company. A role whose built-in

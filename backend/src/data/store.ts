@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
+import { RECORD_RULES } from '../permissions/record-rules';
 import { seedData } from './seed-data';
 import {
   Company,
@@ -3468,6 +3469,33 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Role-only rules became permissions (permissions/record-rules.ts).
+        // Existing built-in groups receive them for exactly the roles that held
+        // them, so every built-in role keeps its access. Seeding no longer
+        // re-grants existing groups, so this is the only way they arrive.
+        id: '081_record_rule_permissions',
+        run: () => {
+          const roleByKey: Record<string, UserRole> = {
+            admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant',
+          };
+          const insert = this.db.prepare(
+            'INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)',
+          );
+          const groups = this.db
+            .prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1')
+            .all() as Array<{ id: string; key: string }>;
+          groups.forEach((group) => {
+            const role = roleByKey[group.key];
+            if (!role) return;
+            Object.values(RECORD_RULES).forEach((rule) => {
+              if ((rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
+            });
+          });
+          // No version bump: migrations run before the server serves anything,
+          // so there is no cached decision to invalidate.
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4488,7 +4516,11 @@ export class DataStore {
     roles.forEach(([roleName, key]) => {
       // An administrator deleted this built-in group; do not bring it back.
       if (deleted.has(key)) return;
-      insertGroup.run(uuid(), companyId, key, roleName, now);
+      // Grant defaults only to a group created just now. Re-seeding an existing
+      // built-in group restored permissions an administrator had removed, the
+      // next time anyone's role changed or the server started.
+      const created = insertGroup.run(uuid(), companyId, key, roleName, now).changes > 0;
+      if (!created) return;
       const group = this.getPermissionGroupByKey(companyId, key);
       if (!group) return;
       (SEED_MATRIX[roleName] || []).forEach((permission) => {
@@ -5655,11 +5687,11 @@ export class DataStore {
   listContacts(
     companyId: string,
     roleFilter?: ContactRoleType,
-    viewer?: { userId: string; role: string },
+    viewer?: { userId: string; seesPrivate: boolean },
   ): Contact[] {
-    // Private contacts are only visible to their owner or Admin/Manager
+    // Private contacts are visible to their owner, or to holders of contacts:private.read
     const visibilityClause =
-      viewer && viewer.role !== 'Admin' && viewer.role !== 'Manager'
+      viewer && !viewer.seesPrivate
         ? `AND (c.visibility = 'Public' OR c.ownerUserId = '${viewer.userId}')`
         : '';
 
@@ -11560,7 +11592,7 @@ export class DataStore {
     if (requiresApproval) {
       this.notify({
         companyId: order.companyId,
-        userIds: this.listUserIdsByCompanyRoles(order.companyId, ['Admin', 'Manager']),
+        userIds: this.listUserIdsWithPermission(order.companyId, 'purchasing:approve', ['Admin', 'Manager']),
         type: 'po_approval',
         title: `PO needs approval: ${order.orderNumber}`,
         body: `${order.supplierName} — ${order.totalAmount}. Review and approve in Purchasing.`,
@@ -12356,12 +12388,11 @@ export class DataStore {
    */
   canViewWhatsappChat(
     settings: WhatsAppChatSettings,
-    viewer: { userId: string; role?: string } | undefined,
+    viewer: { userId: string; seesPrivate: boolean } | undefined,
   ): boolean {
     if (!viewer) return false;
     if (settings.visibility !== 'private') return true;
-    const role = viewer.role;
-    if (role === 'Admin' || role === 'Manager') return true;
+    if (viewer.seesPrivate) return true;
     return settings.ownerUserId === viewer.userId;
   }
 
@@ -12469,7 +12500,7 @@ export class DataStore {
 
   listWhatsappChats(
     companyId: string,
-    viewer?: { userId: string; role?: string },
+    viewer?: { userId: string; seesPrivate: boolean },
   ): Array<{
     chatId: string;
     phone: string;
@@ -14654,7 +14685,7 @@ export class DataStore {
     const refreshed = this.getInvoiceById(newPayment.invoiceId);
     this.notify({
       companyId: invoice.companyId,
-      userIds: this.listUserIdsByCompanyRoles(invoice.companyId, ['Admin', 'Manager', 'Accountant']),
+      userIds: this.listUserIdsWithPermission(invoice.companyId, 'invoices:read', ['Admin', 'Manager', 'Accountant']),
       type: 'invoice_payment',
       title: `Payment received: ${refreshed?.invoiceNumber ?? ''}`.trim(),
       body: `${newPayment.amount} ${refreshed?.currency ?? ''} via ${newPayment.method}. Outstanding: ${(refreshed?.outstandingAmount ?? 0).toFixed(2)}.`,
@@ -15452,7 +15483,7 @@ export class DataStore {
     if (result.status === 'Draft') {
       this.notify({
         companyId: result.companyId,
-        userIds: this.listUserIdsByCompanyRoles(result.companyId, ['Admin', 'Manager', 'Accountant']),
+        userIds: this.listUserIdsWithPermission(result.companyId, 'vendor-bills:read', ['Admin', 'Manager', 'Accountant']),
         type: 'vendor_bill_approval',
         title: `Bill needs approval: ${result.billNumber}`,
         body: `Amount ${result.amount}. Review and approve in Payables.`,
@@ -17014,6 +17045,32 @@ export class DataStore {
     };
   }
 
+  /** Which authorization engine decides; set by the server. Legacy unless told otherwise. */
+  private authzEngine: 'legacy' | 'shadow' | 'openfga' = 'legacy';
+
+  setAuthzEngine(engine: 'legacy' | 'shadow' | 'openfga'): void {
+    this.authzEngine = engine;
+  }
+
+  /**
+   * User ids in a company who should receive a notification gated by a
+   * permission. Under the openfga engine that is whoever holds the permission
+   * through their groups; otherwise the role list it replaced decides, so the
+   * legacy engine behaves exactly as before.
+   */
+  listUserIdsWithPermission(companyId: string, permission: string, legacyRoles: string[]): string[] {
+    if (this.authzEngine !== 'openfga') return this.listUserIdsByCompanyRoles(companyId, legacyRoles);
+    const rows = this.db.prepare('SELECT * FROM users').all() as any[];
+    const ids: string[] = [];
+    for (const row of rows) {
+      const user = this.sanitizeUser(row);
+      const member = Boolean(user.companyRoles?.some((a) => a.companyId === companyId))
+        || Boolean(user.companyIds?.includes(companyId));
+      if (member && this.getEffectivePermissions(user.id, companyId).includes(permission)) ids.push(user.id);
+    }
+    return ids;
+  }
+
   /** User ids in a company holding any of the given company roles. */
   listUserIdsByCompanyRoles(companyId: string, roles: string[]): string[] {
     const rows = this.db.prepare('SELECT * FROM users').all() as any[];
@@ -17291,7 +17348,7 @@ export class DataStore {
       const companyId = row.companyId as string;
       let recipients = recipientsByCompany.get(companyId);
       if (!recipients) {
-        recipients = this.listUserIdsByCompanyRoles(companyId, ['Admin', 'Manager']);
+        recipients = this.listUserIdsWithPermission(companyId, 'inventory:write', ['Admin', 'Manager']);
         recipientsByCompany.set(companyId, recipients);
       }
       const onHand = Number(row.onHand) || 0;
@@ -17327,7 +17384,7 @@ export class DataStore {
       if (outstanding <= 0) continue;
       let recipients = financeByCompany.get(inv.companyId);
       if (!recipients) {
-        recipients = this.listUserIdsByCompanyRoles(inv.companyId, ['Admin', 'Manager', 'Accountant']);
+        recipients = this.listUserIdsWithPermission(inv.companyId, 'invoices:read', ['Admin', 'Manager', 'Accountant']);
         financeByCompany.set(inv.companyId, recipients);
       }
       count += this.notify({
@@ -18599,7 +18656,7 @@ export class DataStore {
     for (const { id: companyId } of companies) {
       const lots = this.listExpiringLots(companyId, 30);
       if (lots.length === 0) continue;
-      const recipients = this.listUserIdsByCompanyRoles(companyId, ['Admin', 'Manager']);
+      const recipients = this.listUserIdsWithPermission(companyId, 'inventory:write', ['Admin', 'Manager']);
       if (recipients.length === 0) continue;
       for (const lot of lots) {
         const item = this.getInventoryItemById(lot.inventoryItemId);

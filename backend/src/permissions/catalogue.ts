@@ -15,9 +15,12 @@
  * the intersection would revoke it, so the permission is split instead. See
  * splitConflictingPermissions in scripts/extract-gates.ts.
  *
- * projects and tasks have no plain read action — their reads are decided per
- * record by requireProjectViewAccess / canViewTask, not by group membership.
+ * projects and tasks have no plain read action. Their reads are decided per
+ * record by requireProjectViewAccess / canViewTask; `all.read` (a record rule)
+ * decides whether someone sees every record or only their own.
  */
+
+import { RECORD_RULES } from './record-rules';
 
 export type ModuleGroup = 'operations' | 'finance' | 'crm' | 'hr' | 'core';
 
@@ -28,7 +31,7 @@ export interface PermissionModule {
   actions: readonly string[];
 }
 
-export const MODULES: readonly PermissionModule[] = [
+const GATE_MODULES: readonly PermissionModule[] = [
   // ── Operations ───────────────────────────────────────
   {
     key: 'dashboard',
@@ -149,6 +152,18 @@ export const MODULES: readonly PermissionModule[] = [
     actions: ["activity-events.read","companies.read","custom-fields.create","custom-fields.delete","custom-fields.read","members.read","numbering-settings.read","users.read","write"],
   },
 ] as const;
+
+/**
+ * Gate-derived modules with the record-rule actions merged in. See
+ * permissions/record-rules.ts: those rules sit inside handlers, where the gate
+ * extractor cannot see them.
+ */
+export const MODULES: readonly PermissionModule[] = GATE_MODULES.map((module) => {
+  const extra = Object.values(RECORD_RULES)
+    .filter((rule) => rule.module === module.key)
+    .map((rule) => rule.action);
+  return extra.length ? { ...module, actions: [...module.actions, ...extra].sort() } : module;
+});
 
 const INDEX = new Map(MODULES.map((m) => [m.key, new Set(m.actions)]));
 

@@ -1,11 +1,12 @@
 import type { UserRole } from '../types';
+import { recordRulePermissionsFor } from './record-rules';
 
 /**
  * The permissions each legacy role holds today, derived mechanically from the
  * gate matrix. Seeding the four built-in groups from this is what makes the
  * migration lossless. GENERATED — regenerate rather than editing by hand.
  */
-export const SEED_MATRIX: Record<UserRole, string[]> = {
+const GATE_SEED_MATRIX: Record<UserRole, string[]> = {
   Admin: [
     'campaigns:campaigns.delete',
     'campaigns:campaigns.generate-invoice.create',
@@ -361,3 +362,14 @@ export const SEED_MATRIX: Record<UserRole, string[]> = {
     'tasks:write',
   ],
 };
+
+/**
+ * What each built-in group is seeded with: the gate-derived grants plus the
+ * record rules the role held (permissions/record-rules.ts).
+ */
+export const SEED_MATRIX: Record<UserRole, string[]> = Object.fromEntries(
+  (Object.keys(GATE_SEED_MATRIX) as UserRole[]).map((role) => [
+    role,
+    [...new Set([...GATE_SEED_MATRIX[role], ...recordRulePermissionsFor(role)])].sort(),
+  ]),
+) as Record<UserRole, string[]>;

@@ -9,6 +9,7 @@ const {
   permissionKey,
   allPermissions,
 } = require('../dist/permissions/catalogue');
+const { RECORD_RULES } = require('../dist/permissions/record-rules');
 
 test('every module declares a label key, a sidebar group and at least one action', () => {
   assert.ok(MODULES.length > 0);
@@ -60,6 +61,8 @@ test('the catalogue grants nothing the gate matrix does not enforce', () => {
     const [, , module, action, , , gate] = row.split(',');
     if (gate !== 'none') enforced.add(`${module}:${action}`);
   }
+  // Record rules are enforced inside handlers; record-rules.test.js checks that.
+  for (const rule of Object.values(RECORD_RULES)) enforced.add(`${rule.module}:${rule.action}`);
   const unenforced = allPermissions().filter((p) => !enforced.has(p));
   assert.deepEqual(unenforced, [],
     `catalogue promises permissions no route enforces: ${unenforced.join(', ')}`);
