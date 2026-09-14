@@ -51,6 +51,7 @@ import { useCompany } from '@/context/company-context';
 import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
 type NavItem = {
   href: string;
@@ -139,7 +140,7 @@ const sections: NavSection[] = [
 export function SidebarNav() {
   const pathname = usePathname();
   const { user, loading, effectiveRole } = useAuthGuard();
-  const { can, loaded: permissionsLoaded } = usePermissions();
+  const { can, moduleOn, loaded: permissionsLoaded } = usePermissions();
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
   const [whatsappUnread, setWhatsappUnread] = React.useState(0);
@@ -176,6 +177,9 @@ export function SidebarNav() {
   }
 
   const canSeeItem = (item: NavItem) => {
+    // A module the company switched off is hidden under every engine.
+    const itemModule = moduleForPath(item.href);
+    if (itemModule && !moduleOn(itemModule)) return false;
     // Once the server has reported a permission set, it is the only authority.
     // The frontend holds no rules of its own; it renders what the server says.
     if (permissionsLoaded) {

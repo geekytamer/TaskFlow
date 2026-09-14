@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
+import { normalizeDisabledModules } from '../permissions/company-modules';
 import { seedData } from './seed-data';
 import {
   Company,
@@ -3496,6 +3497,18 @@ export class DataStore {
           // so there is no cached decision to invalidate.
         },
       },
+      {
+        // Modules the platform super admin switched off per company, as a JSON
+        // array. NULL means every module is on, which is what existing
+        // companies had.
+        id: '082_company_disabled_modules',
+        run: () => {
+          const cols = this.db.prepare(`PRAGMA table_info('companies')`).all() as Array<{ name: string }>;
+          if (!cols.some((c) => c.name === 'disabledModules')) {
+            this.db.exec(`ALTER TABLE companies ADD COLUMN disabledModules TEXT;`);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4178,19 +4191,40 @@ export class DataStore {
   }
 
   listCompanies(): Company[] {
-    return this.db.prepare('SELECT * FROM companies').all() as Company[];
+    return (this.db.prepare('SELECT * FROM companies').all() as any[]).map((row) => this.mapCompanyRow(row));
   }
 
   getCompanyById(id: string): Company | undefined {
-    return this.db.prepare('SELECT * FROM companies WHERE id = ?').get(id) as Company | undefined;
+    const row = this.db.prepare('SELECT * FROM companies WHERE id = ?').get(id) as any;
+    return row ? this.mapCompanyRow(row) : undefined;
+  }
+
+  private mapCompanyRow(row: any): Company {
+    return { ...row, disabledModules: normalizeDisabledModules(this.parseJson(row.disabledModules)) };
+  }
+
+  /**
+   * Modules switched off for a company. Reads the one column rather than the
+   * whole row: route gates call this on every request, and the row carries the
+   * logo as a data URI.
+   */
+  getDisabledModules(companyId: string): string[] {
+    const row = this.db.prepare('SELECT disabledModules FROM companies WHERE id = ?').get(companyId) as
+      | { disabledModules: string | null }
+      | undefined;
+    return normalizeDisabledModules(this.parseJson(row?.disabledModules));
+  }
+
+  isModuleEnabled(companyId: string, module: string): boolean {
+    return !this.getDisabledModules(companyId).includes(module);
   }
 
   createCompany(company: Omit<Company, 'id'>): Company {
-    const newCompany = { ...company, id: uuid() };
+    const newCompany = { ...company, id: uuid(), disabledModules: normalizeDisabledModules(company.disabledModules) };
     this.db
       .prepare(
-        `INSERT INTO companies (id, name, website, address, logoUrl, legalName, taxNumber, registrationNumber, phone, email, city, country, taxDetails)
-         VALUES (@id, @name, @website, @address, @logoUrl, @legalName, @taxNumber, @registrationNumber, @phone, @email, @city, @country, @taxDetails)`,
+        `INSERT INTO companies (id, name, website, address, logoUrl, legalName, taxNumber, registrationNumber, phone, email, city, country, taxDetails, disabledModules)
+         VALUES (@id, @name, @website, @address, @logoUrl, @legalName, @taxNumber, @registrationNumber, @phone, @email, @city, @country, @taxDetails, @disabledModules)`,
       )
       .run({
         ...newCompany,
@@ -4205,6 +4239,7 @@ export class DataStore {
         city: newCompany.city ?? null,
         country: newCompany.country ?? null,
         taxDetails: newCompany.taxDetails ?? null,
+        disabledModules: newCompany.disabledModules.length ? JSON.stringify(newCompany.disabledModules) : null,
       });
     this.ensureFinanceDefaults();
     this.ensureNumberingDefaults();
@@ -4224,12 +4259,19 @@ export class DataStore {
       website: updates.website ?? existing.website,
       address: updates.address ?? existing.address,
       logoUrl: updates.logoUrl ?? existing.logoUrl,
+      disabledModules:
+        updates.disabledModules !== undefined
+          ? normalizeDisabledModules(updates.disabledModules)
+          : existing.disabledModules ?? [],
     };
+    const modulesChanged =
+      JSON.stringify(updated.disabledModules) !== JSON.stringify(existing.disabledModules ?? []);
     this.db
       .prepare(
         `UPDATE companies SET name=@name, website=@website, address=@address, logoUrl=@logoUrl,
            legalName=@legalName, taxNumber=@taxNumber, registrationNumber=@registrationNumber,
-           phone=@phone, email=@email, city=@city, country=@country, taxDetails=@taxDetails
+           phone=@phone, email=@email, city=@city, country=@country, taxDetails=@taxDetails,
+           disabledModules=@disabledModules
          WHERE id=@id`,
       )
       .run({
@@ -4246,7 +4288,11 @@ export class DataStore {
         city: updated.city ?? null,
         country: updated.country ?? null,
         taxDetails: updated.taxDetails ?? null,
+        disabledModules: updated.disabledModules?.length ? JSON.stringify(updated.disabledModules) : null,
       });
+    // Clients refetch their permission feed when the version moves, which is
+    // how an open browser learns a module was switched off.
+    if (modulesChanged) this.bumpAuthzVersion();
     return this.getCompanyById(id);
   }
 
@@ -17059,6 +17105,8 @@ export class DataStore {
    * legacy engine behaves exactly as before.
    */
   listUserIdsWithPermission(companyId: string, permission: string, legacyRoles: string[]): string[] {
+    // Nobody is notified about a module the company has switched off.
+    if (!this.isModuleEnabled(companyId, permission.slice(0, permission.indexOf(':')))) return [];
     if (this.authzEngine !== 'openfga') return this.listUserIdsByCompanyRoles(companyId, legacyRoles);
     const rows = this.db.prepare('SELECT * FROM users').all() as any[];
     const ids: string[] = [];

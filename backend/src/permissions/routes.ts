@@ -3,6 +3,7 @@ import type { RecordRuleName } from './record-rules';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { MODULES, isValidPermission } from './catalogue';
+import { ALWAYS_ON_MODULES } from './company-modules';
 import { projectCompanyDelta, syncTuples } from './sync';
 import { tuplesForStore } from './tuples';
 
@@ -123,13 +124,14 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
 
   // ── Catalogue ──────────────────────────────────────────────────────
   app.get('/permissions/catalogue', authMiddleware as never, handler((_req, res) => {
-    res.json({ modules: MODULES });
+    res.json({ modules: MODULES, alwaysOnModules: [...ALWAYS_ON_MODULES] });
   }));
 
   // ── The current user's own permissions ─────────────────────────────
   app.get('/auth/permissions', authMiddleware as never, handler((req, res) => {
     const companyId = typeof req.query.companyId === 'string' ? req.query.companyId : undefined;
     if (!companyId) throw new HttpError(400, 'companyId is required.');
+    const disabledModules = store.getDisabledModules(companyId);
     res.json({
       version: store.getAuthzVersion(),
       companyId,
@@ -137,7 +139,14 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
       // Under legacy and shadow the server still decides by role, so the UI
       // must too, or a hand-edited group would change the UI but not the server.
       engine: authzEngine,
-      permissions: store.getEffectivePermissions(req.user!.id, companyId).sort(),
+      // Switched off for this company: off for everyone, whatever groups grant.
+      // Listed separately too, because the UI hides these modules under every
+      // engine, while it follows `permissions` only under openfga.
+      disabledModules,
+      permissions: store
+        .getEffectivePermissions(req.user!.id, companyId)
+        .filter((permission) => !disabledModules.includes(permission.slice(0, permission.indexOf(':'))))
+        .sort(),
     });
   }));
 

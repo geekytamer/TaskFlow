@@ -27,6 +27,7 @@ import { CommandPalette } from '@/modules/layout/components/command-palette';
 import { NotificationBell } from '@/modules/layout/components/notification-bell';
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
+import { ModuleGate } from '@/modules/companies/components/module-gate';
 import { isImpersonating } from '@/services/adminService';
 import { Search } from 'lucide-react';
 
@@ -129,7 +130,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <CompanySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6"><ModuleGate>{children}</ModuleGate></main>
       </SidebarInset>
       <TourOverlay />
       <WelcomeTourModal />

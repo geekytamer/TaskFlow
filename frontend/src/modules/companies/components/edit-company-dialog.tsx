@@ -18,6 +18,8 @@ import { updateCompany } from '@/services/companyService';
 import type { Company } from '../types';
 import { CompanyMark } from './company-mark';
 import { useI18n } from '@/context/i18n-context';
+import { useCompany } from '@/context/company-context';
+import { CompanyModulesField } from './company-modules-field';
 
 export function EditCompanyDialog({
   company,
@@ -33,10 +35,13 @@ export function EditCompanyDialog({
   const [form, setForm] = React.useState({
     name: '', website: '', address: '', logoUrl: undefined as string | undefined,
     legalName: '', taxNumber: '', registrationNumber: '', phone: '', email: '', city: '', country: '', taxDetails: '',
+    disabledModules: [] as string[],
   });
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
   const { t } = useI18n();
+  const { currentUser } = useCompany();
+  const isSuperAdmin = Boolean(currentUser?.isSuperAdmin);
 
   React.useEffect(() => {
     if (company) {
@@ -53,6 +58,7 @@ export function EditCompanyDialog({
         city: company.city || '',
         country: company.country || '',
         taxDetails: company.taxDetails || '',
+        disabledModules: company.disabledModules ?? [],
       });
     }
   }, [company]);
@@ -74,6 +80,8 @@ export function EditCompanyDialog({
         city: form.city.trim(),
         country: form.country.trim(),
         taxDetails: form.taxDetails.trim(),
+        // Only the platform administrator may send this; the server refuses anyone else.
+        ...(isSuperAdmin ? { disabledModules: form.disabledModules } : {}),
       });
       onSaved(updated);
       onOpenChange(false);
@@ -110,6 +118,12 @@ export function EditCompanyDialog({
             <div className="space-y-1"><Label>{t('companyEdit.country', 'Country')}</Label><Input value={form.country} onChange={(e) => setForm((c) => ({ ...c, country: e.target.value }))} /></div>
           </div>
           <div className="space-y-1"><Label>{t('companyEdit.taxDetails', 'Tax details')}</Label><Input value={form.taxDetails} onChange={(e) => setForm((c) => ({ ...c, taxDetails: e.target.value }))} /></div>
+          {isSuperAdmin && (
+            <CompanyModulesField
+              value={form.disabledModules}
+              onChange={(disabledModules) => setForm((c) => ({ ...c, disabledModules }))}
+            />
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>

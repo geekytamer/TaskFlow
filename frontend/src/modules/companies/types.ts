@@ -12,6 +12,8 @@ export interface Company {
   city?: string;
   country?: string;
   taxDetails?: string;
+  /** Modules the platform super admin switched off for this company. */
+  disabledModules?: string[];
 }
 
 export interface Position {

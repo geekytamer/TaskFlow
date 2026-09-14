@@ -34,9 +34,9 @@ const ACTION_ORDER = ['read', 'create', 'write', 'delete'];
 
 export function PermissionsPage() {
   const { selectedCompany } = useCompany();
-  const { refresh: refreshMyPermissions } = usePermissions();
+  const { refresh: refreshMyPermissions, moduleOn } = usePermissions();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const confirm = useConfirm();
 
   const [modules, setModules] = React.useState<PermissionModule[]>([]);
@@ -454,7 +454,7 @@ export function PermissionsPage() {
                         return a.localeCompare(b);
                       });
                       return (
-                        <div key={module.key} className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-start">
+                        <div key={module.key} className={`grid gap-2 sm:grid-cols-[170px_1fr] sm:items-start${moduleOn(module.key) ? '' : ' opacity-60'}`}>
                           {(() => {
                             const keys = sorted.map((action) => `${module.key}:${action}`);
                             const held = keys.filter((k) => selected.permissions.includes(k) || inherited.has(k));
@@ -469,6 +469,11 @@ export function PermissionsPage() {
                                   onCheckedChange={() => toggleModule(keys, state !== true)}
                                 />
                                 {moduleLabel(module.key, t)}
+                                {!moduleOn(module.key) && (
+                                  <Badge variant="outline" className="text-[10px] font-normal">
+                                    {language === 'ar' ? 'متوقفة لهذه الشركة' : 'Off for this company'}
+                                  </Badge>
+                                )}
                               </label>
                             );
                           })()}

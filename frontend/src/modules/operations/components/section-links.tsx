@@ -8,6 +8,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { moduleForPath } from '@/modules/companies/lib/company-modules';
 import { cn } from '@/lib/utils';
 import type { UserRole } from '@/lib/types';
 
@@ -59,11 +60,13 @@ export function SectionLinks() {
   const pathname = usePathname();
   const { currentRole } = useCompany();
   const { t } = useI18n();
-  const { can, loaded } = usePermissions();
+  const { can, moduleOn, loaded } = usePermissions();
 
   // Same rule as the sidebar: the destination's permission once the server has
   // answered, the role list before that and under the legacy engine.
   const visibleItems = sectionItems.filter((item) => {
+    const itemModule = moduleForPath(item.href);
+    if (itemModule && !moduleOn(itemModule)) return false;
     const permission = navPermission(item.href);
     if (loaded && permission) {
       const cut = permission.indexOf(':');

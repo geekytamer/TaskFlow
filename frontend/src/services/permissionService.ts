@@ -29,6 +29,8 @@ export interface PermissionFeed {
   version: number;
   companyId: string;
   permissions: string[];
+  /** Switched off for this company: hidden under every engine. */
+  disabledModules?: string[];
 }
 
 export function fetchMyPermissions(companyId: string) {
@@ -36,7 +38,7 @@ export function fetchMyPermissions(companyId: string) {
 }
 
 export function fetchCatalogue() {
-  return apiFetch<{ modules: PermissionModule[] }>('/permissions/catalogue');
+  return apiFetch<{ modules: PermissionModule[]; alwaysOnModules?: string[] }>('/permissions/catalogue');
 }
 
 export function fetchPermissionGroups(companyId: string) {

@@ -23,7 +23,7 @@ today**. Only users whose groups were changed by hand can see a difference.
 - [x] A role whose built-in group was deleted is refused when newly assigned
       on user create/edit, and hidden in the user dialog for that company.
 - [x] Browser verification: 14 checks in a real browser.
-- [ ] Staging deploy.
+- [x] Staging deploy.
 
 ## Part 2 — Role-only rules become permissions
 
@@ -35,7 +35,8 @@ today**. Only users whose groups were changed by hand can see a difference.
 - [x] Frontend: 25 files use the permissions, with the role as fallback.
 - [x] Parity proof (below).
 - [x] Committed.
-- [ ] Staging deploy and real-data comparison (`ops authz:compare`).
+- [x] Staging deploy and real-data comparison (`ops authz:compare`): 12
+  companies, 37 memberships, 629 rule decisions compared, 0 differences.
 
 | Permission | Roles today | Enforced in |
 |---|---|---|
@@ -108,11 +109,34 @@ an Admin.
 
 ## Part 3 — The role becomes a starting point
 
-- The user dialog gains a groups picker per company, starting with the role's
-  built-in group. Role options exclude deleted built-ins. Users without
-  `settings:roles.write` keep the role-only choice.
+- [x] The user dialog gains a groups picker per company for holders of
+  `settings:administration.write`: current groups when editing, the role's
+  built-in group when adding, swapping the built-in group when the role changes
+  and keeping custom groups, as the server does.
+- [x] Only a company whose groups someone changed is saved (after the user
+  itself), so untouched companies stay with the server's role sync. A failed
+  save names the company and says the user was saved.
+- [x] Role options exclude deleted built-ins.
+- [ ] Browser verification, commit, staging deploy.
 
 ## Part 4 — Module access for a whole company
 
-- Switch a module on or off for an entire company. Design questions to settle
-  once Part 3 lands.
+Decisions: the platform super admin sets it when creating or editing a
+company; off means off for everyone there, admins included; group grants are
+kept, so switching back on restores the same access.
+
+- [x] `companies.disabledModules` (migration 082). `settings` and `dashboard`
+  are always on (`permissions/company-modules.ts`).
+- [x] Server refuses a switched-off module under every engine: in the auth
+  middleware for `:companyId` routes, in the role gate for routes that find
+  their company from a record, in record rules, in project and task views,
+  task creation and time-entry deletion. Public document links answer 404.
+  Nobody is notified about it.
+- [x] Only a super admin may change the list (403 otherwise); unknown or
+  always-on modules are refused (400). A change bumps the authz version.
+- [x] The permission feed drops the module's permissions and lists
+  `disabledModules`; the catalogue lists `alwaysOnModules`.
+- [x] `company-modules.test.js`: 4 tests, both engines. Suite 258/258.
+- [ ] UI: module switches in the super admin's company dialogs; hidden from
+  navigation and pages under every engine; greyed in the group editor.
+- [ ] Browser verification, commit, staging deploy.

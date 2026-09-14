@@ -15,6 +15,7 @@ import {
   type FgaReader,
 } from './permissions/permission-service';
 import { recordShadowCheck, routeToPermission, recordDivergence } from './permissions/shadow';
+import { isSwitchableModule } from './permissions/company-modules';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
 import { projectCompanyDelta, type TupleStore } from './permissions/sync';
@@ -724,6 +725,16 @@ export function createServer(options: CreateServerOptions = {}) {
     next();
   });
 
+  /**
+   * A module the company switched off (permissions/company-modules.ts) is off
+   * for everyone in it, admins included, whatever their groups grant.
+   */
+  const moduleOff = (module: string) =>
+    new HttpError(403, `The ${module} module is turned off for this company.`);
+  const requireModuleOn = (companyId: string, module: string) => {
+    if (!store.isModuleEnabled(companyId, module)) throw moduleOff(module);
+  };
+
   const authMiddleware = (req: AuthedRequest, _res: Response, next: NextFunction) => {
     const header = req.headers.authorization;
     if (!header) return next(new HttpError(401, 'Unauthorized'));
@@ -731,6 +742,17 @@ export function createServer(options: CreateServerOptions = {}) {
     const user = store.getUserByToken(token);
     if (!user) return next(new HttpError(401, 'Unauthorized'));
     req.user = user;
+
+    // Refuse a switched-off module here, where the matched route and its
+    // :companyId are both known, so no branch inside a handler can miss it.
+    // Routes that find their company from a record are checked in
+    // requireCompanyRoles, allowsRule and the project and task view checks.
+    const routePath = req.route?.path;
+    const companyParam = req.params?.companyId;
+    if (routePath && companyParam) {
+      const mapping = routeToPermission(req.method, routePath);
+      if (mapping && !store.isModuleEnabled(companyParam, mapping.module)) return next(moduleOff(mapping.module));
+    }
 
     if (authzEngine === 'legacy') return next();
 
@@ -800,6 +822,10 @@ export function createServer(options: CreateServerOptions = {}) {
     const user = req.user;
     if (!user) return false;
     const rule = RECORD_RULES[name];
+    if (!store.isModuleEnabled(companyId, rule.module)) {
+      options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: false });
+      return false;
+    }
     if (authzEngine === 'openfga') {
       const allowed = PermissionService.allows(req.permissions, companyId, rule.module, rule.action);
       options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
@@ -887,6 +913,7 @@ export function createServer(options: CreateServerOptions = {}) {
     requireCompanyAccess(req, companyId);
     const legacyAllowed = requireCompanyRole(req.user!, companyId, roles);
     const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
+    if (mapping) requireModuleOn(companyId, mapping.module);
 
     // Shadow mode observes; the legacy answer still decides. Living inside the
     // gate rather than at the call sites means all 233 of them are compared
@@ -930,6 +957,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   const canViewProject = (req: AuthedRequest, project: Project): boolean => {
     const user = req.user!;
+    if (!store.isModuleEnabled(project.companyId, 'projects')) return false;
     if (!getEffectiveRole(user, project.companyId)) return false;
     if (allowsRule(req, project.companyId, 'PROJECTS_ALL_READ')) return true;
     return project.visibility === 'Public' || Boolean(project.memberIds?.includes(user.id));
@@ -937,6 +965,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   const requireProjectViewAccess = (req: AuthedRequest, project: Project) => {
     requireCompanyAccess(req, project.companyId);
+    requireModuleOn(project.companyId, 'projects');
     if (!canViewProject(req, project)) {
       throw new HttpError(403, 'You do not have access to this project.');
     }
@@ -959,6 +988,7 @@ export function createServer(options: CreateServerOptions = {}) {
     },
   ): boolean => {
     const user = req.user!;
+    if (!store.isModuleEnabled(task.companyId, 'tasks')) return false;
     const isAssignee = (task.assignedUserIds ?? []).includes(user.id);
     // A private task is visible ONLY to its owner and assignees — it overrides
     // the role-based default and the project cascade. The platform super-admin
@@ -981,6 +1011,7 @@ export function createServer(options: CreateServerOptions = {}) {
     task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
   ) => {
     requireCompanyAccess(req, task.companyId);
+    requireModuleOn(task.companyId, 'tasks');
     if (!canViewTask(req, task)) {
       throw new HttpError(403, 'You do not have access to this task.');
     }
@@ -1495,6 +1526,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const invoice = store.getInvoiceById(req.params.id);
       if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      if (!store.isModuleEnabled(invoice.companyId, 'invoices')) throw new HttpError(404, 'Invoice not found.');
       const companyRecord = store.getCompanyById(invoice.companyId);
       const templates = store.listInvoiceTemplates(invoice.companyId);
       // Prefer the snapshot frozen at issue time so the public copy never drifts
@@ -1527,6 +1559,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const delivery = store.getDeliveryById(req.params.id);
       if (!delivery) throw new HttpError(404, 'Delivery not found.');
+      if (!store.isModuleEnabled(delivery.companyId, 'sales')) throw new HttpError(404, 'Delivery not found.');
       const order = delivery.salesOrderId ? store.getSalesOrderById(delivery.salesOrderId) : undefined;
       const companyRecord = store.getCompanyById(delivery.companyId);
       const deliveryTemplates = store.listInvoiceTemplates(delivery.companyId, 'delivery');
@@ -1721,6 +1754,7 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       const bill = store.getVendorBillById(req.params.id);
       if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      if (!store.isModuleEnabled(bill.companyId, 'vendor-bills')) throw new HttpError(404, 'Vendor bill not found.');
       res.json(buildBillDocument(bill));
     }),
   );
@@ -1981,6 +2015,19 @@ export function createServer(options: CreateServerOptions = {}) {
     res.json({ token, user: target });
   }));
 
+  /** Validates a list of modules to switch off; undefined when absent. */
+  const parseDisabledModules = (value: unknown): string[] | undefined => {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+      throw new HttpError(400, 'disabledModules must be a list of module keys.');
+    }
+    const invalid = (value as string[]).filter((key) => !isSwitchableModule(key));
+    if (invalid.length) {
+      throw new HttpError(400, `These modules cannot be switched off: ${invalid.join(', ')}.`);
+    }
+    return value as string[];
+  };
+
   app.get(
     '/companies',
     authMiddleware,
@@ -2016,6 +2063,7 @@ export function createServer(options: CreateServerOptions = {}) {
         website: optionalString(body.website),
         address: optionalString(body.address),
         logoUrl: optionalString(body.logoUrl),
+        disabledModules: parseDisabledModules(body.disabledModules),
       });
       // A new company had no tuples, so everything it has now is the delta.
       await publishAuthzChange(new Map([[company.id, []]]));
@@ -2032,6 +2080,9 @@ export function createServer(options: CreateServerOptions = {}) {
         requireCompanyRoles(req, req.params.id, ['Admin', 'Manager']);
       }
       const body = asRecord(req.body, 'body');
+      if (body.disabledModules !== undefined && !req.user?.isSuperAdmin) {
+        throw new HttpError(403, 'Only the platform administrator can switch modules on or off.');
+      }
       const optionalText = (value: unknown) => (value !== undefined ? String(value || '') : undefined);
       const company = store.updateCompany(req.params.id, {
         name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
@@ -2046,6 +2097,7 @@ export function createServer(options: CreateServerOptions = {}) {
         city: optionalText(body.city),
         country: optionalText(body.country),
         taxDetails: optionalText(body.taxDetails),
+        disabledModules: body.disabledModules !== undefined ? parseDisabledModules(body.disabledModules) : undefined,
       });
       if (!company) throw new HttpError(404, 'Company not found.');
       res.json(company);
@@ -2377,6 +2429,7 @@ export function createServer(options: CreateServerOptions = {}) {
   app.get('/public/documents/:id', handler((req, res) => {
     const doc = store.getDocumentById(req.params.id);
     if (!doc) throw new HttpError(404, 'Document not found.');
+    if (!store.isModuleEnabled(doc.companyId, 'documents')) throw new HttpError(404, 'Document not found.');
     const company = store.getCompanyById(doc.companyId);
     const client = doc.recordType === 'client' && doc.recordId
       ? store.getClientById(doc.recordId)
@@ -2949,6 +3002,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const payload = parseTaskPayload(req.body);
       requireCompanyAccess(req, payload.companyId!);
+      requireModuleOn(payload.companyId!, 'tasks');
       if (payload.projectId) {
         ensureProjectBelongsToCompany(payload.projectId, payload.companyId!);
       }
@@ -3123,6 +3177,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const entry = store.getTimeEntryById(req.params.id);
       if (!entry) throw new HttpError(404, 'Time entry not found.');
+      requireModuleOn(entry.companyId, 'tasks');
       // Only the logger, or someone allowed to delete others' entries, may delete.
       if (entry.userId !== req.user!.id && !allowsRule(req, entry.companyId, 'TIME_ENTRIES_DELETE_OTHERS')) {
         throw new HttpError(403, 'You can only delete your own time entries.');

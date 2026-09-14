@@ -10,6 +10,8 @@ interface PermissionsContextType {
   loading: boolean;
   /** True when the server's permissions decide (openfga engine); otherwise gates use their role fallback. */
   loaded: boolean;
+  /** False for a module the company switched off. Such a module is hidden under every engine. */
+  moduleOn: (module: string) => boolean;
   can: (module: string, action: string) => boolean;
   canAny: (module: string, ...actions: string[]) => boolean;
   refresh: () => void;
@@ -18,6 +20,7 @@ interface PermissionsContextType {
 const PermissionsContext = React.createContext<PermissionsContextType | undefined>(undefined);
 
 const EMPTY: Set<string> = new Set();
+const NO_MODULES: string[] = [];
 
 export function PermissionsProvider({ children }: { children: React.ReactNode }) {
   const { selectedCompany } = useCompany();
@@ -25,6 +28,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = React.useState(true);
   const [loaded, setLoaded] = React.useState(false);
   const [nonce, setNonce] = React.useState(0);
+  const [feedDisabledModules, setFeedDisabledModules] = React.useState<string[] | null>(null);
 
   const companyId = selectedCompany?.id;
 
@@ -34,6 +38,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       setPermissions(EMPTY);
       setLoading(false);
       setLoaded(false);
+      setFeedDisabledModules(null);
       return () => {
         active = false;
       };
@@ -48,6 +53,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
         // shadow the server still decides by role, so `loaded` stays false and
         // every gate uses its role fallback: the UI then matches the server.
         setLoaded(feed.engine === 'openfga');
+        setFeedDisabledModules(feed.disabledModules ?? null);
       })
       .catch(() => {
         // The server remains authoritative; a failed fetch must not be read as
@@ -55,6 +61,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
         if (!active) return;
         setPermissions(EMPTY);
         setLoaded(false);
+        setFeedDisabledModules(null);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -65,14 +72,22 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
     };
   }, [companyId, nonce]);
 
-  const value = React.useMemo<PermissionsContextType>(() => ({
-    permissions,
-    loading,
-    loaded,
-    can: (module, action) => permissions.has(`${module}:${action}`),
-    canAny: (module, ...actions) => actions.some((a) => permissions.has(`${module}:${a}`)),
-    refresh: () => setNonce((n) => n + 1),
-  }), [permissions, loading, loaded]);
+  // The feed is fresher than the company list, which loads once; either way a
+  // switched-off module is off whatever the engine.
+  const disabledModules = feedDisabledModules ?? selectedCompany?.disabledModules ?? NO_MODULES;
+
+  const value = React.useMemo<PermissionsContextType>(() => {
+    const moduleOn = (module: string) => !disabledModules.includes(module);
+    return {
+      permissions,
+      loading,
+      loaded,
+      moduleOn,
+      can: (module, action) => moduleOn(module) && permissions.has(`${module}:${action}`),
+      canAny: (module, ...actions) => moduleOn(module) && actions.some((a) => permissions.has(`${module}:${a}`)),
+      refresh: () => setNonce((n) => n + 1),
+    };
+  }, [permissions, loading, loaded, disabledModules]);
 
   return <PermissionsContext.Provider value={value}>{children}</PermissionsContext.Provider>;
 }
@@ -111,6 +126,8 @@ export function usePermissionOr(
   action: string,
   legacyFallback: boolean,
 ): boolean {
-  const { can, loaded } = usePermissions();
+  const { can, loaded, moduleOn } = usePermissions();
+  // A switched-off module is off under every engine, whatever the role says.
+  if (!moduleOn(module)) return false;
   return loaded ? can(module, action) : legacyFallback;
 }

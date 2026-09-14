@@ -41,6 +41,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { PlusCircle } from 'lucide-react';
 import { EditCompanyDialog } from '@/modules/companies/components/edit-company-dialog';
+import { CompanyModulesField } from '@/modules/companies/components/company-modules-field';
 import { CompanyMark } from '@/modules/companies/components/company-mark';
 import type { Company } from '@/modules/companies/types';
 import {
@@ -116,7 +117,7 @@ export function AdminPage() {
   const [tab, setTab] = React.useState('overview');
   const [createUserOpen, setCreateUserOpen] = React.useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = React.useState(false);
-  const [companyForm, setCompanyForm] = React.useState({ name: '', website: '', address: '' });
+  const [companyForm, setCompanyForm] = React.useState({ name: '', website: '', address: '', disabledModules: [] as string[] });
   const [savingCompany, setSavingCompany] = React.useState(false);
   const [companyToDelete, setCompanyToDelete] = React.useState<AdminCompanyRow | null>(null);
   const [companyToEdit, setCompanyToEdit] = React.useState<Company | null>(null);
@@ -246,7 +247,7 @@ export function AdminPage() {
                   {t('admin.newCompany')}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
+              <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t('admin.newCompany')}</DialogTitle>
                 </DialogHeader>
@@ -274,6 +275,10 @@ export function AdminPage() {
                       onChange={(e) => setCompanyForm((f) => ({ ...f, address: e.target.value }))}
                     />
                   </div>
+                  <CompanyModulesField
+                    value={companyForm.disabledModules}
+                    onChange={(disabledModules) => setCompanyForm((f) => ({ ...f, disabledModules }))}
+                  />
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setCreateCompanyOpen(false)}>
@@ -288,9 +293,10 @@ export function AdminPage() {
                           name: companyForm.name.trim(),
                           website: companyForm.website.trim() || undefined,
                           address: companyForm.address.trim() || undefined,
+                          disabledModules: companyForm.disabledModules,
                         });
                         setCreateCompanyOpen(false);
-                        setCompanyForm({ name: '', website: '', address: '' });
+                        setCompanyForm({ name: '', website: '', address: '', disabledModules: [] });
                         await load();
                         toast({ title: t('admin.companyCreated') });
                       } catch (e: any) {

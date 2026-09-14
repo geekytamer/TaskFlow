@@ -1283,6 +1283,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '079_backfill_permission_groups',
     '080_permission_group_deletions',
     '081_record_rule_permissions',
+    '082_company_disabled_modules',
   ]);
 });
 

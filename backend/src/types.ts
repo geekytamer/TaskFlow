@@ -15,6 +15,8 @@ export interface Company {
   country?: string;
   /** Free-form tax/registration details shown on documents (e.g. VAT scheme). */
   taxDetails?: string;
+  /** Modules the platform super admin switched off for this company. See permissions/company-modules.ts. */
+  disabledModules?: string[];
 }
 
 export type NumberingEntityType =
