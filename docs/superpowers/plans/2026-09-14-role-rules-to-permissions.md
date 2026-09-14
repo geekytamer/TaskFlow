@@ -117,7 +117,10 @@ an Admin.
   itself), so untouched companies stay with the server's role sync. A failed
   save names the company and says the user was saved.
 - [x] Role options exclude deleted built-ins.
-- [ ] Browser verification, commit, staging deploy.
+- [x] Committed (e518883) and deployed to staging (run 8).
+- [x] Browser: the picker shows a person's current groups when editing.
+- [ ] Browser: role change swaps the group, and saving applies it (the browser
+  pane was hidden, so clicks could not be driven).
 
 ## Part 4 — Module access for a whole company
 
@@ -137,6 +140,11 @@ kept, so switching back on restores the same access.
 - [x] The permission feed drops the module's permissions and lists
   `disabledModules`; the catalogue lists `alwaysOnModules`.
 - [x] `company-modules.test.js`: 4 tests, both engines. Suite 258/258.
-- [ ] UI: module switches in the super admin's company dialogs; hidden from
+- [x] UI: module switches in the super admin's company dialogs; hidden from
   navigation and pages under every engine; greyed in the group editor.
-- [ ] Browser verification, commit, staging deploy.
+- [x] Committed (aa4f6f5) and deployed to staging (run 8): migration 082
+  applied, OpenFGA in agreement, real-data comparison still 0 differences.
+- [x] Browser, legacy engine, Payroll and Projects off: both leave the sidebar,
+  /hr/payroll shows the turned-off page, /hr/employees still renders, the group
+  editor marks both. API: 403 with a clear message; feed lists them.
+- [ ] Browser: the switches in the create and edit company dialogs.
