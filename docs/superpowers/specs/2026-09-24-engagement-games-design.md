@@ -9,8 +9,9 @@ Builds on: `2026-09-21-peak-media-client-portal-design.md` (identity, portals, m
 
 Peak Media wants competition-style marketing: a scoreboard that ranks **public
 followers** by how they interact (comment, reply, mention, share) with a post or a
-set of accounts, presented like a game lobby. An admin creates each game. Other
-people can view a game only if they are included in it.
+set of accounts, presented like a game lobby. An admin creates each game. Games
+are public by default, so followers can watch the lobby. An admin can restrict a
+game so only people included in it can view it.
 
 Ranked entities are external social identities (`platform:userId`). They are not
 TaskFlow users and never log in.
@@ -25,7 +26,8 @@ collection and token storage are new.
 - Scores are deterministic and reproducible from a stored event log.
 - A game can be started with metrics that need no platform API, so it is not
   blocked by platform access.
-- Viewers see only games they are included in.
+- Public games are visible to everyone; restricted games only to people included in them.
+- Each public game states its rules, how points are earned, and any prize.
 
 ## 3. Non-goals
 
@@ -43,11 +45,11 @@ collection and token storage are new.
 | Metrics are **pure functions in code**, chosen by key in a catalogue | Same rule as the permission catalogue: admins configure what exists, they cannot invent it. No network, clock or randomness inside a metric. |
 | Interactions go into an **append-only event log**; scores are derived | Scores can be recomputed at any time, and every point traces to an event. |
 | A metric is only offered if the chosen sources' collectors supply the actions it needs | The picker cannot promise something the platform cannot deliver (§6). |
-| Ingestion runs in a **separate worker process** | Polling many sources would otherwise write to SQLite from the API process. Writers still serialise in WAL mode, so the worker writes in batches. |
+| Ingestion runs in a **separate worker process**, the social worker in `backend/src/social/`, shared with influencer stat sync | Polling many sources would otherwise write to SQLite from the API process. Writers still serialise in WAL mode, so the worker writes in batches. |
 | `manual_points` is a built-in metric | Staff can award points where data is unavailable (for example Snapchat), and it makes a game usable before any collector exists. |
 | Games is a permission module, `games`, switchable per company | Uses the existing module switch: on for Peak, off elsewhere. |
-| **Only admins create** (`games:create`); everyone else's view is limited to games they are in | Matches the requirement. Enforced as a record rule for staff and by session for portal users. |
-| Public lobby is off by default, on per game | Showing public users' handles on an open page has privacy and minors implications (§9). Default is viewers-only. |
+| **Only admins create** (`games:create`); a restricted game is visible only to people included in it | Matches the requirement. Enforced as a record rule for staff and by session for portal users. Public games need no inclusion. |
+| **The lobby is public by default** (`visibility = public`); an admin can set a game to `restricted` | Followers are the players, so they must be able to see the board without an account. The interactions are already public on the platform. A restricted game (for example an internal staff contest) is visible only to people in `game_viewers`. Safeguards are in §9. |
 
 ## 5. Pipeline
 
@@ -121,15 +123,16 @@ These are hypotheses to be confirmed by the spike (§10, G0), not commitments.
 brands authorise Peak's app from their portal. This also gives verified follower
 and engagement figures for the catalogue, which addresses self-reported numbers.
 
-`connected_accounts` stores tokens **encrypted at rest** (AES-256-GCM, key from an
-environment variable that is not in git). Rotating the currently unrotated
-secrets is a prerequisite.
+`connected_accounts`, including token encryption and refresh, is defined in the
+influencer portal design (§5) and shared by both features. Rotating the currently
+unrotated secrets is a prerequisite.
 
 ## 7. Data model
 
 - `games` — id, companyId, name, description, status (`draft` | `scheduled` |
-  `live` | `ended` | `archived`), startsAt, endsAt, publicSlug (null unless the
-  public lobby is on), createdByUserId.
+  `live` | `ended` | `archived`), visibility (`public` | `restricted`, default
+  `public`), slug (unique per company), rulesText, prizeText (both stored in
+  English and Arabic), startsAt, endsAt, createdByUserId.
 - `game_sources` — id, gameId, platform, sourceType (`account` | `post`), ref,
   connectedAccountId, cursor, lastSyncedAt, lastError.
 - `game_metrics` — gameId, metricKey, weight, paramsJson.
@@ -142,8 +145,10 @@ secrets is a prerequisite.
 - `game_results` — gameId, actorKey, actorHandle, rank, points, breakdownJson,
   frozenAt. Written once when a game ends.
 - `game_viewers` — gameId, subjectType (`user` | `portal_user`), subjectId.
-- `connected_accounts` — id, companyId, ownerType (`contact` | `client`), ownerId,
-  platform, externalAccountId, tokenEncrypted, scopes, expiresAt, status.
+- `connected_accounts` — defined in the influencer portal design; `game_sources`
+  reference it.
+- `game_hide_requests` — gameId, actorKey, requestedAt, handledByUserId. A follower
+  can ask to be hidden from a board; staff apply it as an `exclude` rule.
 
 ## 8. Access
 
@@ -151,10 +156,15 @@ secrets is a prerequisite.
   `create` and `manage` go to the Admin group by default.
 - Staff: `view` plus a record rule that limits them to games in `game_viewers`,
   unless they hold `manage`, following `record-rules.ts`.
-- Portal users: `/portal-api/<audience>/games` returns only games where they
-  appear in `game_viewers`. Other games return 404.
-- Public lobby: `GET /public/games/:publicSlug`, read-only, unauthenticated, only
-  when the game has a slug. Shows rank, display handle and points, nothing else.
+- Portal users: `/portal-api/<audience>/games` returns public games, plus
+  restricted games where they appear in `game_viewers`. Other restricted games
+  return 404.
+- Public lobby: a third host from the same `portal/` build (route group `(lobby)`),
+  served by a read-only, unauthenticated `/public-api/games/*` router. It lists
+  public games and, per game, shows rules, how points are earned, the prize, and
+  the top 100 by rank, display handle and points, nothing else. Responses are
+  cached for about a minute and rate-limited per IP. nginx on that host forwards
+  only that prefix. Restricted games return 404 there.
 - Neither audience can see `excerpt`, `textHash`, or the exclusion list.
 
 ## 9. Integrity, privacy and legal
@@ -167,10 +177,13 @@ secrets is a prerequisite.
   longer present as `removed`; results are computed after that.
 - **Freeze.** `game_results` is immutable once written. A correction reopens the
   game through an audited admin action.
-- **Personal data.** Public handles and comment text are personal data. Store only
-  what scoring needs, keep `excerpt` short and admin-only, and honour removal
-  requests. Followers may be minors; a public board with prizes needs a decision on
-  age rules.
+- **Public data, three safeguards.** The interactions are already public, and the
+  lobby shows only handle, rank and points. Platform terms still limit how
+  API-obtained data is kept, so: (1) a removed comment loses its points and a
+  deleted account's events are purged on the next sync; (2) `excerpt` is short and
+  admin-only; (3) a follower can ask to be hidden from a board
+  (`game_hide_requests`). The rules text states an age requirement for games with
+  prizes.
 - **Prizes.** Promotional contests commonly need a permit in Gulf jurisdictions and
   must follow each platform's promotion rules. Get legal sign-off before any game
   with a prize goes live. Winners are recorded in `game_results`; contacting them
@@ -185,13 +198,16 @@ decision on the first collector. If nothing viable exists, G1 alone still ships 
 usable game on `manual_points`.
 
 **G1 — Core.** Module, migrations, game CRUD, sources, metrics catalogue with
-`manual_points`, viewers, scoring and scoreboard, freeze, internal UI, and a
-"Lobby" section in the influencer and client portals.
+`manual_points`, viewers, scoring and scoreboard, freeze, internal UI, the public
+lobby host, and a "Lobby" section in the influencer and client portals. The lobby
+ships here because a board followers cannot see is not a game.
 
-**G2 — First collector.** `connected_accounts` with encryption, the connect flow in
-the portal, the worker process, the first collector, deletion reconciliation.
+**G2 — First collector.** The connect flow for client brand accounts (influencer
+connections come from the influencer portal design), the social worker, the first
+collector, deletion reconciliation.
 
-**G3 — Public lobby.** Per-game public page with privacy controls; winner records.
+**G3 — Winners and moderation.** Winner records, hide requests, disqualification
+history view.
 
 **G4 — More collectors and metrics.** Driven by what G0 found.
 
