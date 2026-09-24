@@ -51,7 +51,7 @@ scoping**. This is additive work, not a rebuild.
 | Peak-only scope is controlled by the **existing** per-company module switch (`companies.disabledModules`, migration 082, super-admin only) | No new flag mechanism is needed. Modules irrelevant to an agency (inventory, manufacturing, purchasing, …) are switched off for Peak. The portal itself is not a `MODULES` entry: it is a separate app with its own API prefix, so it cannot be reached by a `disabledModules` accident. |
 | New behaviour is additive: new tables and files, no edits to shared entity logic | Peak Flexi is a `payment_plans` table that references an invoice, not new columns on `Invoice`. GIG's invoice code never learns about it. |
 | Portals are **one separate Next.js app** in `portal/` with two route groups, `(client)` and `(influencer)`, deployed as separate hosts from the same build (the games design adds a third, public `(lobby)` group) | No internal UI code or routes are served to external users. Middleware on each host returns 404 for the other audience's routes. Cost: portal-local UI primitives and i18n dictionary instead of importing from `frontend/`. Primitives are copy-in Radix/Tailwind components, not business logic. |
-| Portal API is a **dedicated router** in `backend/src/portal/`, mounted by `createPortalRouter(store)`, with `/portal-api/client/*` and `/portal-api/influencer/*` sub-routers | The portal API runs in the one backend process in v1 (SQLite; avoids multi-process write contention), but the boundary is a file boundary. Game ingestion is the exception: it runs as its own worker (see the games design). Splitting into its own process later means a new entry file, not a refactor. nginx on each portal host forwards **only** its own audience's `/portal-api/<audience>/*` and the portal app. |
+| Portal API is a **dedicated router** in `backend/src/portal/`, mounted by `createPortalRouter(store)`, with `/portal-api/client/*` and `/portal-api/influencer/*` sub-routers | The portal API runs in the one backend process in v1 (SQLite; avoids multi-process write contention), but the boundary is a file boundary. Game ingestion is the exception: it runs as its own worker (see the games design). Splitting into its own process later means a new entry file, not a refactor. nginx on each portal host forwards only to the portal app, which is the sole caller of `/portal-api/*` (see §6.7). |
 | **Separate identity space**: `portal_users`, `portal_sessions`, `portal_invitations`, each carrying an `audience` (`client` or `influencer`) | Internal `authMiddleware` looks tokens up in the internal user/token store only. A portal token therefore cannot authenticate an internal route, and the reverse, by construction. A session's `audience` must also match the router prefix, so a client token cannot open an influencer route. |
 | Scoping is **session-bound SQL, not OpenFGA** (revises the earlier suggestion) | The OpenFGA project is a company-group projection and explicitly excludes record-level rules and authentication. An external surface should not depend on that engine being reachable. Instead the server resolves `{companyId, clientId}` from the session, and every portal query takes them from there. Request params and bodies never supply either. |
 | Responses are **allowlist DTOs** (`portal/dto.ts`) | Portal handlers never return an internal entity. Adding a field to an internal type cannot leak it. |
@@ -63,21 +63,22 @@ scoping**. This is additive work, not a rebuild.
 Added through the `schema_migrations` list in `backend/src/data/store.ts`
 (next ids after `082_company_disabled_modules`).
 
-- `portal_users` — id, companyId, audience (`client` | `influencer`), clientId
-  (client audience), contactId (influencer audience; a CHECK requires exactly the
-  one matching the audience), email (unique per company and audience), name,
+- `portal_users` — id, companyId, audience (`client` | `influencer`), contactId
+  (the organisation contact holding the `Client` role for the client audience, or
+  the influencer's own contact; the role must match the audience), email (unique per
+  company and audience), name,
   passwordHash (bcrypt, reuse `password.ts`), role (`client_admin` | `client_member` | `influencer`),
   status (`invited` | `active` | `disabled`), lastLoginAt, createdAt.
 - `portal_invitations` — id, portalUserId, tokenHash, expiresAt (7 days),
   usedAt, createdByUserId. Single use.
 - `portal_sessions` — id, portalUserId, audience, tokenHash (SHA-256; the raw token is
   never stored), expiresAt, createdAt, revokedAt.
-- `client_pricing_profiles` — clientId (PK), mode (`markup` | `pass_through` |
+- `client_pricing_profiles` — contactId (PK, the client's organisation contact), mode (`markup` | `pass_through` |
   `retainer`), markupPercent, agencyFeePercent, currency, updatedAt.
   `markup`: shown price = rate × (1 + markupPercent). `pass_through`: shown price
   = rate, and the agency fee appears separately on proposals and invoices.
   `retainer`: no per-influencer price is shown ("included in your retainer").
-- `portal_campaign_requests` — id, companyId, clientId, portalUserId, title,
+- `portal_campaign_requests` — id, companyId, contactId, portalUserId, title,
   objective, budget, currency, startDate, endDate, platforms (JSON), notes,
   status (`Draft` | `Submitted` | `In Review` | `Proposal Sent` | `Approved` |
   `Declined` | `Cancelled`), opportunityId, proposalId, submittedAt.
@@ -96,8 +97,10 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 
 ## 6. Security requirements
 
-1. Every portal handler starts from `req.portal = { portalUserId, audience, companyId, clientId | contactId, role }`
+1. Every portal handler starts from `req.portal = { portalUserId, audience, companyId, contactId, role }`
    resolved from the session. Nothing downstream reads those from the request.
+   Campaigns, proposals and opportunities hang off the contact; invoices are matched
+   with `contact.clientId ?? contact.id`, the same lookup the internal Clients page uses.
 2. Fetching another client's record by id returns **404**, not 403.
 3. Fields never present in any DTO: `Contact.rateCardAmount`,
    `CampaignAssignment.agreedRate`, `CampaignDeliverable.cost` and `price`,
@@ -112,7 +115,10 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 6. State-changing portal actions run through `store.runAsActor` with an actor
    name of the form `Portal: <name> (<client>)`, so the existing activity trail
    shows who acted.
-7. CORS on `/portal-api/*` allows only the portal origin from an env variable.
+7. The portal app is the only public entry. Its server calls the backend's
+   `/portal-api/*` over loopback and keeps the session token in an httpOnly cookie,
+   so the token never reaches browser JavaScript and no CORS origin is enabled for
+   the portal API. State-changing portal requests must carry a same-origin `Origin`.
 8. A test suite proves isolation: two clients, two users, every portal endpoint
    asserted to return nothing of the other's, and to return 401 with an
    internal token.
@@ -167,8 +173,11 @@ brief (budget, niche, reach, platform) feeding the same request object.
 
 - `portal/` runs on port 9003, next to `frontend/` (9002). Add to
   `deploy/staging/ecosystem.config.cjs` and the nginx templates.
-- The portal domain's nginx block proxies `/` to 9003 and `/portal-api/` to the
-  backend, and nothing else. The internal ERP domain does not serve `/portal-api/`.
+- The influencer portal runs on 9004 from the same build, chosen by the
+  `PORTAL_AUDIENCE` environment variable. Each portal host's nginx block proxies
+  `/` to its port and nothing else: `/portal-api/` is never routed by nginx, and
+  the backend binds loopback. One portal deployment serves one company, set with
+  `PORTAL_COMPANY_ID`.
 - Invitation email through the existing Resend setup, with sender and app URL
   from env variables so it reads as Peak Media, not TaskFlow.
 - Ship to staging first; production waits on the known production gaps in the
