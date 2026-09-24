@@ -65,20 +65,20 @@ export async function sendWelcomeEmail({
 const linkHref = (link?: string) =>
   link ? `${appUrl.replace(/\/$/, '')}${link.startsWith('/') ? '' : '/'}${link}` : appUrl;
 
-const escapeHtml = (value: string) =>
+export const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string),
   );
 
-type EmailResult = { sent: boolean; error?: string };
+export type EmailResult = { sent: boolean; error?: string };
 
-async function send(to: string, subject: string, html: string): Promise<EmailResult> {
+export async function send(to: string, subject: string, html: string, from: string = fromEmail): Promise<EmailResult> {
   if (!resendApiKey) {
     return { sent: false, error: 'RESEND_API_KEY not set; skipping email.' };
   }
   try {
     const resend = new Resend(resendApiKey);
-    const result = await resend.emails.send({ from: fromEmail, to, subject, html });
+    const result = await resend.emails.send({ from, to, subject, html });
     if ((result as any)?.error) {
       const message = (result as any).error?.message || 'Unknown error sending email.';
       console.error('Resend error:', message);

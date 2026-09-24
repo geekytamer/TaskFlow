@@ -3600,6 +3600,27 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Portal access became a permission (permissions/record-rules.ts).
+        // Existing built-in groups receive it for exactly the roles that hold it.
+        id: '084_portal_access_permission',
+        run: () => {
+          const roleByKey: Record<string, UserRole> = {
+            admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant',
+          };
+          const rule = RECORD_RULES.PORTAL_ACCESS_MANAGE;
+          const insert = this.db.prepare(
+            'INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)',
+          );
+          const groups = this.db
+            .prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1')
+            .all() as Array<{ id: string; key: string }>;
+          groups.forEach((group) => {
+            const role = roleByKey[group.key];
+            if (role && (rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
+          });
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

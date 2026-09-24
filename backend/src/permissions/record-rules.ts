@@ -51,6 +51,10 @@ export const RECORD_RULES = {
     module: 'contacts', action: 'all.write', roles: MANAGEMENT,
     description: 'Edit contacts owned by someone else, and assign contacts to others.',
   },
+  PORTAL_ACCESS_MANAGE: {
+    module: 'contacts', action: 'portal.manage', roles: ['Admin', 'Manager'],
+    description: 'Invite, re-invite, disable and enable portal users for clients and influencers.',
+  },
   CRM_ALL_READ: {
     module: 'crm', action: 'all.read', roles: MANAGEMENT,
     description: "See everyone's follow-ups, opportunities, proposals and vendor requests.",

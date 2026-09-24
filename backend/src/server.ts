@@ -1,4 +1,4 @@
-import express, { NextFunction, Request, Response } from 'express';
+import express, { NextFunction, Request, RequestHandler, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { verifyPassword, isHashed } from './password';
@@ -21,7 +21,9 @@ import { registerPermissionRoutes } from './permissions/routes';
 import { projectCompanyDelta, type TupleStore } from './permissions/sync';
 import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
 import { tuplesForStore } from './permissions/tuples';
+import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
+import { createPortalStaffRouter } from './portal/staff-routes';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -201,6 +203,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   permissionReader?: FgaReader;
   /** The company the public portals serve. Unset leaves the portal API off. */
   portalCompanyId?: string;
+  /** Sends portal invitation emails. Overridden in tests. */
+  sendPortalInvite?: PortalInviteSender;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -8501,6 +8505,23 @@ export function createServer(options: CreateServerOptions = {}) {
       }),
     );
   }
+
+  const portalHost = (audience: 'client' | 'influencer') =>
+    (audience === 'client'
+      ? process.env.PORTAL_CLIENT_URL || 'http://localhost:9003'
+      : process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004'
+    ).replace(/\/+$/, '');
+
+  app.use(
+    createPortalStaffRouter({
+      store,
+      authMiddleware: authMiddleware as unknown as RequestHandler,
+      requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+      canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
+      inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
+      sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
+    }),
+  );
 
   app.use((_req, _res, next) => {
     next(new HttpError(404, 'Route not found.'));
