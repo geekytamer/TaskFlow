@@ -21,6 +21,7 @@ import { registerPermissionRoutes } from './permissions/routes';
 import { projectCompanyDelta, type TupleStore } from './permissions/sync';
 import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
 import { tuplesForStore } from './permissions/tuples';
+import { createPortalRouter } from './portal/routes';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -198,6 +199,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   authzEngine?: AuthzEngine;
   /** Supplies permissions instead of querying OpenFGA. For tests. */
   permissionReader?: FgaReader;
+  /** The company the public portals serve. Unset leaves the portal API off. */
+  portalCompanyId?: string;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -8477,6 +8480,27 @@ export function createServer(options: CreateServerOptions = {}) {
     // to project.
     projectTuples: (companyId, before) => publishAuthzChange(new Map([[companyId, before]])),
   });
+
+  const portalCompanyId = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
+  if (portalCompanyId) {
+    if (!store.getCompanyById(portalCompanyId)) {
+      logger.warn(`[portal] PORTAL_COMPANY_ID ${portalCompanyId} matches no company yet.`);
+    }
+    app.use(
+      '/portal-api',
+      createPortalRouter({
+        portal: store.portal,
+        companyId: portalCompanyId,
+        getBranding: () => {
+          const company = store.getCompanyById(portalCompanyId);
+          return company ? { name: company.name, logoUrl: company.logoUrl } : undefined;
+        },
+        getSubjectName: (contactId) => store.getContactById(contactId)?.name,
+        enforceRateLimits: process.env.NODE_ENV === 'production',
+        logger,
+      }),
+    );
+  }
 
   app.use((_req, _res, next) => {
     next(new HttpError(404, 'Route not found.'));
