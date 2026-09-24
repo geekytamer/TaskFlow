@@ -14,12 +14,15 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
+import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
+import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { getContacts, createContact, type Contact } from '@/services/contactService';
@@ -40,8 +43,10 @@ import { Building2, User, Plus, Search } from 'lucide-react';
 export function ClientsPage() {
   const { selectedCompany } = useCompany();
   const { amount } = useCompanyCurrency();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
+  const canManagePortal = useCanManagePortal();
+  const [portalFor, setPortalFor] = React.useState<Contact | null>(null);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [projects, setProjects] = React.useState<Project[]>([]);
@@ -247,6 +252,7 @@ export function ClientsPage() {
               <TableHead>{t('contacts.phone')}</TableHead>
               <TableHead className="text-end">{t('clients.colInvoices')}</TableHead>
               <TableHead className="text-end">{t('clients.colOutstanding')}</TableHead>
+              {canManagePortal && <TableHead className="text-end">{language === 'ar' ? 'البوابة' : 'Portal'}</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -273,12 +279,28 @@ export function ClientsPage() {
                       <Badge variant="outline" className="text-orange-600">{amount(metrics.outstanding)}</Badge>
                     ) : '—'}
                   </TableCell>
+                  {canManagePortal && (
+                    <TableCell className="text-end">
+                      <Button size="sm" variant="ghost" onClick={() => setPortalFor(c)}>
+                        {language === 'ar' ? 'الوصول' : 'Access'}
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
       )}
+
+      <Sheet open={!!portalFor} onOpenChange={(open) => !open && setPortalFor(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>{portalFor?.name}</SheetTitle>
+          </SheetHeader>
+          {portalFor && <PortalAccessPanel contact={portalFor} audience="client" />}
+        </SheetContent>
+      </Sheet>
     </SectionPageShell>
   );
 }

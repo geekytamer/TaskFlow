@@ -20,6 +20,8 @@ import {
 } from '@/components/ui/sheet';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
+import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
+import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import {
   updateContact,
   influencerPlatforms,
@@ -80,6 +82,7 @@ export function InfluencerEditSheet({
           ? tr('Unavailable', 'غير متاح')
           : a;
   const { toast } = useToast();
+  const canManagePortal = useCanManagePortal();
   const [form, setForm] = React.useState<ProfileForm>(() =>
     contact ? toForm(contact) : toForm({} as Contact),
   );
@@ -375,6 +378,7 @@ export function InfluencerEditSheet({
               </div>
             ))}
           </div>
+          {contact && canManagePortal && <PortalAccessPanel contact={contact} audience="influencer" />}
         </div>
 
         <div className="flex justify-end gap-2 border-t p-4">
