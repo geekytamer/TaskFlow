@@ -1284,6 +1284,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '080_permission_group_deletions',
     '081_record_rule_permissions',
     '082_company_disabled_modules',
+    '083_portal_identity',
   ]);
 });
 

@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
+import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
 const DASHBOARD_METRIC_MODULES: Readonly<Record<string, string>> = {
@@ -618,6 +619,8 @@ function taskLink(projectId?: string | null): string {
 
 export class DataStore {
   private db: Database.Database;
+  /** Identity for the external portals: their own users, invitations and sessions. */
+  readonly portal: PortalStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -641,6 +644,7 @@ export class DataStore {
 
     this.onNotificationsCreated = options.onNotificationsCreated;
     this.applyMigrations();
+    this.portal = new PortalStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3546,6 +3550,56 @@ export class DataStore {
           }
         },
       },
+      {
+        // Identity for the external portals. Portal users are a separate
+        // identity space from `users`, with their own session table, so a
+        // portal token can never authenticate an internal route or the reverse.
+        id: '083_portal_identity',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_users (
+              id              TEXT PRIMARY KEY,
+              companyId       TEXT NOT NULL,
+              audience        TEXT NOT NULL,
+              contactId       TEXT NOT NULL,
+              email           TEXT NOT NULL,
+              name            TEXT NOT NULL,
+              passwordHash    TEXT,
+              role            TEXT NOT NULL,
+              status          TEXT NOT NULL,
+              lastLoginAt     TEXT,
+              createdByUserId TEXT,
+              createdAt       TEXT NOT NULL,
+              UNIQUE (companyId, audience, email),
+              CHECK (audience IN ('client', 'influencer')),
+              CHECK (status IN ('invited', 'active', 'disabled')),
+              CHECK (
+                (audience = 'client' AND role IN ('client_admin', 'client_member'))
+                OR (audience = 'influencer' AND role = 'influencer')
+              )
+            );
+            CREATE INDEX IF NOT EXISTS idx_portal_users_contact ON portal_users (companyId, contactId);
+            CREATE TABLE IF NOT EXISTS portal_invitations (
+              id           TEXT PRIMARY KEY,
+              portalUserId TEXT NOT NULL,
+              tokenHash    TEXT NOT NULL UNIQUE,
+              expiresAt    TEXT NOT NULL,
+              usedAt       TEXT,
+              createdAt    TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_portal_invitations_user ON portal_invitations (portalUserId);
+            CREATE TABLE IF NOT EXISTS portal_sessions (
+              id           TEXT PRIMARY KEY,
+              portalUserId TEXT NOT NULL,
+              tokenHash    TEXT NOT NULL UNIQUE,
+              expiresAt    TEXT NOT NULL,
+              revokedAt    TEXT,
+              createdAt    TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_portal_sessions_user ON portal_sessions (portalUserId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3694,6 +3748,9 @@ export class DataStore {
     const trx = this.db.transaction(() => {
       this.db.exec(`
         DELETE FROM tokens;
+        DELETE FROM portal_sessions;
+        DELETE FROM portal_invitations;
+        DELETE FROM portal_users;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
         DELETE FROM company_finance_settings;
