@@ -37,7 +37,8 @@ scoping**. This is additive work, not a rebuild.
   can plug in later.
 - Per-client catalogue restrictions or client-specific rate cards. One shared
   catalogue; only the *price shown* varies by client.
-- A portal for influencers themselves.
+- The influencer portal and the engagement games. Both build on this
+  foundation (a second audience, and a new module) and have their own designs.
 - Clients editing campaigns, deliverables or invoices.
 - Changing internal authentication or the OpenFGA permission model.
 
@@ -49,9 +50,9 @@ scoping**. This is additive work, not a rebuild.
 | Peak Media is a new `companies` row (tenant) | Same pattern as GIG. |
 | Peak-only scope is controlled by the **existing** per-company module switch (`companies.disabledModules`, migration 082, super-admin only) | No new flag mechanism is needed. Modules irrelevant to an agency (inventory, manufacturing, purchasing, …) are switched off for Peak. The portal itself is not a `MODULES` entry: it is a separate app with its own API prefix, so it cannot be reached by a `disabledModules` accident. |
 | New behaviour is additive: new tables and files, no edits to shared entity logic | Peak Flexi is a `payment_plans` table that references an invoice, not new columns on `Invoice`. GIG's invoice code never learns about it. |
-| Portal is a **separate Next.js app** in `portal/`, own port and subdomain | No internal UI code or routes are served to external users. Cost: portal-local UI primitives and i18n dictionary instead of importing from `frontend/`. Primitives are copy-in Radix/Tailwind components, not business logic. |
-| Portal API is a **dedicated router** under `/portal-api/*` in `backend/src/portal/`, mounted by `createPortalRouter(store)` | One backend process in v1 (SQLite; avoids multi-process write contention), but the boundary is a file boundary. Splitting into its own process later means a new entry file, not a refactor. nginx on the portal domain forwards **only** `/portal-api/*` and the portal app. |
-| **Separate identity space**: `portal_users`, `portal_sessions`, `portal_invitations` | Internal `authMiddleware` looks tokens up in the internal user/token store only. A portal token therefore cannot authenticate an internal route, and the reverse, by construction. |
+| Portals are **one separate Next.js app** in `portal/` with two route groups, `(client)` and `(influencer)`, deployed as two hosts from the same build | No internal UI code or routes are served to external users. Middleware on each host returns 404 for the other audience's routes. Cost: portal-local UI primitives and i18n dictionary instead of importing from `frontend/`. Primitives are copy-in Radix/Tailwind components, not business logic. |
+| Portal API is a **dedicated router** in `backend/src/portal/`, mounted by `createPortalRouter(store)`, with `/portal-api/client/*` and `/portal-api/influencer/*` sub-routers | The portal API runs in the one backend process in v1 (SQLite; avoids multi-process write contention), but the boundary is a file boundary. Game ingestion is the exception: it runs as its own worker (see the games design). Splitting into its own process later means a new entry file, not a refactor. nginx on each portal host forwards **only** its own audience's `/portal-api/<audience>/*` and the portal app. |
+| **Separate identity space**: `portal_users`, `portal_sessions`, `portal_invitations`, each carrying an `audience` (`client` or `influencer`) | Internal `authMiddleware` looks tokens up in the internal user/token store only. A portal token therefore cannot authenticate an internal route, and the reverse, by construction. A session's `audience` must also match the router prefix, so a client token cannot open an influencer route. |
 | Scoping is **session-bound SQL, not OpenFGA** (revises the earlier suggestion) | The OpenFGA project is a company-group projection and explicitly excludes record-level rules and authentication. An external surface should not depend on that engine being reachable. Instead the server resolves `{companyId, clientId}` from the session, and every portal query takes them from there. Request params and bodies never supply either. |
 | Responses are **allowlist DTOs** (`portal/dto.ts`) | Portal handlers never return an internal entity. Adding a field to an internal type cannot leak it. |
 | `contacts.portalVisible` (new column, default 0) gates the catalogue | Imports and existing records are not exposed by accident; staff opt influencers in, individually or in bulk. |
@@ -62,12 +63,14 @@ scoping**. This is additive work, not a rebuild.
 Added through the `schema_migrations` list in `backend/src/data/store.ts`
 (next ids after `082_company_disabled_modules`).
 
-- `portal_users` — id, companyId, clientId, email (unique per company), name,
-  passwordHash (bcrypt, reuse `password.ts`), role (`client_admin` | `client_member`),
+- `portal_users` — id, companyId, audience (`client` | `influencer`), clientId
+  (client audience), contactId (influencer audience; a CHECK requires exactly the
+  one matching the audience), email (unique per company and audience), name,
+  passwordHash (bcrypt, reuse `password.ts`), role (`client_admin` | `client_member` | `influencer`),
   status (`invited` | `active` | `disabled`), lastLoginAt, createdAt.
 - `portal_invitations` — id, portalUserId, tokenHash, expiresAt (7 days),
   usedAt, createdByUserId. Single use.
-- `portal_sessions` — id, portalUserId, tokenHash (SHA-256; the raw token is
+- `portal_sessions` — id, portalUserId, audience, tokenHash (SHA-256; the raw token is
   never stored), expiresAt, createdAt, revokedAt.
 - `client_pricing_profiles` — clientId (PK), mode (`markup` | `pass_through` |
   `retainer`), markupPercent, agencyFeePercent, currency, updatedAt.
@@ -91,7 +94,7 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 
 ## 6. Security requirements
 
-1. Every portal handler starts from `req.portal = { portalUserId, companyId, clientId, role }`
+1. Every portal handler starts from `req.portal = { portalUserId, audience, companyId, clientId | contactId, role }`
    resolved from the session. Nothing downstream reads those from the request.
 2. Fetching another client's record by id returns **404**, not 403.
 3. Fields never present in any DTO: `Contact.rateCardAmount`,
@@ -115,6 +118,12 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 ## 7. Phases
 
 Each phase ships and is verified on staging before the next starts.
+
+Order across the sibling designs: Phase 0, Phase 1, the influencer portal's core
+(assignments, deliverable submission, payout status), then Phases 2, 3 and 4.
+Phase 2's deliverable review needs influencer submissions to exist, which today
+only staff can enter. The games design has its own phases, and its feasibility
+spike starts in parallel with Phase 0.
 
 **Phase 0 — Foundation.** Peak Media company and module switches; migrations;
 `backend/src/portal/` (session middleware, DTO helpers, router skeleton);
