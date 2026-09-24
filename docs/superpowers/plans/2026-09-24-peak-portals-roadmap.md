@@ -21,6 +21,16 @@ numbers inside the three designs.
 
 ## Phase 1 — Foundation
 
+**Status: built and verified locally on 2026-09-24.** Backend 307 tests, portal 7 tests,
+both typechecks, both production builds, a clean `npm audit` on the portal, and ESLint clean on the
+frontend files touched (the portal has no lint setup yet). Driven in a
+browser: invitation, sign-in, sign-out, wrong password, Arabic right to left, phone width,
+a session replayed on the other audience's host (rejected), staff invite and disable from
+the Clients and Influencers pages, and an Employee who does not see the access controls.
+Also run in production mode as one build and two processes. **Not done:** deployment to a
+server, real email delivery, and the Peak Media company itself (the checks used the demo
+company). See `2026-09-24-peak-portals-phase-1-foundation.md`, Execution notes.
+
 **Delivers.** `portal_users`, invitations and sessions; the portal API
 (`/portal-api/<audience>/*`); the `contacts:portal.manage` permission; staff invite,
 list, re-invite and disable from the Clients and Influencers pages; the `portal/`

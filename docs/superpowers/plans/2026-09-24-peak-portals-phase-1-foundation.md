@@ -8,6 +8,21 @@
 
 **Tech Stack:** Express 4, better-sqlite3, express-rate-limit 8, bcryptjs, supertest and `node --test` (backend); Next 15.3.8, React 18.3, Tailwind 3.4, TypeScript, `node --test` with tsx (portal); the existing Next 15 frontend.
 
+## Execution notes (2026-09-24)
+
+This plan was executed on `feature/peak-portal`. Where it differs from the code, **the repository is authoritative**. What changed, and why:
+
+1. **Migration list test.** `backend/test/api.test.js` pins every migration id, so Tasks 1 and 3 also add `083_portal_identity` and `084_portal_access_permission` there.
+2. **Mount position.** `createServer` ends with a `Route not found.` catch-all. The portal and staff routers are mounted **before** it, not just before the final error handler, or every portal route answers 404.
+3. **Test corrections.** The per-address throttle test allows ten more attempts after the first ten (not eleven after eight), the isolation test uses the company it created rather than `listCompanies()[0]`, and the staff test builds a second server with a `serve()` helper instead of passing `dbPath: ''`.
+4. **Next.js version.** `next` is pinned to `15.5.26`, with a `postcss` devDependency of `^8.5.23` and an `overrides` entry `"postcss": "$postcss"`. The `15.3.8` line the internal frontend uses carries a critical group of advisories (middleware bypass, SSRF, image-optimizer RCE); `npm audit` on the portal reports zero. Upgrading the internal frontend is a separate task.
+5. **Dev servers.** `next dev` for both hosts must not share `.next`, so `next.config.mjs` reads `PORTAL_DIST_DIR` and the dev scripts use `.next-client` and `.next-influencer` (git-ignored).
+6. **No middleware.** The plan's `src/middleware.ts`, `src/lib/route-audience.ts` and `app/client|influencer` folders were removed. In production (`next start -H 127.0.0.1`) Next treated the middleware's rewrite as an external request to `localhost`, proxied it to itself, and looped into a 500; dev mode hid it. Audience separation is now `requireAudience()` in `src/lib/guard.ts` for audience-only pages (none exist in Phase 1), one `app/(portal)` group serving `/`, and the backend's own audience check on every call. Unknown paths and the old folder names return 404. Portal tests are 7, not 10.
+7. **Design changes from the anti-slop review.** Cool neutral canvas (`#f3f4f6`) instead of a warm paper tone; one emerald accent token (`#0b6e52`); a `--field` token (`#7c8490`) so input borders reach 3:1; no decorative accent bars; the account details are divided rows, not a boxed card; `min-h-[100dvh]`; the email is isolated with `<bdi dir="ltr">` so it reads correctly in Arabic; label and value baselines aligned. The portal stays light-only because uploaded company logos are usually drawn for light backgrounds.
+8. **i18n.** The unused `pick()` helper was dropped, and the dictionary test also rejects em and en dashes in visible strings.
+9. **Frontend.** The permission check is a shared hook, `useCanManagePortal`, used by both pages.
+10. **Not verified.** Real email delivery through Resend, nginx and pm2 on a server, and `Secure` cookies over real HTTPS (the `Set-Cookie` flags were checked with curl against `next start`).
+
 ## Global Constraints
 
 - Migrations continue after `082_company_disabled_modules`: `083_portal_identity`, `084_portal_access_permission`.
@@ -1853,6 +1868,8 @@ Expected: installs without errors and creates `package-lock.json`. Confirm `/Use
 
 - [ ] **Step 2: Write the failing unit tests for the pure libraries**
 
+> **Superseded during execution (Execution notes, item 6): do not create this file; the route-audience library was removed.**
+
 Create `portal/src/lib/route-audience.test.ts`:
 
 ```ts
@@ -1968,6 +1985,8 @@ export function parseAudience(value: string | undefined): Audience {
 
 export const getAudience = (): Audience => parseAudience(process.env.PORTAL_AUDIENCE);
 ```
+
+> **Superseded during execution (Execution notes, item 6): do not create this file.**
 
 Create `portal/src/lib/route-audience.ts`:
 
@@ -2336,6 +2355,8 @@ export async function POST(request: Request) {
   return response;
 }
 ```
+
+> **Superseded during execution (Execution notes, item 6): do not create this file. It works in dev and fails in production.**
 
 Create `portal/src/middleware.ts`:
 
@@ -2907,6 +2928,8 @@ export function Dashboard({ me, lang, audience }: { me: Me; lang: Lang; audience
   );
 }
 ```
+
+> **Superseded during execution (Execution notes, item 6): the code below was replaced by `app/(portal)/layout.tsx` and `app/(portal)/page.tsx`, which read the audience from `getAudience()`.**
 
 Create the two audience layouts and pages. `portal/src/app/client/layout.tsx`:
 

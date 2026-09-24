@@ -50,10 +50,10 @@ scoping**. This is additive work, not a rebuild.
 | Peak Media is a new `companies` row (tenant) | Same pattern as GIG. |
 | Peak-only scope is controlled by the **existing** per-company module switch (`companies.disabledModules`, migration 082, super-admin only) | No new flag mechanism is needed. Modules irrelevant to an agency (inventory, manufacturing, purchasing, …) are switched off for Peak. The portal itself is not a `MODULES` entry: it is a separate app with its own API prefix, so it cannot be reached by a `disabledModules` accident. |
 | New behaviour is additive: new tables and files, no edits to shared entity logic | Peak Flexi is a `payment_plans` table that references an invoice, not new columns on `Invoice`. GIG's invoice code never learns about it. |
-| Portals are **one separate Next.js app** in `portal/` with two route groups, `(client)` and `(influencer)`, deployed as separate hosts from the same build (the games design adds a third, public `(lobby)` group) | No internal UI code or routes are served to external users. Middleware on each host returns 404 for the other audience's routes. Cost: portal-local UI primitives and i18n dictionary instead of importing from `frontend/`. Primitives are copy-in Radix/Tailwind components, not business logic. |
+| Portals are **one separate Next.js app** in `portal/` deployed as separate hosts from the same build, chosen by `PORTAL_AUDIENCE` at runtime (the games design adds a third, public lobby host) | No internal UI code or routes are served to external users. Pages that belong to one audience call `requireAudience()` and return 404 on the other host, and the backend also refuses a session of the wrong audience. There is no middleware: in production Next proxied its own rewrites and failed. Cost: portal-local UI primitives and i18n dictionary instead of importing from `frontend/`. Primitives are copy-in Radix/Tailwind components, not business logic. |
 | Portal API is a **dedicated router** in `backend/src/portal/`, mounted by `createPortalRouter(store)`, with `/portal-api/client/*` and `/portal-api/influencer/*` sub-routers | The portal API runs in the one backend process in v1 (SQLite; avoids multi-process write contention), but the boundary is a file boundary. Game ingestion is the exception: it runs as its own worker (see the games design). Splitting into its own process later means a new entry file, not a refactor. nginx on each portal host forwards only to the portal app, which is the sole caller of `/portal-api/*` (see §6.7). |
 | **Separate identity space**: `portal_users`, `portal_sessions`, `portal_invitations`, each carrying an `audience` (`client` or `influencer`) | Internal `authMiddleware` looks tokens up in the internal user/token store only. A portal token therefore cannot authenticate an internal route, and the reverse, by construction. A session's `audience` must also match the router prefix, so a client token cannot open an influencer route. |
-| Scoping is **session-bound SQL, not OpenFGA** (revises the earlier suggestion) | The OpenFGA project is a company-group projection and explicitly excludes record-level rules and authentication. An external surface should not depend on that engine being reachable. Instead the server resolves `{companyId, clientId}` from the session, and every portal query takes them from there. Request params and bodies never supply either. |
+| Scoping is **session-bound SQL, not OpenFGA** (revises the earlier suggestion) | The OpenFGA project is a company-group projection and explicitly excludes record-level rules and authentication. An external surface should not depend on that engine being reachable. Instead the server resolves `{companyId, contactId}` from the session, and every portal query takes them from there. Request params and bodies never supply either. |
 | Responses are **allowlist DTOs** (`portal/dto.ts`) | Portal handlers never return an internal entity. Adding a field to an internal type cannot leak it. |
 | `contacts.portalVisible` (new column, default 0) gates the catalogue | Imports and existing records are not exposed by accident; staff opt influencers in, individually or in bulk. |
 | Invite-only accounts; a client admin can invite teammates for their own client | No public sign-up. Peak staff invite the first user for each client. |
@@ -68,11 +68,12 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
   the influencer's own contact; the role must match the audience), email (unique per
   company and audience), name,
   passwordHash (bcrypt, reuse `password.ts`), role (`client_admin` | `client_member` | `influencer`),
-  status (`invited` | `active` | `disabled`), lastLoginAt, createdAt.
+  status (`invited` | `active` | `disabled`), lastLoginAt, createdByUserId, createdAt.
 - `portal_invitations` — id, portalUserId, tokenHash, expiresAt (7 days),
-  usedAt, createdByUserId. Single use.
-- `portal_sessions` — id, portalUserId, audience, tokenHash (SHA-256; the raw token is
-  never stored), expiresAt, createdAt, revokedAt.
+  usedAt, createdAt. Single use.
+- `portal_sessions` — id, portalUserId, tokenHash (SHA-256; the raw token is
+  never stored), expiresAt, createdAt, revokedAt. The audience comes from the user
+  row, so it cannot drift from the session.
 - `client_pricing_profiles` — contactId (PK, the client's organisation contact), mode (`markup` | `pass_through` |
   `retainer`), markupPercent, agencyFeePercent, currency, updatedAt.
   `markup`: shown price = rate × (1 + markupPercent). `pass_through`: shown price
