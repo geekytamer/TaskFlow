@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * One light palette. Company logos are usually drawn for light backgrounds, so
+ * the portal stays light rather than risk an invisible logo in a dark theme.
+ * `field` is the input border: it has to reach 3:1 against the canvas, which
+ * the hairline `line` colour does not.
+ */
+:root {
+  --canvas: #f3f4f6;
+  --surface: #fbfbfc;
+  --ink: #12151a;
+  --ink-soft: #4f5661;
+  --line: #dde0e5;
+  --field: #7c8490;
+  --accent: #0b6e52;
+  --danger: #b42318;
+  color-scheme: light;
+}
+
+html { background: var(--canvas); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--font-latin), var(--font-arabic), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+[dir='rtl'] body { font-family: var(--font-arabic), var(--font-latin), system-ui, sans-serif; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+::selection { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

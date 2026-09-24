@@ -1,0 +1,31 @@
+{
+  "name": "taskflow-portal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:client": "PORTAL_AUDIENCE=client PORTAL_DIST_DIR=.next-client next dev -p 9003",
+    "dev:influencer": "PORTAL_AUDIENCE=influencer PORTAL_DIST_DIR=.next-influencer next dev -p 9004",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "next": "15.5.26",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.23",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  }
+}

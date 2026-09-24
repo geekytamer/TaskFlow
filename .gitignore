@@ -58,3 +58,6 @@ next-env.d.ts
 
 # graphify generated artifacts
 graphify-out/
+
+portal/.next-client/
+portal/.next-influencer/
