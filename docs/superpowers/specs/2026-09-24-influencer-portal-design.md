@@ -31,6 +31,7 @@ accounts.
 - Negotiating rates in the portal. An influencer sees their agreed rate and can
   propose a new rate card, which staff review.
 - Messaging. Staff already use the WhatsApp module.
+- The shared communication log and referral commissions, which are the same for both audiences: `2026-09-27-portal-communication-and-referrals-design.md`.
 - Contracts or e-signature, and file uploads for drafts (links only in v1).
 - Posting to social platforms on the influencer's behalf.
 

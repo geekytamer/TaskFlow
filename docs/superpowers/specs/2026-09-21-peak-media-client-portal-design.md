@@ -40,6 +40,7 @@ scoping**. This is additive work, not a rebuild.
 - The influencer portal and the engagement games. Both build on this
   foundation (a second audience, and a new module) and have their own designs.
 - Clients editing campaigns, deliverables or invoices.
+- The shared communication log and referral commissions. Both audiences share one design: `2026-09-27-portal-communication-and-referrals-design.md`.
 - Changing internal authentication or the OpenFGA permission model.
 
 ## 4. Decisions

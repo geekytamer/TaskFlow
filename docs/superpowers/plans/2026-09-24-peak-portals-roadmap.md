@@ -3,7 +3,8 @@
 Date: 2026-09-24
 Branch: `feature/peak-portal`
 Designs: `docs/superpowers/specs/2026-09-21-peak-media-client-portal-design.md`,
-`2026-09-24-influencer-portal-design.md`, `2026-09-24-engagement-games-design.md`
+`2026-09-24-influencer-portal-design.md`, `2026-09-24-engagement-games-design.md`,
+`2026-09-27-portal-communication-and-referrals-design.md`
 
 Five phases. Each ends with working software that can be signed in to, has its own
 tests, and is checked in a real browser before the next phase starts. The detailed
@@ -58,10 +59,16 @@ published, payouts read from vendor bills, and due-date reminder emails.
 
 **Depends on.** Phase 1.
 
+**Also delivers**, from the communication and referrals design: the shared message
+thread on the influencer's dashboard, and, once messages ship, the referral flow
+(submit a referral, see its status and any commission).
+
 **Exit criteria.** An influencer accepts an assignment, submits a deliverable, staff
 request changes then approve, the influencer marks it published, and payout status
 follows the vendor bill. The secrecy fixture (price, cost, budget, other assignees,
-internal notes) never appears in an influencer response.
+internal notes) never appears in an influencer response. A message posted by the
+influencer notifies the account owner; a submitted referral does the same, and its
+status and commission are visible only to the influencer who submitted it.
 
 ## Phase 3 — Client portal
 
@@ -73,10 +80,15 @@ client stage of deliverable review.
 
 **Depends on.** Phase 2 (client review needs influencer submissions).
 
+**Also delivers**, from the communication and referrals design: the shared message
+thread, and the referral flow for clients.
+
 **Exit criteria.** A client submits a shortlist, staff build a proposal, the client
 accepts it, follows the campaign, and approves a submitted deliverable. Influencer
 rates and margins never appear in a client response under any of the three pricing
-modes.
+modes. A message posted by the client notifies the account owner; a submitted
+referral does the same, and its status and commission are visible only to the
+client who submitted it.
 
 ## Phase 4 — Money
 
@@ -122,3 +134,11 @@ These supersede the designs where they differ.
 3. **One portal deployment serves one company**, set with `PORTAL_COMPANY_ID`.
 4. **Password reset in Phase 1 is a staff re-invite.** Self-service reset is not in
    the five phases.
+5. **Contacts do not get internal `users` accounts.** Everything a client or
+   influencer needs (own campaigns, billings, a shared message thread, referrals
+   with an optional commission) is additive scope inside the existing portal, not
+   a login to the internal app. The internal app has no per-record scoping outside
+   Projects and Tasks: every other role either sees nothing or sees the whole
+   company's data, so a contact logging in there would either be useless or would
+   need every one of ~300 routes re-audited to add a `contactId` check. The portal
+   already does this safely in a few hundred lines.
