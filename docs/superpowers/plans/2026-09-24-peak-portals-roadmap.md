@@ -20,6 +20,39 @@ numbers inside the three designs.
 | 4 | Money | Invoices, receipts, then Peak Flexi instalments |
 | 5 | Reach | Connected accounts, verified stats, and the engagement games |
 
+## Why this shape
+
+Three audiences, three different relationships to Peak Media, not three flavors of
+one thing:
+
+| | Clients | Influencers | The game platform |
+|---|---|---|---|
+| Relationship | Invited, ongoing account | Invited, ongoing account | None — anonymous public followers |
+| Identity | `portal_users`, audience `client` | `portal_users`, audience `influencer` | No account |
+| Surface | `portal/` host, port 9003 | `portal/` host, port 9004 | A third, unauthenticated `portal/` host |
+
+Client and influencer share an identity model because they're the same kind of
+relationship (invited, self-contained account, own data only) with different
+content. The public lobby is not a third audience of `portal_users` — it has no
+session to scope, and inventing one for anonymous followers would solve a problem
+that doesn't exist. It gets its own read-only, cacheable, rate-limited router
+(`/public-api/games/*`, games design §8), isolated from anything that touches a
+cookie.
+
+Rejected shapes, and why: one app per audience duplicates every future fix three
+ways (the same reasoning as the no-fork decision); one combined external login
+with role-based views makes a client's structural inability to reach influencer
+data depend on a UI check instead of a separate cookie and host, which is one bug
+away from a leak; folding the public lobby into the authenticated portal code
+would put unauthenticated, potentially viral traffic behind the same surface as
+signed-in sessions.
+
+What follows from this: one backend, one company, one set of business entities —
+no duplication, additive tables only (Peak Flexi, referrals, games all bolt on,
+never edit shared logic); one `portal/` codebase, three runtime hosts chosen by an
+env var per process; two identity models, not three; staff manage all of it from
+the one unchanged internal app.
+
 ## Phase 1 — Foundation
 
 **Status: built and verified locally on 2026-09-24.** Backend 307 tests, portal 7 tests,
