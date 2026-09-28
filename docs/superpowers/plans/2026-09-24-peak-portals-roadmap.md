@@ -15,10 +15,17 @@ numbers inside the three designs.
 | # | Phase | One line |
 |---|---|---|
 | 1 | Foundation | Identity, the portal app, and staff invitations |
-| 2 | Influencer portal | Influencers work their assignments and get paid visibly |
-| 3 | Client portal | Clients browse, request, approve and follow campaigns |
+| 2 | Client portal | Clients browse, request, approve and follow campaigns |
+| 3 | Influencer portal | Influencers work their assignments and get paid visibly |
 | 4 | Money | Invoices, receipts, then Peak Flexi instalments |
 | 5 | Reach | Connected accounts, verified stats, and the engagement games |
+
+**Sequencing note (2026-09-28):** originally the influencer portal came second, on the
+reasoning that the client portal's deliverable review wants influencer-submitted
+content. That dependency turned out not to be real: `CampaignDeliverable.contentUrl`
+is already a field staff set manually today, with or without any portal, so a client
+can review staff-entered content before the influencer portal exists. The client
+portal is now built first.
 
 ## Why this shape
 
@@ -83,14 +90,36 @@ audiences, in English and Arabic (RTL); deployment templates.
 - Backend suite, portal unit tests, both typechecks, lint and both builds pass.
 - Checked in a browser at desktop and phone width, in English and Arabic.
 
-## Phase 2 — Influencer portal
+## Phase 2 — Client portal
+
+**Delivers.** Client design phases 1 and 2: `client_pricing_profiles` and
+`contacts.portalVisible`, the catalogue with an indicative price per pricing mode,
+campaign requests that create an `Opportunity` and a `FollowUp`, proposal accept and
+decline through `updateCrmProposalStatus`, campaign and deliverable tracking, and the
+client stage of deliverable review.
+
+**Depends on.** Phase 1 only. Deliverable review works against staff-entered
+`contentUrl` values until the influencer portal exists.
+
+**Also delivers**, from the communication and referrals design: the shared message
+thread, and the referral flow for clients.
+
+**Exit criteria.** A client submits a shortlist, staff build a proposal, the client
+accepts it, follows the campaign, and approves a deliverable (staff-entered content,
+until Phase 3 lands). Influencer rates and margins never appear in a client response
+under any of the three pricing modes. A message posted by the client notifies the
+account owner; a submitted referral does the same, and its status and commission are
+visible only to the client who submitted it.
+
+## Phase 3 — Influencer portal
 
 **Delivers.** Influencer designs §7 I1 and I2: profile with staff-reviewed change
 requests, assignments with accept and decline, briefs (`influencerBrief` fields),
 deliverable submissions with the staff review loop, `requireClientApproval`, mark
 published, payouts read from vendor bills, and due-date reminder emails.
 
-**Depends on.** Phase 1.
+**Depends on.** Phase 1. Once this ships, deliverable content flowing through Phase
+2's client review becomes influencer-submitted rather than staff-entered.
 
 **Also delivers**, from the communication and referrals design: the shared message
 thread on the influencer's dashboard, and, once messages ship, the referral flow
@@ -103,26 +132,6 @@ internal notes) never appears in an influencer response. A message posted by the
 influencer notifies the account owner; a submitted referral does the same, and its
 status and commission are visible only to the influencer who submitted it.
 
-## Phase 3 — Client portal
-
-**Delivers.** Client design phases 1 and 2: `client_pricing_profiles` and
-`contacts.portalVisible`, the catalogue with an indicative price per pricing mode,
-campaign requests that create an `Opportunity` and a `FollowUp`, proposal accept and
-decline through `updateCrmProposalStatus`, campaign and deliverable tracking, and the
-client stage of deliverable review.
-
-**Depends on.** Phase 2 (client review needs influencer submissions).
-
-**Also delivers**, from the communication and referrals design: the shared message
-thread, and the referral flow for clients.
-
-**Exit criteria.** A client submits a shortlist, staff build a proposal, the client
-accepts it, follows the campaign, and approves a submitted deliverable. Influencer
-rates and margins never appear in a client response under any of the three pricing
-modes. A message posted by the client notifies the account owner; a submitted
-referral does the same, and its status and commission are visible only to the
-client who submitted it.
-
 ## Phase 4 — Money
 
 **Delivers.** Invoices and receipts (list, detail, PDF, a new receipt document,
@@ -130,8 +139,8 @@ per-campaign statement), then Peak Flexi: `payment_plans`, eligibility against
 `Client.creditLimit`, finance approval, installment tracking against `Payment`,
 overdue installments as `FollowUp` entries.
 
-**Depends on.** Phase 3. **Needs from you** before its second half: the accountant's
-view on invoicing the Plus service fee.
+**Depends on.** Phase 2 (client portal). **Needs from you** before its second half:
+the accountant's view on invoicing the Plus service fee.
 
 **Exit criteria.** A client sees only their invoices and payments and downloads a PDF
 of each. A plan request is approved by finance and its installments are settled and
@@ -144,9 +153,9 @@ the social worker, follower and engagement sync with verified badges; the games
 module with manual points, scoring, the public lobby and result freezing; then the
 first comment collector the spike supports.
 
-**Depends on.** Phase 2 for the influencer portal, and on external approvals.
-**Needs from you** to start: a Peak-owned Meta developer account with privacy,
-data-deletion and terms pages, and the platforms Peak's influencers use.
+**Depends on.** Phase 3 (influencer portal), and on external approvals. **Needs from
+you** to start: a Peak-owned Meta developer account with privacy, data-deletion and
+terms pages, and the platforms Peak's influencers use.
 
 **Exit criteria.** A connected account's figures update daily and show as verified to
 clients. An admin creates a game, staff award points, the public lobby ranks
@@ -175,3 +184,9 @@ These supersede the designs where they differ.
    company's data, so a contact logging in there would either be useless or would
    need every one of ~300 routes re-audited to add a `contactId` check. The portal
    already does this safely in a few hundred lines.
+6. **The influencer portal's ambition (2026-09-28) is bigger than a Peak
+   connector**, going forward: a genuine business tool for the influencer,
+   including rate-card benchmarking and tracking clients beyond Peak. Not yet
+   designed — two decisions (how transparent on rates, and a structurally private
+   workspace Peak staff cannot see) need answers first. See the influencer design,
+   "Future direction."

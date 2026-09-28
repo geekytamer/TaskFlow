@@ -129,11 +129,13 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 
 Each phase ships and is verified on staging before the next starts.
 
-Order across the sibling designs: Phase 0, Phase 1, the influencer portal's core
-(assignments, deliverable submission, payout status), then Phases 2, 3 and 4.
-Phase 2's deliverable review needs influencer submissions to exist, which today
-only staff can enter. The games design has its own phases, and its feasibility
-spike starts in parallel with Phase 0.
+Order across the sibling designs (see the roadmap for the authoritative sequence):
+this design's phases ship before the influencer portal's. Its deliverable review
+does not strictly need the influencer portal — `CampaignDeliverable.contentUrl` is
+already a field staff set manually today, with or without any portal — so a client
+can review staff-entered content in the meantime; it only becomes influencer-
+submitted content once that portal ships. The games design has its own phases, and
+its feasibility spike starts in parallel with Phase 0.
 
 **Phase 0 — Foundation.** Peak Media company and module switches; migrations;
 `backend/src/portal/` (session middleware, DTO helpers, router skeleton);

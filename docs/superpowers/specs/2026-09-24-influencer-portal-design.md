@@ -167,7 +167,8 @@ decline, the brief fields and their internal editors.
 
 **I2 — Submissions and payouts.** Submissions and versions, the review loop with the
 staff review queue, `requireClientApproval`, mark published, payouts, reminders.
-I1 and I2 come before the client portal's Phase 2.
+Neither I1 nor I2 blocks the client portal — see the roadmap for the authoritative
+sequence, which now builds the client portal first.
 
 **I3 — Connected accounts and stats.** The connect flow for the first platform
 chosen by the G0 spike, encryption, the social worker, snapshots, token refresh and
@@ -177,6 +178,24 @@ portal's Phase 1.
 
 **Later.** WhatsApp notifications, draft file uploads, more platforms, and flagging
 sudden follower jumps for staff.
+
+**Future direction, not yet designed: a business tool, not just a Peak connector.**
+The intent is for influencers to manage their business generally through this
+portal — rate-card benchmarking and tracking their work with clients beyond Peak —
+not only their relationship with Peak. Two decisions have to be made deliberately
+before this is designed, not defaulted into:
+- **Rate transparency.** Market-rate data cuts both ways: it can be a genuine trust
+  and retention differentiator, or it can hand an influencer more leverage
+  negotiating with Peak itself. Where the benchmark data even comes from (Peak's
+  own aggregated rate cards, an external source, or staff-curated figures) is also
+  unresolved.
+- **A structurally private workspace.** Data about an influencer's other clients is
+  data about Peak's own competitors. Unlike everything else in this portal
+  (messages, referrals, campaigns — all visible to Peak staff by design, since
+  they're about Peak's relationship with the contact), this would need to be
+  invisible to Peak staff by construction, not filtered out of the usual views. No
+  table for this exists yet; it needs its own design once the two questions above
+  are answered.
 
 ## 10. Testing
 
