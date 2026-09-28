@@ -181,21 +181,22 @@ sudden follower jumps for staff.
 
 **Future direction, not yet designed: a business tool, not just a Peak connector.**
 The intent is for influencers to manage their business generally through this
-portal — rate-card benchmarking and tracking their work with clients beyond Peak —
-not only their relationship with Peak. Two decisions have to be made deliberately
-before this is designed, not defaulted into:
-- **Rate transparency.** Market-rate data cuts both ways: it can be a genuine trust
-  and retention differentiator, or it can hand an influencer more leverage
-  negotiating with Peak itself. Where the benchmark data even comes from (Peak's
-  own aggregated rate cards, an external source, or staff-curated figures) is also
-  unresolved.
-- **A structurally private workspace.** Data about an influencer's other clients is
-  data about Peak's own competitors. Unlike everything else in this portal
-  (messages, referrals, campaigns — all visible to Peak staff by design, since
-  they're about Peak's relationship with the contact), this would need to be
-  invisible to Peak staff by construction, not filtered out of the usual views. No
-  table for this exists yet; it needs its own design once the two questions above
-  are answered.
+portal — tracking their work with clients beyond Peak — not only their
+relationship with Peak.
+
+**Decided (2026-09-28): no rate-card benchmarking.** Influencers do not see
+market-rate data of any kind. This closes off the leverage concern (visibility
+into market rates strengthening an influencer's negotiating position against Peak
+itself) by not building the feature, rather than by managing it. This is separate
+from, and does not change, an influencer seeing their own `agreedRate` on their own
+assignments (§4) — that is their pay for a specific job, not a market benchmark.
+
+Still open, and still needs an answer before this is designed: **a structurally
+private workspace.** Data about an influencer's other clients is data about Peak's
+own competitors. Unlike everything else in this portal (messages, referrals,
+campaigns — all visible to Peak staff by design, since they're about Peak's
+relationship with the contact), this would need to be invisible to Peak staff by
+construction, not filtered out of the usual views. No table for this exists yet.
 
 ## 10. Testing
 

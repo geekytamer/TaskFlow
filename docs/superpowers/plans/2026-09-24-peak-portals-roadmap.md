@@ -186,7 +186,12 @@ These supersede the designs where they differ.
    already does this safely in a few hundred lines.
 6. **The influencer portal's ambition (2026-09-28) is bigger than a Peak
    connector**, going forward: a genuine business tool for the influencer,
-   including rate-card benchmarking and tracking clients beyond Peak. Not yet
-   designed — two decisions (how transparent on rates, and a structurally private
-   workspace Peak staff cannot see) need answers first. See the influencer design,
-   "Future direction."
+   tracking clients beyond Peak. No rate-card benchmarking — decided against, so
+   influencers never see market-rate data (their own `agreedRate` per assignment is
+   unaffected). Not yet designed — a structurally private workspace Peak staff
+   cannot see still needs an answer. See the influencer design, "Future direction."
+7. **Neither side sees the other's real rates, confirmed (2026-09-28).** Clients
+   never see `agreedRate`/`rateCardAmount` (already the design, §6.3 of the client
+   design); influencers never see market-rate benchmarks (item 6 above). Two
+   different rules, same principle: nobody outside Peak sees pricing data that
+   isn't their own.
