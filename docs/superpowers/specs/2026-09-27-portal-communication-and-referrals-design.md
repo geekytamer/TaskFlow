@@ -2,7 +2,7 @@
 
 Date: 2026-09-27
 Branch: `feature/peak-portal`
-Status: Draft for review
+Status: Approved
 Builds on: `2026-09-21-peak-media-client-portal-design.md`,
 `2026-09-24-influencer-portal-design.md` (portal identity, `contactId`, audiences)
 
@@ -107,12 +107,25 @@ tests: a `Pending` commission is invisible to payout logic until `Approved`; the
 payout type determines which document (`vendor_bill` or `credit_note`) is created
 and that its amount matches the stated basis.
 
-## 9. Open questions for you
+## 9. Decided
 
-1. Should a portal user be able to edit or delete their own message after posting,
-   or is it append-only once sent? Append-only is simpler and avoids "what did they
-   originally say" disputes; that is the default here unless you'd rather they can
-   edit shortly after posting.
-2. For a client's referral commission paid as a credit note: does it apply
-   automatically to their next invoice, or does an accountant apply it by hand,
-   the same way a manual `Approved` step already gates the influencer case?
+Both resolved the same way: match the pattern this system already committed to,
+rather than invent a new one.
+
+1. **Messages are append-only. No edit, no delete.** An issued invoice freezes a
+   `templateSnapshot` specifically so edits never change what was already sent; a
+   sent proposal locks the same way. A message is the same category of business
+   record — once the other side may have read it, rewriting it retroactively is
+   worse than posting a correction underneath. It is also the simpler build: no
+   edit history, no "edited" marker, no window logic, for a benefit a follow-up
+   message already covers.
+2. **Credit note application is never automatic.** `CreditNote.invoiceId` is
+   already optional in this codebase ("a standalone credit is allowed"), which
+   means the existing model already puts a human in the loop: staff issue a credit
+   note and decide, at that moment, whether it applies to a specific invoice or
+   stands alone. Approving a referral commission makes a credit note available to
+   issue; placing it is the same manual accountant action as any other credit
+   note today, not new logic. This mirrors why Peak Flexi requires finance
+   approval before it activates: a human checks before money moves against the
+   ledger, especially with VAT implications and no track record yet for this kind
+   of commission.
