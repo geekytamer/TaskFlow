@@ -112,6 +112,14 @@ export class PortalStore {
     return row ? toUser(row) : undefined;
   }
 
+  /** The staff user who first invited this portal user, if recorded. */
+  inviterOf(id: string): string | undefined {
+    const row = this.db.prepare('SELECT createdByUserId FROM portal_users WHERE id = ?').get(id) as
+      | { createdByUserId: string | null }
+      | undefined;
+    return row?.createdByUserId ?? undefined;
+  }
+
   listUsers(companyId: string, filter: { audience?: PortalAudience; contactId?: string } = {}): PortalUser[] {
     const clauses = ['companyId = @companyId'];
     const params: Record<string, string> = { companyId };

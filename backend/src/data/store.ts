@@ -6,6 +6,7 @@ import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
 import { PortalCatalogueStore } from '../portal/catalogue-store';
+import { PortalRequestsStore } from '../portal/requests-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -624,6 +625,8 @@ export class DataStore {
   readonly portal: PortalStore;
   /** Which influencers the client portal lists, and each client's pricing terms. */
   readonly catalogue: PortalCatalogueStore;
+  /** Campaign requests from the client portal, and who answered each proposal. */
+  readonly requests: PortalRequestsStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -649,6 +652,7 @@ export class DataStore {
     this.applyMigrations();
     this.portal = new PortalStore(this.db);
     this.catalogue = new PortalCatalogueStore(this.db);
+    this.requests = new PortalRequestsStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3656,6 +3660,46 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Campaign requests from the client portal, their shortlist, and who at
+        // the client answered each proposal. A request's status is derived from
+        // its opportunity and proposals on read, never stored, so it cannot
+        // drift from the CRM when staff change something by hand.
+        id: '086_portal_requests',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_campaign_requests (
+              id            TEXT PRIMARY KEY,
+              companyId     TEXT NOT NULL,
+              contactId     TEXT NOT NULL,
+              portalUserId  TEXT NOT NULL,
+              title         TEXT NOT NULL,
+              objective     TEXT NOT NULL,
+              budget        REAL,
+              startDate     TEXT,
+              endDate       TEXT,
+              platforms     TEXT NOT NULL DEFAULT '[]',
+              opportunityId TEXT NOT NULL,
+              createdAt     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_portal_requests_contact ON portal_campaign_requests (companyId, contactId);
+            CREATE TABLE IF NOT EXISTS portal_request_influencers (
+              requestId TEXT NOT NULL,
+              contactId TEXT NOT NULL,
+              position  INTEGER NOT NULL,
+              PRIMARY KEY (requestId, contactId)
+            );
+            CREATE TABLE IF NOT EXISTS portal_proposal_responses (
+              proposalId   TEXT PRIMARY KEY,
+              portalUserId TEXT NOT NULL,
+              decision     TEXT NOT NULL,
+              reason       TEXT,
+              createdAt    TEXT NOT NULL,
+              CHECK (decision IN ('accepted', 'declined'))
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3809,6 +3853,9 @@ export class DataStore {
         DELETE FROM portal_users;
         DELETE FROM portal_catalogue;
         DELETE FROM client_pricing_profiles;
+        DELETE FROM portal_campaign_requests;
+        DELETE FROM portal_request_influencers;
+        DELETE FROM portal_proposal_responses;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
         DELETE FROM company_finance_settings;

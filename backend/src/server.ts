@@ -8510,6 +8510,7 @@ export function createServer(options: CreateServerOptions = {}) {
           pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
           currency: (companyId) => store.getCompanyFinanceSettings(companyId).currencyCode,
         },
+        requestsStore: store,
       }),
     );
   }

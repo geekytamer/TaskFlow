@@ -2,7 +2,9 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit';
 import { HttpError } from '../http';
 import { asRecord, requiredString } from '../validation';
+import type { DataStore } from '../data/store';
 import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './client-catalogue-routes';
+import { registerClientRequestRoutes } from './client-requests-routes';
 import { toBrandingDto, toMeDto, type PortalBranding } from './dto';
 import { portalAudiences, type PortalAudience, type PortalSession, type PortalStore } from './portal-store';
 
@@ -23,6 +25,8 @@ export interface PortalRouterOptions {
   logger?: { error: (...args: unknown[]) => void };
   /** The client catalogue. Absent: the catalogue routes do not exist. */
   catalogue?: ClientCatalogueDeps;
+  /** Campaign requests and proposals. Absent: those routes do not exist. */
+  requestsStore?: DataStore;
 }
 
 const bearerToken = (req: Request) => {
@@ -127,6 +131,9 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
 
   if (options.catalogue) {
     registerClientCatalogueRoutes(router, options.catalogue, companyId, requireSessionFor('client'));
+  }
+  if (options.requestsStore) {
+    registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
   }
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
