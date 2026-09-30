@@ -1,7 +1,7 @@
 import type { Request, RequestHandler, Response, Router } from 'express';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
-import { CATALOGUE_LIMIT, matchesFilter, priceFor, toCatalogueEntry, type CatalogueFilter } from './catalogue';
+import { CATALOGUE_LIMIT, facetsOf, matchesFilter, priceFor, toCatalogueEntry, type CatalogueFilter } from './catalogue';
 import type { PricingProfile } from './catalogue-store';
 import type { PortalSession } from './portal-store';
 
@@ -51,11 +51,11 @@ export function registerClientCatalogueRoutes(
     const listed = new Set(deps.listedIds(companyId));
     const price = pricing(req);
     const filter = parseFilter(req.query);
-    const matches = deps.listInfluencers(companyId)
+    const all = deps.listInfluencers(companyId)
       .filter((contact) => listed.has(contact.id))
-      .map((contact) => toCatalogueEntry(contact, price(contact)))
-      .filter((entry) => matchesFilter(entry, filter));
-    res.json({ items: matches.slice(0, CATALOGUE_LIMIT), total: matches.length });
+      .map((contact) => toCatalogueEntry(contact, price(contact)));
+    const matches = all.filter((entry) => matchesFilter(entry, filter));
+    res.json({ items: matches.slice(0, CATALOGUE_LIMIT), total: matches.length, facets: facetsOf(all) });
   });
 
   router.get('/client/catalogue/:contactId', requireClientSession, (req: SessionRequest, res: Response) => {

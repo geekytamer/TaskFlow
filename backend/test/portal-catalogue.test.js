@@ -219,3 +219,35 @@ test('influencers and staff tokens cannot reach the catalogue; staff controls ne
   assert.equal((await request(ctx.server).delete(`/companies/${ctx.company.id}/portal-catalogue/${ctx.lina.id}`).set(ctx.admin)).status, 200);
   assert.deepEqual((await request(ctx.server).get(`/companies/${ctx.company.id}/portal-catalogue`).set(ctx.admin)).body, []);
 });
+
+test('profile links are http or https only, so a staff-typed script URL never reaches a client', async () => {
+  const ctx = build();
+  const hostile = ctx.store.createContact({
+    companyId: ctx.company.id, kind: 'Person', name: 'Hostile Link', roles: ['Influencer'],
+    influencerAccounts: [
+      { id: 'h1', platform: 'Instagram', handle: '@a', url: 'javascript:alert(document.cookie)' },
+      { id: 'h2', platform: 'TikTok', handle: '@b', url: ' JaVaScRiPt:alert(1)' },
+      { id: 'h3', platform: 'YouTube', handle: '@c', url: 'data:text/html,<script>alert(1)</script>' },
+      { id: 'h4', platform: 'X', handle: '@d', url: 'https://x.com/d' },
+      { id: 'h5', platform: 'Other', handle: '@e', url: 'http://example.test/e' },
+    ],
+  });
+  await list(ctx)([hostile.id]);
+  const client = await ctx.portalSession('client', ctx.client, 'omar@alnoor.test');
+  const detail = await request(ctx.server).get(`/portal-api/client/catalogue/${hostile.id}`).set(client);
+  assert.deepEqual(detail.body.platforms.map((p) => p.url), [null, null, null, 'https://x.com/d', 'http://example.test/e']);
+});
+
+test('facets describe the whole listed catalogue, not the filtered page', async () => {
+  const ctx = build();
+  await list(ctx)([ctx.lina.id, ctx.omar.id]);
+  const client = await ctx.portalSession('client', ctx.client, 'omar@alnoor.test');
+  const res = await request(ctx.server).get('/portal-api/client/catalogue?niche=food').set(client);
+  assert.deepEqual(res.body.items.map((i) => i.name), ['Lina Haddad']);
+  assert.deepEqual(res.body.facets, {
+    platforms: ['Instagram', 'TikTok', 'YouTube'],
+    niches: ['Fitness', 'Food'],
+    availability: ['Available', 'Unavailable'],
+  });
+  assert.equal(res.body.total, 1);
+});

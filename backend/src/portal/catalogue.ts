@@ -69,7 +69,7 @@ function platformsOf(contact: Contact): CataloguePlatform[] {
     return accounts.map((account) => ({
       platform: account.platform,
       handle: text(account.handle),
-      url: text(account.url),
+      url: safeUrl(account.url),
       followers: num(account.followers),
       avgViews: num(account.avgViews),
       engagementRate: num(account.engagementRate),
@@ -101,6 +101,40 @@ export function toCatalogueEntry(contact: Contact, price: PriceView): CatalogueE
 }
 
 const lower = (value: string | null | undefined) => (value ?? '').toLowerCase();
+
+/**
+ * Profile links are typed by staff and rendered as links in a client's browser,
+ * so only absolute http(s) URLs pass. Anything else (a `javascript:` or `data:`
+ * URL, a relative path, a typo) becomes null rather than a live link.
+ */
+export function safeUrl(value: unknown): string | null {
+  const raw = text(value);
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface CatalogueFacets {
+  platforms: string[];
+  niches: string[];
+  availability: string[];
+}
+
+const distinctSorted = (values: Array<string | null>) =>
+  [...new Set(values.filter((v): v is string => Boolean(v)))].sort((a, b) => a.localeCompare(b));
+
+/** Filter options drawn from everything the client may browse, not from one filtered page. */
+export function facetsOf(entries: CatalogueEntry[]): CatalogueFacets {
+  return {
+    platforms: distinctSorted(entries.flatMap((e) => e.platforms.map((p) => p.platform))),
+    niches: distinctSorted(entries.map((e) => e.niche)),
+    availability: distinctSorted(entries.map((e) => e.availability)),
+  };
+}
 
 export function matchesFilter(entry: CatalogueEntry, filter: CatalogueFilter): boolean {
   if (filter.platform && !entry.platforms.some((p) => lower(p.platform) === lower(filter.platform))) return false;
