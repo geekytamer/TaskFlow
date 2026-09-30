@@ -20,6 +20,7 @@ import {
   type PortalUser,
 } from '@/services/portalAccessService';
 import { Copy, RefreshCw, UserPlus } from 'lucide-react';
+import { PortalPricingSection } from './portal-pricing-section';
 
 export function PortalAccessPanel({ contact, audience }: { contact: Contact; audience: PortalAudience }) {
   const { language } = useI18n();
@@ -217,6 +218,7 @@ export function PortalAccessPanel({ contact, audience }: { contact: Contact; aud
           ))}
         </ul>
       )}
+      {audience === 'client' && <PortalPricingSection contact={contact} />}
     </section>
   );
 }

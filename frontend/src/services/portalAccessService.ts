@@ -39,3 +39,33 @@ export const reinvitePortalUser = (companyId: string, id: string) =>
 
 export const setPortalUserDisabled = (companyId: string, id: string, disabled: boolean) =>
   apiFetch<PortalUser>(`${base(companyId)}/${id}/${disabled ? 'disable' : 'enable'}`, { method: 'POST' });
+
+export type PricingMode = 'markup' | 'retainer';
+
+export interface PricingProfile {
+  contactId: string;
+  mode: PricingMode;
+  markupPercent: number | null;
+  updatedAt: string;
+}
+
+export const listPortalCatalogue = (companyId: string) =>
+  apiFetch<string[]>(`/companies/${companyId}/portal-catalogue`);
+
+export const setPortalListing = (companyId: string, contactId: string, listed: boolean) =>
+  apiFetch<{ contactId: string; listed: boolean }>(`/companies/${companyId}/portal-catalogue/${contactId}`, {
+    method: listed ? 'PUT' : 'DELETE',
+  });
+
+export const getPricingProfile = (companyId: string, contactId: string) =>
+  apiFetch<PricingProfile | null>(`/companies/${companyId}/pricing-profiles/${contactId}`);
+
+export const savePricingProfile = (
+  companyId: string,
+  contactId: string,
+  body: { mode: PricingMode; markupPercent?: number },
+) =>
+  apiFetch<PricingProfile>(`/companies/${companyId}/pricing-profiles/${contactId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });

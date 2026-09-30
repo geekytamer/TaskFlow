@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { Audience } from '@/lib/audience';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { Me } from '@/lib/portal';
@@ -24,6 +25,14 @@ export function Dashboard({ me, lang, audience }: { me: Me; lang: Lang; audience
         <p className="mt-2 leading-relaxed text-ink-soft">
           {t(lang, audience === 'client' ? 'dash.client.body' : 'dash.influencer.body')}
         </p>
+        {audience === 'client' && (
+          <Link
+            href="/influencers"
+            className="mt-5 inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90"
+          >
+            {t(lang, 'dash.client.browse')}
+          </Link>
+        )}
       </section>
 
       <section aria-labelledby="account-title">

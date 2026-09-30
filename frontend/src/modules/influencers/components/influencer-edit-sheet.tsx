@@ -21,6 +21,7 @@ import {
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
+import { PortalListingSwitch } from '@/modules/portal-access/components/portal-listing-switch';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import {
   updateContact,
@@ -378,6 +379,7 @@ export function InfluencerEditSheet({
               </div>
             ))}
           </div>
+          {contact && canManagePortal && <PortalListingSwitch contact={contact} />}
           {contact && canManagePortal && <PortalAccessPanel contact={contact} audience="influencer" />}
         </div>
 
