@@ -13,6 +13,7 @@ const navFor = (me: Me, lang: Lang): NavItem[] =>
         { href: '/influencers', label: t(lang, 'nav.influencers') },
         { href: '/campaigns', label: t(lang, 'nav.campaigns') },
         { href: '/requests', label: t(lang, 'nav.requests') },
+        { href: '/messages', label: t(lang, 'nav.messages') },
       ]
     : [];
 

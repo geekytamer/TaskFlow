@@ -37,6 +37,25 @@ export function formatDate(value: string | null | undefined, lang: Lang): string
   return new Intl.DateTimeFormat(locale(lang), { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
 }
 
+/**
+ * A moment, with its time. Pages render on the server, which cannot know the
+ * visitor's zone, so times are shown in the business's own zone.
+ */
+export function formatDateTime(value: string | null | undefined, lang: Lang): string {
+  if (!value) return MISSING;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return MISSING;
+  return new Intl.DateTimeFormat(locale(lang), {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: process.env.PORTAL_TIME_ZONE ?? 'Asia/Muscat',
+  }).format(date);
+}
+
+export function formatFileSize(bytes: number, lang: Lang): string {
+  const units = lang === 'ar' ? ['بايت', 'ك.ب', 'م.ب'] : ['B', 'KB', 'MB'];
+  const [value, unit] = bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), units[2]] : bytes >= 1024 ? [bytes / 1024, units[1]] : [bytes, units[0]];
+  return `${new Intl.NumberFormat(locale(lang), { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value)} ${unit}`;
+}
+
 export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'availability', 'minFollowers'] as const;
 export type CatalogueFilters = Partial<Record<(typeof CATALOGUE_FILTERS)[number], string>>;
 

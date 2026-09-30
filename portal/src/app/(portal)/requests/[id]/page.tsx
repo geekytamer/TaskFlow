@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { FileList } from '@/components/file-list';
 import { StatusBadge } from '@/components/status-badge';
 import { formatDate, formatMoney, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
@@ -88,6 +89,12 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
               )}
             </dd>
           </div>
+          {req.files.length > 0 && (
+            <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-6">
+              <dt className="text-sm text-ink-soft">{t(lang, 'req.files')}</dt>
+              <dd><FileList files={req.files} lang={lang} /></dd>
+            </div>
+          )}
         </dl>
       </section>
     </div>

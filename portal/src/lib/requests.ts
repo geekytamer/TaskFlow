@@ -1,4 +1,5 @@
 import { clientGet, clientGetOrNull } from './client-api';
+import type { PortalFile } from './files';
 
 export type RequestStatus = 'in_review' | 'proposal_ready' | 'accepted' | 'closed';
 export type ProposalStatus = 'sent' | 'accepted' | 'declined' | 'expired';
@@ -22,6 +23,7 @@ export interface CampaignRequest {
   influencers: Array<{ id: string; name: string }>;
   status: RequestStatus;
   proposals: ProposalSummary[];
+  files: PortalFile[];
   createdAt: string;
 }
 

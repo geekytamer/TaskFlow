@@ -37,3 +37,25 @@ export async function backendFetch<T = Record<string, unknown>>(
     return { status: 503, data: { message: 'The portal is temporarily unavailable.' } as T };
   }
 }
+
+/** Headers a file download may carry through to the browser; nothing else is copied. */
+const DOWNLOAD_HEADERS = ['content-type', 'content-length', 'content-disposition', 'x-content-type-options', 'content-security-policy', 'cache-control'];
+
+/** A file's bytes from the backend, passed on with the backend's own safe download headers. */
+export async function backendDownload(audience: Audience, path: string, token: string): Promise<Response> {
+  try {
+    const upstream = await fetch(`${apiBase()}/portal-api/${audience}${path}`, {
+      cache: 'no-store',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (upstream.status !== 200) return new Response(null, { status: upstream.status === 401 ? 401 : 404 });
+    const headers = new Headers();
+    for (const name of DOWNLOAD_HEADERS) {
+      const value = upstream.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    return new Response(upstream.body, { status: 200, headers });
+  } catch {
+    return new Response(null, { status: 503 });
+  }
+}

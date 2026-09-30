@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, type FormEvent } from 'react';
 import { t, type Lang } from '@/lib/i18n';
 import { primaryButton } from './field';
+import { FilePicker, type UploadedFile } from './file-picker';
 
 export interface ShortlistOption {
   id: string;
@@ -21,6 +22,7 @@ export function RequestForm({
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(preselected.filter((id) => options.some((o) => o.id === id))));
   const [chosenPlatforms, setChosenPlatforms] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -64,6 +66,7 @@ export function RequestForm({
           endDate: endDate || null,
           platforms: [...chosenPlatforms],
           influencerIds: [...chosen],
+          fileIds: files.map((f) => f.id),
         }),
       });
       if (response.status === 201) {
@@ -147,6 +150,11 @@ export function RequestForm({
           </ul>
         </fieldset>
       )}
+
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-medium">{t(lang, 'form.files')}</legend>
+        <FilePicker lang={lang} files={files} onChange={setFiles} disabled={busy} />
+      </fieldset>
 
       {errors.length > 0 && (
         <ul role="alert" className="space-y-1 text-sm text-danger">

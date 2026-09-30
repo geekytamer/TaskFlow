@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalogueQuery, formatCompact, formatDate, formatMoney, formatPercent } from './format';
+import { catalogueQuery, formatCompact, formatDate, formatDateTime, formatFileSize, formatMoney, formatPercent } from './format';
 
 test('follower counts are compact, and Arabic keeps Latin digits', () => {
   assert.equal(formatCompact(184000, 'en'), '184K');
@@ -46,4 +46,14 @@ test('lists are separated with the comma of the page language', async () => {
   const { listSep } = await import('./format');
   assert.equal(['a', 'b'].join(listSep('en')), 'a, b');
   assert.equal(['أ', 'ب'].join(listSep('ar')), 'أ، ب');
+});
+
+test('times are shown in the business zone, and file sizes read naturally', () => {
+  // 20:30 UTC is 00:30 the next day in Muscat.
+  assert.match(formatDateTime('2026-09-30T20:30:00Z', 'en'), /Oct 1, 2026.*12:30/);
+  assert.equal(formatDateTime(null, 'en'), '-');
+  assert.equal(formatFileSize(512, 'en'), '512 B');
+  assert.equal(formatFileSize(1536, 'en'), '1.5 KB');
+  assert.equal(formatFileSize(10 * 1024 * 1024, 'en'), '10 MB');
+  assert.match(formatFileSize(1536, 'ar'), /1\.5/);
 });
