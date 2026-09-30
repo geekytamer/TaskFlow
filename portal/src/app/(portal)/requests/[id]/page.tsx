@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { StatusBadge } from '@/components/status-badge';
-import { formatDate, formatMoney } from '@/lib/format';
+import { formatDate, formatMoney, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { getRequest } from '@/lib/requests';
@@ -73,7 +73,7 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
           {req.platforms.length > 0 && (
             <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-6">
               <dt className="text-sm text-ink-soft">{t(lang, 'req.platforms')}</dt>
-              <dd className="font-medium"><bdi>{req.platforms.join(', ')}</bdi></dd>
+              <dd className="font-medium"><bdi>{req.platforms.join(listSep(lang))}</bdi></dd>
             </div>
           )}
           <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-6">

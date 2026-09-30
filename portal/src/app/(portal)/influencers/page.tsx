@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { PriceTag } from '@/components/price-tag';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
-import { catalogueQuery, formatCompact } from '@/lib/format';
+import { catalogueQuery, formatCompact, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
@@ -31,7 +31,7 @@ function FilterSelect({
 }
 
 function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
-  const meta = [entry.niche, entry.location].filter(Boolean).join(', ');
+  const meta = [entry.niche, entry.location].filter(Boolean).join(listSep(lang));
   return (
     <li>
       <Link

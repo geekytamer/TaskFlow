@@ -33,3 +33,17 @@ test('dates read naturally in both languages, keep Latin digits, and tolerate mi
   assert.equal(formatDate(null, 'en'), '-');
   assert.equal(formatDate('garbage', 'en'), '-');
 });
+
+test('a reviewed deliverable shows the client’s own answer, otherwise its status', async () => {
+  const { deliverableView } = await import('./campaigns');
+  assert.equal(deliverableView({ status: 'ready_for_review', review: null }), 'ready_for_review');
+  assert.equal(deliverableView({ status: 'ready_for_review', review: { decision: 'approved' } }), 'you_approved');
+  assert.equal(deliverableView({ status: 'ready_for_review', review: { decision: 'changes_requested' } }), 'changes_requested');
+  assert.equal(deliverableView({ status: 'published', review: { decision: 'approved' } }), 'published', 'staff progress wins once it moves on');
+});
+
+test('lists are separated with the comma of the page language', async () => {
+  const { listSep } = await import('./format');
+  assert.equal(['a', 'b'].join(listSep('en')), 'a, b');
+  assert.equal(['أ', 'ب'].join(listSep('ar')), 'أ، ب');
+});

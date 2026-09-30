@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { RequestForm } from '@/components/request-form';
 import { getCatalogue } from '@/lib/catalogue';
-import { formatCompact } from '@/lib/format';
+import { formatCompact, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
@@ -15,7 +15,7 @@ export default async function NewRequestPage({ searchParams }: { searchParams: P
 
   const options = catalogue.items.map((entry) => {
     const top = [...entry.platforms].sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))[0];
-    const detail = [entry.niche, top ? `${top.platform} ${formatCompact(top.followers, lang)}` : null].filter(Boolean).join(', ');
+    const detail = [entry.niche, top ? `${top.platform} ${formatCompact(top.followers, lang)}` : null].filter(Boolean).join(listSep(lang));
     return { id: entry.id, name: entry.name, detail };
   });
 

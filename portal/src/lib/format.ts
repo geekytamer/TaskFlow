@@ -5,6 +5,9 @@ const locale = (lang: Lang) => (lang === 'ar' ? 'ar-u-nu-latn' : 'en');
 
 const MISSING = '-';
 
+/** The list separator for the page's language: Arabic uses its own comma. */
+export const listSep = (lang: Lang) => (lang === 'ar' ? '، ' : ', ');
+
 export function formatCompact(value: number | null, lang: Lang): string {
   if (value === null) return MISSING;
   return new Intl.NumberFormat(locale(lang), { notation: 'compact', maximumFractionDigits: 1 }).format(value);

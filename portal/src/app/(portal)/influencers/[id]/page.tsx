@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PriceTag } from '@/components/price-tag';
 import { getInfluencer } from '@/lib/catalogue';
-import { formatCompact, formatPercent } from '@/lib/format';
+import { formatCompact, formatPercent, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
@@ -15,7 +15,7 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
   const influencer = await getInfluencer(id);
   if (!influencer) notFound();
 
-  const meta = [influencer.niche, influencer.location].filter(Boolean).join(', ');
+  const meta = [influencer.niche, influencer.location].filter(Boolean).join(listSep(lang));
 
   return (
     <div className="space-y-10">
@@ -37,7 +37,7 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
             {influencer.languages.length > 0 && (
               <div>
                 <dt className="text-ink-soft">{t(lang, 'cat.languages')}</dt>
-                <dd className="font-medium">{influencer.languages.join(', ')}</dd>
+                <dd className="font-medium">{influencer.languages.join(listSep(lang))}</dd>
               </div>
             )}
           </dl>
