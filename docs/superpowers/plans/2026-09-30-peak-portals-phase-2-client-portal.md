@@ -101,6 +101,15 @@ text gets `dir="auto"`.
 
 ### 2d — Messages and referrals
 
+- **Attachments (added 2026-09-30, not built yet):** clients attach files to requests and
+  messages (brief, brand guidelines). Not the internal `record_attachments` as-is: it has
+  no visibility flag, so exposing an opportunity's files would also expose staff's
+  internal ones, and it serves files inline with the uploader's claimed type. Instead:
+  a portal-owned table of files shared on purpose; types detected from the bytes, with
+  only PDF, PNG, JPEG and WebP accepted (no SVG or HTML); a size cap; always served as
+  a download with `nosniff` and a sandbox CSP; staff see them on the opportunity. The
+  internal viewer's own script-execution issue is a separate fix, tracked outside this plan.
+
 - `account_messages`, `portal_referrals`, `referral_commissions` per the communication
   design. Append-only messages; notification to `ownerUserId` on portal posts.
 - Staff: "Shared with them" thread on the contact; referral queue with convert/decline.
