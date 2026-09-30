@@ -69,6 +69,17 @@ reordering in chips. Deferred: bulk listing (one switch per influencer for now).
 
 ### 2b — Requests and proposals
 
+**Status: done and verified 2026-09-30** (commits `de8ec36`, `13f8fea`, `6c0bccb`).
+Backend 325 tests, portal 12. Driven end to end in the browser: request from an
+influencer's profile with the shortlist preselected, the brief landing on a staff
+opportunity (owner falls back to the inviter), staff sending a proposal through the
+CRM's own endpoints, the client accepting with a second confirmation, Arabic at phone
+width; then under `next start` including a decline with a reason. Design changes made
+during the slice: request status is derived from the opportunity and proposals, never
+stored; acceptance does not add a follow-up, because the CRM's own OppWon automation
+already schedules a kickoff (a decline does, since Lost schedules nothing); user-typed
+text gets `dir="auto"`.
+
 - `portal_campaign_requests`, `portal_request_influencers` (shortlist from the catalogue).
 - Submit creates an `Opportunity` (stage `New`) on the client contact, plus a `FollowUp`
   for the contact owner, through existing store methods.
