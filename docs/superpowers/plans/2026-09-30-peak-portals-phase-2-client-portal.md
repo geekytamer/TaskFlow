@@ -31,6 +31,15 @@ slices**, each going DB → API → portal page → staff control → browser ch
 
 ### 2a — Catalogue
 
+**Status: done and verified 2026-09-30** (commits `ef9eaaf`, `9d72517`, `f47b005`).
+Backend 317 tests, portal 11, both typechecks, portal production build. Driven in the
+browser (dev) and under `next start`: listing and unlisting from the staff sheet,
+markup and retainer pricing from the client Access sheet, filters, detail pages,
+Arabic at phone width, a staff-typed `javascript:` link rendered as plain text, a
+signed-in influencer getting 404 for the catalogue. Found and fixed during the slice:
+the `javascript:` link (XSS), filters hiding all results on phones, Latin/Arabic
+reordering in chips. Deferred: bulk listing (one switch per influencer for now).
+
 - **Tables (migration 085):** `portal_catalogue` as above, primary key
   `(companyId, contactId)`; `client_pricing_profiles(contactId PK, companyId, mode
   'markup'|'retainer', markupPercent, updatedByUserId, updatedAt)`.
