@@ -1288,6 +1288,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '084_portal_access_permission',
     '085_portal_catalogue',
     '086_portal_requests',
+    '087_deliverable_reviews',
   ]);
 });
 

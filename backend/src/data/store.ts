@@ -7,6 +7,7 @@ import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
 import { PortalCatalogueStore } from '../portal/catalogue-store';
 import { PortalRequestsStore } from '../portal/requests-store';
+import { DeliverableReviewsStore } from '../portal/reviews-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -627,6 +628,8 @@ export class DataStore {
   readonly catalogue: PortalCatalogueStore;
   /** Campaign requests from the client portal, and who answered each proposal. */
   readonly requests: PortalRequestsStore;
+  /** Clients' reviews of submitted campaign content. */
+  readonly reviews: DeliverableReviewsStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -653,6 +656,7 @@ export class DataStore {
     this.portal = new PortalStore(this.db);
     this.catalogue = new PortalCatalogueStore(this.db);
     this.requests = new PortalRequestsStore(this.db);
+    this.reviews = new DeliverableReviewsStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3700,6 +3704,31 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Reviews of submitted campaign content. A review belongs to the exact
+        // content link it was made on, so a new version can be reviewed again.
+        // Only the client stage exists so far; staff reviews come with the
+        // influencer portal. A review never moves a deliverable's status.
+        id: '087_deliverable_reviews',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS deliverable_reviews (
+              id            TEXT PRIMARY KEY,
+              companyId     TEXT NOT NULL,
+              deliverableId TEXT NOT NULL,
+              contentUrl    TEXT NOT NULL,
+              reviewerKind  TEXT NOT NULL,
+              portalUserId  TEXT,
+              decision      TEXT NOT NULL,
+              comment       TEXT,
+              createdAt     TEXT NOT NULL,
+              UNIQUE (deliverableId, contentUrl, reviewerKind),
+              CHECK (reviewerKind IN ('client')),
+              CHECK (decision IN ('approved', 'changes_requested'))
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3856,6 +3885,7 @@ export class DataStore {
         DELETE FROM portal_campaign_requests;
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
+        DELETE FROM deliverable_reviews;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
         DELETE FROM company_finance_settings;
