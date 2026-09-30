@@ -8502,6 +8502,14 @@ export function createServer(options: CreateServerOptions = {}) {
         getSubjectName: (contactId) => store.getContactById(contactId)?.name,
         enforceRateLimits: process.env.NODE_ENV === 'production',
         logger,
+        catalogue: {
+          listInfluencers: (companyId) => store.listContacts(companyId, 'Influencer'),
+          getContact: (contactId) => store.getContactById(contactId),
+          listedIds: (companyId) => store.catalogue.listedIds(companyId),
+          isListed: (companyId, contactId) => store.catalogue.isListed(companyId, contactId),
+          pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
+          currency: (companyId) => store.getCompanyFinanceSettings(companyId).currencyCode,
+        },
       }),
     );
   }

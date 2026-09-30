@@ -3,6 +3,7 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { SanitizedUser } from '../types';
 import { asRecord, enumValue, requiredString } from '../validation';
+import { pricingModes } from './catalogue-store';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
 
@@ -113,6 +114,55 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const companyId = authorize(req);
     loadUser(companyId, req.params.id);
     res.json(store.portal.enableUser(req.params.id));
+  }));
+
+  /** A contact of this company holding `role`, or 404 / 400 saying which way it fails. */
+  const loadContact = (companyId: string, contactId: string, role: 'Client' | 'Influencer') => {
+    const contact = store.getContactById(contactId);
+    if (!contact || contact.companyId !== companyId) throw new HttpError(404, 'Contact not found.');
+    if (!contact.roles?.includes(role)) throw new HttpError(400, `This contact does not have the ${role} role.`);
+    return contact;
+  };
+
+  router.get('/companies/:companyId/portal-catalogue', authMiddleware, wrap((req, res) => {
+    res.json(store.catalogue.listedIds(authorize(req)));
+  }));
+
+  router.put('/companies/:companyId/portal-catalogue/:contactId', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = loadContact(companyId, req.params.contactId, 'Influencer');
+    store.catalogue.list(companyId, contact.id, req.user?.id);
+    res.json({ contactId: contact.id, listed: true });
+  }));
+
+  router.delete('/companies/:companyId/portal-catalogue/:contactId', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    store.catalogue.unlist(companyId, req.params.contactId);
+    res.json({ contactId: req.params.contactId, listed: false });
+  }));
+
+  router.get('/companies/:companyId/pricing-profiles/:contactId', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = loadContact(companyId, req.params.contactId, 'Client');
+    res.json(store.catalogue.getPricingProfile(contact.id) ?? null);
+  }));
+
+  router.put('/companies/:companyId/pricing-profiles/:contactId', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = loadContact(companyId, req.params.contactId, 'Client');
+    const body = asRecord(req.body, 'body');
+    const mode = enumValue(body.mode, 'mode', pricingModes);
+    let markupPercent: number | null = null;
+    if (mode === 'markup') {
+      const value = Number(body.markupPercent);
+      if (body.markupPercent === undefined || body.markupPercent === null || !Number.isFinite(value) || value < 0 || value > 500) {
+        throw new HttpError(400, 'markupPercent must be a number from 0 to 500.');
+      }
+      markupPercent = value;
+    }
+    res.json(store.catalogue.setPricingProfile({
+      contactId: contact.id, companyId, mode, markupPercent, updatedByUserId: req.user?.id,
+    }));
   }));
 
   return router;

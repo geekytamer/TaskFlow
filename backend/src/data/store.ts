@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
+import { PortalCatalogueStore } from '../portal/catalogue-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -621,6 +622,8 @@ export class DataStore {
   private db: Database.Database;
   /** Identity for the external portals: their own users, invitations and sessions. */
   readonly portal: PortalStore;
+  /** Which influencers the client portal lists, and each client's pricing terms. */
+  readonly catalogue: PortalCatalogueStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -645,6 +648,7 @@ export class DataStore {
     this.onNotificationsCreated = options.onNotificationsCreated;
     this.applyMigrations();
     this.portal = new PortalStore(this.db);
+    this.catalogue = new PortalCatalogueStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3621,6 +3625,37 @@ export class DataStore {
           });
         },
       },
+      {
+        // The client portal's catalogue and each client's pricing terms. Separate
+        // tables rather than columns on contacts, so the shared contact model is
+        // untouched. A pricing mode that shows the influencer's real rate is
+        // deliberately impossible: clients never see it.
+        id: '085_portal_catalogue',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_catalogue (
+              companyId     TEXT NOT NULL,
+              contactId     TEXT NOT NULL,
+              addedByUserId TEXT,
+              addedAt       TEXT NOT NULL,
+              PRIMARY KEY (companyId, contactId)
+            );
+            CREATE TABLE IF NOT EXISTS client_pricing_profiles (
+              contactId       TEXT PRIMARY KEY,
+              companyId       TEXT NOT NULL,
+              mode            TEXT NOT NULL,
+              markupPercent   REAL,
+              updatedByUserId TEXT,
+              updatedAt       TEXT NOT NULL,
+              CHECK (mode IN ('markup', 'retainer')),
+              CHECK (
+                (mode = 'markup' AND markupPercent IS NOT NULL AND markupPercent >= 0 AND markupPercent <= 500)
+                OR (mode = 'retainer' AND markupPercent IS NULL)
+              )
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3772,6 +3807,8 @@ export class DataStore {
         DELETE FROM portal_sessions;
         DELETE FROM portal_invitations;
         DELETE FROM portal_users;
+        DELETE FROM portal_catalogue;
+        DELETE FROM client_pricing_profiles;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
         DELETE FROM company_finance_settings;

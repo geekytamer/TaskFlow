@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit';
 import { HttpError } from '../http';
 import { asRecord, requiredString } from '../validation';
+import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './client-catalogue-routes';
 import { toBrandingDto, toMeDto, type PortalBranding } from './dto';
 import { portalAudiences, type PortalAudience, type PortalSession, type PortalStore } from './portal-store';
 
@@ -20,6 +21,8 @@ export interface PortalRouterOptions {
   /** Throttle sign-in and invitation acceptance. */
   enforceRateLimits?: boolean;
   logger?: { error: (...args: unknown[]) => void };
+  /** The client catalogue. Absent: the catalogue routes do not exist. */
+  catalogue?: ClientCatalogueDeps;
 }
 
 const bearerToken = (req: Request) => {
@@ -50,16 +53,20 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
       `${audienceOf(req)}:${String((req.body as { email?: unknown } | undefined)?.email ?? '').trim().toLowerCase()}`,
   });
 
-  const requireSession = (req: PortalRequest, _res: Response, next: NextFunction) => {
-    const token = bearerToken(req);
-    const session = token ? portal.getSession(token) : undefined;
-    if (!session || session.audience !== audienceOf(req) || session.companyId !== companyId) {
-      return next(new HttpError(401, 'Unauthorized'));
-    }
-    req.portal = session;
-    req.portalToken = token;
-    return next();
-  };
+  /** A session for the route's audience: fixed when given, else the `:audience` path segment. */
+  const requireSessionFor = (fixed?: PortalAudience) =>
+    (req: PortalRequest, _res: Response, next: NextFunction) => {
+      const token = bearerToken(req);
+      const session = token ? portal.getSession(token) : undefined;
+      const audience = fixed ?? audienceOf(req);
+      if (!session || session.audience !== audience || session.companyId !== companyId) {
+        return next(new HttpError(401, 'Unauthorized'));
+      }
+      req.portal = session;
+      req.portalToken = token;
+      return next();
+    };
+  const requireSession = requireSessionFor();
 
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -117,6 +124,10 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     const session = req.portal!;
     res.json(toMeDto(session, options.getSubjectName(session.contactId), options.getBranding()));
   });
+
+  if (options.catalogue) {
+    registerClientCatalogueRoutes(router, options.catalogue, companyId, requireSessionFor('client'));
+  }
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) {

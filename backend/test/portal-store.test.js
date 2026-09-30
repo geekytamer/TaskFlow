@@ -35,7 +35,9 @@ test('migration 083 creates the portal identity tables', () => {
   const tables = raw
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'portal_%' ORDER BY name")
     .all().map((row) => row.name);
-  assert.deepEqual(tables, ['portal_invitations', 'portal_sessions', 'portal_users']);
+  for (const table of ['portal_invitations', 'portal_sessions', 'portal_users']) {
+    assert.ok(tables.includes(table), `${table} exists`);
+  }
 });
 
 test('an invited user is stored lowercase, invited, and holds no password', () => {
