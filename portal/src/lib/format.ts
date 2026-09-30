@@ -26,6 +26,14 @@ export function formatMoney(amount: number, currency: string, lang: Lang): strin
   }
 }
 
+/** A calendar date. Date-only strings are read as that day in UTC, so the day never shifts by timezone. */
+export function formatDate(value: string | null | undefined, lang: Lang): string {
+  if (!value) return MISSING;
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return MISSING;
+  return new Intl.DateTimeFormat(locale(lang), { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
+}
+
 export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'availability', 'minFollowers'] as const;
 export type CatalogueFilters = Partial<Record<(typeof CATALOGUE_FILTERS)[number], string>>;
 

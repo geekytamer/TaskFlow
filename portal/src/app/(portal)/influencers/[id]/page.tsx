@@ -45,6 +45,9 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
         <div className="rounded-xl border border-line bg-surface p-5">
           <p className="mb-2 text-sm text-ink-soft">{t(lang, 'cat.price')}</p>
           <PriceTag price={influencer.price} lang={lang} detailed />
+          <Link href={`/requests/new?with=${encodeURIComponent(influencer.id)}`} className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-[10px] bg-ink px-4 text-sm font-semibold text-white transition-colors hover:bg-ink/90">
+            {t(lang, 'cat.request')}
+          </Link>
         </div>
       </header>
 

@@ -3,7 +3,9 @@ import type { Audience } from '@/lib/audience';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { Me } from '@/lib/portal';
 
-export function Dashboard({ me, lang, audience }: { me: Me; lang: Lang; audience: Audience }) {
+export function Dashboard({
+  me, lang, audience, waiting,
+}: { me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string } }) {
   const rows: Array<{ label: string; value: string; ltr?: boolean }> = [
     { label: t(lang, 'dash.name'), value: me.user.name },
     { label: t(lang, 'dash.email'), value: me.user.email, ltr: true },
@@ -17,6 +19,18 @@ export function Dashboard({ me, lang, audience }: { me: Me; lang: Lang; audience
         <p className="text-sm text-ink-soft">{t(lang, 'dash.hello')}</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight md:text-4xl">{me.user.name}</h1>
       </header>
+
+      {waiting && (
+        <section aria-labelledby="waiting-title" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/30 bg-accent/10 p-5">
+          <div className="min-w-0">
+            <h2 id="waiting-title" className="font-semibold text-accent">{t(lang, 'dash.waiting')}</h2>
+            <p dir="auto" className="mt-0.5 truncate text-sm">{waiting.title}</p>
+          </div>
+          <Link href={`/proposals/${waiting.id}`} className="inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90">
+            {t(lang, 'dash.open')}
+          </Link>
+        </section>
+      )}
 
       <section aria-labelledby="empty-title" className="max-w-xl">
         <h2 id="empty-title" className="text-xl font-semibold tracking-tight">
