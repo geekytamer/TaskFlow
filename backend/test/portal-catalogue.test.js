@@ -250,4 +250,5 @@ test('facets describe the whole listed catalogue, not the filtered page', async 
     availability: ['Available', 'Unavailable'],
   });
   assert.equal(res.body.total, 1);
+  assert.equal(res.body.currency, ctx.store.getCompanyFinanceSettings(ctx.company.id).currencyCode);
 });

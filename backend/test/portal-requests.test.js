@@ -165,8 +165,16 @@ test('a request moves from in review to proposal ready to accepted, and acceptin
   const again = await request(ctx.server).post(`/portal-api/client/proposals/${sent.id}/accept`).set(omar);
   assert.equal(again.status, 409, 'a proposal is answered once');
 
+  // Winning the opportunity already schedules the CRM's own kickoff follow-up; the
+  // portal must not add a second one for the same event, only tell the owner at once.
   const followups = ctx.store.listFollowupEntities(ctx.company.id, { entityType: 'opportunity', entityId: opportunity.id });
-  assert.ok(followups.some((f) => /accepted/i.test(f.title ?? '')), 'the owner is asked to set up the campaign');
+  assert.equal(followups.filter((f) => f.sourceTrigger === 'portal_proposal_response').length, 0, 'no duplicate follow-up');
+  const kickoff = ctx.store.listFollowupEntities(ctx.company.id, { entityType: 'contact', entityId: ctx.client.id })
+    .concat(followups)
+    .filter((f) => f.sourceTrigger === 'OppWon');
+  assert.equal(kickoff.length, 1, 'the CRM scheduled its kickoff follow-up');
+  const told = ctx.store.listNotifications(ctx.manager.id).filter((n) => /accepted proposal/.test(n.title));
+  assert.equal(told.length, 1, 'the owner hears about it immediately');
 });
 
 test('declining records the reason, loses the opportunity, and closes the request', async () => {

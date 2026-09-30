@@ -55,7 +55,12 @@ export function registerClientCatalogueRoutes(
       .filter((contact) => listed.has(contact.id))
       .map((contact) => toCatalogueEntry(contact, price(contact)));
     const matches = all.filter((entry) => matchesFilter(entry, filter));
-    res.json({ items: matches.slice(0, CATALOGUE_LIMIT), total: matches.length, facets: facetsOf(all) });
+    res.json({
+      items: matches.slice(0, CATALOGUE_LIMIT),
+      total: matches.length,
+      facets: facetsOf(all),
+      currency: deps.currency(companyId),
+    });
   });
 
   router.get('/client/catalogue/:contactId', requireClientSession, (req: SessionRequest, res: Response) => {

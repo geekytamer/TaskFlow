@@ -202,33 +202,39 @@ export function registerClientRequestRoutes(
       store.updateCrmProposalStatus(proposal.id, decision === 'accepted' ? 'Accepted' : 'Declined');
       store.requests.recordResponse({ proposalId: proposal.id, portalUserId: session.portalUserId, decision, reason });
       const title = `${contact.name} ${verb} proposal ${proposal.proposalNumber}`;
-      const followup = store.createFollowup({
-        companyId,
-        entityType: 'opportunity',
-        entityId: proposal.opportunityId,
-        title,
-        channel: 'Task',
-        priority: 'high',
-        ownerUserId: manager?.userId,
-        ownerName: manager?.name,
-        dueAt: new Date(Date.now() + DAY_MS),
-        notes: decision === 'accepted'
-          ? `Accepted by ${session.name} in the client portal. Set up the campaign.`
-          : `Declined by ${session.name} in the client portal.${reason ? ` Reason: ${reason}` : ''}`,
-        sourceTrigger: 'portal_proposal_response',
-        sourceType: 'crm_proposal',
-        sourceId: proposal.id,
-      });
+
+      // Winning the opportunity already schedules the CRM's own kickoff follow-up,
+      // so an acceptance only notifies. Losing it schedules nothing, so a decline
+      // gets a follow-up carrying the client's reason.
+      let followupId: string | undefined;
+      if (decision === 'declined') {
+        followupId = store.createFollowup({
+          companyId,
+          entityType: 'opportunity',
+          entityId: proposal.opportunityId,
+          title,
+          channel: 'Task',
+          priority: 'high',
+          ownerUserId: manager?.userId,
+          ownerName: manager?.name,
+          dueAt: new Date(Date.now() + DAY_MS),
+          notes: `Declined by ${session.name} in the client portal.${reason ? ` Reason: ${reason}` : ''}`,
+          sourceTrigger: 'portal_proposal_response',
+          sourceType: 'crm_proposal',
+          sourceId: proposal.id,
+        }).id;
+      }
       if (manager) {
         store.notify({
           companyId,
           userIds: [manager.userId],
           type: 'followup_assigned',
           title,
+          body: reason ?? undefined,
           data: { tKey: 'notif.followupAssigned.t', name: title },
           link: '/crm/followups',
-          entityType: 'follow_up',
-          entityId: followup.id,
+          entityType: followupId ? 'follow_up' : 'opportunity',
+          entityId: followupId ?? proposal.opportunityId,
         });
       }
     }));
