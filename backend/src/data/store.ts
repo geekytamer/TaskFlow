@@ -8,6 +8,7 @@ import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/
 import { PortalCatalogueStore } from '../portal/catalogue-store';
 import { PortalRequestsStore } from '../portal/requests-store';
 import { DeliverableReviewsStore } from '../portal/reviews-store';
+import { PortalThreadStore } from '../portal/thread-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -630,6 +631,8 @@ export class DataStore {
   readonly requests: PortalRequestsStore;
   /** Clients' reviews of submitted campaign content. */
   readonly reviews: DeliverableReviewsStore;
+  /** The shared message thread and files between staff and a portal contact. */
+  readonly thread: PortalThreadStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -657,6 +660,7 @@ export class DataStore {
     this.catalogue = new PortalCatalogueStore(this.db);
     this.requests = new PortalRequestsStore(this.db);
     this.reviews = new DeliverableReviewsStore(this.db);
+    this.thread = new PortalThreadStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3729,6 +3733,49 @@ export class DataStore {
           `);
         },
       },
+      {
+        // The shared thread between a portal contact and staff, and the files in
+        // it. Messages are their own table, never a contact's internal notes, and
+        // append-only. Files are stored with the type detected from their bytes.
+        id: '088_portal_thread',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS account_messages (
+              id                 TEXT PRIMARY KEY,
+              companyId          TEXT NOT NULL,
+              contactId          TEXT NOT NULL,
+              authorType         TEXT NOT NULL,
+              authorUserId       TEXT,
+              authorPortalUserId TEXT,
+              body               TEXT NOT NULL,
+              createdAt          TEXT NOT NULL,
+              CHECK (authorType IN ('staff', 'portal')),
+              CHECK ((authorType = 'staff' AND authorUserId IS NOT NULL) OR (authorType = 'portal' AND authorPortalUserId IS NOT NULL))
+            );
+            CREATE INDEX IF NOT EXISTS idx_account_messages_contact ON account_messages (companyId, contactId, createdAt);
+            CREATE TABLE IF NOT EXISTS portal_files (
+              id           TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL,
+              contactId    TEXT NOT NULL,
+              uploaderKind TEXT NOT NULL,
+              portalUserId TEXT,
+              userId       TEXT,
+              fileName     TEXT NOT NULL,
+              mimeType     TEXT NOT NULL,
+              sizeBytes    INTEGER NOT NULL,
+              content      BLOB NOT NULL,
+              parentType   TEXT,
+              parentId     TEXT,
+              createdAt    TEXT NOT NULL,
+              CHECK (uploaderKind IN ('portal', 'staff')),
+              CHECK (mimeType IN ('application/pdf', 'image/png', 'image/jpeg', 'image/webp')),
+              CHECK (parentType IS NULL OR parentType IN ('message', 'request'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_portal_files_contact ON portal_files (companyId, contactId);
+            CREATE INDEX IF NOT EXISTS idx_portal_files_parent ON portal_files (parentType, parentId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3886,6 +3933,8 @@ export class DataStore {
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
         DELETE FROM deliverable_reviews;
+        DELETE FROM account_messages;
+        DELETE FROM portal_files;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
         DELETE FROM company_finance_settings;

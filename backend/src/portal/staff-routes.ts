@@ -4,6 +4,8 @@ import { HttpError } from '../http';
 import type { SanitizedUser } from '../types';
 import { asRecord, enumValue, requiredString } from '../validation';
 import { pricingModes } from './catalogue-store';
+import { downloadHeaders, readUpload } from './files';
+import { afterStaffMessage, fileDto, parseMessage, staffMessageDto } from './thread';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
 
@@ -163,6 +165,56 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     res.json(store.catalogue.setPricingProfile({
       contactId: contact.id, companyId, mode, markupPercent, updatedByUserId: req.user?.id,
     }));
+  }));
+
+  /** A contact of this company that can have a portal thread. */
+  const threadContact = (companyId: string, contactId: string) => {
+    const contact = store.getContactById(contactId);
+    if (!contact || contact.companyId !== companyId) throw new HttpError(404, 'Contact not found.');
+    return contact;
+  };
+
+  router.get('/companies/:companyId/contacts/:contactId/messages', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = threadContact(companyId, req.params.contactId);
+    res.json({
+      messages: store.thread.messagesFor(companyId, contact.id).map((m) => staffMessageDto(store, m)),
+      files: store.thread.filesForContact(companyId, contact.id).map(fileDto),
+    });
+  }));
+
+  router.post('/companies/:companyId/contacts/:contactId/messages', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = threadContact(companyId, req.params.contactId);
+    const { text, fileIds } = parseMessage(asRecord(req.body, 'body'));
+    const userId = req.user!.id;
+    const message = store.transaction(() => {
+      const created = store.thread.addMessage({
+        companyId, contactId: contact.id, authorType: 'staff', authorUserId: userId, authorPortalUserId: null, body: text,
+      });
+      store.thread.attach(fileIds, { type: 'message', id: created.id }, { companyId, contactId: contact.id, uploader: { kind: 'staff', userId } });
+      afterStaffMessage(store, { companyId, contactId: contact.id, userId });
+      return created;
+    });
+    res.status(201).json(staffMessageDto(store, message));
+  }));
+
+  router.post('/companies/:companyId/contacts/:contactId/files', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = threadContact(companyId, req.params.contactId);
+    const upload = readUpload(asRecord(req.body, 'body'));
+    const file = store.thread.addFile({
+      companyId, contactId: contact.id, uploader: { kind: 'staff', userId: req.user!.id },
+      fileName: upload.fileName, mimeType: upload.type, content: upload.content,
+    });
+    res.status(201).json(fileDto(file));
+  }));
+
+  router.get('/companies/:companyId/portal-files/:id/content', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const file = store.thread.getFile(req.params.id);
+    if (!file || file.companyId !== companyId) throw new HttpError(404, 'File not found.');
+    res.set(downloadHeaders(file)).send(store.thread.fileContent(file.id));
   }));
 
   return router;

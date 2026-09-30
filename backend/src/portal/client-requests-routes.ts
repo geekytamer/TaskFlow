@@ -14,6 +14,7 @@ import {
 } from './requests';
 import type { CampaignRequestRecord } from './requests-store';
 import type { PortalSession } from './portal-store';
+import { fileDto, parseFileIds } from './thread';
 
 type SessionRequest = Request & { portal?: PortalSession };
 
@@ -72,12 +73,13 @@ export function registerClientRequestRoutes(
       .map((id) => store.getContactById(id))
       .filter((c): c is Contact => Boolean(c))
       .map((c) => ({ id: c.id, name: c.name }));
-    return toRequestDto(record, {
+    const dto = toRequestDto(record, {
       currency: currency(),
       influencers,
       status: requestStatus(proposals, store.getOpportunityById(record.opportunityId)?.stage),
       proposals: proposals.map((p) => ({ id: p.id, number: p.proposalNumber, title: p.title, status: clientProposalStatus(p) })),
     });
+    return { ...dto, files: store.thread.filesOf('request', record.id).map(fileDto) };
   };
 
   const loadRequest = (session: PortalSession, id: string) => {
@@ -101,7 +103,10 @@ export function registerClientRequestRoutes(
   router.post('/client/requests', requireClientSession, (req: SessionRequest, res: Response) => {
     const session = req.portal!;
     const contact = clientContact(session);
-    const brief = parseBrief(asRecord(req.body, 'body'));
+    const body = asRecord(req.body, 'body');
+    const brief = parseBrief(body);
+    const fileIds = parseFileIds(body.fileIds);
+    const fileNames = fileIds.map((id) => store.thread.getFile(id)?.fileName).filter((n): n is string => Boolean(n));
 
     const shortlist = brief.influencerIds.map((id) => {
       const influencer = store.getContactById(id);
@@ -126,7 +131,8 @@ export function registerClientRequestRoutes(
         stage: 'New',
         expectedRevenue: brief.budget ?? 0,
         probability: 0,
-        notes: briefForStaff({ brief, requesterName: session.name, requesterEmail: session.email, currency: currency(), shortlist }),
+        notes: briefForStaff({ brief, requesterName: session.name, requesterEmail: session.email, currency: currency(), shortlist })
+          + (fileNames.length ? `\nFiles shared in the portal: ${fileNames.join(', ')}` : ''),
       });
       const created = store.requests.create({
         companyId,
@@ -140,6 +146,9 @@ export function registerClientRequestRoutes(
         platforms: brief.platforms,
         influencerIds: shortlist.map((s) => s.id),
         opportunityId: opportunity.id,
+      });
+      store.thread.attach(fileIds, { type: 'request', id: created.id }, {
+        companyId, contactId: contact.id, uploader: { kind: 'portal', portalUserId: session.portalUserId },
       });
       const followup = store.createFollowup({
         companyId,
