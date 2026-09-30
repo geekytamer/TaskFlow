@@ -25,7 +25,8 @@ slices**, each going DB → API → portal page → staff control → browser ch
 3. **No influencer contact details, ever.** Email, phone and address stay off every
    client response: a client who can reach an influencer directly can bypass the agency.
    Public social handles and profile URLs are shown, because a client has to be able to
-   judge the creator. (Flip this with one DTO change if Peak prefers anonymous listings.)
+   judge the creator. **Confirmed by the user (2026-09-30):** handles are fine to show;
+   the line is internal information, which never reaches a client.
 
 ## Slices
 
