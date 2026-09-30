@@ -56,7 +56,7 @@ scoping**. This is additive work, not a rebuild.
 | **Separate identity space**: `portal_users`, `portal_sessions`, `portal_invitations`, each carrying an `audience` (`client` or `influencer`) | Internal `authMiddleware` looks tokens up in the internal user/token store only. A portal token therefore cannot authenticate an internal route, and the reverse, by construction. A session's `audience` must also match the router prefix, so a client token cannot open an influencer route. |
 | Scoping is **session-bound SQL, not OpenFGA** (revises the earlier suggestion) | The OpenFGA project is a company-group projection and explicitly excludes record-level rules and authentication. An external surface should not depend on that engine being reachable. Instead the server resolves `{companyId, contactId}` from the session, and every portal query takes them from there. Request params and bodies never supply either. |
 | Responses are **allowlist DTOs** (`portal/dto.ts`) | Portal handlers never return an internal entity. Adding a field to an internal type cannot leak it. |
-| `contacts.portalVisible` (new column, default 0) gates the catalogue | Imports and existing records are not exposed by accident; staff opt influencers in, individually or in bulk. |
+| A `portal_catalogue` row gates the catalogue (not listed by default) | Imports and existing records are not exposed by accident; staff opt influencers in, individually or in bulk. |
 | Invite-only accounts; a client admin can invite teammates for their own client | No public sign-up. Peak staff invite the first user for each client. |
 
 ## 5. Data model
@@ -75,11 +75,15 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 - `portal_sessions` — id, portalUserId, tokenHash (SHA-256; the raw token is
   never stored), expiresAt, createdAt, revokedAt. The audience comes from the user
   row, so it cannot drift from the session.
-- `client_pricing_profiles` — contactId (PK, the client's organisation contact), mode (`markup` | `pass_through` |
-  `retainer`), markupPercent, agencyFeePercent, currency, updatedAt.
-  `markup`: shown price = rate × (1 + markupPercent). `pass_through`: shown price
-  = rate, and the agency fee appears separately on proposals and invoices.
-  `retainer`: no per-influencer price is shown ("included in your retainer").
+- `client_pricing_profiles` — contactId (PK, the client's organisation contact),
+  companyId, mode (`markup` | `retainer`), markupPercent, updatedByUserId, updatedAt.
+  `markup`: shown price = rate × (1 + markupPercent). `retainer`: no per-influencer
+  price is shown ("included in your retainer"). No profile: "price on request". There
+  is no mode that shows the influencer's real rate (amended 2026-09-30; a former
+  `pass_through` mode did, and contradicted the rule that clients never see it).
+- `portal_catalogue` — companyId, contactId, addedByUserId, addedAt; a row means the
+  influencer is listed. Replaces the planned `contacts.portalVisible` column so the
+  shared `Contact` model is untouched (amended 2026-09-30).
 - `portal_campaign_requests` — id, companyId, contactId, portalUserId, title,
   objective, budget, currency, startDate, endDate, platforms (JSON), notes,
   status (`Draft` | `Submitted` | `In Review` | `Proposal Sent` | `Approved` |
@@ -94,8 +98,6 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
   `Completed` | `Defaulted` | `Cancelled`), requestedByPortalUserId, approvedByUserId.
 - `payment_plan_installments` — planId, seq, dueDate, amount, status
   (`Due` | `Paid` | `Overdue`), paymentId (links the existing `Payment`).
-- `contacts.portalVisible INTEGER NOT NULL DEFAULT 0` (column added to an
-  existing table).
 
 ## 6. Security requirements
 
@@ -107,7 +109,7 @@ Added through the `schema_migrations` list in `backend/src/data/store.ts`
 3. Fields never present in any DTO: `Contact.rateCardAmount`,
    `CampaignAssignment.agreedRate`, `CampaignDeliverable.cost` and `price`,
    `CampaignExpense.*`, commissions, vendor bills, internal notes, owner
-   user ids, other clients' data. `portalVisible = 0` influencers are 404.
+   user ids, other clients' data. Influencers without a `portal_catalogue` row are 404.
 4. Login: bcrypt compare, generic error text, per-IP and per-email rate limit,
    using the same trusted-proxy handling as the internal login limiter (commit
    `27faae7`), so each visitor behind nginx has their own budget. Minimum
@@ -144,7 +146,7 @@ a Client (invite user, disable, set pricing profile) in `frontend/`; `portal/`
 app shell with Peak branding from `Company.logoUrl`, en/ar, RTL; nginx and pm2
 entries; isolation test harness.
 
-**Phase 1 — Catalogue.** `portalVisible` toggle and bulk action in the internal
+**Phase 1 — Catalogue.** A "show in client portal" toggle (a `portal_catalogue` row) in the internal
 influencers page. Portal list with filters (platform, niche, followers,
 engagement, language, location, availability) and a detail view showing
 per-platform accounts. Indicative price from the client's pricing profile.
