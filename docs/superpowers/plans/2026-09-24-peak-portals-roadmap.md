@@ -92,6 +92,8 @@ audiences, in English and Arabic (RTL); deployment templates.
 
 ## Phase 2 — Client portal
 
+**Status: complete 2026-10-01.** See the Phase 2 plan for what changed during the build.
+
 **Delivers.** Client design phases 1 and 2: `client_pricing_profiles` and
 `contacts.portalVisible`, the catalogue with an indicative price per pricing mode,
 campaign requests that create an `Opportunity` and a `FollowUp`, proposal accept and
@@ -112,6 +114,8 @@ account owner; a submitted referral does the same, and its status and commission
 visible only to the client who submitted it.
 
 ## Phase 3 — Influencer portal
+
+**Status: complete 2026-10-01.** See the Phase 3 plan for its eight amendments.
 
 **Delivers.** Influencer designs §7 I1 and I2: profile with staff-reviewed change
 requests, assignments with accept and decline, briefs (`influencerBrief` fields),

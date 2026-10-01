@@ -120,6 +120,16 @@ reviewedByUserId, reviewedAt)`.
 
 ### 3c — Payouts and dashboard
 
+**Status: done and verified 2026-10-01** (`5c33420`, `6fc6c6b`). Backend 373 tests,
+portal 16. Payouts mutation-checked (dropping the own-deliverable filter or spreading
+the bill both fail). The overview's items are derived, not tracked: "the team
+replied" means the team wrote last in the thread. Driven in Arabic at phone width and
+under `next start`.
+
+**Phase 3 is complete.** Every exit criterion holds: accept, submit, changes then
+approval, published, payout status following the vendor bill, secrecy fixtures
+mutation-checked, both languages, production build.
+
 - `GET /influencer/payouts`: per amendment 3; status Pending (Draft), Approved
   (Approved/Overdue), Paid with date. Bill number, campaign name, amount, due date.
 - Dashboard "needs your action": assignments awaiting reply, deliverables due or with
