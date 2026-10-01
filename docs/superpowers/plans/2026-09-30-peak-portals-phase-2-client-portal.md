@@ -92,6 +92,11 @@ text gets `dir="auto"`.
 
 ### 2c — Campaigns and deliverable review
 
+**Status: done and verified 2026-09-30** (commits `4d639ec`, `31f1702`). A review is
+advice to staff and never moves a deliverable's status; one review per content
+version, so a new link can be reviewed again. Content shows only once submitted and
+only through a safe URL; unconfirmed influencers are not named.
+
 - Campaigns for this contact: name, status, dates, assigned influencers (name + handle
   only), deliverables (title, platform, due date, status, `contentUrl` once submitted).
 - `deliverable_reviews` (client stage only here): approve or request changes with a
@@ -100,6 +105,31 @@ text gets `dir="auto"`.
   assignment `agreedRate`, expenses, `vendorBillId`); other client's campaign 404.
 
 ### 2d — Messages and referrals
+
+**Status: done and verified 2026-10-01.** Messages and files: `6165286`, `6c64ce3`.
+Referrals and commissions: `ed381af`, `4ef9c27`. Backend 355 tests, portal 15. Driven
+end to end in the browser (Arabic at phone width included) and under `next start`.
+Changes from the communication design, each because of something found in the code:
+
+- **Files in the thread** (the design said text only): clients asked for briefs and
+  brand guidelines. Portal-owned table, typed by bytes, 10 MB, always a sandboxed
+  download. The portal's global `next.config` CSP silently replaced the backend's
+  sandbox CSP on downloads; the download route now declares its own.
+- **An unanswered message keeps one "Reply to …" follow-up open** for the account
+  manager, closed by a staff reply, rather than only a notification.
+- **Referral statuses stored: submitted, converted, declined.** "Under review" was
+  dropped (nothing would set it); the referrer's view (received, in discussion, became
+  a client, did not go ahead, not taken forward) is derived from the opportunity.
+- **Provenance lives on the referral**, since `Opportunity` has no source fields. A new
+  prospect becomes a Lead contact with the existing `leadSource: 'Referral'`.
+- **`triggerEvent` dropped:** approval simply requires the opportunity to be Won.
+- **Credit notes are never created by this flow.** `createCreditNote` posts to the
+  ledger immediately, so the accountant issues it and staff link it by number. A
+  vendor bill payout is created as a Draft, which posts nothing until finance approves
+  it. "Paid" is read from the bill or credit note, never stored.
+- **No sidebar entry** for the staff queue (`/portal-referrals`): the portal exists for
+  one company, so other companies would see a dead link. It opens from the
+  notification and from the client's portal panel.
 
 - **Attachments (added 2026-09-30, not built yet):** clients attach files to requests and
   messages (brief, brand guidelines). Not the internal `record_attachments` as-is: it has
