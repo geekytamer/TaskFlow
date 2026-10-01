@@ -12,7 +12,7 @@ social worker. Contracts and tests only; code is written against the real files.
 **Done and verified 2026-10-01** (`2075a16`, `f6cd042`, `84edcde`). Backend 392 tests
 (games guards mutation-checked: restricted visibility, exclusions on the public board,
 freezing, the admin rule), portal 17. Driven through all four apps: an admin builds and
-publishes a game, awards points (including a correction) and disqualifies a spammer
+publishes a game, awards points (corrections by negative points are covered by tests) and disqualifies a spammer
 from the staff Games page; the public lobby host (no accounts) shows the board without
 the spammer, closes sign-in, files and every portal page, and 404s the restricted game;
 the client portal lists the public game under Games. Production build checked on the
