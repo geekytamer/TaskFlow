@@ -27,6 +27,7 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { CampaignPortalTab } from '@/modules/portal-access/components/campaign-portal-tab';
+import { GamesLink } from '@/modules/games/components/games-link';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { getContacts, type Contact, type ContactRoleType } from '@/services/contactService';
 import {
@@ -605,7 +606,7 @@ export function CampaignsPage() {
     : '';
 
   return (
-    <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.description')}>
+    <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.description')} actions={<GamesLink />}>
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Megaphone} label={t('campaignsPage.statTotal')} value={campaigns.length} />
