@@ -5,6 +5,7 @@ import type { Contact } from '../types';
 import { asRecord, enumValue } from '../validation';
 import { AVAILABILITY, isVisibleAssignment, paidContactOf, parseChanges, submissionDto, toAssignmentDto, toProfileDto } from './influencer';
 import { safeUrl } from './catalogue';
+import { payoutsFor } from './payouts';
 import type { PortalSession } from './portal-store';
 
 type SessionRequest = Request & { portal?: PortalSession };
@@ -146,6 +147,10 @@ export function registerInfluencerRoutes(router: Router, store: DataStore, compa
     store.runAsActor(actorFor(session, self(session)), () =>
       store.updateCampaignDeliverable(deliverable.id, { status: 'Published', contentUrl: postUrl, publishedAt: new Date() }));
     res.json({ status: 'published', postUrl });
+  });
+
+  router.get('/influencer/payouts', requireInfluencerSession, (req: SessionRequest, res: Response) => {
+    res.json(payoutsFor(store, companyId, self(req.portal!).id, currency()));
   });
 
   router.get('/influencer/assignments', requireInfluencerSession, (req: SessionRequest, res: Response) => {
