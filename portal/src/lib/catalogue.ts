@@ -1,4 +1,4 @@
-import { clientGet, clientGetOrNull } from './client-api';
+import { portalGet, portalGetOrNull } from './client-api';
 
 export interface CataloguePlatform {
   platform: string;
@@ -32,7 +32,7 @@ export interface CatalogueList {
   currency: string;
 }
 
-export const getCatalogue = (query: string) => clientGet<CatalogueList>(`/catalogue${query}`);
+export const getCatalogue = (query: string) => portalGet<CatalogueList>(`/catalogue${query}`);
 
 /** Null when the influencer is not listed for this client: the page shows a 404. */
-export const getInfluencer = (id: string) => clientGetOrNull<CatalogueEntry>(`/catalogue/${encodeURIComponent(id)}`);
+export const getInfluencer = (id: string) => portalGetOrNull<CatalogueEntry>(`/catalogue/${encodeURIComponent(id)}`);

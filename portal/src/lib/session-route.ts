@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAudience } from './audience';
+import { getAudience, type Audience } from './audience';
 import { backendFetch } from './backend';
 import { isSameOrigin } from './origin';
 import { readSessionToken, SESSION_COOKIE, sessionCookie } from './session';
@@ -26,14 +26,18 @@ export async function startSession(request: Request, path: string, body: Record<
 }
 
 /**
- * Forwards one client-audience write to the backend with this visitor's session.
- * Only named paths are forwarded; there is no general proxy.
+ * Forwards one write to the backend with this visitor's session. Only named
+ * paths are forwarded; there is no general proxy. `only` pins a route to one
+ * audience, so the other host answers 404 for it.
  */
-export async function forwardClientWrite(request: Request, path: string, body: unknown) {
+export async function forwardWrite(request: Request, path: string, body: unknown, only?: Audience) {
   if (!requireSameOrigin(request)) return forbidden();
-  if (getAudience() !== 'client') return NextResponse.json({ message: 'Not found.' }, { status: 404 });
+  const audience = getAudience();
+  if (only && audience !== only) return NextResponse.json({ message: 'Not found.' }, { status: 404 });
   const token = await readSessionToken();
   if (!token) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
-  const result = await backendFetch<unknown>('client', path, { method: 'POST', token, body });
+  const result = await backendFetch<unknown>(audience, path, { method: 'POST', token, body });
   return NextResponse.json(result.data, { status: result.status });
 }
+
+export const forwardClientWrite = (request: Request, path: string, body: unknown) => forwardWrite(request, path, body, 'client');

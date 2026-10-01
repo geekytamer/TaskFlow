@@ -2,12 +2,15 @@ import Link from 'next/link';
 import type { Audience } from '@/lib/audience';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { CampaignSummary } from '@/lib/campaigns';
+import type { Assignment } from '@/lib/influencer';
 import type { Me } from '@/lib/portal';
 import { StatusBadge } from './status-badge';
 
 export function Dashboard({
-  me, lang, audience, waiting, campaigns = [],
-}: { me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string }; campaigns?: CampaignSummary[] }) {
+  me, lang, audience, waiting, campaigns = [], assignments = [],
+}: { me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string }; campaigns?: CampaignSummary[]; assignments?: Assignment[] }) {
+  const toAnswer = assignments.find((a) => a.status === 'awaiting_reply');
+  const active = assignments.filter((a) => a.status === 'confirmed');
   const toReview = campaigns.find((c) => c.deliverables.awaitingReview > 0);
   const rows: Array<{ label: string; value: string; ltr?: boolean }> = [
     { label: t(lang, 'dash.name'), value: me.user.name },
@@ -32,6 +35,34 @@ export function Dashboard({
           <Link href={`/proposals/${waiting.id}`} className="inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90">
             {t(lang, 'dash.open')}
           </Link>
+        </section>
+      )}
+
+      {toAnswer && (
+        <section aria-labelledby="answer-title" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/30 bg-accent/10 p-5">
+          <div className="min-w-0">
+            <h2 id="answer-title" className="font-semibold text-accent">{t(lang, 'dash.answer')}</h2>
+            <p dir="auto" className="mt-0.5 truncate text-sm">{toAnswer.campaign.name}{toAnswer.campaign.brand ? ` · ${toAnswer.campaign.brand}` : ''}</p>
+          </div>
+          <Link href={`/assignments#${toAnswer.id}`} className="inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90">
+            {t(lang, 'dash.openAssignment')}
+          </Link>
+        </section>
+      )}
+
+      {active.length > 0 && (
+        <section aria-labelledby="active-title">
+          <h2 id="active-title" className="mb-3 text-base font-semibold">{t(lang, 'dash.yourAssignments')}</h2>
+          <ul className="divide-y divide-line border-y border-line">
+            {active.slice(0, 5).map((a) => (
+              <li key={a.id}>
+                <Link href={`/assignments#${a.id}`} className="flex items-center justify-between gap-4 px-1 py-4 hover:bg-surface sm:px-3">
+                  <span dir="auto" className="min-w-0 truncate font-medium">{a.campaign.name}</span>
+                  <StatusBadge lang={lang} assignment={a.status} />
+                </Link>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
@@ -61,7 +92,7 @@ export function Dashboard({
             ))}
           </ul>
         </section>
-      ) : (
+      ) : assignments.length === 0 && (
       <section aria-labelledby="empty-title" className="max-w-xl">
           <h2 id="empty-title" className="text-xl font-semibold tracking-tight">
             {t(lang, audience === 'client' ? 'dash.client.title' : 'dash.influencer.title')}

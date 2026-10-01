@@ -32,7 +32,7 @@ const sizeOf = (bytes: number) =>
  * The conversation this client sees in its portal. Everything written here is
  * visible to the client; internal notes stay on the contact.
  */
-export function PortalThreadSection({ contact }: { contact: Contact }) {
+export function PortalThreadSection({ contact, audience = 'client' }: { contact: Contact; audience?: 'client' | 'influencer' }) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
@@ -116,7 +116,9 @@ export function PortalThreadSection({ contact }: { contact: Contact }) {
       <div>
         <h3 className="text-sm font-semibold">{tr('Portal messages', 'رسائل البوابة')}</h3>
         <p className="text-xs text-muted-foreground">
-          {tr('Shared with everyone at this client who has portal access. Keep internal notes on the contact.', 'مشتركة مع كل من لديه وصول إلى البوابة لدى هذا العميل. أبقِ الملاحظات الداخلية على جهة الاتصال.')}
+          {audience === 'client'
+            ? tr('Shared with everyone at this client who has portal access. Keep internal notes on the contact.', 'مشتركة مع كل من لديه وصول إلى البوابة لدى هذا العميل. أبقِ الملاحظات الداخلية على جهة الاتصال.')
+            : tr('Shared with this influencer in their portal. Keep internal notes on the contact.', 'مشتركة مع هذا المؤثر في بوابته. أبقِ الملاحظات الداخلية على جهة الاتصال.')}
         </p>
       </div>
 
@@ -132,7 +134,7 @@ export function PortalThreadSection({ contact }: { contact: Contact }) {
                 <span className="font-medium text-foreground">
                   {m.author.name ?? '-'}
                   <span className="ms-1 font-normal text-muted-foreground">
-                    {m.author.type === 'staff' ? tr('(team)', '(الفريق)') : tr('(client)', '(العميل)')}
+                    {m.author.type === 'staff' ? tr('(team)', '(الفريق)') : audience === 'client' ? tr('(client)', '(العميل)') : tr('(influencer)', '(المؤثر)')}
                   </span>
                 </span>
                 <time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleString(language === 'ar' ? 'ar-u-nu-latn' : 'en')}</time>
@@ -151,8 +153,8 @@ export function PortalThreadSection({ contact }: { contact: Contact }) {
           maxLength={4000}
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder={tr('Reply to the client…', 'رد على العميل…')}
-          aria-label={tr('Message to the client', 'رسالة إلى العميل')}
+          placeholder={audience === 'client' ? tr('Reply to the client…', 'رد على العميل…') : tr('Reply to the influencer…', 'رد على المؤثر…')}
+          aria-label={audience === 'client' ? tr('Message to the client', 'رسالة إلى العميل') : tr('Message to the influencer', 'رسالة إلى المؤثر')}
         />
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1">
@@ -173,7 +175,7 @@ export function PortalThreadSection({ contact }: { contact: Contact }) {
             {tr('Attach', 'إرفاق')}
           </Button>
           <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={send}>
-            {tr('Send to client', 'إرسال إلى العميل')}
+            {audience === 'client' ? tr('Send to client', 'إرسال إلى العميل') : tr('Send to influencer', 'إرسال إلى المؤثر')}
           </Button>
         </div>
       </div>

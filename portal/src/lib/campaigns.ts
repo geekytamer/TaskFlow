@@ -1,4 +1,4 @@
-import { clientGet, clientGetOrNull } from './client-api';
+import { portalGet, portalGetOrNull } from './client-api';
 
 export type CampaignStatus = 'planned' | 'active' | 'on_hold' | 'completed' | 'cancelled' | 'archived';
 export type DeliverableStatus = 'planned' | 'in_progress' | 'ready_for_review' | 'approved' | 'published' | 'cancelled';
@@ -41,5 +41,5 @@ export interface Campaign {
   deliverables: Deliverable[];
 }
 
-export const getCampaigns = () => clientGet<CampaignSummary[]>('/campaigns');
-export const getCampaign = (id: string) => clientGetOrNull<Campaign>(`/campaigns/${encodeURIComponent(id)}`);
+export const getCampaigns = () => portalGet<CampaignSummary[]>('/campaigns');
+export const getCampaign = (id: string) => portalGetOrNull<Campaign>(`/campaigns/${encodeURIComponent(id)}`);

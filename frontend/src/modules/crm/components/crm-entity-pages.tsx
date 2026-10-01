@@ -26,6 +26,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
+import { CampaignPortalTab } from '@/modules/portal-access/components/campaign-portal-tab';
+import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { getContacts, type Contact, type ContactRoleType } from '@/services/contactService';
 import {
   createCampaign,
@@ -414,6 +416,7 @@ export function CampaignsPage() {
   const { selectedCompany, contacts, opportunities, contactName } = useCrmBaseData();
   const { currentRole } = useCompany();
   const canManageFinance = usePermissionOr('campaigns', 'campaigns.generate-invoice.create', currentRole !== 'Employee');
+  const canManagePortal = useCanManagePortal();
   const { amount, money } = useCompanyCurrency();
   const { toast } = useToast();
   const { t } = useI18n();
@@ -834,6 +837,11 @@ export function CampaignsPage() {
                 <DollarSign className="h-3.5 w-3.5" /> {t('campaignsPage.tabExpenses')}
                 {expenses.length > 0 && <span className="ml-1 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px]">{expenses.length}</span>}
               </TabsTrigger>
+              {canManagePortal && (
+                <TabsTrigger value="portal" className="gap-1.5">
+                  <Users className="h-3.5 w-3.5" /> {t('campaignsPage.tabPortal', 'Portal')}
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* Deliverables */}
@@ -985,6 +993,11 @@ export function CampaignsPage() {
                 </div>
               </div>
             </TabsContent>
+            {canManagePortal && selectedCompany && (
+              <TabsContent value="portal">
+                <CampaignPortalTab companyId={selectedCompany.id} campaignId={selectedCampaign.id} deliverables={deliverables} />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
         )}

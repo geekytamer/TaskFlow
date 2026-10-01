@@ -1,4 +1,4 @@
-import { clientGet } from './client-api';
+import { portalGet } from './client-api';
 
 export type ReferralStatus = 'received' | 'taken_forward' | 'won' | 'closed' | 'not_pursued';
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'voided';
@@ -22,4 +22,4 @@ export interface Referral {
   createdAt: string;
 }
 
-export const getReferrals = () => clientGet<Referral[]>('/referrals');
+export const getReferrals = () => portalGet<Referral[]>('/referrals');

@@ -1,4 +1,4 @@
-import { clientGet } from './client-api';
+import { portalGet } from './client-api';
 import type { PortalFile } from './files';
 
 export interface Message {
@@ -9,4 +9,4 @@ export interface Message {
   createdAt: string;
 }
 
-export const getMessages = () => clientGet<Message[]>('/messages');
+export const getMessages = () => portalGet<Message[]>('/messages');

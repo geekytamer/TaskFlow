@@ -180,3 +180,44 @@ export const voidReferralCommission = (companyId: string, id: string) =>
 
 export const linkCommissionCreditNote = (companyId: string, id: string, creditNoteNumber: string) =>
   post<StaffReferral>(`${referrals(companyId)}/${id}/commission/credit-note`, { creditNoteNumber });
+
+export interface CampaignPortalBrief {
+  campaignId: string;
+  influencerBrief: string | null;
+  requireClientApproval: boolean;
+}
+
+export const getCampaignPortalBrief = (companyId: string, campaignId: string) =>
+  apiFetch<CampaignPortalBrief>(`/companies/${companyId}/campaigns/${campaignId}/portal-brief`);
+
+export const saveCampaignPortalBrief = (companyId: string, campaignId: string, body: { influencerBrief: string; requireClientApproval: boolean }) =>
+  apiFetch<CampaignPortalBrief>(`/companies/${companyId}/campaigns/${campaignId}/portal-brief`, { method: 'PUT', body: JSON.stringify(body) });
+
+export const getDeliverablePortalBrief = (companyId: string, deliverableId: string) =>
+  apiFetch<{ deliverableId: string; brief: string | null }>(`/companies/${companyId}/campaign-deliverables/${deliverableId}/portal-brief`);
+
+export const saveDeliverablePortalBrief = (companyId: string, deliverableId: string, brief: string) =>
+  apiFetch<{ deliverableId: string; brief: string | null }>(`/companies/${companyId}/campaign-deliverables/${deliverableId}/portal-brief`, {
+    method: 'PUT',
+    body: JSON.stringify({ brief }),
+  });
+
+export interface ProfileChangeRequest {
+  id: string;
+  changes: Record<string, unknown>;
+  status: 'pending' | 'approved' | 'rejected';
+  note: string | null;
+  requestedBy: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export const listChangeRequests = (companyId: string, contactId: string) =>
+  apiFetch<ProfileChangeRequest[]>(`/companies/${companyId}/contacts/${contactId}/change-requests`);
+
+export const decideChangeRequest = (companyId: string, contactId: string, id: string, decision: 'approve' | 'reject', note?: string) =>
+  apiFetch<ProfileChangeRequest>(`/companies/${companyId}/contacts/${contactId}/change-requests/${id}/${decision}`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });

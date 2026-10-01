@@ -1,4 +1,4 @@
-import { clientGet, clientGetOrNull } from './client-api';
+import { portalGet, portalGetOrNull } from './client-api';
 import type { PortalFile } from './files';
 
 export type RequestStatus = 'in_review' | 'proposal_ready' | 'accepted' | 'closed';
@@ -37,7 +37,7 @@ export interface Proposal extends ProposalSummary {
   respondedBy: string | null;
 }
 
-export const getRequests = () => clientGet<CampaignRequest[]>('/requests');
-export const getRequest = (id: string) => clientGetOrNull<CampaignRequest>(`/requests/${encodeURIComponent(id)}`);
-export const getProposals = () => clientGet<Proposal[]>('/proposals');
-export const getProposal = (id: string) => clientGetOrNull<Proposal>(`/proposals/${encodeURIComponent(id)}`);
+export const getRequests = () => portalGet<CampaignRequest[]>('/requests');
+export const getRequest = (id: string) => portalGetOrNull<CampaignRequest>(`/requests/${encodeURIComponent(id)}`);
+export const getProposals = () => portalGet<Proposal[]>('/proposals');
+export const getProposal = (id: string) => portalGetOrNull<Proposal>(`/proposals/${encodeURIComponent(id)}`);

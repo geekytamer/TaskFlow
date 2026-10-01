@@ -2,7 +2,8 @@ import { ReferralForm } from '@/components/referral-form';
 import { StatusBadge } from '@/components/status-badge';
 import { getCatalogue } from '@/lib/catalogue';
 import { formatDate, formatMoney, formatPercent } from '@/lib/format';
-import { requireAudience } from '@/lib/guard';
+import { getAudience } from '@/lib/audience';
+import { getProfile } from '@/lib/influencer';
 import { t, type Lang } from '@/lib/i18n';
 import { getReferrals, type Referral } from '@/lib/referrals';
 import { currentLang } from '@/lib/session';
@@ -15,9 +16,11 @@ function commissionText(c: NonNullable<Referral['commission']>, lang: Lang) {
 }
 
 export default async function ReferralsPage() {
-  requireAudience('client');
+  const audience = getAudience();
   const lang = await currentLang();
-  const [referrals, catalogue] = await Promise.all([getReferrals(), getCatalogue('')]);
+  // Each audience reads the company currency from a response it is allowed to see.
+  const currencyOf = async () => (audience === 'client' ? (await getCatalogue('')).currency : (await getProfile()).rateCard.currency);
+  const [referrals, currency] = await Promise.all([getReferrals(), currencyOf()]);
 
   return (
     <div className="max-w-3xl space-y-10">
@@ -26,7 +29,7 @@ export default async function ReferralsPage() {
         <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, 'ref.subtitle')}</p>
       </header>
 
-      <ReferralForm lang={lang} currency={catalogue.currency} />
+      <ReferralForm lang={lang} currency={currency} />
 
       <section aria-labelledby="yours-title" className="space-y-4">
         <h2 id="yours-title" className="text-lg font-semibold tracking-tight">{t(lang, 'ref.yours')}</h2>

@@ -1,7 +1,7 @@
 import { FileList } from '@/components/file-list';
 import { MessageComposer } from '@/components/message-composer';
 import { formatDateTime } from '@/lib/format';
-import { requireAudience } from '@/lib/guard';
+import { getAudience } from '@/lib/audience';
 import { t } from '@/lib/i18n';
 import { getMessages, type Message } from '@/lib/messages';
 import { currentLang } from '@/lib/session';
@@ -11,7 +11,7 @@ const authorLabel = (m: Message, lang: Lang) =>
   m.author.kind === 'you' ? t(lang, 'msg.you') : m.author.name ?? t(lang, m.author.kind === 'team' ? 'msg.team' : 'msg.colleague');
 
 export default async function MessagesPage() {
-  requireAudience('client');
+  const audience = getAudience();
   const lang = await currentLang();
   const messages = await getMessages();
 
@@ -19,7 +19,7 @@ export default async function MessagesPage() {
     <div className="max-w-3xl space-y-8">
       <header>
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t(lang, 'msg.title')}</h1>
-        <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, 'msg.subtitle')}</p>
+        <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, audience === 'client' ? 'msg.subtitle' : 'msg.subtitleInfluencer')}</p>
       </header>
 
       {messages.length === 0 ? (

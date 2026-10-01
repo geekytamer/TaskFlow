@@ -23,8 +23,14 @@ import {
 import { Copy, RefreshCw, UserPlus } from 'lucide-react';
 import { PortalPricingSection } from './portal-pricing-section';
 import { PortalThreadSection } from './portal-thread-section';
+import { ChangeRequestsSection } from './change-requests-section';
 
-export function PortalAccessPanel({ contact, audience }: { contact: Contact; audience: PortalAudience }) {
+export function PortalAccessPanel({ contact, audience, onContactChanged }: {
+  contact: Contact;
+  audience: PortalAudience;
+  /** Called with the fresh record after something here changed the contact, so open forms can reload it. */
+  onContactChanged?: (updated: Contact) => void;
+}) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
@@ -221,7 +227,8 @@ export function PortalAccessPanel({ contact, audience }: { contact: Contact; aud
         </ul>
       )}
       {audience === 'client' && <PortalPricingSection contact={contact} />}
-      {audience === 'client' && <PortalThreadSection contact={contact} />}
+      {audience === 'influencer' && <ChangeRequestsSection contact={contact} onApplied={onContactChanged} />}
+      <PortalThreadSection contact={contact} audience={audience} />
       <p className="border-t pt-4 text-xs text-muted-foreground">
         {tr('Businesses they refer through the portal are reviewed in', 'الأنشطة التي يحيلونها عبر البوابة تُراجع في')}{' '}
         <Link href="/portal-referrals" className="font-medium text-foreground underline underline-offset-4">{tr('Portal referrals', 'إحالات البوابة')}</Link>.

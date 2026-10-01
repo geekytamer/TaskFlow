@@ -16,7 +16,13 @@ const navFor = (me: Me, lang: Lang): NavItem[] =>
         { href: '/messages', label: t(lang, 'nav.messages') },
         { href: '/referrals', label: t(lang, 'nav.referrals') },
       ]
-    : [];
+    : [
+        { href: '/', label: t(lang, 'nav.overview') },
+        { href: '/assignments', label: t(lang, 'nav.assignments') },
+        { href: '/profile', label: t(lang, 'nav.profile') },
+        { href: '/messages', label: t(lang, 'nav.messages') },
+        { href: '/referrals', label: t(lang, 'nav.referrals') },
+      ];
 
 export function PortalShell({ me, lang, children }: { me: Me; lang: Lang; children: ReactNode }) {
   const nav = navFor(me, lang);

@@ -380,7 +380,19 @@ export function InfluencerEditSheet({
             ))}
           </div>
           {contact && canManagePortal && <PortalListingSwitch contact={contact} />}
-          {contact && canManagePortal && <PortalAccessPanel contact={contact} audience="influencer" />}
+          {contact && canManagePortal && (
+            <PortalAccessPanel
+              contact={contact}
+              audience="influencer"
+              onContactChanged={(updated) => {
+                // An approved portal change updated the record; reload the form so
+                // saving this sheet afterwards cannot write the old values back.
+                setForm(toForm(updated));
+                setAccounts(updated.influencerAccounts ?? []);
+                onSaved(updated);
+              }}
+            />
+          )}
         </div>
 
         <div className="flex justify-end gap-2 border-t p-4">
