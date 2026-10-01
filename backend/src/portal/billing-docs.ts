@@ -50,8 +50,9 @@ th { color: #4f5661; font-weight: 600; } .num { text-align: end; white-space: no
 bdi { unicode-bidi: isolate; }
 </style></head><body>${body}</body></html>`;
 
+// Typed by a person, so its direction comes from the text, not the page (principle 14).
 const companyBlock = (company: { name: string; address?: string | null }) =>
-  `<div><div class="big">${escapeHtml(company.name)}</div>${company.address ? `<div class="muted">${escapeHtml(company.address)}</div>` : ''}</div>`;
+  `<div><div class="big" dir="auto">${escapeHtml(company.name)}</div>${company.address ? `<div class="muted" dir="auto">${escapeHtml(company.address)}</div>` : ''}</div>`;
 
 export interface ReceiptInput {
   lang: Lang;
@@ -75,7 +76,7 @@ export function receiptHtml(r: ReceiptInput): string {
 <div class="head">${companyBlock(r.company)}<div><h1>${L.receipt}</h1><div class="muted"><bdi>${escapeHtml(r.receiptNumber)}</bdi></div></div></div>
 <table>
 ${row(L.date, `<bdi>${fmtDate(r.paidAt, r.lang)}</bdi>`)}
-${row(L.from, `<bdi>${escapeHtml(r.clientName)}</bdi>`)}
+${row(L.from, `<bdi dir="auto">${escapeHtml(r.clientName)}</bdi>`)}
 ${row(L.invoice, `<bdi>${escapeHtml(r.invoiceNumber)}</bdi>`)}
 ${r.method ? row(L.method, `<bdi>${escapeHtml(r.method)}</bdi>`) : ''}
 ${row(L.amount, `<bdi class="big">${fmtMoney(r.amount, r.currency, r.lang)}</bdi>`)}
@@ -102,7 +103,7 @@ export function statementHtml(s: StatementInput): string {
 <td class="num">${m(i.total, i.currency)}</td><td class="num">${m(i.paid, i.currency)}</td><td class="num">${m(i.credited, i.currency)}</td><td class="num">${m(i.outstanding, i.currency)}</td></tr>`).join('');
   return page(s.lang, `${L.statement} ${s.campaignName}`, `
 <div class="head">${companyBlock(s.company)}<div><h1>${L.statement}</h1><div class="muted">${L.generated}: ${fmtDate(s.generatedAt, s.lang)}</div></div></div>
-<p><strong>${L.campaign}:</strong> <bdi>${escapeHtml(s.campaignName)}</bdi><br><strong>${L.client}:</strong> <bdi>${escapeHtml(s.clientName)}</bdi></p>
+<p><strong>${L.campaign}:</strong> <bdi dir="auto">${escapeHtml(s.campaignName)}</bdi><br><strong>${L.client}:</strong> <bdi dir="auto">${escapeHtml(s.clientName)}</bdi></p>
 ${s.invoices.length === 0 ? `<p class="muted">${L.none}</p>` : `<table>
 <thead><tr><th>#</th><th>${L.issued}</th><th>${L.due}</th><th class="num">${L.total}</th><th class="num">${L.paid}</th><th class="num">${L.credited}</th><th class="num">${L.outstanding}</th></tr></thead>
 <tbody>${rows}</tbody>

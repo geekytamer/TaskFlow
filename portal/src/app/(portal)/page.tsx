@@ -2,6 +2,7 @@ import { Dashboard } from '@/components/dashboard';
 import { getAudience } from '@/lib/audience';
 import { getCampaigns } from '@/lib/campaigns';
 import { getAssignments, getPayouts } from '@/lib/influencer';
+import { getInvoices } from '@/lib/billing';
 import { getMessages } from '@/lib/messages';
 import { requireMe } from '@/lib/portal';
 import { getProposals } from '@/lib/requests';
@@ -30,8 +31,9 @@ export default async function Home() {
     return <Dashboard me={me} lang={lang} audience={audience} assignments={assignments} attention={attention} payouts={payouts.slice(0, 3)} />;
   }
 
-  const [proposals, campaigns] = await Promise.all([getProposals(), getCampaigns()]);
+  const [proposals, campaigns, invoices] = await Promise.all([getProposals(), getCampaigns(), getInvoices()]);
   const waiting = proposals.find((p) => p.status === 'sent');
+  const overdue = invoices.find((i) => i.status === 'overdue');
   return (
     <Dashboard
       me={me}
@@ -39,6 +41,7 @@ export default async function Home() {
       audience={audience}
       waiting={waiting ? { id: waiting.id, title: waiting.title } : undefined}
       campaigns={campaigns}
+      overdue={overdue ? { id: overdue.id, number: overdue.number } : undefined}
     />
   );
 }

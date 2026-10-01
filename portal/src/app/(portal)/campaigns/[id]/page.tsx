@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { DeliverableReview } from '@/components/deliverable-review';
+import { InvoiceList } from '@/components/invoice-list';
+import { getStatement, statementHref } from '@/lib/billing';
 import { StatusBadge } from '@/components/status-badge';
 import { deliverableView, getCampaign } from '@/lib/campaigns';
 import { formatDate, listSep } from '@/lib/format';
@@ -12,7 +14,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   requireAudience('client');
   const { id } = await params;
   const lang = await currentLang();
-  const campaign = await getCampaign(id);
+  const [campaign, statement] = await Promise.all([getCampaign(id), getStatement(id)]);
   if (!campaign) notFound();
 
   return (
@@ -84,6 +86,16 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
           </ul>
         )}
       </section>
+
+      {statement && statement.invoices.length > 0 && (
+        <section aria-labelledby="billing-title" className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 id="billing-title" className="text-base font-semibold">{t(lang, 'bill.forCampaign')}</h2>
+            <a href={statementHref(campaign.id)} download className="text-sm font-medium underline underline-offset-4">{t(lang, 'bill.statement')}</a>
+          </div>
+          <InvoiceList invoices={statement.invoices} lang={lang} showCampaign={false} />
+        </section>
+      )}
     </div>
   );
 }

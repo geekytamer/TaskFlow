@@ -15,6 +15,7 @@ const navFor = (me: Me, lang: Lang): NavItem[] =>
         { href: '/requests', label: t(lang, 'nav.requests') },
         { href: '/messages', label: t(lang, 'nav.messages') },
         { href: '/referrals', label: t(lang, 'nav.referrals') },
+        { href: '/billing', label: t(lang, 'nav.billing') },
       ]
     : [
         { href: '/', label: t(lang, 'nav.overview') },

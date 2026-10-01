@@ -20,9 +20,10 @@ export interface AttentionItem {
 const ATTENTION_LABEL: Record<AttentionItem['kind'], Key> = { changes: 'dash.changes', due: 'dash.dueSoon', replied: 'dash.replied' };
 
 export function Dashboard({
-  me, lang, audience, waiting, campaigns = [], assignments = [], attention = [], payouts = [],
+  me, lang, audience, waiting, campaigns = [], assignments = [], attention = [], payouts = [], overdue,
 }: {
   me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string }; campaigns?: CampaignSummary[];
+  overdue?: { id: string; number: string };
   assignments?: Assignment[]; attention?: AttentionItem[]; payouts?: Payout[];
 }) {
   const toAnswer = assignments.find((a) => a.status === 'awaiting_reply');
@@ -112,6 +113,18 @@ export function Dashboard({
             <Link href="/payouts" className="text-sm font-medium underline underline-offset-4">{t(lang, 'dash.allPayouts')}</Link>
           </div>
           <PayoutList payouts={payouts} lang={lang} />
+        </section>
+      )}
+
+      {overdue && (
+        <section aria-labelledby="overdue-title" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-danger/30 bg-danger/5 p-5">
+          <div className="min-w-0">
+            <h2 id="overdue-title" className="font-semibold text-danger">{t(lang, 'bill.overdueTitle')}</h2>
+            <p className="mt-0.5 text-sm"><bdi dir="ltr">{overdue.number}</bdi></p>
+          </div>
+          <Link href={`/billing/${overdue.id}`} className="inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90">
+            {t(lang, 'bill.open')}
+          </Link>
         </section>
       )}
 
