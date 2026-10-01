@@ -15129,6 +15129,9 @@ export class DataStore {
         .prepare('INSERT INTO payments (id, invoiceId, amount, method, note, paidAt) VALUES (@id, @invoiceId, @amount, @method, @note, @paidAt)')
         .run({
           ...newPayment,
+          // Optional in the type; SQLite needs every named parameter bound.
+          method: newPayment.method ?? null,
+          note: newPayment.note ?? null,
           paidAt: newPayment.paidAt.toISOString(),
         });
       this.postInvoicePaymentJournal(newPayment);
