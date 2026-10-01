@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import type { CampaignDeliverable } from '@/services/crmService';
+import { SubmissionReview } from './submission-review';
 import {
   getCampaignPortalBrief,
   getDeliverablePortalBrief,
@@ -19,7 +20,13 @@ import {
  * What influencers read in their portal about this campaign. Written here on
  * purpose, so the campaign's internal notes never reach them.
  */
-export function CampaignPortalTab({ companyId, campaignId, deliverables }: { companyId: string; campaignId: string; deliverables: CampaignDeliverable[] }) {
+export function CampaignPortalTab({ companyId, campaignId, deliverables, onDeliverablesChanged }: {
+  companyId: string;
+  campaignId: string;
+  deliverables: CampaignDeliverable[];
+  /** A review changed a deliverable's status; the page reloads its list. */
+  onDeliverablesChanged?: () => void;
+}) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
@@ -99,6 +106,7 @@ export function CampaignPortalTab({ companyId, campaignId, deliverables }: { com
                 value={itemBriefs[d.id] ?? ''}
                 onChange={(e) => setItemBriefs((current) => ({ ...current, [d.id]: e.target.value }))}
               />
+              <SubmissionReview companyId={companyId} deliverableId={d.id} status={d.status} onChanged={onDeliverablesChanged} />
             </div>
           ))}
         </div>

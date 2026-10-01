@@ -1,5 +1,6 @@
 import { AssignmentActions } from '@/components/assignment-actions';
 import { StatusBadge } from '@/components/status-badge';
+import { WorkControls } from '@/components/work-controls';
 import { formatDate, formatMoney } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
@@ -58,7 +59,7 @@ export default async function AssignmentsPage() {
                   <h3 className="mb-2 text-sm font-semibold">{t(lang, 'asg.deliverables')}</h3>
                   <ul className="divide-y divide-line border-y border-line">
                     {a.deliverables.map((d) => (
-                      <li key={d.id} className="space-y-1 py-3">
+                      <li key={d.id} id={`work-${d.id}`} className="space-y-1 py-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="min-w-0">
                             <span dir="auto" className="font-medium">{d.title}</span>
@@ -70,6 +71,9 @@ export default async function AssignmentsPage() {
                           </span>
                         </div>
                         {d.brief && <p dir="auto" className="whitespace-pre-line text-sm leading-relaxed text-ink-soft">{d.brief}</p>}
+                        {(a.status === 'confirmed' || a.status === 'completed') && (
+                          <div className="pt-2"><WorkControls lang={lang} item={d} /></div>
+                        )}
                       </li>
                     ))}
                   </ul>

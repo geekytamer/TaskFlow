@@ -35,6 +35,27 @@ export interface Profile {
 export type AssignmentStatus = 'awaiting_reply' | 'confirmed' | 'declined' | 'cancelled' | 'completed';
 export type InfluencerDeliverableStatus = 'planned' | 'in_progress' | 'submitted' | 'approved' | 'published' | 'cancelled';
 
+export interface SubmissionView {
+  id: string;
+  version: number;
+  contentUrl: string | null;
+  caption: string | null;
+  submittedAt: string;
+  feedback: { decision: 'approved' | 'changes_requested'; comment: string | null } | null;
+}
+
+export interface AssignmentDeliverable {
+  id: string;
+  title: string;
+  platform: string | null;
+  dueDate: string | null;
+  status: InfluencerDeliverableStatus;
+  brief: string | null;
+  latestSubmission: SubmissionView | null;
+  waitingFor: 'team' | 'client' | null;
+  postUrl: string | null;
+}
+
 export interface Assignment {
   id: string;
   status: AssignmentStatus;
@@ -42,7 +63,7 @@ export interface Assignment {
   agreedRate: number | null;
   currency: string;
   brief: string | null;
-  deliverables: Array<{ id: string; title: string; platform: string | null; dueDate: string | null; status: InfluencerDeliverableStatus; brief: string | null }>;
+  deliverables: AssignmentDeliverable[];
   respondedAt: string | null;
 }
 

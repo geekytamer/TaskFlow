@@ -221,3 +221,30 @@ export const decideChangeRequest = (companyId: string, contactId: string, id: st
     method: 'POST',
     body: JSON.stringify({ note }),
   });
+
+export interface DeliverableSubmission {
+  id: string;
+  version: number;
+  contentUrl: string;
+  caption: string | null;
+  submittedAt: string;
+  submittedBy: string | null;
+  staffDecision: 'approved' | 'changes_requested' | null;
+  staffComment: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  clientReview: { decision: 'approved' | 'changes_requested'; comment: string | null; createdAt: string } | null;
+}
+
+export const listSubmissions = (companyId: string, deliverableId: string) =>
+  apiFetch<DeliverableSubmission[]>(`/companies/${companyId}/campaign-deliverables/${deliverableId}/submissions`);
+
+export const reviewSubmission = (
+  companyId: string,
+  deliverableId: string,
+  submissionId: string,
+  body: { decision: 'approved' | 'changes_requested'; comment?: string },
+) => apiFetch<DeliverableSubmission>(`/companies/${companyId}/campaign-deliverables/${deliverableId}/submissions/${submissionId}/review`, {
+  method: 'POST',
+  body: JSON.stringify(body),
+});

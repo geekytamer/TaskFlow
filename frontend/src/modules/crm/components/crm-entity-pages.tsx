@@ -995,7 +995,7 @@ export function CampaignsPage() {
             </TabsContent>
             {canManagePortal && selectedCompany && (
               <TabsContent value="portal">
-                <CampaignPortalTab companyId={selectedCompany.id} campaignId={selectedCampaign.id} deliverables={deliverables} />
+                <CampaignPortalTab companyId={selectedCompany.id} campaignId={selectedCampaign.id} deliverables={deliverables} onDeliverablesChanged={() => void loadExecution(selectedCampaign.id)} />
               </TabsContent>
             )}
           </Tabs>

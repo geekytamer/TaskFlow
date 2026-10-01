@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAudience, type Audience } from './audience';
 import { backendFetch } from './backend';
 import { isSameOrigin } from './origin';
-import { readSessionToken, SESSION_COOKIE, sessionCookie } from './session';
+import { readSessionToken, sessionCookie, sessionCookieName } from './session';
 
 export const forbidden = () => NextResponse.json({ message: 'Forbidden' }, { status: 403 });
 
@@ -21,7 +21,7 @@ export async function startSession(request: Request, path: string, body: Record<
     return NextResponse.json({ message: result.data.message ?? 'Request failed.' }, { status });
   }
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(SESSION_COOKIE, result.data.token, sessionCookie(new Date(result.data.expiresAt)));
+  response.cookies.set(sessionCookieName(), result.data.token, sessionCookie(new Date(result.data.expiresAt)));
   return response;
 }
 
