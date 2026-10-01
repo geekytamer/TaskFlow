@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -221,6 +222,10 @@ export function PortalAccessPanel({ contact, audience }: { contact: Contact; aud
       )}
       {audience === 'client' && <PortalPricingSection contact={contact} />}
       {audience === 'client' && <PortalThreadSection contact={contact} />}
+      <p className="border-t pt-4 text-xs text-muted-foreground">
+        {tr('Businesses they refer through the portal are reviewed in', 'الأنشطة التي يحيلونها عبر البوابة تُراجع في')}{' '}
+        <Link href="/portal-referrals" className="font-medium text-foreground underline underline-offset-4">{tr('Portal referrals', 'إحالات البوابة')}</Link>.
+      </p>
     </section>
   );
 }

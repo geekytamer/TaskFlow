@@ -121,3 +121,62 @@ export async function downloadPortalFile(companyId: string, file: Pick<PortalFil
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }
+
+export type ReferralStatus = 'submitted' | 'converted' | 'declined';
+export type CommissionBasis = 'percent' | 'fixed';
+export type PayoutType = 'vendor_bill' | 'credit_note';
+
+export interface CommissionTerms {
+  basis: CommissionBasis;
+  ratePercent?: number | null;
+  fixedAmount?: number | null;
+  payoutType: PayoutType;
+}
+
+export interface StaffReferral {
+  id: string;
+  prospectName: string;
+  prospectContact: string;
+  description: string;
+  estimatedValue: number | null;
+  currency: string;
+  status: ReferralStatus;
+  staffNote: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  referrer: { id: string; name: string | null; roles: string[] };
+  submittedBy: string | null;
+  reviewedBy: string | null;
+  opportunity: { id: string; title: string; stage: string; expectedRevenue: number } | null;
+  commission: (Required<CommissionTerms> & {
+    status: 'pending' | 'approved' | 'paid' | 'voided';
+    amount: number | null;
+    payoutRefId: string | null;
+  }) | null;
+}
+
+const referrals = (companyId: string) => `/companies/${companyId}/portal-referrals`;
+const post = <T>(path: string, body: unknown = {}) => apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) });
+
+export const listReferrals = (companyId: string) => apiFetch<StaffReferral[]>(referrals(companyId));
+
+export const declineReferral = (companyId: string, id: string, staffNote: string) =>
+  post<StaffReferral>(`${referrals(companyId)}/${id}/decline`, { staffNote });
+
+export const convertReferral = (
+  companyId: string,
+  id: string,
+  body: { expectedRevenue?: number; title?: string; staffNote?: string; commission?: CommissionTerms },
+) => post<StaffReferral>(`${referrals(companyId)}/${id}/convert`, body);
+
+export const setReferralCommission = (companyId: string, id: string, terms: CommissionTerms) =>
+  apiFetch<StaffReferral>(`${referrals(companyId)}/${id}/commission`, { method: 'PUT', body: JSON.stringify(terms) });
+
+export const approveReferralCommission = (companyId: string, id: string) =>
+  post<StaffReferral>(`${referrals(companyId)}/${id}/commission/approve`);
+
+export const voidReferralCommission = (companyId: string, id: string) =>
+  post<StaffReferral>(`${referrals(companyId)}/${id}/commission/void`);
+
+export const linkCommissionCreditNote = (companyId: string, id: string, creditNoteNumber: string) =>
+  post<StaffReferral>(`${referrals(companyId)}/${id}/commission/credit-note`, { creditNoteNumber });

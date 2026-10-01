@@ -184,7 +184,12 @@ export function registerStaffReferralRoutes(
     const referrer = store.getContactById(referral.referrerContactId);
     if (!referrer) throw new HttpError(409, 'The referrer no longer exists.');
     const body = asRecord(req.body, 'body');
-    const creditNoteId = typeof body.creditNoteId === 'string' ? body.creditNoteId : '';
+    // Staff who manage the portal may not read finance, so they can name the
+    // credit note by the number the accountant gives them.
+    const byNumber = typeof body.creditNoteNumber === 'string' && body.creditNoteNumber.trim()
+      ? store.listCreditNotes(companyId).find((n) => n.creditNoteNumber.toLowerCase() === (body.creditNoteNumber as string).trim().toLowerCase())
+      : undefined;
+    const creditNoteId = byNumber?.id ?? (typeof body.creditNoteId === 'string' ? body.creditNoteId : '');
     const note = assertCreditNotePays(store, { companyId, creditNoteId, referrer, amount: commission.amount! });
     if (!store.referrals.linkPayout(referral.id, note.id)) throw new HttpError(409, 'This commission is not waiting for a credit note.');
     respond(res, referral.id);

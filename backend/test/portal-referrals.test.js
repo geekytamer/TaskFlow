@@ -236,7 +236,8 @@ test('a fixed commission paid by credit note is approved without a document, the
   const right = ctx.store.createCreditNote({ companyId: ctx.company.id, clientId: ctx.client.id, lineItems: [{ description: 'Referral commission', amount: 300 }] });
   assert.equal((await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteId: wrongClient.id })).status, 400);
   assert.equal((await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteId: wrongAmount.id })).status, 400);
-  const linked = await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteId: right.id });
+  assert.equal((await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteNumber: 'CN-DOES-NOT-EXIST' })).status, 400);
+  const linked = await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteNumber: ` ${right.creditNoteNumber.toLowerCase()} ` });
   assert.equal(linked.status, 200);
   assert.equal(linked.body.commission.status, 'paid');
   assert.equal((await request(ctx.server).get('/portal-api/client/referrals').set(omar)).body[0].commission.status, 'paid');
