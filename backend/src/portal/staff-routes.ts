@@ -6,6 +6,7 @@ import { asRecord, enumValue, requiredString } from '../validation';
 import { pricingModes } from './catalogue-store';
 import { downloadHeaders, readUpload } from './files';
 import { registerStaffReferralRoutes } from './staff-referral-routes';
+import { registerStaffInfluencerRoutes } from './staff-influencer-routes';
 import { afterStaffMessage, fileDto, parseMessage, staffMessageDto } from './thread';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
@@ -219,6 +220,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
   }));
 
   registerStaffReferralRoutes(router, store, authMiddleware, authorize, wrap);
+  registerStaffInfluencerRoutes(router, store, authMiddleware, authorize, wrap);
 
   return router;
 }

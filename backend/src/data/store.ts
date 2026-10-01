@@ -10,6 +10,7 @@ import { PortalRequestsStore } from '../portal/requests-store';
 import { DeliverableReviewsStore } from '../portal/reviews-store';
 import { PortalThreadStore } from '../portal/thread-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
+import { InfluencerPortalStore } from '../portal/influencer-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -635,6 +636,7 @@ export class DataStore {
   /** The shared message thread and files between staff and a portal contact. */
   readonly thread: PortalThreadStore;
   readonly referrals: PortalReferralsStore;
+  readonly influencer: InfluencerPortalStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -664,6 +666,7 @@ export class DataStore {
     this.reviews = new DeliverableReviewsStore(this.db);
     this.thread = new PortalThreadStore(this.db);
     this.referrals = new PortalReferralsStore(this.db);
+    this.influencer = new InfluencerPortalStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3828,6 +3831,54 @@ export class DataStore {
           `);
         },
       },
+      {
+        // The influencer portal. Briefs live in their own tables so the shared
+        // campaign tables are not changed for one tenant, and so staff write
+        // influencer-facing text on purpose instead of exposing internal notes.
+        id: '090_influencer_portal',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_campaign_briefs (
+              campaignId            TEXT PRIMARY KEY,
+              companyId             TEXT NOT NULL,
+              influencerBrief       TEXT,
+              requireClientApproval INTEGER NOT NULL DEFAULT 0,
+              updatedAt             TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS portal_deliverable_briefs (
+              deliverableId TEXT PRIMARY KEY,
+              companyId     TEXT NOT NULL,
+              brief         TEXT,
+              updatedAt     TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS portal_assignment_responses (
+              assignmentId TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL,
+              portalUserId TEXT NOT NULL,
+              decision     TEXT NOT NULL,
+              reason       TEXT,
+              createdAt    TEXT NOT NULL,
+              CHECK (decision IN ('accepted', 'declined'))
+            );
+            CREATE TABLE IF NOT EXISTS contact_change_requests (
+              id               TEXT PRIMARY KEY,
+              companyId        TEXT NOT NULL,
+              contactId        TEXT NOT NULL,
+              portalUserId     TEXT NOT NULL,
+              changes          TEXT NOT NULL,
+              status           TEXT NOT NULL DEFAULT 'pending',
+              note             TEXT,
+              reviewedByUserId TEXT,
+              reviewedAt       TEXT,
+              createdAt        TEXT NOT NULL,
+              CHECK (status IN ('pending', 'approved', 'rejected'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_contact_change_requests_contact ON contact_change_requests (companyId, contactId, createdAt);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_change_requests_one_pending
+              ON contact_change_requests (contactId) WHERE status = 'pending';
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3985,6 +4036,10 @@ export class DataStore {
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
         DELETE FROM deliverable_reviews;
+        DELETE FROM contact_change_requests;
+        DELETE FROM portal_assignment_responses;
+        DELETE FROM portal_deliverable_briefs;
+        DELETE FROM portal_campaign_briefs;
         DELETE FROM referral_commissions;
         DELETE FROM portal_referrals;
         DELETE FROM account_messages;
