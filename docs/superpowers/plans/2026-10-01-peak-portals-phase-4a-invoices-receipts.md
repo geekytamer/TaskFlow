@@ -8,6 +8,19 @@ invoicing the Plus fee.
 
 Contracts and tests only; code is written against the real files (principle 2).
 
+## Status
+
+**Done and verified 2026-10-01** (`0a55615`, `291d20b`, `2857c9c`). Backend 380 tests,
+portal 16, every guard mutation-checked. Real PDFs rendered with system Chrome: the
+invoice through the existing renderer, receipt and statement from server HTML; a
+hostile document (image, stylesheet, script, iframe pointing at a local server)
+produced zero requests. Driven in Arabic at phone width and under `next start`.
+Found while driving it: Tailwind had never generated any `/10`-style opacity colour
+since Phase 1 (fixed in `291d20b`); the Arabic statement reversed the company
+address until typed text got `dir="auto"`; invoice lines scrolled their amounts out
+of view on phones until they stacked. Local PDF rendering needs
+`PUPPETEER_EXECUTABLE_PATH` (system Chrome) and `APP_PUBLIC_URL` (the staff app).
+
 ## What the code already has (read before planning)
 
 - `Invoice` (status `Draft | Sent | Paid | Overdue`) with `paidAmount`,

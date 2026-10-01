@@ -138,6 +138,8 @@ status and commission are visible only to the influencer who submitted it.
 
 ## Phase 4 — Money
 
+**Status: first half (invoices, receipts, statements) complete 2026-10-01**; see the 4a plan. Peak Flexi waits for the accountant's view on the Plus fee.
+
 **Delivers.** Invoices and receipts (list, detail, PDF, a new receipt document,
 per-campaign statement), then Peak Flexi: `payment_plans`, eligibility against
 `Client.creditLimit`, finance approval, installment tracking against `Payment`,
