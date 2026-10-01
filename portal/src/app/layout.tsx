@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Sans_Arabic, Manrope } from 'next/font/google';
 import './globals.css';
-import { getAudience } from '@/lib/audience';
+import { getHost } from '@/lib/audience';
 import { dirFor } from '@/lib/i18n';
 import { getBranding } from '@/lib/portal';
 import { currentLang } from '@/lib/session';
@@ -15,8 +15,13 @@ const arabic = IBM_Plex_Sans_Arabic({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const branding = await getBranding(getAudience());
-  return { title: branding?.name ?? 'Portal', robots: { index: false, follow: false } };
+  const host = getHost();
+  // The lobby shares the client portal's branding endpoint: same company, no session.
+  const branding = await getBranding(host === 'lobby' ? 'client' : host);
+  // The lobby is public on purpose; the portals are not for search engines.
+  return host === 'lobby'
+    ? { title: branding?.name ?? 'Games' }
+    : { title: branding?.name ?? 'Portal', robots: { index: false, follow: false } };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

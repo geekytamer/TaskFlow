@@ -59,3 +59,14 @@ export async function backendDownload(audience: Audience, path: string, token: s
     return new Response(null, { status: 503 });
   }
 }
+
+/** A read from the unauthenticated games lobby API. Cached briefly, like the API itself. */
+export async function publicFetch<T>(path: string): Promise<BackendResult<T>> {
+  try {
+    const response = await fetch(`${apiBase()}/public-api${path}`, { next: { revalidate: 30 } });
+    const data = await response.json().catch(() => ({}));
+    return { status: response.status, data: data as T };
+  } catch {
+    return { status: 503, data: { message: 'The lobby is temporarily unavailable.' } as T };
+  }
+}

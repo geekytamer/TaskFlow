@@ -5,6 +5,7 @@
   "scripts": {
     "dev:client": "PORTAL_AUDIENCE=client PORTAL_DIST_DIR=.next-client next dev -p 9003",
     "dev:influencer": "PORTAL_AUDIENCE=influencer PORTAL_DIST_DIR=.next-influencer next dev -p 9004",
+    "dev:lobby": "PORTAL_AUDIENCE=lobby PORTAL_DIST_DIR=.next-lobby next dev -p 9005",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
