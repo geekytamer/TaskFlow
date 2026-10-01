@@ -64,7 +64,8 @@ export function toCampaignSummary(campaign: CrmCampaign, deliverables: CampaignD
 export function toCampaignDetail(input: {
   campaign: CrmCampaign;
   assignments: Array<{ assignment: CampaignAssignment; contact: Contact | undefined }>;
-  deliverables: Array<{ deliverable: CampaignDeliverable; influencer: Contact | undefined; review: DeliverableReview | undefined; reviewerName: string | undefined }>;
+  /** `url` is what the client may open now; null hides the content (see review-flow.ts). */
+  deliverables: Array<{ deliverable: CampaignDeliverable; url: string | null; influencer: Contact | undefined; review: DeliverableReview | undefined; reviewerName: string | undefined }>;
 }) {
   const { campaign } = input;
   return {
@@ -76,13 +77,14 @@ export function toCampaignDetail(input: {
     influencers: input.assignments
       .filter(({ assignment, contact }) => assignment.role === 'Influencer' && CONFIRMED.includes(assignment.status) && contact)
       .map(({ contact }) => ({ name: contact!.name, handle: handleOf(contact!) })),
-    deliverables: input.deliverables.map(({ deliverable, influencer, review, reviewerName }) => ({
+    deliverables: input.deliverables.map(({ deliverable, url, influencer, review, reviewerName }) => ({
       id: deliverable.id,
       title: deliverable.title,
       platform: deliverable.platform ?? null,
       dueDate: iso(deliverable.dueDate),
-      status: DELIVERABLE_STATUS[deliverable.status],
-      contentUrl: reviewableUrl(deliverable),
+      // Submitted work the agency has not reviewed yet still reads as in progress to the client.
+      status: deliverable.status === 'Submitted' && !url ? DELIVERABLE_STATUS['In Progress'] : DELIVERABLE_STATUS[deliverable.status],
+      contentUrl: url,
       publishedAt: iso(deliverable.publishedAt),
       influencer: influencer && influencer.roles?.includes('Influencer') ? influencer.name : null,
       review: review

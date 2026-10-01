@@ -12,7 +12,8 @@ import {
   type InfluencerPlatform,
 } from '../types';
 import { safeUrl } from './catalogue';
-import type { ChangeRequest, ProfileChanges } from './influencer-store';
+import type { ChangeRequest, ProfileChanges, Submission } from './influencer-store';
+import { waitingFor } from './review-flow';
 
 export const AVAILABILITY = ['Available', 'Partially Available', 'Unavailable'] as const;
 const MAX_ACCOUNTS = 10;
@@ -36,6 +37,18 @@ const accountDto = (a: InfluencerAccount) => ({
   followers: a.followers ?? null,
   engagementRate: a.engagementRate ?? null,
 });
+
+/** A version as its author sees it: the link, and staff's decision with its comment. Never who reviewed it. */
+export const submissionDto = (sub: Submission | undefined) => sub
+  ? {
+      id: sub.id,
+      version: sub.version,
+      contentUrl: safeUrl(sub.contentUrl),
+      caption: sub.caption,
+      submittedAt: sub.submittedAt,
+      feedback: sub.staffDecision ? { decision: sub.staffDecision, comment: sub.staffComment } : null,
+    }
+  : null;
 
 const changeDto = (r: ChangeRequest) => ({ id: r.id, changes: r.changes, createdAt: r.createdAt });
 
@@ -162,6 +175,9 @@ export function toAssignmentDto(store: DataStore, assignment: CampaignAssignment
       dueDate: iso(d.dueDate),
       status: DELIVERABLE_STATUS[d.status],
       brief: briefed ? store.influencer.deliverableBrief(d.id) : null,
+      latestSubmission: submissionDto(store.influencer.latestSubmission(d.id)),
+      waitingFor: waitingFor(store, d),
+      postUrl: d.status === 'Published' ? safeUrl(d.contentUrl) : null,
     }));
   return {
     id: assignment.id,

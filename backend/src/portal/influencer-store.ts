@@ -39,6 +39,25 @@ export interface ChangeRequest {
 
 type ChangeRow = Omit<ChangeRequest, 'changes'> & { changes: string };
 
+export type StaffDecision = 'approved' | 'changes_requested';
+
+/** One version of an influencer's work on a deliverable, and staff's decision on it. */
+export interface Submission {
+  id: string;
+  companyId: string;
+  deliverableId: string;
+  contactId: string;
+  portalUserId: string;
+  version: number;
+  contentUrl: string;
+  caption: string | null;
+  submittedAt: string;
+  staffDecision: StaffDecision | null;
+  staffComment: string | null;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+}
+
 /** Storage for the influencer portal: briefs, assignment answers and profile change requests. */
 export class InfluencerPortalStore {
   constructor(private readonly db: Database.Database) {}
@@ -117,6 +136,44 @@ export class InfluencerPortalStore {
       throw error;
     }
     return this.getChangeRequest(id);
+  }
+
+  submissions(deliverableId: string): Submission[] {
+    return this.db.prepare('SELECT * FROM deliverable_submissions WHERE deliverableId = ? ORDER BY version DESC').all(deliverableId) as Submission[];
+  }
+
+  latestSubmission(deliverableId: string): Submission | undefined {
+    return this.db.prepare('SELECT * FROM deliverable_submissions WHERE deliverableId = ? ORDER BY version DESC LIMIT 1').get(deliverableId) as Submission | undefined;
+  }
+
+  getSubmission(id: string): Submission | undefined {
+    return this.db.prepare('SELECT * FROM deliverable_submissions WHERE id = ?').get(id) as Submission | undefined;
+  }
+
+  addSubmission(input: Pick<Submission, 'companyId' | 'deliverableId' | 'contactId' | 'portalUserId' | 'contentUrl' | 'caption'>): Submission {
+    const id = uuid();
+    const version = (this.latestSubmission(input.deliverableId)?.version ?? 0) + 1;
+    this.db
+      .prepare(
+        `INSERT INTO deliverable_submissions (id, companyId, deliverableId, contactId, portalUserId, version, contentUrl, caption, submittedAt)
+         VALUES (@id, @companyId, @deliverableId, @contactId, @portalUserId, @version, @contentUrl, @caption, @submittedAt)`,
+      )
+      .run({ ...input, id, version, submittedAt: new Date().toISOString() });
+    return this.getSubmission(id)!;
+  }
+
+  /**
+   * Records staff's decision on a version. A decision can be replaced only by a
+   * request for changes on an approved version (relaying a client's comments).
+   */
+  reviewSubmission(id: string, input: { decision: StaffDecision; comment: string | null; userId: string }): boolean {
+    return this.db
+      .prepare(
+        `UPDATE deliverable_submissions
+            SET staffDecision = @decision, staffComment = @comment, reviewedByUserId = @userId, reviewedAt = @at
+          WHERE id = @id AND (staffDecision IS NULL OR (staffDecision = 'approved' AND @decision = 'changes_requested'))`,
+      )
+      .run({ ...input, id, at: new Date().toISOString() }).changes === 1;
   }
 
   decideChangeRequest(id: string, input: { status: 'approved' | 'rejected'; note: string | null; userId: string }): boolean {

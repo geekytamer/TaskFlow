@@ -24,6 +24,7 @@ import { tuplesForStore } from './permissions/tuples';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
 import { createPortalStaffRouter } from './portal/staff-routes';
+import { sweepPortalDeliverableReminders } from './portal/reminders';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -686,6 +687,9 @@ export function createServer(options: CreateServerOptions = {}) {
         const overdue = store.sweepOverdueInvoiceNotifications();
         const lowStock = store.sweepLowStockNotifications();
         const expiring = store.sweepExpiryNotifications();
+        const portalCompany = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
+        const portalDue = portalCompany && store.getCompanyById(portalCompany) ? sweepPortalDeliverableReminders(store, portalCompany) : 0;
+        if (portalDue > 0) logger.info(`[portal] ${portalDue} deliverable due-soon reminder(s)`);
         if (tasks + followups + overdue + lowStock + expiring > 0) {
           logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock, ${expiring} expiry`);
         }

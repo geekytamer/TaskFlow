@@ -1,9 +1,10 @@
 import type { RequestHandler, Response, Router } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
-import { asRecord } from '../validation';
+import { asRecord, enumValue } from '../validation';
 import { applyChanges } from './influencer';
-import { CHANGE_REVIEW_TRIGGER } from './influencer-routes';
+import { CHANGE_REVIEW_TRIGGER, SUBMISSION_REVIEW_TRIGGER } from './influencer-routes';
+import { clientApprovalRequired } from './review-flow';
 import type { StaffRequest } from './staff-routes';
 
 const MAX_BRIEF = 5000;
@@ -59,6 +60,52 @@ export function registerStaffInfluencerRoutes(
     if (!deliverable || deliverable.companyId !== companyId) throw new HttpError(404, 'Deliverable not found.');
     store.influencer.setDeliverableBrief(companyId, deliverable.id, brief(asRecord(req.body, 'body').brief));
     res.json({ deliverableId: deliverable.id, brief: store.influencer.deliverableBrief(deliverable.id) });
+  }));
+
+  const deliverableOf = (companyId: string, id: string) => {
+    const deliverable = store.getCampaignDeliverableById(id);
+    if (!deliverable || deliverable.companyId !== companyId) throw new HttpError(404, 'Deliverable not found.');
+    return deliverable;
+  };
+
+  router.get('/companies/:companyId/campaign-deliverables/:id/submissions', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const deliverable = deliverableOf(companyId, req.params.id);
+    res.json(store.influencer.submissions(deliverable.id).map((sub) => ({
+      ...sub,
+      submittedBy: store.portal.getUser(sub.portalUserId)?.name ?? null,
+      reviewedBy: sub.reviewedByUserId ? store.getUserById(sub.reviewedByUserId)?.name ?? null : null,
+      clientReview: store.reviews.clientReviewOf(deliverable.id, sub.contentUrl) ?? null,
+    })));
+  }));
+
+  router.post('/companies/:companyId/campaign-deliverables/:id/submissions/:submissionId/review', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const deliverable = deliverableOf(companyId, req.params.id);
+    const submission = store.influencer.getSubmission(req.params.submissionId);
+    if (!submission || submission.deliverableId !== deliverable.id) throw new HttpError(404, 'Submission not found.');
+    const body = asRecord(req.body, 'body');
+    const decision = enumValue(body.decision, 'decision', ['approved', 'changes_requested'] as const);
+    const comment = typeof body.comment === 'string' && body.comment.trim() ? body.comment.trim().slice(0, 2000) : null;
+    if (decision === 'changes_requested' && (!comment || comment.length < 3)) throw new HttpError(400, 'Say what should change.');
+    if (store.influencer.latestSubmission(deliverable.id)?.id !== submission.id || deliverable.status !== 'Submitted') {
+      throw new HttpError(409, 'Only the latest version, while it is waiting for review, can be reviewed.');
+    }
+    const userId = req.user!.id;
+    const ok = store.transaction(() => {
+      if (!store.influencer.reviewSubmission(submission.id, { decision, comment, userId })) return false;
+      if (decision === 'changes_requested') {
+        store.updateCampaignDeliverable(deliverable.id, { status: 'In Progress' });
+      } else if (!clientApprovalRequired(store, deliverable.campaignId)) {
+        store.updateCampaignDeliverable(deliverable.id, { status: 'Approved' });
+      }
+      store.listFollowupEntities(companyId, { status: 'active', entityType: 'contact', entityId: submission.contactId })
+        .filter((f) => f.sourceTrigger === SUBMISSION_REVIEW_TRIGGER && f.sourceId === submission.id)
+        .forEach((f) => store.completeFollowup(f.id, { outcome: 'done', completedByUserId: userId }));
+      return true;
+    });
+    if (!ok) throw new HttpError(409, 'This version has already been decided.');
+    res.json(store.influencer.getSubmission(submission.id));
   }));
 
   const contactOf = (companyId: string, id: string) => {

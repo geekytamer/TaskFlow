@@ -3,7 +3,8 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { CampaignDeliverable, CrmCampaign } from '../types';
 import { enumValue } from '../validation';
-import { isAwaitingReview, reviewableUrl, toCampaignDetail, toCampaignSummary } from './campaigns';
+import { toCampaignDetail, toCampaignSummary } from './campaigns';
+import { clientApprovalRequired, clientVisibleUrl } from './review-flow';
 import type { PortalSession } from './portal-store';
 import { reviewDecisions } from './reviews-store';
 
@@ -38,11 +39,12 @@ export function registerClientCampaignRoutes(
       contact: store.getContactById(assignment.contactId),
     })),
     deliverables: visibleDeliverables(campaign.id).map((deliverable) => {
-      const url = reviewableUrl(deliverable);
+      const url = clientVisibleUrl(store, deliverable);
       const review = url ? store.reviews.clientReviewOf(deliverable.id, url) : undefined;
       const influencerId = deliverable.vendorContactId ?? deliverable.contactId;
       return {
         deliverable,
+        url,
         influencer: influencerId ? store.getContactById(influencerId) : undefined,
         review,
         reviewerName: review?.portalUserId ? store.portal.getUser(review.portalUserId)?.name : undefined,
@@ -54,8 +56,8 @@ export function registerClientCampaignRoutes(
     res.json(ownCampaigns(req.portal!).map((campaign) => {
       const deliverables = visibleDeliverables(campaign.id);
       const awaiting = deliverables.filter((d) => {
-        const url = reviewableUrl(d);
-        return isAwaitingReview(d) && url !== null && !store.reviews.clientReviewOf(d.id, url);
+        const url = clientVisibleUrl(store, d);
+        return d.status === 'Submitted' && url !== null && !store.reviews.clientReviewOf(d.id, url);
       }).length;
       return toCampaignSummary(campaign, deliverables, awaiting);
     }));
@@ -79,8 +81,12 @@ export function registerClientCampaignRoutes(
       throw new HttpError(400, 'Say what should change.');
     }
 
-    const url = reviewableUrl(deliverable);
-    if (!isAwaitingReview(deliverable) || !url) throw new HttpError(409, 'There is nothing to review on this item yet.');
+    const url = clientVisibleUrl(store, deliverable);
+    if (deliverable.status !== 'Submitted' || !url) throw new HttpError(409, 'There is nothing to review on this item yet.');
+    // When the campaign requires the client's approval, it is the last step: it
+    // completes staff-approved influencer work. Otherwise a review only advises staff.
+    const completes = decision === 'approved' && clientApprovalRequired(store, campaign.id)
+      && store.influencer.latestSubmission(deliverable.id)?.staffDecision === 'approved';
 
     const client = store.getContactById(session.contactId);
     const clientName = client?.name ?? session.name;
@@ -91,6 +97,7 @@ export function registerClientCampaignRoutes(
         companyId, deliverableId: deliverable.id, contentUrl: url, portalUserId: session.portalUserId, decision, comment,
       });
       if (!review) return undefined;
+      if (completes) store.updateCampaignDeliverable(deliverable.id, { status: 'Approved' });
       const title = decision === 'approved'
         ? `${clientName} approved "${deliverable.title}"`
         : `${clientName} asked for changes on "${deliverable.title}"`;

@@ -3879,6 +3879,33 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Versions of an influencer's work on a deliverable. Staff's decision is
+        // recorded on the exact version it was made on.
+        id: '091_deliverable_submissions',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS deliverable_submissions (
+              id               TEXT PRIMARY KEY,
+              companyId        TEXT NOT NULL,
+              deliverableId    TEXT NOT NULL,
+              contactId        TEXT NOT NULL,
+              portalUserId     TEXT NOT NULL,
+              version          INTEGER NOT NULL,
+              contentUrl       TEXT NOT NULL,
+              caption          TEXT,
+              submittedAt      TEXT NOT NULL,
+              staffDecision    TEXT,
+              staffComment     TEXT,
+              reviewedByUserId TEXT,
+              reviewedAt       TEXT,
+              UNIQUE (deliverableId, version),
+              CHECK (staffDecision IS NULL OR staffDecision IN ('approved', 'changes_requested')),
+              CHECK (staffDecision IS NULL OR staffDecision = 'approved' OR staffComment IS NOT NULL)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4036,6 +4063,7 @@ export class DataStore {
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
         DELETE FROM deliverable_reviews;
+        DELETE FROM deliverable_submissions;
         DELETE FROM contact_change_requests;
         DELETE FROM portal_assignment_responses;
         DELETE FROM portal_deliverable_briefs;

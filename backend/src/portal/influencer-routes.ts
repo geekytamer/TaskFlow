@@ -3,13 +3,15 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
 import { asRecord, enumValue } from '../validation';
-import { AVAILABILITY, isVisibleAssignment, parseChanges, toAssignmentDto, toProfileDto } from './influencer';
+import { AVAILABILITY, isVisibleAssignment, paidContactOf, parseChanges, submissionDto, toAssignmentDto, toProfileDto } from './influencer';
+import { safeUrl } from './catalogue';
 import type { PortalSession } from './portal-store';
 
 type SessionRequest = Request & { portal?: PortalSession };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const CHANGE_REVIEW_TRIGGER = 'portal_profile_change';
+export const SUBMISSION_REVIEW_TRIGGER = 'portal_submission';
 
 /** The influencer audience: profile, change requests and assignments. */
 export function registerInfluencerRoutes(router: Router, store: DataStore, companyId: string, requireInfluencerSession: RequestHandler): void {
@@ -75,6 +77,76 @@ export function registerInfluencerRoutes(router: Router, store: DataStore, compa
     }
     return { assignment, campaign: campaign! };
   };
+
+  /** A deliverable this influencer is paid for, on a campaign they have accepted. */
+  const ownWork = (session: PortalSession, id: string) => {
+    const deliverable = store.getCampaignDeliverableById(id);
+    if (!deliverable || deliverable.companyId !== companyId || paidContactOf(deliverable) !== session.contactId || deliverable.status === 'Cancelled') {
+      throw new HttpError(404, 'Not found.');
+    }
+    const campaign = store.getCrmCampaignById(deliverable.campaignId);
+    const assignment = store.listCampaignAssignments(deliverable.campaignId)
+      .find((a) => a.contactId === session.contactId && (a.status === 'Confirmed' || a.status === 'Completed'));
+    if (!assignment || !isVisibleAssignment(assignment, campaign)) throw new HttpError(404, 'Not found.');
+    return { deliverable, campaign: campaign! };
+  };
+
+  const link = (value: unknown, field: string) => {
+    const url = safeUrl(value);
+    if (!url || url.length > 2000) throw new HttpError(400, `${field} must be an http or https link.`);
+    return url;
+  };
+
+  router.post('/influencer/deliverables/:id/start', requireInfluencerSession, (req: SessionRequest, res: Response) => {
+    const session = req.portal!;
+    const { deliverable } = ownWork(session, req.params.id);
+    if (deliverable.status !== 'Planned') throw new HttpError(409, 'This has already been started.');
+    store.runAsActor(actorFor(session, self(session)), () => store.updateCampaignDeliverable(deliverable.id, { status: 'In Progress' }));
+    res.json({ status: 'in_progress' });
+  });
+
+  router.post('/influencer/deliverables/:id/submissions', requireInfluencerSession, (req: SessionRequest, res: Response) => {
+    const session = req.portal!;
+    const contact = self(session);
+    const { deliverable, campaign } = ownWork(session, req.params.id);
+    if (deliverable.status !== 'Planned' && deliverable.status !== 'In Progress') {
+      throw new HttpError(409, deliverable.status === 'Submitted' ? 'Your last version is still being reviewed.' : 'This can no longer be changed.');
+    }
+    const body = asRecord(req.body, 'body');
+    const contentUrl = link(body.contentUrl, 'contentUrl');
+    const caption = typeof body.caption === 'string' && body.caption.trim() ? body.caption.trim().slice(0, 2200) : null;
+    const managerId = managerOf(session, contact, campaign.ownerUserId);
+    const submission = store.transaction(() => store.runAsActor(actorFor(session, contact), () => {
+      const created = store.influencer.addSubmission({ companyId, deliverableId: deliverable.id, contactId: contact.id, portalUserId: session.portalUserId, contentUrl, caption });
+      store.updateCampaignDeliverable(deliverable.id, { status: 'Submitted', contentUrl });
+      const title = `Review ${contact.name}'s "${deliverable.title}" (version ${created.version})`;
+      const followup = store.createFollowup({
+        companyId, entityType: 'contact', entityId: contact.id, title, channel: 'Task', priority: 'high',
+        ownerUserId: managerId, ownerName: managerId ? store.getUserById(managerId)?.name : undefined,
+        dueAt: new Date(Date.now() + DAY_MS), notes: `${campaign.name}: ${contentUrl}`,
+        sourceTrigger: SUBMISSION_REVIEW_TRIGGER, sourceType: 'deliverable_submission', sourceId: created.id,
+      });
+      if (managerId) {
+        store.notify({
+          companyId, userIds: [managerId], type: 'followup_assigned', title,
+          data: { tKey: 'notif.followupAssigned.t', name: title },
+          link: '/crm/campaigns', entityType: 'follow_up', entityId: followup.id,
+        });
+      }
+      return created;
+    }));
+    res.status(201).json(submissionDto(submission));
+  });
+
+  router.post('/influencer/deliverables/:id/publish', requireInfluencerSession, (req: SessionRequest, res: Response) => {
+    const session = req.portal!;
+    const { deliverable } = ownWork(session, req.params.id);
+    const postUrl = link(asRecord(req.body, 'body').postUrl, 'postUrl');
+    if (deliverable.status !== 'Approved') throw new HttpError(409, 'Publish once your content is approved.');
+    store.runAsActor(actorFor(session, self(session)), () =>
+      store.updateCampaignDeliverable(deliverable.id, { status: 'Published', contentUrl: postUrl, publishedAt: new Date() }));
+    res.json({ status: 'published', postUrl });
+  });
 
   router.get('/influencer/assignments', requireInfluencerSession, (req: SessionRequest, res: Response) => {
     const contact = self(req.portal!);
