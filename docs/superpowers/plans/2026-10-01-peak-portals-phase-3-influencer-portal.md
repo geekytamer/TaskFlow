@@ -36,6 +36,11 @@ both languages → `next start`, and is committed working (principles 1, 3).
    follow-ups for the campaign owner plus an in-portal "due soon" item; reminder
    *email* waits for a verified sender domain (still an open input).
 
+8. **A client's request for changes goes to staff, not to the influencer.** The client's
+   words stay with staff (the 2c follow-up); staff relay what they choose by asking
+   for changes themselves, which they may do on a version they approved while the
+   client has not yet approved it.
+
 ## Slices
 
 ### 3a — Profile and assignments
@@ -89,6 +94,15 @@ the Messages and Referrals pages become audience-generic. Staff: brief editor an
 client-approval switch on the campaign, change-request review in the influencer sheet.
 
 ### 3b — Submissions and the review loop
+
+**Status: done and verified 2026-10-01** (`a5a22ac`, `10fb51d`). Backend 370 tests,
+portal 16. Driven through all three apps: influencer submits (a script link refused
+in the browser and by the API), staff ask for changes, the influencer sees the
+comment and sends version 2, staff approve, the client (approval required) sees it
+only then and approves, which completes it, and the influencer marks it published;
+Arabic at phone width; then under `next start`. Found while driving it: both portals
+used one cookie name, so on a shared host one portal's sign-in replaced the other's
+session; each audience now has its own cookie.
 
 Migration: `deliverable_submissions (id, deliverableId, contactId, portalUserId,
 version, contentUrl, caption, submittedAt, staffDecision, staffComment,
