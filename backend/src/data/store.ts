@@ -9,6 +9,7 @@ import { PortalCatalogueStore } from '../portal/catalogue-store';
 import { PortalRequestsStore } from '../portal/requests-store';
 import { DeliverableReviewsStore } from '../portal/reviews-store';
 import { PortalThreadStore } from '../portal/thread-store';
+import { PortalReferralsStore } from '../portal/referrals-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -633,6 +634,7 @@ export class DataStore {
   readonly reviews: DeliverableReviewsStore;
   /** The shared message thread and files between staff and a portal contact. */
   readonly thread: PortalThreadStore;
+  readonly referrals: PortalReferralsStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -661,6 +663,7 @@ export class DataStore {
     this.requests = new PortalRequestsStore(this.db);
     this.reviews = new DeliverableReviewsStore(this.db);
     this.thread = new PortalThreadStore(this.db);
+    this.referrals = new PortalReferralsStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3776,6 +3779,55 @@ export class DataStore {
           `);
         },
       },
+      {
+        id: '089_portal_referrals',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_referrals (
+              id                   TEXT PRIMARY KEY,
+              companyId            TEXT NOT NULL,
+              referrerContactId    TEXT NOT NULL,
+              referrerPortalUserId TEXT NOT NULL,
+              prospectName         TEXT NOT NULL,
+              prospectContact      TEXT NOT NULL,
+              description          TEXT NOT NULL,
+              estimatedValue       REAL,
+              currency             TEXT NOT NULL,
+              status               TEXT NOT NULL DEFAULT 'submitted',
+              staffNote            TEXT,
+              opportunityId        TEXT,
+              prospectContactId    TEXT,
+              reviewedByUserId     TEXT,
+              reviewedAt           TEXT,
+              createdAt            TEXT NOT NULL,
+              CHECK (status IN ('submitted', 'converted', 'declined')),
+              CHECK (status <> 'converted' OR opportunityId IS NOT NULL)
+            );
+            CREATE INDEX IF NOT EXISTS idx_portal_referrals_referrer ON portal_referrals (companyId, referrerContactId, createdAt);
+            CREATE TABLE IF NOT EXISTS referral_commissions (
+              id                TEXT PRIMARY KEY,
+              companyId         TEXT NOT NULL,
+              referralId        TEXT NOT NULL UNIQUE,
+              referrerContactId TEXT NOT NULL,
+              basis             TEXT NOT NULL,
+              ratePercent       REAL,
+              fixedAmount       REAL,
+              payoutType        TEXT NOT NULL,
+              status            TEXT NOT NULL DEFAULT 'pending',
+              amount            REAL,
+              payoutRefId       TEXT UNIQUE,
+              approvedByUserId  TEXT,
+              approvedAt        TEXT,
+              createdAt         TEXT NOT NULL,
+              updatedAt         TEXT NOT NULL,
+              CHECK (basis IN ('percent', 'fixed')),
+              CHECK (payoutType IN ('vendor_bill', 'credit_note')),
+              CHECK (status IN ('pending', 'approved', 'voided')),
+              CHECK ((basis = 'percent' AND ratePercent > 0 AND ratePercent <= 100) OR (basis = 'fixed' AND fixedAmount > 0))
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -3933,6 +3985,8 @@ export class DataStore {
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
         DELETE FROM deliverable_reviews;
+        DELETE FROM referral_commissions;
+        DELETE FROM portal_referrals;
         DELETE FROM account_messages;
         DELETE FROM portal_files;
         DELETE FROM record_attachments;

@@ -5,6 +5,7 @@ import type { SanitizedUser } from '../types';
 import { asRecord, enumValue, requiredString } from '../validation';
 import { pricingModes } from './catalogue-store';
 import { downloadHeaders, readUpload } from './files';
+import { registerStaffReferralRoutes } from './staff-referral-routes';
 import { afterStaffMessage, fileDto, parseMessage, staffMessageDto } from './thread';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
@@ -216,6 +217,8 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     if (!file || file.companyId !== companyId) throw new HttpError(404, 'File not found.');
     res.set(downloadHeaders(file)).send(store.thread.fileContent(file.id));
   }));
+
+  registerStaffReferralRoutes(router, store, authMiddleware, authorize, wrap);
 
   return router;
 }

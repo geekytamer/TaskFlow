@@ -7,6 +7,7 @@ import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './clien
 import { registerClientCampaignRoutes } from './client-campaigns-routes';
 import { registerClientRequestRoutes } from './client-requests-routes';
 import { registerThreadRoutes } from './thread-routes';
+import { registerReferralRoutes } from './referral-routes';
 import { toBrandingDto, toMeDto, type PortalBranding } from './dto';
 import { portalAudiences, type PortalAudience, type PortalSession, type PortalStore } from './portal-store';
 
@@ -138,6 +139,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerClientCampaignRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
+    registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
   }
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
