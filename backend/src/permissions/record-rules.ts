@@ -55,6 +55,10 @@ export const RECORD_RULES = {
     module: 'contacts', action: 'portal.manage', roles: ['Admin', 'Manager'],
     description: 'Invite, re-invite, disable and enable portal users for clients and influencers.',
   },
+  GAMES_MANAGE: {
+    module: 'campaigns', action: 'games.manage', roles: ['Admin'],
+    description: 'Create and run engagement games: metrics, awards, exclusions, viewers, publishing and reopening.',
+  },
   CRM_ALL_READ: {
     module: 'crm', action: 'all.read', roles: MANAGEMENT,
     description: "See everyone's follow-ups, opportunities, proposals and vendor requests.",

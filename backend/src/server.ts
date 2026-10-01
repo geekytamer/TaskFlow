@@ -25,6 +25,9 @@ import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-
 import { createPortalRouter } from './portal/routes';
 import { createPortalStaffRouter } from './portal/staff-routes';
 import { sweepPortalDeliverableReminders } from './portal/reminders';
+import { createGamesStaffRouter } from './games/staff-routes';
+import { createPublicGamesRouter } from './games/public-routes';
+import { ensureFrozen } from './games/games';
 import type { PortalPdfRenderer } from './portal/client-billing-routes';
 import {
   influencerPlatforms,
@@ -693,6 +696,8 @@ export function createServer(options: CreateServerOptions = {}) {
         const portalCompany = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
         const portalDue = portalCompany && store.getCompanyById(portalCompany) ? sweepPortalDeliverableReminders(store, portalCompany) : 0;
         if (portalDue > 0) logger.info(`[portal] ${portalDue} deliverable due-soon reminder(s)`);
+        // Freeze games that ended since the last sweep, even if nobody looked at them.
+        if (portalCompany && store.getCompanyById(portalCompany)) store.games.list(portalCompany).forEach((g) => ensureFrozen(store, g));
         if (tasks + followups + overdue + lowStock + expiring > 0) {
           logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock, ${expiring} expiry`);
         }
@@ -8534,6 +8539,15 @@ export function createServer(options: CreateServerOptions = {}) {
         appPublicUrl: process.env.APP_PUBLIC_URL || 'http://localhost:3000',
       }),
     );
+    // Engagement games exist only for the portal company (see the G1 plan).
+    app.use('/public-api', createPublicGamesRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
+    app.use(createGamesStaffRouter({
+      store,
+      companyId: portalCompanyId,
+      authMiddleware: authMiddleware as unknown as RequestHandler,
+      requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+      canManageGames: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'GAMES_MANAGE'),
+    }));
   }
 
   const portalHost = (audience: 'client' | 'influencer') =>

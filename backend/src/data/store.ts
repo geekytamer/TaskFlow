@@ -11,6 +11,7 @@ import { DeliverableReviewsStore } from '../portal/reviews-store';
 import { PortalThreadStore } from '../portal/thread-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
+import { GamesStore } from '../games/games-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -637,6 +638,7 @@ export class DataStore {
   readonly thread: PortalThreadStore;
   readonly referrals: PortalReferralsStore;
   readonly influencer: InfluencerPortalStore;
+  readonly games: GamesStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -667,6 +669,7 @@ export class DataStore {
     this.thread = new PortalThreadStore(this.db);
     this.referrals = new PortalReferralsStore(this.db);
     this.influencer = new InfluencerPortalStore(this.db);
+    this.games = new GamesStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -3906,6 +3909,93 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Engagement games (G1: manual points). Status is derived from the clock;
+        // only frozen results are stored. GAMES_MANAGE goes to existing built-in
+        // groups for exactly the roles that hold it.
+        id: '092_games',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS games (
+              id              TEXT PRIMARY KEY,
+              companyId       TEXT NOT NULL,
+              slug            TEXT NOT NULL,
+              name            TEXT NOT NULL,
+              nameAr          TEXT,
+              rules           TEXT,
+              rulesAr         TEXT,
+              prize           TEXT,
+              prizeAr         TEXT,
+              visibility      TEXT NOT NULL DEFAULT 'public',
+              startsAt        TEXT NOT NULL,
+              endsAt          TEXT NOT NULL,
+              publishedAt     TEXT,
+              archivedAt      TEXT,
+              frozenAt        TEXT,
+              createdByUserId TEXT NOT NULL,
+              createdAt       TEXT NOT NULL,
+              updatedAt       TEXT NOT NULL,
+              UNIQUE (companyId, slug),
+              CHECK (visibility IN ('public', 'restricted')),
+              CHECK (endsAt > startsAt)
+            );
+            CREATE TABLE IF NOT EXISTS game_metrics (
+              gameId    TEXT NOT NULL,
+              metricKey TEXT NOT NULL,
+              weight    REAL NOT NULL,
+              params    TEXT NOT NULL,
+              PRIMARY KEY (gameId, metricKey)
+            );
+            CREATE TABLE IF NOT EXISTS game_awards (
+              id          TEXT PRIMARY KEY,
+              gameId      TEXT NOT NULL,
+              actorKey    TEXT NOT NULL,
+              actorHandle TEXT NOT NULL,
+              points      REAL NOT NULL,
+              reason      TEXT NOT NULL,
+              byUserId    TEXT NOT NULL,
+              createdAt   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_game_awards_game ON game_awards (gameId, createdAt);
+            CREATE TABLE IF NOT EXISTS game_actor_rules (
+              gameId      TEXT NOT NULL,
+              actorKey    TEXT NOT NULL,
+              actorHandle TEXT NOT NULL,
+              kind        TEXT NOT NULL,
+              reason      TEXT NOT NULL,
+              byUserId    TEXT NOT NULL,
+              createdAt   TEXT NOT NULL,
+              PRIMARY KEY (gameId, actorKey),
+              CHECK (kind IN ('exclude', 'disqualify'))
+            );
+            CREATE TABLE IF NOT EXISTS game_results (
+              gameId      TEXT NOT NULL,
+              actorKey    TEXT NOT NULL,
+              actorHandle TEXT NOT NULL,
+              rank        INTEGER NOT NULL,
+              points      REAL NOT NULL,
+              breakdown   TEXT NOT NULL,
+              frozenAt    TEXT NOT NULL,
+              PRIMARY KEY (gameId, actorKey)
+            );
+            CREATE TABLE IF NOT EXISTS game_viewers (
+              gameId      TEXT NOT NULL,
+              subjectType TEXT NOT NULL,
+              subjectId   TEXT NOT NULL,
+              PRIMARY KEY (gameId, subjectType, subjectId),
+              CHECK (subjectType IN ('user', 'portal_user'))
+            );
+          `);
+          const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
+          const rule = RECORD_RULES.GAMES_MANAGE;
+          const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+          (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
+            .forEach((group) => {
+              const role = roleByKey[group.key];
+              if (role && (rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
+            });
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4063,6 +4153,12 @@ export class DataStore {
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
         DELETE FROM deliverable_reviews;
+        DELETE FROM game_viewers;
+        DELETE FROM game_results;
+        DELETE FROM game_actor_rules;
+        DELETE FROM game_awards;
+        DELETE FROM game_metrics;
+        DELETE FROM games;
         DELETE FROM deliverable_submissions;
         DELETE FROM contact_change_requests;
         DELETE FROM portal_assignment_responses;

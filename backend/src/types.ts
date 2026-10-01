@@ -1636,7 +1636,8 @@ export interface ActivityEvent {
     | 'rfq'
     | 'work_order'
     | 'document'
-    | 'whatsapp_message';
+    | 'whatsapp_message'
+    | 'game';
   entityId: string;
   action: string;
   summary: string;

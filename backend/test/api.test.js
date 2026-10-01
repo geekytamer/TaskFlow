@@ -1293,6 +1293,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '089_portal_referrals',
     '090_influencer_portal',
     '091_deliverable_submissions',
+    '092_games',
   ]);
 });
 

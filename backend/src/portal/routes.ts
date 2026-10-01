@@ -9,6 +9,7 @@ import { registerClientRequestRoutes } from './client-requests-routes';
 import { registerThreadRoutes } from './thread-routes';
 import { registerReferralRoutes } from './referral-routes';
 import { registerInfluencerRoutes } from './influencer-routes';
+import { registerPortalGameRoutes } from '../games/portal-routes';
 import { registerClientBillingRoutes, type PortalPdfRenderer } from './client-billing-routes';
 import { toBrandingDto, toMeDto, type PortalBranding } from './dto';
 import { portalAudiences, type PortalAudience, type PortalSession, type PortalStore } from './portal-store';
@@ -147,6 +148,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
+    registerPortalGameRoutes(router, options.requestsStore, companyId, requireSession);
     if (options.pdf) {
       registerClientBillingRoutes(router, options.requestsStore, companyId, requireSessionFor('client'), {
         pdf: options.pdf,
