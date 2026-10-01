@@ -40,6 +40,14 @@ both languages → `next start`, and is committed working (principles 1, 3).
 
 ### 3a — Profile and assignments
 
+**Status: done and verified 2026-10-01** (`961fccb`, `a8db7d6`). Backend 362 tests,
+portal 16. Driven in the browser in Arabic and English: accept with briefs revealed
+after, a change request (rate card + new TikTok account) approved from the staff
+sheet and shown as approved to the influencer, the campaign's Portal tab; then under
+`next start` on the influencer host, where client-only pages and writes answer 404.
+Found while driving it: the staff sheet kept the pre-approval values in its form, so
+saving it afterwards would have reverted an approved change; it now reloads.
+
 Migration `090_influencer_portal`: `portal_campaign_briefs`, `portal_deliverable_briefs`,
 `portal_assignment_responses (assignmentId UNIQUE, portalUserId, decision, reason)`,
 `contact_change_requests (id, companyId, contactId, portalUserId, changes JSON, status
