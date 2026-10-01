@@ -2,13 +2,29 @@ import Link from 'next/link';
 import type { Audience } from '@/lib/audience';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { CampaignSummary } from '@/lib/campaigns';
-import type { Assignment } from '@/lib/influencer';
+import type { Assignment, Payout } from '@/lib/influencer-types';
+import { formatDate } from '@/lib/format';
+import { PayoutList } from './payout-list';
 import type { Me } from '@/lib/portal';
 import { StatusBadge } from './status-badge';
 
+export interface AttentionItem {
+  key: string;
+  kind: 'changes' | 'due' | 'replied';
+  title: string;
+  detail: string;
+  dueDate?: string | null;
+  href: string;
+}
+
+const ATTENTION_LABEL: Record<AttentionItem['kind'], Key> = { changes: 'dash.changes', due: 'dash.dueSoon', replied: 'dash.replied' };
+
 export function Dashboard({
-  me, lang, audience, waiting, campaigns = [], assignments = [],
-}: { me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string }; campaigns?: CampaignSummary[]; assignments?: Assignment[] }) {
+  me, lang, audience, waiting, campaigns = [], assignments = [], attention = [], payouts = [],
+}: {
+  me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string }; campaigns?: CampaignSummary[];
+  assignments?: Assignment[]; attention?: AttentionItem[]; payouts?: Payout[];
+}) {
   const toAnswer = assignments.find((a) => a.status === 'awaiting_reply');
   const active = assignments.filter((a) => a.status === 'confirmed');
   const toReview = campaigns.find((c) => c.deliverables.awaitingReview > 0);
@@ -50,6 +66,29 @@ export function Dashboard({
         </section>
       )}
 
+      {attention.length > 0 && (
+        <section aria-labelledby="attention-title">
+          <h2 id="attention-title" className="mb-3 text-base font-semibold">{t(lang, 'dash.attention')}</h2>
+          <ul className="divide-y divide-line border-y border-line">
+            {attention.map((item) => (
+              <li key={item.key}>
+                <Link href={item.href} className="flex items-center justify-between gap-4 px-1 py-4 hover:bg-surface sm:px-3">
+                  <span className="min-w-0">
+                    <span className={`block text-sm font-semibold ${item.kind === 'changes' ? 'text-danger' : 'text-accent'}`}>
+                      {t(lang, ATTENTION_LABEL[item.kind])}
+                      {item.dueDate && <span className="ms-2 font-normal text-ink-soft"><bdi>{formatDate(item.dueDate, lang)}</bdi></span>}
+                    </span>
+                    {item.title && <span dir="auto" className="block truncate font-medium">{item.title}</span>}
+                    <span dir="auto" className="block truncate text-sm text-ink-soft">{item.detail}</span>
+                  </span>
+                  <span aria-hidden="true" className="text-ink-soft">{lang === 'ar' ? '‹' : '›'}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {active.length > 0 && (
         <section aria-labelledby="active-title">
           <h2 id="active-title" className="mb-3 text-base font-semibold">{t(lang, 'dash.yourAssignments')}</h2>
@@ -63,6 +102,16 @@ export function Dashboard({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {payouts.length > 0 && (
+        <section aria-labelledby="payouts-title">
+          <div className="mb-3 flex items-baseline justify-between gap-4">
+            <h2 id="payouts-title" className="text-base font-semibold">{t(lang, 'dash.recentPayouts')}</h2>
+            <Link href="/payouts" className="text-sm font-medium underline underline-offset-4">{t(lang, 'dash.allPayouts')}</Link>
+          </div>
+          <PayoutList payouts={payouts} lang={lang} />
         </section>
       )}
 

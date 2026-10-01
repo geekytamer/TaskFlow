@@ -67,3 +67,16 @@ export interface Assignment {
   respondedAt: string | null;
 }
 
+
+export interface Payout {
+  id: string;
+  number: string;
+  kind: 'campaign' | 'referral';
+  label: string;
+  items: string[];
+  amount: number;
+  currency: string;
+  dueDate: string | null;
+  status: 'pending' | 'approved' | 'paid';
+  paidAt: string | null;
+}
