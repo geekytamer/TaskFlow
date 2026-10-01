@@ -7,6 +7,19 @@ Builds on: `2026-09-24-engagement-games-design.md` (G1), roadmap Phase 5.
 G1 ships a usable game on `manual_points` alone: no collector, no platform access, no
 social worker. Contracts and tests only; code is written against the real files.
 
+## Status
+
+**Done and verified 2026-10-01** (`2075a16`, `f6cd042`, `84edcde`). Backend 392 tests
+(games guards mutation-checked: restricted visibility, exclusions on the public board,
+freezing, the admin rule), portal 17. Driven through all four apps: an admin builds and
+publishes a game, awards points (including a correction) and disqualifies a spammer
+from the staff Games page; the public lobby host (no accounts) shows the board without
+the spammer, closes sign-in, files and every portal page, and 404s the restricted game;
+the client portal lists the public game under Games. Production build checked on the
+lobby host. Not in G1, as planned: sources, collectors and the social worker (G2),
+hide requests and winner records (G3), and a viewer picker in the staff UI (restricted
+games' viewers are set through the API for now).
+
 ## Amendments to the games design, from reading the code (2026-10-01)
 
 1. **No new permission module.** A `games` entry in the shared catalogue would be on

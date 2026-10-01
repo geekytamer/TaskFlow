@@ -154,6 +154,8 @@ tracked; an overdue installment raises a follow-up.
 
 ## Phase 5 — Reach
 
+**Status: games G1 (manual points, staff UI, portal lobby, public lobby host) complete 2026-10-01**; see the G1 plan. The feasibility spike, connected accounts and collectors still need Peak's Meta developer account and platform list.
+
 **Delivers.** The platform feasibility spike; `connected_accounts` with encryption,
 the social worker, follower and engagement sync with verified badges; the games
 module with manual points, scoring, the public lobby and result freezing; then the
