@@ -9,6 +9,7 @@ import { registerClientRequestRoutes } from './client-requests-routes';
 import { registerThreadRoutes } from './thread-routes';
 import { registerReferralRoutes } from './referral-routes';
 import { registerInfluencerRoutes } from './influencer-routes';
+import { registerClientBillingRoutes, type PortalPdfRenderer } from './client-billing-routes';
 import { toBrandingDto, toMeDto, type PortalBranding } from './dto';
 import { portalAudiences, type PortalAudience, type PortalSession, type PortalStore } from './portal-store';
 
@@ -31,6 +32,10 @@ export interface PortalRouterOptions {
   catalogue?: ClientCatalogueDeps;
   /** Campaign requests and proposals. Absent: those routes do not exist. */
   requestsStore?: DataStore;
+  /** Renders invoices, receipts and statements. Absent: the billing routes do not exist. */
+  pdf?: PortalPdfRenderer;
+  /** Where the staff app serves the public invoice page the invoice PDF is rendered from. */
+  appPublicUrl?: string;
 }
 
 const bearerToken = (req: Request) => {
@@ -142,6 +147,12 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
+    if (options.pdf) {
+      registerClientBillingRoutes(router, options.requestsStore, companyId, requireSessionFor('client'), {
+        pdf: options.pdf,
+        appPublicUrl: (options.appPublicUrl ?? 'http://localhost:3000').replace(/\/$/, ''),
+      });
+    }
   }
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {

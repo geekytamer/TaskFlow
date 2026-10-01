@@ -7,7 +7,7 @@ import { DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
 import type { Notification, NotificationPrefs, VendorBill } from './types';
-import { renderInvoicePdf } from './pdf/invoice-pdf';
+import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import {
   PermissionService,
   AuthzUnavailableError,
@@ -25,6 +25,7 @@ import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-
 import { createPortalRouter } from './portal/routes';
 import { createPortalStaffRouter } from './portal/staff-routes';
 import { sweepPortalDeliverableReminders } from './portal/reminders';
+import type { PortalPdfRenderer } from './portal/client-billing-routes';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -206,6 +207,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   portalCompanyId?: string;
   /** Sends portal invitation emails. Overridden in tests. */
   sendPortalInvite?: PortalInviteSender;
+  /** Document renderer for the client portal's invoices, receipts and statements. Tests pass a fake. */
+  portalPdf?: PortalPdfRenderer;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -8524,6 +8527,11 @@ export function createServer(options: CreateServerOptions = {}) {
           currency: (companyId) => store.getCompanyFinanceSettings(companyId).currencyCode,
         },
         requestsStore: store,
+        pdf: options.portalPdf ?? {
+          invoice: (url, format, landscape) => renderInvoicePdf({ url, format, landscape }),
+          html: renderHtmlPdf,
+        },
+        appPublicUrl: process.env.APP_PUBLIC_URL || 'http://localhost:3000',
       }),
     );
   }

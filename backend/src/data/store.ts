@@ -15077,6 +15077,11 @@ export class DataStore {
       }));
   }
 
+  getPaymentById(id: string): Payment | undefined {
+    const row = this.db.prepare('SELECT * FROM payments WHERE id = ?').get(id) as any;
+    return row ? { ...row, paidAt: new Date(row.paidAt) } : undefined;
+  }
+
   listPayments(invoiceId: string): Payment[] {
     const rows = this.db
       .prepare('SELECT * FROM payments WHERE invoiceId = ? ORDER BY paidAt ASC')

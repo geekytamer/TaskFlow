@@ -87,3 +87,33 @@ export async function closePdfBrowser(): Promise<void> {
   const browser = await pending.catch(() => null);
   if (browser) await browser.close().catch(() => undefined);
 }
+
+/**
+ * Renders a self-contained HTML document to PDF. Used for documents built on the
+ * server (receipts, statements). JavaScript is off and every network request is
+ * refused, so nothing in the document can make the server fetch a URL.
+ */
+export async function renderHtmlPdf(html: string): Promise<Buffer> {
+  const attempt = async () => {
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setJavaScriptEnabled(false);
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        void req.abort();
+      });
+      await page.setContent(html, { waitUntil: 'load', timeout: 15_000 });
+      await page.emulateMediaType('print');
+      return Buffer.from(await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true }));
+    } finally {
+      await page.close().catch(() => undefined);
+    }
+  };
+  try {
+    return await attempt();
+  } catch {
+    browserPromise = null;
+    return attempt();
+  }
+}
