@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { VerifiedMark } from '@/components/verified-mark';
 import { PriceTag } from '@/components/price-tag';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
 import { catalogueQuery, formatCompact, listSep } from '@/lib/format';
@@ -51,6 +52,7 @@ function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
             <li key={`${p.platform}-${p.handle ?? ''}`} className="rounded-md border border-line bg-surface px-2 py-1 text-sm">
               <bdi className="font-medium">{p.platform}</bdi>
               <bdi className="ms-1.5 tabular-nums text-ink-soft">{formatCompact(p.followers, lang)}</bdi>
+              {p.verified && <span className="ms-1.5 align-middle"><VerifiedMark asOf={p.verified.asOf} lang={lang} compact /></span>}
             </li>
           ))}
         </ul>

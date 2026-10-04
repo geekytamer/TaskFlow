@@ -8,15 +8,15 @@ import crypto from 'node:crypto';
 
 type Keyring = { sealWith: string; keys: Map<string, Buffer> };
 
-let devKey: Buffer | undefined;
+// Development and tests only: a fixed key, so tokens survive restarts of the
+// local server. Production refuses to run without SOCIAL_TOKEN_KEYS.
+const DEV_KEY = crypto.createHash('sha256').update('taskflow-social-dev-key-not-for-production').digest();
 
 function keyring(): Keyring {
   const raw = process.env.SOCIAL_TOKEN_KEYS?.trim();
   if (!raw) {
     if (process.env.NODE_ENV === 'production') throw new Error('SOCIAL_TOKEN_KEYS must be set in production.');
-    // Development and tests only: a key that lives as long as the process.
-    devKey ??= crypto.randomBytes(32);
-    return { sealWith: 'dev', keys: new Map([['dev', devKey]]) };
+    return { sealWith: 'dev', keys: new Map([['dev', DEV_KEY]]) };
   }
   const keys = new Map<string, Buffer>();
   let sealWith = '';

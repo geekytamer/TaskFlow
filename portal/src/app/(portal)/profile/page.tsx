@@ -1,15 +1,22 @@
 import { AvailabilitySwitch } from '@/components/availability-switch';
+import { ConnectedAccounts } from '@/components/connected-accounts';
+import { getSocialAccounts } from '@/lib/social';
 import { ProfileChangeForm } from '@/components/profile-change-form';
 import { formatCompact, formatMoney, formatPercent, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t } from '@/lib/i18n';
+import { t, type Key } from '@/lib/i18n';
 import { getProfile } from '@/lib/influencer';
 import { currentLang } from '@/lib/session';
 
-export default async function ProfilePage() {
+export default async function ProfilePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireAudience('influencer');
   const lang = await currentLang();
-  const profile = await getProfile();
+  const [profile, accounts, params] = await Promise.all([getProfile(), getSocialAccounts().catch(() => null), searchParams]);
+  // Back from Instagram: ?connected=instagram, with &error=... when it did not work.
+  const notice: Key | null = params.connected !== 'instagram' ? null
+    : params.error === 'personal_account' ? 'social.errPersonal'
+    : params.error ? 'social.errCancelled'
+    : 'social.connected';
   const dash = '-';
 
   return (
@@ -20,6 +27,8 @@ export default async function ProfilePage() {
       </header>
 
       <AvailabilitySwitch lang={lang} value={profile.availability} />
+
+      {accounts && <ConnectedAccounts lang={lang} accounts={accounts} notice={notice} />}
 
       <section aria-labelledby="details-title" className="space-y-3">
         <h2 id="details-title" className="text-lg font-semibold tracking-tight">{t(lang, 'prof.details')}</h2>

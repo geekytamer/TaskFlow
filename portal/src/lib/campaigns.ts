@@ -29,9 +29,12 @@ export interface Deliverable {
   publishedAt: string | null;
   influencer: string | null;
   review: { decision: 'approved' | 'changes_requested'; comment: string | null; by: string | null; at: string } | null;
+  results: (import('@/components/results-figures').Figures & { checkpoint: '24h' | '7d' | '30d'; verified: true }) | null;
 }
 
 export interface Campaign {
+  /** Totals over posts with verified results; null when none yet. */
+  results: (import('@/components/results-figures').Figures & { posts: number }) | null;
   id: string;
   name: string;
   status: CampaignStatus;

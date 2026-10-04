@@ -7,6 +7,7 @@ export interface CataloguePlatform {
   followers: number | null;
   avgViews: number | null;
   engagementRate: number | null;
+  verified: { asOf: string } | null;
 }
 
 export type PriceView =

@@ -38,13 +38,13 @@ test('keys rotate: the first key seals, every listed key still opens', () => {
   assert.throws(() => load().openToken(old), /unknown key/i);
 });
 
-test('production refuses to run without keys; development uses a throwaway key', () => {
+test('production refuses to run without keys; development uses a fixed key that survives restarts', () => {
   const env = process.env.NODE_ENV;
   delete process.env.SOCIAL_TOKEN_KEYS;
   process.env.NODE_ENV = 'production';
   assert.throws(() => load().sealToken('x'), /SOCIAL_TOKEN_KEYS/);
   process.env.NODE_ENV = 'test';
-  const { sealToken, openToken } = load();
-  assert.equal(openToken(sealToken('x')), 'x');
+  const sealed = load().sealToken('x');
+  assert.equal(load().openToken(sealed), 'x', 'a fresh module (a restarted server) still opens it');
   process.env.NODE_ENV = env;
 });

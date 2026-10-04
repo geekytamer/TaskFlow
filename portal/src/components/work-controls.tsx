@@ -6,6 +6,7 @@ import { formatDateTime } from '@/lib/format';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { AssignmentDeliverable } from '@/lib/influencer-types';
 import { primaryButton } from './field';
+import { ResultsFigures } from './results-figures';
 
 const control =
   'w-full rounded-[10px] border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
@@ -65,9 +66,17 @@ export function WorkControls({ lang, item }: { lang: Lang; item: AssignmentDeliv
   );
 
   if (item.status === 'published') {
-    return item.postUrl
-      ? <a href={item.postUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{t(lang, 'work.viewPost')}</a>
-      : null;
+    return (
+      <div className="space-y-1">
+        {item.postUrl && <a href={item.postUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{t(lang, 'work.viewPost')}</a>}
+        {item.results && (
+          <>
+            <p className="text-xs text-ink-soft">{t(lang, `social.after.${item.results.checkpoint}` as Key)}</p>
+            <ResultsFigures figures={item.results} lang={lang} />
+          </>
+        )}
+      </div>
+    );
   }
 
   if (item.status === 'submitted') {

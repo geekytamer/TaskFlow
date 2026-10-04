@@ -54,6 +54,7 @@ export interface AssignmentDeliverable {
   latestSubmission: SubmissionView | null;
   waitingFor: 'team' | 'client' | null;
   postUrl: string | null;
+  results: { checkpoint: '24h' | '7d' | '30d'; views: number; likes: number; comments: number; saves: number; shares: number } | null;
 }
 
 export interface Assignment {

@@ -2,12 +2,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { DeliverableReview } from '@/components/deliverable-review';
 import { InvoiceList } from '@/components/invoice-list';
+import { ResultsFigures } from '@/components/results-figures';
+import { VerifiedMark } from '@/components/verified-mark';
 import { getStatement, statementHref } from '@/lib/billing';
 import { StatusBadge } from '@/components/status-badge';
 import { deliverableView, getCampaign } from '@/lib/campaigns';
 import { formatDate, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t } from '@/lib/i18n';
+import { t, type Key } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
 import { backLink } from '@/components/field';
 
@@ -46,6 +48,17 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         )}
       </header>
 
+      {campaign.results && (
+        <section aria-labelledby="results-title" className="space-y-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h2 id="results-title" className="text-base font-semibold">{t(lang, 'social.results')}</h2>
+            <span className="text-sm text-ink-soft">{t(lang, 'social.posts').replace('{n}', String(campaign.results.posts))}</span>
+            <VerifiedMark lang={lang} compact />
+          </div>
+          <ResultsFigures figures={campaign.results} lang={lang} size="lg" />
+        </section>
+      )}
+
       <section aria-labelledby="content-title">
         <h2 id="content-title" className="mb-3 text-base font-semibold">{t(lang, 'camp.content')}</h2>
         {campaign.deliverables.length === 0 ? (
@@ -67,6 +80,12 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                     <a href={d.contentUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-medium underline underline-offset-4">
                       {t(lang, 'camp.open')}
                     </a>
+                  )}
+                  {d.results && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs text-ink-soft">{t(lang, `social.after.${d.results.checkpoint}` as Key)}</p>
+                      <ResultsFigures figures={d.results} lang={lang} />
+                    </div>
                   )}
                   {d.review && (
                     <p className="text-sm">

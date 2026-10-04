@@ -8,6 +8,7 @@ import { t } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
 import { currentLang } from '@/lib/session';
 import { backLink } from '@/components/field';
+import { VerifiedMark } from '@/components/verified-mark';
 
 export default async function InfluencerPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -81,7 +82,10 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
                         <bdi dir="ltr">{p.handle ?? '-'}</bdi>
                       )}
                     </td>
-                    <td className="py-3 pe-4 text-end tabular-nums"><bdi>{formatCompact(p.followers, lang)}</bdi></td>
+                    <td className="py-3 pe-4 text-end tabular-nums">
+                      <bdi>{formatCompact(p.followers, lang)}</bdi>
+                      {p.verified && <span className="mt-0.5 block"><VerifiedMark asOf={p.verified.asOf} lang={lang} /></span>}
+                    </td>
                     <td className="py-3 pe-4 text-end tabular-nums"><bdi>{formatCompact(p.avgViews, lang)}</bdi></td>
                     <td className="py-3 text-end tabular-nums"><bdi>{formatPercent(p.engagementRate, lang)}</bdi></td>
                   </tr>
