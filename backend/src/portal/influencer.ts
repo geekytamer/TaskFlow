@@ -14,6 +14,7 @@ import {
 import { safeUrl } from './catalogue';
 import type { ChangeRequest, ProfileChanges, Submission } from './influencer-store';
 import { waitingFor } from './review-flow';
+import { resultsDto } from '../social/results';
 import { iso } from './common';
 
 export const AVAILABILITY = ['Available', 'Partially Available', 'Unavailable'] as const;
@@ -178,6 +179,7 @@ export function toAssignmentDto(store: DataStore, assignment: CampaignAssignment
       latestSubmission: submissionDto(store.influencer.latestSubmission(d.id)),
       waitingFor: waitingFor(store, d),
       postUrl: d.status === 'Published' ? safeUrl(d.contentUrl) : null,
+      results: d.status === 'Published' ? resultsDto(store, d.id) : null,
     }));
   return {
     id: assignment.id,

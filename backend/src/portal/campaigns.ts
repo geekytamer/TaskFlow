@@ -9,6 +9,7 @@ import type {
 import { safeUrl } from './catalogue';
 import type { DeliverableReview } from './reviews-store';
 import { iso } from './common';
+import { resultsDto, resultsTotals } from '../social/results';
 
 const CAMPAIGN_STATUS: Record<CampaignStatus, string> = {
   Planned: 'planned',
@@ -62,7 +63,7 @@ export function toCampaignDetail(input: {
   campaign: CrmCampaign;
   assignments: Array<{ assignment: CampaignAssignment; contact: Contact | undefined }>;
   /** `url` is what the client may open now; null hides the content (see review-flow.ts). */
-  deliverables: Array<{ deliverable: CampaignDeliverable; url: string | null; influencer: Contact | undefined; review: DeliverableReview | undefined; reviewerName: string | undefined }>;
+  deliverables: Array<{ deliverable: CampaignDeliverable; url: string | null; influencer: Contact | undefined; review: DeliverableReview | undefined; reviewerName: string | undefined; results: ReturnType<typeof resultsDto> }>;
 }) {
   const { campaign } = input;
   return {
@@ -74,7 +75,8 @@ export function toCampaignDetail(input: {
     influencers: input.assignments
       .filter(({ assignment, contact }) => assignment.role === 'Influencer' && CONFIRMED.includes(assignment.status) && contact)
       .map(({ contact }) => ({ name: contact!.name, handle: handleOf(contact!) })),
-    deliverables: input.deliverables.map(({ deliverable, url, influencer, review, reviewerName }) => ({
+    results: resultsTotals(input.deliverables.map((d) => d.results)),
+    deliverables: input.deliverables.map(({ deliverable, url, influencer, review, reviewerName, results }) => ({
       id: deliverable.id,
       title: deliverable.title,
       platform: deliverable.platform ?? null,
@@ -87,6 +89,7 @@ export function toCampaignDetail(input: {
       review: review
         ? { decision: review.decision, comment: review.comment, by: reviewerName ?? null, at: review.createdAt }
         : null,
+      results,
     })),
   };
 }

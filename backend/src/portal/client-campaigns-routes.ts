@@ -5,6 +5,7 @@ import type { CampaignDeliverable, CrmCampaign } from '../types';
 import { enumValue } from '../validation';
 import { toCampaignDetail, toCampaignSummary } from './campaigns';
 import { clientApprovalRequired, clientVisibleUrl } from './review-flow';
+import { resultsDto } from '../social/results';
 import type { PortalSession } from './portal-store';
 import { managerOf, notifyManager, raiseFollowup, type SessionRequest } from './common';
 import { reviewDecisions } from './reviews-store';
@@ -47,6 +48,7 @@ export function registerClientCampaignRoutes(
         influencer: influencerId ? store.getContactById(influencerId) : undefined,
         review,
         reviewerName: review?.portalUserId ? store.portal.getUser(review.portalUserId)?.name : undefined,
+        results: resultsDto(store, deliverable.id),
       };
     }),
   });

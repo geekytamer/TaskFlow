@@ -2,6 +2,7 @@ import type { DataStore } from '../data/store';
 import { openToken, sealToken } from './crypto';
 import { MetaAuthError, MetaRateLimitError, type MetaClient } from './meta-client';
 import type { ConnectedAccount } from './social-store';
+import { sweepMediaResults } from './results';
 
 const DAY = 86400_000;
 const REFRESH_WITHIN = 7 * DAY;
@@ -55,6 +56,5 @@ export async function sweepSocial(store: DataStore, client: MetaClient, companyI
   for (const account of store.social.activeAccounts(companyId)) {
     await syncAccount(store, client, account, now);
   }
-  const { sweepMediaResults } = await import('./results');
   await sweepMediaResults(store, client, companyId, now);
 }

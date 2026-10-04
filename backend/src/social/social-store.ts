@@ -145,6 +145,11 @@ export class SocialStore {
       .map(({ a, s }) => ({ platform: 'instagram' as const, username: a.username, followers: s.followers, asOf: s.takenOn }));
   }
 
+  /** Published deliverables in the window, by id, for the results sweep. */
+  publishedDeliverableIds(companyId: string, sinceIso: string): string[] {
+    return (this.db.prepare("SELECT id FROM campaign_deliverables WHERE companyId = ? AND status = 'Published' AND publishedAt >= ?").all(companyId, sinceIso) as Array<{ id: string }>).map((r) => r.id);
+  }
+
   mediaResults(deliverableId: string): Array<MediaResult & { accountId: string }> {
     return this.db.prepare("SELECT * FROM media_results WHERE deliverableId = ? ORDER BY CASE checkpoint WHEN '24h' THEN 1 WHEN '7d' THEN 2 ELSE 3 END").all(deliverableId) as Array<MediaResult & { accountId: string }>;
   }
