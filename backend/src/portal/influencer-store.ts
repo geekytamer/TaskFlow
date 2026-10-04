@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import { isUniqueViolation } from './common';
 
 export interface CampaignBrief {
   campaignId: string;
@@ -151,7 +152,7 @@ export class InfluencerPortalStore {
         )
         .run({ ...input, id, changes: JSON.stringify(input.changes), createdAt: new Date().toISOString() });
     } catch (error) {
-      if ((error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') return undefined;
+      if (isUniqueViolation(error)) return undefined;
       throw error;
     }
     return this.getChangeRequest(id);

@@ -13,8 +13,8 @@ import {
 } from './billing';
 import { receiptHtml, statementHtml } from './billing-docs';
 import type { PortalSession } from './portal-store';
+import type { SessionRequest } from './common';
 
-type SessionRequest = Request & { portal?: PortalSession };
 
 /** Renders documents; injected so tests never need a browser. */
 export interface PortalPdfRenderer {

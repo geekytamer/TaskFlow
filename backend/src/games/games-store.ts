@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import { isUniqueViolation } from '../portal/common';
 
 export type GameVisibility = 'public' | 'restricted';
 
@@ -30,7 +31,6 @@ export interface ActorRule { gameId: string; actorKey: string; actorHandle: stri
 export interface GameResult { gameId: string; actorKey: string; actorHandle: string; rank: number; points: number; breakdown: Record<string, number>; frozenAt: string }
 export interface GameViewer { subjectType: 'user' | 'portal_user'; subjectId: string }
 
-const isUnique = (e: unknown) => (e as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE' || (e as { code?: string }).code === 'SQLITE_CONSTRAINT_PRIMARYKEY';
 
 /** Storage for games. Scores are never stored while a game runs; only frozen results are. */
 export class GamesStore {
@@ -45,7 +45,7 @@ export class GamesStore {
          VALUES (@id, @companyId, @slug, @name, @nameAr, @rules, @rulesAr, @prize, @prizeAr, @visibility, @startsAt, @endsAt, @createdByUserId, @now, @now)`,
       ).run({ ...input, id, now });
     } catch (e) {
-      if (isUnique(e)) return undefined;
+      if (isUniqueViolation(e)) return undefined;
       throw e;
     }
     return this.get(id);

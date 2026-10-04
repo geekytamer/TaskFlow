@@ -13,8 +13,8 @@ import {
 import type { CommissionTerms, ReferralRecord } from './referrals-store';
 import { REFERRAL_REVIEW_TRIGGER } from './referral-routes';
 import type { StaffRequest } from './staff-routes';
+import { DAY_MS } from './common';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const optionalText = (value: unknown, max: number): string | null => {
   if (typeof value !== 'string' || !value.trim()) return null;

@@ -2,6 +2,7 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
 import type { AccountMessage, PortalFileMeta } from './thread-store';
+import { notifyManager, raiseFollowup } from './common';
 
 export const MAX_MESSAGE_CHARS = 4000;
 export const MAX_FILES_PER_ITEM = 10;
@@ -58,36 +59,16 @@ const openReplyFollowups = (store: DataStore, companyId: string, contactId: stri
  */
 export function afterPortalMessage(store: DataStore, input: { companyId: string; contact: Contact; managerId?: string; message: AccountMessage }) {
   if (openReplyFollowups(store, input.companyId, input.contact.id).length > 0) return;
-  const managerName = input.managerId ? store.getUserById(input.managerId)?.name : undefined;
   const title = `Reply to ${input.contact.name}`;
-  const followup = store.createFollowup({
-    companyId: input.companyId,
-    entityType: 'contact',
-    entityId: input.contact.id,
-    title,
-    channel: 'Task',
-    priority: 'normal',
-    ownerUserId: input.managerId,
-    ownerName: managerName,
-    dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    notes: input.message.body.slice(0, 500),
-    sourceTrigger: REPLY_TRIGGER,
-    sourceType: 'account_message',
-    sourceId: input.message.id,
+  const followup = raiseFollowup(store, {
+    companyId: input.companyId, entityType: 'contact', entityId: input.contact.id, title, priority: 'normal',
+    ownerUserId: input.managerId, dueDays: 1, notes: input.message.body.slice(0, 500),
+    sourceTrigger: REPLY_TRIGGER, sourceType: 'account_message', sourceId: input.message.id,
   });
-  if (input.managerId) {
-    store.notify({
-      companyId: input.companyId,
-      userIds: [input.managerId],
-      type: 'followup_assigned',
-      title: `New message from ${input.contact.name}`,
-      body: input.message.body.slice(0, 200),
-      data: { tKey: 'notif.followupAssigned.t', name: title },
-      link: '/crm/followups',
-      entityType: 'follow_up',
-      entityId: followup.id,
-    });
-  }
+  notifyManager(store, {
+    companyId: input.companyId, managerId: input.managerId, title: `New message from ${input.contact.name}`, name: title,
+    body: input.message.body.slice(0, 200), link: '/crm/followups', entityType: 'follow_up', entityId: followup.id,
+  });
 }
 
 /** A staff reply answers whatever was waiting. */

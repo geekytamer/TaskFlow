@@ -6,11 +6,10 @@ import { enumValue } from '../validation';
 import { toCampaignDetail, toCampaignSummary } from './campaigns';
 import { clientApprovalRequired, clientVisibleUrl } from './review-flow';
 import type { PortalSession } from './portal-store';
+import { managerOf, notifyManager, raiseFollowup, type SessionRequest } from './common';
 import { reviewDecisions } from './reviews-store';
 
-type SessionRequest = Request & { portal?: PortalSession };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Campaigns for the client audience. Reviews advise staff; they never change a deliverable's status. */
 export function registerClientCampaignRoutes(
@@ -90,7 +89,7 @@ export function registerClientCampaignRoutes(
 
     const client = store.getContactById(session.contactId);
     const clientName = client?.name ?? session.name;
-    const ownerId = campaign.ownerUserId ?? client?.ownerUserId ?? store.portal.inviterOf(session.portalUserId);
+    const ownerId = client ? managerOf(store, session, client, campaign.ownerUserId) : campaign.ownerUserId ?? store.portal.inviterOf(session.portalUserId);
 
     const saved = store.transaction(() => {
       const review = store.reviews.addClientReview({
@@ -102,35 +101,16 @@ export function registerClientCampaignRoutes(
         ? `${clientName} approved "${deliverable.title}"`
         : `${clientName} asked for changes on "${deliverable.title}"`;
       if (decision === 'changes_requested') {
-        store.createFollowup({
+        raiseFollowup(store, {
           companyId,
           entityType: campaign.opportunityId ? 'opportunity' : 'contact',
           entityId: campaign.opportunityId ?? session.contactId,
-          title,
-          channel: 'Task',
-          priority: 'high',
-          ownerUserId: ownerId,
-          ownerName: ownerId ? store.getUserById(ownerId)?.name : undefined,
-          dueAt: new Date(Date.now() + DAY_MS),
+          title, priority: 'high', ownerUserId: ownerId, dueDays: 1,
           notes: `${session.name} (${campaign.name}): ${comment}`,
-          sourceTrigger: 'portal_deliverable_review',
-          sourceType: 'deliverable_review',
-          sourceId: review.id,
+          sourceTrigger: 'portal_deliverable_review', sourceType: 'deliverable_review', sourceId: review.id,
         });
       }
-      if (ownerId) {
-        store.notify({
-          companyId,
-          userIds: [ownerId],
-          type: 'followup_assigned',
-          title,
-          body: comment ?? undefined,
-          data: { tKey: 'notif.followupAssigned.t', name: title },
-          link: '/crm/campaigns',
-          entityType: 'campaign',
-          entityId: campaign.id,
-        });
-      }
+      notifyManager(store, { companyId, managerId: ownerId, title, body: comment ?? undefined, link: '/crm/campaigns', entityType: 'campaign', entityId: campaign.id });
       return review;
     });
     if (!saved) throw new HttpError(409, 'This version has already been reviewed.');

@@ -14,11 +14,10 @@ import {
 } from './requests';
 import type { CampaignRequestRecord } from './requests-store';
 import type { PortalSession } from './portal-store';
+import { companyCurrency, notifyManager, raiseFollowup, type SessionRequest } from './common';
 import { fileDto, parseFileIds } from './thread';
 
-type SessionRequest = Request & { portal?: PortalSession };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Campaign requests and proposals for the client audience. Every write goes
@@ -32,7 +31,7 @@ export function registerClientRequestRoutes(
   companyId: string,
   requireClientSession: RequestHandler,
 ): void {
-  const currency = () => store.getCompanyFinanceSettings(companyId).currencyCode;
+  const currency = () => companyCurrency(store, companyId);
   const clientContact = (session: PortalSession): Contact => {
     const contact = store.getContactById(session.contactId);
     if (!contact) throw new HttpError(404, 'Not found.');
@@ -150,34 +149,15 @@ export function registerClientRequestRoutes(
       store.thread.attach(fileIds, { type: 'request', id: created.id }, {
         companyId, contactId: contact.id, uploader: { kind: 'portal', portalUserId: session.portalUserId },
       });
-      const followup = store.createFollowup({
-        companyId,
-        entityType: 'opportunity',
-        entityId: opportunity.id,
-        title: `New campaign request from ${contact.name}`,
-        channel: 'Task',
-        priority: 'high',
-        ownerUserId: manager?.userId,
-        ownerName: manager?.name,
-        dueAt: new Date(Date.now() + DAY_MS),
-        notes: brief.title,
-        sourceTrigger: 'portal_request',
-        sourceType: 'portal_campaign_request',
-        sourceId: created.id,
+      const followup = raiseFollowup(store, {
+        companyId, entityType: 'opportunity', entityId: opportunity.id,
+        title: `New campaign request from ${contact.name}`, priority: 'high', ownerUserId: manager?.userId, dueDays: 1,
+        notes: brief.title, sourceTrigger: 'portal_request', sourceType: 'portal_campaign_request', sourceId: created.id,
       });
-      if (manager) {
-        store.notify({
-          companyId,
-          userIds: [manager.userId],
-          type: 'followup_assigned',
-          title: `New campaign request from ${contact.name}`,
-          body: brief.title,
-          data: { tKey: 'notif.followupAssigned.t', name: `${contact.name}: ${brief.title}` },
-          link: '/crm/followups',
-          entityType: 'follow_up',
-          entityId: followup.id,
-        });
-      }
+      notifyManager(store, {
+        companyId, managerId: manager?.userId, title: `New campaign request from ${contact.name}`,
+        name: `${contact.name}: ${brief.title}`, body: brief.title, link: '/crm/followups', entityType: 'follow_up', entityId: followup.id,
+      });
       return created;
     }));
     res.status(201).json(requestDto(session, record));
@@ -217,35 +197,17 @@ export function registerClientRequestRoutes(
       // gets a follow-up carrying the client's reason.
       let followupId: string | undefined;
       if (decision === 'declined') {
-        followupId = store.createFollowup({
-          companyId,
-          entityType: 'opportunity',
-          entityId: proposal.opportunityId,
-          title,
-          channel: 'Task',
-          priority: 'high',
-          ownerUserId: manager?.userId,
-          ownerName: manager?.name,
-          dueAt: new Date(Date.now() + DAY_MS),
+        followupId = raiseFollowup(store, {
+          companyId, entityType: 'opportunity', entityId: proposal.opportunityId, title, priority: 'high',
+          ownerUserId: manager?.userId, dueDays: 1,
           notes: `Declined by ${session.name} in the client portal.${reason ? ` Reason: ${reason}` : ''}`,
-          sourceTrigger: 'portal_proposal_response',
-          sourceType: 'crm_proposal',
-          sourceId: proposal.id,
+          sourceTrigger: 'portal_proposal_response', sourceType: 'crm_proposal', sourceId: proposal.id,
         }).id;
       }
-      if (manager) {
-        store.notify({
-          companyId,
-          userIds: [manager.userId],
-          type: 'followup_assigned',
-          title,
-          body: reason ?? undefined,
-          data: { tKey: 'notif.followupAssigned.t', name: title },
-          link: '/crm/followups',
-          entityType: followupId ? 'follow_up' : 'opportunity',
-          entityId: followupId ?? proposal.opportunityId,
-        });
-      }
+      notifyManager(store, {
+        companyId, managerId: manager?.userId, title, body: reason ?? undefined, link: '/crm/followups',
+        entityType: followupId ? 'follow_up' : 'opportunity', entityId: followupId ?? proposal.opportunityId,
+      });
     }));
     res.json(proposalDto(store.getCrmProposalById(proposal.id)!));
   };

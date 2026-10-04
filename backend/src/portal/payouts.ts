@@ -1,8 +1,8 @@
 import type { DataStore } from '../data/store';
 import type { VendorBill } from '../types';
 import { paidContactOf } from './influencer';
+import { iso } from './common';
 
-const iso = (value: Date | string | undefined | null) => (value ? new Date(value).toISOString() : null);
 
 const STATUS: Record<VendorBill['status'], 'pending' | 'approved' | 'paid'> = {
   Draft: 'pending',

@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import { safeUrl } from './catalogue';
 import type { DeliverableReview } from './reviews-store';
+import { iso } from './common';
 
 const CAMPAIGN_STATUS: Record<CampaignStatus, string> = {
   Planned: 'planned',
@@ -33,15 +34,11 @@ const CONTENT_VISIBLE: readonly CampaignDeliverableStatus[] = ['Submitted', 'App
 /** Influencers are named once confirmed, so a client is never promised someone still being approached. */
 const CONFIRMED: readonly CampaignAssignment['status'][] = ['Confirmed', 'Completed'];
 
-const iso = (value: Date | string | undefined | null) => (value ? new Date(value).toISOString() : null);
 
 /** The link a client may open for this deliverable, or null. */
 export function reviewableUrl(deliverable: CampaignDeliverable): string | null {
   return CONTENT_VISIBLE.includes(deliverable.status) ? safeUrl(deliverable.contentUrl) : null;
 }
-
-export const isAwaitingReview = (deliverable: CampaignDeliverable) =>
-  deliverable.status === 'Submitted' && reviewableUrl(deliverable) !== null;
 
 const handleOf = (contact: Contact) =>
   contact.influencerAccounts?.find((a) => a.handle)?.handle ?? contact.influencerHandle ?? null;

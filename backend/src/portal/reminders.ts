@@ -1,7 +1,7 @@
 import type { DataStore } from '../data/store';
 import { paidContactOf } from './influencer';
+import { DAY_MS } from './common';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 export const DELIVERABLE_DUE_TRIGGER = 'portal_deliverable_due';
 
 /**

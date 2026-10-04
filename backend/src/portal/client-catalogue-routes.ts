@@ -4,6 +4,7 @@ import type { Contact } from '../types';
 import { CATALOGUE_LIMIT, facetsOf, matchesFilter, priceFor, toCatalogueEntry, type CatalogueFilter } from './catalogue';
 import type { PricingProfile } from './catalogue-store';
 import type { PortalSession } from './portal-store';
+import type { SessionRequest } from './common';
 
 export interface ClientCatalogueDeps {
   /** Contacts holding the Influencer role in this company, ordered by name. */
@@ -15,7 +16,6 @@ export interface ClientCatalogueDeps {
   currency(companyId: string): string;
 }
 
-type SessionRequest = Request & { portal?: PortalSession };
 
 const queryString = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, 100) : undefined;

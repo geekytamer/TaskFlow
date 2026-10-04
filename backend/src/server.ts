@@ -28,6 +28,7 @@ import { sweepPortalDeliverableReminders } from './portal/reminders';
 import { createGamesStaffRouter } from './games/staff-routes';
 import { createPublicGamesRouter } from './games/public-routes';
 import { ensureFrozen } from './games/games';
+import { companyCurrency } from './portal/common';
 import type { PortalPdfRenderer } from './portal/client-billing-routes';
 import {
   influencerPlatforms,
@@ -697,7 +698,11 @@ export function createServer(options: CreateServerOptions = {}) {
         const portalDue = portalCompany && store.getCompanyById(portalCompany) ? sweepPortalDeliverableReminders(store, portalCompany) : 0;
         if (portalDue > 0) logger.info(`[portal] ${portalDue} deliverable due-soon reminder(s)`);
         // Freeze games that ended since the last sweep, even if nobody looked at them.
-        if (portalCompany && store.getCompanyById(portalCompany)) store.games.list(portalCompany).forEach((g) => ensureFrozen(store, g));
+        if (portalCompany && store.getCompanyById(portalCompany)) {
+          store.games.list(portalCompany)
+            .filter((g) => g.publishedAt && !g.frozenAt && !g.archivedAt && Date.parse(g.endsAt) <= Date.now())
+            .forEach((g) => ensureFrozen(store, g));
+        }
         if (tasks + followups + overdue + lowStock + expiring > 0) {
           logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock, ${expiring} expiry`);
         }
@@ -8519,7 +8524,7 @@ export function createServer(options: CreateServerOptions = {}) {
         getBranding: () => {
           const company = store.getCompanyById(portalCompanyId);
           return company
-            ? { name: company.name, logoUrl: company.logoUrl, currency: store.getCompanyFinanceSettings(portalCompanyId).currencyCode }
+            ? { name: company.name, logoUrl: company.logoUrl, currency: companyCurrency(store, portalCompanyId) }
             : undefined;
         },
         getSubjectName: (contactId) => store.getContactById(contactId)?.name,
@@ -8531,7 +8536,7 @@ export function createServer(options: CreateServerOptions = {}) {
           listedIds: (companyId) => store.catalogue.listedIds(companyId),
           isListed: (companyId, contactId) => store.catalogue.isListed(companyId, contactId),
           pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
-          currency: (companyId) => store.getCompanyFinanceSettings(companyId).currencyCode,
+          currency: (companyId) => companyCurrency(store, companyId),
         },
         requestsStore: store,
         pdf: options.portalPdf ?? {

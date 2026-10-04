@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import { isUniqueViolation } from './common';
 
 export type ReviewDecision = 'approved' | 'changes_requested';
 export const reviewDecisions: readonly ReviewDecision[] = ['approved', 'changes_requested'];
@@ -16,8 +17,6 @@ export interface DeliverableReview {
   createdAt: string;
 }
 
-const isUniqueViolation = (error: unknown) =>
-  typeof error === 'object' && error !== null && (error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE';
 
 export class DeliverableReviewsStore {
   constructor(private readonly db: Database.Database) {}

@@ -1,6 +1,7 @@
 import { HttpError } from '../http';
 import { influencerPlatforms, type CrmProposal, type OpportunityStage, type ProposalStatus } from '../types';
 import type { CampaignRequestRecord, ProposalResponse } from './requests-store';
+import { iso } from './common';
 
 export const MAX_SHORTLIST = 30;
 
@@ -118,7 +119,6 @@ export function requestStatus(proposals: CrmProposal[], stage: OpportunityStage 
   return 'in_review';
 }
 
-const iso = (value: Date | string | undefined | null) => (value ? new Date(value).toISOString() : null);
 
 /** Allowlisted proposal: line items as staff wrote them for the client, nothing from the opportunity. */
 export function toProposalDto(proposal: CrmProposal, currency: string, response: ProposalResponse | undefined, responderName: string | undefined, now = new Date()) {

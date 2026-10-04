@@ -14,6 +14,7 @@ import {
 import { safeUrl } from './catalogue';
 import type { ChangeRequest, ProfileChanges, Submission } from './influencer-store';
 import { waitingFor } from './review-flow';
+import { iso } from './common';
 
 export const AVAILABILITY = ['Available', 'Partially Available', 'Unavailable'] as const;
 const MAX_ACCOUNTS = 10;
@@ -27,7 +28,6 @@ const DELIVERABLE_STATUS: Record<CampaignDeliverableStatus, string> = {
   Cancelled: 'cancelled',
 };
 
-const iso = (value: Date | string | undefined | null) => (value ? new Date(value).toISOString() : null);
 
 const accountDto = (a: InfluencerAccount) => ({
   id: a.id,

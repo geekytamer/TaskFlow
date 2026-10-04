@@ -3,11 +3,10 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { asRecord } from '../validation';
 import type { PortalSession } from './portal-store';
+import { companyCurrency, managerOf, notifyManager, raiseFollowup, type SessionRequest } from './common';
 import { MAX_WAITING_REFERRALS, parseReferral, toPortalReferral } from './referrals';
 
-type SessionRequest = Request & { portal?: PortalSession };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 export const REFERRAL_REVIEW_TRIGGER = 'portal_referral';
 
 /** Referrals for either audience, scoped to the session's own contact. */
@@ -24,41 +23,22 @@ export function registerReferralRoutes(router: Router, store: DataStore, company
     if (store.referrals.countSubmitted(companyId, referrer.id) >= MAX_WAITING_REFERRALS) {
       throw new HttpError(429, 'Several referrals are still waiting for review. Please wait for your account manager to reply.');
     }
-    const managerId = referrer.ownerUserId ?? store.portal.inviterOf(session.portalUserId);
+    const managerId = managerOf(store, session, referrer);
     const referral = store.transaction(() => {
       const created = store.referrals.create({
         companyId, referrerContactId: referrer.id, referrerPortalUserId: session.portalUserId, ...input,
-        currency: store.getCompanyFinanceSettings(companyId).currencyCode,
+        currency: companyCurrency(store, companyId),
       });
       const title = `Review referral from ${referrer.name}: ${input.prospectName}`;
-      const followup = store.createFollowup({
-        companyId,
-        entityType: 'contact',
-        entityId: referrer.id,
-        title,
-        channel: 'Task',
-        priority: 'normal',
-        ownerUserId: managerId,
-        ownerName: managerId ? store.getUserById(managerId)?.name : undefined,
-        dueAt: new Date(Date.now() + 2 * DAY_MS),
+      const followup = raiseFollowup(store, {
+        companyId, entityType: 'contact', entityId: referrer.id, title, priority: 'normal', ownerUserId: managerId, dueDays: 2,
         notes: `${session.name}: ${input.description}\nProspect contact: ${input.prospectContact}`,
-        sourceTrigger: REFERRAL_REVIEW_TRIGGER,
-        sourceType: 'portal_referral',
-        sourceId: created.id,
+        sourceTrigger: REFERRAL_REVIEW_TRIGGER, sourceType: 'portal_referral', sourceId: created.id,
       });
-      if (managerId) {
-        store.notify({
-          companyId,
-          userIds: [managerId],
-          type: 'followup_assigned',
-          title: `${referrer.name} referred ${input.prospectName}`,
-          body: input.description.slice(0, 200),
-          data: { tKey: 'notif.followupAssigned.t', name: title },
-          link: '/portal-referrals',
-          entityType: 'follow_up',
-          entityId: followup.id,
-        });
-      }
+      notifyManager(store, {
+        companyId, managerId, title: `${referrer.name} referred ${input.prospectName}`, name: title,
+        body: input.description.slice(0, 200), link: '/portal-referrals', entityType: 'follow_up', entityId: followup.id,
+      });
       return created;
     });
     res.status(201).json(toPortalReferral(store, referral));

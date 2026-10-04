@@ -1,7 +1,7 @@
 import type { DataStore } from '../data/store';
 import type { Contact, Invoice, Payment } from '../types';
+import { iso } from './common';
 
-const iso = (value: Date | string | undefined | null) => (value ? new Date(value).toISOString() : null);
 const money = (n: number | undefined) => Number((n ?? 0).toFixed(2));
 
 /** Whether an invoice belongs to this client: by contact, or by the legacy client link. */

@@ -5,8 +5,8 @@ import { asRecord } from '../validation';
 import { downloadHeaders, readUpload } from './files';
 import type { PortalSession } from './portal-store';
 import { afterPortalMessage, fileDto, parseMessage, portalMessageDto } from './thread';
+import type { SessionRequest } from './common';
 
-type SessionRequest = Request & { portal?: PortalSession };
 
 /** Messages and files for either portal audience, always scoped to the session's own contact. */
 export function registerThreadRoutes(router: Router, store: DataStore, companyId: string, requireSession: RequestHandler): void {

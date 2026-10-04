@@ -57,8 +57,13 @@ export function boardOf(store: DataStore, game: Game): Array<{ rank: number; act
 /** Staff view: everyone who scored, with exclusions flagged rather than hidden. */
 export function staffBoard(store: DataStore, game: Game) {
   const rules = new Map(store.games.actorRules(game.id).map((r) => [r.actorKey, r]));
-  const ranked = new Map(boardOf(store, game).map((r) => [r.actorKey, r.rank]));
-  return computeBoard(store, game, false).map((r) => ({
+  const everyone = computeBoard(store, game, false);
+  // Frozen games rank from their stored results; live ones re-rank this same list
+  // without the excluded actors, instead of scoring the game a second time.
+  const ranked = game.frozenAt
+    ? new Map(boardOf(store, game).map((r) => [r.actorKey, r.rank]))
+    : new Map(everyone.filter((r) => !rules.has(r.actorKey)).map((r, i) => [r.actorKey, i + 1]));
+  return everyone.map((r) => ({
     rank: ranked.get(r.actorKey) ?? null,
     platform: platformOf(r.actorKey),
     handle: r.handle,

@@ -3996,6 +3996,20 @@ export class DataStore {
             });
         },
       },
+      {
+        // Indexes for the portal's per-influencer and per-invoice reads, which
+        // otherwise scan whole tables on every page load.
+        id: '093_portal_indexes',
+        run: () => {
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_campaign_assignments_contact ON campaign_assignments (companyId, contactId);
+            CREATE INDEX IF NOT EXISTS idx_campaign_deliverables_vendor ON campaign_deliverables (companyId, vendorContactId);
+            CREATE INDEX IF NOT EXISTS idx_campaign_deliverables_contact ON campaign_deliverables (companyId, contactId);
+            CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments (invoiceId);
+            CREATE INDEX IF NOT EXISTS idx_credit_notes_invoice ON credit_notes (invoiceId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

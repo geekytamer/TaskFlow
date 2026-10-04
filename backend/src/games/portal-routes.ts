@@ -4,8 +4,8 @@ import { HttpError } from '../http';
 import type { PortalSession } from '../portal/portal-store';
 import type { Game } from './games-store';
 import { publicGameDetail, publicGameSummary } from './games';
+import type { SessionRequest } from '../portal/common';
 
-type SessionRequest = Request & { portal?: PortalSession };
 
 /** The lobby inside both portals: public games, plus restricted ones this portal user may view. */
 export function registerPortalGameRoutes(router: Router, store: DataStore, companyId: string, requireSession: RequestHandler): void {

@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { HttpError } from '../http';
 import { hashPassword, isHashed, verifyPassword } from '../password';
+import { isUniqueViolation } from './common';
 
 export type PortalAudience = 'client' | 'influencer';
 export type PortalRole = 'client_admin' | 'client_member' | 'influencer';
@@ -101,8 +102,6 @@ export function assertPasswordPolicy(password: string): void {
   }
 }
 
-const isUniqueViolation = (error: unknown) =>
-  typeof error === 'object' && error !== null && (error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE';
 
 export class PortalStore {
   constructor(private readonly db: Database.Database) {}
