@@ -40,3 +40,14 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Placeholders meet the same 4.5:1 contrast as body text. */
+input::placeholder, textarea::placeholder { color: var(--ink-soft); opacity: 1; }
+
+/* Even line lengths on headings; fewer orphans in prose. */
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+
+/* The end edge for direction-aware gradients (the mobile nav fade). */
+:root { --nav-end: right; }
+[dir='rtl'] { --nav-end: left; }

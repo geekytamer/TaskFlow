@@ -128,7 +128,7 @@ export function ProfileChangeForm({ lang, profile }: { lang: Lang; profile: Prof
           <button
             type="button"
             onClick={() => setAccounts((list) => [...list, { platform: 'Instagram', handle: '', url: '', followers: '', engagementRate: '' }])}
-            className="text-sm font-medium underline underline-offset-4"
+            className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4"
           >
             {t(lang, 'prof.addAccount')}
           </button>

@@ -6,8 +6,9 @@ import { formatDate, formatMoney } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
-const button = 'inline-flex h-10 items-center rounded-[10px] border border-field bg-surface px-4 text-sm font-semibold transition-colors hover:border-ink/60';
+const button = 'inline-flex h-11 items-center rounded-[10px] border border-field bg-surface px-4 text-sm font-semibold transition-colors hover:border-ink/60';
 
 export default async function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -19,7 +20,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="max-w-4xl space-y-10">
-      <Link href="/billing" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">{t(lang, 'bill.back')}</Link>
+      <Link href="/billing" className={backLink}>{t(lang, 'bill.back')}</Link>
 
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
@@ -96,7 +97,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                     <bdi>{formatDate(p.paidAt, lang)}</bdi>{p.method && <> · <bdi dir="auto">{p.method}</bdi></>} · <bdi dir="ltr">{p.receiptNumber}</bdi>
                   </span>
                 </span>
-                <a href={receiptHref(p.id)} download className="text-sm font-medium underline underline-offset-4">{t(lang, 'bill.receipt')}</a>
+                <a href={receiptHref(p.id)} download className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{t(lang, 'bill.receipt')}</a>
               </li>
             ))}
           </ul>

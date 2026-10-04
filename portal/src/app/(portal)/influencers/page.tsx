@@ -6,6 +6,7 @@ import { requireAudience } from '@/lib/guard';
 import { t, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -101,7 +102,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
                 {t(lang, 'cat.apply')}
               </button>
               {query && (
-                <Link href="/influencers" className="whitespace-nowrap text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">
+                <Link href="/influencers" className={`whitespace-nowrap ${backLink}`}>
                   {t(lang, 'cat.clear')}
                 </Link>
               )}

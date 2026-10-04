@@ -14,5 +14,9 @@ export function Field({ label, id, ...input }: { label: string; id: string } & I
   );
 }
 
+/** A standalone back link: a full 44px touch target, not just its text. */
+export const backLink =
+  'inline-flex min-h-11 items-center text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink';
+
 export const primaryButton =
   'inline-flex h-11 w-full items-center justify-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-[background-color,transform] hover:bg-ink/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';

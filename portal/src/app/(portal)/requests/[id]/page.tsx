@@ -7,6 +7,7 @@ import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { getRequest } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 export default async function RequestPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -21,7 +22,7 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-10">
-      <Link href="/requests" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">{t(lang, 'req.back')}</Link>
+      <Link href="/requests" className={backLink}>{t(lang, 'req.back')}</Link>
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">

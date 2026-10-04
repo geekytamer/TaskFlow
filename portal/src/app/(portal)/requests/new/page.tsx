@@ -5,6 +5,7 @@ import { formatCompact, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 export default async function NewRequestPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireAudience('client');
@@ -21,7 +22,7 @@ export default async function NewRequestPage({ searchParams }: { searchParams: P
 
   return (
     <div className="max-w-3xl space-y-10">
-      <Link href="/requests" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">{t(lang, 'req.back')}</Link>
+      <Link href="/requests" className={backLink}>{t(lang, 'req.back')}</Link>
       <header>
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t(lang, 'req.new')}</h1>
         <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, 'req.subtitle')}</p>

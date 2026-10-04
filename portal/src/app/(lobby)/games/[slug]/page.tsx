@@ -4,6 +4,7 @@ import { formatDateTime } from '@/lib/format';
 import { getGame } from '@/lib/games';
 import { t, type Lang } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 const PLATFORM: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', snapchat: 'Snapchat', x: 'X', facebook: 'Facebook', other: '' };
 
@@ -24,7 +25,7 @@ export default async function GamePage({ params }: { params: Promise<{ slug: str
 
   return (
     <div className="space-y-10">
-      <Link href="/games" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">{t(lang, 'lobby.back')}</Link>
+      <Link href="/games" className={backLink}>{t(lang, 'lobby.back')}</Link>
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">

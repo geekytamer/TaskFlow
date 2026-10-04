@@ -9,6 +9,7 @@ import { formatDate, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -19,7 +20,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="space-y-10">
-      <Link href="/campaigns" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">{t(lang, 'camp.back')}</Link>
+      <Link href="/campaigns" className={backLink}>{t(lang, 'camp.back')}</Link>
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -91,7 +92,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <section aria-labelledby="billing-title" className="space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 id="billing-title" className="text-base font-semibold">{t(lang, 'bill.forCampaign')}</h2>
-            <a href={statementHref(campaign.id)} download className="text-sm font-medium underline underline-offset-4">{t(lang, 'bill.statement')}</a>
+            <a href={statementHref(campaign.id)} download className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{t(lang, 'bill.statement')}</a>
           </div>
           <InvoiceList invoices={statement.invoices} lang={lang} showCampaign={false} />
         </section>

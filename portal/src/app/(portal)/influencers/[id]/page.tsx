@@ -7,6 +7,7 @@ import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 export default async function InfluencerPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -19,7 +20,7 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-10">
-      <Link href="/influencers" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">
+      <Link href="/influencers" className={backLink}>
         {t(lang, 'cat.back')}
       </Link>
 

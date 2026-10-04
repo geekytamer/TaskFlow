@@ -23,7 +23,7 @@ export function LanguageSwitch({ lang }: { lang: 'en' | 'ar' }) {
       onClick={switchTo}
       disabled={pending}
       lang={target}
-      className="rounded-md px-2 py-1.5 text-sm font-medium text-ink-soft transition-colors hover:text-ink disabled:opacity-60"
+      className="inline-flex min-h-11 items-center rounded-md px-2 sm:min-h-0 sm:py-1.5 text-sm font-medium text-ink-soft transition-colors hover:text-ink disabled:opacity-60"
     >
       {target === 'ar' ? 'العربية' : 'English'}
     </button>

@@ -7,6 +7,7 @@ import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { getProposal } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
+import { backLink } from '@/components/field';
 
 export default async function ProposalPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -18,7 +19,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="space-y-10">
-      <Link href="/requests" className="text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink">{t(lang, 'req.back')}</Link>
+      <Link href="/requests" className={backLink}>{t(lang, 'req.back')}</Link>
 
       <header className="space-y-3">
         <p className="text-sm text-ink-soft">{t(lang, 'prop.title')} <bdi dir="ltr">{proposal.number}</bdi></p>
