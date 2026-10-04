@@ -19,13 +19,12 @@ const STATUS: Record<VendorBill['status'], 'pending' | 'approved' | 'paid'> = {
 export function payoutsFor(store: DataStore, companyId: string, contactId: string, currency: string) {
   const byBill = new Map<string, { kind: 'campaign' | 'referral'; label: string; items: string[] }>();
 
-  for (const campaign of store.listCrmCampaigns(companyId)) {
-    for (const d of store.listCampaignDeliverables(campaign.id)) {
-      if (!d.vendorBillId || paidContactOf(d) !== contactId) continue;
-      const entry = byBill.get(d.vendorBillId) ?? { kind: 'campaign' as const, label: campaign.name, items: [] };
-      entry.items.push(d.title);
-      byBill.set(d.vendorBillId, entry);
-    }
+  for (const id of store.influencer.paidDeliverableIdsOf(companyId, contactId)) {
+    const d = store.getCampaignDeliverableById(id);
+    if (!d?.vendorBillId || paidContactOf(d) !== contactId) continue;
+    const entry = byBill.get(d.vendorBillId) ?? { kind: 'campaign' as const, label: store.getCrmCampaignById(d.campaignId)?.name ?? '', items: [] };
+    entry.items.push(d.title);
+    byBill.set(d.vendorBillId, entry);
   }
   for (const referral of store.referrals.listForReferrer(companyId, contactId)) {
     const commission = store.referrals.commissionOf(referral.id);

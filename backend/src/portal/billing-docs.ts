@@ -91,14 +91,13 @@ export interface StatementInput {
   clientName: string;
   campaignName: string;
   generatedAt: Date;
-  currency: string;
   invoices: Array<{ number: string; issueDate: string | null; dueDate: string | null; total: number; paid: number; credited: number; outstanding: number; currency: string }>;
-  totals: { invoiced: number; paid: number; credited: number; outstanding: number };
+  totals: Array<{ currency: string; invoiced: number; paid: number; credited: number; outstanding: number }>;
 }
 
 export function statementHtml(s: StatementInput): string {
   const L = LABELS[s.lang];
-  const m = (n: number, c = s.currency) => `<bdi>${fmtMoney(n, c, s.lang)}</bdi>`;
+  const m = (n: number, c: string) => `<bdi>${fmtMoney(n, c, s.lang)}</bdi>`;
   const rows = s.invoices.map((i) => `<tr><td><bdi>${escapeHtml(i.number)}</bdi></td><td>${fmtDate(i.issueDate, s.lang)}</td><td>${fmtDate(i.dueDate, s.lang)}</td>
 <td class="num">${m(i.total, i.currency)}</td><td class="num">${m(i.paid, i.currency)}</td><td class="num">${m(i.credited, i.currency)}</td><td class="num">${m(i.outstanding, i.currency)}</td></tr>`).join('');
   return page(s.lang, `${L.statement} ${s.campaignName}`, `
@@ -107,6 +106,6 @@ export function statementHtml(s: StatementInput): string {
 ${s.invoices.length === 0 ? `<p class="muted">${L.none}</p>` : `<table>
 <thead><tr><th>#</th><th>${L.issued}</th><th>${L.due}</th><th class="num">${L.total}</th><th class="num">${L.paid}</th><th class="num">${L.credited}</th><th class="num">${L.outstanding}</th></tr></thead>
 <tbody>${rows}</tbody>
-<tfoot><tr><td colspan="3">${L.totals}</td><td class="num">${m(s.totals.invoiced)}</td><td class="num">${m(s.totals.paid)}</td><td class="num">${m(s.totals.credited)}</td><td class="num">${m(s.totals.outstanding)}</td></tr></tfoot>
+<tfoot>${s.totals.map((t) => `<tr><td colspan="3">${L.totals}</td><td class="num">${m(t.invoiced, t.currency)}</td><td class="num">${m(t.paid, t.currency)}</td><td class="num">${m(t.credited, t.currency)}</td><td class="num">${m(t.outstanding, t.currency)}</td></tr>`).join('')}</tfoot>
 </table>`}`);
 }

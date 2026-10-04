@@ -14933,6 +14933,12 @@ export class DataStore {
     return `CN-${String(seq).padStart(4, '0')}`;
   }
 
+  listCreditNotesForInvoice(invoiceId: string): CreditNote[] {
+    return (this.db.prepare('SELECT id FROM credit_notes WHERE invoiceId = ?').all(invoiceId) as Array<{ id: string }>)
+      .map((r) => this.getCreditNoteById(r.id)!)
+      .filter(Boolean);
+  }
+
   listCreditNotes(companyId: string): CreditNote[] {
     const rows = this.db
       .prepare('SELECT * FROM credit_notes WHERE companyId = ? ORDER BY issueDate DESC, createdAt DESC')

@@ -212,3 +212,14 @@ test('briefs are staff-only to write and validated', async () => {
     .set({ Authorization: `Bearer ${ctx.store.issueToken(outsider.id)}` }).send({ influencerBrief: 'hijack' });
   assert.equal(res.status, 404);
 });
+
+test('an assignment put back to Contacted can be answered again', async () => {
+  const ctx = build();
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  const id = ctx.assignment.id;
+  await post(ctx, lina, `/assignments/${id}/respond`, { decision: 'declined', reason: 'Busy that month.' });
+  ctx.store.updateCampaignAssignment(id, { status: 'Contacted' });
+  const again = await post(ctx, lina, `/assignments/${id}/respond`, { decision: 'accepted' });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.status, 'confirmed');
+});

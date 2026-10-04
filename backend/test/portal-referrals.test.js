@@ -271,3 +271,38 @@ test('a declined referral cannot carry a commission, and another company cannot 
     .set({ Authorization: `Bearer ${ctx.store.issueToken(outsider.id)}` }).send({});
   assert.equal(res.status, 404);
 });
+
+test('if the payout document is removed, the commission can be paid again', async () => {
+  const ctx = build();
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  const { referralId, opportunityId } = await convertWon(ctx, omar, { basis: 'fixed', fixedAmount: 300, payoutType: 'credit_note' });
+  ctx.store.updateOpportunityStage(opportunityId, 'Won');
+  await staffPost(ctx, `/${referralId}/commission/approve`);
+  const first = ctx.store.createCreditNote({ companyId: ctx.company.id, clientId: ctx.client.id, lineItems: [{ description: 'Referral', amount: 300 }] });
+  await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteId: first.id });
+  ctx.store.deleteCreditNote(first.id);
+  const second = ctx.store.createCreditNote({ companyId: ctx.company.id, clientId: ctx.client.id, lineItems: [{ description: 'Referral', amount: 300 }] });
+  const relinked = await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteId: second.id });
+  assert.equal(relinked.status, 200, JSON.stringify(relinked.body));
+  assert.equal(relinked.body.commission.status, 'paid');
+  assert.equal((await staffPost(ctx, `/${referralId}/commission/credit-note`, { creditNoteId: second.id })).status, 409, 'not while it is paid');
+
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  const bill = await convertWon(ctx, lina, { basis: 'fixed', fixedAmount: 100, payoutType: 'vendor_bill' }, 1000, 'influencer');
+  ctx.store.updateOpportunityStage(bill.opportunityId, 'Won');
+  const approved = await staffPost(ctx, `/${bill.referralId}/commission/approve`);
+  ctx.store.deleteVendorBill(approved.body.commission.payoutRefId);
+  const reissued = await staffPost(ctx, `/${bill.referralId}/commission/approve`);
+  assert.equal(reissued.status, 200, 'a removed draft bill is created again');
+  assert.notEqual(reissued.body.commission.payoutRefId, approved.body.commission.payoutRefId);
+  assert.equal(ctx.store.getVendorBillById(reissued.body.commission.payoutRefId).amount, 100);
+});
+
+test('the owner of a converted referral must belong to the company', async () => {
+  const ctx = build();
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  const { body } = await refer(ctx, omar);
+  const other = ctx.store.createCompany({ name: 'Other', website: '', address: '' });
+  const outsider = ctx.store.createUser({ name: 'Out', email: 'out@o.test', password: 'x', role: 'Manager', companyIds: [other.id], companyRoles: [{ companyId: other.id, role: 'Manager' }] });
+  assert.equal((await staffPost(ctx, `/${body.id}/convert`, { ownerUserId: outsider.id })).status, 400);
+});

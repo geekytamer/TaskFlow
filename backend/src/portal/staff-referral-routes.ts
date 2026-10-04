@@ -5,6 +5,7 @@ import type { Opportunity } from '../types';
 import { asRecord } from '../validation';
 import {
   assertCreditNotePays,
+  payoutDocumentLive,
   commissionAmount,
   parseCommissionTerms,
   toStaffReferral,
@@ -80,7 +81,7 @@ export function registerStaffReferralRoutes(
     const referrer = store.getContactById(referral.referrerContactId);
     const ownerId = (typeof body.ownerUserId === 'string' && body.ownerUserId) || referrer?.ownerUserId || req.user!.id;
     const owner = store.getUserById(ownerId);
-    if (!owner) throw new HttpError(400, 'That owner does not exist.');
+    if (!owner || !owner.companyIds?.includes(companyId)) throw new HttpError(400, 'Choose an owner from this company.');
     const title = optionalText(body.title, 160) ?? `${referral.prospectName} (referral)`;
     const userId = req.user!.id;
 
@@ -145,10 +146,12 @@ export function registerStaffReferralRoutes(
     const companyId = authorize(req);
     const referral = load(companyId, req.params.id);
     const commission = store.referrals.commissionOf(referral.id);
-    if (!commission || commission.status !== 'pending') throw new HttpError(409, 'There is no pending commission to approve.');
+    // An approved vendor-bill commission whose draft bill was removed is approved again: a new bill is made.
+    const reissue = commission?.status === 'approved' && commission.payoutType === 'vendor_bill' && !payoutDocumentLive(store, commission);
+    if (!commission || (commission.status !== 'pending' && !reissue)) throw new HttpError(409, 'There is no pending commission to approve.');
     const opportunity = referral.opportunityId ? store.getOpportunityById(referral.opportunityId) : undefined;
     if (!opportunity || opportunity.stage !== 'Won') throw new HttpError(409, 'A commission is approved once the deal is won.');
-    const amount = commissionAmount(commission, opportunity);
+    const amount = reissue ? commission.amount! : commissionAmount(commission, opportunity);
     if (amount <= 0) throw new HttpError(409, 'Set the deal value before approving a percentage commission.');
     const referrer = store.getContactById(referral.referrerContactId);
     if (!referrer) throw new HttpError(409, 'The referrer no longer exists.');
@@ -168,7 +171,9 @@ export function registerStaffReferralRoutes(
         });
         payoutRefId = bill.id;
       }
-      return store.referrals.approve(referral.id, { amount, payoutRefId, userId: req.user!.id });
+      return reissue
+        ? store.referrals.setPayout(referral.id, payoutRefId!)
+        : store.referrals.approve(referral.id, { amount, payoutRefId, userId: req.user!.id });
     });
     if (!done) throw new HttpError(409, 'There is no pending commission to approve.');
     respond(res, referral.id);
@@ -178,7 +183,8 @@ export function registerStaffReferralRoutes(
     const companyId = authorize(req);
     const referral = load(companyId, req.params.id);
     const commission = store.referrals.commissionOf(referral.id);
-    if (!commission || commission.status !== 'approved' || commission.payoutType !== 'credit_note' || commission.payoutRefId) {
+    // A credit note that was removed or voided no longer pays it, so another can be linked.
+    if (!commission || commission.status !== 'approved' || commission.payoutType !== 'credit_note' || payoutDocumentLive(store, commission)) {
       throw new HttpError(409, 'This commission is not waiting for a credit note.');
     }
     const referrer = store.getContactById(referral.referrerContactId);
@@ -191,7 +197,7 @@ export function registerStaffReferralRoutes(
       : undefined;
     const creditNoteId = byNumber?.id ?? (typeof body.creditNoteId === 'string' ? body.creditNoteId : '');
     const note = assertCreditNotePays(store, { companyId, creditNoteId, referrer, amount: commission.amount! });
-    if (!store.referrals.linkPayout(referral.id, note.id)) throw new HttpError(409, 'This commission is not waiting for a credit note.');
+    if (!store.referrals.setPayout(referral.id, note.id)) throw new HttpError(409, 'This commission is not waiting for a credit note.');
     respond(res, referral.id);
   }));
 }

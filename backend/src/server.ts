@@ -8518,7 +8518,9 @@ export function createServer(options: CreateServerOptions = {}) {
         companyId: portalCompanyId,
         getBranding: () => {
           const company = store.getCompanyById(portalCompanyId);
-          return company ? { name: company.name, logoUrl: company.logoUrl } : undefined;
+          return company
+            ? { name: company.name, logoUrl: company.logoUrl, currency: store.getCompanyFinanceSettings(portalCompanyId).currencyCode }
+            : undefined;
         },
         getSubjectName: (contactId) => store.getContactById(contactId)?.name,
         enforceRateLimits: process.env.NODE_ENV === 'production',

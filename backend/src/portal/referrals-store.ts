@@ -147,9 +147,10 @@ export class PortalReferralsStore {
       .run({ ...input, referralId, now }).changes === 1;
   }
 
-  linkPayout(referralId: string, payoutRefId: string): boolean {
+  /** Points an approved commission at the document that pays it, replacing one that no longer exists. */
+  setPayout(referralId: string, payoutRefId: string): boolean {
     return this.db
-      .prepare(`UPDATE referral_commissions SET payoutRefId = ?, updatedAt = ? WHERE referralId = ? AND status = 'approved' AND payoutRefId IS NULL`)
+      .prepare(`UPDATE referral_commissions SET payoutRefId = ?, updatedAt = ? WHERE referralId = ? AND status = 'approved'`)
       .run(payoutRefId, new Date().toISOString(), referralId).changes === 1;
   }
 

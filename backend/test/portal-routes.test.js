@@ -62,7 +62,7 @@ test('signing in returns a session, and me describes it without leaking ids', as
   assert.deepEqual(me.body, {
     user: { name: 'Ada', email: 'ada@acme.test', audience: 'client', role: 'client_admin' },
     subject: { name: 'Acme Foods' },
-    company: { name: 'Peak Media', logoUrl: null },
+    company: { name: 'Peak Media', logoUrl: null, currency: null },
   });
   assert.doesNotMatch(JSON.stringify(me.body), /contact-1|"id"|companyId|c1/);
 });

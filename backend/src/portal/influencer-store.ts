@@ -94,18 +94,37 @@ export class InfluencerPortalStore {
       .run(deliverableId, companyId, brief, new Date().toISOString());
   }
 
+  /** This contact's assignment ids, without scanning every campaign. */
+  assignmentIdsOf(companyId: string, contactId: string): string[] {
+    return (this.db.prepare('SELECT id FROM campaign_assignments WHERE companyId = ? AND contactId = ? ORDER BY createdAt').all(companyId, contactId) as Array<{ id: string }>).map((r) => r.id);
+  }
+
+  /** Deliverables this contact is paid for (vendor, else contact: the vendor-bill rule), as ids. */
+  paidDeliverableIdsOf(companyId: string, contactId: string): string[] {
+    return (this.db.prepare(
+      `SELECT id FROM campaign_deliverables
+        WHERE companyId = ? AND (vendorContactId = ? OR (vendorContactId IS NULL AND contactId = ?)) ORDER BY createdAt`,
+    ).all(companyId, contactId, contactId) as Array<{ id: string }>).map((r) => r.id);
+  }
+
   responseTo(assignmentId: string): AssignmentResponse | undefined {
     return this.db.prepare('SELECT * FROM portal_assignment_responses WHERE assignmentId = ?').get(assignmentId) as AssignmentResponse | undefined;
   }
 
-  /** False if this assignment already has an answer. */
-  addResponse(input: Omit<AssignmentResponse, 'createdAt'> & { companyId: string }): boolean {
-    return this.db
+  /**
+   * Records the latest answer. "Once" is enforced by the assignment's status
+   * (only Contacted can be answered), so staff putting it back to Contacted
+   * lets the influencer answer again.
+   */
+  recordResponse(input: Omit<AssignmentResponse, 'createdAt'> & { companyId: string }): void {
+    this.db
       .prepare(
-        `INSERT OR IGNORE INTO portal_assignment_responses (assignmentId, companyId, portalUserId, decision, reason, createdAt)
-         VALUES (@assignmentId, @companyId, @portalUserId, @decision, @reason, @createdAt)`,
+        `INSERT INTO portal_assignment_responses (assignmentId, companyId, portalUserId, decision, reason, createdAt)
+         VALUES (@assignmentId, @companyId, @portalUserId, @decision, @reason, @createdAt)
+         ON CONFLICT (assignmentId) DO UPDATE SET portalUserId = excluded.portalUserId, decision = excluded.decision,
+           reason = excluded.reason, createdAt = excluded.createdAt`,
       )
-      .run({ ...input, createdAt: new Date().toISOString() }).changes === 1;
+      .run({ ...input, createdAt: new Date().toISOString() });
   }
 
   private decode = (row: ChangeRow): ChangeRequest => ({ ...row, changes: JSON.parse(row.changes) as ProfileChanges });

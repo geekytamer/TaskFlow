@@ -26,9 +26,9 @@ export interface InvoiceDetail extends InvoiceSummary {
 
 export interface Statement {
   campaign: { id: string; name: string };
-  currency: string;
   invoices: InvoiceSummary[];
-  totals: { invoiced: number; paid: number; credited: number; outstanding: number };
+  /** One entry per currency; amounts in different currencies are never added. */
+  totals: Array<{ currency: string; invoiced: number; paid: number; credited: number; outstanding: number }>;
 }
 
 export const getInvoices = () => portalGet<InvoiceSummary[]>('/invoices');

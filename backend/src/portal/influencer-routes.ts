@@ -155,9 +155,9 @@ export function registerInfluencerRoutes(router: Router, store: DataStore, compa
 
   router.get('/influencer/assignments', requireInfluencerSession, (req: SessionRequest, res: Response) => {
     const contact = self(req.portal!);
-    const assignments = store.listCrmCampaigns(companyId)
-      .flatMap((campaign) => store.listCampaignAssignments(campaign.id)
-        .filter((a) => a.contactId === contact.id && isVisibleAssignment(a, campaign)));
+    const assignments = store.influencer.assignmentIdsOf(companyId, contact.id)
+      .map((id) => store.getCampaignAssignmentById(id)!)
+      .filter((a) => a && isVisibleAssignment(a, store.getCrmCampaignById(a.campaignId)));
     res.json(assignments.map((a) => toAssignmentDto(store, a, contact, currency())));
   });
 
@@ -173,7 +173,8 @@ export function registerInfluencerRoutes(router: Router, store: DataStore, compa
 
     const managerId = managerOf(session, contact, campaign.ownerUserId);
     const ok = store.transaction(() => store.runAsActor(actorFor(session, contact), () => {
-      if (!store.influencer.addResponse({ assignmentId: assignment.id, companyId, portalUserId: session.portalUserId, decision, reason })) return false;
+      if (store.getCampaignAssignmentById(assignment.id)?.status !== 'Contacted') return false;
+      store.influencer.recordResponse({ assignmentId: assignment.id, companyId, portalUserId: session.portalUserId, decision, reason });
       store.updateCampaignAssignment(assignment.id, { status: decision === 'accepted' ? 'Confirmed' : 'Cancelled' });
       const title = decision === 'accepted'
         ? `${contact.name} accepted "${campaign.name}"`

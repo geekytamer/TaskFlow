@@ -1,9 +1,8 @@
 import { ReferralForm } from '@/components/referral-form';
 import { StatusBadge } from '@/components/status-badge';
-import { getCatalogue } from '@/lib/catalogue';
 import { formatDate, formatMoney, formatPercent } from '@/lib/format';
 import { getAudience } from '@/lib/audience';
-import { getProfile } from '@/lib/influencer';
+import { requireMe } from '@/lib/portal';
 import { t, type Lang } from '@/lib/i18n';
 import { getReferrals, type Referral } from '@/lib/referrals';
 import { currentLang } from '@/lib/session';
@@ -18,9 +17,8 @@ function commissionText(c: NonNullable<Referral['commission']>, lang: Lang) {
 export default async function ReferralsPage() {
   const audience = getAudience();
   const lang = await currentLang();
-  // Each audience reads the company currency from a response it is allowed to see.
-  const currencyOf = async () => (audience === 'client' ? (await getCatalogue('')).currency : (await getProfile()).rateCard.currency);
-  const [referrals, currency] = await Promise.all([getReferrals(), currencyOf()]);
+  const [referrals, me] = await Promise.all([getReferrals(), requireMe(audience)]);
+  const currency = me.company?.currency ?? '';
 
   return (
     <div className="max-w-3xl space-y-10">

@@ -7,6 +7,7 @@ import { readSessionToken } from './session';
 export interface Branding {
   name: string;
   logoUrl: string | null;
+  currency?: string | null;
 }
 
 export interface Me {

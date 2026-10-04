@@ -146,7 +146,7 @@ test('the campaign statement totals the campaign’s invoices', async () => {
   const { body } = await get(ctx, omar, `/campaigns/${ctx.campaign.id}/statement`);
   assert.equal(body.campaign.name, 'Ramadan launch');
   assert.deepEqual(body.invoices.map((i) => i.id), [ctx.main.id]);
-  assert.deepEqual(body.totals, { invoiced: 1000, paid: 500, credited: 0, outstanding: 500 });
+  assert.deepEqual(body.totals, [{ currency: 'USD', invoiced: 1000, paid: 500, credited: 0, outstanding: 500 }]);
   const pdf = await get(ctx, omar, `/campaigns/${ctx.campaign.id}/statement.pdf?lang=ar`);
   assert.equal(pdf.status, 200);
   assert.match(ctx.rendered[0].html, /dir="rtl"/);
@@ -160,4 +160,16 @@ test('receipt HTML is self-contained: no scripts, no external resources', () => 
   });
   assert.doesNotMatch(html, /<img|<script|<link|src="|href="|url\(/i, "no tags or attributes that load anything");
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
+test('a statement keeps a total per currency rather than adding currencies together', async () => {
+  const ctx = build();
+  ctx.store.createInvoice({
+    companyId: ctx.company.id, clientId: ctx.client.id, contactId: ctx.client.id, campaignId: ctx.campaign.id, currency: 'OMR', exchangeRate: 2.6,
+    issueDate: new Date(), dueDate: new Date(Date.now() + 864e5), status: 'Sent', total: 400,
+    lineItems: [{ description: 'Extra', quantity: 1, unitPrice: 400, amount: 400, itemType: 'Manual' }],
+  });
+  const omar = await ctx.session(ctx.client, 'omar@alnoor.test');
+  const { body } = await get(ctx, omar, `/campaigns/${ctx.campaign.id}/statement`);
+  assert.deepEqual(body.totals.map((t) => [t.currency, t.invoiced]).sort(), [['OMR', 400], ['USD', 1000]]);
 });

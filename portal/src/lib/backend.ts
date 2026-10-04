@@ -48,7 +48,11 @@ export async function backendDownload(audience: Audience, path: string, token: s
       cache: 'no-store',
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (upstream.status !== 200) return new Response(null, { status: upstream.status === 401 ? 401 : 404 });
+    // Keep "not yours" (404), "signed out" (401) and "the renderer is down" (503) distinct.
+    if (upstream.status !== 200) {
+      const status = upstream.status === 401 || upstream.status === 404 ? upstream.status : upstream.status >= 500 ? 503 : 400;
+      return new Response(null, { status });
+    }
     const headers = new Headers();
     for (const name of DOWNLOAD_HEADERS) {
       const value = upstream.headers.get(name);

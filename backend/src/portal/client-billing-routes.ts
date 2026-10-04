@@ -113,7 +113,6 @@ export function registerClientBillingRoutes(
     const invoices = clientInvoices(store, companyId, contact).filter((i) => i.campaignId === campaign.id).map((i) => toInvoiceSummary(store, i));
     return {
       campaign: { id: campaign.id, name: campaign.name },
-      currency: invoices[0]?.currency ?? store.getCompanyFinanceSettings(companyId).currencyCode,
       invoices,
       totals: statementTotals(invoices),
     };
@@ -129,7 +128,7 @@ export function registerClientBillingRoutes(
       const s = statementOf(contact, req.params.id);
       const html = statementHtml({
         lang: docLang(req), company: company(), clientName: contact.name, campaignName: s.campaign.name,
-        generatedAt: new Date(), currency: s.currency, invoices: s.invoices, totals: s.totals,
+        generatedAt: new Date(), invoices: s.invoices, totals: s.totals,
       });
       sendPdf(res, await deps.pdf.html(html), `Statement-${s.campaign.name}`);
     } catch (error) {

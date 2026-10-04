@@ -3,6 +3,8 @@ import type { PortalAudience, PortalSession } from './portal-store';
 export interface PortalBranding {
   name: string;
   logoUrl?: string;
+  /** The company's currency, so pages need not fetch other data to learn it. */
+  currency?: string;
 }
 
 /** Everything a portal response may say about the session. No ids leave the server. */
@@ -13,7 +15,7 @@ export const toMeDto = (
 ) => ({
   user: { name: session.name, email: session.email, audience: session.audience, role: session.role },
   subject: { name: subjectName ?? session.name },
-  company: branding ? { name: branding.name, logoUrl: branding.logoUrl ?? null } : null,
+  company: branding ? { name: branding.name, logoUrl: branding.logoUrl ?? null, currency: branding.currency ?? null } : null,
 });
 
 export const toBrandingDto = (branding: PortalBranding, audience: PortalAudience) => ({

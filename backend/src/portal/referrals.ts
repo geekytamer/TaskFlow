@@ -55,6 +55,14 @@ export const commissionAmount = (terms: CommissionTerms, opportunity: Opportunit
     ? terms.fixedAmount!
     : Number(((opportunity.expectedRevenue || 0) * terms.ratePercent! / 100).toFixed(2));
 
+/** Whether the commission's payout document still exists and still pays it (an issued note, or any bill). */
+export function payoutDocumentLive(store: DataStore, commission: CommissionRecord): boolean {
+  if (!commission.payoutRefId) return false;
+  return commission.payoutType === 'vendor_bill'
+    ? Boolean(store.getVendorBillById(commission.payoutRefId))
+    : store.getCreditNoteById(commission.payoutRefId)?.status === 'Issued';
+}
+
 /** Paid is never stored: it is read from the document that pays it. */
 export function commissionStatus(store: DataStore, commission: CommissionRecord): 'pending' | 'approved' | 'paid' | 'voided' {
   if (commission.status !== 'approved') return commission.status;

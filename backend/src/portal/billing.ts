@@ -65,8 +65,8 @@ export function toInvoiceDetail(store: DataStore, invoice: Invoice) {
       amount: money(p.amount),
       method: p.method ?? null,
     })),
-    creditNotes: store.listCreditNotes(invoice.companyId)
-      .filter((n) => n.invoiceId === invoice.id && n.status === 'Issued')
+    creditNotes: store.listCreditNotesForInvoice(invoice.id)
+      .filter((n) => n.status === 'Issued')
       .map((n) => ({ number: n.creditNoteNumber, issueDate: iso(n.issueDate), total: money(n.total) })),
   };
 }
@@ -81,7 +81,16 @@ export function balanceAfter(store: DataStore, invoice: Invoice, payment: Paymen
   return money(Math.max(0, invoice.total - (invoice.creditedAmount ?? 0) - paid));
 }
 
+/** One total per currency: amounts in different currencies are never added together. */
 export function statementTotals(invoices: ReturnType<typeof toInvoiceSummary>[]) {
-  const sum = (key: 'total' | 'paid' | 'credited' | 'outstanding') => money(invoices.reduce((s, i) => s + i[key], 0));
-  return { invoiced: sum('total'), paid: sum('paid'), credited: sum('credited'), outstanding: sum('outstanding') };
+  const byCurrency = new Map<string, { currency: string; invoiced: number; paid: number; credited: number; outstanding: number }>();
+  for (const i of invoices) {
+    const t = byCurrency.get(i.currency) ?? { currency: i.currency, invoiced: 0, paid: 0, credited: 0, outstanding: 0 };
+    t.invoiced = money(t.invoiced + i.total);
+    t.paid = money(t.paid + i.paid);
+    t.credited = money(t.credited + i.credited);
+    t.outstanding = money(t.outstanding + i.outstanding);
+    byCurrency.set(i.currency, t);
+  }
+  return [...byCurrency.values()];
 }
