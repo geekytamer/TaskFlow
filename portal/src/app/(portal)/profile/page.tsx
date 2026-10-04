@@ -15,6 +15,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   // Back from Instagram: ?connected=instagram, with &error=... when it did not work.
   const notice: Key | null = params.connected !== 'instagram' ? null
     : params.error === 'personal_account' ? 'social.errPersonal'
+    : params.error === 'taken' ? 'social.errTaken'
     : params.error ? 'social.errCancelled'
     : 'social.connected';
   const dash = '-';

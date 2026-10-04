@@ -74,3 +74,12 @@ test('the influencer sees results on their own published work', async () => {
   const work = (await request(ctx.server).get('/portal-api/influencer/assignments').set(lina)).body[0].deliverables[0];
   assert.equal(work.results.views, 88412);
 });
+
+test('one post that cannot be read does not stop results for the others', async () => {
+  const ctx = build();
+  const other = ctx.store.createContact({ companyId: ctx.company.id, kind: 'Person', name: 'Other', roles: ['Influencer'] });
+  ctx.store.createCampaignDeliverable({ companyId: ctx.company.id, campaignId: ctx.campaign.id, title: 'Broken', status: 'Published', fulfillment: 'External', vendorContactId: other.id, contentUrl: 'https://www.instagram.com/p/XyZ789/', publishedAt: ctx.publishedAt });
+  ctx.store.social.upsertAccount({ companyId: ctx.company.id, contactId: other.id, externalId: 'other-1', username: 'other', accountType: 'BUSINESS', tokenSealed: 'v1:gone:AAAA:AAAA:AAAA', expiresAt: null });
+  await sweepMediaResults(ctx.store, ctx.meta, ctx.company.id, new Date());
+  assert.equal(ctx.store.social.mediaResults(ctx.reel.id).length, 1);
+});

@@ -89,7 +89,7 @@ export function ConnectedAccounts({ lang, accounts, notice }: { lang: Lang; acco
         </ul>
       )}
 
-      {!accounts.some((a) => a.status === 'active') && (
+      {!accounts.some((a) => a.status === 'active' || a.status === 'needs_reconnect') && (
         <button type="button" onClick={connect} disabled={busy !== null} className={`${primaryButton} md:w-auto md:px-8`}>
           {busy === 'connect' ? t(lang, 'social.working') : t(lang, 'social.connect')}
         </button>

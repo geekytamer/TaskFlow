@@ -36,8 +36,12 @@ export async function sweepMediaResults(store: DataStore, client: MetaClient, co
       const checkpoint = due[due.length - 1].name;
       store.social.addMediaResult({ deliverableId: d.id, accountId: account.id, mediaId, checkpoint, ...figures, fetchedAt: now.toISOString() });
     } catch (error) {
-      if (error instanceof MetaAuthError || error instanceof MetaRateLimitError) continue;
-      throw error;
+      // One post failing (throttled, revoked, unreadable token) must not stop the others;
+      // the account sweep flags revoked or unreadable tokens for reconnection.
+      if (!(error instanceof MetaAuthError || error instanceof MetaRateLimitError)) {
+        store.social.updateAccount(account.id, { lastError: `Results: ${(error as Error).message}`.slice(0, 300) });
+      }
+      continue;
     }
   }
 }

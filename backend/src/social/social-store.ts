@@ -84,6 +84,18 @@ export class SocialStore {
     return this.getAccount(id)!;
   }
 
+  ownerOfExternal(externalId: string): ConnectedAccount | undefined {
+    return this.db.prepare("SELECT * FROM connected_accounts WHERE platform = 'instagram' AND externalId = ?").get(externalId) as ConnectedAccount | undefined;
+  }
+
+  /** The influencer disconnects: the token and the daily figures go now; post results stay with the campaign. */
+  disconnect(id: string): void {
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE connected_accounts SET status = 'revoked', tokenSealed = NULL, expiresAt = NULL WHERE id = ?").run(id);
+      this.db.prepare('DELETE FROM account_snapshots WHERE accountId = ?').run(id);
+    })();
+  }
+
   getAccount(id: string): ConnectedAccount | undefined {
     return this.db.prepare('SELECT * FROM connected_accounts WHERE id = ?').get(id) as ConnectedAccount | undefined;
   }

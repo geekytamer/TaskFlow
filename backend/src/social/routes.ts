@@ -38,7 +38,7 @@ export function registerSocialPortalRoutes(router: Router, store: DataStore, com
   router.post('/influencer/social/:id/disconnect', requireInfluencer, (req: SessionRequest, res: Response) => {
     const account = store.social.getAccount(req.params.id);
     if (!account || account.companyId !== companyId || account.contactId !== req.portal!.contactId) throw new HttpError(404, 'Not found.');
-    store.social.updateAccount(account.id, { status: 'revoked', tokenSealed: null, expiresAt: null });
+    store.social.disconnect(account.id);
     res.json({ ok: true });
   });
 }
@@ -57,6 +57,9 @@ export function createSocialPublicRouter(store: DataStore, options: SocialOption
       const tokens = await options.client.exchangeCode(req.query.code, options.redirectUri);
       const profile = await options.client.profile(tokens.accessToken);
       if (profile.accountType === 'PERSONAL') return back(res, 'personal_account');
+      const holder = store.social.ownerOfExternal(profile.id);
+      // One Instagram account belongs to one influencer; moving it is a staff decision, not a sign-in side effect.
+      if (holder && holder.contactId !== claim.contactId && holder.status !== 'revoked') return back(res, 'taken');
       const account = store.social.upsertAccount({
         companyId: claim.companyId, contactId: claim.contactId, externalId: profile.id, username: profile.username,
         accountType: profile.accountType, tokenSealed: sealToken(tokens.accessToken), expiresAt: tokens.expiresAt.toISOString(),
@@ -64,7 +67,9 @@ export function createSocialPublicRouter(store: DataStore, options: SocialOption
       await syncAccount(store, options.client, account);
       back(res);
     } catch (error) {
-      next(error);
+      // The state check answers 400 itself; anything Meta-side sends the influencer back with a message.
+      if (error instanceof HttpError) return next(error);
+      back(res, 'failed');
     }
   });
 
@@ -82,6 +87,7 @@ export function createSocialPublicRouter(store: DataStore, options: SocialOption
     store.social.purgeExternal(String(data.user_id));
     const code = crypto.randomBytes(8).toString('hex');
     res.json({ url: `${new URL(options.portalReturnUrl).origin}/data-deletion?code=${code}`, confirmation_code: code });
+    // The status page (portal app/data-deletion) states the deletion is complete; it is done synchronously above.
   });
   return router;
 }

@@ -28,8 +28,14 @@ function needsReconnect(store: DataStore, account: ConnectedAccount, message: st
 export async function syncAccount(store: DataStore, client: MetaClient, account: ConnectedAccount, now = new Date()): Promise<void> {
   if (account.status !== 'active' || !account.tokenSealed) return;
   const today = dayOf(now);
+  let token: string;
   try {
-    let token = openToken(account.tokenSealed);
+    token = openToken(account.tokenSealed);
+  } catch {
+    // Sealed under a key that is gone: only a fresh connection can fix it.
+    return needsReconnect(store, account, 'The saved token could not be read.');
+  }
+  try {
     if (account.expiresAt && Date.parse(account.expiresAt) - now.getTime() < REFRESH_WITHIN) {
       const fresh = await client.refresh(token);
       token = fresh.accessToken;

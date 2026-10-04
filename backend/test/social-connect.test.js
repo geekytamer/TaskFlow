@@ -163,3 +163,35 @@ test("Meta's data-deletion callback needs a valid signature and purges the accou
   assert.match(ok.body.url, /deletion/);
   assert.equal(ctx.store.social.accountsFor(ctx.company.id, ctx.lina.id).length, 0);
 });
+
+test('an unreadable token asks for reconnection, and failures send the influencer back to the profile', async () => {
+  const ctx = build();
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  await (await connect(ctx, lina)).callback();
+  const account = ctx.store.social.accountsFor(ctx.company.id, ctx.lina.id)[0];
+  ctx.store.social.updateAccount(account.id, { tokenSealed: 'v1:gone:AAAA:AAAA:AAAA' });
+  await sweepSocial(ctx.store, new FixtureMetaClient(FIXTURES), ctx.company.id, new Date(Date.now() + 86400_000));
+  assert.equal(ctx.store.social.getAccount(account.id).status, 'needs_reconnect');
+
+  const broken = new FixtureMetaClient(FIXTURES);
+  broken.exchangeCode = async () => { throw new Error('Meta said no'); };
+  const ctx2 = build(broken);
+  const lina2 = await ctx2.session('influencer', ctx2.lina, 'lina@creator.test');
+  const res = await (await connect(ctx2, lina2)).callback();
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.location, 'https://creators.peak.test/profile?connected=instagram&error=failed');
+});
+
+test('disconnecting deletes the daily figures; an account already connected to someone else is refused', async () => {
+  const ctx = build();
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  await (await connect(ctx, lina)).callback();
+  const id = ctx.store.social.accountsFor(ctx.company.id, ctx.lina.id)[0].id;
+  const rival = await ctx.session('influencer', ctx.rival, 'rival@creator.test');
+  const taken = await (await connect(ctx, rival)).callback();
+  assert.equal(taken.headers.location, 'https://creators.peak.test/profile?connected=instagram&error=taken');
+  assert.equal(ctx.store.social.getAccount(id).contactId, ctx.lina.id, 'still Lina’s');
+
+  await request(ctx.server).post(`/portal-api/influencer/social/${id}/disconnect`).set(lina);
+  assert.equal(ctx.store.social.snapshots(id).length, 0);
+});
