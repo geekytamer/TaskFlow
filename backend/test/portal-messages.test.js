@@ -216,8 +216,11 @@ test('an unanswered client message is one open follow-up, closed when staff repl
   const openReplies = () => ctx.store.listFollowupEntities(ctx.company.id, { status: 'active', entityType: 'contact', entityId: ctx.client.id })
     .filter((f) => f.sourceTrigger === 'portal_message');
 
-  await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'First question.' });
-  await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'And a second one.' });
+  // Intermittent under full-suite load once (2026-10-04, not reproduced in 20 parallel and 6 full runs):
+  // the statuses below make the next failure say whether a POST failed or the follow-up was not opened.
+  const first = await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'First question.' });
+  const second = await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'And a second one.' });
+  assert.deepEqual([first.status, second.status], [201, 201], JSON.stringify([first.body, second.body]));
   assert.equal(openReplies().length, 1, 'one reminder, not one per message');
   assert.equal(openReplies()[0].ownerUserId, ctx.owner.id);
 
