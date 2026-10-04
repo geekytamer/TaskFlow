@@ -1,7 +1,7 @@
 import type { Request, RequestHandler, Response, Router } from 'express';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
-import { CATALOGUE_LIMIT, facetsOf, matchesFilter, priceFor, toCatalogueEntry, type CatalogueFilter } from './catalogue';
+import { type VerifiedFigure, CATALOGUE_LIMIT, facetsOf, matchesFilter, priceFor, toCatalogueEntry, type CatalogueFilter } from './catalogue';
 import type { PricingProfile } from './catalogue-store';
 import type { PortalSession } from './portal-store';
 import type { SessionRequest } from './common';
@@ -14,6 +14,8 @@ export interface ClientCatalogueDeps {
   isListed(companyId: string, contactId: string): boolean;
   pricingProfile(contactId: string): PricingProfile | undefined;
   currency(companyId: string): string;
+  /** Synced figures from connected accounts; absent or empty means none. */
+  verified?(contactId: string): VerifiedFigure[];
 }
 
 
@@ -53,7 +55,7 @@ export function registerClientCatalogueRoutes(
     const filter = parseFilter(req.query);
     const all = deps.listInfluencers(companyId)
       .filter((contact) => listed.has(contact.id))
-      .map((contact) => toCatalogueEntry(contact, price(contact)));
+      .map((contact) => toCatalogueEntry(contact, price(contact), deps.verified?.(contact.id)));
     const matches = all.filter((entry) => matchesFilter(entry, filter));
     res.json({
       items: matches.slice(0, CATALOGUE_LIMIT),
@@ -70,6 +72,6 @@ export function registerClientCatalogueRoutes(
       && contact.roles?.includes('Influencer')
       && deps.isListed(companyId, contact.id);
     if (!contact || !listed) throw new HttpError(404, 'Not found.');
-    res.json(toCatalogueEntry(contact, pricing(req)(contact)));
+    res.json(toCatalogueEntry(contact, pricing(req)(contact), deps.verified?.(contact.id)));
   });
 }

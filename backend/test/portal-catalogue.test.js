@@ -143,7 +143,7 @@ test('no response ever carries a rate, contact details or internal notes', async
   assert.deepEqual(Object.keys(detail.body).sort(),
     ['availability', 'id', 'languages', 'location', 'name', 'niche', 'platforms', 'price']);
   assert.deepEqual(Object.keys(detail.body.platforms[0]).sort(),
-    ['avgViews', 'engagementRate', 'followers', 'handle', 'platform', 'url']);
+    ['avgViews', 'engagementRate', 'followers', 'handle', 'platform', 'url', 'verified']);
 });
 
 test('the price follows the client’s own pricing profile and never reveals the rate', async () => {

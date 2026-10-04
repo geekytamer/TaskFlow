@@ -1,3 +1,4 @@
+import path from 'node:path';
 import express, { NextFunction, Request, RequestHandler, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -30,6 +31,9 @@ import { createPublicGamesRouter } from './games/public-routes';
 import { ensureFrozen } from './games/games';
 import { companyCurrency } from './portal/common';
 import type { PortalPdfRenderer } from './portal/client-billing-routes';
+import { createSocialPublicRouter, type SocialOptions } from './social/routes';
+import { FixtureMetaClient, HttpMetaClient } from './social/meta-client';
+import { sweepSocial } from './social/sync';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -213,6 +217,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   sendPortalInvite?: PortalInviteSender;
   /** Document renderer for the client portal's invoices, receipts and statements. Tests pass a fake. */
   portalPdf?: PortalPdfRenderer;
+  /** Instagram connections. Tests pass a fixture client; production builds one from META_* env. */
+  social?: SocialOptions;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -592,6 +598,24 @@ export function trustProxySetting(raw = process.env.TRUST_PROXY): boolean | numb
   return /^\d+$/.test(value) ? Number(value) : value;
 }
 
+/**
+ * Instagram connections from the environment: the real Meta app when its
+ * credentials are set, recorded fixtures when SOCIAL_FIXTURES=1 (local only),
+ * otherwise off.
+ */
+function socialFromEnv(): SocialOptions | undefined {
+  const base = (process.env.PUBLIC_BASE_URL || 'http://localhost:4005').replace(/\/$/, '');
+  const portalReturnUrl = `${(process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/$/, '')}/profile`;
+  const redirectUri = `${base}/social/instagram/callback`;
+  if (process.env.META_APP_ID && process.env.META_APP_SECRET) {
+    return { client: new HttpMetaClient({ appId: process.env.META_APP_ID, appSecret: process.env.META_APP_SECRET }), appSecret: process.env.META_APP_SECRET, redirectUri, portalReturnUrl };
+  }
+  if (process.env.SOCIAL_FIXTURES === '1' && process.env.NODE_ENV !== 'production') {
+    return { client: new FixtureMetaClient(path.join(__dirname, '..', 'test', 'fixtures', 'meta')), appSecret: 'fixtures', redirectUri, portalReturnUrl };
+  }
+  return undefined;
+}
+
 export function createServer(options: CreateServerOptions = {}) {
   const logger = options.logger ?? console;
   const allowSeedReset =
@@ -697,6 +721,9 @@ export function createServer(options: CreateServerOptions = {}) {
         const portalCompany = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
         const portalDue = portalCompany && store.getCompanyById(portalCompany) ? sweepPortalDeliverableReminders(store, portalCompany) : 0;
         if (portalDue > 0) logger.info(`[portal] ${portalDue} deliverable due-soon reminder(s)`);
+        if (portalCompany && social) {
+          void sweepSocial(store, social.client, portalCompany).catch((error) => logger.error('[social] sweep failed', error));
+        }
         // Freeze games that ended since the last sweep, even if nobody looked at them.
         if (portalCompany && store.getCompanyById(portalCompany)) {
           store.games.list(portalCompany)
@@ -8512,6 +8539,7 @@ export function createServer(options: CreateServerOptions = {}) {
   });
 
   const portalCompanyId = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
+  const social = portalCompanyId ? options.social ?? socialFromEnv() : undefined;
   if (portalCompanyId) {
     if (!store.getCompanyById(portalCompanyId)) {
       logger.warn(`[portal] PORTAL_COMPANY_ID ${portalCompanyId} matches no company yet.`);
@@ -8537,6 +8565,7 @@ export function createServer(options: CreateServerOptions = {}) {
           isListed: (companyId, contactId) => store.catalogue.isListed(companyId, contactId),
           pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
           currency: (companyId) => companyCurrency(store, companyId),
+          verified: (contactId) => store.social.verifiedFor(portalCompanyId, contactId),
         },
         requestsStore: store,
         pdf: options.portalPdf ?? {
@@ -8544,8 +8573,10 @@ export function createServer(options: CreateServerOptions = {}) {
           html: renderHtmlPdf,
         },
         appPublicUrl: process.env.APP_PUBLIC_URL || 'http://localhost:3000',
+        social,
       }),
     );
+    if (social) app.use('/social', createSocialPublicRouter(store, social));
     // Engagement games exist only for the portal company (see the G1 plan).
     app.use('/public-api', createPublicGamesRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
     app.use(createGamesStaffRouter({

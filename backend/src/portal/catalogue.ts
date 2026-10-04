@@ -20,7 +20,12 @@ export interface CataloguePlatform {
   followers: number | null;
   avgViews: number | null;
   engagementRate: number | null;
+  /** Set when the figures come from a connected account rather than staff entry. */
+  verified: { asOf: string } | null;
 }
+
+/** A connected account's latest synced figures (social/social-store.ts). */
+export interface VerifiedFigure { platform: 'instagram'; username: string; followers: number; asOf: string }
 
 export interface CatalogueEntry {
   id: string;
@@ -73,6 +78,7 @@ function platformsOf(contact: Contact): CataloguePlatform[] {
       followers: num(account.followers),
       avgViews: num(account.avgViews),
       engagementRate: num(account.engagementRate),
+      verified: null,
     }));
   }
   const platform = text(contact.influencerPlatform);
@@ -84,10 +90,28 @@ function platformsOf(contact: Contact): CataloguePlatform[] {
     followers: num(contact.followerCount),
     avgViews: null,
     engagementRate: num(contact.engagementRate),
+    verified: null,
   }];
 }
 
-export function toCatalogueEntry(contact: Contact, price: PriceView): CatalogueEntry {
+const handleKey = (h: string | null | undefined) => (h ?? '').trim().replace(/^@+/, '').toLowerCase();
+
+/**
+ * Synced figures replace staff-entered ones for the same Instagram handle; a
+ * connected account staff never entered is added. Verified wins over typed.
+ */
+function withVerified(platforms: CataloguePlatform[], verified: VerifiedFigure[]): CataloguePlatform[] {
+  const out = [...platforms];
+  for (const v of verified) {
+    const i = out.findIndex((p) => p.platform.toLowerCase() === 'instagram' && handleKey(p.handle) === handleKey(v.username));
+    const figure = { followers: v.followers, verified: { asOf: v.asOf } };
+    if (i >= 0) out[i] = { ...out[i], ...figure };
+    else out.push({ platform: 'Instagram', handle: `@${v.username}`, url: `https://www.instagram.com/${encodeURIComponent(v.username)}/`, avgViews: null, engagementRate: null, ...figure });
+  }
+  return out;
+}
+
+export function toCatalogueEntry(contact: Contact, price: PriceView, verified: VerifiedFigure[] = []): CatalogueEntry {
   return {
     id: contact.id,
     name: contact.name,
@@ -95,7 +119,7 @@ export function toCatalogueEntry(contact: Contact, price: PriceView): CatalogueE
     location: text(contact.location),
     languages: Array.isArray(contact.languages) ? contact.languages.filter((l) => typeof l === 'string') : [],
     availability: text(contact.availabilityStatus),
-    platforms: platformsOf(contact),
+    platforms: withVerified(platformsOf(contact), verified),
     price,
   };
 }

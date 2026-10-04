@@ -1,0 +1,7 @@
+{ "data": [
+  { "name": "views", "values": [ { "value": 88412 } ] },
+  { "name": "likes", "values": [ { "value": 6120 } ] },
+  { "name": "comments", "values": [ { "value": 431 } ] },
+  { "name": "saved", "values": [ { "value": 902 } ] },
+  { "name": "shares", "values": [ { "value": 377 } ] }
+] }

@@ -1,0 +1,5 @@
+{ "data": [
+  { "name": "views", "period": "day", "total_value": { "value": 52310 } },
+  { "name": "reach", "period": "day", "total_value": { "value": 31877 } },
+  { "name": "accounts_engaged", "period": "day", "total_value": { "value": 4120 } }
+] }

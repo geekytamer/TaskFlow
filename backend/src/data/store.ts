@@ -12,6 +12,7 @@ import { PortalThreadStore } from '../portal/thread-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
+import { SocialStore } from '../social/social-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -639,6 +640,7 @@ export class DataStore {
   readonly referrals: PortalReferralsStore;
   readonly influencer: InfluencerPortalStore;
   readonly games: GamesStore;
+  readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -670,6 +672,7 @@ export class DataStore {
     this.referrals = new PortalReferralsStore(this.db);
     this.influencer = new InfluencerPortalStore(this.db);
     this.games = new GamesStore(this.db);
+    this.social = new SocialStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -4010,6 +4013,64 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Connected social accounts (Meta M1/M2). Tokens are sealed (social/crypto.ts);
+        // the portal reads snapshots, never the platform live.
+        id: '094_social',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS connected_accounts (
+              id           TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL,
+              contactId    TEXT NOT NULL,
+              platform     TEXT NOT NULL,
+              externalId   TEXT NOT NULL,
+              username     TEXT NOT NULL,
+              accountType  TEXT NOT NULL,
+              tokenSealed  TEXT,
+              expiresAt    TEXT,
+              status       TEXT NOT NULL DEFAULT 'active',
+              lastSyncAt   TEXT,
+              lastError    TEXT,
+              createdAt    TEXT NOT NULL,
+              UNIQUE (platform, externalId),
+              CHECK (status IN ('active', 'needs_reconnect', 'revoked'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_connected_accounts_contact ON connected_accounts (companyId, contactId);
+            CREATE TABLE IF NOT EXISTS account_snapshots (
+              accountId       TEXT NOT NULL,
+              takenOn         TEXT NOT NULL,
+              followers       INTEGER NOT NULL,
+              views           INTEGER NOT NULL,
+              reach           INTEGER NOT NULL,
+              engagedAccounts INTEGER NOT NULL,
+              demographics    TEXT,
+              PRIMARY KEY (accountId, takenOn)
+            );
+            CREATE TABLE IF NOT EXISTS media_results (
+              deliverableId TEXT NOT NULL,
+              accountId     TEXT NOT NULL,
+              mediaId       TEXT NOT NULL,
+              checkpoint    TEXT NOT NULL,
+              views         INTEGER NOT NULL,
+              likes         INTEGER NOT NULL,
+              comments      INTEGER NOT NULL,
+              saves         INTEGER NOT NULL,
+              shares        INTEGER NOT NULL,
+              fetchedAt     TEXT NOT NULL,
+              PRIMARY KEY (deliverableId, checkpoint),
+              CHECK (checkpoint IN ('24h', '7d', '30d'))
+            );
+            CREATE TABLE IF NOT EXISTS oauth_states (
+              state        TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL,
+              contactId    TEXT NOT NULL,
+              portalUserId TEXT NOT NULL,
+              createdAt    TEXT NOT NULL
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4167,6 +4228,10 @@ export class DataStore {
         DELETE FROM portal_request_influencers;
         DELETE FROM portal_proposal_responses;
         DELETE FROM deliverable_reviews;
+        DELETE FROM oauth_states;
+        DELETE FROM media_results;
+        DELETE FROM account_snapshots;
+        DELETE FROM connected_accounts;
         DELETE FROM game_viewers;
         DELETE FROM game_results;
         DELETE FROM game_actor_rules;

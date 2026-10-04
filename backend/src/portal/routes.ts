@@ -10,6 +10,7 @@ import { registerThreadRoutes } from './thread-routes';
 import { registerReferralRoutes } from './referral-routes';
 import { registerInfluencerRoutes } from './influencer-routes';
 import { registerPortalGameRoutes } from '../games/portal-routes';
+import { registerSocialPortalRoutes, type SocialOptions } from '../social/routes';
 import { registerClientBillingRoutes, type PortalPdfRenderer } from './client-billing-routes';
 import { toBrandingDto, toMeDto, type PortalBranding } from './dto';
 import { portalAudiences, type PortalAudience, type PortalSession, type PortalStore } from './portal-store';
@@ -35,6 +36,8 @@ export interface PortalRouterOptions {
   requestsStore?: DataStore;
   /** Renders invoices, receipts and statements. Absent: the billing routes do not exist. */
   pdf?: PortalPdfRenderer;
+  /** Instagram connections (Meta M1). Absent: those routes do not exist. */
+  social?: SocialOptions;
   /** Where the staff app serves the public invoice page the invoice PDF is rendered from. */
   appPublicUrl?: string;
 }
@@ -149,6 +152,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
     registerPortalGameRoutes(router, options.requestsStore, companyId, requireSession);
+    if (options.social) registerSocialPortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'), options.social);
     if (options.pdf) {
       registerClientBillingRoutes(router, options.requestsStore, companyId, requireSessionFor('client'), {
         pdf: options.pdf,

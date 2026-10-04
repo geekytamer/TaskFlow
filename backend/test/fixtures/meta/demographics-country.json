@@ -1,0 +1,1 @@
+{ "data": [ { "name": "follower_demographics", "total_value": { "breakdowns": [ { "dimension_keys": ["country"], "results": [ { "dimension_values": ["OM"], "value": 98000 }, { "dimension_values": ["AE"], "value": 41000 }, { "dimension_values": ["SA"], "value": 22000 } ] } ] } } ] }
