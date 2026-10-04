@@ -9,3 +9,4 @@ Date: 2026-10-04. Branch `feature/peak-portal`. Each iteration: review, fix, ver
 5. `superpowers:verification-before-completion` + `superpowers:finishing-a-development-branch`: full suites, production builds, docs and memory; stop before push (the user decides).
 
 ## Outcomes
+1. **code-review** (`see commit after 77e2147`): 10 findings; 8 fixed with tests (stuck commission payouts, re-invited assignments, mixed-currency statement totals, cross-company referral owner, download status mapping, two N+1 scans, currency fetched via the catalogue); 2 not needed (submission version and referral cap races: handlers are synchronous in one process). Backend 396, portal 17.
