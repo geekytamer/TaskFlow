@@ -34,7 +34,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, FileText, Download, LayoutTemplate } from 'lucide-react';
+import { Plus, Trash2, FileText, Download, LayoutTemplate, Pencil, ExternalLink } from 'lucide-react';
 
 const InvoiceTemplatePanel = dynamic(
   () => import('@/modules/finance/components/invoice-template-panel')
@@ -47,7 +47,7 @@ const InvoiceTemplatePanel = dynamic(
 
 type View =
   | { mode: 'list' }
-  | { mode: 'compose'; template: InvoiceTemplate };
+  | { mode: 'compose'; template: InvoiceTemplate; document?: DocumentInstance };
 
 export function DocumentsPanel() {
   const { selectedCompany } = useCompany();
@@ -140,7 +140,7 @@ export function DocumentsPanel() {
   if (view.mode === 'compose') {
     return (
       <Card><CardContent className="p-4 sm:p-6">
-        <DocumentComposer template={view.template} onBack={() => setView({ mode: 'list' })} onSaved={() => { setView({ mode: 'list' }); load(); }} />
+        <DocumentComposer template={view.template} document={view.document} onBack={() => setView({ mode: 'list' })} onSaved={() => { setView({ mode: 'list' }); load(); }} />
       </CardContent></Card>
     );
   }
@@ -285,10 +285,20 @@ export function DocumentsPanel() {
                         <TableRow key={d.id}>
                           <TableCell className="font-medium">{d.title}</TableCell>
                           <TableCell className="text-muted-foreground">{d.templateName ?? '—'}</TableCell>
-                          <TableCell><Badge variant={d.status === 'final' ? 'default' : 'secondary'}>{d.status}</Badge></TableCell>
+                          <TableCell><Badge variant={d.status === 'final' ? 'default' : 'secondary'}>{d.status === 'final' ? tr('Final', 'معتمد') : tr('Draft', 'مسودة')}</Badge></TableCell>
                           <TableCell className="text-end">
+                            {d.status === 'draft' && (
+                              <Button variant="ghost" size="sm" onClick={() => {
+                                const t = d.templateSnapshot ?? templates.find((x) => x.id === d.templateId);
+                                if (t) setView({ mode: 'compose', template: t, document: d });
+                                else toast({ variant: 'destructive', title: tr('This document has no template to edit with.', 'لا يوجد قالب لتعديل هذا المستند.') });
+                              }}><Pencil className="me-1 h-4 w-4" />{tr('Edit', 'تعديل')}</Button>
+                            )}
+                            <Button variant="ghost" size="sm" asChild>
+                              <a href={`/document/${d.id}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="me-1 h-4 w-4" />{tr('Open', 'فتح')}</a>
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => downloadPdf(d.id, d.title)}><Download className="me-1 h-4 w-4" />{tr('PDF', 'PDF')}</Button>
-                            <Button variant="ghost" size="icon" onClick={() => removeDocument(d.id)}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" aria-label={tr('Delete', 'حذف')} onClick={() => removeDocument(d.id)}><Trash2 className="h-4 w-4" /></Button>
                           </TableCell>
                         </TableRow>
                       ))}

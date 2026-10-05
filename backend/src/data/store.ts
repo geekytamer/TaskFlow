@@ -8146,14 +8146,18 @@ export class DataStore {
     return this.getDocumentById(id)!;
   }
 
-  updateDocument(id: string, updates: { title?: string; fieldValues?: Record<string, string>; recordId?: string; status?: DocumentStatus }): DocumentRecord | undefined {
+  updateDocument(id: string, updates: { title?: string; fieldValues?: Record<string, string>; recordType?: DocumentDataSource | null; recordId?: string; status?: DocumentStatus }): DocumentRecord | undefined {
     const existing = this.getDocumentById(id);
     if (!existing) return undefined;
-    this.db.prepare('UPDATE documents SET title=@title, fieldValues=@fieldValues, recordId=@recordId, status=@status, updatedAt=@updatedAt WHERE id=@id')
+    this.db.prepare('UPDATE documents SET title=@title, fieldValues=@fieldValues, recordType=@recordType, recordId=@recordId, status=@status, updatedAt=@updatedAt WHERE id=@id')
       .run({
         id,
         title: updates.title !== undefined ? updates.title.trim() : existing.title,
         fieldValues: JSON.stringify(updates.fieldValues ?? existing.fieldValues),
+        // Clearing the record clears its kind too; a new record may bring a new kind.
+        recordType: updates.recordId === ''
+          ? null
+          : updates.recordType !== undefined ? updates.recordType : (existing.recordType ?? null),
         recordId: updates.recordId !== undefined ? (updates.recordId || null) : (existing.recordId ?? null),
         status: updates.status ?? existing.status,
         updatedAt: new Date().toISOString(),

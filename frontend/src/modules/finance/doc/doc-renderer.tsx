@@ -34,6 +34,8 @@ interface DocRendererProps {
   client?: Client | null;
   company?: Company | null;
   template?: InvoiceTemplate;
+  /** Fill-in values for `{{field.*}}` variables (documents). */
+  fields?: Record<string, string>;
   /** Where the QR code points. Defaults to the public invoice page; an empty string hides the code. */
   publicUrl?: string;
   /** Designer-only: make top-level blocks selectable and drag-reorderable on the canvas. */
@@ -210,6 +212,7 @@ export function DocRenderer({
   company,
   template,
   publicUrl,
+  fields,
   editable,
   selectedId,
   onSelectBlock,
@@ -234,6 +237,7 @@ export function DocRenderer({
     total,
     formatMoney: (v) => String(v),
     publicUrl: publicUrl ?? publicInvoiceUrl(invoice.id),
+    fields,
   };
   const theme = doc.theme;
   const isRtl = isRtlLocale();

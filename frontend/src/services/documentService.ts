@@ -58,7 +58,7 @@ export async function createDocument(
 
 export async function updateDocument(
   id: string,
-  data: Partial<{ title: string; fieldValues: Record<string, string>; recordId: string; status: 'draft' | 'final' }>,
+  data: Partial<{ title: string; fieldValues: Record<string, string>; recordType: DocumentDataSource; recordId: string; status: 'draft' | 'final' }>,
 ): Promise<DocumentInstance> {
   return apiFetch<DocumentInstance>(`/documents/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 }
@@ -78,6 +78,7 @@ export async function getPublicDocument(id: string): Promise<{
   invoice: Invoice | null;
   company: Company | null;
   client: Client | null;
+  fields?: Record<string, string>;
   context: Record<string, string>;
 }> {
   const res = await fetch(`${API_BASE}/public/documents/${id}`);

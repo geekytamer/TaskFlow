@@ -2514,6 +2514,39 @@ export function createServer(options: CreateServerOptions = {}) {
     requireCompanyRoles(req, d.companyId, companyManagementRoles);
     return d;
   };
+  // A document prints what it links to, so the record must be the company's own.
+  const ensureDocumentRecordInCompany = (recordType: string | undefined, recordId: string | undefined, companyId: string) => {
+    if (!recordId || !recordType || recordType === 'none') return;
+    const owner = (() => {
+      switch (recordType) {
+        case 'client': return store.getClientById(recordId)?.companyId;
+        case 'contact': return store.getContactById(recordId)?.companyId;
+        case 'invoice': return store.getInvoiceById(recordId)?.companyId;
+        case 'delivery_note': return store.getDeliveryById(recordId)?.companyId;
+        case 'opportunity': return store.getOpportunityById(recordId)?.companyId;
+        case 'sales_order': return store.getSalesOrderById(recordId)?.companyId;
+        default: return undefined;
+      }
+    })();
+    if (owner !== companyId) throw new HttpError(400, 'The linked record does not belong to this company.');
+  };
+
+  // A document's fill-in values: a flat map of short strings, nothing else.
+  const parseFieldValues = (value: unknown): Record<string, string> | undefined => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'fieldValues must be an object of text values.');
+    const out: Record<string, string> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      if (!/^[\w.]{1,80}$/.test(key)) throw new HttpError(400, `Field name ${key.slice(0, 40)} is invalid.`);
+      if (raw === null || raw === undefined) continue;
+      if (typeof raw !== 'string' && typeof raw !== 'number') throw new HttpError(400, `Field ${key} must be text.`);
+      const text = String(raw);
+      if (text.length > 20000) throw new HttpError(400, `Field ${key} is too long.`);
+      out[key] = text;
+    }
+    return out;
+  };
+
   app.get('/companies/:companyId/documents', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
     res.json(store.listDocuments(req.params.companyId));
@@ -2521,13 +2554,14 @@ export function createServer(options: CreateServerOptions = {}) {
   app.post('/companies/:companyId/documents', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
     const body = asRecord(req.body, 'body');
+    ensureDocumentRecordInCompany(optionalString(body.recordType), optionalString(body.recordId), req.params.companyId);
     try {
       const d = withActor(req, () => store.createDocument(req.params.companyId, {
         templateId: requiredString(body.templateId, 'templateId'),
         title: optionalString(body.title),
         recordType: body.recordType !== undefined ? (enumValue(body.recordType, 'recordType', DOCUMENT_SOURCES as any) as any) : undefined,
         recordId: optionalString(body.recordId),
-        fieldValues: (body.fieldValues && typeof body.fieldValues === 'object') ? (body.fieldValues as Record<string, string>) : undefined,
+        fieldValues: parseFieldValues(body.fieldValues),
         status: body.status !== undefined
           ? (enumValue(body.status, 'status', ['draft', 'final']) as any)
           : undefined,
@@ -2540,12 +2574,28 @@ export function createServer(options: CreateServerOptions = {}) {
   }));
   app.get('/documents/:id', authMiddleware, handler((req, res) => { res.json(loadDocument(req)); }));
   app.put('/documents/:id', authMiddleware, handler((req, res) => {
-    loadDocument(req);
+    const existing = loadDocument(req);
     const body = asRecord(req.body, 'body');
+    // A finalized document is what was issued: its wording never changes.
+    const editsContent = body.title !== undefined || body.fieldValues !== undefined || body.recordId !== undefined || body.recordType !== undefined;
+    if (existing.status === 'final' && (editsContent || body.status === 'draft')) {
+      throw new HttpError(409, 'This document is final and can no longer be changed. Create a new one instead.');
+    }
+    if (body.recordId !== undefined || body.recordType !== undefined) {
+      // Check the pair as it will be stored, so changing only one half cannot
+      // point an old id at a new kind of record.
+      const nextId = body.recordId !== undefined ? optionalString(body.recordId) : existing.recordId;
+      const nextType = optionalString(body.recordType) ?? existing.recordType;
+      if (nextId && (!nextType || nextType === 'none')) throw new HttpError(400, 'Say what kind of record the document links to.');
+      ensureDocumentRecordInCompany(nextType, nextId, existing.companyId);
+    }
     res.json(store.updateDocument(req.params.id, {
       title: optionalString(body.title),
-      fieldValues: (body.fieldValues && typeof body.fieldValues === 'object') ? (body.fieldValues as Record<string, string>) : undefined,
-      recordId: body.recordId !== undefined ? optionalString(body.recordId) : undefined,
+      fieldValues: parseFieldValues(body.fieldValues),
+      recordType: body.recordType !== undefined && body.recordType !== null
+        ? (enumValue(body.recordType, 'recordType', DOCUMENT_SOURCES as any) as any)
+        : undefined,
+      recordId: body.recordId !== undefined ? (optionalString(body.recordId) ?? '') : undefined,
       status: body.status !== undefined ? (enumValue(body.status, 'status', ['draft', 'final']) as any) : undefined,
     }));
   }));
@@ -2622,8 +2672,16 @@ export function createServer(options: CreateServerOptions = {}) {
             taxRate: 0,
           }
         : null,
-      company: company ?? null,
-      client: client ?? null,
+      // Printable identity only: never a contact's notes, tags, owner or pipeline.
+      company: company
+        ? {
+            id: company.id, name: company.name, legalName: company.legalName, address: company.address, city: company.city,
+            country: company.country, logoUrl: company.logoUrl, phone: company.phone, email: company.email, website: company.website,
+            taxNumber: company.taxNumber, registrationNumber: company.registrationNumber, taxDetails: company.taxDetails,
+          }
+        : null,
+      client: client ? { id: client.id, name: client.name, address: client.address, email: client.email } : null,
+      fields: doc.fieldValues,
       context: resolveDocumentContext(doc),
     });
   }));

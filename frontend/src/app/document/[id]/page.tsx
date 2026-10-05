@@ -97,6 +97,7 @@ export default function DocumentPrintPage() {
           company={data.company}
           template={data.template}
           publicUrl={publicDocumentUrl(id)}
+          fields={data.fields}
         />
       </div>
     );

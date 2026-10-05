@@ -26,8 +26,9 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
             { label: '', value: '{{client.address}}' },
             { label: '', value: '{{client.email}}' },
           ], style: { margin: { top: 24, bottom: 24 } } },
-          { id: id('title'), type: 'heading', level: 1, content: 'BUSINESS LETTER', style: { color: primary } },
-          { id: id('body'), type: 'text', content: 'Dear {{client.name}},\n\nWrite your letter here.', style: { margin: { top: 20 }, lineHeight: 1.6 } },
+          { id: id('title'), type: 'heading', level: 1, content: '{{field.subject}}', style: { color: primary } },
+          // The wording comes from the document itself, so one template serves every letter.
+          { id: id('body'), type: 'text', content: '{{document.notes}}', style: { margin: { top: 20 }, lineHeight: 1.6 } },
           { id: id('signature'), type: 'signature', style: { margin: { top: 40 } } },
         ]
       : docType === 'memo'
@@ -37,22 +38,22 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
               { label: 'To', value: '{{client.name}}' },
               { label: 'From', value: '{{company.name}}' },
               { label: 'Date', value: '{{document.date}}' },
-              { label: 'Subject', value: 'Memo subject' },
+              { label: 'Subject', value: '{{field.subject}}' },
             ], style: { margin: { top: 20, bottom: 20 } } },
             { id: id('divider'), type: 'divider' },
-            { id: id('body'), type: 'text', content: 'Write the memo here.', style: { margin: { top: 20 }, lineHeight: 1.6 } },
+            { id: id('body'), type: 'text', content: '{{document.notes}}', style: { margin: { top: 20 }, lineHeight: 1.6 } },
           ]
         : docType === 'certificate'
           ? [
               { id: id('title'), type: 'heading', level: 1, content: 'CERTIFICATE', style: { align: 'center', color: primary, margin: { top: 80 } } },
               { id: id('subtitle'), type: 'text', content: 'This certificate is presented to', style: { align: 'center', margin: { top: 32 } } },
-              { id: id('recipient'), type: 'heading', level: 2, content: '{{client.name}}', style: { align: 'center', color: accent, margin: { top: 24, bottom: 24 } } },
-              { id: id('body'), type: 'text', content: 'For outstanding achievement and completion.', style: { align: 'center' } },
+              { id: id('recipient'), type: 'heading', level: 2, content: '{{field.recipient}}', style: { align: 'center', color: accent, margin: { top: 24, bottom: 24 } } },
+              { id: id('body'), type: 'text', content: '{{field.achievement}}', style: { align: 'center' } },
               { id: id('signature'), type: 'signature', style: { margin: { top: 64 }, align: 'center' } },
             ]
           : [
               { id: id('title'), type: 'heading', level: 1, content: 'CUSTOM DOCUMENT', style: { color: primary } },
-              { id: id('body'), type: 'text', content: 'Start designing your document here.', style: { margin: { top: 20 } } },
+              { id: id('body'), type: 'text', content: '{{document.notes}}', style: { margin: { top: 20 } } },
             ];
 
     return {
