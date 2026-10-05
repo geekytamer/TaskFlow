@@ -2,7 +2,7 @@
 
 Date: 2026-10-05
 Branch: `feature/client-portal-ux` (from `feature/peak-portal`)
-Status: Draft for review
+Status: Approved 2026-10-05; built (see ../plans/2026-10-05-client-portal-ux-notes.md)
 Builds on: `2026-09-21-peak-media-client-portal-design.md`, `2026-09-27-portal-communication-and-referrals-design.md`, `../plans/2026-10-05-games-g2-live-metrics.md`
 
 ## 1. Problem
