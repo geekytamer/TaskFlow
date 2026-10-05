@@ -1,0 +1,6 @@
+{ "data": [
+  { "id": "c1", "text": "Ramadan Kareem, love this!", "timestamp": "2026-10-05T10:00:00+0000", "username": "sara.k", "from": { "id": "u1", "username": "sara.k" },
+    "replies": { "data": [ { "id": "c1r1", "text": "Same here, beautiful", "timestamp": "2026-10-05T10:05:00+0000", "username": "omar_1", "from": { "id": "u2", "username": "omar_1" } } ] } },
+  { "id": "c2", "text": "ok", "timestamp": "2026-10-05T10:10:00+0000", "username": "omar_1", "from": { "id": "u2", "username": "omar_1" } },
+  { "id": "c3", "text": "Ramadan Kareem, love this!", "timestamp": "2026-10-05T10:20:00+0000", "username": "copycat", "from": { "id": "u3", "username": "copycat" } }
+], "paging": {} }

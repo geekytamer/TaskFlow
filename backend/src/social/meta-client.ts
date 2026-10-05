@@ -18,7 +18,30 @@ export interface MetaClient {
   accountInsights(token: string, userId: string): Promise<{ views: number; reach: number; engagedAccounts: number; demographics: Demographics | null }>;
   mediaByPermalink(token: string, userId: string, permalink: string): Promise<{ id: string } | null>;
   mediaInsights(token: string, mediaId: string): Promise<MediaFigures>;
+  /** Every comment and reply on one of the account's posts, flattened, oldest pages first. */
+  mediaComments(token: string, mediaId: string): Promise<CommentRow[]>;
+  /** Posts by others that tag the account (how a repost of a game post is seen). */
+  taggedMedia(token: string, userId: string): Promise<TaggedRow[]>;
+  /** The account's own posts since a date. */
+  recentMedia(token: string, userId: string, since: Date): Promise<MediaRow[]>;
 }
+
+export interface CommentRow { id: string; text: string; timestamp: Date; username: string; userId: string | null; parentId: string | null }
+export interface TaggedRow { id: string; username: string; timestamp: Date; permalink: string; caption: string }
+export interface MediaRow { id: string; permalink: string; timestamp: Date; caption: string }
+
+type RawComment = { id: string; text?: string; timestamp: string; username?: string; from?: { id?: string; username?: string }; replies?: { data?: RawComment[] } };
+const MAX_PAGES = 20;
+
+/** Comments with their replies, flattened in order, replies right after their parent. */
+const flattenComments = (rows: RawComment[]): CommentRow[] => rows.flatMap((c) => [
+  { id: c.id, text: c.text ?? '', timestamp: new Date(c.timestamp), username: c.from?.username ?? c.username ?? '', userId: c.from?.id ?? null, parentId: null },
+  ...(c.replies?.data ?? []).map((r) => ({ id: r.id, text: r.text ?? '', timestamp: new Date(r.timestamp), username: r.from?.username ?? r.username ?? '', userId: r.from?.id ?? null, parentId: c.id })),
+]);
+const toTagged = (rows: Array<{ id: string; username?: string; timestamp: string; permalink?: string; caption?: string }>): TaggedRow[] =>
+  rows.map((m) => ({ id: m.id, username: m.username ?? '', timestamp: new Date(m.timestamp), permalink: m.permalink ?? '', caption: m.caption ?? '' }));
+const toMedia = (rows: Array<{ id: string; permalink?: string; timestamp: string; caption?: string }>): MediaRow[] =>
+  rows.map((m) => ({ id: m.id, permalink: m.permalink ?? '', timestamp: new Date(m.timestamp), caption: m.caption ?? '' }));
 
 /** The token is invalid, expired or revoked: the account needs reconnecting. */
 export class MetaAuthError extends Error {}
@@ -126,6 +149,31 @@ export class HttpMetaClient implements MetaClient {
   async mediaInsights(token: string, mediaId: string) {
     return toFigures((await this.call<{ data: GraphRow[] }>(this.graph(`${mediaId}/insights?metric=views,likes,comments,saved,shares`, token))).data);
   }
+
+  /** Follows `paging.next` up to MAX_PAGES so a busy post cannot run forever. */
+  private async pages<T>(first: string): Promise<T[]> {
+    const out: T[] = [];
+    let url: string | undefined = first;
+    for (let i = 0; url && i < MAX_PAGES; i += 1) {
+      const page: { data?: T[]; paging?: { next?: string } } = await this.call(url);
+      out.push(...(page.data ?? []));
+      url = page.paging?.next;
+    }
+    return out;
+  }
+
+  async mediaComments(token: string, mediaId: string) {
+    return flattenComments(await this.pages<RawComment>(this.graph(`${mediaId}/comments?fields=id,text,timestamp,username,from,replies{id,text,timestamp,username,from}&limit=50`, token)));
+  }
+
+  async taggedMedia(token: string, userId: string) {
+    return toTagged(await this.pages(this.graph(`${userId}/tags?fields=id,username,timestamp,permalink,caption&limit=50`, token)));
+  }
+
+  async recentMedia(token: string, userId: string, since: Date) {
+    const rows = toMedia(await this.pages(this.graph(`${userId}/media?fields=id,permalink,timestamp,caption&limit=50&since=${Math.floor(since.getTime() / 1000)}`, token)));
+    return rows.filter((m) => m.timestamp >= since);
+  }
 }
 
 /** Recorded responses, for tests and local development without a Meta app. */
@@ -152,4 +200,9 @@ export class FixtureMetaClient implements MetaClient {
     return hit ? { id: hit.id } : null;
   }
   async mediaInsights() { return toFigures(this.read<{ data: GraphRow[] }>('insights-media.json').data); }
+  async mediaComments() { return flattenComments(this.read<{ data: RawComment[] }>('comments.json').data); }
+  async taggedMedia() { return toTagged(this.read<{ data: Array<{ id: string; username?: string; timestamp: string; permalink?: string; caption?: string }> }>('tags.json').data); }
+  async recentMedia(_t: string, _u: string, since: Date) {
+    return toMedia(this.read<{ data: Array<{ id: string; permalink?: string; timestamp: string; caption?: string }> }>('recent-media.json').data).filter((m) => m.timestamp >= since);
+  }
 }

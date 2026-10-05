@@ -38,3 +38,31 @@ test('the HTTP client calls Graph v26 with views, never impressions, and maps er
   assert.equal(url.searchParams.get('scope'), 'instagram_business_basic,instagram_business_manage_insights');
   assert.equal(url.searchParams.get('state'), 'state-123');
 });
+
+test('comments come back flat with replies, and tagged and recent media in the shapes the collector uses', async () => {
+  const c = new FixtureMetaClient(FIXTURES);
+  const comments = await c.mediaComments('t', 'm');
+  assert.deepEqual(comments.map((x) => [x.id, x.username, x.parentId]), [['c1', 'sara.k', null], ['c1r1', 'omar_1', 'c1'], ['c2', 'omar_1', null], ['c3', 'copycat', null]]);
+  assert.equal(comments[0].text, 'Ramadan Kareem, love this!');
+  assert.ok(comments[0].timestamp instanceof Date);
+  const tagged = await c.taggedMedia('t', 'u');
+  assert.deepEqual(tagged.map((x) => x.username), ['laila_m', 'sara.k']);
+  const recent = await c.recentMedia('t', 'u', new Date('2026-10-01'));
+  assert.deepEqual(recent.map((x) => x.id), ['m1', 'm2']);
+});
+
+test('the HTTP client pages through comments with replies and asks for tags', async () => {
+  const calls = [];
+  const fetchStub = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('/comments') && !String(url).includes('after=')) return json({ data: [{ id: 'a', text: 'x', timestamp: '2026-10-05T10:00:00+0000', username: 'u', from: { id: '1', username: 'u' } }], paging: { cursors: { after: 'NEXT' }, next: 'https://graph.instagram.com/v26.0/m/comments?after=NEXT' } });
+    return json({ data: [] });
+  };
+  const c = new HttpMetaClient({ appId: 'app', appSecret: 's', fetch: fetchStub });
+  const all = await c.mediaComments('tok', 'm');
+  assert.equal(all.length, 1);
+  assert.ok(calls[0].includes('fields=id,text,timestamp,username,from,replies'));
+  assert.ok(calls.some((u) => u.includes('after=NEXT')), 'followed the next page');
+  await c.taggedMedia('tok', 'u1');
+  assert.ok(calls.some((u) => u.includes('/u1/tags?fields=')));
+});
