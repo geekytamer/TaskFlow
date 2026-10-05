@@ -505,6 +505,17 @@ const en = {
   'req.waiting': 'Waiting for your answer',
   'req.yours': 'Your requests',
   'req.otherProposals': 'Other proposals',
+  'common.to': 'to',
+  'camp.current': 'Running and planned',
+  'camp.past': 'Finished',
+  'camp.inProgress': 'In progress',
+  'camp.published': 'Live',
+  'camp.readyForReview': 'Ready for your review',
+  'camp.otherContent': 'All other content',
+  'rev.confirmTitle': 'Approve this piece?',
+  'rev.confirmBody': 'The team will be told it can go live as it is.',
+  'rev.confirm': 'Yes, approve',
+  'rev.youApprovedTold': 'You approved it. The team has been told.',
 } as const;
 
 export type Key = keyof typeof en;
@@ -1011,6 +1022,17 @@ const ar: Record<Key, string> = {
   'req.waiting': 'بانتظار ردك',
   'req.yours': 'طلباتك',
   'req.otherProposals': 'عروض أخرى',
+  'common.to': 'إلى',
+  'camp.current': 'جارية ومخططة',
+  'camp.past': 'منتهية',
+  'camp.inProgress': 'قيد التنفيذ',
+  'camp.published': 'منشور',
+  'camp.readyForReview': 'جاهز لمراجعتك',
+  'camp.otherContent': 'باقي المحتوى',
+  'rev.confirmTitle': 'الموافقة على هذا المحتوى؟',
+  'rev.confirmBody': 'سنبلغ الفريق أنه يمكن نشره كما هو.',
+  'rev.confirm': 'نعم، أوافق',
+  'rev.youApprovedTold': 'وافقت عليه، وتم إبلاغ الفريق.',
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };
