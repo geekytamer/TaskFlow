@@ -41,6 +41,7 @@ import {
   createInvoiceFromSalesOrder,
   createSalesOrder,
   deleteSalesOrder,
+  updateSalesOrder,
   getInvoices,
   getInvoiceTemplates,
   getSalesOrders,
@@ -49,11 +50,11 @@ import {
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
-import { FileText, PlusCircle, Truck, Trash2 } from 'lucide-react';
+import { FileText, Pencil, PlusCircle, Truck, Trash2 } from 'lucide-react';
 import { DeliveryManagementDialog } from './delivery-management-dialog';
 import { QuotationsPanel } from './quotations-panel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, prepareItems, type SalesItemForm } from './sales-line-items';
+import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
 import { usePermissionOr } from '@/context/permissions-context';
 
 const formatDisplayDate = (value: Date, locale: string) =>
@@ -105,6 +106,8 @@ export function SalesPage() {
   const [selectedOrderForDocs, setSelectedOrderForDocs] = React.useState<SalesOrder | null>(null);
   const [deliveryOrder, setDeliveryOrder] = React.useState<SalesOrder | null>(null);
   const [form, setForm] = React.useState(emptyForm);
+  // The draft being edited in the same dialog, or null when creating.
+  const [editingOrder, setEditingOrder] = React.useState<SalesOrder | null>(null);
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | SalesOrderStatus>('all');
   const locale = language === 'ar' ? 'ar' : 'en-US';
@@ -217,7 +220,20 @@ export function SalesPage() {
     });
   }, [clientMap, orders, search, statusFilter]);
 
-  const resetForm = () => setForm(emptyForm());
+  const resetForm = () => { setForm(emptyForm()); setEditingOrder(null); };
+
+  const openEdit = (order: SalesOrder) => {
+    setEditingOrder(order);
+    setForm({
+      contactId: order.contactId || clients.find((c) => c.clientId === order.clientId)?.id || order.clientId,
+      orderDate: format(order.orderDate, 'yyyy-MM-dd'),
+      expectedDate: order.expectedDate ? format(order.expectedDate, 'yyyy-MM-dd') : '',
+      status: order.status,
+      notes: order.notes || '',
+      items: itemsToForm(order.items),
+    });
+    setOpenCreate(true);
+  };
 
   const handleCreate = async () => {
     if (!selectedCompany) return;
@@ -236,19 +252,31 @@ export function SalesPage() {
     }
 
     try {
-      await createSalesOrder(selectedCompany.id, {
-        clientId,
-        contactId: form.contactId,
-        orderDate: new Date(form.orderDate),
-        expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
-        status: form.status,
-        notes: form.notes || undefined,
-        items: preparedItems,
-      });
+      if (editingOrder) {
+        await updateSalesOrder(editingOrder.id, {
+          clientId,
+          contactId: selectedContact ? form.contactId : null,
+          orderDate: new Date(form.orderDate),
+          expectedDate: form.expectedDate ? new Date(form.expectedDate) : null,
+          notes: form.notes || null,
+          items: preparedItems,
+        });
+      } else {
+        await createSalesOrder(selectedCompany.id, {
+          clientId,
+          contactId: form.contactId,
+          orderDate: new Date(form.orderDate),
+          expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
+          status: form.status,
+          notes: form.notes || undefined,
+          items: preparedItems,
+        });
+      }
+      const wasEditing = Boolean(editingOrder);
       setOpenCreate(false);
       resetForm();
       await load();
-      toast({ title: t('sales.createdToast') });
+      toast({ title: wasEditing ? t('sales.updatedOrderToast', 'Sales order updated') : t('sales.createdToast') });
     } catch (error: any) {
       toast({ variant: 'destructive', title: t('sales.createFailedTitle'), description: error?.message || t('sales.createFailedDescription') });
     }
@@ -361,7 +389,7 @@ export function SalesPage() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-3xl">
               <DialogHeader>
-                <DialogTitle>{t('sales.createTitle')}</DialogTitle>
+                <DialogTitle>{editingOrder ? t('sales.editTitle', 'Edit sales order {{number}}', { number: editingOrder.orderNumber }) : t('sales.createTitle')}</DialogTitle>
                 <DialogDescription>{t('sales.createDescription')}</DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 py-2 sm:grid-cols-2">
@@ -387,7 +415,7 @@ export function SalesPage() {
                   <Label data-tutorial="sales-form-expected">{t('sales.expectedDate')}</Label>
                   <Input type="date" value={form.expectedDate} onChange={(event) => setForm((prev) => ({ ...prev, expectedDate: event.target.value }))} />
                 </div>
-                <div className="space-y-1">
+                {!editingOrder && <div className="space-y-1">
                   <Label data-tutorial="sales-form-status">{t('sales.initialStatus')}</Label>
                   <Select value={form.status} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value as SalesOrderStatus }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -397,7 +425,7 @@ export function SalesPage() {
                       <SelectItem value="Cancelled">{statusLabel('Cancelled')}</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
+                </div>}
                 <div className="space-y-1">
                   <Label>{t('sales.estimatedTotal')}</Label>
                   <div className="flex h-10 items-center rounded-md border px-3 text-sm">{amount(estimatedTotal)}</div>
@@ -411,7 +439,7 @@ export function SalesPage() {
               <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={items} />
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
-                <Button onClick={handleCreate}>{t('sales.createOrder')}</Button>
+                <Button onClick={handleCreate}>{editingOrder ? t('sales.saveChanges', 'Save changes') : t('sales.createOrder')}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -496,6 +524,11 @@ export function SalesPage() {
                 </TableCell>
                 <TableCell className="text-end">
                   <div className="flex justify-end gap-2">
+                    {canManage && order.status === 'Draft' && !order.invoiceId && (
+                      <Button variant="outline" size="sm" onClick={() => openEdit(order)}>
+                        <Pencil className="me-2 h-4 w-4" />{t('sales.edit', 'Edit')}
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" onClick={() => setSelectedOrderForDocs(order)}>{t('sales.docs')}</Button>
                     <Button
                       variant="outline"

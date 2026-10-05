@@ -42,6 +42,7 @@ import {
   adjustInventoryItem,
   createInventoryItem,
   deleteInventoryItem,
+  updateInventoryItem,
   getExpiringLots,
   getInventoryItems,
   getInventoryLocationBalances,
@@ -63,7 +64,7 @@ import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
 import { optionalFetch } from '@/lib/optional-fetch';
 import { usePermissionOr } from '@/context/permissions-context';
-import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 
@@ -164,6 +165,9 @@ export function InventoryPage() {
   const [openCreate, setOpenCreate] = React.useState(false);
   const [selectedItemForDocs, setSelectedItemForDocs] = React.useState<InventoryItem | null>(null);
   const [form, setForm] = React.useState<InventoryFormState>(emptyForm);
+  // The item being edited in the same dialog, or null when creating.
+  const [editingItem, setEditingItem] = React.useState<InventoryItem | null>(null);
+  const [editSku, setEditSku] = React.useState('');
   const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
   const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [search, setSearch] = React.useState('');
@@ -385,7 +389,28 @@ export function InventoryPage() {
     });
   }, [balancesByItem, items, search, stockFilter]);
 
-  const resetForm = () => setForm(emptyForm());
+  const resetForm = () => { setForm(emptyForm()); setEditingItem(null); };
+
+  const openEditItem = (item: InventoryItem) => {
+    setEditingItem(item);
+    setEditSku(item.sku);
+    setForm({
+      name: item.name,
+      barcode: item.barcode || '',
+      category: item.category,
+      unit: item.unit,
+      vatApplicable: item.vatApplicable === false ? 'no' : 'yes',
+      tracksInventory: item.tracksInventory === false ? 'non-tracked' : 'tracked',
+      onHand: String(item.onHand),
+      reorderPoint: String(item.reorderPoint),
+      unitCost: String(item.unitCost),
+      salePrice: item.salePrice != null ? String(item.salePrice) : '',
+      preferredSupplierId: item.preferredSupplierId || '',
+      location: item.location || '',
+    });
+    setCreateCustomValues((item.customFields as Record<string, any>) || {});
+    setOpenCreate(true);
+  };
 
   const handleCreate = async () => {
     if (!selectedCompany) return;
@@ -400,6 +425,29 @@ export function InventoryPage() {
 
     try {
       const selectedSupplier = suppliers.find((supplier) => supplier.id === form.preferredSupplierId);
+      if (editingItem) {
+        await updateInventoryItem(editingItem.id, {
+          sku: editSku.trim() || undefined,
+          name: form.name,
+          barcode: form.barcode || (null as any),
+          category: form.category,
+          unit: form.unit,
+          vatApplicable: form.vatApplicable === 'yes',
+          tracksInventory: form.tracksInventory === 'tracked',
+          reorderPoint: Number(form.reorderPoint || 0),
+          salePrice: form.salePrice ? Number(form.salePrice) : (null as any),
+          preferredVendor: selectedSupplier?.name ?? (null as any),
+          preferredSupplierId: selectedSupplier?.id ?? (null as any),
+          location: form.location || (null as any),
+          customFields: createCustomValues,
+        });
+        setOpenCreate(false);
+        resetForm();
+        setCreateCustomValues({});
+        await load();
+        toast({ title: tr('Inventory item updated', 'تم تحديث عنصر المخزون') });
+        return;
+      }
       await createInventoryItem(selectedCompany.id, {
         name: form.name,
         barcode: form.barcode || undefined,
@@ -682,7 +730,9 @@ export function InventoryPage() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>{tr('Add Inventory Item', 'إضافة عنصر مخزون')}</DialogTitle>
+              <DialogTitle>
+                {editingItem ? tr(`Edit ${editingItem.name}`, `تعديل ${editingItem.name}`) : tr('Add Inventory Item', 'إضافة عنصر مخزون')}
+              </DialogTitle>
               <DialogDescription>
                 {tr('Create a stock item that can be tracked in inventory and referenced by purchases.', 'أنشئ عنصر مخزون يمكن تتبعه في المخزون وربطه بعمليات الشراء.')}
               </DialogDescription>
@@ -697,10 +747,14 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>{tr('SKU', 'SKU')}</Label>
-                <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
-                  {tr('Auto-generated when saved', 'يتم إنشاؤه تلقائيًا عند الحفظ')}
-                </div>
+                <Label htmlFor="item-sku">{tr('SKU', 'SKU')}</Label>
+                {editingItem ? (
+                  <Input id="item-sku" dir="ltr" value={editSku} onChange={(event) => setEditSku(event.target.value)} />
+                ) : (
+                  <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
+                    {tr('Auto-generated when saved', 'يتم إنشاؤه تلقائيًا عند الحفظ')}
+                  </div>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>{tr('Barcode', 'الباركود')}</Label>
@@ -774,6 +828,8 @@ export function InventoryPage() {
                 <Label>{tr('On Hand', 'الكمية المتاحة')}</Label>
                 <Input
                   type="number"
+                  disabled={Boolean(editingItem)}
+                  title={editingItem ? tr('Change stock with Adjust, Issue or Transfer so the movement is recorded.', 'غيّر المخزون عبر التسوية أو الصرف أو التحويل ليُسجَّل.') : undefined}
                   value={form.onHand}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, onHand: event.target.value }))
@@ -795,6 +851,8 @@ export function InventoryPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  disabled={Boolean(editingItem)}
+                  title={editingItem ? tr('Cost follows purchase receipts.', 'تتبع التكلفة إيصالات الشراء.') : undefined}
                   value={form.unitCost}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, unitCost: event.target.value }))
@@ -852,7 +910,7 @@ export function InventoryPage() {
               <Button variant="outline" onClick={() => setOpenCreate(false)}>
                 {tr('Cancel', 'إلغاء')}
               </Button>
-            <Button onClick={handleCreate}>{tr('Create Item', 'إنشاء عنصر')}</Button>
+            <Button onClick={handleCreate}>{editingItem ? tr('Save changes', 'حفظ التغييرات') : tr('Create Item', 'إنشاء عنصر')}</Button>
             {/* end create dialog footer */}
           </DialogFooter>
         </DialogContent>
@@ -1245,6 +1303,11 @@ export function InventoryPage() {
                           onClick={() => setSelectedItemForDocs(item)}
                         >
                           {tr('Docs', 'ملفات')}
+                        </Button>
+                      )}
+                      {canManageInventory && (
+                        <Button variant="ghost" size="sm" className="ms-1" aria-label={tr('Edit item', 'تعديل الصنف')} onClick={() => openEditItem(item)}>
+                          <Pencil className="h-4 w-4" />
                         </Button>
                       )}
                       {canManageInventory && (

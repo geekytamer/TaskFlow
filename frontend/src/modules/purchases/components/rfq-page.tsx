@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getRfqs, getRfq, createRfq, addRfqQuote, deleteRfqQuote, awardRfqQuote, deleteRfq,
+  getRfqs, getRfq, createRfq, addRfqQuote, deleteRfqQuote, awardRfqQuote, deleteRfq, createPurchaseOrderFromRfq,
   getSuppliers, type Rfq,
 } from '@/services/operationsService';
 import type { Supplier } from '@/modules/operations/types';
@@ -26,7 +26,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, ArrowLeft, Award, FileQuestion, Trophy } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Award, FileQuestion, Trophy, ShoppingCart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function money(n: number) {
@@ -107,6 +107,96 @@ function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+/**
+ * The awarded quote becomes a draft purchase order. A quote holds only a
+ * total, so each line's unit cost is confirmed here, starting from the total
+ * spread by quantity.
+ */
+function OrderFromQuote({ rfq, quote, suppliers, onOrdered }: {
+  rfq: Rfq; quote: Rfq['quotes'][number]; suppliers: Supplier[]; onOrdered: (purchaseOrderId: string) => void;
+}) {
+  const { language } = useI18n();
+  const { toast } = useToast();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const totalQty = rfq.items.reduce((sum, item) => sum + item.quantity, 0) || 1;
+  const [costs, setCosts] = React.useState(() => rfq.items.map(() => String(Number((quote.totalAmount / totalQty).toFixed(4)))));
+  const [supplierId, setSupplierId] = React.useState(quote.supplierId || suppliers.find((s) => s.name === quote.supplierName)?.id || '');
+  const [saving, setSaving] = React.useState(false);
+  const orderTotal = rfq.items.reduce((sum, item, i) => sum + item.quantity * (Number(costs[i]) || 0), 0);
+
+  if (rfq.purchaseOrderId) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-600/30 bg-emerald-500/5 p-4">
+        <p className="text-sm">{tr('This RFQ has become a purchase order.', 'تحوّل طلب عروض الأسعار هذا إلى أمر شراء.')}</p>
+        <Button variant="outline" size="sm" asChild><a href="/purchases">{tr('Open purchases', 'فتح المشتريات')}</a></Button>
+      </div>
+    );
+  }
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const po = await createPurchaseOrderFromRfq(rfq.id, { supplierId: supplierId || undefined, unitCosts: costs.map((c) => Number(c) || 0) });
+      toast({ title: tr(`Purchase order ${po.orderNumber} created as a draft`, `تم إنشاء أمر الشراء ${po.orderNumber} كمسودة`) });
+      onOrdered(po.id);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: tr('Could not create the purchase order', 'تعذر إنشاء أمر الشراء'), description: e?.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border p-4" aria-labelledby="rfq-order">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h4 id="rfq-order" className="text-sm font-semibold">{tr('Order from the awarded quote', 'الطلب من العرض المُرسى')}</h4>
+        <p className="text-sm text-muted-foreground"><bdi>{quote.supplierName}</bdi> · {tr('quoted', 'العرض')} <span className="tabular-nums">{money(quote.totalAmount)}</span></p>
+      </div>
+      {!quote.supplierId && (
+        <div className="mb-3 max-w-xs space-y-1">
+          <Label>{tr('Supplier record', 'سجل المورّد')}</Label>
+          <Select value={supplierId} onValueChange={setSupplierId}>
+            <SelectTrigger><SelectValue placeholder={tr('Choose the supplier to order from', 'اختر المورّد')} /></SelectTrigger>
+            <SelectContent>{suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      )}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{tr('Item', 'الصنف')}</TableHead>
+            <TableHead className="text-end">{tr('Qty', 'الكمية')}</TableHead>
+            <TableHead className="w-36 text-end">{tr('Unit cost', 'تكلفة الوحدة')}</TableHead>
+            <TableHead className="text-end">{tr('Line total', 'الإجمالي')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rfq.items.map((item, i) => (
+            <TableRow key={i}>
+              <TableCell>{item.description}</TableCell>
+              <TableCell className="text-end tabular-nums">{item.quantity}{item.unit ? ` ${item.unit}` : ''}</TableCell>
+              <TableCell>
+                <Input className="text-end" type="number" min="0" step="0.0001" aria-label={tr(`Unit cost for ${item.description}`, `تكلفة الوحدة لـ ${item.description}`)}
+                  value={costs[i]} onChange={(e) => setCosts((prev) => prev.map((c, j) => (j === i ? e.target.value : c)))} />
+              </TableCell>
+              <TableCell className="text-end tabular-nums">{money(item.quantity * (Number(costs[i]) || 0))}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <p className={cn('text-sm', Math.abs(orderTotal - quote.totalAmount) > 0.01 ? 'text-amber-700' : 'text-muted-foreground')}>
+          {tr('Order total', 'إجمالي الطلب')} <span className="tabular-nums font-medium">{money(orderTotal)}</span>
+          {Math.abs(orderTotal - quote.totalAmount) > 0.01 && ` · ${tr('differs from the quote', 'يختلف عن العرض')}`}
+        </p>
+        <Button onClick={submit} disabled={saving || (!quote.supplierId && !supplierId)}>
+          <ShoppingCart className="me-2 h-4 w-4" />{tr('Create purchase order', 'إنشاء أمر شراء')}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: Supplier[]; onBack: () => void }) {
   const { language } = useI18n();
   const { toast } = useToast();
@@ -145,6 +235,7 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
   };
 
   const best = rfq.quotes.length ? Math.min(...rfq.quotes.map((q) => q.totalAmount)) : 0;
+  const awardedQuote = rfq.quotes.find((q) => q.id === rfq.awardedQuoteId);
 
   return (
     <div className="flex flex-col gap-4">
@@ -165,6 +256,10 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
           ))}
         </div>
       </div>
+
+      {awardedQuote && (
+        <OrderFromQuote rfq={rfq} quote={awardedQuote} suppliers={suppliers} onOrdered={(poId) => setRfq({ ...rfq, purchaseOrderId: poId })} />
+      )}
 
       <div className="rounded-lg border">
         <div className="flex items-center justify-between border-b px-4 py-2.5">

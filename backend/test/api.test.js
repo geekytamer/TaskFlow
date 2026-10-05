@@ -1303,6 +1303,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '099_game_client_link',
     '100_quotations',
     '101_inventory_archive',
+    '102_rfq_purchase_order',
   ]);
 });
 

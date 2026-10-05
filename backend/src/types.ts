@@ -474,6 +474,8 @@ export interface PurchaseOrder {
   approvedBy?: string;
   approvedAt?: Date;
   rejectionReason?: string;
+  /** The RFQ whose awarded quote this order came from. */
+  rfqId?: string;
 }
 
 export type PurchaseRequisitionStatus =
@@ -543,6 +545,8 @@ export interface Rfq {
   quotes: RfqQuote[];
   notes?: string;
   awardedQuoteId?: string;
+  /** The purchase order the awarded quote became. */
+  purchaseOrderId?: string;
   createdAt: Date;
   updatedAt: Date;
 }

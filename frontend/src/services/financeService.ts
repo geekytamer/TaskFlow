@@ -534,6 +534,14 @@ export async function createSalesOrder(
   return mapSalesOrder(order);
 }
 
+export async function updateSalesOrder(
+  salesOrderId: string,
+  data: Partial<{ clientId: string; contactId: string | null; orderDate: Date; expectedDate: Date | null; notes: string | null; items: SalesOrderLineItem[] }>,
+): Promise<SalesOrder> {
+  const order = await apiFetch<SalesOrder>(`/sales-orders/${salesOrderId}`, { method: 'PUT', body: JSON.stringify(data) });
+  return mapSalesOrder(order);
+}
+
 export async function updateSalesOrderStatus(
   salesOrderId: string,
   status: SalesOrderStatus,

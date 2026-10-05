@@ -6257,6 +6257,39 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.put(
+    '/purchase-orders/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getPurchaseOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Purchase order not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const items = body.items !== undefined ? parsePurchaseOrderItems(body.items) : undefined;
+      if (items) ensurePurchaseItemsBelongToCompany(items, existing.companyId);
+      let supplierName: string | undefined;
+      const supplierId = body.supplierId !== undefined ? requiredString(body.supplierId, 'supplierId') : undefined;
+      if (supplierId) {
+        supplierName = ensureSupplierBelongsToCompany(supplierId, existing.companyId)?.name;
+        if (!supplierName) throw new HttpError(400, 'supplierId must reference a supplier in the same company.');
+      }
+      const expectedDate = body.expectedDate === null || body.expectedDate === '' ? null : optionalDateInput(body.expectedDate);
+      try {
+        res.json(withActor(req, () => store.updatePurchaseOrder(existing.id, {
+          supplierId,
+          supplierName,
+          orderDate: body.orderDate !== undefined ? new Date(requiredDateInput(body.orderDate, 'orderDate')) : undefined,
+          expectedDate: expectedDate === null ? null : expectedDate ? new Date(expectedDate) : undefined,
+          items,
+          notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
+        })));
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update purchase order.');
+      }
+    }),
+  );
+
   app.get(
     '/companies/:companyId/purchase-receipts',
     authMiddleware,
@@ -6652,6 +6685,27 @@ export function createServer(options: CreateServerOptions = {}) {
       throw new HttpError(400, error instanceof Error ? error.message : 'Could not award quote.');
     }
   }));
+  app.post('/rfqs/:id/purchase-order', authMiddleware, handler((req, res) => {
+    const rfq = loadRfq(req);
+    const body = asRecord(req.body ?? {}, 'body');
+    const unitCosts = body.unitCosts !== undefined
+      ? (Array.isArray(body.unitCosts) ? body.unitCosts.map((v, i) => requiredNumber(v, `unitCosts[${i}]`)) : (() => { throw new HttpError(400, 'unitCosts must be a list.'); })())
+      : undefined;
+    if (unitCosts?.some((v) => v < 0)) throw new HttpError(400, 'Unit costs cannot be negative.');
+    const supplierId = optionalString(body.supplierId);
+    if (supplierId) ensureSupplierBelongsToCompany(supplierId, rfq.companyId);
+    try {
+      const { order, created } = withActor(req, () => store.createPurchaseOrderFromRfq(rfq.id, {
+        supplierId,
+        unitCosts,
+        expectedDate: optionalDateInput(body.expectedDate) ? new Date(optionalDateInput(body.expectedDate)!) : undefined,
+      }));
+      res.status(created ? 201 : 200).json(order);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, error instanceof Error ? error.message : 'Could not create the purchase order.');
+    }
+  }));
   app.delete('/rfqs/:id', authMiddleware, handler((req, res) => {
     loadRfq(req);
     store.deleteRfq(req.params.id);
@@ -6764,6 +6818,40 @@ export function createServer(options: CreateServerOptions = {}) {
       );
       autoConvertContactToClient(contactId, req.params.companyId);
       res.status(201).json(order);
+    }),
+  );
+
+  app.put(
+    '/sales-orders/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getSalesOrderById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Sales order not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const items = body.items !== undefined ? parseSalesOrderItems(body.items) : undefined;
+      if (items) ensureSalesItemsBelongToCompany(items, existing.companyId);
+      const clientId = body.clientId !== undefined ? requiredString(body.clientId, 'clientId') : undefined;
+      if (clientId) ensureClientBelongsToCompany(clientId, existing.companyId);
+      const contactId = body.contactId !== undefined ? optionalString(body.contactId) ?? null : undefined;
+      if (contactId) {
+        const contact = store.getContactById(contactId);
+        if (!contact || contact.companyId !== existing.companyId) throw new HttpError(400, 'Contact does not belong to this company.');
+      }
+      const expectedDate = body.expectedDate === null || body.expectedDate === '' ? null : optionalDateInput(body.expectedDate);
+      try {
+        res.json(withActor(req, () => store.updateSalesOrder(existing.id, {
+          clientId,
+          contactId,
+          orderDate: body.orderDate !== undefined ? new Date(requiredDateInput(body.orderDate, 'orderDate')) : undefined,
+          expectedDate: expectedDate === null ? null : expectedDate ? new Date(expectedDate) : undefined,
+          items,
+          notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
+        })));
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update sales order.');
+      }
     }),
   );
 
@@ -6966,11 +7054,17 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       const items = body.items !== undefined ? parseSalesOrderItems(body.items) : undefined;
       if (items) ensureSalesItemsBelongToCompany(items, existing.companyId);
+      const contactId = body.contactId !== undefined ? optionalString(body.contactId) ?? null : undefined;
+      if (contactId) {
+        const contact = store.getContactById(contactId);
+        if (!contact || contact.companyId !== existing.companyId) throw new HttpError(400, 'Contact does not belong to this company.');
+      }
       const templateId = body.templateId !== undefined ? optionalString(body.templateId) ?? null : undefined;
       ensureQuoteTemplate(templateId ?? undefined, existing.companyId);
       const updated = asBadRequest(() => withActor(req, () =>
         store.updateQuotation(existing.id, {
           clientId,
+          contactId,
           issueDate: body.issueDate !== undefined ? requiredDateInput(body.issueDate, 'issueDate') : undefined,
           validUntil: body.validUntil !== undefined ? requiredDateInput(body.validUntil, 'validUntil') : undefined,
           items,
@@ -8981,13 +9075,49 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.put(
+    '/inventory-items/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInventoryItemById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Inventory item not found.');
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      const body = asRecord(req.body, 'body');
+      const preferredSupplierId = body.preferredSupplierId !== undefined ? optionalString(body.preferredSupplierId) ?? null : undefined;
+      if (preferredSupplierId) ensureSupplierBelongsToCompany(preferredSupplierId, existing.companyId);
+      const location = body.location !== undefined ? optionalString(body.location) ?? null : undefined;
+      if (location) ensureActiveWarehouse(existing.companyId, location, 'location');
+      const nullable = (value: unknown) => (value === undefined ? undefined : optionalString(value) ?? null);
+      try {
+        res.json(withActor(req, () => store.updateInventoryItem(existing.id, {
+          sku: body.sku !== undefined ? requiredString(body.sku, 'sku', { min: 1 }) : undefined,
+          barcode: nullable(body.barcode),
+          name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+          category: body.category !== undefined ? requiredString(body.category, 'category', { min: 2 }) : undefined,
+          unit: body.unit !== undefined ? requiredString(body.unit, 'unit', { min: 1 }) : undefined,
+          vatApplicable: optionalBoolean(body.vatApplicable),
+          tracksInventory: optionalBoolean(body.tracksInventory),
+          reorderPoint: body.reorderPoint !== undefined ? requiredNumber(body.reorderPoint, 'reorderPoint') : undefined,
+          salePrice: body.salePrice === null || body.salePrice === '' ? null : optionalNumber(body.salePrice),
+          preferredVendor: nullable(body.preferredVendor),
+          preferredSupplierId,
+          location,
+          customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
+        })));
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update inventory item.');
+      }
+    }),
+  );
+
   app.post(
     '/inventory-items/:id/restore',
     authMiddleware,
     handler((req, res) => {
       const existing = store.getInventoryItemById(req.params.id);
       if (!existing) throw new HttpError(404, 'Inventory item not found.');
-      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
       res.json(withActor(req, () => store.restoreInventoryItem(existing.id)));
     }),
   );

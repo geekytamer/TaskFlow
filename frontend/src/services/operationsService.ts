@@ -232,6 +232,8 @@ export interface Rfq {
   quotes: RfqQuote[];
   notes?: string;
   awardedQuoteId?: string;
+  /** The purchase order the awarded quote became. */
+  purchaseOrderId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -264,6 +266,13 @@ export async function deleteRfqQuote(rfqId: string, quoteId: string): Promise<Rf
 
 export async function awardRfqQuote(rfqId: string, quoteId: string): Promise<Rfq> {
   return apiFetch<Rfq>(`/rfqs/${rfqId}/award`, { method: 'POST', body: JSON.stringify({ quoteId }) });
+}
+
+/** Turns the awarded quote into a draft purchase order (or returns the one already made). */
+export async function createPurchaseOrderFromRfq(
+  rfqId: string, data: { supplierId?: string; unitCosts?: number[] } = {},
+): Promise<{ id: string; orderNumber: string }> {
+  return apiFetch(`/rfqs/${rfqId}/purchase-order`, { method: 'POST', body: JSON.stringify(data) });
 }
 
 export async function deleteRfq(id: string): Promise<void> {
@@ -370,6 +379,14 @@ export async function cancelWorkOrder(id: string): Promise<WorkOrder> {
 
 export async function deleteWorkOrder(id: string): Promise<void> {
   await apiFetch(`/work-orders/${id}`, { method: 'DELETE' });
+}
+
+/** Edits an item's description and terms; stock and cost move only through adjustments and receipts. */
+export async function updateInventoryItem(
+  id: string,
+  data: Partial<Omit<CreateInventoryItemInput, 'onHand' | 'unitCost'>> & { sku?: string },
+): Promise<InventoryItem> {
+  return apiFetch<InventoryItem>(`/inventory-items/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 }
 
 export async function createInventoryItem(
@@ -572,6 +589,15 @@ export async function createPurchaseOrder(
     method: 'POST',
     body: JSON.stringify(data),
   });
+  return mapPurchaseOrder(order);
+}
+
+/** Edits a draft purchase order; a changed total goes through approval again. */
+export async function updatePurchaseOrder(
+  orderId: string,
+  data: Partial<{ supplierId: string; orderDate: Date; expectedDate: Date | null; notes: string | null; items: CreatePurchaseOrderInput['items'] }>,
+): Promise<PurchaseOrder> {
+  const order = await apiFetch<PurchaseOrder>(`/purchase-orders/${orderId}`, { method: 'PUT', body: JSON.stringify(data) });
   return mapPurchaseOrder(order);
 }
 

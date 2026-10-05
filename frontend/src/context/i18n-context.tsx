@@ -484,6 +484,10 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
 
     'sales.title': 'Sales',
     'sales.ordersTab': 'Sales orders',
+    'sales.editTitle': 'Edit sales order {{number}}',
+    'sales.updatedOrderToast': 'Sales order updated',
+    'sales.saveChanges': 'Save changes',
+    'sales.edit': 'Edit',
     'quotes.tab': 'Quotations',
     'quotes.new': 'New quotation',
     'quotes.editTitle': 'Edit quotation {{number}}',
@@ -3418,6 +3422,10 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
 
     'sales.title': 'المبيعات',
     'sales.ordersTab': 'أوامر البيع',
+    'sales.editTitle': 'تعديل أمر البيع {{number}}',
+    'sales.updatedOrderToast': 'تم تحديث أمر البيع',
+    'sales.saveChanges': 'حفظ التغييرات',
+    'sales.edit': 'تعديل',
     'quotes.tab': 'عروض الأسعار',
     'quotes.new': 'عرض سعر جديد',
     'quotes.editTitle': 'تعديل عرض السعر {{number}}',

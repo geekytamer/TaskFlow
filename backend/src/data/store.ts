@@ -4271,6 +4271,16 @@ export class DataStore {
           this.db.exec(`ALTER TABLE inventory_items ADD COLUMN archivedAt TEXT;`);
         },
       },
+      {
+        // An awarded supplier quote becomes a purchase order; each side keeps the link.
+        id: '102_rfq_purchase_order',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE purchase_orders ADD COLUMN rfqId TEXT;
+            ALTER TABLE rfqs ADD COLUMN purchaseOrderId TEXT;
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7046,6 +7056,57 @@ export class DataStore {
     trx();
   }
 
+  /**
+   * Edit a draft purchase order. A changed total is checked against the
+   * approval threshold again: an earlier approval or rejection no longer
+   * applies to what is now being ordered.
+   */
+  updatePurchaseOrder(id: string, updates: {
+    supplierId?: string; supplierName?: string; contactId?: string | null; orderDate?: Date; expectedDate?: Date | null;
+    items?: any[]; notes?: string | null;
+  }): PurchaseOrder | undefined {
+    const existing = this.getPurchaseOrderById(id);
+    if (!existing) return undefined;
+    if (existing.status !== 'Draft') throw new Error('Only a draft purchase order can be edited.');
+    const items = updates.items !== undefined ? this.normalizePurchaseOrderItems(updates.items) : existing.items;
+    if (!items.length) throw new Error('Purchase order requires at least one line item.');
+    const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    const threshold = this.getCompanyFinanceSettings(existing.companyId).poApprovalThreshold;
+    const requiresApproval = threshold > 0 && totalAmount >= threshold;
+    const changed = totalAmount !== existing.totalAmount || updates.supplierId !== undefined && updates.supplierId !== existing.supplierId;
+    const approvalStatus = !changed && existing.approvalStatus !== 'rejected'
+      ? existing.approvalStatus
+      : requiresApproval ? 'pending' : 'not_required';
+    const resetApproval = approvalStatus !== existing.approvalStatus || changed;
+    this.db.prepare(
+      `UPDATE purchase_orders SET supplierId=@supplierId, supplierName=@supplierName, contactId=@contactId, orderDate=@orderDate,
+         expectedDate=@expectedDate, items=@items, totalAmount=@totalAmount, notes=@notes, approvalStatus=@approvalStatus,
+         approvedBy=@approvedBy, approvedAt=@approvedAt, rejectionReason=@rejectionReason WHERE id=@id`,
+    ).run({
+      id,
+      supplierId: updates.supplierId ?? existing.supplierId ?? null,
+      supplierName: updates.supplierName ?? existing.supplierName,
+      contactId: updates.contactId === undefined ? existing.contactId ?? null : updates.contactId,
+      orderDate: (updates.orderDate ?? existing.orderDate).toISOString(),
+      expectedDate: updates.expectedDate === undefined
+        ? existing.expectedDate?.toISOString() ?? null
+        : updates.expectedDate ? updates.expectedDate.toISOString() : null,
+      items: JSON.stringify(items),
+      totalAmount,
+      notes: updates.notes === undefined ? existing.notes ?? null : updates.notes,
+      approvalStatus,
+      approvedBy: resetApproval ? null : existing.approvedBy ?? null,
+      approvedAt: resetApproval ? null : existing.approvedAt?.toISOString() ?? null,
+      rejectionReason: resetApproval ? null : existing.rejectionReason ?? null,
+    });
+    const result = this.getPurchaseOrderById(id);
+    this.createActivityEvent({
+      companyId: existing.companyId, entityType: 'purchase_order', entityId: id, action: 'updated',
+      summary: `Purchase order ${existing.orderNumber} updated.`, metadata: { totalAmount, approvalStatus },
+    });
+    return result;
+  }
+
   /** Delete a purchase order. Blocks if it has a vendor bill or received stock. */
   deletePurchaseOrder(id: string): void {
     const order = this.getPurchaseOrderById(id);
@@ -7064,6 +7125,7 @@ export class DataStore {
           "UPDATE purchase_requisitions SET purchaseOrderId = NULL, status = CASE WHEN status = 'Converted' THEN 'Approved' ELSE status END, updatedAt = ? WHERE purchaseOrderId = ?",
         )
         .run(new Date().toISOString(), id);
+      this.db.prepare('UPDATE rfqs SET purchaseOrderId = NULL WHERE purchaseOrderId = ?').run(id);
       this.db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(id);
     });
     trx();
@@ -7167,6 +7229,54 @@ export class DataStore {
       metadata: { writtenOff: options.writeOff ? item.onHand : 0 },
     });
     return { outcome, item: outcome === 'archived' ? this.getInventoryItemById(id) : undefined };
+  }
+
+  /**
+   * Edit an item's description and selling terms. Quantity and cost are not
+   * editable here: they move only through adjustments and receipts, so the
+   * stock ledger always explains them.
+   */
+  updateInventoryItem(id: string, updates: {
+    sku?: string; barcode?: string | null; name?: string; category?: string; unit?: string; vatApplicable?: boolean;
+    tracksInventory?: boolean; reorderPoint?: number; salePrice?: number | null; preferredVendor?: string | null;
+    preferredSupplierId?: string | null; location?: string | null; customFields?: Record<string, unknown>;
+  }): InventoryItem | undefined {
+    const existing = this.getInventoryItemById(id);
+    if (!existing) return undefined;
+    const sku = updates.sku?.trim() || existing.sku;
+    if (sku !== existing.sku) {
+      const clash = this.db.prepare('SELECT 1 FROM inventory_items WHERE companyId = ? AND sku = ? AND id <> ? LIMIT 1').get(existing.companyId, sku, id);
+      if (clash) throw new Error(`SKU ${sku} is already used by another item.`);
+    }
+    if (updates.tracksInventory === false && existing.tracksInventory && Math.abs(existing.onHand) > 0.0001) {
+      throw new Error('Write the stock off before you stop tracking this item.');
+    }
+    const pick = <K extends keyof typeof updates>(key: K, fallback: unknown) => (updates[key] === undefined ? fallback : updates[key]);
+    this.db.prepare(
+      `UPDATE inventory_items SET sku=@sku, barcode=@barcode, name=@name, category=@category, unit=@unit, vatApplicable=@vatApplicable,
+         tracksInventory=@tracksInventory, reorderPoint=@reorderPoint, salePrice=@salePrice, preferredVendor=@preferredVendor,
+         preferredSupplierId=@preferredSupplierId, location=@location, customFields=@customFields WHERE id=@id`,
+    ).run({
+      id,
+      sku,
+      barcode: pick('barcode', existing.barcode ?? null),
+      name: (updates.name ?? existing.name).trim(),
+      category: (updates.category ?? existing.category).trim(),
+      unit: (updates.unit ?? existing.unit).trim(),
+      vatApplicable: (updates.vatApplicable ?? existing.vatApplicable) ? 1 : 0,
+      tracksInventory: (updates.tracksInventory ?? existing.tracksInventory) ? 1 : 0,
+      reorderPoint: updates.reorderPoint ?? existing.reorderPoint,
+      salePrice: pick('salePrice', existing.salePrice ?? null),
+      preferredVendor: pick('preferredVendor', existing.preferredVendor ?? null),
+      preferredSupplierId: pick('preferredSupplierId', existing.preferredSupplierId ?? null),
+      location: pick('location', existing.location ?? null),
+      customFields: updates.customFields !== undefined ? JSON.stringify(updates.customFields) : (existing.customFields ? JSON.stringify(existing.customFields) : null),
+    });
+    this.createActivityEvent({
+      companyId: existing.companyId, entityType: 'inventory_item', entityId: id, action: 'updated',
+      summary: `Inventory item ${existing.name} updated.`,
+    });
+    return this.getInventoryItemById(id);
   }
 
   /** Bring an archived item back into everyday lists. */
@@ -7731,6 +7841,7 @@ export class DataStore {
       quotes,
       notes: row.notes ?? undefined,
       awardedQuoteId: row.awardedQuoteId ?? undefined,
+      purchaseOrderId: row.purchaseOrderId ?? undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -7817,10 +7928,56 @@ export class DataStore {
     return this.getRfqById(rfqId);
   }
 
+  /**
+   * Turn the awarded quote into a draft purchase order. A quote carries only a
+   * total, so unit costs come from the caller per line, or the total is spread
+   * over the lines by quantity. Once made, the same order is returned.
+   */
+  createPurchaseOrderFromRfq(rfqId: string, input: { supplierId?: string; unitCosts?: number[]; orderDate?: Date; expectedDate?: Date }): { order: PurchaseOrder; created: boolean } {
+    const rfq = this.getRfqById(rfqId);
+    if (!rfq) throw new Error('RFQ not found.');
+    if (rfq.purchaseOrderId) {
+      const existing = this.getPurchaseOrderById(rfq.purchaseOrderId);
+      if (existing) return { order: existing, created: false };
+    }
+    const quote = rfq.quotes.find((q) => q.id === rfq.awardedQuoteId);
+    if (!quote) throw new Error('Award a quote before making a purchase order.');
+    const supplierId = input.supplierId || quote.supplierId;
+    if (!supplierId) throw new Error(`Choose the supplier record for ${quote.supplierName} to order from.`);
+    const supplier = this.getSupplierById(supplierId);
+    if (!supplier || supplier.companyId !== rfq.companyId) throw new Error('Supplier does not belong to this company.');
+    let unitCosts = input.unitCosts;
+    if (unitCosts && unitCosts.length !== rfq.items.length) throw new Error('Give one unit cost per RFQ line.');
+    if (!unitCosts) {
+      const totalQty = rfq.items.reduce((sum, item) => sum + item.quantity, 0) || 1;
+      unitCosts = rfq.items.map(() => Number((quote.totalAmount / totalQty).toFixed(4)));
+    }
+    const order = this.createPurchaseOrder({
+      companyId: rfq.companyId,
+      supplierName: supplier.name,
+      supplierId,
+      orderDate: input.orderDate ?? new Date(),
+      expectedDate: input.expectedDate ?? (quote.leadTimeDays ? new Date(Date.now() + quote.leadTimeDays * 86400000) : undefined),
+      status: 'Draft',
+      items: rfq.items.map((item, index) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitCost: Number(unitCosts![index]) || 0,
+        lineTotal: Number(((Number(unitCosts![index]) || 0) * item.quantity).toFixed(2)),
+      })),
+      notes: `From ${rfq.reference}: ${rfq.title} (quote from ${quote.supplierName}).`,
+    } as any);
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE purchase_orders SET rfqId = ? WHERE id = ?').run(rfqId, order.id);
+    this.db.prepare("UPDATE rfqs SET purchaseOrderId = ?, updatedAt = ? WHERE id = ?").run(order.id, now, rfqId);
+    return { order: this.getPurchaseOrderById(order.id)!, created: true };
+  }
+
   deleteRfq(id: string): boolean {
     const rfq = this.getRfqById(id);
     if (!rfq) return false;
     const trx = this.db.transaction(() => {
+      this.db.prepare('UPDATE purchase_orders SET rfqId = NULL WHERE rfqId = ?').run(id);
       this.db.prepare('DELETE FROM rfq_quotes WHERE rfqId = ?').run(id);
       this.db.prepare('DELETE FROM rfqs WHERE id = ?').run(id);
     });
@@ -12836,6 +12993,41 @@ export class DataStore {
     });
 
     return order;
+  }
+
+  /** Edit a draft sales order: client, dates, lines and notes. */
+  updateSalesOrder(id: string, updates: {
+    clientId?: string; contactId?: string | null; orderDate?: Date; expectedDate?: Date | null; items?: any[]; notes?: string | null;
+  }): SalesOrder | undefined {
+    const existing = this.getSalesOrderById(id);
+    if (!existing) return undefined;
+    if (existing.status !== 'Draft' || existing.invoiceId) throw new Error('Only a draft sales order can be edited.');
+    if (this.db.prepare('SELECT 1 FROM deliveries WHERE salesOrderId = ? LIMIT 1').get(id)) {
+      throw new Error('This sales order already has deliveries and can no longer be edited.');
+    }
+    const items = updates.items !== undefined ? this.normalizeSalesOrderItems(updates.items) : existing.items;
+    if (!items.length) throw new Error('Sales order requires at least one line item.');
+    const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    this.db.prepare(
+      `UPDATE sales_orders SET clientId=@clientId, contactId=@contactId, orderDate=@orderDate, expectedDate=@expectedDate,
+         items=@items, totalAmount=@totalAmount, notes=@notes WHERE id=@id`,
+    ).run({
+      id,
+      clientId: updates.clientId ?? existing.clientId,
+      contactId: updates.contactId === undefined ? existing.contactId ?? null : updates.contactId,
+      orderDate: (updates.orderDate ?? existing.orderDate).toISOString(),
+      expectedDate: updates.expectedDate === undefined
+        ? existing.expectedDate?.toISOString() ?? null
+        : updates.expectedDate ? updates.expectedDate.toISOString() : null,
+      items: JSON.stringify(items),
+      totalAmount,
+      notes: updates.notes === undefined ? existing.notes ?? null : updates.notes,
+    });
+    this.createActivityEvent({
+      companyId: existing.companyId, entityType: 'sales_order', entityId: id, action: 'updated',
+      summary: `Sales order ${existing.orderNumber} updated.`, metadata: { totalAmount },
+    });
+    return this.getSalesOrderById(id);
   }
 
   updateSalesOrderStatus(id: string, status: SalesOrderStatus): SalesOrder | undefined {
@@ -19608,6 +19800,7 @@ export class DataStore {
       approvedBy: row.approvedBy ?? undefined,
       approvedAt: row.approvedAt ? new Date(row.approvedAt) : undefined,
       rejectionReason: row.rejectionReason ?? undefined,
+      rfqId: row.rfqId ?? undefined,
     };
   }
 

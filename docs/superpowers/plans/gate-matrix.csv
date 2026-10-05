@@ -347,3 +347,8 @@ POST,/quotations/:id/sales-order,sales,create,"Accountant Admin Manager",0,roles
 POST,/quotations/:id/invoice,sales,create,"Accountant Admin Manager",0,roles,quotations.invoice
 DELETE,/quotations/:id,sales,write,"Accountant Admin Manager",0,roles,quotations
 GET,/public/resolve/:id,public,read,"",0,none,public.resolve
+PUT,/purchase-orders/:id,purchasing,write,"Accountant Admin Manager",0,roles,purchase-orders
+PUT,/sales-orders/:id,sales,write,"Accountant Admin Manager",0,roles,sales-orders
+PUT,/inventory-items/:id,inventory,write,"Admin Manager",0,roles,inventory-items
+POST,/inventory-items/:id/restore,inventory,write,"Admin Manager",0,roles,inventory-items.restore
+POST,/rfqs/:id/purchase-order,purchasing,create,"Accountant Admin Manager",0,roles,rfqs.purchase-order

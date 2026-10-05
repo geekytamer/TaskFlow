@@ -45,6 +45,7 @@ import {
   receivePurchaseOrder,
   rejectPurchaseOrder,
   updatePurchaseOrderStatus,
+  updatePurchaseOrder,
   deletePurchaseOrder,
 } from '@/services/operationsService';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -55,7 +56,7 @@ import type {
   PurchaseOrderStatus,
   PurchaseReceipt,
 } from '@/modules/operations/types';
-import { PackageCheck, ShoppingCart, Trash2 } from 'lucide-react';
+import { PackageCheck, Pencil, ShoppingCart, Trash2 } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissionOr } from '@/context/permissions-context';
@@ -70,6 +71,8 @@ const statusStyles: Record<PurchaseOrderStatus, string> = {
 
 type PurchaseItemForm = {
   inventoryItemId: string;
+  /** A line not tied to an inventory item (for example one ordered from an RFQ). */
+  description?: string;
   quantity: string;
   unitCost: string;
 };
@@ -118,6 +121,8 @@ export function PurchasesPage() {
   const [openCreate, setOpenCreate] = React.useState(false);
   const [selectedOrderForDocs, setSelectedOrderForDocs] = React.useState<PurchaseOrder | null>(null);
   const [form, setForm] = React.useState<PurchaseForm>(emptyPurchaseForm);
+  // The draft being edited in the same dialog, or null when creating.
+  const [editingOrder, setEditingOrder] = React.useState<PurchaseOrder | null>(null);
   // Deep link from elsewhere (e.g. an unbilled payable in Finance) arrives as
   // ?q=PO-1003, so the order it names is the one on screen.
   const [search, setSearch] = React.useState(() =>
@@ -266,7 +271,25 @@ export function PurchasesPage() {
       'Cancelled': 'ملغى',
     } as Record<PurchaseOrderStatus, string>)[status]);
 
-  const resetForm = () => setForm(emptyPurchaseForm());
+  const resetForm = () => { setForm(emptyPurchaseForm()); setEditingOrder(null); };
+
+  const openEdit = (order: PurchaseOrder) => {
+    setEditingOrder(order);
+    setForm({
+      contactId: order.contactId || [...supplierMap.values()].find((c) => c.supplierId === order.supplierId || c.id === order.supplierId)?.id || order.supplierId || '',
+      orderDate: format(order.orderDate, 'yyyy-MM-dd'),
+      expectedDate: order.expectedDate ? format(order.expectedDate, 'yyyy-MM-dd') : '',
+      status: order.status,
+      notes: order.notes || '',
+      items: order.items.map((line) => ({
+        inventoryItemId: line.inventoryItemId || '',
+        description: line.inventoryItemId ? undefined : line.description,
+        quantity: String(line.quantity),
+        unitCost: String(line.unitCost),
+      })),
+    });
+    setOpenCreate(true);
+  };
 
   const updateItemRow = (index: number, updates: Partial<PurchaseItemForm>) => {
     setForm((prev) => ({
@@ -330,7 +353,14 @@ export function PurchasesPage() {
     const preparedItems = form.items
       .map((item) => {
         const inventoryItem = inventoryMap.get(item.inventoryItemId);
-        if (!inventoryItem) return null;
+        if (!inventoryItem) {
+          // Free-text lines (from an RFQ) are kept as they are.
+          const description = item.description?.trim();
+          const quantity = Number(item.quantity || 0);
+          const unitCost = Number(item.unitCost || 0);
+          if (!description || !(quantity > 0)) return null;
+          return { inventoryItemId: undefined, sku: undefined, description, quantity, unitCost, lineTotal: quantity * unitCost };
+        }
         const quantity = Number(item.quantity || 0);
         const unitCost = Number(item.unitCost || inventoryItem.unitCost || 0);
 
@@ -355,19 +385,33 @@ export function PurchasesPage() {
     }
 
     try {
-      await createPurchaseOrder(selectedCompany.id, {
-        supplierId,
-        contactId: form.contactId,
-        orderDate: new Date(form.orderDate),
-        expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
-        status: form.status,
-        notes: form.notes || undefined,
-        items: preparedItems,
-      });
+      const wasEditing = Boolean(editingOrder);
+      if (editingOrder) {
+        const updated = await updatePurchaseOrder(editingOrder.id, {
+          supplierId,
+          orderDate: new Date(form.orderDate),
+          expectedDate: form.expectedDate ? new Date(form.expectedDate) : null,
+          notes: form.notes || null,
+          items: preparedItems as any,
+        });
+        if (updated.approvalStatus === 'pending' && editingOrder.approvalStatus !== 'pending') {
+          toast({ title: tr('Sent for approval again', 'أُرسل للموافقة مجددًا'), description: tr('The new total needs approval before it can be ordered.', 'يحتاج الإجمالي الجديد إلى موافقة قبل الطلب.') });
+        }
+      } else {
+        await createPurchaseOrder(selectedCompany.id, {
+          supplierId,
+          contactId: form.contactId,
+          orderDate: new Date(form.orderDate),
+          expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
+          status: form.status,
+          notes: form.notes || undefined,
+          items: preparedItems as any,
+        });
+      }
       setOpenCreate(false);
       resetForm();
       await load();
-      toast({ title: tr('Purchase order created', 'تم إنشاء أمر الشراء') });
+      toast({ title: wasEditing ? tr('Purchase order updated', 'تم تحديث أمر الشراء') : tr('Purchase order created', 'تم إنشاء أمر الشراء') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -590,7 +634,11 @@ export function PurchasesPage() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
-              <DialogTitle>{tr('Create Purchase Order', 'إنشاء أمر شراء')}</DialogTitle>
+              <DialogTitle>
+                {editingOrder
+                  ? tr(`Edit purchase order ${editingOrder.orderNumber}`, `تعديل أمر الشراء ${editingOrder.orderNumber}`)
+                  : tr('Create Purchase Order', 'إنشاء أمر شراء')}
+              </DialogTitle>
               <DialogDescription>
                 {tr('Build a purchase order from inventory items and receive stock when the shipment arrives.', 'أنشئ أمر شراء من أصناف المخزون واستلم البضاعة عند وصول الشحنة.')}
               </DialogDescription>
@@ -632,7 +680,7 @@ export function PurchasesPage() {
                   }
                 />
               </div>
-              <div className="space-y-1">
+              {!editingOrder && <div className="space-y-1">
                 <Label data-tutorial="purchases-form-status">{tr('Initial Status', 'الحالة الأولية')}</Label>
                 <Select
                   value={form.status}
@@ -650,7 +698,7 @@ export function PurchasesPage() {
                     <SelectItem value="Cancelled">{tr('Cancelled', 'ملغى')}</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+              </div>}
               <div className="space-y-1">
                 <Label>{tr('Estimated Total', 'الإجمالي التقديري')}</Label>
                 <div className="flex h-10 items-center rounded-md border px-3 text-sm">
@@ -676,6 +724,12 @@ export function PurchasesPage() {
               </div>
               {form.items.map((item, index) => (
                 <div key={index} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
+                  {!item.inventoryItemId && item.description !== undefined ? (
+                    <div className="space-y-1">
+                      <Label>{tr('Description', 'الوصف')}</Label>
+                      <Input dir="auto" value={item.description} onChange={(e) => updateItemRow(index, { description: e.target.value })} />
+                    </div>
+                  ) : (
                   <div className="space-y-1">
                     <Label>{tr('Inventory Item', 'صنف المخزون')}</Label>
                     <Select
@@ -706,6 +760,7 @@ export function PurchasesPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  )}
                   <div className="space-y-1">
                     <Label>{tr('Quantity', 'الكمية')}</Label>
                     <Input
@@ -746,7 +801,7 @@ export function PurchasesPage() {
               <Button variant="outline" onClick={() => setOpenCreate(false)}>
                 {tr('Cancel', 'إلغاء')}
               </Button>
-            <Button onClick={handleCreate}>{tr('Create Order', 'إنشاء الأمر')}</Button>
+            <Button onClick={handleCreate}>{editingOrder ? tr('Save changes', 'حفظ التغييرات') : tr('Create Order', 'إنشاء الأمر')}</Button>
           </DialogFooter>
         </DialogContent>
           </Dialog>
@@ -1013,6 +1068,11 @@ export function PurchasesPage() {
                           {tr('Reject', 'رفض')}
                         </Button>
                       </>
+                    )}
+                    {order.status === 'Draft' && canApprove && (
+                      <Button variant="outline" size="sm" onClick={() => openEdit(order)}>
+                        <Pencil className="me-2 h-4 w-4" />{tr('Edit', 'تعديل')}
+                      </Button>
                     )}
                     {order.status === 'Draft' && order.approvalStatus !== 'pending' && order.approvalStatus !== 'rejected' && (
                       <Button
