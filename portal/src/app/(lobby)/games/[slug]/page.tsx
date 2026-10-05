@@ -4,6 +4,9 @@ import { formatDateTime } from '@/lib/format';
 import { getGame, getMyStanding, type GameDetail, type MyStanding } from '@/lib/games';
 import { t, type Lang } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
+import { BrandGameReportView } from '@/components/brand-game-report';
+import { getHost } from '@/lib/audience';
+import { getBrandGame } from '@/lib/brand-games';
 import { backLink, primaryButton } from '@/components/field';
 
 const PLATFORM: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', snapchat: 'Snapchat', x: 'X', facebook: 'Facebook', other: '' };
@@ -66,6 +69,11 @@ export default async function GamePage({ params, searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ slug }, query, lang] = await Promise.all([params, searchParams, currentLang()]);
+  // A game run for this client opens as its report rather than the public board.
+  if (getHost() === 'client') {
+    const report = await getBrandGame(slug);
+    if (report) return <BrandGameReportView report={report} lang={lang} />;
+  }
   const handle = typeof query.handle === 'string' ? query.handle.trim().slice(0, 64) : '';
   const [game, me] = await Promise.all([getGame(slug, handle || undefined), getMyStanding(slug).catch(() => null)]);
   const pick = (en: string | null, ar: string | null) => (lang === 'ar' && ar) || en;

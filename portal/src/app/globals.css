@@ -26,6 +26,13 @@
   --success: #117a4c;
   --warning: #9a5800;
   --danger: #b42318;
+  /* Chart series, fixed order, validated for colour-vision deficiency (dataviz
+     validator, adjacent pairs, light surface). Slots 3 and 4 sit under 3:1, so
+     every chart ships a worded legend and a table view. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
   --radius-control: 8px;
   --radius-panel: 12px;
   --shadow-float: 0 -1px 0 rgb(16 20 24 / 0.04), 0 -8px 24px -12px rgb(16 20 24 / 0.18);
