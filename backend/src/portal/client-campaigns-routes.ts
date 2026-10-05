@@ -9,6 +9,7 @@ import { resultsDto } from '../social/results';
 import type { PortalSession } from './portal-store';
 import { managerOf, notifyManager, raiseFollowup, type SessionRequest } from './common';
 import { reviewDecisions } from './reviews-store';
+import { clientAnalytics } from './analytics';
 
 
 
@@ -62,6 +63,10 @@ export function registerClientCampaignRoutes(
       }).length;
       return toCampaignSummary(campaign, deliverables, awaiting);
     }));
+  });
+
+  router.get('/client/analytics', requireClientSession, (req: SessionRequest, res: Response) => {
+    res.json(clientAnalytics(store, companyId, req.portal!.contactId, req.query));
   });
 
   router.get('/client/campaigns/:id', requireClientSession, (req: SessionRequest, res: Response) => {
