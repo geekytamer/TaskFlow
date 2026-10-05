@@ -44,8 +44,16 @@ as viewers one by one.
 | Phone navigation | Bottom tab bar |
 | Ask for a game | No |
 | Approving content | Confirm step, then an "Approved" note on the row |
+| Theme (amended same day) | Both portals take Peak's own brand from peak-creative.agency, not a generic standard; Stripe Dashboard and Mercury stay the bar for craft and structure |
+| Client analytics | Results across campaigns; by creator and platform; cost per result |
+| Influencer analytics | Account growth; post results; audience; earnings |
 
 ## 5. Visual system
+
+**Amended 2026-10-05:** the palette, type and logo come from Peak's brand
+(peak-creative.agency). The site could not be read from this environment (network
+policy), so the exact values are an open input (section 11). The structure below
+stands; only token values and faces change.
 
 Mode: Operate. Restrained colour strategy. Light, because the use scene is a brand
 manager on a phone between meetings, often outdoors or in bright offices, and company
@@ -174,6 +182,54 @@ for colours and marks); the game posts; top fans; after the end, winners plus
 "Download results (CSV)" and "Download summary (PDF)". Downloads go through new
 `portal/src/app/api/brand-games/[slug]/…` GET routes using `backendDownload`.
 
+## 7b. Analytics
+
+Both audiences get an **Analytics** page (client: in the sidebar and the More sheet;
+influencer: same places in their portal). Every figure is computed on the server from
+records the viewer may already see, and returned as an allow-listed DTO.
+
+### Client analytics (`GET /portal-api/client/analytics?from&to&campaign`)
+
+Sources: verified post results (`media_results`, latest checkpoint per post) on this
+client's campaigns' deliverables; the client's own non-draft invoices.
+
+- **Totals** for the range: posts with results, views, likes, comments, saves, shares,
+  engagements (likes + comments + saves + shares), engagement per view.
+- **Over time**: weekly sums by publish date (views; engagements).
+- **By creator**: name, handle, posts, views, engagements, engagement per view. No
+  money per creator, ever (it would approach a rate).
+- **By platform**: same figures per platform.
+- **By campaign**: posts, views, engagements, and **cost per result** where the campaign
+  has invoices: invoiced total (the client's own price, per currency) / views x 1,000
+  (CPM) and / engagements (cost per engagement). Campaigns without invoices or results
+  show a dash, not zero.
+- Filters: date range presets (30 days, 90 days, this year, all) and campaign.
+- Poison: `agreedRate`, deliverable `cost` and `price`, `rateCardAmount`, `budget`,
+  expenses, vendor bills, notes, another client's campaigns.
+
+### Influencer analytics (`GET /portal-api/influencer/analytics?from&to`)
+
+Sources: the influencer's own connected accounts' `account_snapshots`, `media_results`
+on deliverables they were paid for or assigned to, their own payouts (`payoutsFor`).
+
+- **Account growth**: followers, reach, views, engaged accounts per day (from daily
+  snapshots), with change over the range. Needs a connected account; otherwise an empty
+  state with the connect action.
+- **Post results**: each Peak post with its 24h, 7d and 30d figures, and their averages.
+  The client's name is shown only where the assignment already shows it.
+- **Audience**: the latest snapshot's demographics (age bands, gender, top cities and
+  countries) when Instagram returned them.
+- **Earnings**: their payouts per month, paid and pending, per currency.
+- Never: market-rate benchmarks, other influencers' figures, the client's price or
+  invoices, Peak's margin.
+- Poison: `rateCardAmount`, `estimatedAvg`, deliverable `price`, invoice totals,
+  other contacts' snapshots, tokens.
+
+### Charts
+
+Server-rendered SVG with a table fallback and worded legends, one chart component
+family shared by the games report and both analytics pages (dataviz skill).
+
 ## 8. Security and architecture rules kept
 
 - Writes only through `portal/src/app/api/*` with `forwardWrite` and same-origin.
@@ -199,6 +255,10 @@ for colours and marks); the game posts; top fans; after the end, winners plus
   empty, loading, error and full states screenshotted; production build of the client
   portal.
 
+Analytics tests: `portal-analytics.test.js`: totals and series from fixtures,
+date filters, cost per result per currency and the dash cases, isolation between two
+clients and two influencers, and a poison test per audience with mutation checks.
+
 ## 10. Risks
 
 - Restyling shared components touches the influencer portal and lobby; both get a
@@ -207,3 +267,10 @@ for colours and marks); the game posts; top fans; after the end, winners plus
   accounts shows only the payment instructions, or nothing, plus the Messages link.
 - Daily series for long games: capped at the game window; a 90-day game is 90 bars,
   which the chart handles by thinning date labels.
+- Analytics read every result row for a client on each request; fine at today's
+  scale (hundreds of posts), revisit with caching past a few thousand.
+
+## 11. Open inputs
+
+1. Peak's brand values (colours, typefaces, logo files), from peak-creative.agency or
+   supplied directly. Until then the tokens keep today's values.
