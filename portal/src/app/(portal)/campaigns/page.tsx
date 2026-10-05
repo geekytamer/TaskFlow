@@ -29,7 +29,7 @@ export default async function CampaignsPage() {
             <li key={c.id}>
               <Link href={`/campaigns/${c.id}`} className="grid gap-2 px-1 py-5 transition-colors hover:bg-surface sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:gap-6 sm:px-3">
                 <div className="min-w-0">
-                  <p dir="auto" className="truncate font-semibold">{c.name}</p>
+                  <p className="truncate font-semibold"><bdi>{c.name}</bdi></p>
                   {(c.startDate || c.endDate) && (
                     <p className="mt-0.5 text-sm text-ink-soft">
                       <bdi>{formatDate(c.startDate, lang)}</bdi> {lang === 'ar' ? 'إلى' : 'to'} <bdi>{formatDate(c.endDate, lang)}</bdi>

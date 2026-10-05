@@ -30,14 +30,14 @@ export default async function GamesPage() {
             <li key={g.slug}>
               <Link href={`/games/${g.slug}`} className="block h-full rounded-xl border border-line bg-surface p-5 transition-colors hover:border-ink/40">
                 <div className="flex items-start justify-between gap-3">
-                  <h2 dir="auto" className="text-lg font-semibold tracking-tight">{name(g)}</h2>
+                  <h2 className="text-lg font-semibold tracking-tight"><bdi>{name(g)}</bdi></h2>
                   <GameStatusPill status={g.status} lang={lang} />
                 </div>
                 <p className="mt-1 text-sm text-ink-soft">
                   <bdi>{formatDate(g.startsAt, lang)}</bdi> {lang === 'ar' ? 'إلى' : 'to'} <bdi>{formatDate(g.endsAt, lang)}</bdi>
                 </p>
                 {prize(g) && (
-                  <p className="mt-4 text-sm"><span className="text-ink-soft">{t(lang, 'lobby.prize')}:</span> <span dir="auto" className="font-medium">{prize(g)}</span></p>
+                  <p className="mt-4 text-sm"><span className="text-ink-soft">{t(lang, 'lobby.prize')}:</span> <span className="font-medium"><bdi>{prize(g)}</bdi></span></p>
                 )}
               </Link>
             </li>

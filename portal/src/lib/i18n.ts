@@ -492,6 +492,15 @@ const en = {
   'home.noPieces': 'No content planned yet',
   'home.liveOf': '{n} of {total} live',
   'home.nextDue': 'next due',
+  'cat.filters': 'Filters',
+  'cat.avgViewsShort': 'Avg views',
+  'cat.addShortlist': 'Add to shortlist',
+  'cat.removeShortlist': 'Remove from shortlist',
+  'cat.tickHint': 'Tick creators to request them together.',
+  'cat.chosenOne': '1 influencer chosen',
+  'cat.chosenMany': '{n} influencers chosen',
+  'cat.clearShortlist': 'Clear',
+  'cat.requestWith': 'Request them',
 } as const;
 
 export type Key = keyof typeof en;
@@ -985,6 +994,15 @@ const ar: Record<Key, string> = {
   'home.noPieces': 'لا محتوى مخطط بعد',
   'home.liveOf': '{n} من {total} منشور',
   'home.nextDue': 'الاستحقاق التالي',
+  'cat.filters': 'التصفية',
+  'cat.avgViewsShort': 'متوسط المشاهدات',
+  'cat.addShortlist': 'أضف إلى القائمة المختصرة',
+  'cat.removeShortlist': 'أزل من القائمة المختصرة',
+  'cat.tickHint': 'حدّد المؤثرين لطلبهم معًا.',
+  'cat.chosenOne': 'تم اختيار مؤثر واحد',
+  'cat.chosenMany': 'تم اختيار {n} مؤثرين',
+  'cat.clearShortlist': 'مسح',
+  'cat.requestWith': 'اطلبهم',
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };

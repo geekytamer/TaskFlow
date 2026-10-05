@@ -79,7 +79,7 @@ export default async function GamePage({ params, searchParams }: {
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 dir="auto" className="text-3xl font-semibold tracking-tight md:text-4xl">{pick(game.name, game.nameAr)}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl"><bdi>{pick(game.name, game.nameAr)}</bdi></h1>
           <GameStatusPill status={game.status} lang={lang} />
         </div>
         <p className="text-sm text-ink-soft">
@@ -171,7 +171,7 @@ export default async function GamePage({ params, searchParams }: {
           {pick(game.prize, game.prizeAr) && (
             <section aria-labelledby="prize-title" className="rounded-xl border border-accent/30 bg-accent/10 p-5">
               <h2 id="prize-title" className="text-sm font-semibold text-accent">{t(lang, 'lobby.prize')}</h2>
-              <p dir="auto" className="mt-1 text-lg font-semibold">{pick(game.prize, game.prizeAr)}</p>
+              <p className="mt-1 text-lg font-semibold"><bdi>{pick(game.prize, game.prizeAr)}</bdi></p>
             </section>
           )}
           <section aria-labelledby="earn-title">

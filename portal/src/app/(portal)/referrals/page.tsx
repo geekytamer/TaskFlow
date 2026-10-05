@@ -41,7 +41,7 @@ export default async function ReferralsPage() {
             {referrals.map((r) => (
               <li key={r.id} className="space-y-2 px-1 py-5 sm:px-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p dir="auto" className="min-w-0 truncate font-semibold">{r.prospectName}</p>
+                  <p className="min-w-0 truncate font-semibold"><bdi>{r.prospectName}</bdi></p>
                   <StatusBadge lang={lang} referral={r.status} />
                 </div>
                 <p dir="auto" className="line-clamp-2 text-sm leading-relaxed text-ink-soft">{r.description}</p>

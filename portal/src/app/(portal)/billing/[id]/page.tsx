@@ -42,7 +42,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <ul className="divide-y divide-line border-y border-line sm:hidden">
           {invoice.lineItems.map((l, i) => (
             <li key={i} className="py-3 text-sm">
-              <p dir="auto" className="font-medium">{l.description}</p>
+              <p className="font-medium"><bdi>{l.description}</bdi></p>
               <p className="mt-1 flex justify-between gap-4 text-ink-soft">
                 <span><bdi>{l.quantity}</bdi> × {m(l.unitPrice)}</span>
                 <span className="font-medium text-ink">{m(l.amount)}</span>

@@ -47,7 +47,7 @@ export function Dashboard({
         <section aria-labelledby="waiting-title" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/30 bg-accent/10 p-5">
           <div className="min-w-0">
             <h2 id="waiting-title" className="font-semibold text-accent">{t(lang, 'dash.waiting')}</h2>
-            <p dir="auto" className="mt-0.5 truncate text-sm">{waiting.title}</p>
+            <p className="mt-0.5 truncate text-sm"><bdi>{waiting.title}</bdi></p>
           </div>
           <Link href={`/proposals/${waiting.id}`} className="inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90">
             {t(lang, 'dash.open')}
@@ -79,8 +79,8 @@ export function Dashboard({
                       {t(lang, ATTENTION_LABEL[item.kind])}
                       {item.dueDate && <span className="ms-2 font-normal text-ink-soft"><bdi>{formatDate(item.dueDate, lang)}</bdi></span>}
                     </span>
-                    {item.title && <span dir="auto" className="block truncate font-medium">{item.title}</span>}
-                    <span dir="auto" className="block truncate text-sm text-ink-soft">{item.detail}</span>
+                    {item.title && <span className="block truncate font-medium"><bdi>{item.title}</bdi></span>}
+                    <span className="block truncate text-sm text-ink-soft"><bdi>{item.detail}</bdi></span>
                   </span>
                   <span aria-hidden="true" className="text-ink-soft">{lang === 'ar' ? '‹' : '›'}</span>
                 </Link>
@@ -97,7 +97,7 @@ export function Dashboard({
             {active.slice(0, 5).map((a) => (
               <li key={a.id}>
                 <Link href={`/assignments#${a.id}`} className="flex items-center justify-between gap-4 px-1 py-4 hover:bg-surface sm:px-3">
-                  <span dir="auto" className="min-w-0 truncate font-medium">{a.campaign.name}</span>
+                  <span className="min-w-0 truncate font-medium"><bdi>{a.campaign.name}</bdi></span>
                   <StatusBadge lang={lang} assignment={a.status} />
                 </Link>
               </li>
@@ -132,7 +132,7 @@ export function Dashboard({
         <section aria-labelledby="review-title" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-accent/30 bg-accent/10 p-5">
           <div className="min-w-0">
             <h2 id="review-title" className="font-semibold text-accent">{t(lang, 'dash.review')}</h2>
-            <p dir="auto" className="mt-0.5 truncate text-sm">{toReview.name}</p>
+            <p className="mt-0.5 truncate text-sm"><bdi>{toReview.name}</bdi></p>
           </div>
           <Link href={`/campaigns/${toReview.id}`} className="inline-flex h-10 items-center rounded-[10px] bg-ink px-5 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90">
             {t(lang, 'dash.openCampaign')}
@@ -147,7 +147,7 @@ export function Dashboard({
             {campaigns.slice(0, 5).map((c) => (
               <li key={c.id}>
                 <Link href={`/campaigns/${c.id}`} className="flex items-center justify-between gap-4 px-1 py-4 hover:bg-surface sm:px-3">
-                  <span dir="auto" className="min-w-0 truncate font-medium">{c.name}</span>
+                  <span className="min-w-0 truncate font-medium"><bdi>{c.name}</bdi></span>
                   <StatusBadge lang={lang} campaign={c.status} />
                 </Link>
               </li>

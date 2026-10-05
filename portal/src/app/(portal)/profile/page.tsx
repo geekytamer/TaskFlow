@@ -73,7 +73,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           {profile.lastDecision && (
             <div role="status" className="rounded-xl border border-line bg-surface p-4">
               <p className="font-medium">{t(lang, profile.lastDecision.status === 'approved' ? 'prof.approved' : 'prof.rejected')}</p>
-              {profile.lastDecision.note && <p dir="auto" className="mt-1 text-sm text-ink-soft">{profile.lastDecision.note}</p>}
+              {profile.lastDecision.note && <p className="mt-1 text-sm text-ink-soft"><bdi>{profile.lastDecision.note}</bdi></p>}
             </div>
           )}
           <ProfileChangeForm lang={lang} profile={profile} />

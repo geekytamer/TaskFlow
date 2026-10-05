@@ -26,7 +26,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 dir="auto" className="text-3xl font-semibold tracking-tight md:text-4xl">{campaign.name}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl"><bdi>{campaign.name}</bdi></h1>
           <StatusBadge lang={lang} campaign={campaign.status} />
         </div>
         {(campaign.startDate || campaign.endDate) && (
@@ -69,7 +69,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
               <li key={d.id} className="grid gap-4 px-1 py-5 sm:px-3 md:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p dir="auto" className="font-semibold">{d.title}</p>
+                    <p className="font-semibold"><bdi>{d.title}</bdi></p>
                     <StatusBadge lang={lang} deliverable={deliverableView(d)} />
                   </div>
                   <p className="text-sm text-ink-soft">
@@ -92,7 +92,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                       <span className={d.review.decision === 'approved' ? 'font-medium text-accent' : 'font-medium'}>
                         {t(lang, d.review.decision === 'approved' ? 'rev.youApproved' : 'rev.youAsked')}
                       </span>
-                      {d.review.comment && <span dir="auto" className="mt-1 block text-ink-soft">{d.review.comment}</span>}
+                      {d.review.comment && <span className="mt-1 block text-ink-soft"><bdi>{d.review.comment}</bdi></span>}
                     </p>
                   )}
                 </div>

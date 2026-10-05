@@ -24,7 +24,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ id: s
       <header className="space-y-3">
         <p className="text-sm text-ink-soft">{t(lang, 'prop.title')} <bdi dir="ltr">{proposal.number}</bdi></p>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 dir="auto" className="text-3xl font-semibold tracking-tight md:text-4xl">{proposal.title}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl"><bdi>{proposal.title}</bdi></h1>
           <StatusBadge lang={lang} proposal={proposal.status} />
         </div>
         <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">

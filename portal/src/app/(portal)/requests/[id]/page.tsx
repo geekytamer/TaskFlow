@@ -26,7 +26,7 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 dir="auto" className="text-3xl font-semibold tracking-tight md:text-4xl">{req.title}</h1>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl"><bdi>{req.title}</bdi></h1>
           <StatusBadge lang={lang} request={req.status} />
         </div>
         <p className="text-sm text-ink-soft">{t(lang, 'req.created')} <bdi>{formatDate(req.createdAt, lang)}</bdi></p>
@@ -42,7 +42,7 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
               <li key={p.id}>
                 <Link href={`/proposals/${p.id}`} className="flex flex-wrap items-center justify-between gap-3 px-1 py-4 hover:bg-surface sm:px-3">
                   <span className="min-w-0">
-                    <span dir="auto" className="block truncate font-medium">{p.title}</span>
+                    <span className="block truncate font-medium"><bdi>{p.title}</bdi></span>
                     <span className="block text-sm text-ink-soft"><bdi dir="ltr">{p.number}</bdi></span>
                   </span>
                   <StatusBadge lang={lang} proposal={p.status} />

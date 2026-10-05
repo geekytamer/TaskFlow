@@ -36,7 +36,7 @@ export default async function RequestsPage() {
             <li key={r.id}>
               <Link href={`/requests/${r.id}`} className="grid gap-2 px-1 py-5 transition-colors hover:bg-surface sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6 sm:px-3">
                 <div className="min-w-0">
-                  <p dir="auto" className="truncate font-semibold">{r.title}</p>
+                  <p className="truncate font-semibold"><bdi>{r.title}</bdi></p>
                   <p className="mt-0.5 text-sm text-ink-soft">
                     {t(lang, 'req.created')} <bdi>{formatDate(r.createdAt, lang)}</bdi>
                   </p>

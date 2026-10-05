@@ -113,7 +113,7 @@ export function ClientHome({ lang, firstName, items, campaigns, balances, lastTe
               <li key={c.id}>
                 <RowLink href={`/campaigns/${c.id}`}>
                   <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                    <p dir="auto" className="min-w-0 truncate font-semibold">{c.name}</p>
+                    <p className="min-w-0 truncate font-semibold"><bdi>{c.name}</bdi></p>
                     <StatusBadge lang={lang} campaign={c.status} />
                   </div>
                   <Progress lang={lang} campaign={c} />

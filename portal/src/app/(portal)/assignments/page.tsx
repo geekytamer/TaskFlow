@@ -33,8 +33,8 @@ export default async function AssignmentsPage() {
             <li key={a.id} id={a.id} className={`space-y-5 rounded-xl border bg-surface p-5 md:p-6 ${a.status === 'awaiting_reply' ? 'border-accent/40' : 'border-line'}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 dir="auto" className="text-xl font-semibold tracking-tight">{a.campaign.name}</h2>
-                  {a.campaign.brand && <p dir="auto" className="mt-0.5 text-ink-soft">{a.campaign.brand}</p>}
+                  <h2 className="text-xl font-semibold tracking-tight"><bdi>{a.campaign.name}</bdi></h2>
+                  {a.campaign.brand && <p className="mt-0.5 text-ink-soft"><bdi>{a.campaign.brand}</bdi></p>}
                 </div>
                 <StatusBadge lang={lang} assignment={a.status} />
               </div>
@@ -62,7 +62,7 @@ export default async function AssignmentsPage() {
                       <li key={d.id} id={`work-${d.id}`} className="space-y-1 py-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="min-w-0">
-                            <span dir="auto" className="font-medium">{d.title}</span>
+                            <span className="font-medium"><bdi>{d.title}</bdi></span>
                             {d.platform && <span className="ms-2 text-sm text-ink-soft"><bdi>{d.platform}</bdi></span>}
                           </span>
                           <span className="flex items-center gap-3 text-sm">
