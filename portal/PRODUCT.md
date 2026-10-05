@@ -20,6 +20,10 @@ Give Peak's clients and influencers one place to do their side of the work, so a
 
 Calm, exact, trustworthy. Plain language, no hype. The portal speaks for an agency handling money and reputations; it should feel as dependable as a bank statement and as quick as a messaging app.
 
+## Brand Commitments
+
+- Visual direction (owner's choice, 2026-10-05): the category standard, played straight. The craft bar is Stripe Dashboard and Mercury: white working surfaces on a cool neutral canvas, one accent, precise numbers, standard controls. Distinction comes from finish, not from a theme.
+
 ## Anti-references
 
 - "AI slop" (the owner's words): generic SaaS cream backgrounds, gradient text, hero metrics, identical card grids, decorative motion.
