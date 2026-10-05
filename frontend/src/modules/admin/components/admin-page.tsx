@@ -399,6 +399,7 @@ export function AdminPage() {
             onOpenChange={setCreateUserOpen}
             onUserAdded={load}
             currentUserRole="Admin"
+            scope="platform"
           />
           {editingUser && (
             <AddUserSheet
@@ -407,6 +408,7 @@ export function AdminPage() {
               onUserAdded={() => { setEditingUser(null); load(); }}
               userToEdit={editingUser}
               currentUserRole="Admin"
+              scope="platform"
             />
           )}
           <div className="rounded-xl border overflow-hidden">

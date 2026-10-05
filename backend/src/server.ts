@@ -1321,16 +1321,35 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
+  /** Companies whose people the caller may see: where they administer or manage. */
+  const userAdminCompanyIds = (req: AuthedRequest): Set<string> =>
+    new Set(getAccessibleCompanyIds(req.user!).filter((companyId) => allowsRule(req, companyId, 'USERS_WRITE')));
+
+  /**
+   * A user as seen from some companies only: their assignments elsewhere are
+   * left out, so a company admin never learns where else someone works.
+   */
+  const scopeUserToCompanies = <U extends { companyIds: string[]; companyRoles?: CompanyRoleAssignment[]; role: UserRole }>(
+    user: U,
+    visible: Set<string>,
+  ): U | undefined => {
+    const roles = (user.companyRoles && user.companyRoles.length
+      ? user.companyRoles
+      : user.companyIds.map((companyId) => ({ companyId, role: user.role }))) as CompanyRoleAssignment[];
+    const shown = roles.filter((assignment) => visible.has(assignment.companyId));
+    if (!shown.length) return undefined;
+    return { ...user, companyIds: shown.map((a) => a.companyId), companyRoles: shown, role: shown[0].role };
+  };
+
   const assertUserManagementPermission = (
     req: AuthedRequest,
     assignments: CompanyRoleAssignment[],
   ) => {
     const actor = req.user!;
+    // Only the platform super admin manages users across companies. Everyone
+    // else, whatever their primary role, manages users only in the companies
+    // they administer or manage.
     if (actor.isSuperAdmin) return;
-    // Platform-level shortcut on the global role, deliberately left as it was.
-    // It lets a user whose primary role is Admin manage users in companies
-    // where they are not an Admin; see the plan document.
-    if (actor.role === 'Admin') return;
     const invalidCompany = assignments.find(
       (assignment) => !allowsRule(req, assignment.companyId, 'USERS_WRITE'),
     );
@@ -2833,7 +2852,8 @@ export function createServer(options: CreateServerOptions = {}) {
     '/positions',
     authMiddleware,
     handler((req, res) => {
-      requireAdmin(req);
+      // Positions are shared by every company, so only the super admin changes them.
+      requireSuperAdmin(req);
       const body = asRecord(req.body, 'body');
       const position = store.createPosition({
         title: requiredString(body.title, 'title', { min: 2 }),
@@ -2847,7 +2867,8 @@ export function createServer(options: CreateServerOptions = {}) {
     '/positions/:id',
     authMiddleware,
     handler((req, res) => {
-      requireAdmin(req);
+      // Positions are shared by every company, so only the super admin changes them.
+      requireSuperAdmin(req);
       store.deletePosition(req.params.id);
       res.json({ success: true });
     }),
@@ -2857,8 +2878,18 @@ export function createServer(options: CreateServerOptions = {}) {
     '/users',
     authMiddleware,
     handler((req, res) => {
-      requireAdmin(req);
-      res.json(store.listUsers());
+      if (req.user!.isSuperAdmin) {
+        res.json(store.listUsers());
+        return;
+      }
+      const visible = userAdminCompanyIds(req);
+      if (!visible.size) throw new HttpError(403, 'Admin access required.');
+      res.json(
+        store
+          .listUsers()
+          .map((user) => scopeUserToCompanies(user, visible))
+          .filter((user): user is NonNullable<typeof user> => Boolean(user)),
+      );
     }),
   );
 
@@ -2866,12 +2897,15 @@ export function createServer(options: CreateServerOptions = {}) {
     '/users/:id',
     authMiddleware,
     handler((req, res) => {
-      if (req.user!.role !== 'Admin' && req.user!.id !== req.params.id) {
-        throw new HttpError(403, 'You do not have permission to view this user.');
-      }
       const user = store.getUserById(req.params.id);
-      if (!user) throw new HttpError(404, 'User not found.');
-      res.json(user);
+      if (req.user!.isSuperAdmin || req.user!.id === req.params.id) {
+        if (!user) throw new HttpError(404, 'User not found.');
+        res.json(user);
+        return;
+      }
+      const scoped = user ? scopeUserToCompanies(user, userAdminCompanyIds(req)) : undefined;
+      if (!scoped) throw new HttpError(403, 'You do not have permission to view this user.');
+      res.json(scoped);
     }),
   );
 
@@ -2958,10 +2992,28 @@ export function createServer(options: CreateServerOptions = {}) {
           role: existing.role,
           positionId: existing.positionId,
         }));
-      const targetAssignments =
+      let targetAssignments =
         payload.companyRoles
         || existingAssignments;
-      if (req.user!.role === 'Admin' || req.user!.isSuperAdmin) {
+      if (!req.user!.isSuperAdmin && payload.companyRoles) {
+        // A company admin sends only the companies they can see. Assignments in
+        // other companies are kept exactly as they are, and touching one is refused.
+        const manageable = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
+        const existingByCompany = new Map(existingAssignments.map((a) => [a.companyId, a]));
+        const foreignChange = payload.companyRoles.find((a) => {
+          if (manageable(a.companyId)) return false;
+          const before = existingByCompany.get(a.companyId);
+          return !before || before.role !== a.role || (before.positionId ?? undefined) !== (a.positionId ?? undefined);
+        });
+        if (foreignChange) {
+          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.');
+        }
+        targetAssignments = [
+          ...payload.companyRoles.filter((a) => manageable(a.companyId)),
+          ...existingAssignments.filter((a) => !manageable(a.companyId)),
+        ];
+      }
+      if (req.user!.isSuperAdmin) {
         // Super-admins have role 'Employee' but full user-management power via
         // the isSuperAdmin flag, so route them through the simple check (which
         // early-returns) instead of the per-company branch below.
@@ -3035,7 +3087,9 @@ export function createServer(options: CreateServerOptions = {}) {
       ]);
       const updated = store.updateUser(req.params.id, {
         ...safePayload,
-        companyIds: payload.companyIds || targetAssignments.map((assignment) => assignment.companyId),
+        companyIds: req.user!.isSuperAdmin && payload.companyIds
+          ? payload.companyIds
+          : targetAssignments.map((assignment) => assignment.companyId),
         companyRoles: targetAssignments,
         role: payload.role || targetAssignments[0]?.role || existing.role,
       });
@@ -8667,10 +8721,11 @@ export function createServer(options: CreateServerOptions = {}) {
     '/seed',
     authMiddleware,
     handler((req, res) => {
-      requireAdmin(req);
       if (!allowSeedReset) {
         throw new HttpError(403, 'Seed reset is disabled in this environment.');
       }
+      // Wipes every company: only the platform super admin.
+      requireSuperAdmin(req);
       store.reset();
       res.json({ success: true });
     }),

@@ -73,7 +73,20 @@ function assertGroupNameAvailable(
 }
 
 export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
-  const { app, store, authMiddleware, handler, requireCompanyRule, authzEngine } = deps;
+  const { app, store, authMiddleware, handler, authzEngine } = deps;
+  /**
+   * The platform super admin manages any company's groups from the super
+   * admin view without being a member of it; everyone else needs the rule.
+   * Before this, a super admin outside a company got a 403 here that the user
+   * form swallowed, so that company's custom roles simply never appeared.
+   */
+  const requireCompanyRule = (req: any, companyId: string, rule: RecordRuleName) => {
+    if (req.user?.isSuperAdmin) {
+      if (!store.getCompanyById(companyId)) throw new HttpError(404, 'Company not found.');
+      return;
+    }
+    deps.requireCompanyRule(req, companyId, rule);
+  };
 
   /**
    * Refuses a change that would leave a company with nobody able to administer
@@ -286,6 +299,12 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     requireCompanyRule(req, companyId, 'ADMINISTRATION');
     const body = (req.body ?? {}) as Record<string, unknown>;
     if (!Array.isArray(body.groupIds)) throw new HttpError(400, 'groupIds must be an array.');
+
+    const target = store.getUserById(userId);
+    const member = target && (
+      (target.companyRoles || []).some((a) => a.companyId === companyId) || (target.companyIds || []).includes(companyId)
+    );
+    if (!member) throw new HttpError(400, 'That user is not a member of this company.');
 
     const ids = body.groupIds.map((id) => asString(id, 'groupId'));
     ids.forEach((groupId) => {

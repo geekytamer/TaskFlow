@@ -2285,10 +2285,13 @@ test('company-scoped admins keep admin permissions within their company', async 
     });
   assert.equal(createManager.status, 201);
 
+  // The user list is scoped: only company 2, never another company's people.
   const globalUsers = await request(app)
     .get('/users')
     .set('Authorization', `Bearer ${scopedAdminToken}`);
-  assert.equal(globalUsers.status, 403);
+  assert.equal(globalUsers.status, 200);
+  assert.ok(globalUsers.body.length > 0);
+  assert.ok(globalUsers.body.every((user) => user.companyIds.every((id) => id === '2')));
 });
 
 test('dashboard payload is role-based for an employee view', async () => {

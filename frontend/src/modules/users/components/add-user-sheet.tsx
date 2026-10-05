@@ -26,7 +26,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -66,6 +68,12 @@ interface AddUserSheetProps {
   onUserAdded: () => void;
   userToEdit?: User | null;
   currentUserRole?: UserRole;
+  /**
+   * `company` (default): the form works on the company open in the header and
+   * nothing else, whoever is signed in. `platform`: the super admin view, where
+   * a person can be placed in several companies at once.
+   */
+  scope?: 'company' | 'platform';
 }
 
 export function AddUserSheet({
@@ -75,6 +83,7 @@ export function AddUserSheet({
   onUserAdded,
   userToEdit,
   currentUserRole,
+  scope = 'company',
 }: AddUserSheetProps) {
   const { toast } = useToast();
   const { t, language } = useI18n();
@@ -123,19 +132,34 @@ export function AddUserSheet({
    * is offered and the server decides.
    */
   const [groupsByCompany, setGroupsByCompany] = React.useState<Record<string, PermissionGroup[]>>({});
+  // Why a company's roles could not be read; shown instead of failing silently.
+  const [groupsError, setGroupsError] = React.useState<Record<string, string>>({});
+  // A custom role chosen in the role picker: that group alone, on an Employee base.
+  const [customRole, setCustomRole] = React.useState<Record<string, string>>({});
   const companyIdsKey = (selectedCompanyIds || []).join(',');
   React.useEffect(() => {
     const missing = (selectedCompanyIds || []).filter((cid) => !(cid in groupsByCompany));
     if (missing.length === 0) return;
     let active = true;
     Promise.all(
-      missing.map((cid) => fetchPermissionGroups(cid).then((groups) => [cid, groups] as const).catch(() => null)),
+      missing.map((cid) =>
+        fetchPermissionGroups(cid)
+          .then((groups) => ({ cid, groups }))
+          .catch((error: unknown) => ({ cid, error: error instanceof Error ? error.message : String(error) }))),
     ).then((rows) => {
       if (!active) return;
       setGroupsByCompany((prev) => {
         const next = { ...prev };
         rows.forEach((row) => {
-          if (row) next[row[0]] = row[1];
+          if ('groups' in row) next[row.cid] = row.groups;
+        });
+        return next;
+      });
+      setGroupsError((prev) => {
+        const next = { ...prev };
+        rows.forEach((row) => {
+          if ('error' in row) next[row.cid] = row.error;
+          else delete next[row.cid];
         });
         return next;
       });
@@ -148,6 +172,10 @@ export function AddUserSheet({
 
   const roleGroupId = (companyId: string, role: UserRole) =>
     groupsByCompany[companyId]?.find((g) => g.isSystem && g.key === role.toLowerCase())?.id;
+
+  /** A company's own roles: active groups that are not one of the built-ins. */
+  const customGroups = (companyId: string) =>
+    (groupsByCompany[companyId] || []).filter((g) => !g.isSystem && g.isActive !== false);
 
   const rolesFor = (companyId: string, current?: UserRole) => {
     const groups = groupsByCompany[companyId];
@@ -165,7 +193,7 @@ export function AddUserSheet({
    * is saved; untouched companies are left to the server, which assigns the
    * role's built-in group and keeps custom groups.
    */
-  const canAssignGroups = canAssignElevatedRoles;
+  const canAssignGroups = canAssignElevatedRoles || Boolean(currentUser?.isSuperAdmin);
   const [selectedGroups, setSelectedGroups] = React.useState<Record<string, string[]>>({});
   const [groupsTouched, setGroupsTouched] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => {
@@ -176,7 +204,11 @@ export function AddUserSheet({
       if (userToEdit && (userToEdit.companyIds || []).includes(cid)) {
         fetchUserGroups(cid, userToEdit.id)
           .then(({ groups }) => {
-            if (active) setSelectedGroups((prev) => (prev[cid] ? prev : { ...prev, [cid]: groups.map((g) => g.id) }));
+            if (!active) return;
+            setSelectedGroups((prev) => (prev[cid] ? prev : { ...prev, [cid]: groups.map((g) => g.id) }));
+            // Someone whose only group is a custom one holds that custom role.
+            const only = groups.length === 1 ? groupsByCompany[cid]?.find((g) => g.id === groups[0].id) : undefined;
+            if (only && !only.isSystem) setCustomRole((prev) => ({ ...prev, [cid]: only.id }));
           })
           .catch(() => undefined);
       } else {
@@ -202,20 +234,22 @@ export function AddUserSheet({
     });
   };
 
-  // Only platform super-admins manage users across companies. A company admin
-  // manages users only within the company they administer.
-  const canChooseCompanies = !!currentUser?.isSuperAdmin;
+  // People are placed in several companies only from the super admin view.
+  // Everywhere else the form works on the company open in the header alone,
+  // for a super admin too, so nothing about other companies shows or changes.
+  const canChooseCompanies = scope === 'platform' && !!currentUser?.isSuperAdmin;
 
   const manageableCompanies = React.useMemo(() => {
     if (!currentUser) return [];
-    if (currentUser.isSuperAdmin) return companies;
-    const managedIds = new Set(
-      (currentUser.companyRoles || [])
-        .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
-        .map((assignment) => assignment.companyId),
+    if (canChooseCompanies) return companies;
+    if (!selectedCompany) return [];
+    const current = companies.find((company) => company.id === selectedCompany.id) ?? selectedCompany;
+    if (currentUser.isSuperAdmin) return [current];
+    const manages = (currentUser.companyRoles || []).some(
+      (assignment) => assignment.companyId === current.id && ['Admin', 'Manager'].includes(assignment.role),
     );
-    return companies.filter((company) => managedIds.has(company.id));
-  }, [companies, currentUser]);
+    return manages ? [current] : [];
+  }, [canChooseCompanies, companies, currentUser, selectedCompany]);
 
   const companyItems: MultiSelectItem[] = React.useMemo(() => 
     manageableCompanies.map(c => ({ value: c.id, label: c.name, icon: Building })),
@@ -288,6 +322,7 @@ export function AddUserSheet({
       setCompanyAssignments(existingAssignments);
       setSelectedGroups({});
       setGroupsTouched({});
+      setCustomRole({});
       setCommission({
         eligible: Boolean(userToEdit.commissionEligible),
         rate: userToEdit.defaultCommissionRate != null ? String(userToEdit.defaultCommissionRate) : '',
@@ -308,6 +343,7 @@ export function AddUserSheet({
       setCompanyAssignments({});
       setSelectedGroups({});
       setGroupsTouched({});
+      setCustomRole({});
       setCommission({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
     }
   }, [companyItems, form, manageableCompanyIds, selectedCompany, userToEdit]);
@@ -502,13 +538,34 @@ export function AddUserSheet({
                       <div className="space-y-1">
                         <p className="text-sm font-medium">{company?.name || cid}</p>
                         <Select
-                          value={assignment.role}
-                          onValueChange={(value: UserRole) => {
+                          value={customRole[cid] ? `group:${customRole[cid]}` : assignment.role}
+                          onValueChange={(value: string) => {
+                            if (value.startsWith('group:')) {
+                              // A custom role: an Employee base with that group as the only grant.
+                              const groupId = value.slice('group:'.length);
+                              setCompanyAssignments((prev) => ({ ...prev, [cid]: { ...assignment, role: 'Employee' } }));
+                              setCustomRole((prev) => ({ ...prev, [cid]: groupId }));
+                              setSelectedGroups((prev) => ({ ...prev, [cid]: [groupId] }));
+                              setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
+                              return;
+                            }
+                            const role = value as UserRole;
+                            setCustomRole((prev) => {
+                              const next = { ...prev };
+                              delete next[cid];
+                              return next;
+                            });
                             setCompanyAssignments((prev) => ({
                               ...prev,
-                              [cid]: { ...assignment, role: value },
+                              [cid]: { ...assignment, role },
                             }));
-                            followRoleChange(cid, value);
+                            if (customRole[cid]) {
+                              const id = roleGroupId(cid, role);
+                              setSelectedGroups((prev) => ({ ...prev, [cid]: id ? [id] : [] }));
+                              setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
+                            } else {
+                              followRoleChange(cid, role);
+                            }
                           }}
                         >
                           <FormControl>
@@ -522,6 +579,16 @@ export function AddUserSheet({
                                 {role}
                               </SelectItem>
                             ))}
+                            {canAssignGroups && customGroups(cid).length > 0 && (
+                              <SelectGroup>
+                                <SelectLabel>{tr('Custom roles', 'أدوار مخصصة')}</SelectLabel>
+                                {customGroups(cid).map((group) => (
+                                  <SelectItem key={group.id} value={`group:${group.id}`}>
+                                    {language === 'ar' && group.nameAr ? group.nameAr : group.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -557,6 +624,14 @@ export function AddUserSheet({
                           </SelectContent>
                         </Select>
                       </div>
+                      {groupsError[cid] && (
+                        <p className="text-xs text-destructive sm:col-span-2" role="alert">
+                          {tr(
+                            `This company's roles could not be loaded, so only the built-in roles are offered. ${groupsError[cid]}`,
+                            `تعذر تحميل أدوار هذه الشركة، لذا تظهر الأدوار الأساسية فقط. ${groupsError[cid]}`,
+                          )}
+                        </p>
+                      )}
                       {canAssignGroups && groupsByCompany[cid] && (
                         <div className="space-y-1 sm:col-span-2" data-testid={`groups-${cid}`}>
                           <p className="text-sm font-medium">{tr('Permission groups', 'مجموعات الصلاحيات')}</p>
@@ -569,6 +644,14 @@ export function AddUserSheet({
                             onChange={(ids) => {
                               setSelectedGroups((prev) => ({ ...prev, [cid]: ids }));
                               setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
+                              // Hand-picked groups are no longer a single custom role.
+                              if (!(ids.length === 1 && ids[0] === customRole[cid])) {
+                                setCustomRole((prev) => {
+                                  const next = { ...prev };
+                                  delete next[cid];
+                                  return next;
+                                });
+                              }
                             }}
                             placeholder={tr('Select groups', 'اختر المجموعات')}
                           />
