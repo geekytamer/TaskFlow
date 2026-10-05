@@ -6,10 +6,12 @@ import type { Game } from './games-store';
 import { boardOf, publicGameDetail, publicGameSummary } from './games';
 import type { SessionRequest } from '../portal/common';
 import { brandGameFor, brandGameReport, brandGames, brandGameSummary } from './brand-report';
+import { gameSummaryHtml, resultsCsv } from './brand-report-doc';
+import type { PortalPdfRenderer } from '../portal/client-billing-routes';
 
 
 /** The lobby inside both portals: public games, plus restricted ones this portal user may view. */
-export function registerPortalGameRoutes(router: Router, store: DataStore, companyId: string, requireSession: RequestHandler): void {
+export function registerPortalGameRoutes(router: Router, store: DataStore, companyId: string, requireSession: RequestHandler, pdf?: PortalPdfRenderer): void {
   const visibleTo = (session: PortalSession) => (game: Game) =>
     Boolean(game.publishedAt) && !game.archivedAt
     && (game.visibility === 'public'
@@ -25,6 +27,42 @@ export function registerPortalGameRoutes(router: Router, store: DataStore, compa
 
   router.get('/:audience/brand-games/:slug', requireSession, (req: SessionRequest, res: Response) => {
     res.json(brandGameReport(store, brandGameFor(store, companyId, req.portal!, req.params.slug)));
+  });
+
+  /** Downloads are for final results only: before the end, figures still move. */
+  const finalReport = (req: SessionRequest) => {
+    const game = brandGameFor(store, companyId, req.portal!, req.params.slug);
+    if (!game.frozenAt) throw new HttpError(409, 'Results are not final yet.');
+    return brandGameReport(store, game);
+  };
+  const download = (res: Response, type: string, fileName: string, body: Buffer | string) => {
+    res.set({
+      'Content-Type': type,
+      'Content-Disposition': `attachment; filename="${fileName.replace(/[^a-zA-Z0-9._-]+/g, '-')}"`,
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(body);
+  };
+
+  router.get('/:audience/brand-games/:slug/results.csv', requireSession, (req: SessionRequest, res: Response) => {
+    const report = finalReport(req);
+    download(res, 'text/csv; charset=utf-8', `${report.game.slug}-results.csv`, resultsCsv(boardOf(store, store.games.bySlug(companyId, report.game.slug)!)));
+  });
+
+  router.get('/:audience/brand-games/:slug/summary.pdf', requireSession, async (req: SessionRequest, res: Response, next) => {
+    try {
+      const report = finalReport(req);
+      if (!pdf) throw new HttpError(503, 'Documents are unavailable.');
+      const company = store.getCompanyById(companyId);
+      const html = gameSummaryHtml({
+        lang: req.query.lang === 'ar' ? 'ar' : 'en', report, generatedAt: new Date(),
+        company: { name: company?.name ?? '', address: company?.address ?? null },
+      });
+      download(res, 'application/pdf', `${report.game.slug}-summary.pdf`, await pdf.html(html));
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get('/:audience/games', requireSession, (req: SessionRequest, res: Response) => {

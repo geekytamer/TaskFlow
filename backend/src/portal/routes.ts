@@ -152,7 +152,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
-    registerPortalGameRoutes(router, options.requestsStore, companyId, requireSession);
+    registerPortalGameRoutes(router, options.requestsStore, companyId, requireSession, options.pdf);
     registerAlertRoutes(router, options.requestsStore, companyId, requireSession);
     if (options.social) registerSocialPortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'), options.social);
     if (options.pdf) {

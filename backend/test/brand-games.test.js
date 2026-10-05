@@ -220,3 +220,41 @@ test('a game nobody has played yet reports zeros, not errors', async () => {
   assert.deepEqual(body.topFans, []);
   assert.ok(body.daily.every((d) => d.comments === 0 && d.likes === 0));
 });
+
+test('results CSV neutralises spreadsheet formulas and starts with a BOM', () => {
+  const { resultsCsv } = require('../dist/games/brand-report-doc');
+  const csv = resultsCsv([{ rank: 1, handle: '=cmd', points: 12.5 }, { rank: 2, handle: 'noor.m', points: 3 }]);
+  assert.equal(csv, '﻿rank,handle,points\r\n1,\'=cmd,12.5\r\n2,noor.m,3\r\n');
+});
+
+test('CSV and PDF exist only once results are final, and only for the brand', async () => {
+  const ctx = build();
+  const id = await liveBrandGame(ctx);
+  ctx.store.games.updateGame(id, { name: 'Ramadan <b>challenge</b>' });
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const rival = await ctx.session(ctx.rival, 'sam@sidr.test');
+  const csv = (as) => request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge/results.csv').set(as);
+  const pdf = (as, lang = 'en') => request(ctx.server).get(`/portal-api/client/brand-games/ramadan-challenge/summary.pdf?lang=${lang}`).set(as);
+  assert.equal((await csv(huda)).status, 409, 'not before the end');
+  assert.equal((await pdf(huda)).status, 409);
+
+  ctx.store.games.updateGame(id, { endsAt: new Date(Date.now() - HOUR).toISOString(), reconciledAt: new Date().toISOString() });
+  const file = await csv(huda);
+  assert.equal(file.status, 200);
+  assert.match(file.headers['content-type'], /text\/csv/);
+  assert.match(file.headers['content-disposition'], /attachment; filename="ramadan-challenge-results\.csv"/);
+  assert.ok(file.text.startsWith('﻿rank,handle,points\r\n1,'));
+  assert.ok(!file.text.includes('bot_ring1'));
+
+  const doc = await pdf(huda, 'ar');
+  assert.equal(doc.status, 200);
+  assert.equal(doc.headers['content-type'], 'application/pdf');
+  const html = ctx.rendered[ctx.rendered.length - 1];
+  assert.ok(html.includes('Ramadan &lt;b&gt;challenge&lt;/b&gt;') || html.includes('تحدي رمضان'), 'name escaped or Arabic name');
+  assert.ok(html.includes('dir="rtl"'));
+  assert.ok(!html.includes('<b>challenge'), 'no raw markup');
+  noPoison(html, 'pdf html');
+
+  assert.equal((await csv(rival)).status, 404);
+  assert.equal((await pdf(rival)).status, 404);
+});

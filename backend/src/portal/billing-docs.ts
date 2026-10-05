@@ -36,7 +36,7 @@ const fmtMoney = (n: number, currency: string, lang: Lang) =>
 const fmtDate = (d: Date | string | null, lang: Lang) =>
   d ? new Intl.DateTimeFormat(locale(lang), { dateStyle: 'medium', timeZone: process.env.PORTAL_TIME_ZONE ?? 'Asia/Muscat' }).format(new Date(d)) : '-';
 
-const page = (lang: Lang, title: string, body: string) => `<!doctype html>
+export const page = (lang: Lang, title: string, body: string) => `<!doctype html>
 <html lang="${lang}" dir="${lang === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
 @page { size: A4; margin: 18mm; }
@@ -51,7 +51,7 @@ bdi { unicode-bidi: isolate; }
 </style></head><body>${body}</body></html>`;
 
 // Typed by a person, so its direction comes from the text, not the page (principle 14).
-const companyBlock = (company: { name: string; address?: string | null }) =>
+export const companyBlock = (company: { name: string; address?: string | null }) =>
   `<div><div class="big" dir="auto">${escapeHtml(company.name)}</div>${company.address ? `<div class="muted" dir="auto">${escapeHtml(company.address)}</div>` : ''}</div>`;
 
 export interface ReceiptInput {
