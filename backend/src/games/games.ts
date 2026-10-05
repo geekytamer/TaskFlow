@@ -1,7 +1,7 @@
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Game } from './games-store';
-import { METRICS, scoreGame, type BoardRow } from './metrics';
+import { METRICS, scoreGame, type BoardRow, type InteractionEvent, type Supply } from './metrics';
 
 export const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'snapchat', 'x', 'facebook', 'other'] as const;
 export type GameStatus = 'draft' | 'scheduled' | 'live' | 'ended' | 'archived';
@@ -26,20 +26,44 @@ export function actorOf(platformRaw: unknown, handleRaw: unknown): { actorKey: s
 
 const platformOf = (actorKey: string) => actorKey.split(':')[0];
 
-/** The live board, computed from awards (and, from G2, events). Exclusions applied unless asked not to. */
+/** What a game's sources can supply, which decides the metrics it may use. */
+export function suppliedFor(store: DataStore, game: Game): Supply[] {
+  if (game.audience === 'creators') return ['creator_stats'];
+  const kinds = new Set(store.games.sources(game.id).map((s) => s.kind));
+  return [...(kinds.has('post') ? (['comment', 'reply'] as const) : []), ...(kinds.has('tags') ? (['mention'] as const) : [])];
+}
+
+/** Whether results depend on data collected from Meta (and so must be re-read before they freeze). */
+export const collectsFromMeta = (store: DataStore, game: Game) =>
+  game.audience === 'creators' ? store.games.participants(game.id).length > 0 : store.games.sources(game.id).length > 0;
+
+/** If Meta cannot be reached after a game ends, results freeze anyway after this long, from what was collected. */
+export const RECONCILE_GRACE_MS = 48 * 60 * 60 * 1000;
+
+/** The live board, computed from awards, collected events and creator totals. Exclusions applied unless asked not to. */
 function computeBoard(store: DataStore, game: Game, applyExclusions = true): BoardRow[] {
   const excluded = applyExclusions ? new Set(store.games.actorRules(game.id).map((r) => r.actorKey)) : new Set<string>();
+  const start = Date.parse(game.startsAt);
+  const end = Date.parse(game.endsAt);
+  const events: InteractionEvent[] = store.games.events(game.id)
+    .map((e) => ({ ...e, textHash: e.textHash ?? undefined, occurredAt: new Date(e.occurredAt) }))
+    .filter((e) => +e.occurredAt >= start && +e.occurredAt < end);
   return scoreGame({
     metrics: store.games.metrics(game.id),
-    events: [],
+    events,
     awards: store.games.awards(game.id).map((a) => ({ ...a, createdAt: new Date(a.createdAt) })),
+    stats: store.games.creatorStats(game.id).map((s) => ({ ...s, lastPostAt: s.lastPostAt ? new Date(s.lastPostAt) : null })),
     excluded,
   });
 }
 
-/** Freezes an ended game's results exactly once. Returns the current game record. */
-export function ensureFrozen(store: DataStore, game: Game): Game {
-  if (game.frozenAt || gameStatus(game) !== 'ended') return game;
+/**
+ * Freezes an ended game's results exactly once. A game fed by Meta waits for a
+ * full re-read after its end (so deleted comments do not count), up to a grace period.
+ */
+export function ensureFrozen(store: DataStore, game: Game, now = Date.now()): Game {
+  if (game.frozenAt || gameStatus(game, now) !== 'ended') return game;
+  if (!game.reconciledAt && now - Date.parse(game.endsAt) < RECONCILE_GRACE_MS && collectsFromMeta(store, game)) return game;
   const rows = computeBoard(store, game).map((r) => ({ actorKey: r.actorKey, actorHandle: r.handle, rank: r.rank, points: r.points, breakdown: r.breakdown }));
   store.games.freeze(game.id, rows);
   return store.games.get(game.id)!;

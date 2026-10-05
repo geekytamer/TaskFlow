@@ -3,7 +3,10 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { SanitizedUser } from '../types';
 import { asRecord, enumValue } from '../validation';
-import { actorOf, ensureFrozen, gameStatus, staffBoard } from './games';
+import type { MetaClient } from '../social/meta-client';
+import { openToken } from '../social/crypto';
+import { collectGame } from './collector';
+import { actorOf, ensureFrozen, gameStatus, staffBoard, suppliedFor } from './games';
 import type { Game, GameViewer } from './games-store';
 import { METRICS, offeredMetrics } from './metrics';
 
@@ -16,6 +19,8 @@ export interface GamesStaffDeps {
   companyId: string;
   requireCompanyAccess(req: StaffRequest, companyId: string): void;
   canManageGames(req: StaffRequest, companyId: string): boolean;
+  /** Present when Instagram is configured: games can then read connected accounts. */
+  metaClient?: MetaClient;
 }
 
 const wrap = (fn: (req: StaffRequest, res: Response) => unknown) =>
@@ -37,8 +42,16 @@ const date = (v: unknown, field: string): string => {
 };
 
 const MAX_METRICS = 5;
-// G1 has no sources, so the actions a game's sources supply are none.
-const SUPPLIED: [] = [];
+const MAX_SOURCES = 20;
+const MAX_PARTICIPANTS = 100;
+
+/** A creators game counts posts whose caption has this: one @handle or #hashtag. */
+const tagOf = (v: unknown): string | null => {
+  if (v === undefined || v === null || v === '') return null;
+  const t = typeof v === 'string' ? v.trim() : '';
+  if (!/^[@#][\p{L}\p{N}._]{2,60}$/u.test(t)) throw new HttpError(400, 'The tag must be one @handle or #hashtag.');
+  return t;
+};
 
 export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
   const { store, authMiddleware } = deps;
@@ -58,13 +71,31 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     return ensureFrozen(store, game);
   };
 
-  const view = (game: Game) => ({
-    ...game,
-    status: gameStatus(game),
-    metrics: store.games.metrics(game.id),
-    viewers: store.games.viewers(game.id),
-    availableMetrics: offeredMetrics(SUPPLIED).map((m) => ({ key: m.key, label: m.label })),
-  });
+  const accountName = (accountId: string) => store.social.getAccount(accountId)?.username ?? null;
+
+  const view = (game: Game) => {
+    const stats = new Map(store.games.creatorStats(game.id).map((s) => [s.contactId, s]));
+    return {
+      ...game,
+      status: gameStatus(game),
+      metrics: store.games.metrics(game.id),
+      viewers: store.games.viewers(game.id),
+      availableMetrics: offeredMetrics(suppliedFor(store, game)).map((m) => ({ key: m.key, label: m.label })),
+      instagram: Boolean(deps.metaClient),
+      sources: store.games.sources(game.id).map((src) => ({
+        id: src.id, kind: src.kind, accountId: src.accountId, username: accountName(src.accountId), permalink: src.permalink,
+        lastCollectedAt: src.lastCollectedAt, lastError: src.lastError,
+      })),
+      participants: store.games.participants(game.id).map((contactId) => {
+        const st = stats.get(contactId);
+        const connected = store.social.accountsFor(game.companyId, contactId).find((a) => a.status === 'active');
+        return {
+          contactId, name: store.getContactById(contactId)?.name ?? null, username: connected?.username ?? null,
+          stats: st ? { posts: st.posts, views: st.views, shares: st.shares, engagement: st.engagement, followerGrowth: st.followerGrowth, updatedAt: st.updatedAt } : null,
+        };
+      }),
+    };
+  };
 
   const notFrozen = (game: Game) => {
     if (game.frozenAt) throw new HttpError(409, 'This game has ended and its results are frozen. Reopen it to make changes.');
@@ -76,6 +107,14 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
   router.get(base, authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     res.json(store.games.list(companyId).map((g) => view(ensureFrozen(store, g))));
+  }));
+
+  // Connected Instagram accounts a game can read from, and the influencers who can take part.
+  router.get('/companies/:companyId/game-accounts', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    res.json(store.social.activeAccounts(companyId).map((a) => ({
+      id: a.id, username: a.username, contactId: a.contactId, contactName: store.getContactById(a.contactId)?.name ?? null,
+    })));
   }));
 
   router.post(base, authMiddleware, wrap((req, res) => {
@@ -92,6 +131,8 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
       rules: text(body.rules, 'rules', 4000), rulesAr: text(body.rulesAr, 'rulesAr', 4000),
       prize: text(body.prize, 'prize', 500), prizeAr: text(body.prizeAr, 'prizeAr', 500),
       visibility: enumValue(body.visibility ?? 'public', 'visibility', ['public', 'restricted'] as const),
+      audience: enumValue(body.audience ?? 'followers', 'audience', ['followers', 'creators'] as const),
+      tag: tagOf(body.tag),
       startsAt, endsAt, createdByUserId: req.user!.id,
     });
     if (!game) throw new HttpError(409, 'Another game already uses that address.');
@@ -111,6 +152,12 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
       if (body[key] !== undefined) fields[key] = text(body[key], key, max, key === 'name')!;
     }
     if (body.visibility !== undefined) fields.visibility = enumValue(body.visibility, 'visibility', ['public', 'restricted'] as const);
+    if (body.tag !== undefined) fields.tag = tagOf(body.tag);
+    if (body.audience !== undefined) {
+      fields.audience = enumValue(body.audience, 'audience', ['followers', 'creators'] as const);
+      if (fields.audience !== game.audience && game.publishedAt) throw new HttpError(409, 'Who plays cannot change after the game is published.');
+      if (fields.audience !== game.audience) store.games.setMetrics(game.id, []);
+    }
     if (body.startsAt !== undefined) fields.startsAt = date(body.startsAt, 'startsAt');
     if (body.endsAt !== undefined) fields.endsAt = date(body.endsAt, 'endsAt');
     if ((fields.endsAt ?? game.endsAt) <= (fields.startsAt ?? game.startsAt)) throw new HttpError(400, 'The game must end after it starts.');
@@ -121,7 +168,7 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     const game = load(authorize(req), req.params.id);
     notFrozen(game);
     if (!Array.isArray(req.body) || req.body.length === 0 || req.body.length > MAX_METRICS) throw new HttpError(400, `Choose 1 to ${MAX_METRICS} metrics.`);
-    const offered = new Set(offeredMetrics(SUPPLIED).map((m) => m.key));
+    const offered = new Set(offeredMetrics(suppliedFor(store, game)).map((m) => m.key));
     const rows = req.body.map((raw: unknown) => {
       const r = asRecord(raw, 'metric');
       const key = String(r.metricKey ?? '');
@@ -137,10 +184,71 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     res.json(view(store.games.get(game.id)!));
   }));
 
+  router.post(`${base}/:id/sources`, authMiddleware, wrap(async (req, res) => {
+    const companyId = authorize(req);
+    const game = load(companyId, req.params.id);
+    notFrozen(game);
+    if (!deps.metaClient) throw new HttpError(409, 'Instagram is not set up yet.');
+    if (game.audience !== 'followers') throw new HttpError(409, 'Creators games read the participants’ own posts; add participants instead.');
+    if (store.games.sources(game.id).length >= MAX_SOURCES) throw new HttpError(400, `At most ${MAX_SOURCES} sources.`);
+    const body = asRecord(req.body, 'body');
+    const kind = enumValue(body.kind, 'kind', ['post', 'tags'] as const);
+    const account = store.social.getAccount(String(body.accountId ?? ''));
+    if (!account || account.companyId !== companyId || account.status !== 'active' || !account.tokenSealed) throw new HttpError(400, 'Choose a connected Instagram account.');
+    let mediaId = '';
+    let permalink: string | null = null;
+    if (kind === 'post') {
+      permalink = text(body.permalink, 'permalink', 500, true);
+      let found: { id: string } | null = null;
+      try {
+        found = await deps.metaClient.mediaByPermalink(openToken(account.tokenSealed), account.externalId, permalink!);
+      } catch {
+        throw new HttpError(502, 'Instagram could not be reached. Try again in a minute.');
+      }
+      if (!found) throw new HttpError(400, `That post is not on @${account.username}'s recent posts.`);
+      mediaId = found.id;
+    }
+    const source = store.games.addSource({ gameId: game.id, kind, accountId: account.id, mediaId, permalink });
+    if (!source) throw new HttpError(409, 'That source is already on this game.');
+    res.status(201).json(view(store.games.get(game.id)!));
+  }));
+
+  router.delete(`${base}/:id/sources/:sourceId`, authMiddleware, wrap((req, res) => {
+    const game = load(authorize(req), req.params.id);
+    notFrozen(game);
+    if (!store.games.removeSource(game.id, req.params.sourceId)) throw new HttpError(404, 'Source not found.');
+    res.json(view(store.games.get(game.id)!));
+  }));
+
+  router.put(`${base}/:id/participants`, authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const game = load(companyId, req.params.id);
+    notFrozen(game);
+    if (game.audience !== 'creators') throw new HttpError(409, 'Only creators games have participants.');
+    if (!Array.isArray(req.body) || req.body.length > MAX_PARTICIPANTS) throw new HttpError(400, `Choose up to ${MAX_PARTICIPANTS} influencers.`);
+    const ids = [...new Set(req.body.map((v: unknown) => String(v)))];
+    for (const id of ids) {
+      const c = store.getContactById(id);
+      if (!c || c.companyId !== companyId || !c.roles?.includes('Influencer')) throw new HttpError(400, 'Every participant must be one of this company’s influencers.');
+    }
+    store.games.setParticipants(game.id, ids);
+    res.json(view(store.games.get(game.id)!));
+  }));
+
+  // Read every source now (the sweep does this hourly and on webhooks).
+  router.post(`${base}/:id/collect`, authMiddleware, wrap(async (req, res) => {
+    const game = load(authorize(req), req.params.id);
+    if (game.frozenAt) throw new HttpError(409, 'Results are frozen.');
+    if (!deps.metaClient) throw new HttpError(409, 'Instagram is not set up yet.');
+    const errors = await collectGame(store, deps.metaClient, game);
+    res.json({ ...view(ensureFrozen(store, store.games.get(game.id)!)), errors });
+  }));
+
   router.post(`${base}/:id/publish`, authMiddleware, wrap((req, res) => {
     const game = load(authorize(req), req.params.id);
     notFrozen(game);
     if (store.games.metrics(game.id).length === 0) throw new HttpError(409, 'Choose how points are earned before publishing.');
+    if (game.audience === 'creators' && !game.tag) throw new HttpError(409, 'Set the @handle or #hashtag that marks a game post before publishing.');
     res.json(view(store.games.updateGame(game.id, { publishedAt: game.publishedAt ?? new Date().toISOString() })!));
   }));
 

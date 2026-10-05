@@ -15,6 +15,10 @@ export interface SocialOptions {
   redirectUri: string;
   /** The influencer portal page to land on afterwards. */
   portalReturnUrl: string;
+  /** Meta's webhook subscription check (META_WEBHOOK_VERIFY_TOKEN). Webhooks are refused without it. */
+  webhookVerifyToken?: string;
+  /** Called after a valid webhook marked game sources for collection. */
+  onSourcesDirty?: () => void;
 }
 
 /** What the influencer sees of a connection. Never the token, sealed or not. */
@@ -88,6 +92,35 @@ export function createSocialPublicRouter(store: DataStore, options: SocialOption
     const code = crypto.randomBytes(8).toString('hex');
     res.json({ url: `${new URL(options.portalReturnUrl).origin}/data-deletion?code=${code}`, confirmation_code: code });
     // The status page (portal app/data-deletion) states the deletion is complete; it is done synchronously above.
+  });
+
+  // Meta's subscription check: echo the challenge only for our verify token.
+  router.get('/meta/webhook', (req, res) => {
+    const token = options.webhookVerifyToken;
+    if (token && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === token && typeof req.query['hub.challenge'] === 'string') {
+      return res.type('text/plain').send(req.query['hub.challenge']);
+    }
+    res.status(403).end();
+  });
+
+  // Comment and mention events. The payload is not trusted for content: a valid
+  // event only marks that account's game sources, and the collector re-reads Meta.
+  router.post('/meta/webhook', (req, res) => {
+    const raw = (req as typeof req & { rawBody?: Buffer }).rawBody;
+    const header = String(req.headers['x-hub-signature-256'] ?? '');
+    const given = Buffer.from(header.replace(/^sha256=/, ''), 'hex');
+    const expected = raw ? crypto.createHmac('sha256', options.appSecret).update(raw).digest() : Buffer.alloc(0);
+    if (!options.webhookVerifyToken || !raw || !header.startsWith('sha256=') || given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
+      return res.status(401).json({ message: 'Invalid signature.' });
+    }
+    const entries = Array.isArray(req.body?.entry) ? (req.body.entry as Array<{ id?: unknown }>) : [];
+    let marked = 0;
+    for (const entry of entries) {
+      const account = typeof entry.id === 'string' ? store.social.ownerOfExternal(entry.id) : undefined;
+      if (account && account.status === 'active') marked += store.games.markAccountDirty(account.id);
+    }
+    res.status(200).end();
+    if (marked > 0) options.onSourcesDirty?.();
   });
   return router;
 }

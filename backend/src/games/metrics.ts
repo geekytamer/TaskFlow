@@ -18,6 +18,20 @@ export interface InteractionEvent {
   textHash?: string;
 }
 
+/** What a game's sources can supply: interactions by people, or per-creator totals. */
+export type Supply = InteractionAction | 'creator_stats';
+
+/** One participating creator's totals over their game posts (creators games). */
+export interface CreatorStatInput {
+  actorKey: string;
+  actorHandle: string;
+  views: number;
+  shares: number;
+  engagement: number;
+  followerGrowth: number;
+  lastPostAt: Date | null;
+}
+
 export interface Award {
   actorKey: string;
   actorHandle: string;
@@ -35,11 +49,11 @@ export interface MetricScore {
 export interface Metric {
   key: string;
   label: { en: string; ar: string };
-  /** Actions a source must supply for this metric to be offered. Empty: always offered. */
-  requires: InteractionAction[];
+  /** What a game's sources must supply for this metric to be offered. Empty: always offered. */
+  requires: Supply[];
   /** Validates and fills defaults; throws on bad input. */
   params(raw: unknown): Record<string, number | boolean>;
-  score(events: InteractionEvent[], params: Record<string, number | boolean>, awards: Award[]): Map<string, MetricScore>;
+  score(events: InteractionEvent[], params: Record<string, number | boolean>, awards: Award[], stats: CreatorStatInput[]): Map<string, MetricScore>;
 }
 
 const num = (raw: Record<string, unknown>, key: string, fallback: number, min: number, max: number) => {
@@ -90,6 +104,31 @@ const perInteraction = (key: string, action: InteractionAction, pointsKey: strin
   },
 });
 
+/**
+ * Points from a creator's totals: `value / per × points`, never below zero,
+ * optionally capped. Meta gives shares, views and follower counts only as
+ * totals, so these score creators, not the people who shared or followed.
+ */
+const perCreatorTotal = (key: string, field: 'views' | 'shares' | 'engagement' | 'followerGrowth', pointsKey: string, per: number, label: Metric['label']): Metric => ({
+  key,
+  label,
+  requires: ['creator_stats'],
+  params(raw) {
+    const r = obj(raw);
+    return { [pointsKey]: num(r, pointsKey, 1, 0, 1000), maxPoints: num(r, 'maxPoints', 0, 0, 1_000_000) };
+  },
+  score(_events, params, _awards, stats) {
+    const out = new Map<string, MetricScore>();
+    const cap = Number(params.maxPoints ?? 0);
+    for (const s of stats) {
+      const raw = (Math.max(0, s[field]) / per) * Number(params[pointsKey] ?? 1);
+      const points = Number((cap > 0 ? Math.min(raw, cap) : raw).toFixed(2));
+      add(out, s.actorKey, s.actorHandle, points, s.lastPostAt ? +s.lastPostAt : 0);
+    }
+    return out;
+  },
+});
+
 export const METRICS: Record<string, Metric> = {
   manual_points: {
     key: 'manual_points',
@@ -104,11 +143,15 @@ export const METRICS: Record<string, Metric> = {
   },
   comments: perInteraction('comments', 'comment', 'pointsPerComment', { en: 'Points per comment', ar: 'نقاط لكل تعليق' }),
   replies: perInteraction('replies', 'reply', 'pointsPerReply', { en: 'Points per reply', ar: 'نقاط لكل رد' }),
-  mentions: perInteraction('mentions', 'mention', 'pointsPerMention', { en: 'Points per mention', ar: 'نقاط لكل إشارة' }),
+  mentions: perInteraction('mentions', 'mention', 'pointsPerMention', { en: 'Points per mention or tag', ar: 'نقاط لكل إشارة أو وسم' }),
+  creator_shares: perCreatorTotal('creator_shares', 'shares', 'pointsPerShare', 1, { en: 'Points per share of the creator’s game posts', ar: 'نقاط لكل مشاركة لمنشورات المسابقة' }),
+  creator_views: perCreatorTotal('creator_views', 'views', 'pointsPer1000Views', 1000, { en: 'Points per 1,000 views of game posts', ar: 'نقاط لكل ١٠٠٠ مشاهدة لمنشورات المسابقة' }),
+  creator_engagement: perCreatorTotal('creator_engagement', 'engagement', 'pointsPerEngagement', 1, { en: 'Points per like, comment or save on game posts', ar: 'نقاط لكل إعجاب أو تعليق أو حفظ' }),
+  follower_growth: perCreatorTotal('follower_growth', 'followerGrowth', 'pointsPerFollower', 1, { en: 'Points per new follower during the game', ar: 'نقاط لكل متابع جديد خلال المسابقة' }),
 };
 
-/** Metrics a game can use, given the actions its sources can supply. */
-export const offeredMetrics = (supplied: InteractionAction[]) =>
+/** Metrics a game can use, given what its sources can supply. */
+export const offeredMetrics = (supplied: Supply[]) =>
   Object.values(METRICS).filter((m) => m.requires.every((a) => supplied.includes(a)));
 
 export interface BoardRow {
@@ -128,12 +171,13 @@ export function scoreGame(input: {
   events: InteractionEvent[];
   awards: Award[];
   excluded: Set<string>;
+  stats?: CreatorStatInput[];
 }): BoardRow[] {
   const totals = new Map<string, { handle: string; points: number; lastAt: number; breakdown: Record<string, number> }>();
   for (const m of input.metrics) {
     const metric = METRICS[m.metricKey];
     if (!metric) continue;
-    for (const [actorKey, s] of metric.score(input.events, m.params, input.awards)) {
+    for (const [actorKey, s] of metric.score(input.events, m.params, input.awards, input.stats ?? [])) {
       const t = totals.get(actorKey) ?? { handle: s.handle, points: 0, lastAt: 0, breakdown: {} };
       const weighted = s.points * m.weight;
       t.points += weighted;

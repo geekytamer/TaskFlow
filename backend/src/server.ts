@@ -34,6 +34,7 @@ import type { PortalPdfRenderer } from './portal/client-billing-routes';
 import { createSocialPublicRouter, type SocialOptions } from './social/routes';
 import { FixtureMetaClient, HttpMetaClient } from './social/meta-client';
 import { sweepSocial } from './social/sync';
+import { sweepGames } from './games/collector';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -608,7 +609,11 @@ function socialFromEnv(): SocialOptions | undefined {
   const portalReturnUrl = `${(process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/$/, '')}/profile`;
   const redirectUri = `${base}/social/instagram/callback`;
   if (process.env.META_APP_ID && process.env.META_APP_SECRET) {
-    return { client: new HttpMetaClient({ appId: process.env.META_APP_ID, appSecret: process.env.META_APP_SECRET }), appSecret: process.env.META_APP_SECRET, redirectUri, portalReturnUrl };
+    return {
+      client: new HttpMetaClient({ appId: process.env.META_APP_ID, appSecret: process.env.META_APP_SECRET }),
+      appSecret: process.env.META_APP_SECRET, redirectUri, portalReturnUrl,
+      webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || undefined,
+    };
   }
   if (process.env.SOCIAL_FIXTURES === '1' && process.env.NODE_ENV !== 'production') {
     return { client: new FixtureMetaClient(path.join(__dirname, '..', 'test', 'fixtures', 'meta')), appSecret: 'fixtures', redirectUri, portalReturnUrl };
@@ -722,7 +727,9 @@ export function createServer(options: CreateServerOptions = {}) {
         const portalDue = portalCompany && store.getCompanyById(portalCompany) ? sweepPortalDeliverableReminders(store, portalCompany) : 0;
         if (portalDue > 0) logger.info(`[portal] ${portalDue} deliverable due-soon reminder(s)`);
         if (portalCompany && social) {
-          void sweepSocial(store, social.client, portalCompany).catch((error) => logger.error('[social] sweep failed', error));
+          void sweepSocial(store, social.client, portalCompany)
+            .then(() => collectGamesNow())
+            .catch((error) => logger.error('[social] sweep failed', error));
         }
         // Freeze games that ended since the last sweep, even if nobody looked at them.
         if (portalCompany && store.getCompanyById(portalCompany)) {
@@ -788,7 +795,13 @@ export function createServer(options: CreateServerOptions = {}) {
       ? portalFileJson(req, res, next)
       : next()
   ));
-  app.use(express.json({ limit: '4mb' }));
+  app.use(express.json({
+    limit: '4mb',
+    // Meta signs the exact bytes it sent; keep them for the webhook's signature check.
+    verify: (req, _res, buf) => {
+      if (req.url?.startsWith('/social/meta/webhook')) (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }));
 
   app.use((req, res, next) => {
     const startedAt = Date.now();
@@ -8540,6 +8553,15 @@ export function createServer(options: CreateServerOptions = {}) {
 
   const portalCompanyId = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
   const social = portalCompanyId ? options.social ?? socialFromEnv() : undefined;
+  // Game collection from Meta: one pass at a time; a webhook during a pass waits for the next.
+  let collecting: Promise<void> | null = null;
+  const collectGamesNow = (): Promise<void> => {
+    if (!social || !portalCompanyId || !store.getCompanyById(portalCompanyId)) return Promise.resolve();
+    collecting ??= sweepGames(store, social.client, portalCompanyId)
+      .catch((error) => logger.error('[games] collection failed', error))
+      .finally(() => { collecting = null; });
+    return collecting;
+  };
   if (portalCompanyId) {
     if (!store.getCompanyById(portalCompanyId)) {
       logger.warn(`[portal] PORTAL_COMPANY_ID ${portalCompanyId} matches no company yet.`);
@@ -8576,7 +8598,7 @@ export function createServer(options: CreateServerOptions = {}) {
         social,
       }),
     );
-    if (social) app.use('/social', createSocialPublicRouter(store, social));
+    if (social) app.use('/social', createSocialPublicRouter(store, { ...social, onSourcesDirty: () => void collectGamesNow() }));
     // Engagement games exist only for the portal company (see the G1 plan).
     app.use('/public-api', createPublicGamesRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
     app.use(createGamesStaffRouter({
@@ -8585,6 +8607,7 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManageGames: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'GAMES_MANAGE'),
+      metaClient: social?.client,
     }));
   }
 

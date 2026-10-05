@@ -4071,6 +4071,67 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Games G2: live metrics from connected accounts. Events are append-only and
+        // keyed by the platform's id; removal is a flag set by reconciliation.
+        id: '095_game_sources',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE games ADD COLUMN audience TEXT NOT NULL DEFAULT 'followers' CHECK (audience IN ('followers', 'creators'));
+            ALTER TABLE games ADD COLUMN tag TEXT;
+            ALTER TABLE games ADD COLUMN reconciledAt TEXT;
+            CREATE TABLE IF NOT EXISTS game_sources (
+              id              TEXT PRIMARY KEY,
+              gameId          TEXT NOT NULL,
+              kind            TEXT NOT NULL CHECK (kind IN ('post', 'tags')),
+              accountId       TEXT NOT NULL,
+              mediaId         TEXT NOT NULL DEFAULT '',
+              permalink       TEXT,
+              dirty           INTEGER NOT NULL DEFAULT 1,
+              lastCollectedAt TEXT,
+              lastError       TEXT,
+              createdAt       TEXT NOT NULL,
+              UNIQUE (gameId, kind, accountId, mediaId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_game_sources_account ON game_sources (accountId);
+            CREATE TABLE IF NOT EXISTS game_events (
+              gameId      TEXT NOT NULL,
+              externalId  TEXT NOT NULL,
+              sourceId    TEXT NOT NULL,
+              actorKey    TEXT NOT NULL,
+              actorHandle TEXT NOT NULL,
+              action      TEXT NOT NULL,
+              postRef     TEXT NOT NULL,
+              occurredAt  TEXT NOT NULL,
+              textLength  INTEGER NOT NULL DEFAULT 0,
+              textHash    TEXT,
+              removedAt   TEXT,
+              PRIMARY KEY (gameId, externalId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_game_events_source ON game_events (sourceId);
+            CREATE TABLE IF NOT EXISTS game_participants (
+              gameId    TEXT NOT NULL,
+              contactId TEXT NOT NULL,
+              PRIMARY KEY (gameId, contactId)
+            );
+            CREATE TABLE IF NOT EXISTS game_creator_stats (
+              gameId         TEXT NOT NULL,
+              contactId      TEXT NOT NULL,
+              accountId      TEXT NOT NULL,
+              actorKey       TEXT NOT NULL,
+              actorHandle    TEXT NOT NULL,
+              posts          INTEGER NOT NULL,
+              views          INTEGER NOT NULL,
+              shares         INTEGER NOT NULL,
+              engagement     INTEGER NOT NULL,
+              followerGrowth INTEGER NOT NULL,
+              lastPostAt     TEXT,
+              updatedAt      TEXT NOT NULL,
+              PRIMARY KEY (gameId, contactId)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
