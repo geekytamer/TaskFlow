@@ -43,6 +43,11 @@ const PARAMS: Record<string, Param[]> = {
     { name: 'minLength', en: 'Shortest comment that counts', ar: 'أقصر تعليق يُحتسب', fallback: 3 },
     { name: 'uniqueText', en: 'Repeated text counts once', ar: 'النص المكرر يُحتسب مرة واحدة', fallback: true },
   ],
+  first_likers: [
+    { name: 'n', en: 'How many first likers score', ar: 'عدد أوائل المعجبين الذين يكسبون', fallback: 100 },
+    { name: 'pointsFirst', en: 'Points for the very first', ar: 'نقاط الأول', fallback: 10, step: 0.5 },
+    { name: 'pointsLast', en: 'Points for the last of them', ar: 'نقاط الأخير منهم', fallback: 1, step: 0.5 },
+  ],
   creator_shares: capped('pointsPerShare', 'Points per share', 'نقاط لكل مشاركة'),
   creator_views: capped('pointsPer1000Views', 'Points per 1,000 views', 'نقاط لكل ١٠٠٠ مشاهدة'),
   creator_engagement: capped('pointsPerEngagement', 'Points per like, comment or save', 'نقاط لكل إعجاب أو تعليق أو حفظ'),

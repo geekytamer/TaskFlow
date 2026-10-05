@@ -11,16 +11,18 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   addGameSource,
   collectNow,
+  fetchLikersNow,
   importLikers,
   listGameAccounts,
   removeGameSource,
   setParticipants,
+  setTrackedAccounts,
   type Game,
   type GameAccount,
   type GameSource,
   type ImportResult,
 } from '@/services/gamesService';
-import { AlertTriangle, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Radar, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 type Tr = (en: string, ar: string) => string;
 const num = new Intl.NumberFormat('en');
@@ -32,6 +34,12 @@ const ago = (tr: Tr, iso: string | null) => {
   if (mins < 60) return tr(`${mins} min ago`, `قبل ${mins} دقيقة`);
   const h = Math.round(mins / 60);
   return h < 48 ? tr(`${h} h ago`, `قبل ${h} ساعة`) : new Date(iso).toLocaleDateString();
+};
+
+const until = (tr: Tr, iso: string | null) => {
+  if (!iso) return null;
+  const mins = Math.round((Date.parse(iso) - Date.now()) / 60000);
+  return mins <= 0 ? tr('due now', 'الآن') : tr(`next in ${mins} min`, `التالي بعد ${mins} دقيقة`);
 };
 
 const kindLabel = (tr: Tr, k: GameSource['kind']) => ({
@@ -127,6 +135,7 @@ export function GameLivePanel({ companyId, game, tr, locked, onChange, onError, 
                   <div className="min-w-0">
                     <span className="font-medium">{kindLabel(tr, s.kind)}</span>
                     {s.username && <span className="text-muted-foreground" dir="ltr"> · @{s.username}</span>}
+                    {s.autoAdded && <Badge variant="outline" className="ms-2 align-middle text-[11px]">{tr('added automatically', 'أضيف تلقائيًا')}</Badge>}
                     {s.permalink && <a className="block truncate text-xs text-primary underline-offset-2 hover:underline" dir="ltr" href={s.permalink} target="_blank" rel="noopener noreferrer">{s.permalink}</a>}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -150,6 +159,25 @@ export function GameLivePanel({ companyId, game, tr, locked, onChange, onError, 
                     </p>
                   )}
                   {s.lastError && <p className="flex gap-1.5 text-xs text-destructive"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />{s.lastError}</p>}
+                  {s.kind === 'import' && s.paced && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 font-medium text-foreground"><Radar className="h-3.5 w-3.5" />{tr('Fetched automatically', 'يُجلب تلقائيًا')}</span>
+                      {s.likeCount !== null && <span className="tabular-nums">{tr(`${num.format(s.likeCount)} likes on Instagram`, `${num.format(s.likeCount)} إعجاب على إنستغرام`)}</span>}
+                      {game.likersFetcher && !game.frozenAt && <span>{until(tr, s.nextLikersAt)}</span>}
+                      {s.likersWindow > 0 && <span>{tr(`sees ${s.likersWindow} newest per fetch`, `يرى أحدث ${s.likersWindow} في كل جلب`)}</span>}
+                      {game.likersFetcher && !locked && (
+                        <Button size="sm" variant="ghost" className="h-8" disabled={busy} onClick={() => run(async () => { const g = await fetchLikersNow(companyId, game.id, s.id); onCollected(); return g; })}>
+                          {tr('Fetch now', 'اجلب الآن')}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {s.kind === 'import' && s.likersMissed > 0 && (
+                    <p className="flex gap-1.5 text-xs text-amber-700 dark:text-amber-400"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      {tr(`About ${num.format(s.likersMissed)} likes came in faster than fetches could see them; their likers may be missing. Paste the likes list to fill the gap.`,
+                        `نحو ${num.format(s.likersMissed)} إعجاب وصلت أسرع من قدرة الجلب على رؤيتها، وقد يكون أصحابها غير مسجلين. الصق قائمة الإعجابات لسد الفجوة.`)}
+                    </p>
+                  )}
                   {importFor === s.id && (
                     <div className="space-y-2 rounded-md bg-muted/50 p-2">
                       <Label htmlFor={`${id}-paste`} className="text-xs">
@@ -187,6 +215,25 @@ export function GameLivePanel({ companyId, game, tr, locked, onChange, onError, 
                 </li>
               ))}
             </ul>
+          )}
+
+          {game.instagram && accounts.length > 0 && (
+            <fieldset className="space-y-1 rounded-md border border-dashed p-2" disabled={locked || busy}>
+              <legend className="px-1 text-xs font-medium">{tr('Follow accounts: their new posts join the game by themselves', 'تابع حسابات: تنضم منشوراتها الجديدة إلى اللعبة تلقائيًا')}</legend>
+              <div className="flex flex-wrap gap-x-4">
+                {accounts.filter((a) => a.status === 'active' || game.trackedAccounts.includes(a.id)).map((a) => (
+                  <label key={a.id} className="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox checked={game.trackedAccounts.includes(a.id)} onCheckedChange={(v) => run(() => setTrackedAccounts(companyId, game.id,
+                      v === true ? [...game.trackedAccounts, a.id] : game.trackedAccounts.filter((x) => x !== a.id)))} />
+                    <span dir="ltr">@{a.username}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {game.tag ? tr(`Only posts whose caption includes ${game.tag}.`, `فقط المنشورات التي يتضمن نصها ${game.tag}.`) : tr('Every post during the game. Set a game tag to limit it.', 'كل منشور خلال اللعبة. حدّد وسمًا للعبة لتقييدها.')}
+                {' '}{game.likersFetcher ? tr('Likers are fetched as likes arrive.', 'يُجلب المعجبون مع وصول الإعجابات.') : tr('No likers fetcher is set up: comments and tags only.', 'لا يوجد جالب للمعجبين: التعليقات والوسوم فقط.')}
+              </p>
+            </fieldset>
           )}
 
           {!locked && (

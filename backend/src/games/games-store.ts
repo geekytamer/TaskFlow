@@ -37,7 +37,23 @@ export interface GameAward { id: string; gameId: string; actorKey: string; actor
 export interface ActorRule { gameId: string; actorKey: string; actorHandle: string; kind: 'exclude' | 'disqualify'; reason: string; byUserId: string; createdAt: string }
 export interface GameResult { gameId: string; actorKey: string; actorHandle: string; rank: number; points: number; breakdown: Record<string, number>; frozenAt: string }
 export interface GameViewer { subjectType: 'user' | 'portal_user'; subjectId: string }
-export interface GameSource { id: string; gameId: string; kind: 'post' | 'tags' | 'import'; accountId: string; mediaId: string; permalink: string | null; dirty: number; lastCollectedAt: string | null; lastError: string | null; createdAt: string }
+export interface GameSource {
+  id: string; gameId: string; kind: 'post' | 'tags' | 'import'; accountId: string; mediaId: string; permalink: string | null;
+  dirty: number; lastCollectedAt: string | null; lastError: string | null; createdAt: string;
+  /** Likers sources: the Instagram media id, when the post is on a connected account (enables pacing). */
+  metaMediaId: string | null;
+  postedAt: string | null;
+  autoAdded: number;
+  /** The like count at the last check, and when. */
+  likeCount: number | null;
+  likesCheckedAt: string | null;
+  likersFetchedAt: string | null;
+  nextLikersAt: string | null;
+  /** The largest number of likers one fetch has returned: the window pacing aims to stay inside. */
+  likersWindow: number;
+  /** Likes that arrived faster than fetches could see them: their likers may be missing. */
+  likersMissed: number;
+}
 export interface GameEventRow { gameId: string; externalId: string; sourceId: string; actorKey: string; actorHandle: string; action: 'comment' | 'reply' | 'mention' | 'like'; postRef: string; occurredAt: string; textLength: number; textHash: string | null; removedAt: string | null }
 export interface CreatorStat { gameId: string; contactId: string; accountId: string; actorKey: string; actorHandle: string; posts: number; views: number; shares: number; engagement: number; followerGrowth: number; lastPostAt: string | null; updatedAt: string }
 
@@ -171,11 +187,12 @@ export class GamesStore {
   }
 
   /** Undefined when the same source is already on the game. */
-  addSource(input: Pick<GameSource, 'gameId' | 'kind' | 'accountId' | 'mediaId' | 'permalink'>): GameSource | undefined {
-    const row = { ...input, id: uuid(), createdAt: new Date().toISOString() };
+  addSource(input: Pick<GameSource, 'gameId' | 'kind' | 'accountId' | 'mediaId' | 'permalink'> & Partial<Pick<GameSource, 'metaMediaId' | 'postedAt' | 'autoAdded'>>): GameSource | undefined {
+    const row = { metaMediaId: null, postedAt: null, autoAdded: 0, ...input, id: uuid(), createdAt: new Date().toISOString() };
     try {
       this.db.prepare(
-        `INSERT INTO game_sources (id, gameId, kind, accountId, mediaId, permalink, createdAt) VALUES (@id, @gameId, @kind, @accountId, @mediaId, @permalink, @createdAt)`,
+        `INSERT INTO game_sources (id, gameId, kind, accountId, mediaId, permalink, metaMediaId, postedAt, autoAdded, createdAt)
+         VALUES (@id, @gameId, @kind, @accountId, @mediaId, @permalink, @metaMediaId, @postedAt, @autoAdded, @createdAt)`,
       ).run(row);
     } catch (e) {
       if (isUniqueViolation(e)) return undefined;
@@ -193,7 +210,7 @@ export class GamesStore {
     })();
   }
 
-  updateSource(id: string, fields: Partial<Pick<GameSource, 'dirty' | 'lastCollectedAt' | 'lastError'>>): void {
+  updateSource(id: string, fields: Partial<Pick<GameSource, 'dirty' | 'lastCollectedAt' | 'lastError' | 'likeCount' | 'likesCheckedAt' | 'likersFetchedAt' | 'nextLikersAt' | 'likersWindow' | 'likersMissed' | 'metaMediaId'>>): void {
     const keys = Object.keys(fields) as Array<keyof typeof fields>;
     if (keys.length) this.db.prepare(`UPDATE game_sources SET ${keys.map((k) => `${k} = @${k}`).join(', ')} WHERE id = @id`).run({ ...fields, id });
   }
@@ -227,6 +244,24 @@ export class GamesStore {
   /** Events that still count (removed ones are kept for the record but not scored). */
   events(gameId: string, includeRemoved = false): GameEventRow[] {
     return this.db.prepare(`SELECT * FROM game_events WHERE gameId = ? ${includeRemoved ? '' : 'AND removedAt IS NULL'} ORDER BY occurredAt, externalId`).all(gameId) as GameEventRow[];
+  }
+
+  /** Ties a hand-started likers list to the connected post it belongs to, so it can be paced. */
+  linkLikersSource(id: string, accountId: string, metaMediaId: string, postedAt: string): void {
+    this.db.prepare("UPDATE game_sources SET accountId = ?, metaMediaId = ?, postedAt = ?, nextLikersAt = COALESCE(nextLikersAt, ?) WHERE id = ? AND kind = 'import'")
+      .run(accountId, metaMediaId, postedAt, new Date().toISOString(), id);
+  }
+
+  trackedAccounts(gameId: string): string[] {
+    return (this.db.prepare('SELECT accountId FROM game_tracked_accounts WHERE gameId = ? ORDER BY rowid').all(gameId) as Array<{ accountId: string }>).map((r) => r.accountId);
+  }
+
+  setTrackedAccounts(gameId: string, accountIds: string[]): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM game_tracked_accounts WHERE gameId = ?').run(gameId);
+      const insert = this.db.prepare('INSERT OR IGNORE INTO game_tracked_accounts (gameId, accountId) VALUES (?, ?)');
+      accountIds.forEach((a) => insert.run(gameId, a));
+    })();
   }
 
   participants(gameId: string): string[] {

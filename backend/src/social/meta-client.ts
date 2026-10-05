@@ -24,6 +24,8 @@ export interface MetaClient {
   taggedMedia(token: string, userId: string): Promise<Listing<TaggedRow>>;
   /** The account's own posts since a date. */
   recentMedia(token: string, userId: string, since: Date): Promise<MediaRow[]>;
+  /** Live like and comment counts for one post: cheap, read often to pace likers fetching. */
+  mediaCounts(token: string, mediaId: string): Promise<{ likes: number; comments: number }>;
 }
 
 /** A list read from Meta; `truncated` when paging stopped at the cap before the end. */
@@ -175,6 +177,11 @@ export class HttpMetaClient implements MetaClient {
     return Object.assign(toTagged(rows), { truncated });
   }
 
+  async mediaCounts(token: string, mediaId: string) {
+    const m = await this.call<{ like_count?: number; comments_count?: number }>(this.graph(`${mediaId}?fields=like_count,comments_count`, token));
+    return { likes: Number(m.like_count ?? 0), comments: Number(m.comments_count ?? 0) };
+  }
+
   async recentMedia(token: string, userId: string, since: Date) {
     const { rows } = await this.pages<{ id: string; permalink?: string; timestamp: string; caption?: string }>(this.graph(`${userId}/media?fields=id,permalink,timestamp,caption&limit=50&since=${Math.floor(since.getTime() / 1000)}`, token));
     return toMedia(rows).filter((m) => m.timestamp >= since);
@@ -207,6 +214,7 @@ export class FixtureMetaClient implements MetaClient {
   async mediaInsights() { return toFigures(this.read<{ data: GraphRow[] }>('insights-media.json').data); }
   async mediaComments() { return flattenComments(this.read<{ data: RawComment[] }>('comments.json').data); }
   async taggedMedia() { return toTagged(this.read<{ data: Array<{ id: string; username?: string; timestamp: string; permalink?: string; caption?: string }> }>('tags.json').data); }
+  async mediaCounts() { return { likes: 0, comments: 0 }; }
   async recentMedia(_t: string, _u: string, since: Date) {
     return toMedia(this.read<{ data: Array<{ id: string; permalink?: string; timestamp: string; caption?: string }> }>('recent-media.json').data).filter((m) => m.timestamp >= since);
   }

@@ -4185,6 +4185,29 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Games follow accounts: their new posts during a game become sources on
+        // their own, and likers are fetched at a pace set by how fast likes arrive.
+        id: '098_game_auto_tracking',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS game_tracked_accounts (
+              gameId    TEXT NOT NULL,
+              accountId TEXT NOT NULL,
+              PRIMARY KEY (gameId, accountId)
+            );
+            ALTER TABLE game_sources ADD COLUMN metaMediaId TEXT;
+            ALTER TABLE game_sources ADD COLUMN postedAt TEXT;
+            ALTER TABLE game_sources ADD COLUMN autoAdded INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE game_sources ADD COLUMN likeCount INTEGER;
+            ALTER TABLE game_sources ADD COLUMN likesCheckedAt TEXT;
+            ALTER TABLE game_sources ADD COLUMN likersFetchedAt TEXT;
+            ALTER TABLE game_sources ADD COLUMN nextLikersAt TEXT;
+            ALTER TABLE game_sources ADD COLUMN likersWindow INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE game_sources ADD COLUMN likersMissed INTEGER NOT NULL DEFAULT 0;
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

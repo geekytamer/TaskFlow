@@ -41,6 +41,10 @@ export function suppliedFor(store: DataStore, game: Game): Supply[] {
 export const collectsFromMeta = (store: DataStore, game: Game) =>
   game.audience === 'creators' ? store.games.participants(game.id).length > 0 : store.games.sources(game.id).some((s) => s.kind !== 'import');
 
+/** A paced likers list (one a fetcher has served) that has not had its fetch after the end. */
+export const awaitingFinalLikers = (store: DataStore, game: Game) =>
+  store.games.sources(game.id).some((s) => s.kind === 'import' && s.metaMediaId && s.likersFetchedAt && Date.parse(s.likersFetchedAt) < Date.parse(game.endsAt));
+
 /** If Meta cannot be reached after a game ends, results freeze anyway after this long, from what was collected. */
 export const RECONCILE_GRACE_MS = 48 * 60 * 60 * 1000;
 
@@ -67,7 +71,9 @@ function computeBoard(store: DataStore, game: Game, applyExclusions = true): Boa
  */
 export function ensureFrozen(store: DataStore, game: Game, now = Date.now()): Game {
   if (game.frozenAt || gameStatus(game, now) !== 'ended') return game;
-  if (!game.reconciledAt && now - Date.parse(game.endsAt) < RECONCILE_GRACE_MS && collectsFromMeta(store, game)) return game;
+  const withinGrace = now - Date.parse(game.endsAt) < RECONCILE_GRACE_MS;
+  if (withinGrace && !game.reconciledAt && collectsFromMeta(store, game)) return game;
+  if (withinGrace && awaitingFinalLikers(store, game)) return game;
   const rows = computeBoard(store, game).map((r) => ({ actorKey: r.actorKey, actorHandle: r.handle, rank: r.rank, points: r.points, breakdown: r.breakdown }));
   if (store.games.freeze(game.id, rows)) {
     // Tell whoever built it, once, with the podium, so winners can be contacted.

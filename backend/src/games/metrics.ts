@@ -190,6 +190,36 @@ const weightedInteractions: Metric = {
   },
 };
 
+/**
+ * The first N people to like each post: the first gets `pointsFirst`, the Nth
+ * `pointsLast`, linearly between. Order is when each liker was first seen.
+ */
+const firstLikers: Metric = {
+  key: 'first_likers',
+  label: { en: 'First likers of each post', ar: 'أوائل المعجبين بكل منشور' },
+  requires: ['like'],
+  params(raw) {
+    const r = obj(raw);
+    return { n: num(r, 'n', 100, 1, 10000), pointsFirst: num(r, 'pointsFirst', 10, 0, 1000), pointsLast: num(r, 'pointsLast', 1, 0, 1000) };
+  },
+  score(events, params) {
+    const out = new Map<string, MetricScore>();
+    const n = Number(params.n ?? 100);
+    const first = Number(params.pointsFirst ?? 10);
+    const last = Number(params.pointsLast ?? 1);
+    const byPost = new Map<string, InteractionEvent[]>();
+    events.filter((e) => e.action === 'like').forEach((e) => byPost.set(e.postRef, [...(byPost.get(e.postRef) ?? []), e]));
+    for (const likes of byPost.values()) {
+      const seen = new Set<string>();
+      const ordered = likes.sort((a, b) => +a.occurredAt - +b.occurredAt || a.externalId.localeCompare(b.externalId))
+        .filter((e) => (seen.has(e.actorKey) ? false : (seen.add(e.actorKey), true)))
+        .slice(0, n);
+      ordered.forEach((e, i) => add(out, e.actorKey, e.actorHandle, Number((n === 1 ? first : first - ((first - last) * i) / (n - 1)).toFixed(4)), +e.occurredAt));
+    }
+    return out;
+  },
+};
+
 export const METRICS: Record<string, Metric> = {
   manual_points: {
     key: 'manual_points',
@@ -207,6 +237,7 @@ export const METRICS: Record<string, Metric> = {
   mentions: perInteraction('mentions', 'mention', 'pointsPerMention', { en: 'Points per mention or tag', ar: 'نقاط لكل إشارة أو وسم' }),
   likes: perInteraction('likes', 'like', 'pointsPerLike', { en: 'Points per like (from an imported likers list)', ar: 'نقاط لكل إعجاب (من قائمة مستوردة)' }),
   weighted_interactions: weightedInteractions,
+  first_likers: firstLikers,
   creator_shares: perCreatorTotal('creator_shares', 'shares', 'pointsPerShare', 1, { en: 'Points per share of the creator’s game posts', ar: 'نقاط لكل مشاركة لمنشورات المسابقة' }),
   creator_views: perCreatorTotal('creator_views', 'views', 'pointsPer1000Views', 1000, { en: 'Points per 1,000 views of game posts', ar: 'نقاط لكل ١٠٠٠ مشاهدة لمنشورات المسابقة' }),
   creator_engagement: perCreatorTotal('creator_engagement', 'engagement', 'pointsPerEngagement', 1, { en: 'Points per like, comment or save on game posts', ar: 'نقاط لكل إعجاب أو تعليق أو حفظ' }),

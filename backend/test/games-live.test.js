@@ -237,7 +237,7 @@ test('a pasted likers list becomes likes; importing again replaces it; weights a
   const game = await makeGame(ctx);
   const created = await ctx.staff('post', `/${game.id}/sources`, { kind: 'import', permalink: 'https://www.instagram.com/p/GAME/' });
   assert.equal(created.status, 201);
-  assert.deepEqual(created.body.availableMetrics.map((m) => m.key).sort(), ['likes', 'manual_points', 'weighted_interactions']);
+  assert.deepEqual(created.body.availableMetrics.map((m) => m.key).sort(), ['first_likers', 'likes', 'manual_points', 'weighted_interactions']);
   const source = created.body.sources[0];
   assert.equal((await ctx.staff('post', `/${game.id}/sources`, { kind: 'import', permalink: 'https://www.instagram.com/p/GAME' })).status, 409, 'one list per post');
   assert.equal((await ctx.staff('put', `/${game.id}/metrics`, [{ metricKey: 'weighted_interactions', weight: 1, params: { like: 0.5 } }])).status, 200);

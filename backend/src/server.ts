@@ -35,6 +35,8 @@ import { createSocialPublicRouter, type SocialOptions } from './social/routes';
 import { FixtureMetaClient, HttpMetaClient } from './social/meta-client';
 import { sweepSocial } from './social/sync';
 import { sweepGames } from './games/collector';
+import { likersFetcherFromEnv, type LikersFetcher } from './games/likers-fetcher';
+import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
 import {
   influencerPlatforms,
@@ -223,6 +225,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   social?: SocialOptions;
   /** WhatsApp alerts to portal users; defaults to the company's Green API number. */
   portalWhatsApp?: WhatsAppSender;
+  /** Who liked a post (a self-hosted worker or an Apify actor); defaults to the environment. */
+  likersFetcher?: LikersFetcher;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -8565,6 +8569,18 @@ export function createServer(options: CreateServerOptions = {}) {
       .finally(() => { collecting = null; });
     return collecting;
   };
+  const likersFetcher = options.likersFetcher ?? likersFetcherFromEnv();
+  // Live tracking: new posts on tracked accounts, likers paced to like speed. Every minute, one pass at a time.
+  if (social && portalCompanyId && process.env.NODE_ENV !== 'test') {
+    let tracking = false;
+    setInterval(() => {
+      if (tracking || !store.getCompanyById(portalCompanyId)) return;
+      tracking = true;
+      trackGames(store, social.client, likersFetcher, portalCompanyId)
+        .catch((error) => logger.error('[games] tracking failed', error))
+        .finally(() => { tracking = false; });
+    }, 60 * 1000).unref?.();
+  }
   // Portal alerts go out from the company's connected WhatsApp number and show in its WhatsApp inbox.
   const portalWhatsApp: WhatsAppSender = options.portalWhatsApp ?? (async (companyId, phone, text, contactId) => {
     const instance = store.getWhatsappInstanceForCompany(companyId);
@@ -8636,6 +8652,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManageGames: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'GAMES_MANAGE'),
       metaClient: social?.client,
+      likersFetcher,
     }));
   }
 

@@ -23,6 +23,9 @@ export interface Game {
   reconciledAt: string | null;
   /** Instagram is configured on the server, so sources can be read. */
   instagram: boolean;
+  /** A likers fetcher is configured on the server. */
+  likersFetcher: boolean;
+  trackedAccounts: string[];
   sources: GameSource[];
   participants: GameParticipant[];
   metrics: Array<{ metricKey: string; weight: number; params: Record<string, unknown> }>;
@@ -39,6 +42,15 @@ export interface GameSource {
   lastCollectedAt: string | null;
   lastError: string | null;
   interactions: number;
+  autoAdded: boolean;
+  postedAt: string | null;
+  /** A likers list on a connected post: fetched at a pace set by like speed. */
+  paced: boolean;
+  likeCount: number | null;
+  likersFetchedAt: string | null;
+  nextLikersAt: string | null;
+  likersWindow: number;
+  likersMissed: number;
 }
 
 export interface GameParticipant {
@@ -120,3 +132,5 @@ export const importLikers = (companyId: string, id: string, sourceId: string, te
   send<Game & { imported: ImportResult }>(`${base(companyId)}/${id}/sources/${sourceId}/likers`, 'POST', { text });
 export const setParticipants = (companyId: string, id: string, contactIds: string[]) => send<Game>(`${base(companyId)}/${id}/participants`, 'PUT', contactIds);
 export const collectNow = (companyId: string, id: string) => send<Game & { errors: string[] }>(`${base(companyId)}/${id}/collect`, 'POST');
+export const setTrackedAccounts = (companyId: string, id: string, accountIds: string[]) => send<Game>(`${base(companyId)}/${id}/tracked-accounts`, 'PUT', accountIds);
+export const fetchLikersNow = (companyId: string, id: string, sourceId: string) => send<Game>(`${base(companyId)}/${id}/sources/${sourceId}/fetch-likers`, 'POST');

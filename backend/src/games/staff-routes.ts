@@ -6,6 +6,8 @@ import { asRecord, enumValue } from '../validation';
 import type { MetaClient } from '../social/meta-client';
 import { openToken } from '../social/crypto';
 import { actor, collectGame } from './collector';
+import type { LikersFetcher } from './likers-fetcher';
+import { permalinkKey, tickLikersSource } from './tracker';
 import { actorOf, ensureFrozen, gameStatus, staffBoard, suppliedFor } from './games';
 import type { Game, GameViewer } from './games-store';
 import { METRICS, offeredMetrics } from './metrics';
@@ -21,6 +23,8 @@ export interface GamesStaffDeps {
   canManageGames(req: StaffRequest, companyId: string): boolean;
   /** Present when Instagram is configured: games can then read connected accounts. */
   metaClient?: MetaClient;
+  /** Present when a likers fetcher is configured. */
+  likersFetcher?: LikersFetcher;
 }
 
 const wrap = (fn: (req: StaffRequest, res: Response) => unknown) =>
@@ -103,6 +107,8 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
       viewers: store.games.viewers(game.id),
       availableMetrics: offeredMetrics(suppliedFor(store, game)).map((m) => ({ key: m.key, label: m.label })),
       instagram: Boolean(deps.metaClient),
+      likersFetcher: Boolean(deps.likersFetcher),
+      trackedAccounts: store.games.trackedAccounts(game.id),
       sources: (() => {
         const counts = new Map<string, number>();
         store.games.events(game.id).forEach((e) => counts.set(e.sourceId, (counts.get(e.sourceId) ?? 0) + 1));
@@ -110,6 +116,9 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
           id: src.id, kind: src.kind, accountId: src.accountId || null, username: src.accountId ? accountName(src.accountId) : null, permalink: src.permalink,
           accountStatus: src.accountId ? store.social.getAccount(src.accountId)?.status ?? 'revoked' : null,
           lastCollectedAt: src.lastCollectedAt, lastError: src.lastError, interactions: counts.get(src.id) ?? 0,
+          autoAdded: src.autoAdded === 1, postedAt: src.postedAt, paced: Boolean(src.metaMediaId),
+          likeCount: src.likeCount, likersFetchedAt: src.likersFetchedAt, nextLikersAt: src.nextLikersAt,
+          likersWindow: src.likersWindow, likersMissed: src.likersMissed,
         }));
       })(),
       participants: store.games.participants(game.id).map((contactId) => {
@@ -223,7 +232,7 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     if (kind === 'import') {
       // A likers list staff copy from the post's likes screen; no Meta call involved.
       const permalink = text(body.permalink, 'permalink', 500, true)!;
-      const source = store.games.addSource({ gameId: game.id, kind, accountId: '', mediaId: permalink.toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, ''), permalink });
+      const source = store.games.addSource({ gameId: game.id, kind, accountId: '', mediaId: permalinkKey(permalink), permalink });
       if (!source) throw new HttpError(409, 'That post already has a likers list; import into it instead.');
       return res.status(201).json(view(store.games.get(game.id)!));
     }
@@ -248,6 +257,35 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     res.status(201).json(view(store.games.get(game.id)!));
   }));
 
+  // Which connected accounts the game follows: their new posts become sources by themselves.
+  router.put(`${base}/:id/tracked-accounts`, authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const game = load(companyId, req.params.id);
+    notFrozen(game);
+    if (game.audience !== 'followers') throw new HttpError(409, 'Creators games already follow their participants.');
+    if (!Array.isArray(req.body) || req.body.length > MAX_SOURCES) throw new HttpError(400, `Choose up to ${MAX_SOURCES} accounts.`);
+    const ids = [...new Set(req.body.map((v: unknown) => String(v)))];
+    for (const id of ids) {
+      const a = store.social.getAccount(id);
+      if (!a || a.companyId !== companyId || a.status === 'revoked') throw new HttpError(400, 'Choose connected Instagram accounts.');
+    }
+    store.games.setTrackedAccounts(game.id, ids);
+    res.json(view(store.games.get(game.id)!));
+  }));
+
+  // Fetch a paced likers list now instead of waiting for its turn.
+  router.post(`${base}/:id/sources/:sourceId/fetch-likers`, authMiddleware, wrap(async (req, res) => {
+    const game = load(authorize(req), req.params.id);
+    notFrozen(game);
+    if (!deps.metaClient || !deps.likersFetcher) throw new HttpError(409, 'No likers fetcher is set up.');
+    const source = store.games.sources(game.id).find((src) => src.id === req.params.sourceId && src.kind === 'import');
+    if (!source) throw new HttpError(404, 'Likers list not found.');
+    if (!source.metaMediaId) throw new HttpError(409, 'This post is not on a connected account; paste its likers instead.');
+    store.games.updateSource(source.id, { nextLikersAt: null });
+    await tickLikersSource(store, deps.metaClient, deps.likersFetcher, game, store.games.sources(game.id).find((src) => src.id === source.id)!);
+    res.json(view(store.games.get(game.id)!));
+  }));
+
   // Replaces a likers list. Each handle is one like on that post, timed now (within the game).
   router.post(`${base}/:id/sources/:sourceId/likers`, authMiddleware, wrap((req, res) => {
     const game = load(authorize(req), req.params.id);
@@ -265,7 +303,8 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
       const externalId = `import:${source.id}:${h}`;
       return { externalId, ...actor(h), action: 'like' as const, postRef: source.mediaId, occurredAt: existing.get(externalId) ?? at, textLength: 0, textHash: null };
     });
-    const { added, removed } = store.games.syncSourceEvents(game.id, source.id, rows, new Date(now).toISOString());
+    // A paced list also holds fetched likers: a paste adds to it rather than replacing it.
+    const { added, removed } = store.games.syncSourceEvents(game.id, source.id, rows, new Date(now).toISOString(), !source.metaMediaId);
     store.games.updateSource(source.id, { dirty: 0, lastCollectedAt: new Date(now).toISOString(), lastError: null });
     res.json({ ...view(store.games.get(game.id)!), imported: { total: handles.length, added, removed, skipped: skipped.slice(0, 20), skippedCount: skipped.length } });
   }));
