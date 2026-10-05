@@ -87,7 +87,7 @@ test('a client sees its own live campaigns only', async () => {
   assert.equal(list.status, 200);
   assert.deepEqual(list.body.map((c) => c.name), ['Ramadan launch'], 'no archived campaign, no other client');
   // Two are submitted, but the story's only link is a script URL: nothing safe to review.
-  assert.deepEqual(list.body[0].deliverables, { total: 3, awaitingReview: 1 });
+  assert.deepEqual(list.body[0].deliverables, { total: 3, awaitingReview: 1, published: 0, nextDue: new Date('2026-11-10').toISOString() });
 
   const sara = await ctx.session('client', ctx.rival, 'sara@sidr.test');
   assert.equal((await request(ctx.server).get(`/portal-api/client/campaigns/${ctx.campaign.id}`).set(sara)).status, 404);

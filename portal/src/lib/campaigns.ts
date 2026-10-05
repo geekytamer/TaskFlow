@@ -16,7 +16,7 @@ export interface CampaignSummary {
   status: CampaignStatus;
   startDate: string | null;
   endDate: string | null;
-  deliverables: { total: number; awaitingReview: number };
+  deliverables: { total: number; awaitingReview: number; published: number; nextDue: string | null };
 }
 
 export interface Deliverable {

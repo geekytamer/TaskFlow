@@ -1,4 +1,7 @@
+import { ClientHome } from '@/components/client-home';
 import { Dashboard } from '@/components/dashboard';
+import { rankNeedsYou } from '@/lib/needs-you';
+import { sumByCurrency } from '@/lib/money';
 import { getAudience } from '@/lib/audience';
 import { getCampaigns } from '@/lib/campaigns';
 import { getAssignments, getPayouts } from '@/lib/influencer';
@@ -31,17 +34,20 @@ export default async function Home() {
     return <Dashboard me={me} lang={lang} audience={audience} assignments={assignments} attention={attention} payouts={payouts.slice(0, 3)} />;
   }
 
-  const [proposals, campaigns, invoices] = await Promise.all([getProposals(), getCampaigns(), getInvoices()]);
-  const waiting = proposals.find((p) => p.status === 'sent');
-  const overdue = invoices.find((i) => i.status === 'overdue');
+  const [proposals, campaigns, invoices, messages] = await Promise.all([getProposals(), getCampaigns(), getInvoices(), getMessages()]);
+  const now = Date.now();
+  const unpaid = invoices.filter((i) => i.status !== 'paid' && i.outstanding > 0);
+  const overdue = unpaid.filter((i) => i.status === 'overdue');
+  const items = rankNeedsYou({
+    overdue: overdue.map((i) => ({ id: i.id, number: i.number, outstanding: i.outstanding, currency: i.currency, daysLate: i.dueDate ? Math.max(1, Math.floor((now - Date.parse(i.dueDate)) / 86_400_000)) : 1 })),
+    proposals: proposals.filter((p) => p.status === 'sent').map((p) => ({ id: p.id, title: p.title })),
+    reviews: campaigns.map((c) => ({ campaignId: c.id, name: c.name, count: c.deliverables.awaitingReview })),
+  });
+  const owed = sumByCurrency(unpaid.map((i) => ({ currency: i.currency, amount: i.outstanding })));
+  const late = sumByCurrency(overdue.map((i) => ({ currency: i.currency, amount: i.outstanding })));
+  const balances = owed.map((b) => ({ currency: b.currency, outstanding: b.amount, overdue: late.find((l) => l.currency === b.currency)?.amount ?? 0 }));
+  const lastTeamMessage = [...messages].reverse().find((m) => m.author.kind === 'team') ?? null;
   return (
-    <Dashboard
-      me={me}
-      lang={lang}
-      audience={audience}
-      waiting={waiting ? { id: waiting.id, title: waiting.title } : undefined}
-      campaigns={campaigns}
-      overdue={overdue ? { id: overdue.id, number: overdue.number } : undefined}
-    />
+    <ClientHome lang={lang} firstName={me.user.name.split(/\s+/)[0]} items={items} campaigns={campaigns} balances={balances} lastTeamMessage={lastTeamMessage} />
   );
 }

@@ -51,7 +51,16 @@ export function toCampaignSummary(campaign: CrmCampaign, deliverables: CampaignD
     status: CAMPAIGN_STATUS[campaign.status],
     startDate: iso(campaign.startDate),
     endDate: iso(campaign.endDate),
-    deliverables: { total: deliverables.length, awaitingReview },
+    deliverables: {
+      total: deliverables.length,
+      awaitingReview,
+      published: deliverables.filter((d) => d.status === 'Published').length,
+      // The next date something is due that has not gone live yet.
+      nextDue: deliverables
+        .filter((d) => d.dueDate && d.status !== 'Published' && d.status !== 'Cancelled')
+        .map((d) => iso(d.dueDate)!)
+        .sort()[0] ?? null,
+    },
   };
 }
 
