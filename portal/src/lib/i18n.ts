@@ -462,6 +462,14 @@ const en = {
   'notFound.title': 'Page not found',
   'notFound.body': 'The page you are looking for does not exist.',
   'notFound.home': 'Back to the start',
+  'nav.analytics': 'Analytics',
+  'nav.more': 'More',
+  'nav.close': 'Close',
+  'nav.waiting': 'waiting for you',
+  'state.loading': 'Loading',
+  'state.errorTitle': 'This page did not load',
+  'state.errorBody': 'Something went wrong on our side. Try again; if it keeps happening, message your account manager.',
+  'state.retry': 'Try again',
 } as const;
 
 export type Key = keyof typeof en;
@@ -925,6 +933,14 @@ const ar: Record<Key, string> = {
   'notFound.title': 'الصفحة غير موجودة',
   'notFound.body': 'الصفحة التي تبحث عنها غير موجودة.',
   'notFound.home': 'العودة إلى البداية',
+  'nav.analytics': 'التحليلات',
+  'nav.more': 'المزيد',
+  'nav.close': 'إغلاق',
+  'nav.waiting': 'بانتظارك',
+  'state.loading': 'جارٍ التحميل',
+  'state.errorTitle': 'لم يتم تحميل هذه الصفحة',
+  'state.errorBody': 'حدث خطأ من جهتنا. حاول مرة أخرى، وإن تكرر الأمر راسل مدير حسابك.',
+  'state.retry': 'حاول مرة أخرى',
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };

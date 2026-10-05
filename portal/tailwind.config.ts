@@ -12,8 +12,10 @@ const config: Config = {
   theme: {
     extend: {
       colors: Object.fromEntries(
-        ['canvas', 'surface', 'ink', 'ink-soft', 'line', 'field', 'accent', 'danger'].map((name) => [name, token(name)]),
+        ['canvas', 'surface', 'surface-2', 'ink', 'ink-soft', 'line', 'field', 'accent', 'accent-ink', 'success', 'warning', 'danger'].map((name) => [name, token(name)]),
       ),
+      borderRadius: { control: 'var(--radius-control)', panel: 'var(--radius-panel)' },
+      boxShadow: { float: 'var(--shadow-float)' },
       fontFamily: { sans: ['var(--font-latin)', 'var(--font-arabic)', 'system-ui', 'sans-serif'] },
     },
   },

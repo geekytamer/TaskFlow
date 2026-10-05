@@ -5,6 +5,7 @@ import { PortalShell } from '@/components/portal-shell';
 import { getHost } from '@/lib/audience';
 import { getBranding, requireMe } from '@/lib/portal';
 import { currentLang } from '@/lib/session';
+import { navBadges } from '@/lib/badges';
 
 /**
  * The games lobby. On the public lobby host it needs no account and shows only
@@ -14,8 +15,8 @@ export default async function LobbyLayout({ children }: { children: ReactNode })
   const host = getHost();
   const lang = await currentLang();
   if (host !== 'lobby') {
-    const me = await requireMe(host);
-    return <PortalShell me={me} lang={lang}>{children}</PortalShell>;
+    const [me, badges] = await Promise.all([requireMe(host), navBadges(host)]);
+    return <PortalShell me={me} lang={lang} badges={badges}>{children}</PortalShell>;
   }
   return (
     <div className="min-h-[100dvh]">
