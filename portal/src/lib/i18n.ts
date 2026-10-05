@@ -516,6 +516,9 @@ const en = {
   'rev.confirmBody': 'The team will be told it can go live as it is.',
   'rev.confirm': 'Yes, approve',
   'rev.youApprovedTold': 'You approved it. The team has been told.',
+  'msg.earlier': 'Show {n} earlier messages',
+  'alerts.onLine': 'WhatsApp alerts are on:',
+  'alerts.change': 'Change',
 } as const;
 
 export type Key = keyof typeof en;
@@ -1033,6 +1036,9 @@ const ar: Record<Key, string> = {
   'rev.confirmBody': 'سنبلغ الفريق أنه يمكن نشره كما هو.',
   'rev.confirm': 'نعم، أوافق',
   'rev.youApprovedTold': 'وافقت عليه، وتم إبلاغ الفريق.',
+  'msg.earlier': 'عرض {n} رسائل سابقة',
+  'alerts.onLine': 'تنبيهات واتساب مفعّلة:',
+  'alerts.change': 'تغيير',
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };

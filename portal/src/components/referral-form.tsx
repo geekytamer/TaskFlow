@@ -3,16 +3,17 @@
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { t, type Key, type Lang } from '@/lib/i18n';
-import { primaryButton } from './field';
+import { button } from './ui';
 
 const control =
-  'w-full rounded-[10px] border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
+  'w-full rounded-control border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
 
-export function ReferralForm({ lang, currency }: { lang: Lang; currency: string }) {
+export function ReferralForm({ lang, currency, startOpen = true }: { lang: Lang; currency: string; startOpen?: boolean }) {
   const router = useRouter();
   const [errors, setErrors] = useState<Key[]>([]);
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(startOpen);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,6 +43,7 @@ export function ReferralForm({ lang, currency }: { lang: Lang; currency: string 
       if (response.status === 201) {
         formEl.reset();
         setSent(true);
+        if (!startOpen) setOpen(false);
         router.refresh();
       } else {
         setErrors([response.status === 429 ? 'ref.errTooMany' : 'ref.errFailed']);
@@ -52,8 +54,17 @@ export function ReferralForm({ lang, currency }: { lang: Lang; currency: string 
     setBusy(false);
   }
 
+  if (!open) {
+    return (
+      <div className="space-y-2">
+        <button type="button" onClick={() => setOpen(true)} className={button.primary}>{t(lang, 'ref.new')}</button>
+        {sent && <p role="status" className="text-sm font-medium text-success">{t(lang, 'ref.sent')}</p>}
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-6 rounded-xl border border-line bg-surface p-5 md:p-6">
+    <form onSubmit={onSubmit} noValidate className="space-y-6 rounded-panel border border-line bg-surface p-5 md:p-6">
       <h2 className="text-lg font-semibold tracking-tight">{t(lang, 'ref.new')}</h2>
       <div className="grid gap-5 md:grid-cols-2">
         <div className="space-y-2">
@@ -82,8 +93,8 @@ export function ReferralForm({ lang, currency }: { lang: Lang; currency: string 
           {errors.map((e) => <li key={e}>{t(lang, e)}</li>)}
         </ul>
       )}
-      {sent && <p role="status" className="text-sm font-medium text-accent">{t(lang, 'ref.sent')}</p>}
-      <button type="submit" disabled={busy} className={`${primaryButton} md:w-auto md:px-8`}>
+      {sent && <p role="status" className="text-sm font-medium text-success">{t(lang, 'ref.sent')}</p>}
+      <button type="submit" disabled={busy} className={`${button.primary} w-full md:w-auto md:px-8`}>
         {busy ? t(lang, 'ref.submitting') : t(lang, 'ref.submit')}
       </button>
     </form>

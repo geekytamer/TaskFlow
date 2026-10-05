@@ -1,4 +1,5 @@
 import { ReferralForm } from '@/components/referral-form';
+import { PageHeader, SectionTitle, list } from '@/components/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { formatDate, formatMoney, formatPercent } from '@/lib/format';
 import { getAudience } from '@/lib/audience';
@@ -22,24 +23,18 @@ export default async function ReferralsPage() {
 
   return (
     <div className="max-w-3xl space-y-10">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t(lang, 'ref.title')}</h1>
-        <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, 'ref.subtitle')}</p>
-      </header>
+      <PageHeader title={t(lang, 'ref.title')} subtitle={t(lang, 'ref.subtitle')} />
 
-      <ReferralForm lang={lang} currency={currency} />
+      <ReferralForm lang={lang} currency={currency} startOpen={referrals.length === 0} />
 
-      <section aria-labelledby="yours-title" className="space-y-4">
-        <h2 id="yours-title" className="text-lg font-semibold tracking-tight">{t(lang, 'ref.yours')}</h2>
+      <section aria-labelledby="yours-title">
+        <SectionTitle id="yours-title">{t(lang, 'ref.yours')}</SectionTitle>
         {referrals.length === 0 ? (
-          <div className="border-t border-line pt-6">
-            <p className="font-medium">{t(lang, 'ref.emptyTitle')}</p>
-            <p className="mt-1 text-ink-soft">{t(lang, 'ref.emptyBody')}</p>
-          </div>
+          <p className="text-ink-soft">{t(lang, 'ref.emptyBody')}</p>
         ) : (
-          <ul className="divide-y divide-line border-y border-line">
+          <ul className={list}>
             {referrals.map((r) => (
-              <li key={r.id} className="space-y-2 px-1 py-5 sm:px-3">
+              <li key={r.id} className="space-y-2 px-4 py-4 sm:px-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="min-w-0 truncate font-semibold"><bdi>{r.prospectName}</bdi></p>
                   <StatusBadge lang={lang} referral={r.status} />
