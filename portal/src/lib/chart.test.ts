@@ -28,3 +28,11 @@ test('an empty or all-zero series draws nothing and does not divide by zero', ()
   assert.equal(zero.max, 0);
   assert.equal(zero.bars[0].segments[0].height, 0);
 });
+
+test('fillWeeks adds the empty weeks between the first and last, so time is not squeezed', async () => {
+  const { fillWeeks } = await import('./chart');
+  assert.deepEqual(fillWeeks([{ week: '2026-08-03', views: 5 }, { week: '2026-08-17', views: 2 }], { views: 0 }), [
+    { week: '2026-08-03', views: 5 }, { week: '2026-08-10', views: 0 }, { week: '2026-08-17', views: 2 },
+  ]);
+  assert.deepEqual(fillWeeks<{ week: string; views: number }>([], { views: 0 }), []);
+});

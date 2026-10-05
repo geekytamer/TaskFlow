@@ -39,3 +39,17 @@ export function stackedBars<K extends string>(
   });
   return { bars, max, ticks: max > 0 ? [0, max / 2, max] : [] };
 }
+
+/** Weekly rows (Monday dates) with the missing weeks between first and last filled with `empty`. */
+export function fillWeeks<T extends { week: string }>(rows: T[], empty: Omit<T, 'week'>): T[] {
+  if (rows.length === 0) return [];
+  const sorted = [...rows].sort((a, b) => a.week.localeCompare(b.week));
+  const byWeek = new Map(sorted.map((r) => [r.week, r]));
+  const out: T[] = [];
+  const last = Date.parse(`${sorted[sorted.length - 1].week}T00:00:00Z`);
+  for (let t = Date.parse(`${sorted[0].week}T00:00:00Z`); t <= last; t += 7 * 86_400_000) {
+    const week = new Date(t).toISOString().slice(0, 10);
+    out.push(byWeek.get(week) ?? ({ ...empty, week } as T));
+  }
+  return out;
+}
