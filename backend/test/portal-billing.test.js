@@ -173,3 +173,26 @@ test('a statement keeps a total per currency rather than adding currencies toget
   const { body } = await get(ctx, omar, `/campaigns/${ctx.campaign.id}/statement`);
   assert.deepEqual(body.totals.map((t) => [t.currency, t.invoiced]).sort(), [['OMR', 400], ['USD', 1000]]);
 });
+
+test('an invoice shows how to pay from its own issued template, and nothing else from it', async () => {
+  const ctx = build();
+  const snapshot = {
+    paymentInstructions: '  Quote the invoice number as the transfer reference.  ',
+    bankAccounts: [{ id: 'b1', bankName: 'Bank Muscat', accountHolder: 'Peak Media LLC', accountNumber: '0123456789', iban: 'OM810180000001299123456', swift: 'BMUSOMRX', currency: 'OMR', internalCode: 'ACC-EXTRA-POISON' }],
+    terms: 'TERMS-POISON', footerNote: 'FOOTER-POISON', signatureUrl: 'SIG-POISON', stampUrl: 'STAMP-POISON', watermarkText: 'WATERMARK-POISON',
+  };
+  ctx.store.db.prepare('UPDATE invoices SET templateSnapshot = ? WHERE id = ?').run(JSON.stringify(snapshot), ctx.main.id);
+  ctx.store.db.prepare('UPDATE invoices SET templateSnapshot = NULL WHERE id = ?').run(ctx.overdue.id);
+  const omar = await ctx.session(ctx.client, 'omar@alnoor.test');
+  const { body } = await get(ctx, omar, `/invoices/${ctx.main.id}`);
+  assert.deepEqual(body.payment, {
+    instructions: 'Quote the invoice number as the transfer reference.',
+    accounts: [{ bankName: 'Bank Muscat', accountHolder: 'Peak Media LLC', accountNumber: '0123456789', iban: 'OM810180000001299123456', swift: 'BMUSOMRX', currency: 'OMR' }],
+  });
+  const json = JSON.stringify(body);
+  for (const secret of ['ACC-EXTRA-POISON', 'TERMS-POISON', 'FOOTER-POISON', 'SIG-POISON', 'STAMP-POISON', 'WATERMARK-POISON', 'templateSnapshot', 'internalCode']) {
+    assert.equal(json.includes(secret), false, `invoice leaked ${secret}`);
+  }
+  const bare = await get(ctx, omar, `/invoices/${ctx.overdue.id}`);
+  assert.deepEqual(bare.body.payment, { instructions: null, accounts: [] });
+});

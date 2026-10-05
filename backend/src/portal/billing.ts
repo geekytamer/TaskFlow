@@ -44,12 +44,33 @@ export function toInvoiceSummary(store: DataStore, invoice: Invoice) {
   };
 }
 
+const field = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, 500) : null);
+
+/**
+ * How to pay, from what was printed on this invoice when it was issued: the
+ * payment instructions and bank accounts only. Nothing else in the template
+ * (terms, signatures, internal codes) leaves the server.
+ */
+export function paymentDetails(invoice: Invoice) {
+  const t = invoice.templateSnapshot;
+  return {
+    instructions: field(t?.paymentInstructions),
+    accounts: (Array.isArray(t?.bankAccounts) ? t!.bankAccounts : [])
+      .map((a) => ({
+        bankName: field(a.bankName), accountHolder: field(a.accountHolder), accountNumber: field(a.accountNumber),
+        iban: field(a.iban), swift: field(a.swift), currency: field(a.currency),
+      }))
+      .filter((a) => a.accountNumber || a.iban),
+  };
+}
+
 /** Allowlisted: line items without task ids or SKUs, payments without staff notes. */
 export function toInvoiceDetail(store: DataStore, invoice: Invoice) {
   return {
     ...toInvoiceSummary(store, invoice),
     taxRate: invoice.taxRate ?? 0,
     notes: invoice.notes ?? null,
+    payment: paymentDetails(invoice),
     lineItems: invoice.lineItems.map((l) => ({
       description: l.description,
       quantity: l.quantity,
