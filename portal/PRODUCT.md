@@ -22,7 +22,7 @@ Calm, exact, trustworthy. Plain language, no hype. The portal speaks for an agen
 
 ## Brand Commitments
 
-- Visual direction (owner's choice, 2026-10-05): the category standard, played straight. The craft bar is Stripe Dashboard and Mercury: white working surfaces on a cool neutral canvas, one accent, precise numbers, standard controls. Distinction comes from finish, not from a theme.
+- Visual direction (owner's choice, 2026-10-05): both portals wear Peak's own brand (peak-creative.agency: its colours, typefaces and logo). Structure and finish follow the category's best, Stripe Dashboard and Mercury: standard controls, precise numbers, no decorative theme beyond the brand.
 
 ## Anti-references
 
