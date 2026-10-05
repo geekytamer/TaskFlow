@@ -99,3 +99,124 @@ test('a frozen game can still be linked: it changes who reads, not the results',
   assert.equal((await staff(ctx, 'put', `/${id}/client`, { contactId: ctx.client.id })).status, 200);
 });
 
+
+// A live followers game for Al Noor with collected interactions, an excluded
+// actor and planted values that must never reach the brand.
+const liveBrandGame = async (ctx, over = {}) => {
+  const id = await createGame(ctx, over);
+  const { store } = ctx;
+  const post = store.games.addSource({ gameId: id, kind: 'post', accountId: 'ACC-POISON', mediaId: 'm1', permalink: 'https://www.instagram.com/p/game1/' });
+  const tags = store.games.addSource({ gameId: id, kind: 'tags', accountId: 'ACC-POISON', mediaId: '', permalink: null });
+  const likes = store.games.addSource({ gameId: id, kind: 'import', accountId: '', mediaId: 'likers1', permalink: 'https://www.instagram.com/p/game2/' });
+  store.games.updateSource(post.id, { lastError: 'LASTERROR-POISON', likersMissed: 31337, likersWindow: 4242 });
+  const at = (daysAgo, h = 0) => new Date(Date.now() - daysAgo * DAY - h * HOUR).toISOString();
+  const ev = (externalId, handle, action, occurredAt, textHash = externalId) => ({ externalId, actorKey: `instagram:${handle}`, actorHandle: handle, action, postRef: 'm1', occurredAt, textLength: 20, textHash });
+  const now = new Date().toISOString();
+  store.games.syncSourceEvents(id, post.id, [
+    ev('c1', 'noor.m', 'comment', at(2)),
+    ev('c2', 'noor.m', 'reply', at(1)),
+    ev('c3', 'ahmed_88', 'comment', at(1)),
+    ev('c4', 'bot_ring1', 'comment', at(1), 'same'),
+    ev('c5', 'fatma.s', 'comment', at(0, 1)),
+  ], now);
+  // c5 disappears on the next full read: removed comments never count.
+  store.games.syncSourceEvents(id, post.id, [
+    ev('c1', 'noor.m', 'comment', at(2)), ev('c2', 'noor.m', 'reply', at(1)), ev('c3', 'ahmed_88', 'comment', at(1)), ev('c4', 'bot_ring1', 'comment', at(1), 'same'),
+  ], now);
+  store.games.syncSourceEvents(id, tags.id, [ev('t1', 'ahmed_88', 'mention', at(1))], now);
+  store.games.syncSourceEvents(id, likes.id, [ev('l1', 'noor.m', 'like', at(2)), ev('l2', 'bot_ring1', 'like', at(2))], now);
+  assert.equal((await staff(ctx, 'put', `/${id}/metrics`, [{ metricKey: 'weighted_interactions', weight: 1, params: {} }])).status, 200);
+  assert.equal((await staff(ctx, 'post', `/${id}/publish`)).status, 200);
+  assert.equal((await staff(ctx, 'post', `/${id}/actor-rules`, { platform: 'instagram', handle: 'bot_ring1', kind: 'exclude', reason: 'EXCLUDE-REASON-POISON' })).status, 201);
+  assert.equal((await staff(ctx, 'put', `/${id}/client`, { contactId: ctx.client.id })).status, 200);
+  return id;
+};
+
+const POISON = ['EXCLUDE-REASON-POISON', 'AWARD-REASON-POISON', 'Carla', 'same_text', 'burst', 'likersMissed', 'likersWindow', '31337', '4242',
+  'LASTERROR-POISON', 'ACC-POISON', 'bot_ring1', 'createdByUserId', 'byUserId', 'excluded', 'viewers', 'accountId'];
+const noPoison = (body, where) => {
+  const json = JSON.stringify(body);
+  for (const secret of POISON) assert.equal(json.includes(secret), false, `${where} leaked ${secret}`);
+};
+
+test('a linked client sees its game and report without being a viewer', async () => {
+  const ctx = build();
+  await liveBrandGame(ctx);
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const list = await request(ctx.server).get('/portal-api/client/brand-games').set(huda);
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.map((g) => g.slug), ['ramadan-challenge']);
+  assert.equal(list.body[0].status, 'live');
+  assert.equal(list.body[0].players, 2);
+  const detail = await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(huda);
+  assert.equal(detail.status, 200, JSON.stringify(detail.body));
+  assert.equal(detail.body.game.name, 'Ramadan challenge');
+  assert.equal((await request(ctx.server).get('/portal-api/client/games/ramadan-challenge').set(huda)).status, 200, 'the lobby page opens too');
+  noPoison(list.body, 'list');
+  noPoison(detail.body, 'detail');
+});
+
+test('totals and the daily series leave out removed events and excluded actors', async () => {
+  const ctx = build();
+  await liveBrandGame(ctx);
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const { body } = await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(huda);
+  assert.deepEqual(body.totals, { comments: 2, replies: 1, tags: 1, likes: 1 });
+  const sum = (k) => body.daily.reduce((s, d) => s + d[k], 0);
+  assert.deepEqual({ comments: sum('comments'), replies: sum('replies'), tags: sum('tags'), likes: sum('likes') }, body.totals);
+  assert.ok(body.daily.length >= 3, 'one row per day from the start');
+  assert.match(body.daily[0].date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.deepEqual(body.posts, [{ url: 'https://www.instagram.com/p/game1/', kind: 'comment' }, { url: 'https://www.instagram.com/p/game2/', kind: 'like' }]);
+});
+
+test('top fans match the public board, and winners appear only once results freeze', async () => {
+  const ctx = build();
+  const id = await liveBrandGame(ctx);
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const live = await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(huda);
+  const board = await request(ctx.server).get('/portal-api/client/games/ramadan-challenge').set(huda);
+  assert.deepEqual(live.body.topFans, board.body.board.slice(0, 10).map(({ rank, handle, points }) => ({ rank, handle, points })));
+  assert.equal(live.body.winners, null);
+  assert.equal(live.body.game.frozen, false);
+
+  ctx.store.games.updateGame(id, { endsAt: new Date(Date.now() - HOUR).toISOString(), reconciledAt: new Date().toISOString() });
+  const ended = await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(huda);
+  assert.equal(ended.body.game.status, 'ended');
+  assert.equal(ended.body.game.frozen, true);
+  assert.deepEqual(ended.body.winners, ended.body.topFans.slice(0, 3));
+  noPoison(ended.body, 'ended detail');
+});
+
+test('another client, drafts and archived games answer 404', async () => {
+  const ctx = build();
+  const id = await liveBrandGame(ctx);
+  const draft = await createGame(ctx, { slug: 'draft-one' });
+  await staff(ctx, 'put', `/${draft}/client`, { contactId: ctx.client.id });
+  const rival = await ctx.session(ctx.rival, 'sam@sidr.test');
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const lina = await ctx.session(ctx.lina, 'lina@creator.test', 'influencer');
+  assert.equal((await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(rival)).status, 404);
+  assert.deepEqual((await request(ctx.server).get('/portal-api/client/brand-games').set(rival)).body, []);
+  assert.equal((await request(ctx.server).get('/portal-api/client/games/ramadan-challenge').set(rival)).status, 404, 'restricted stays hidden from other clients');
+  assert.equal((await request(ctx.server).get('/portal-api/client/brand-games/draft-one').set(huda)).status, 404, 'drafts are not shown');
+  assert.equal((await request(ctx.server).get('/portal-api/influencer/brand-games').set(lina)).status, 404, 'influencers have no brand reports');
+  assert.equal((await staff(ctx, 'post', `/${id}/archive`)).status, 200);
+  assert.equal((await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(huda)).status, 404, 'archived');
+  assert.deepEqual((await request(ctx.server).get('/portal-api/client/brand-games').set(huda)).body, []);
+});
+
+test('a game nobody has played yet reports zeros, not errors', async () => {
+  const ctx = build();
+  const id = await createGame(ctx, { slug: 'quiet' });
+  ctx.store.games.addSource({ gameId: id, kind: 'post', accountId: 'a', mediaId: 'm', permalink: 'https://www.instagram.com/p/q/' });
+  await staff(ctx, 'put', `/${id}/metrics`, [{ metricKey: 'comments', weight: 1, params: {} }]);
+  await staff(ctx, 'post', `/${id}/publish`);
+  await staff(ctx, 'put', `/${id}/client`, { contactId: ctx.client.id });
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const { status, body } = await request(ctx.server).get('/portal-api/client/brand-games/quiet').set(huda);
+  assert.equal(status, 200);
+  assert.equal(body.players, 0);
+  assert.deepEqual(body.totals, { comments: 0, replies: 0, tags: 0, likes: 0 });
+  assert.deepEqual(body.topFans, []);
+  assert.ok(body.daily.every((d) => d.comments === 0 && d.likes === 0));
+});
