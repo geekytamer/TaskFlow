@@ -35,8 +35,7 @@
     ".next-influencer/types/**/*.ts",
     ".next-lobby/types/**/*.ts",
     ".next/types/**/*.ts",
-    "next-env.d.ts",
-    ".next-client-build/types/**/*.ts"
+    "next-env.d.ts"
   ],
   "exclude": [
     "node_modules"
