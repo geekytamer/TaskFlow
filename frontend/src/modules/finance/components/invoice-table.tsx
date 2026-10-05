@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Printer, Undo2, Trash2 } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Pencil, Printer, Undo2, Trash2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -65,6 +65,8 @@ export function InvoiceTable() {
   const [campaigns, setCampaigns] = React.useState<CrmCampaign[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [editingInvoice, setEditingInvoice] = React.useState<Invoice | null>(null);
+  const [isEditSheetOpen, setIsEditSheetOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | InvoiceStatus>('all');
   const [paymentDialog, setPaymentDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
@@ -427,6 +429,14 @@ export function InvoiceTable() {
                 </Button>
               </CreateInvoiceSheet>
             )}
+            {canManageFinance && editingInvoice && (
+              <CreateInvoiceSheet
+                open={isEditSheetOpen}
+                onOpenChange={setIsEditSheetOpen}
+                onInvoiceCreated={fetchData}
+                invoiceToEdit={editingInvoice}
+              />
+            )}
           </div>
         )}
       />
@@ -506,6 +516,19 @@ export function InvoiceTable() {
                       <Eye className="me-2 h-4 w-4" />
                       {t('invoiceTable.previewBtn')}
                     </Button>
+                    {canManageFinance && invoice.status === 'Draft' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEditingInvoice(invoice);
+                        setIsEditSheetOpen(true);
+                      }}
+                    >
+                      <Pencil className="me-2 h-4 w-4" />
+                      {t('invoiceTable.editBtn')}
+                    </Button>
+                    )}
                     {canManageFinance && (
                     <Button
                       variant="outline"

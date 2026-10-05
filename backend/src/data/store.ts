@@ -15703,9 +15703,12 @@ export class DataStore {
       throw new Error('Invoice total cannot be lower than recorded payments.');
     }
 
+    // A partial edit leaves out what it does not change; a key that is present
+    // but undefined must not wipe the saved value.
+    const given = Object.fromEntries(Object.entries(updates).filter(([, value]) => value !== undefined));
     const merged = {
       ...existing,
-      ...updates,
+      ...given,
       issueDate: (updates.issueDate ? new Date(updates.issueDate) : new Date(existing.issueDate)).toISOString(),
       dueDate: (updates.dueDate ? new Date(updates.dueDate) : new Date(existing.dueDate)).toISOString(),
       lineItems: JSON.stringify(nextLineItems),

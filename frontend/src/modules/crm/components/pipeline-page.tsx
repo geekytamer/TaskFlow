@@ -286,7 +286,12 @@ export function PipelinePage() {
         notes: oppForm.notes.trim() || undefined,
       };
       if (editingOpportunity) {
-        await updateOpportunity(editingOpportunity.id, payload);
+        // On edit an emptied field is sent as null so the server clears it.
+        await updateOpportunity(editingOpportunity.id, {
+          ...payload,
+          expectedCloseDate: payload.expectedCloseDate ?? (null as any),
+          notes: payload.notes ?? (null as any),
+        });
         toast({ title: t('pipelinePage.toastOpportunityUpdated') });
       } else {
         await createOpportunity(selectedCompany.id, payload);

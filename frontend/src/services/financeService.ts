@@ -68,11 +68,14 @@ const mapInvoiceLineItem = (item: any): InvoiceLineItem => {
     description: String(item?.description || ''),
     quantity: Number.isFinite(quantity) ? quantity : 1,
     unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+    discount: Number(item?.discount) > 0 ? Number(item.discount) : undefined,
+    discountType: item?.discountType === 'amount' || item?.discountType === 'percent' ? item.discountType : undefined,
     amount: Number.isFinite(amount) ? amount : 0,
+    custom: item?.custom && typeof item.custom === 'object' ? item.custom : undefined,
   };
 };
 
-const mapInvoice = (invoice: any): Invoice => ({
+const mapInvoice =(invoice: any): Invoice => ({
   ...invoice,
   clientId: stringId(invoice.clientId) || '',
   contactId: stringId(invoice.contactId),

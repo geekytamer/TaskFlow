@@ -427,8 +427,19 @@ const parseInvoiceLineItems = (value: unknown): InvoiceLineItem[] => {
         record.amount ?? quantity * unitPrice,
         `lineItems[${index}].amount`,
       ),
+      custom: parseLineCustom(record.custom, index),
     };
   });
+};
+
+/** Values for a template's custom columns: short text, keyed by column id. */
+const parseLineCustom = (value: unknown, index: number): Record<string, string> | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, `lineItems[${index}].custom must be an object.`);
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => /^[\w.-]{1,64}$/.test(key))
+    .map(([key, raw]) => [key, String(raw ?? '').slice(0, 2000)] as const);
+  return entries.length ? Object.fromEntries(entries) : undefined;
 };
 
 const parsePurchaseOrderItems = (value: unknown): PurchaseOrderLineItem[] => {
@@ -4373,12 +4384,20 @@ export function createServer(options: CreateServerOptions = {}) {
 		          stage: body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : undefined,
 		          expectedRevenue: body.expectedRevenue !== undefined ? optionalNumber(body.expectedRevenue) ?? 0 : undefined,
 		          probability: body.probability !== undefined ? optionalNumber(body.probability) ?? 0 : undefined,
+		          // An explicit empty value clears the field; leaving it out keeps it.
 		          expectedCloseDate:
-		            body.expectedCloseDate !== undefined && body.expectedCloseDate ? new Date(optionalDateInput(body.expectedCloseDate)!) : undefined,
-		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
+		            body.expectedCloseDate === undefined
+		              ? undefined
+		              : body.expectedCloseDate ? new Date(optionalDateInput(body.expectedCloseDate)!) : (null as any),
+		          notes: body.notes === undefined ? undefined : (optionalString(body.notes) ?? (null as any)),
 		        }),
 		      );
 		      if (!updated) throw new HttpError(404, 'Opportunity not found.');
+		      // Winning through an edit does what winning through the stage move does.
+		      if (updated.stage === 'Won' && existing.stage !== 'Won') {
+		        store.calculateCommissionsForOpportunity(updated.id);
+		        autoConvertContactToClient(updated.contactId, updated.companyId);
+		      }
 		      res.json(updated);
 		    }),
 		  );

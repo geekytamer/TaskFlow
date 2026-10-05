@@ -118,3 +118,16 @@ test('without unit costs, a quote total is spread by quantity and a missing supp
   assert.equal(po.body.items[0].unitCost, 50);
   assert.equal(po.body.totalAmount, 200);
 });
+
+test('invoice custom column values are saved on create and edit', async () => {
+  const { app, as } = setup();
+  const line = { itemType: 'Manual', description: 'Printing', quantity: 1, unitPrice: 10, amount: 10, custom: { colour: 'Blue', size: 'A3' } };
+  const created = await as(request(app).post('/invoices')).send({
+    companyId: '1', clientId: 'client-1', issueDate: new Date().toISOString(), dueDate: new Date().toISOString(), lineItems: [line], total: 10, status: 'Draft',
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.deepEqual(created.body.lineItems[0].custom, { colour: 'Blue', size: 'A3' });
+  const edited = await as(request(app).put(`/invoices/${created.body.id}`)).send({ lineItems: [{ ...line, custom: { colour: 'Red' } }] });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.deepEqual(edited.body.lineItems[0].custom, { colour: 'Red' });
+});

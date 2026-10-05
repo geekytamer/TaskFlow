@@ -29,9 +29,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getClients, createInvoice, getInvoiceTemplates, getSalesOrders } from '@/services/financeService';
+import { getClients, createInvoice, updateInvoice, getInvoiceTemplates, getSalesOrders } from '@/services/financeService';
 import { getTasksByClient } from '@/services/projectService';
-import type { Client, InvoiceLineItem, InvoiceTemplate, SalesOrder } from '@/modules/finance/types';
+import type { Client, Invoice, InvoiceLineItem, InvoiceTemplate, SalesOrder } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
@@ -43,13 +43,15 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
 
 interface CreateInvoiceSheetProps {
-    children: React.ReactNode;
+    children?: React.ReactNode;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onInvoiceCreated: () => void;
+    /** When set, the sheet edits this (Draft) invoice instead of creating one. */
+    invoiceToEdit?: Invoice;
 }
 
-export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCreated }: CreateInvoiceSheetProps) {
+export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCreated, invoiceToEdit }: CreateInvoiceSheetProps) {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const { t, language } = useI18n();
@@ -78,6 +80,22 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [manualDiscountType, setManualDiscountType] = React.useState<'percent' | 'amount'>('percent');
   const [manualCustom, setManualCustom] = React.useState<Record<string, string>>({});
   const [manualLines, setManualLines] = React.useState<InvoiceLineItem[]>([]);
+  // Edit mode: bumped on each open so the task loader re-seeds the invoice's
+  // task lines even when the client is unchanged; the ref stops a second seed.
+  const [editSeed, setEditSeed] = React.useState(0);
+  const taskLinesSeededRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!open || !invoiceToEdit) return;
+    taskLinesSeededRef.current = false;
+    setSelectedClient(invoiceToEdit.clientId);
+    setSelectedSalesOrderId(invoiceToEdit.salesOrderId);
+    setSelectedTemplateId(invoiceToEdit.templateId);
+    setTaxRate(invoiceToEdit.taxRate ? String(invoiceToEdit.taxRate) : '');
+    setSelectedTaskIds([]);
+    setManualLines(invoiceToEdit.lineItems.filter((line) => !line.taskId));
+    setEditSeed((n) => n + 1);
+  }, [open, invoiceToEdit]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -97,7 +115,9 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         if (cancelled) return;
         setClients(clientData);
         setTemplates(templateData);
-        setSalesOrders(orderData.filter((order) => order.status === 'Confirmed' && !order.invoiceId));
+        setSalesOrders(orderData.filter((order) =>
+          (order.status === 'Confirmed' && !order.invoiceId)
+          || (!!invoiceToEdit && order.invoiceId === invoiceToEdit.id)));
         setSelectedTemplateId((current) => chooseTemplateId(templateData, current));
       } catch (error: any) {
         if (cancelled) return;
@@ -119,22 +139,33 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     return () => {
       cancelled = true;
     };
-  }, [open, selectedCompany]);
+  }, [open, selectedCompany, invoiceToEdit]);
   
   React.useEffect(() => {
     async function loadTasks() {
         if (selectedClient && selectedCompany) {
             setLoadingTasks(true);
+            const editTaskLines = invoiceToEdit && !taskLinesSeededRef.current && selectedClient === invoiceToEdit.clientId
+              ? invoiceToEdit.lineItems.filter((line) => line.taskId)
+              : [];
+            if (editTaskLines.length) taskLinesSeededRef.current = true;
             try {
               const tasks = isModuleOn(selectedCompany, 'tasks')
                 ? await getTasksByClient(selectedCompany.id, selectedClient)
                 : [];
-              const candidates = tasks.filter(t => t.invoiceAmount && !t.generatedInvoiceId);
+              const candidates = tasks.filter(t =>
+                t.invoiceAmount && (!t.generatedInvoiceId || t.generatedInvoiceId === invoiceToEdit?.id));
               setBillableTasks(candidates);
-              setSelectedTaskIds([]);
+              // Re-tick the invoice's own tasks; lines whose task is no longer
+              // listed are kept as removable lines rather than silently dropped.
+              const candidateIds = new Set(candidates.map((task) => task.id));
+              setSelectedTaskIds(editTaskLines.filter((line) => candidateIds.has(line.taskId!)).map((line) => line.taskId!));
+              const unlisted = editTaskLines.filter((line) => !candidateIds.has(line.taskId!));
+              if (unlisted.length) setManualLines((prev) => [...prev, ...unlisted]);
             } catch (error: any) {
               setBillableTasks([]);
               setSelectedTaskIds([]);
+              if (editTaskLines.length) setManualLines((prev) => [...prev, ...editTaskLines]);
               toast({
                 variant: 'destructive',
                 title: tr('Billable tasks unavailable', 'المهام القابلة للفوترة غير متاحة'),
@@ -149,7 +180,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         }
     }
     loadTasks();
-  }, [selectedClient, selectedCompany]);
+  }, [selectedClient, selectedCompany, editSeed, invoiceToEdit]);
   
   const handleSelectTask = (taskId: string) => {
     setSelectedTaskIds(prev =>
@@ -159,6 +190,9 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
 
   const taskLineItems: InvoiceLineItem[] = React.useMemo(() => {
     return selectedTaskIds.map(id => {
+      // Keep an edited invoice's existing task line as saved.
+      const existingLine = invoiceToEdit?.lineItems.find((line) => line.taskId === id);
+      if (existingLine) return existingLine;
       const task = billableTasks.find(t => t.id === id);
       const amount = task?.invoiceAmount || 0;
       return {
@@ -171,7 +205,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         amount,
       };
     }).filter(item => item.amount > 0);
-  }, [selectedTaskIds, billableTasks]);
+  }, [selectedTaskIds, billableTasks, invoiceToEdit]);
 
   const selectedLineItems = React.useMemo(
     () => [...taskLineItems, ...manualLines],
@@ -311,6 +345,31 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       return;
     }
 
+    if (invoiceToEdit) {
+      try {
+        // Partial PUT: dates, currency, notes and status are not on this form,
+        // so they are left out and keep their saved values.
+        const updated = await updateInvoice(invoiceToEdit.id, {
+          clientId: selectedClient,
+          salesOrderId: selectedSalesOrderId,
+          templateId: selectedTemplateId || undefined,
+          lineItems: selectedLineItems,
+          taxRate: Number(taxRate) || 0,
+        });
+        toast({ title: tr(`Invoice ${updated.invoiceNumber} updated`, `تم تحديث الفاتورة ${updated.invoiceNumber}`) });
+        onInvoiceCreated();
+        onOpenChange(false);
+        resetState();
+      } catch (error: any) {
+        toast({
+          variant: 'destructive',
+          title: tr('Error', 'خطأ'),
+          description: error?.message || tr('Failed to update invoice.', 'تعذر تحديث الفاتورة.'),
+        });
+      }
+      return;
+    }
+
     try {
       const issueDate = new Date();
       const dueDate = add(issueDate, { days: 30 });
@@ -368,11 +427,20 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetTrigger asChild>{children}</SheetTrigger>
+      {children && <SheetTrigger asChild>{children}</SheetTrigger>}
       <SheetContent className="w-full max-w-3xl sm:max-w-3xl flex flex-col">
         <SheetHeader>
-          <SheetTitle>{tr('Create New Invoice', 'إنشاء فاتورة جديدة')}</SheetTitle>
-          <SheetDescription>{tr('Select a client to find billable tasks and generate an invoice.', 'اختر عميلاً للعثور على المهام القابلة للفوترة وإنشاء فاتورة.')}</SheetDescription>
+          {invoiceToEdit ? (
+            <>
+              <SheetTitle>{tr(`Edit Invoice ${invoiceToEdit.invoiceNumber}`, `تعديل الفاتورة ${invoiceToEdit.invoiceNumber}`)}</SheetTitle>
+              <SheetDescription>{tr('Change the client, template, line items, or tax rate of this draft invoice.', 'عدّل العميل أو القالب أو البنود أو نسبة الضريبة لمسودة الفاتورة هذه.')}</SheetDescription>
+            </>
+          ) : (
+            <>
+              <SheetTitle>{tr('Create New Invoice', 'إنشاء فاتورة جديدة')}</SheetTitle>
+              <SheetDescription>{tr('Select a client to find billable tasks and generate an invoice.', 'اختر عميلاً للعثور على المهام القابلة للفوترة وإنشاء فاتورة.')}</SheetDescription>
+            </>
+          )}
         </SheetHeader>
         <div className="flex-1 flex flex-col gap-4 py-4 overflow-y-auto">
             <div className="pe-6" data-tutorial="invoice-form-client">
@@ -670,7 +738,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         <SheetFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{tr('Cancel', 'إلغاء')}</Button>
           <Button onClick={handleCreateInvoice} disabled={selectedLineItems.length === 0} data-tutorial="invoice-form-submit">
-            {tr('Create Draft Invoice', 'إنشاء مسودة فاتورة')}
+            {invoiceToEdit ? tr('Save Changes', 'حفظ التغييرات') : tr('Create Draft Invoice', 'إنشاء مسودة فاتورة')}
           </Button>
         </SheetFooter>
       </SheetContent>
