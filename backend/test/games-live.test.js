@@ -319,3 +319,27 @@ test('copy-paste rings and bursts are flagged for staff, not removed; the creato
   assert.equal(notes.length, 1, 'once');
   assert.match(notes[0].body, /^1\. @/);
 });
+
+test('a read cut short by paging removes nothing; a rejected edit keeps the scoring', async () => {
+  const ctx = build();
+  const game = await followersGame(ctx);
+  ctx.meta.comments = [comment('c1', 'sara', 'Ramadan Kareem!', 5), comment('c2', 'omar', 'Blessed month', 4)];
+  await collectGame(ctx.store, ctx.meta, ctx.store.games.get(game.id));
+  ctx.meta.mediaComments = async () => Object.assign([comment('c1', 'sara', 'Ramadan Kareem!', 5)], { truncated: true });
+  await collectGame(ctx.store, ctx.meta, ctx.store.games.get(game.id));
+  assert.deepEqual((await board(ctx, game.id)).map(([h]) => h).sort(), ['omar', 'sara'], 'omar was not reached, not removed');
+
+  const draft = await makeGame(ctx);
+  await ctx.staff('put', `/${draft.id}/metrics`, [{ metricKey: 'manual_points', weight: 2 }]);
+  const bad = await ctx.staff('patch', `/${draft.id}`, { audience: 'creators', endsAt: ago(100).toISOString() });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(ctx.store.games.metrics(draft.id).map((m) => m.weight), [2]);
+  assert.equal((await ctx.staff('patch', `/${draft.id}`, { audience: 'creators' })).status, 200);
+  assert.deepEqual(ctx.store.games.metrics(draft.id), [], 'a new audience starts with no scoring');
+
+  ctx.meta.mediaComments = async () => { throw new Error('boom'); };
+  await collectGame(ctx.store, ctx.meta, ctx.store.games.get(game.id));
+  const post = ctx.store.games.sources(game.id).find((src) => src.kind === 'post');
+  assert.equal(post.dirty, 1, 'a failed read stays due');
+  assert.equal(post.lastError, 'boom');
+});

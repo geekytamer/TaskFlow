@@ -207,7 +207,7 @@ export class GamesStore {
    * Records what one full read of a source returned: new ids are added, ids no
    * longer returned are flagged removed, ids that came back are restored.
    */
-  syncSourceEvents(gameId: string, sourceId: string, events: Array<Omit<GameEventRow, 'gameId' | 'sourceId' | 'removedAt'>>, now: string): { added: number; removed: number } {
+  syncSourceEvents(gameId: string, sourceId: string, events: Array<Omit<GameEventRow, 'gameId' | 'sourceId' | 'removedAt'>>, now: string, complete = true): { added: number; removed: number } {
     return this.db.transaction(() => {
       const insert = this.db.prepare(
         `INSERT OR IGNORE INTO game_events (gameId, externalId, sourceId, actorKey, actorHandle, action, postRef, occurredAt, textLength, textHash)
@@ -217,6 +217,8 @@ export class GamesStore {
       for (const e of events) added += insert.run({ ...e, gameId, sourceId }).changes;
       const ids = JSON.stringify(events.map((e) => e.externalId));
       this.db.prepare(`UPDATE game_events SET removedAt = NULL WHERE gameId = ? AND sourceId = ? AND removedAt IS NOT NULL AND externalId IN (SELECT value FROM json_each(?))`).run(gameId, sourceId, ids);
+      // A partial read cannot tell removed from not-reached, so it removes nothing.
+      if (!complete) return { added, removed: 0 };
       const removed = this.db.prepare(`UPDATE game_events SET removedAt = ? WHERE gameId = ? AND sourceId = ? AND removedAt IS NULL AND externalId NOT IN (SELECT value FROM json_each(?))`).run(now, gameId, sourceId, ids).changes;
       return { added, removed };
     })();

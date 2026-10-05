@@ -183,11 +183,12 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     if (body.audience !== undefined) {
       fields.audience = enumValue(body.audience, 'audience', ['followers', 'creators'] as const);
       if (fields.audience !== game.audience && game.publishedAt) throw new HttpError(409, 'Who plays cannot change after the game is published.');
-      if (fields.audience !== game.audience) store.games.setMetrics(game.id, []);
     }
     if (body.startsAt !== undefined) fields.startsAt = date(body.startsAt, 'startsAt');
     if (body.endsAt !== undefined) fields.endsAt = date(body.endsAt, 'endsAt');
     if ((fields.endsAt ?? game.endsAt) <= (fields.startsAt ?? game.startsAt)) throw new HttpError(400, 'The game must end after it starts.');
+    // Metrics belong to who plays; a new audience starts from none. Only once the request is valid.
+    if (fields.audience && fields.audience !== game.audience) store.games.setMetrics(game.id, []);
     res.json(view(store.games.updateGame(game.id, fields)!));
   }));
 

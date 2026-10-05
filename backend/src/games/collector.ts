@@ -32,25 +32,27 @@ const describe = (error: unknown) =>
     : error instanceof MetaRateLimitError ? 'Instagram is limiting requests; will retry.'
       : (error as Error).message.slice(0, 300);
 
-async function readSource(store: DataStore, client: MetaClient, source: GameSource): Promise<Row[]> {
+async function readSource(store: DataStore, client: MetaClient, source: GameSource): Promise<{ rows: Row[]; complete: boolean }> {
   const account = store.social.getAccount(source.accountId);
   const token = tokenOf(account);
   const own = account!.username.toLowerCase();
   if (source.kind === 'post') {
-    return (await client.mediaComments(token, source.mediaId))
+    const comments = await client.mediaComments(token, source.mediaId);
+    return { complete: !comments.truncated, rows: comments
       // The account answering its own post is not a player.
       .filter((c) => c.username && c.username.toLowerCase() !== own)
       .map((c) => ({
         externalId: c.id, ...actor(c.username), action: c.parentId ? 'reply' : 'comment', postRef: source.mediaId,
         occurredAt: c.timestamp.toISOString(), textLength: c.text.trim().length, textHash: hashOf(c.text),
-      }));
+      })) };
   }
-  return (await client.taggedMedia(token, account!.externalId))
+  const tagged = await client.taggedMedia(token, account!.externalId);
+  return { complete: !tagged.truncated, rows: tagged
     .filter((m) => m.username && m.username.toLowerCase() !== own)
     .map((m) => ({
       externalId: m.id, ...actor(m.username), action: 'mention' as const, postRef: m.id,
       occurredAt: m.timestamp.toISOString(), textLength: m.caption.trim().length, textHash: hashOf(m.caption),
-    }));
+    })) };
 }
 
 /** Followers at or before a day, else the first one after it. */
@@ -103,13 +105,15 @@ export async function collectGame(store: DataStore, client: MetaClient, game: Ga
   const errors: string[] = [];
   // Imported likers lists are staff's own record; only Meta-backed sources are re-read.
   for (const source of store.games.sources(game.id).filter((src) => src.kind !== 'import')) {
+    // Cleared before reading, so a webhook that arrives mid-read marks it again.
+    store.games.updateSource(source.id, { dirty: 0 });
     try {
-      const rows = await readSource(store, client, source);
-      store.games.syncSourceEvents(game.id, source.id, rows, now.toISOString());
-      store.games.updateSource(source.id, { dirty: 0, lastCollectedAt: now.toISOString(), lastError: null });
+      const { rows, complete } = await readSource(store, client, source);
+      store.games.syncSourceEvents(game.id, source.id, rows, now.toISOString(), complete);
+      store.games.updateSource(source.id, { lastCollectedAt: now.toISOString(), lastError: null });
     } catch (error) {
       const message = describe(error);
-      store.games.updateSource(source.id, { lastError: message });
+      store.games.updateSource(source.id, { dirty: 1, lastError: message });
       errors.push(message);
     }
   }

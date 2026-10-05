@@ -66,3 +66,13 @@ test('the HTTP client pages through comments with replies and asks for tags', as
   await c.taggedMedia('tok', 'u1');
   assert.ok(calls.some((u) => u.includes('/u1/tags?fields=')));
 });
+
+test('paging stops at the cap and says the list is incomplete', async () => {
+  let calls = 0;
+  const fetchStub = async () => { calls += 1; return json({ data: [{ id: `x${calls}`, text: 't', timestamp: '2026-10-04T10:00:00+0000', username: 'u' }], paging: { next: `https://graph.instagram.com/v26.0/m/comments?after=${calls}` } }); };
+  const c = new HttpMetaClient({ appId: 'app', appSecret: 's', fetch: fetchStub });
+  const all = await c.mediaComments('tok', 'm');
+  assert.equal(calls, 20);
+  assert.equal(all.length, 20);
+  assert.equal(all.truncated, true);
+});

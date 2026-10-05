@@ -19,12 +19,15 @@ export interface MetaClient {
   mediaByPermalink(token: string, userId: string, permalink: string): Promise<{ id: string } | null>;
   mediaInsights(token: string, mediaId: string): Promise<MediaFigures>;
   /** Every comment and reply on one of the account's posts, flattened, oldest pages first. */
-  mediaComments(token: string, mediaId: string): Promise<CommentRow[]>;
+  mediaComments(token: string, mediaId: string): Promise<Listing<CommentRow>>;
   /** Posts by others that tag the account (how a repost of a game post is seen). */
-  taggedMedia(token: string, userId: string): Promise<TaggedRow[]>;
+  taggedMedia(token: string, userId: string): Promise<Listing<TaggedRow>>;
   /** The account's own posts since a date. */
   recentMedia(token: string, userId: string, since: Date): Promise<MediaRow[]>;
 }
+
+/** A list read from Meta; `truncated` when paging stopped at the cap before the end. */
+export type Listing<T> = T[] & { truncated?: boolean };
 
 export interface CommentRow { id: string; text: string; timestamp: Date; username: string; userId: string | null; parentId: string | null }
 export interface TaggedRow { id: string; username: string; timestamp: Date; permalink: string; caption: string }
@@ -151,28 +154,30 @@ export class HttpMetaClient implements MetaClient {
   }
 
   /** Follows `paging.next` up to MAX_PAGES so a busy post cannot run forever. */
-  private async pages<T>(first: string): Promise<T[]> {
-    const out: T[] = [];
+  private async pages<T>(first: string): Promise<{ rows: T[]; truncated: boolean }> {
+    const rows: T[] = [];
     let url: string | undefined = first;
     for (let i = 0; url && i < MAX_PAGES; i += 1) {
       const page: { data?: T[]; paging?: { next?: string } } = await this.call(url);
-      out.push(...(page.data ?? []));
+      rows.push(...(page.data ?? []));
       url = page.paging?.next;
     }
-    return out;
+    return { rows, truncated: Boolean(url) };
   }
 
-  async mediaComments(token: string, mediaId: string) {
-    return flattenComments(await this.pages<RawComment>(this.graph(`${mediaId}/comments?fields=id,text,timestamp,username,from,replies{id,text,timestamp,username,from}&limit=50`, token)));
+  async mediaComments(token: string, mediaId: string): Promise<Listing<CommentRow>> {
+    const { rows, truncated } = await this.pages<RawComment>(this.graph(`${mediaId}/comments?fields=id,text,timestamp,username,from,replies{id,text,timestamp,username,from}&limit=50`, token));
+    return Object.assign(flattenComments(rows), { truncated });
   }
 
-  async taggedMedia(token: string, userId: string) {
-    return toTagged(await this.pages(this.graph(`${userId}/tags?fields=id,username,timestamp,permalink,caption&limit=50`, token)));
+  async taggedMedia(token: string, userId: string): Promise<Listing<TaggedRow>> {
+    const { rows, truncated } = await this.pages<{ id: string; username?: string; timestamp: string; permalink?: string; caption?: string }>(this.graph(`${userId}/tags?fields=id,username,timestamp,permalink,caption&limit=50`, token));
+    return Object.assign(toTagged(rows), { truncated });
   }
 
   async recentMedia(token: string, userId: string, since: Date) {
-    const rows = toMedia(await this.pages(this.graph(`${userId}/media?fields=id,permalink,timestamp,caption&limit=50&since=${Math.floor(since.getTime() / 1000)}`, token)));
-    return rows.filter((m) => m.timestamp >= since);
+    const { rows } = await this.pages<{ id: string; permalink?: string; timestamp: string; caption?: string }>(this.graph(`${userId}/media?fields=id,permalink,timestamp,caption&limit=50&since=${Math.floor(since.getTime() / 1000)}`, token));
+    return toMedia(rows).filter((m) => m.timestamp >= since);
   }
 }
 
