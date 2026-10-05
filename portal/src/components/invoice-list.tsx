@@ -15,7 +15,7 @@ export function InvoiceList({ invoices, lang, showCampaign = true }: { invoices:
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="flex flex-wrap items-center gap-2 font-semibold"><bdi dir="ltr">{i.number}</bdi><StatusBadge lang={lang} invoice={i.status} /></p>
-                  <p className="mt-0.5 truncate text-sm text-ink-soft">
+                  <p className="mt-0.5 text-sm text-ink-soft">
                     {t(lang, 'bill.due')} <bdi>{formatDate(i.dueDate, lang)}</bdi>
                     {showCampaign && i.campaign && <> · <bdi>{i.campaign.name}</bdi></>}
                   </p>

@@ -33,9 +33,10 @@
     "**/*.tsx",
     ".next-client/types/**/*.ts",
     ".next-influencer/types/**/*.ts",
+    ".next-lobby/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-lobby/types/**/*.ts"
+    ".next-client-build/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

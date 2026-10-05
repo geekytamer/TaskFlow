@@ -1,6 +1,9 @@
 import { headers } from 'next/headers';
 import type { Audience } from './audience';
 
+/** A backend that does not answer within this long counts as unavailable, so pages show their error state instead of hanging. */
+const TIMEOUT_MS = 10_000;
+
 const apiBase = () => (process.env.PORTAL_API_URL ?? 'http://127.0.0.1:4005').replace(/\/+$/, '');
 
 export interface BackendResult<T> {
@@ -24,6 +27,7 @@ export async function backendFetch<T = Record<string, unknown>>(
     const response = await fetch(`${apiBase()}/portal-api/${audience}${path}`, {
       method: init.method ?? 'GET',
       cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: {
         'Content-Type': 'application/json',
         ...(init.token ? { Authorization: `Bearer ${init.token}` } : {}),
@@ -46,6 +50,7 @@ export async function backendDownload(audience: Audience, path: string, token: s
   try {
     const upstream = await fetch(`${apiBase()}/portal-api/${audience}${path}`, {
       cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS * 3),
       headers: { Authorization: `Bearer ${token}` },
     });
     // Keep "not yours" (404), "signed out" (401) and "the renderer is down" (503) distinct.
@@ -67,7 +72,7 @@ export async function backendDownload(audience: Audience, path: string, token: s
 /** A read from the unauthenticated games lobby API. Cached briefly, like the API itself. */
 export async function publicFetch<T>(path: string): Promise<BackendResult<T>> {
   try {
-    const response = await fetch(`${apiBase()}/public-api${path}`, { next: { revalidate: 30 } });
+    const response = await fetch(`${apiBase()}/public-api${path}`, { next: { revalidate: 30 }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     const data = await response.json().catch(() => ({}));
     return { status: response.status, data: data as T };
   } catch {
