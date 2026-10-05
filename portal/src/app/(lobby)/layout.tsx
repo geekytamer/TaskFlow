@@ -22,7 +22,7 @@ export default async function LobbyLayout({ children }: { children: ReactNode })
     <div className="min-h-[100dvh]">
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-5 md:px-8">
-          <a href="/games"><BrandMark branding={await getBranding('client')} /></a>
+          <a href="/games"><BrandMark branding={await getBranding('client')} variant="mark" /></a>
           <LanguageSwitch lang={lang} />
         </div>
       </header>

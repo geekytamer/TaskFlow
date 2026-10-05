@@ -15,6 +15,10 @@ server yet, so expect to adjust paths and domains on the first deploy.
 One build of `portal/` serves both hosts. `PORTAL_AUDIENCE` is read at runtime, so
 the same `.next` output runs as two processes.
 
+The portals are dark, so they use Peak's light-on-dark logo from `portal/public/brand`
+(`PORTAL_LOGO_URL`, full logo; `PORTAL_MARK_URL`, the P-mark for phone headers). The pm2
+file sets both; without them the company's own logo is used.
+
 ## Backend environment
 
 ```

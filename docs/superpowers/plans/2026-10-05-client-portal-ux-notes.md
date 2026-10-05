@@ -34,7 +34,7 @@ The look was calm and nothing leaked, but the work did not flow. The main proble
 - Every token was contrast-checked: secondary text is at least 7:1 and input borders at least 3:1. White on Peak orange is only 3:1, so text on orange buttons is near-black (6.7:1). This differs slightly from the website.
 - Chart colours are re-validated for the dark surface; all four series reach 3:1.
 - Fonts stay Manrope and IBM Plex Sans Arabic until Peak's typefaces are confirmed.
-- The company logo comes from the company record (`logoUrl`). Upload Peak's white P-mark there and it shows in both portals.
+- Peak's logo, recoloured for the dark ground (grey shapes to the portal's white, orange kept), ships in `portal/public/brand`: the full logo for the sidebar and sign-in, the P-mark alone for phone headers. Deployments point at them with `PORTAL_LOGO_URL` and `PORTAL_MARK_URL` (set in `deploy/portal/ecosystem.portal.cjs`); without them the company's own logo is used.
 - Short names (people, campaigns) use `<bdi>`, so Latin names sit at the right edge in Arabic. `dir="auto"` stays on prose.
 - In Arabic, time on every chart runs right to left.
 
@@ -122,5 +122,5 @@ Never returned:
 
 ## Open
 
-- Peak's typefaces and logo file: colours are taken from the site screenshot; fonts and the logo still need confirming or uploading.
+- Peak's typefaces: colours and logo are in; fonts stay Manrope and IBM Plex Sans Arabic until confirmed.
 - Impeccable can write a `DESIGN.md` from the built system once the brand values are in.

@@ -10,13 +10,16 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const API_URL = process.env.PORTAL_API_URL || 'http://127.0.0.1:4005';
+// Peak's light-on-dark logo, shipped in portal/public/brand.
+const LOGO_URL = process.env.PORTAL_LOGO_URL || '/brand/peak-logo-light.png';
+const MARK_URL = process.env.PORTAL_MARK_URL || '/brand/peak-mark-light.png';
 
 const portal = (name, audience, port) => ({
   name,
   cwd: path.join(ROOT, 'portal'),
   script: 'node_modules/next/dist/bin/next',
   args: `start -p ${port} -H 127.0.0.1`,
-  env: { NODE_ENV: 'production', PORTAL_AUDIENCE: audience, PORTAL_API_URL: API_URL },
+  env: { NODE_ENV: 'production', PORTAL_AUDIENCE: audience, PORTAL_API_URL: API_URL, PORTAL_LOGO_URL: LOGO_URL, PORTAL_MARK_URL: MARK_URL },
 });
 
 module.exports = {

@@ -36,7 +36,7 @@ export function PortalShell({ me, lang, badges = {}, children }: { me: Me; lang:
     <div className="min-h-[100dvh] lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
       <aside className="hidden border-e border-line bg-surface lg:block">
         <div className="sticky top-0 flex h-[100dvh] flex-col gap-8 overflow-y-auto px-4 py-6">
-          <div className="px-3"><BrandMark branding={me.company} /></div>
+          <div className="px-3"><BrandMark branding={me.company} className="h-14 w-auto object-contain" /></div>
           <div className="flex-1"><SidebarNav lang={lang} primary={nav.primary} secondary={nav.secondary} badges={badges} /></div>
           <div className="border-t border-line px-3 pt-5"><Account me={me} lang={lang} /></div>
         </div>
@@ -45,7 +45,7 @@ export function PortalShell({ me, lang, badges = {}, children }: { me: Me; lang:
       <div className="min-w-0">
         <header className="sticky top-0 z-20 border-b border-line bg-surface lg:hidden">
           <div className="flex h-14 items-center justify-between gap-4 px-4">
-            <BrandMark branding={me.company} />
+            <BrandMark branding={me.company} variant="mark" />
             <LanguageSwitch lang={lang} />
           </div>
         </header>
