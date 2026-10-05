@@ -6,7 +6,7 @@ import { t, type Key, type Lang } from '@/lib/i18n';
 import { primaryButton } from './field';
 
 const secondary =
-  'inline-flex h-11 items-center justify-center rounded-[10px] border border-field bg-surface px-5 text-[15px] font-semibold text-ink transition-colors hover:border-ink/60 disabled:opacity-60';
+  'inline-flex h-11 items-center justify-center rounded-control border border-field bg-surface px-5 text-[15px] font-semibold text-ink transition-colors hover:border-ink/60 disabled:opacity-60';
 
 export function AssignmentActions({ id, lang }: { id: string; lang: Lang }) {
   const router = useRouter();
@@ -45,7 +45,7 @@ export function AssignmentActions({ id, lang }: { id: string; lang: Lang }) {
             maxLength={1000}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded-[10px] border border-field bg-surface px-3.5 py-2.5 text-[15px] leading-relaxed hover:border-ink/60 focus-visible:border-ink"
+            className="w-full rounded-control border border-field bg-surface px-3.5 py-2.5 text-[15px] leading-relaxed hover:border-ink/60 focus-visible:border-ink"
           />
           <div className="flex flex-wrap gap-3">
             <button type="button" disabled={busy} onClick={() => respond('declined')} className={`${primaryButton} w-auto`}>{t(lang, 'asg.send')}</button>

@@ -7,7 +7,7 @@ import { t, type Key, type Lang } from '@/lib/i18n';
 import { primaryButton } from './field';
 
 const control =
-  'w-full rounded-[10px] border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
+  'w-full rounded-control border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
 
 interface AccountDraft { id?: string; platform: string; handle: string; url: string; followers: string; engagementRate: string }
 

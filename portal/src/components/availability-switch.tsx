@@ -37,7 +37,7 @@ export function AvailabilitySwitch({ lang, value }: { lang: Lang; value: Availab
         {AVAILABILITY.map((a) => {
           const on = current === a;
           return (
-            <label key={a} className={`cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors ${on ? 'border-ink bg-ink text-white' : 'border-field bg-surface hover:border-ink/60'}`}>
+            <label key={a} className={`inline-flex min-h-11 cursor-pointer items-center rounded-full border px-4 text-sm font-medium transition-colors ${on ? 'border-accent bg-accent text-accent-ink' : 'border-field bg-surface hover:border-ink/60'}`}>
               <input type="radio" name="availability" className="sr-only" checked={on} disabled={state === 'saving'} onChange={() => choose(a)} />
               {t(lang, `avail.${a}` as Key)}
             </label>

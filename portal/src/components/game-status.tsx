@@ -2,9 +2,9 @@ import { t, type Lang } from '@/lib/i18n';
 import type { GameStatus } from '@/lib/games';
 
 const STYLE: Record<GameStatus, string> = {
-  live: 'bg-accent text-white',
-  scheduled: 'bg-line text-ink-soft',
-  ended: 'bg-ink text-white',
+  live: 'bg-accent text-accent-ink',
+  scheduled: 'bg-ink/[0.06] text-ink-soft',
+  ended: 'bg-ink/[0.07] text-ink',
 };
 
 export function GameStatusPill({ status, lang }: { status: GameStatus; lang: Lang }) {

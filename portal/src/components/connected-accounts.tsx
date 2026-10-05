@@ -8,7 +8,7 @@ import type { SocialAccount } from '@/lib/social-types';
 import { primaryButton } from './field';
 
 const quietButton =
-  'inline-flex min-h-11 items-center rounded-[10px] border border-field bg-surface px-4 text-sm font-semibold transition-colors hover:border-ink/60 disabled:opacity-60';
+  'inline-flex min-h-11 items-center rounded-control border border-field bg-surface px-4 text-sm font-semibold transition-colors hover:border-ink/60 disabled:opacity-60';
 
 /**
  * Instagram connections. Connecting sends the influencer to Instagram and back;

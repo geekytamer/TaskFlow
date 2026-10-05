@@ -137,7 +137,7 @@ export default async function GamePage({ params, searchParams }: {
               <label className="min-w-[200px] flex-1 space-y-1">
                 <span className="text-xs font-medium text-ink-soft">{t(lang, 'lobby.findLabel')}</span>
                 <input name="handle" defaultValue={handle} dir="ltr" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="@"
-                  className="block h-11 w-full rounded-[10px] border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink" />
+                  className="block h-11 w-full rounded-control border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink" />
               </label>
               <button type="submit" className={primaryButton.replace('w-full', 'w-auto')}>{t(lang, 'lobby.findButton')}</button>
             </form>

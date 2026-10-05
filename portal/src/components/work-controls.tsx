@@ -9,7 +9,7 @@ import { primaryButton } from './field';
 import { ResultsFigures } from './results-figures';
 
 const control =
-  'w-full rounded-[10px] border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
+  'w-full rounded-control border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
 
 const isLink = (value: string) => {
   try {
@@ -115,7 +115,7 @@ export function WorkControls({ lang, item }: { lang: Lang; item: AssignmentDeliv
         </div>
       )}
       {item.status === 'planned' && !latest ? (
-        <button type="button" disabled={busy} onClick={() => post('start', {})} className="inline-flex h-10 items-center rounded-[10px] border border-field bg-surface px-4 text-sm font-semibold hover:border-ink/60 disabled:opacity-60">
+        <button type="button" disabled={busy} onClick={() => post('start', {})} className="inline-flex h-11 items-center rounded-control border border-field bg-surface px-4 text-sm font-semibold hover:border-ink/60 disabled:opacity-60">
           {t(lang, 'work.start')}
         </button>
       ) : null}
