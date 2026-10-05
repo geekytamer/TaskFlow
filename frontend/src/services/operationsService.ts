@@ -669,8 +669,21 @@ export async function deleteWarehouse(id: string): Promise<void> {
   await apiFetch(`/warehouses/${id}`, { method: 'DELETE' });
 }
 
-export async function deleteInventoryItem(id: string): Promise<void> {
-  await apiFetch(`/inventory-items/${id}`, { method: 'DELETE' });
+/**
+ * Removes an item: deleted when nothing used it, archived when records still
+ * name it. Stock on hand is refused (409, code HAS_STOCK) unless `writeOff`.
+ */
+export async function deleteInventoryItem(id: string, options: { writeOff?: boolean } = {}): Promise<{ outcome: 'deleted' | 'archived' }> {
+  return apiFetch(`/inventory-items/${id}${options.writeOff ? '?writeOff=1' : ''}`, { method: 'DELETE' });
+}
+
+export async function restoreInventoryItem(id: string): Promise<InventoryItem> {
+  return apiFetch<InventoryItem>(`/inventory-items/${id}/restore`, { method: 'POST' });
+}
+
+export async function getArchivedInventoryItems(companyId: string): Promise<InventoryItem[]> {
+  if (!companyId) return [];
+  return apiFetch<InventoryItem[]>(`/companies/${companyId}/inventory-items?archived=only`);
 }
 
 export async function deletePurchaseOrder(id: string): Promise<void> {

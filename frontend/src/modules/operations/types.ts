@@ -16,6 +16,8 @@ export interface InventoryItem {
   preferredSupplierId?: string;
   location?: string;
   customFields?: Record<string, unknown>;
+  /** Set when the item was removed but records still name it. */
+  archivedAt?: string;
 }
 
 export interface Supplier {

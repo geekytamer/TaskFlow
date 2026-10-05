@@ -1254,6 +1254,9 @@ export function createServer(options: CreateServerOptions = {}) {
           `items[${index}] must reference inventory in company ${companyId}.`,
         );
       }
+      if (inventoryItem.archivedAt) {
+        throw new HttpError(400, `${inventoryItem.name} is archived. Restore it before selling it again.`);
+      }
     });
   };
 
@@ -5762,7 +5765,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
-      res.json(store.listInventoryItems(req.params.companyId));
+      const archived = req.query.archived === 'include' || req.query.archived === 'only' ? req.query.archived : 'exclude';
+      res.json(store.listInventoryItems(req.params.companyId, archived));
     }),
   );
 
@@ -8896,7 +8900,34 @@ export function createServer(options: CreateServerOptions = {}) {
   deleteRoute('/expenses/:id', (id) => store.getExpenseById(id), (id) => store.deleteExpense(id), 'Expense not found.', 'Could not delete expense.');
   deleteRoute('/vendor-bills/:id', (id) => store.getVendorBillById(id), (id) => store.deleteVendorBill(id), 'Vendor bill not found.', 'Could not delete vendor bill.');
   deleteRoute('/credit-notes/:id', (id) => store.getCreditNoteById(id), (id) => store.deleteCreditNote(id), 'Credit note not found.', 'Could not delete credit note.');
-  deleteRoute('/inventory-items/:id', (id) => store.getInventoryItemById(id), (id) => store.deleteInventoryItem(id), 'Inventory item not found.', 'Could not delete inventory item.');
+  // Removing an item deletes it when nothing ever used it, and archives it
+  // when records still name it. Stock on hand is written off only on request.
+  app.delete(
+    '/inventory-items/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInventoryItemById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Inventory item not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const writeOff = req.query.writeOff === '1' || req.query.writeOff === 'true';
+      try {
+        res.json(withActor(req, () => store.removeInventoryItem(existing.id, { writeOff })));
+      } catch (error: any) {
+        res.status(409).json({ message: error?.message || 'Could not remove inventory item.', code: error?.code });
+      }
+    }),
+  );
+
+  app.post(
+    '/inventory-items/:id/restore',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getInventoryItemById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Inventory item not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      res.json(withActor(req, () => store.restoreInventoryItem(existing.id)));
+    }),
+  );
   // Task deletion is scoped like task viewing: assignees (or a company
   // Manager/Admin/Accountant) may delete, but not an unrelated Employee who
   // cannot even see the task.

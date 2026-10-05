@@ -308,6 +308,8 @@ export interface InventoryItem {
   preferredSupplierId?: string;
   location?: string;
   customFields?: Record<string, unknown>;
+  /** Set when the item was removed but its history had to stay. */
+  archivedAt?: Date;
 }
 
 export interface RecipeComponent {

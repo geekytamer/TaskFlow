@@ -55,6 +55,8 @@ import {
 import { getProjects } from '@/services/projectService';
 import type { InventoryItem, InventoryLocationBalance, InventoryLot, PurchaseOrder, StockMovement, Supplier, Warehouse } from '@/modules/operations/types';
 import { WarehousesPanel } from './warehouses-panel';
+import { ArchivedItemsDialog } from './archived-items-dialog';
+import { ApiError } from '@/lib/api-client';
 import { InventoryLotsDialog } from './inventory-lots-dialog';
 import { ExpiringLotsPanel } from './expiring-lots-panel';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
@@ -187,6 +189,54 @@ export function InventoryPage() {
     toLocation: '',
     note: '',
   });
+
+  // Removing deletes an unused item and archives one that records still name.
+  // Stock on hand is written off only after a second, explicit confirmation.
+  const removeItem = async (item: InventoryItem) => {
+    if (!(await confirm({
+      title: tr('Remove item?', 'إزالة الصنف؟'),
+      description: tr(
+        `Remove "${item.name}"? If past orders or stock movements use it, it is archived instead so they keep their history.`,
+        `إزالة "${item.name}"؟ إذا كانت طلبات أو حركات مخزون سابقة تستخدمه فسيُؤرشف بدلاً من ذلك ليبقى سجلها.`,
+      ),
+      confirmText: tr('Remove', 'إزالة'),
+      cancelText: tr('Cancel', 'إلغاء'),
+      destructive: true,
+    }))) return;
+    const run = async (writeOff: boolean) => {
+      const result = await deleteInventoryItem(item.id, { writeOff });
+      await load();
+      toast({
+        title: result?.outcome === 'archived' ? tr('Item archived', 'تمت أرشفة الصنف') : tr('Item deleted', 'تم حذف الصنف'),
+        description: result?.outcome === 'archived'
+          ? tr('Its history stays on past records. Find it under Archived to restore it.', 'يبقى سجله في المستندات السابقة. تجده ضمن المؤرشفة لاستعادته.')
+          : undefined,
+      });
+    };
+    try {
+      await run(false);
+    } catch (error: any) {
+      if (error instanceof ApiError && error.status === 409 && (error.details as { code?: string } | undefined)?.code === 'HAS_STOCK') {
+        if (!(await confirm({
+          title: tr('Write off the stock?', 'شطب المخزون؟'),
+          description: tr(
+            `${error.message} The write-off is recorded as a stock adjustment.`,
+            `ما زال لدى "${item.name}" ${item.onHand} في المخزون. سيُشطب ويُسجَّل كتسوية مخزون.`,
+          ),
+          confirmText: tr('Write off and remove', 'شطب وإزالة'),
+          cancelText: tr('Cancel', 'إلغاء'),
+          destructive: true,
+        }))) return;
+        try {
+          await run(true);
+        } catch (inner: any) {
+          toast({ variant: 'destructive', title: tr('Could not remove item', 'تعذرت إزالة الصنف'), description: inner?.message });
+        }
+        return;
+      }
+      toast({ variant: 'destructive', title: tr('Could not remove item', 'تعذرت إزالة الصنف'), description: error?.message });
+    }
+  };
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) {
@@ -604,6 +654,9 @@ export function InventoryPage() {
         summary={tr(`Showing ${filteredItems.length} of ${items.length} items`, `عرض ${filteredItems.length} من أصل ${items.length} عنصر`)}
         actions={(
           <div className="flex flex-wrap items-center gap-2">
+          {selectedCompany ? (
+            <ArchivedItemsDialog companyId={selectedCompany.id} canManage={canManageInventory} onRestored={load} />
+          ) : null}
           {selectedCompany ? (
             <CsvImportExport
               exportPath={`/companies/${selectedCompany.id}/inventory-items/export`}
@@ -1199,22 +1252,8 @@ export function InventoryPage() {
                           variant="ghost"
                           size="sm"
                           className="ms-1 text-muted-foreground hover:text-destructive"
-                          onClick={async () => {
-                            if (!(await confirm({
-                              title: tr('Delete item?', 'حذف الصنف؟'),
-                              description: tr(`Delete "${item.name}"? This cannot be undone.`, `حذف "${item.name}"؟ لا يمكن التراجع.`),
-                              confirmText: tr('Delete', 'حذف'),
-                              cancelText: tr('Cancel', 'إلغاء'),
-                              destructive: true,
-                            }))) return;
-                            try {
-                              await deleteInventoryItem(item.id);
-                              await load();
-                              toast({ title: tr('Item deleted', 'تم حذف الصنف') });
-                            } catch (error: any) {
-                              toast({ variant: 'destructive', title: tr('Could not delete item', 'تعذر حذف الصنف'), description: error?.message });
-                            }
-                          }}
+                          aria-label={tr('Remove item', 'إزالة الصنف')}
+                          onClick={() => removeItem(item)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

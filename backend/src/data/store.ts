@@ -4262,6 +4262,15 @@ export class DataStore {
           `);
         },
       },
+      {
+        // An item with history cannot vanish, so removing it archives it:
+        // hidden from everyday lists and pickers, kept for every record that
+        // mentions it.
+        id: '101_inventory_archive',
+        run: () => {
+          this.db.exec(`ALTER TABLE inventory_items ADD COLUMN archivedAt TEXT;`);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7014,21 +7023,87 @@ export class DataStore {
   }
 
   /** Delete an inventory item. Blocks if it holds stock or has movement history. */
-  deleteInventoryItem(id: string): void {
+  /**
+   * Remove an inventory item. One nothing ever touched is deleted. One with
+   * history (movements, orders, deliveries, counts) is archived instead, so
+   * those records still name it. Stock on hand must be written off first; with
+   * `writeOff` that is done here as recorded adjustments, location by location.
+   */
+  removeInventoryItem(id: string, options: { writeOff?: boolean } = {}): { outcome: 'deleted' | 'archived'; item?: InventoryItem } {
     const item = this.getInventoryItemById(id);
     if (!item) throw new Error('Inventory item not found.');
-    if (Number(item.onHand || 0) !== 0) {
-      throw new Error('Cannot delete an item that still has stock on hand. Adjust the quantity to zero first.');
+    const recipe = this.db.prepare(
+      `SELECT r.name FROM recipe_components c JOIN recipes r ON r.id = c.recipeId WHERE c.componentItemId = ? LIMIT 1`,
+    ).get(id) as { name: string } | undefined;
+    const ownRecipe = this.db.prepare(`SELECT name FROM recipes WHERE outputItemId = ? LIMIT 1`).get(id) as { name: string } | undefined;
+    const usedBy = recipe ?? ownRecipe;
+    if (usedBy) {
+      throw Object.assign(new Error(`This item is used by the recipe "${usedBy.name}". Change the recipe first.`), { code: 'IN_RECIPE' });
     }
-    const moved = this.db.prepare('SELECT 1 FROM stock_movements WHERE inventoryItemId = ? LIMIT 1').get(id);
-    if (moved) {
-      throw new Error('Cannot delete an item that has stock movement history. It must be kept for audit; stop tracking it instead.');
+    if (Math.abs(Number(item.onHand || 0)) > 0.0001) {
+      if (!options.writeOff) {
+        throw Object.assign(
+          new Error(`${item.name} still has ${Number(item.onHand)}${item.unit ? ` ${item.unit}` : ''} of stock on hand. Removing it writes that stock off.`),
+          { code: 'HAS_STOCK' },
+        );
+      }
     }
     const trx = this.db.transaction(() => {
+      if (options.writeOff) {
+        const balances = this.db
+          .prepare('SELECT location, quantity FROM inventory_location_balances WHERE inventoryItemId = ? AND ABS(quantity) > 0.0001')
+          .all(id) as Array<{ location: string; quantity: number }>;
+        for (const balance of balances) {
+          this.createInventoryAdjustment(item.companyId, id, -Number(balance.quantity), 'Written off when the item was removed', balance.location);
+        }
+        // Any on-hand not held at a location (legacy rows) is zeroed the same way.
+        const left = Number(this.getInventoryItemById(id)?.onHand || 0);
+        if (Math.abs(left) > 0.0001) {
+          this.createInventoryAdjustment(item.companyId, id, -left, 'Written off when the item was removed', item.location);
+        }
+      }
+      const json = `%"inventoryItemId":"${id.replace(/[%_"]/g, '')}"%`;
+      const referenced =
+        this.db.prepare('SELECT 1 FROM stock_movements WHERE inventoryItemId = ? LIMIT 1').get(id)
+        || this.db.prepare('SELECT 1 FROM stock_count_lines WHERE inventoryItemId = ? LIMIT 1').get(id)
+        || this.db.prepare('SELECT 1 FROM inventory_transfers WHERE inventoryItemId = ? LIMIT 1').get(id)
+        || this.db.prepare('SELECT 1 FROM sales_orders WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
+        || this.db.prepare('SELECT 1 FROM purchase_orders WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
+        || this.db.prepare('SELECT 1 FROM quotations WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
+        || this.db.prepare('SELECT 1 FROM deliveries WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json);
+      if (referenced) {
+        this.db.prepare('UPDATE inventory_items SET archivedAt = ? WHERE id = ?').run(new Date().toISOString(), id);
+        this.db.prepare('DELETE FROM inventory_location_balances WHERE inventoryItemId = ? AND ABS(quantity) <= 0.0001').run(id);
+        return 'archived' as const;
+      }
       this.db.prepare('DELETE FROM inventory_location_balances WHERE inventoryItemId = ?').run(id);
       this.db.prepare('DELETE FROM inventory_items WHERE id = ?').run(id);
+      return 'deleted' as const;
     });
-    trx();
+    const outcome = trx();
+    this.createActivityEvent({
+      companyId: item.companyId, entityType: 'inventory_item', entityId: id, action: outcome,
+      summary: outcome === 'archived' ? `Inventory item ${item.name} archived.` : `Inventory item ${item.name} deleted.`,
+      metadata: { writtenOff: options.writeOff ? item.onHand : 0 },
+    });
+    return { outcome, item: outcome === 'archived' ? this.getInventoryItemById(id) : undefined };
+  }
+
+  /** Bring an archived item back into everyday lists. */
+  restoreInventoryItem(id: string): InventoryItem | undefined {
+    const item = this.getInventoryItemById(id);
+    if (!item) return undefined;
+    this.db.prepare('UPDATE inventory_items SET archivedAt = NULL WHERE id = ?').run(id);
+    this.createActivityEvent({
+      companyId: item.companyId, entityType: 'inventory_item', entityId: id, action: 'restored',
+      summary: `Inventory item ${item.name} restored.`,
+    });
+    return this.getInventoryItemById(id);
+  }
+
+  /** @deprecated Use removeInventoryItem; kept for callers that expect a throw on history. */
+  deleteInventoryItem(id: string): void {
+    this.removeInventoryItem(id);
   }
 
   /** Delete a single task, cascading its comments and time entries; subtasks are detached. */
@@ -11729,9 +11804,10 @@ export class DataStore {
 	    return supplier;
 	  }
 
-  listInventoryItems(companyId: string): InventoryItem[] {
+  listInventoryItems(companyId: string, archived: 'exclude' | 'include' | 'only' = 'exclude'): InventoryItem[] {
+    const filter = archived === 'include' ? '' : archived === 'only' ? ' AND archivedAt IS NOT NULL' : ' AND archivedAt IS NULL';
     const rows = this.db
-      .prepare('SELECT * FROM inventory_items WHERE companyId = ? ORDER BY name ASC')
+      .prepare(`SELECT * FROM inventory_items WHERE companyId = ?${filter} ORDER BY name ASC`)
       .all(companyId) as any[];
     return rows.map((row) => this.decodeInventoryItem(row));
   }
@@ -19335,6 +19411,7 @@ export class DataStore {
       preferredSupplierId: row.preferredSupplierId ?? undefined,
       location: row.location ?? undefined,
       customFields: row.customFields ? this.parseJson<Record<string, unknown>>(row.customFields) ?? undefined : undefined,
+      archivedAt: row.archivedAt ? new Date(row.archivedAt) : undefined,
     };
   }
 

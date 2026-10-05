@@ -1302,6 +1302,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '098_game_auto_tracking',
     '099_game_client_link',
     '100_quotations',
+    '101_inventory_archive',
   ]);
 });
 
