@@ -169,6 +169,8 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       notes: form.notes || undefined,
       templateId: form.templateId || undefined,
     };
+    // On edit an emptied field is sent as null so the server clears it.
+    const editPayload = { ...payload, notes: form.notes || null, templateId: form.templateId || null } as any;
     setSaving(true);
     try {
       if (editing === 'new') {
@@ -176,7 +178,9 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           ? { ...payload, opportunityId }
           : { ...payload, contactId: contact ? contact.id : undefined, clientId: contact?.clientId || form.contactId });
       } else if (editing) {
-        await updateQuotation(editing.id, opportunityId ? payload : { ...payload, clientId: contact?.clientId || form.contactId });
+        await updateQuotation(editing.id, opportunityId
+          ? editPayload
+          : { ...editPayload, clientId: contact?.clientId || form.contactId, contactId: contact ? contact.id : null });
       }
       setEditing(null);
       await load();

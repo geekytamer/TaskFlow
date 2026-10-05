@@ -20,7 +20,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { DocRenderer } from '@/modules/finance/doc/doc-renderer';
-import { GENERIC_TOKEN_GROUPS, fieldLabel, templateFields } from '@/modules/finance/doc/tokens';
+import { GENERIC_TOKEN_GROUPS, fieldLabel, localizedTokenGroups, templateFields } from '@/modules/finance/doc/tokens';
 import { publicDocumentUrl } from '@/services/publicService';
 import { templateToDoc } from '@/modules/finance/doc/template-to-doc';
 import type { Client, Invoice, InvoiceTemplate } from '@/modules/finance/types';
@@ -58,7 +58,9 @@ export function DocumentComposer({
     document
       ? { ...document.fieldValues }
       // A new letter starts with its greeting, so the client's name is filled in.
-      : template.docType === 'letter' ? { [NOTES_KEY]: 'Dear {{client.name}},\n\n' } : {}
+      : template.docType === 'letter'
+        ? { [NOTES_KEY]: language === 'ar' ? 'السيد/السيدة {{client.name}}،\n\n' : 'Dear {{client.name}},\n\n' }
+        : {}
   ));
   const [clients, setClients] = React.useState<Client[]>([]);
   const [saving, setSaving] = React.useState(false);
@@ -180,7 +182,7 @@ export function DocumentComposer({
   };
 
   const variableGroups = React.useMemo(() => {
-    const groups = GENERIC_TOKEN_GROUPS.map((group) => ({ ...group, tokens: [...group.tokens] }));
+    const groups = localizedTokenGroups(GENERIC_TOKEN_GROUPS, language);
     const own = fields.map((token) => ({ token, label: fieldLabel(token) }));
     if (own.length) groups.unshift({ group: tr('This document', 'هذا المستند'), tokens: own });
     return groups;
@@ -240,7 +242,8 @@ export function DocumentComposer({
             <fieldset className="space-y-3 rounded-md border bg-muted/20 p-3">
               <legend className="px-1 text-sm font-semibold">{tr('Fill in', 'املأ الحقول')}</legend>
               {fields.map((key) => {
-                const long = key === 'field.body' || (values[key] ?? '').length > 60;
+                // Decided by the field alone, so a box never swaps element (and loses focus) mid-typing.
+                const long = key === 'field.body';
                 return (
                   <div key={key} className="space-y-1">
                     <Label htmlFor={`doc-${key}`}>{fieldLabel(key)}</Label>

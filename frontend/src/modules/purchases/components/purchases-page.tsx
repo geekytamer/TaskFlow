@@ -71,8 +71,9 @@ const statusStyles: Record<PurchaseOrderStatus, string> = {
 
 type PurchaseItemForm = {
   inventoryItemId: string;
-  /** A line not tied to an inventory item (for example one ordered from an RFQ). */
+  /** A line's own text: free-text lines (from an RFQ), or a saved line whose item was archived since. */
   description?: string;
+  sku?: string;
   quantity: string;
   unitCost: string;
 };
@@ -107,6 +108,7 @@ const emptyPurchaseForm = (): PurchaseForm => ({
 export function PurchasesPage() {
   const { selectedCompany, currentRole } = useCompany();
   const canApprove = usePermissionOr('purchasing', 'approve', currentRole === 'Admin' || currentRole === 'Manager');
+  const canEditOrders = usePermissionOr('purchasing', 'write', currentRole !== 'Employee');
   const { toast } = useToast();
   const confirm = useConfirm();
   const { amount } = useCompanyCurrency();
@@ -283,7 +285,8 @@ export function PurchasesPage() {
       notes: order.notes || '',
       items: order.items.map((line) => ({
         inventoryItemId: line.inventoryItemId || '',
-        description: line.inventoryItemId ? undefined : line.description,
+        description: line.description,
+        sku: line.sku,
         quantity: String(line.quantity),
         unitCost: String(line.unitCost),
       })),
@@ -359,7 +362,7 @@ export function PurchasesPage() {
           const quantity = Number(item.quantity || 0);
           const unitCost = Number(item.unitCost || 0);
           if (!description || !(quantity > 0)) return null;
-          return { inventoryItemId: undefined, sku: undefined, description, quantity, unitCost, lineTotal: quantity * unitCost };
+          return { inventoryItemId: item.inventoryItemId || undefined, sku: item.sku, description, quantity, unitCost, lineTotal: quantity * unitCost };
         }
         const quantity = Number(item.quantity || 0);
         const unitCost = Number(item.unitCost || inventoryItem.unitCost || 0);
@@ -724,7 +727,7 @@ export function PurchasesPage() {
               </div>
               {form.items.map((item, index) => (
                 <div key={index} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
-                  {!item.inventoryItemId && item.description !== undefined ? (
+                  {item.description !== undefined && (!item.inventoryItemId || !inventoryMap.has(item.inventoryItemId)) ? (
                     <div className="space-y-1">
                       <Label>{tr('Description', 'الوصف')}</Label>
                       <Input dir="auto" value={item.description} onChange={(e) => updateItemRow(index, { description: e.target.value })} />
@@ -1069,7 +1072,7 @@ export function PurchasesPage() {
                         </Button>
                       </>
                     )}
-                    {order.status === 'Draft' && canApprove && (
+                    {order.status === 'Draft' && canEditOrders && (
                       <Button variant="outline" size="sm" onClick={() => openEdit(order)}>
                         <Pencil className="me-2 h-4 w-4" />{tr('Edit', 'تعديل')}
                       </Button>

@@ -13,6 +13,8 @@ import type { InventoryItem } from '@/modules/operations/types';
 
 export type SalesItemForm = {
   inventoryItemId: string;
+  /** Kept from a saved line, so an item archived since still round-trips. */
+  sku?: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -40,6 +42,7 @@ export const itemsToForm = (items: SalesOrderLineItem[]): SalesItemForm[] =>
   items.length
     ? items.map((item) => ({
         inventoryItemId: item.inventoryItemId || '',
+        sku: item.sku,
         description: item.description,
         quantity: String(item.quantity),
         unitPrice: String(item.unitPrice),
@@ -59,8 +62,9 @@ export const prepareItems = (rows: SalesItemForm[], inventoryMap: Map<string, In
       const description = item.description.trim() || inventoryItem?.name || '';
       if (!description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) return null;
       return {
-        inventoryItemId: inventoryItem?.id,
-        sku: inventoryItem?.sku,
+        // An item archived since the line was saved is not in the map; keep its link.
+        inventoryItemId: inventoryItem?.id ?? (item.inventoryItemId || undefined),
+        sku: inventoryItem?.sku ?? item.sku,
         description,
         quantity,
         unitPrice,

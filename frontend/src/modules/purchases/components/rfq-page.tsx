@@ -258,7 +258,7 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
       </div>
 
       {awardedQuote && (
-        <OrderFromQuote rfq={rfq} quote={awardedQuote} suppliers={suppliers} onOrdered={(poId) => setRfq({ ...rfq, purchaseOrderId: poId })} />
+        <OrderFromQuote key={awardedQuote.id} rfq={rfq} quote={awardedQuote} suppliers={suppliers} onOrdered={(poId) => setRfq({ ...rfq, purchaseOrderId: poId })} />
       )}
 
       <div className="rounded-lg border">

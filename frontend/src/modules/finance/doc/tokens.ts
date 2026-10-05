@@ -91,6 +91,30 @@ export function templateFields(doc: unknown): string[] {
   return [...seen];
 }
 
+const AR_TOKEN_LABELS: Record<string, string> = {
+  Document: 'المستند', Client: 'العميل', Company: 'الشركة', 'Filled in per document': 'يُملأ لكل مستند',
+  'Document number': 'رقم المستند', 'Document date': 'تاريخ المستند', Status: 'الحالة', Notes: 'الملاحظات',
+  'Client name': 'اسم العميل', 'Client address': 'عنوان العميل', 'Client email': 'بريد العميل',
+  'Company name': 'اسم الشركة', 'Company address': 'عنوان الشركة',
+  Recipient: 'المستلم', Subject: 'الموضوع', Reference: 'المرجع', Date: 'التاريخ', Amount: 'المبلغ', 'Body text': 'نص المستند',
+};
+
+/** Token groups with their labels in the reader's language. */
+export function localizedTokenGroups(groups: typeof TOKEN_GROUPS, language: string): typeof TOKEN_GROUPS {
+  const tr = (label: string) => (language === 'ar' ? AR_TOKEN_LABELS[label] ?? label : label);
+  return groups.map((group) => ({ group: tr(group.group), tokens: group.tokens.map((t) => ({ ...t, label: tr(t.label) })) }));
+}
+
+/**
+ * What a fill-in field shows when it was never filled in. Certificates made
+ * before fill-in fields existed printed the client's name and a fixed line;
+ * they keep doing so.
+ */
+const FIELD_FALLBACKS: Record<string, (ctx: DocDataContext) => string> = {
+  'field.recipient': (ctx) => ctx.client?.name || '',
+  'field.achievement': () => 'For outstanding achievement and completion.',
+};
+
 /** "field.contract_start" → "Contract start". */
 export function fieldLabel(token: string): string {
   const name = token.replace(/^field\./, '').replace(/[._]+/g, ' ').trim();
@@ -126,7 +150,8 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'company.email': return company?.email || '';
     case 'today': return fmtDate(new Date());
     default:
-      return token.trim().startsWith('field.') ? ctx.fields?.[token.trim()] ?? '' : '';
+      if (!token.trim().startsWith('field.')) return '';
+      return ctx.fields?.[token.trim()] || FIELD_FALLBACKS[token.trim()]?.(ctx) || '';
   }
 }
 

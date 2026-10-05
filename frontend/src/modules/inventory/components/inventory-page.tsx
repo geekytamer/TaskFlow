@@ -389,7 +389,7 @@ export function InventoryPage() {
     });
   }, [balancesByItem, items, search, stockFilter]);
 
-  const resetForm = () => { setForm(emptyForm()); setEditingItem(null); };
+  const resetForm = () => { setForm(emptyForm()); setEditingItem(null); setCreateCustomValues({}); };
 
   const openEditItem = (item: InventoryItem) => {
     setEditingItem(item);
@@ -734,7 +734,9 @@ export function InventoryPage() {
                 {editingItem ? tr(`Edit ${editingItem.name}`, `تعديل ${editingItem.name}`) : tr('Add Inventory Item', 'إضافة عنصر مخزون')}
               </DialogTitle>
               <DialogDescription>
-                {tr('Create a stock item that can be tracked in inventory and referenced by purchases.', 'أنشئ عنصر مخزون يمكن تتبعه في المخزون وربطه بعمليات الشراء.')}
+                {editingItem
+                  ? tr('Stock and cost change through adjustments and receipts, so they are read-only here.', 'تتغير الكمية والتكلفة عبر التسويات والإيصالات، لذا لا يمكن تعديلهما هنا.')
+                  : tr('Create a stock item that can be tracked in inventory and referenced by purchases.', 'أنشئ عنصر مخزون يمكن تتبعه في المخزون وربطه بعمليات الشراء.')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-2 sm:grid-cols-2">
