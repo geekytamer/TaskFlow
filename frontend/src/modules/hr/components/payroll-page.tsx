@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getPayrollRuns, createPayrollRun, deletePayrollRun, downloadWps,
+  getPayrollRuns, createPayrollRun, deletePayrollRun, downloadWps, setPayrollRunStatus,
   type PayrollRun,
 } from '@/services/hrService';
 import { Button } from '@/components/ui/button';
@@ -30,12 +30,38 @@ function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function RunCard({ run, onDelete }: { run: PayrollRun; onDelete: (id: string) => void }) {
+/** A run moves forward only: draft → approved (wages posted to the ledger) → paid. */
+function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id: string) => void; onChanged: () => void }) {
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [open, setOpen] = React.useState(false);
   const [downloading, setDownloading] = React.useState(false);
+
+  const confirm = useConfirm();
+  const [moving, setMoving] = React.useState(false);
+  const statusLabel = (status: PayrollRun['status']) =>
+    ({ draft: tr('Draft', 'مسودة'), approved: tr('Approved', 'معتمد'), paid: tr('Paid', 'مدفوع') } as Record<string, string>)[status] ?? status;
+
+  const move = async (status: PayrollRun['status']) => {
+    if (!(await confirm({
+      title: status === 'paid' ? tr('Mark this run as paid?', 'تحديد المسير كمدفوع؟') : tr('Approve this run?', 'اعتماد هذا المسير؟'),
+      description: status === 'paid'
+        ? tr('A paid run is final: it can no longer be changed or deleted.', 'المسير المدفوع نهائي: لا يمكن تغييره أو حذفه بعد ذلك.')
+        : tr('Approving posts the wages to the ledger. A run cannot go back to draft.', 'الاعتماد يرحّل الرواتب إلى دفتر الأستاذ، ولا يمكن إرجاع المسير إلى مسودة.'),
+      confirmText: status === 'paid' ? tr('Mark paid', 'تحديد كمدفوع') : tr('Approve', 'اعتماد'),
+      cancelText: tr('Cancel', 'إلغاء'),
+    }))) return;
+    setMoving(true);
+    try {
+      await setPayrollRunStatus(run.id, status);
+      onChanged();
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: tr('Could not update the run', 'تعذر تحديث المسير'), description: e?.message });
+    } finally {
+      setMoving(false);
+    }
+  };
 
   const download = async () => {
     setDownloading(true);
@@ -58,11 +84,19 @@ function RunCard({ run, onDelete }: { run: PayrollRun; onDelete: (id: string) =>
             </div>
           </CollapsibleTrigger>
           <div className="flex items-center gap-2">
-            <Badge variant={run.status === 'paid' ? 'default' : 'secondary'}>{run.status}</Badge>
+            <Badge variant={run.status === 'paid' ? 'default' : 'secondary'}>{statusLabel(run.status)}</Badge>
+            {run.status === 'draft' && (
+              <Button size="sm" onClick={() => move('approved')} disabled={moving}>{tr('Approve', 'اعتماد')}</Button>
+            )}
+            {run.status === 'approved' && (
+              <Button size="sm" onClick={() => move('paid')} disabled={moving}>{tr('Mark paid', 'تحديد كمدفوع')}</Button>
+            )}
             <Button variant="outline" size="sm" onClick={download} disabled={downloading}>
               <Download className="me-2 h-4 w-4" />{tr('WPS', 'ملف حماية الأجور')}
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => onDelete(run.id)}><Trash2 className="h-4 w-4" /></Button>
+            {run.status !== 'paid' && (
+              <Button variant="ghost" size="icon" aria-label={tr('Delete run', 'حذف المسير')} onClick={() => onDelete(run.id)}><Trash2 className="h-4 w-4" /></Button>
+            )}
           </div>
         </CardHeader>
         <CollapsibleContent>
@@ -176,7 +210,7 @@ export function PayrollPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {runs.map((r) => <RunCard key={r.id} run={r} onDelete={remove} />)}
+          {runs.map((r) => <RunCard key={r.id} run={r} onDelete={remove} onChanged={load} />)}
         </div>
       )}
     </div>

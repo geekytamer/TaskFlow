@@ -117,3 +117,17 @@ test('a deleted warehouse stays deleted and its items move to the default one', 
   const reopened = new DataStore({ dbPath, seedOnEmpty: false });
   assert.equal(reopened.listWarehouses('1').some((w) => w.name === 'Old shed'), false);
 });
+
+test('a refused delete explains itself instead of answering "Internal server error"', async () => {
+  const { app, store, as } = setup();
+  const emp = store.createEmployee({ companyId: '1', name: 'Paid', basicSalary: 500 });
+  store.createPayrollRun('1', '2026-08');
+  const res = await as('admin@taskflow.com')(request(app).delete(`/employees/${emp.id}`));
+  assert.ok(res.status >= 400 && res.status < 500, `got ${res.status}`);
+  assert.match(res.body.message, /payroll/i);
+  const user = store.createUser({ name: 'Owner', email: 'own@x.example', password: 'Password1!', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }], role: 'Employee' });
+  task(store, { ownerId: user.id, isPrivate: true });
+  const del = await as('admin@taskflow.com')(request(app).delete(`/users/${user.id}`));
+  assert.ok(del.status >= 400 && del.status < 500, `got ${del.status}`);
+  assert.match(del.body.message, /private task/);
+});

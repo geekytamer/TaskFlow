@@ -9308,6 +9308,13 @@ export function createServer(options: CreateServerOptions = {}) {
         message: `Request is too large for this endpoint (max ${limitLabel}). Try a smaller image or PDF.`,
       });
     }
+    // The data layer refuses business-rule violations with a plain Error whose
+    // message is written for the user ("This employee appears on payroll
+    // runs…"). Answer those as a bad request with the message; anything else
+    // (a TypeError, a database error) is a real fault and stays a 500.
+    if (error instanceof Error && Object.getPrototypeOf(error) === Error.prototype && error.message) {
+      return res.status(400).json({ message: error.message });
+    }
     logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);
     res.status(500).json({ message: 'Internal server error.' });
   });
