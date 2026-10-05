@@ -34,6 +34,16 @@ Each has a test, and the guards were mutation-checked (broken, seen to fail, res
 - **Campaign deliverables** take their briefs, submissions, reviews and results. A billed deliverable blocks.
 - **Refusals explain themselves:** plain business-rule errors now answer 400 with their message instead of "Internal server error".
 
+## Other bugs fixed
+
+- A partial invoice edit failed (`NOT NULL invoiceNumber`): omitted fields wiped saved ones.
+- Invoice custom-column values were never saved.
+- The staff app dropped line discounts it read back from sales orders and invoices.
+- Sales-order invoices lost line discounts.
+- Opportunity edits could not clear notes or the close date, and winning by edit skipped commissions.
+- Numbering settings had no labels for deliveries and requisitions.
+- A games test broke on any day after 2026-10-05.
+
 ## Missing CRUD added
 
 - Edit inventory items (stock and cost stay with adjustments and receipts).
@@ -64,7 +74,7 @@ These were reported by the audit but are left for a later pass:
 - Recipes, RFQs, proposals, budgets, departments and leave types have edit APIs without screens.
 - Attendance cannot be deleted from its page.
 - Any assignee may delete a task. This was a deliberate earlier choice and is left as is.
-- Saving opportunity notes or the close date cannot clear them, and an edit to Won skips the commission step that the stage move runs.
+- The invoice edit API accepts any status; only the screen limits editing to drafts.
 
 ## Verification
 
