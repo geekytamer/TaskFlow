@@ -22,6 +22,8 @@ export interface InvoiceDetail extends InvoiceSummary {
   lineItems: Array<{ description: string; quantity: number; unitPrice: number; discount: number | null; discountType: string | null; amount: number }>;
   payments: Array<{ id: string; receiptNumber: string; paidAt: string | null; amount: number; method: string | null }>;
   creditNotes: Array<{ number: string; issueDate: string | null; total: number }>;
+  /** What was printed on the issued invoice about paying it. */
+  payment?: { instructions: string | null; accounts: Array<{ bankName: string | null; accountHolder: string | null; accountNumber: string | null; iban: string | null; swift: string | null; currency: string | null }> };
 }
 
 export interface Statement {
