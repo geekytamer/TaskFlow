@@ -258,3 +258,42 @@ test('a pasted likers list becomes likes; importing again replaces it; weights a
   assert.ok(ensureFrozen(ctx.store, ctx.store.games.get(game.id)).frozenAt);
   assert.equal((await ctx.staff('post', `/${game.id}/sources/${source.id}/likers`, { text: 'late' })).status, 409);
 });
+
+test('the lobby shows where to play, when it was updated and a visitor’s own rank; influencers see their own standing', async () => {
+  const ctx = build();
+  const game = await followersGame(ctx);
+  ctx.meta.comments = [comment('c1', 'sara.k', 'Ramadan Kareem!', 5), ...Array.from({ length: 120 }, (_, i) => comment(`x${i}`, `fan${i}`, `Blessed month number ${i}`, 4))];
+  ctx.meta.tags = [{ id: 't1', username: 'laila_m', timestamp: ago(3), permalink: 'x', caption: 'hi @lina.eats' }];
+  await collectGame(ctx.store, ctx.meta, ctx.store.games.get(game.id));
+  const pub = await request(ctx.server).get(`/public-api/games/${game.slug}?handle=@FAN99`);
+  assert.equal(pub.status, 200);
+  assert.deepEqual(pub.body.playOn.map((p) => [p.kind, p.url]), [['comment', 'https://www.instagram.com/p/GAME/'], ['tag', 'https://www.instagram.com/lina.eats/']]);
+  assert.ok(pub.body.updatedAt);
+  assert.equal(pub.body.players, 122);
+  assert.equal(pub.body.board.length, 100);
+  assert.equal(pub.body.you.handle, 'fan99', 'found beyond the top 100');
+  assert.ok(pub.body.you.rank > 100);
+  assert.equal((await request(ctx.server).get(`/public-api/games/${game.slug}?handle=nobody`)).body.you, null);
+  for (const secret of ['accountId', 'sourceId', 'lastError', 'externalId', 'textHash', 'Lina Haddad']) assert.equal(JSON.stringify(pub.body).includes(secret), false, secret);
+
+  const creators = await makeGame(ctx, { audience: 'creators', tag: '#RamadanWithAlNoor', slug: 'creators-cup' });
+  await ctx.staff('put', `/${creators.id}/participants`, [ctx.lina.id]);
+  await ctx.staff('put', `/${creators.id}/metrics`, [{ metricKey: 'creator_shares', weight: 1, params: { pointsPerShare: 2 } }]);
+  await ctx.staff('post', `/${creators.id}/publish`);
+  ctx.meta.media = [{ id: 'p1', permalink: 'a', timestamp: ago(10), caption: '#RamadanWithAlNoor' }];
+  ctx.meta.figures = { p1: { views: 100, likes: 1, comments: 1, saves: 1, shares: 7 } };
+  await collectGame(ctx.store, ctx.meta, ctx.store.games.get(creators.id));
+  const invite = (contact, email, audience = 'influencer') => {
+    const { token } = ctx.store.portal.inviteUser({ companyId: ctx.company.id, audience, contactId: contact.id, email, name: email, role: audience === 'client' ? 'client_admin' : 'influencer' });
+    ctx.store.portal.acceptInvitation(token, 'correct horse battery');
+    return request(ctx.server).post(`/portal-api/${audience}/auth/login`).send({ email, password: 'correct horse battery' }).then((r) => ({ Authorization: `Bearer ${r.body.token}` }));
+  };
+  const lina = await invite(ctx.lina, 'lina@creator.test');
+  const me = await request(ctx.server).get('/portal-api/influencer/games/creators-cup/me').set(lina);
+  assert.equal(me.status, 200);
+  assert.deepEqual([me.body.participating, me.body.rank, me.body.points, me.body.stats.shares], [true, 1, 14, 7]);
+  const sami = await invite(ctx.sami, 'sami@creator.test');
+  assert.deepEqual((await request(ctx.server).get('/portal-api/influencer/games/creators-cup/me').set(sami)).body, { participating: false });
+  const client = await invite(ctx.brand, 'omar@alnoor.test', 'client');
+  assert.equal((await request(ctx.server).get('/portal-api/influencer/games/creators-cup/me').set(client)).status, 401);
+});

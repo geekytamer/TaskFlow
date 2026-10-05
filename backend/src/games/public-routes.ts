@@ -22,7 +22,8 @@ export function createPublicGamesRouter(store: DataStore, companyId: string, opt
   router.get('/games/:slug', (req: Request, res: Response) => {
     const game = store.games.bySlug(companyId, req.params.slug);
     if (!game || !isPubliclyListed(game)) return res.status(404).json({ message: 'Not found.' });
-    cache(res).json(publicGameDetail(store, game));
+    const handle = typeof req.query.handle === 'string' ? req.query.handle.slice(0, 64) : undefined;
+    cache(res).json(publicGameDetail(store, game, { handle }));
   });
   return router;
 }

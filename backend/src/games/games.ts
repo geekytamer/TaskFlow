@@ -117,15 +117,57 @@ export function publicGameSummary(game: Game) {
   };
 }
 
-export function publicGameDetail(store: DataStore, game: Game) {
+/** When the game's data was last read from Instagram (or a likers list imported). */
+export function lastUpdatedOf(store: DataStore, game: Game): string | null {
+  const times = [
+    ...store.games.sources(game.id).map((s) => s.lastCollectedAt),
+    ...store.games.creatorStats(game.id).map((s) => s.updatedAt),
+  ].filter((t): t is string => Boolean(t)).sort();
+  return times[times.length - 1] ?? null;
+}
+
+/**
+ * Where people play: the posts to comment on or like and the account to tag.
+ * All of it is public on Instagram already; nothing about how it is read.
+ */
+function playOn(store: DataStore, game: Game) {
+  if (game.audience === 'creators') return [];
+  const seen = new Set<string>();
+  return store.games.sources(game.id).flatMap((s) => {
+    const username = s.accountId ? store.social.getAccount(s.accountId)?.username ?? null : null;
+    const item = s.kind === 'tags' ? { kind: 'tag' as const, url: username ? `https://www.instagram.com/${username}/` : null, handle: username }
+      : { kind: s.kind === 'post' ? 'comment' as const : 'like' as const, url: s.permalink, handle: username };
+    const key = `${item.kind}|${item.url}`;
+    if (!item.url || seen.has(key)) return [];
+    seen.add(key);
+    return [item];
+  });
+}
+
+/** A handle's place on the full board (not only the top 100). Null when it has no points. */
+export function rankOf(store: DataStore, game: Game, handleRaw: string) {
+  const handle = handleRaw.trim().replace(/^@+/, '').toLowerCase();
+  if (!/^[\p{L}\p{N}._-]{1,60}$/u.test(handle)) return null;
+  const row = boardOf(store, game).find((r) => r.handle === handle);
+  return row ? { rank: row.rank, handle: row.handle, points: row.points } : null;
+}
+
+export function publicGameDetail(store: DataStore, game: Game, options: { handle?: string } = {}) {
   const current = ensureFrozen(store, game);
+  const board = boardOf(store, current);
   return {
     ...publicGameSummary(current),
     rules: current.rules,
     rulesAr: current.rulesAr,
+    audience: current.audience,
+    tag: current.tag,
+    playOn: playOn(store, current),
+    updatedAt: lastUpdatedOf(store, current),
+    players: board.length,
     metrics: store.games.metrics(current.id).map((m) => ({ key: m.metricKey, label: METRICS[m.metricKey]?.label ?? null, weight: m.weight, params: m.params })),
     frozen: Boolean(current.frozenAt),
-    board: boardOf(store, current).slice(0, 100).map((r) => ({ rank: r.rank, platform: platformOf(r.actorKey), handle: r.handle, points: r.points })),
+    board: board.slice(0, 100).map((r) => ({ rank: r.rank, platform: platformOf(r.actorKey), handle: r.handle, points: r.points })),
+    ...(options.handle !== undefined ? { you: rankOf(store, current, options.handle) } : {}),
   };
 }
 

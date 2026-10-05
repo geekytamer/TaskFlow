@@ -3,7 +3,7 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { PortalSession } from '../portal/portal-store';
 import type { Game } from './games-store';
-import { publicGameDetail, publicGameSummary } from './games';
+import { boardOf, publicGameDetail, publicGameSummary } from './games';
 import type { SessionRequest } from '../portal/common';
 
 
@@ -20,6 +20,23 @@ export function registerPortalGameRoutes(router: Router, store: DataStore, compa
   router.get('/:audience/games/:slug', requireSession, (req: SessionRequest, res: Response) => {
     const game = store.games.bySlug(companyId, req.params.slug);
     if (!game || !visibleTo(req.portal!)(game)) throw new HttpError(404, 'Not found.');
-    res.json(publicGameDetail(store, game));
+    const handle = typeof req.query.handle === 'string' ? req.query.handle.slice(0, 64) : undefined;
+    res.json(publicGameDetail(store, game, { handle }));
+  });
+
+  // An influencer's own standing in a creators game: their rank and their own figures only.
+  router.get('/:audience/games/:slug/me', requireSession, (req: SessionRequest, res: Response) => {
+    const game = store.games.bySlug(companyId, req.params.slug);
+    if (req.portal!.audience !== 'influencer' || !game || !visibleTo(req.portal!)(game) || game.audience !== 'creators') throw new HttpError(404, 'Not found.');
+    const contactId = req.portal!.contactId;
+    if (!store.games.participants(game.id).includes(contactId)) return res.json({ participating: false });
+    const stat = store.games.creatorStats(game.id).find((s) => s.contactId === contactId) ?? null;
+    const row = stat ? boardOf(store, game).find((r) => r.actorKey === stat.actorKey) ?? null : null;
+    const connected = store.social.accountsFor(companyId, contactId).some((a) => a.status === 'active');
+    res.json({
+      participating: true, connected, tag: game.tag,
+      rank: row?.rank ?? null, points: row?.points ?? 0,
+      stats: stat ? { posts: stat.posts, views: stat.views, shares: stat.shares, engagement: stat.engagement, followerGrowth: stat.followerGrowth, updatedAt: stat.updatedAt } : null,
+    });
   });
 }
