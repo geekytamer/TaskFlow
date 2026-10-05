@@ -21,6 +21,9 @@ export interface Game {
   audience: 'followers' | 'creators';
   tag: string | null;
   reconciledAt: string | null;
+  /** The brand the game was run for; its client portal users read the report. */
+  clientContactId: string | null;
+  clientName: string | null;
   /** Instagram is configured on the server, so sources can be read. */
   instagram: boolean;
   /** A likers fetcher is configured on the server. */
@@ -114,6 +117,7 @@ export const updateGame = (companyId: string, id: string, input: Partial<GameInp
 export const setGameMetrics = (companyId: string, id: string, metrics: Array<{ metricKey: string; weight: number; params: Record<string, unknown> }>) =>
   send<Game>(`${base(companyId)}/${id}/metrics`, 'PUT', metrics);
 export const publishGame = (companyId: string, id: string) => send<Game>(`${base(companyId)}/${id}/publish`, 'POST');
+export const setGameClient = (companyId: string, id: string, contactId: string | null) => send<Game>(`${base(companyId)}/${id}/client`, 'PUT', { contactId });
 export const archiveGame = (companyId: string, id: string) => send<Game>(`${base(companyId)}/${id}/archive`, 'POST');
 export const reopenGame = (companyId: string, id: string, reason: string, endsAt: string) => send<Game>(`${base(companyId)}/${id}/reopen`, 'POST', { reason, endsAt });
 export const awardPoints = (companyId: string, id: string, body: { platform: string; handle: string; points: number; reason: string }) =>
