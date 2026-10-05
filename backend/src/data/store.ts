@@ -4132,6 +4132,32 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Likers lists pasted by staff ('import' sources): Meta gives likes only as totals.
+        // SQLite cannot widen a CHECK, so the table is rebuilt.
+        id: '096_game_import_sources',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE game_sources_new (
+              id              TEXT PRIMARY KEY,
+              gameId          TEXT NOT NULL,
+              kind            TEXT NOT NULL CHECK (kind IN ('post', 'tags', 'import')),
+              accountId       TEXT NOT NULL,
+              mediaId         TEXT NOT NULL DEFAULT '',
+              permalink       TEXT,
+              dirty           INTEGER NOT NULL DEFAULT 1,
+              lastCollectedAt TEXT,
+              lastError       TEXT,
+              createdAt       TEXT NOT NULL,
+              UNIQUE (gameId, kind, accountId, mediaId)
+            );
+            INSERT INTO game_sources_new SELECT id, gameId, kind, accountId, mediaId, permalink, dirty, lastCollectedAt, lastError, createdAt FROM game_sources;
+            DROP TABLE game_sources;
+            ALTER TABLE game_sources_new RENAME TO game_sources;
+            CREATE INDEX IF NOT EXISTS idx_game_sources_account ON game_sources (accountId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

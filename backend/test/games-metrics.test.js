@@ -28,7 +28,7 @@ test('replies and mentions only count their own action', () => {
 
 test('only metrics whose actions the sources supply are offered', () => {
   assert.deepEqual(offeredMetrics([]).map((m) => m.key), ['manual_points']);
-  assert.deepEqual(offeredMetrics(['comment']).map((m) => m.key).sort(), ['comments', 'manual_points']);
+  assert.deepEqual(offeredMetrics(['comment']).map((m) => m.key).sort(), ['comments', 'manual_points', 'weighted_interactions']);
 });
 
 test('a game total is the sum of points times weight, exclusions removed, ties to whoever got there first', () => {
@@ -53,4 +53,24 @@ test('a game total is the sum of points times weight, exclusions removed, ties t
 test('scoring is deterministic and replaying the same input changes nothing', () => {
   const input = { metrics: [{ metricKey: 'manual_points', weight: 1, params: {} }], events: [], awards: [{ actorKey: 'x:1', actorHandle: '1', points: 3, createdAt: new Date(1) }], excluded: new Set() };
   assert.deepEqual(scoreGame(input), scoreGame(input));
+});
+
+test('weighted interactions: per-action points, repeats diminish, a daily cap holds', () => {
+  const { METRICS, scoreGame } = require('../dist/games/metrics');
+  const day = (d, h) => new Date(Date.UTC(2026, 9, d, h));
+  const ev = (id, actor, action, at, extra = {}) => ({ externalId: id, actorKey: `instagram:${actor}`, actorHandle: actor, action, postRef: 'p', occurredAt: at, textLength: 20, textHash: id, ...extra });
+  const params = METRICS.weighted_interactions.params({ comment: 2, like: 1, mention: 4, diminishing: 0.5, dailyCap: 5 });
+  const rows = scoreGame({
+    metrics: [{ metricKey: 'weighted_interactions', weight: 1, params }],
+    events: [
+      ev('a1', 'ana', 'comment', day(5, 1)), ev('a2', 'ana', 'comment', day(5, 2)), ev('a3', 'ana', 'comment', day(5, 3)),
+      ev('b1', 'ben', 'mention', day(5, 1)), ev('b2', 'ben', 'mention', day(5, 2), { postRef: 'q' }),
+      ev('b3', 'ben', 'like', day(6, 1)),
+      ev('c1', 'cy', 'comment', day(5, 1), { textLength: 1 }),
+    ],
+    awards: [], excluded: new Set(),
+  });
+  // ana: 2 + 1 + 0.5; ben: 4 + min(4, cap 5 − 4) on day 5, then a like on day 6; cy's comment is too short.
+  assert.deepEqual(rows.map((r) => [r.handle, r.points]), [['ben', 6], ['ana', 3.5]]);
+  assert.throws(() => METRICS.weighted_interactions.params({ diminishing: 2 }));
 });

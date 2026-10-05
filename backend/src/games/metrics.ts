@@ -51,6 +51,8 @@ export interface Metric {
   label: { en: string; ar: string };
   /** What a game's sources must supply for this metric to be offered. Empty: always offered. */
   requires: Supply[];
+  /** Offered when sources supply at least one of these (in addition to `requires`). */
+  requiresAny?: Supply[];
   /** Validates and fills defaults; throws on bad input. */
   params(raw: unknown): Record<string, number | boolean>;
   score(events: InteractionEvent[], params: Record<string, number | boolean>, awards: Award[], stats: CreatorStatInput[]): Map<string, MetricScore>;
@@ -129,6 +131,65 @@ const perCreatorTotal = (key: string, field: 'views' | 'shares' | 'engagement' |
   },
 });
 
+const ACTION_DEFAULTS: Record<'comment' | 'reply' | 'mention' | 'like', number> = { comment: 1, reply: 0.5, mention: 3, like: 0.25 };
+
+/**
+ * One metric weighing every kind of interaction: points per action, the same
+ * quality rules for written ones, diminishing returns for repeats on a post,
+ * and an optional daily cap per person so a game rewards breadth over spam.
+ */
+const weightedInteractions: Metric = {
+  key: 'weighted_interactions',
+  label: { en: 'Weighted interactions', ar: 'تفاعلات موزونة' },
+  requires: [],
+  requiresAny: ['comment', 'reply', 'mention', 'like'],
+  params(raw) {
+    const r = obj(raw);
+    return {
+      comment: num(r, 'comment', ACTION_DEFAULTS.comment, 0, 100),
+      reply: num(r, 'reply', ACTION_DEFAULTS.reply, 0, 100),
+      mention: num(r, 'mention', ACTION_DEFAULTS.mention, 0, 100),
+      like: num(r, 'like', ACTION_DEFAULTS.like, 0, 100),
+      minLength: num(r, 'minLength', 3, 0, 1000),
+      uniqueText: r.uniqueText === undefined ? true : r.uniqueText === true,
+      maxPerPost: num(r, 'maxPerPost', 10, 1, 1000),
+      diminishing: num(r, 'diminishing', 0.7, 0.1, 1),
+      dailyCap: num(r, 'dailyCap', 0, 0, 100000),
+    };
+  },
+  score(events, params) {
+    const out = new Map<string, MetricScore>();
+    const perPost = new Map<string, number>();
+    const perDay = new Map<string, number>();
+    const seenText = new Map<string, Set<string>>();
+    const cap = Number(params.dailyCap ?? 0);
+    const ordered = events.filter((e) => e.action in ACTION_DEFAULTS).sort((a, b) => +a.occurredAt - +b.occurredAt || a.externalId.localeCompare(b.externalId));
+    for (const e of ordered) {
+      const written = e.action === 'comment' || e.action === 'reply';
+      if (written && (e.textLength ?? 0) < Number(params.minLength ?? 0)) continue;
+      if (written && params.uniqueText && e.textHash) {
+        const seen = seenText.get(e.actorKey) ?? new Set<string>();
+        if (seen.has(e.textHash)) continue;
+        seen.add(e.textHash);
+        seenText.set(e.actorKey, seen);
+      }
+      const postKey = `${e.actorKey}|${e.action}|${e.postRef}`;
+      const n = perPost.get(postKey) ?? 0;
+      if (n >= Number(params.maxPerPost ?? 10)) continue;
+      perPost.set(postKey, n + 1);
+      let points = Number(params[e.action] ?? 0) * Number(params.diminishing ?? 1) ** n;
+      if (cap > 0) {
+        const dayKey = `${e.actorKey}|${e.occurredAt.toISOString().slice(0, 10)}`;
+        const used = perDay.get(dayKey) ?? 0;
+        points = Math.min(points, cap - used);
+        perDay.set(dayKey, used + Math.max(0, points));
+      }
+      if (points > 0) add(out, e.actorKey, e.actorHandle, Number(points.toFixed(4)), +e.occurredAt);
+    }
+    return out;
+  },
+};
+
 export const METRICS: Record<string, Metric> = {
   manual_points: {
     key: 'manual_points',
@@ -144,6 +205,8 @@ export const METRICS: Record<string, Metric> = {
   comments: perInteraction('comments', 'comment', 'pointsPerComment', { en: 'Points per comment', ar: 'نقاط لكل تعليق' }),
   replies: perInteraction('replies', 'reply', 'pointsPerReply', { en: 'Points per reply', ar: 'نقاط لكل رد' }),
   mentions: perInteraction('mentions', 'mention', 'pointsPerMention', { en: 'Points per mention or tag', ar: 'نقاط لكل إشارة أو وسم' }),
+  likes: perInteraction('likes', 'like', 'pointsPerLike', { en: 'Points per like (from an imported likers list)', ar: 'نقاط لكل إعجاب (من قائمة مستوردة)' }),
+  weighted_interactions: weightedInteractions,
   creator_shares: perCreatorTotal('creator_shares', 'shares', 'pointsPerShare', 1, { en: 'Points per share of the creator’s game posts', ar: 'نقاط لكل مشاركة لمنشورات المسابقة' }),
   creator_views: perCreatorTotal('creator_views', 'views', 'pointsPer1000Views', 1000, { en: 'Points per 1,000 views of game posts', ar: 'نقاط لكل ١٠٠٠ مشاهدة لمنشورات المسابقة' }),
   creator_engagement: perCreatorTotal('creator_engagement', 'engagement', 'pointsPerEngagement', 1, { en: 'Points per like, comment or save on game posts', ar: 'نقاط لكل إعجاب أو تعليق أو حفظ' }),
@@ -152,7 +215,7 @@ export const METRICS: Record<string, Metric> = {
 
 /** Metrics a game can use, given what its sources can supply. */
 export const offeredMetrics = (supplied: Supply[]) =>
-  Object.values(METRICS).filter((m) => m.requires.every((a) => supplied.includes(a)));
+  Object.values(METRICS).filter((m) => m.requires.every((a) => supplied.includes(a)) && (!m.requiresAny || m.requiresAny.some((a) => supplied.includes(a))));
 
 export interface BoardRow {
   rank: number;

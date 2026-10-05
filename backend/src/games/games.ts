@@ -30,12 +30,16 @@ const platformOf = (actorKey: string) => actorKey.split(':')[0];
 export function suppliedFor(store: DataStore, game: Game): Supply[] {
   if (game.audience === 'creators') return ['creator_stats'];
   const kinds = new Set(store.games.sources(game.id).map((s) => s.kind));
-  return [...(kinds.has('post') ? (['comment', 'reply'] as const) : []), ...(kinds.has('tags') ? (['mention'] as const) : [])];
+  return [
+    ...(kinds.has('post') ? (['comment', 'reply'] as const) : []),
+    ...(kinds.has('tags') ? (['mention'] as const) : []),
+    ...(kinds.has('import') ? (['like'] as const) : []),
+  ];
 }
 
 /** Whether results depend on data collected from Meta (and so must be re-read before they freeze). */
 export const collectsFromMeta = (store: DataStore, game: Game) =>
-  game.audience === 'creators' ? store.games.participants(game.id).length > 0 : store.games.sources(game.id).length > 0;
+  game.audience === 'creators' ? store.games.participants(game.id).length > 0 : store.games.sources(game.id).some((s) => s.kind !== 'import');
 
 /** If Meta cannot be reached after a game ends, results freeze anyway after this long, from what was collected. */
 export const RECONCILE_GRACE_MS = 48 * 60 * 60 * 1000;

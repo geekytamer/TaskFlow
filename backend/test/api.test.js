@@ -1297,6 +1297,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '093_portal_indexes',
     '094_social',
     '095_game_sources',
+    '096_game_import_sources',
   ]);
 });
 

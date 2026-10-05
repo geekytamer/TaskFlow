@@ -37,8 +37,8 @@ export interface GameAward { id: string; gameId: string; actorKey: string; actor
 export interface ActorRule { gameId: string; actorKey: string; actorHandle: string; kind: 'exclude' | 'disqualify'; reason: string; byUserId: string; createdAt: string }
 export interface GameResult { gameId: string; actorKey: string; actorHandle: string; rank: number; points: number; breakdown: Record<string, number>; frozenAt: string }
 export interface GameViewer { subjectType: 'user' | 'portal_user'; subjectId: string }
-export interface GameSource { id: string; gameId: string; kind: 'post' | 'tags'; accountId: string; mediaId: string; permalink: string | null; dirty: number; lastCollectedAt: string | null; lastError: string | null; createdAt: string }
-export interface GameEventRow { gameId: string; externalId: string; sourceId: string; actorKey: string; actorHandle: string; action: 'comment' | 'reply' | 'mention'; postRef: string; occurredAt: string; textLength: number; textHash: string | null; removedAt: string | null }
+export interface GameSource { id: string; gameId: string; kind: 'post' | 'tags' | 'import'; accountId: string; mediaId: string; permalink: string | null; dirty: number; lastCollectedAt: string | null; lastError: string | null; createdAt: string }
+export interface GameEventRow { gameId: string; externalId: string; sourceId: string; actorKey: string; actorHandle: string; action: 'comment' | 'reply' | 'mention' | 'like'; postRef: string; occurredAt: string; textLength: number; textHash: string | null; removedAt: string | null }
 export interface CreatorStat { gameId: string; contactId: string; accountId: string; actorKey: string; actorHandle: string; posts: number; views: number; shares: number; engagement: number; followerGrowth: number; lastPostAt: string | null; updatedAt: string }
 
 

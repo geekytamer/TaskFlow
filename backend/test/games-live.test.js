@@ -99,7 +99,7 @@ const board = async (ctx, id) => (await ctx.staff('get', `/${id}/scoreboard`)).b
 test('comments, replies and tags on a connected account score the people who made them', async () => {
   const ctx = build();
   const game = await followersGame(ctx);
-  assert.deepEqual((await ctx.staff('get', `/${game.id}`)).body.availableMetrics.map((m) => m.key).sort(), ['comments', 'manual_points', 'mentions', 'replies']);
+  assert.deepEqual((await ctx.staff('get', `/${game.id}`)).body.availableMetrics.map((m) => m.key).sort(), ['comments', 'manual_points', 'mentions', 'replies', 'weighted_interactions']);
   ctx.meta.comments = [
     comment('c1', 'Sara.K', 'Ramadan Kareem, love this!', 5),
     comment('c1r', 'omar_1', 'Same here, beautiful', 4, 'c1'),
@@ -230,4 +230,31 @@ test('only admins manage sources; accounts must be connected and in the company'
   const accounts = await request(ctx.server).get(`/companies/${ctx.company.id}/game-accounts`).set({ Authorization: `Bearer ${ctx.store.issueToken(ctx.admin.id)}` });
   assert.deepEqual(accounts.body.map((a) => a.username), ['lina.eats']);
   assert.equal(JSON.stringify(accounts.body).match(/token|v1:/i), null);
+});
+
+test('a pasted likers list becomes likes; importing again replaces it; weights apply per action', async () => {
+  const ctx = build();
+  const game = await makeGame(ctx);
+  const created = await ctx.staff('post', `/${game.id}/sources`, { kind: 'import', permalink: 'https://www.instagram.com/p/GAME/' });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.availableMetrics.map((m) => m.key).sort(), ['likes', 'manual_points', 'weighted_interactions']);
+  const source = created.body.sources[0];
+  assert.equal((await ctx.staff('post', `/${game.id}/sources`, { kind: 'import', permalink: 'https://www.instagram.com/p/GAME' })).status, 409, 'one list per post');
+  assert.equal((await ctx.staff('put', `/${game.id}/metrics`, [{ metricKey: 'weighted_interactions', weight: 1, params: { like: 0.5 } }])).status, 200);
+
+  const pasted = '@Sara.K\nSara K\nFollow\nhttps://www.instagram.com/omar_1/\nlaila_m, sara.k\n12345';
+  const first = await ctx.staff('post', `/${game.id}/sources/${source.id}/likers`, { text: pasted });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.deepEqual([first.body.imported.total, first.body.imported.added, first.body.imported.skippedCount], [3, 3, 3]);
+  assert.deepEqual(first.body.imported.skipped, ['Sara K', 'Follow', '12345']);
+  assert.deepEqual((await board(ctx, game.id)).map(([h]) => h).sort(), ['laila_m', 'omar_1', 'sara.k']);
+  assert.ok((await board(ctx, game.id)).every(([, p]) => p === 0.5));
+
+  const again = await ctx.staff('post', `/${game.id}/sources/${source.id}/likers`, { text: 'sara.k\nlaila_m' });
+  assert.deepEqual([again.body.imported.added, again.body.imported.removed], [0, 1]);
+  assert.deepEqual((await board(ctx, game.id)).map(([h]) => h).sort(), ['laila_m', 'sara.k']);
+  // An imported list alone never holds back freezing: there is nothing to re-read from Meta.
+  ctx.store.games.updateGame(game.id, { publishedAt: new Date().toISOString(), endsAt: ago(1).toISOString() });
+  assert.ok(ensureFrozen(ctx.store, ctx.store.games.get(game.id)).frozenAt);
+  assert.equal((await ctx.staff('post', `/${game.id}/sources/${source.id}/likers`, { text: 'late' })).status, 409);
 });

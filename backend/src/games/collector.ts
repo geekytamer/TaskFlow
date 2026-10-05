@@ -20,7 +20,7 @@ const IDLE_EVERY_MS = 60 * 60 * 1000;
 
 const normalise = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
 const hashOf = (text: string) => crypto.createHash('sha256').update(normalise(text)).digest('hex').slice(0, 32);
-const actor = (username: string) => ({ actorKey: `instagram:${username.toLowerCase()}`, actorHandle: username.toLowerCase() });
+export const actor = (username: string) => ({ actorKey: `instagram:${username.toLowerCase()}`, actorHandle: username.toLowerCase() });
 
 const tokenOf = (account: ConnectedAccount | undefined) => {
   if (!account || account.status !== 'active' || !account.tokenSealed) throw new Error('The connected account is not active.');
@@ -101,7 +101,8 @@ export async function collectGame(store: DataStore, client: MetaClient, game: Ga
     return errors;
   }
   const errors: string[] = [];
-  for (const source of store.games.sources(game.id)) {
+  // Imported likers lists are staff's own record; only Meta-backed sources are re-read.
+  for (const source of store.games.sources(game.id).filter((src) => src.kind !== 'import')) {
     try {
       const rows = await readSource(store, client, source);
       store.games.syncSourceEvents(game.id, source.id, rows, now.toISOString());
@@ -129,7 +130,7 @@ export async function sweepGames(store: DataStore, client: MetaClient, companyId
       const sources = store.games.sources(game.id);
       const due = game.audience === 'creators'
         ? !store.games.creatorStats(game.id).some((s) => now.getTime() - Date.parse(s.updatedAt) < IDLE_EVERY_MS)
-        : sources.some((s) => s.dirty || !s.lastCollectedAt || now.getTime() - Date.parse(s.lastCollectedAt) >= IDLE_EVERY_MS);
+        : sources.filter((s) => s.kind !== 'import').some((s) => s.dirty || !s.lastCollectedAt || now.getTime() - Date.parse(s.lastCollectedAt) >= IDLE_EVERY_MS);
       if (!due) continue;
     } else if (game.reconciledAt) continue;
     await collectGame(store, client, game, now);

@@ -5,7 +5,7 @@ import type { SanitizedUser } from '../types';
 import { asRecord, enumValue } from '../validation';
 import type { MetaClient } from '../social/meta-client';
 import { openToken } from '../social/crypto';
-import { collectGame } from './collector';
+import { actor, collectGame } from './collector';
 import { actorOf, ensureFrozen, gameStatus, staffBoard, suppliedFor } from './games';
 import type { Game, GameViewer } from './games-store';
 import { METRICS, offeredMetrics } from './metrics';
@@ -44,6 +44,27 @@ const date = (v: unknown, field: string): string => {
 const MAX_METRICS = 5;
 const MAX_SOURCES = 20;
 const MAX_PARTICIPANTS = 100;
+const MAX_LIKERS = 5000;
+// Button labels Instagram's likes list puts between handles when copied.
+const NOT_HANDLES = new Set(['follow', 'following', 'remove', 'message', 'requested', 'verified', 'likes']);
+
+/**
+ * Handles from a pasted likers list or CSV: one per line (or comma separated),
+ * with or without @, or as profile links. Lines that cannot be a handle are skipped and reported.
+ */
+export function parseHandles(raw: string): { handles: string[]; skipped: string[] } {
+  const handles = new Set<string>();
+  const skipped: string[] = [];
+  for (const piece of raw.split(/[\r\n,;\t]+/)) {
+    const line = piece.trim();
+    if (!line) continue;
+    const fromLink = line.match(/instagram\.com\/([A-Za-z0-9._]{1,30})\/?/i)?.[1];
+    const handle = (fromLink ?? line).replace(/^@+/, '').toLowerCase();
+    if (/^[a-z0-9._]{1,30}$/.test(handle) && !NOT_HANDLES.has(handle) && !/^\d+$/.test(handle)) handles.add(handle);
+    else skipped.push(line.slice(0, 60));
+  }
+  return { handles: [...handles], skipped };
+}
 
 /** A creators game counts posts whose caption has this: one @handle or #hashtag. */
 const tagOf = (v: unknown): string | null => {
@@ -82,10 +103,14 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
       viewers: store.games.viewers(game.id),
       availableMetrics: offeredMetrics(suppliedFor(store, game)).map((m) => ({ key: m.key, label: m.label })),
       instagram: Boolean(deps.metaClient),
-      sources: store.games.sources(game.id).map((src) => ({
-        id: src.id, kind: src.kind, accountId: src.accountId, username: accountName(src.accountId), permalink: src.permalink,
-        lastCollectedAt: src.lastCollectedAt, lastError: src.lastError,
-      })),
+      sources: (() => {
+        const counts = new Map<string, number>();
+        store.games.events(game.id).forEach((e) => counts.set(e.sourceId, (counts.get(e.sourceId) ?? 0) + 1));
+        return store.games.sources(game.id).map((src) => ({
+          id: src.id, kind: src.kind, accountId: src.accountId || null, username: src.accountId ? accountName(src.accountId) : null, permalink: src.permalink,
+          lastCollectedAt: src.lastCollectedAt, lastError: src.lastError, interactions: counts.get(src.id) ?? 0,
+        }));
+      })(),
       participants: store.games.participants(game.id).map((contactId) => {
         const st = stats.get(contactId);
         const connected = store.social.accountsFor(game.companyId, contactId).find((a) => a.status === 'active');
@@ -188,11 +213,18 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     const companyId = authorize(req);
     const game = load(companyId, req.params.id);
     notFrozen(game);
-    if (!deps.metaClient) throw new HttpError(409, 'Instagram is not set up yet.');
     if (game.audience !== 'followers') throw new HttpError(409, 'Creators games read the participants’ own posts; add participants instead.');
     if (store.games.sources(game.id).length >= MAX_SOURCES) throw new HttpError(400, `At most ${MAX_SOURCES} sources.`);
     const body = asRecord(req.body, 'body');
-    const kind = enumValue(body.kind, 'kind', ['post', 'tags'] as const);
+    const kind = enumValue(body.kind, 'kind', ['post', 'tags', 'import'] as const);
+    if (kind === 'import') {
+      // A likers list staff copy from the post's likes screen; no Meta call involved.
+      const permalink = text(body.permalink, 'permalink', 500, true)!;
+      const source = store.games.addSource({ gameId: game.id, kind, accountId: '', mediaId: permalink.toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, ''), permalink });
+      if (!source) throw new HttpError(409, 'That post already has a likers list; import into it instead.');
+      return res.status(201).json(view(store.games.get(game.id)!));
+    }
+    if (!deps.metaClient) throw new HttpError(409, 'Instagram is not set up yet.');
     const account = store.social.getAccount(String(body.accountId ?? ''));
     if (!account || account.companyId !== companyId || account.status !== 'active' || !account.tokenSealed) throw new HttpError(400, 'Choose a connected Instagram account.');
     let mediaId = '';
@@ -211,6 +243,28 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     const source = store.games.addSource({ gameId: game.id, kind, accountId: account.id, mediaId, permalink });
     if (!source) throw new HttpError(409, 'That source is already on this game.');
     res.status(201).json(view(store.games.get(game.id)!));
+  }));
+
+  // Replaces a likers list. Each handle is one like on that post, timed now (within the game).
+  router.post(`${base}/:id/sources/:sourceId/likers`, authMiddleware, wrap((req, res) => {
+    const game = load(authorize(req), req.params.id);
+    notFrozen(game);
+    const source = store.games.sources(game.id).find((src) => src.id === req.params.sourceId && src.kind === 'import');
+    if (!source) throw new HttpError(404, 'Likers list not found.');
+    const body = asRecord(req.body, 'body');
+    if (typeof body.text !== 'string' || body.text.length > 400_000) throw new HttpError(400, 'Paste the likers, one per line.');
+    const { handles, skipped } = parseHandles(body.text);
+    if (handles.length > MAX_LIKERS) throw new HttpError(400, `At most ${MAX_LIKERS} likers per post.`);
+    const now = Date.now();
+    const at = new Date(Math.min(Math.max(now, Date.parse(game.startsAt)), Date.parse(game.endsAt) - 1)).toISOString();
+    const existing = new Map(store.games.events(game.id, true).filter((e) => e.sourceId === source.id).map((e) => [e.externalId, e.occurredAt]));
+    const rows = handles.map((h) => {
+      const externalId = `import:${source.id}:${h}`;
+      return { externalId, ...actor(h), action: 'like' as const, postRef: source.mediaId, occurredAt: existing.get(externalId) ?? at, textLength: 0, textHash: null };
+    });
+    const { added, removed } = store.games.syncSourceEvents(game.id, source.id, rows, new Date(now).toISOString());
+    store.games.updateSource(source.id, { dirty: 0, lastCollectedAt: new Date(now).toISOString(), lastError: null });
+    res.json({ ...view(store.games.get(game.id)!), imported: { total: handles.length, added, removed, skipped: skipped.slice(0, 20), skippedCount: skipped.length } });
   }));
 
   router.delete(`${base}/:id/sources/:sourceId`, authMiddleware, wrap((req, res) => {
