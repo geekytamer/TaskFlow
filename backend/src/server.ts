@@ -377,6 +377,17 @@ const toCsv = (headers: string[], rows: Array<Array<unknown>>): string => {
   return body ? `${headerRow}\n${body}` : `${headerRow}\n`;
 };
 
+/**
+ * A refusal from the data layer: a plain Error thrown inside data/store. Its
+ * message is written for the user. Integration and configuration failures
+ * (also plain Errors, but thrown elsewhere) stay 500 and are logged.
+ */
+const isDataRuleError = (error: unknown): error is Error => {
+  if (!(error instanceof Error) || Object.getPrototypeOf(error) !== Error.prototype || !error.message) return false;
+  const firstFrame = (error.stack || '').split('\n').find((line) => line.trim().startsWith('at '));
+  return Boolean(firstFrame && /[\\/]data[\\/]store\.(js|ts)/.test(firstFrame));
+};
+
 const handler =
   (
     fn: (req: AuthedRequest, res: Response, next: NextFunction) => unknown | Promise<unknown>,
@@ -1235,6 +1246,9 @@ export function createServer(options: CreateServerOptions = {}) {
             `items[${index}].inventoryItemId does not belong to company ${companyId}.`,
           );
         }
+        if (inventoryItem.archivedAt) {
+          throw new HttpError(400, `${inventoryItem.name} is archived. Restore it before ordering it again.`);
+        }
       }
       if (item.sku) {
         const inventoryItem = store.getInventoryItemBySku(companyId, item.sku);
@@ -1361,6 +1375,8 @@ export function createServer(options: CreateServerOptions = {}) {
     // else, whatever their primary role, manages users only in the companies
     // they administer or manage.
     if (actor.isSuperAdmin) return;
+    // Someone in no company at all belongs to the platform, not to a company admin.
+    if (!assignments.length) throw new HttpError(403, 'Only the super admin can manage this user.');
     const invalidCompany = assignments.find(
       (assignment) => !allowsRule(req, assignment.companyId, 'USERS_WRITE'),
     );
@@ -3003,6 +3019,25 @@ export function createServer(options: CreateServerOptions = {}) {
           role: existing.role,
           positionId: existing.positionId,
         }));
+      if (!req.user!.isSuperAdmin) {
+        // A company admin edits only people already in a company they manage,
+        // and never the platform's super admin. Sign-in details (name, email,
+        // password) are shared by every company the person works in, so they
+        // change only when the admin manages all of them.
+        const manages = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
+        const isSelf = req.user!.id === existing.id;
+        if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.');
+        if (!isSelf && !existingAssignments.some((a) => manages(a.companyId))) {
+          throw new HttpError(403, 'You can only edit people in companies you administer or manage.');
+        }
+        const identityChange =
+          (payload.name !== undefined && payload.name !== existing.name)
+          || (payload.email !== undefined && payload.email.toLowerCase() !== existing.email.toLowerCase())
+          || payload.password !== undefined;
+        if (identityChange && !isSelf && !existingAssignments.every((a) => manages(a.companyId))) {
+          throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.');
+        }
+      }
       let targetAssignments =
         payload.companyRoles
         || existingAssignments;
@@ -3123,6 +3158,7 @@ export function createServer(options: CreateServerOptions = {}) {
           role: existing.role,
           positionId: existing.positionId,
         }));
+      if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.');
       assertUserManagementPermission(req, targetAssignments);
       const authzBefore = snapshotAuthz([
         ...existing.companyIds,
@@ -4381,7 +4417,6 @@ export function createServer(options: CreateServerOptions = {}) {
 		          ownerName: !managesAll ? existing.ownerName : body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
 		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,
 		          serviceType: body.serviceType !== undefined ? requiredString(body.serviceType, 'serviceType', { min: 2 }) : undefined,
-		          stage: body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : undefined,
 		          expectedRevenue: body.expectedRevenue !== undefined ? optionalNumber(body.expectedRevenue) ?? 0 : undefined,
 		          probability: body.probability !== undefined ? optionalNumber(body.probability) ?? 0 : undefined,
 		          // An explicit empty value clears the field; leaving it out keeps it.
@@ -4393,10 +4428,17 @@ export function createServer(options: CreateServerOptions = {}) {
 		        }),
 		      );
 		      if (!updated) throw new HttpError(404, 'Opportunity not found.');
-		      // Winning through an edit does what winning through the stage move does.
-		      if (updated.stage === 'Won' && existing.stage !== 'Won') {
-		        store.calculateCommissionsForOpportunity(updated.id);
-		        autoConvertContactToClient(updated.contactId, updated.companyId);
+		      // A stage change goes through the stage move, so an edit closes the
+		      // deal, schedules its follow-up and pays commissions exactly as it does.
+		      const newStage = body.stage !== undefined ? enumValue(body.stage, 'stage', opportunityStages) : undefined;
+		      if (newStage && newStage !== existing.stage) {
+		        const moved = withActor(req, () => store.updateOpportunityStage(updated.id, newStage));
+		        if (newStage === 'Won') {
+		          store.calculateCommissionsForOpportunity(updated.id);
+		          autoConvertContactToClient(updated.contactId, updated.companyId);
+		        }
+		        res.json(moved ?? updated);
+		        return;
 		      }
 		      res.json(updated);
 		    }),
@@ -6039,6 +6081,9 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!item.tracksInventory) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
       }
+      if (item.archivedAt) {
+        throw new HttpError(400, `${item.name} is archived. Restore it before moving its stock.`);
+      }
       const body = asRecord(req.body, 'body');
       const lotLocation = optionalString(body.location) || item.location || 'Unassigned';
       ensureActiveWarehouse(req.params.companyId, lotLocation, 'location');
@@ -6079,6 +6124,9 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!item.tracksInventory) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
       }
+      if (item.archivedAt) {
+        throw new HttpError(400, `${item.name} is archived. Restore it before moving its stock.`);
+      }
       const body = asRecord(req.body, 'body');
       const consumeLocation = optionalString(body.location);
       if (consumeLocation) {
@@ -6111,6 +6159,9 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       if (!item.tracksInventory) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      if (item.archivedAt) {
+        throw new HttpError(400, `${item.name} is archived. Restore it before moving its stock.`);
       }
       const body = asRecord(req.body, 'body');
       const quantityChange = requiredNumber(body.quantityChange, 'quantityChange');
@@ -6152,6 +6203,9 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!item.tracksInventory) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
       }
+      if (item.archivedAt) {
+        throw new HttpError(400, `${item.name} is archived. Restore it before moving its stock.`);
+      }
       const body = asRecord(req.body, 'body');
       const issueLocation = optionalString(body.location) || item.location || 'Unassigned';
       ensureActiveWarehouse(req.params.companyId, issueLocation, 'location');
@@ -6191,6 +6245,9 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       if (!item.tracksInventory) {
         throw new HttpError(400, 'This item is not tracked in inventory.');
+      }
+      if (item.archivedAt) {
+        throw new HttpError(400, `${item.name} is archived. Restore it before moving its stock.`);
       }
       const body = asRecord(req.body, 'body');
       const fromLocation = optionalString(body.fromLocation) || item.location || 'Unassigned';
@@ -7125,6 +7182,8 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       if (quote.invoiceId) throw new HttpError(409, 'This quotation was already invoiced directly.');
       if (quote.status !== 'Accepted') throw new HttpError(400, 'Only an accepted quotation becomes a sales order.');
+      // Items archived since the quote was written cannot be sold again until restored.
+      ensureSalesItemsBelongToCompany(quote.items, quote.companyId);
       const body = asRecord(req.body ?? {}, 'body');
       const expectedDate = optionalDateInput(body.expectedDate);
       const order = asBadRequest(() => withActor(req, () => {
@@ -9089,7 +9148,12 @@ export function createServer(options: CreateServerOptions = {}) {
       try {
         res.json(withActor(req, () => store.removeInventoryItem(existing.id, { writeOff })));
       } catch (error: any) {
-        res.status(409).json({ message: error?.message || 'Could not remove inventory item.', code: error?.code });
+        // Only the known refusals are a conflict; anything else is a real fault.
+        if (error?.code === 'HAS_STOCK' || error?.code === 'IN_RECIPE') {
+          res.status(409).json({ message: error.message, code: error.code });
+          return;
+        }
+        throw error;
       }
     }),
   );
@@ -9331,7 +9395,7 @@ export function createServer(options: CreateServerOptions = {}) {
     // message is written for the user ("This employee appears on payroll
     // runs…"). Answer those as a bad request with the message; anything else
     // (a TypeError, a database error) is a real fault and stays a 500.
-    if (error instanceof Error && Object.getPrototypeOf(error) === Error.prototype && error.message) {
+    if (isDataRuleError(error)) {
       return res.status(400).json({ message: error.message });
     }
     logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);

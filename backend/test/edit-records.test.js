@@ -131,3 +131,31 @@ test('invoice custom column values are saved on create and edit', async () => {
   assert.equal(edited.status, 200, JSON.stringify(edited.body));
   assert.deepEqual(edited.body.lineItems[0].custom, { colour: 'Red' });
 });
+
+test('an approved purchase order goes back for approval when its lines change, even at the same total', async () => {
+  const { app, store, as } = setup();
+  store.updateCompanyFinanceSettings?.('1', { poApprovalThreshold: 100 });
+  const sup = await supplier(app, as, 'Approver Co');
+  const order = (await as(request(app).post('/companies/1/purchase-orders')).send({
+    supplierId: sup.id, orderDate: new Date().toISOString(), status: 'Draft', items: [{ description: 'Ten of A', quantity: 10, unitCost: 50 }],
+  })).body;
+  assert.equal(order.approvalStatus, 'pending', JSON.stringify(order));
+  assert.equal((await as(request(app).post(`/purchase-orders/${order.id}/approve`)).send({})).status, 200);
+  const swapped = await as(request(app).put(`/purchase-orders/${order.id}`)).send({ items: [{ description: 'Totally different', quantity: 1, unitCost: 500 }] });
+  assert.equal(swapped.status, 200, JSON.stringify(swapped.body));
+  assert.equal(swapped.body.approvalStatus, 'pending');
+});
+
+test('an archived item takes no stock and goes on no new purchase order', async () => {
+  const { app, as } = setup();
+  const item = (await as(request(app).post('/companies/1/inventory-items')).send({ name: 'Old widget', category: 'Parts', unit: 'pcs', onHand: 2, location: 'Main' })).body;
+  await as(request(app).delete(`/inventory-items/${item.id}?writeOff=1`));
+  const adjust = await as(request(app).post(`/companies/1/inventory-items/${item.id}/adjustments`)).send({ quantityChange: 7, location: 'Main' });
+  assert.equal(adjust.status, 400);
+  assert.match(adjust.body.message, /archived/i);
+  const sup = await supplier(app, as, 'Old Parts Co');
+  const po = await as(request(app).post('/companies/1/purchase-orders')).send({
+    supplierId: sup.id, orderDate: new Date().toISOString(), items: [{ inventoryItemId: item.id, description: 'Old widget', quantity: 1, unitCost: 1 }],
+  });
+  assert.equal(po.status, 400);
+});

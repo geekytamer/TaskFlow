@@ -91,3 +91,34 @@ test('group assignment is only for members of that company', async () => {
   const res = await as(companyAdmin)(request(app).put(`/companies/1/users/${outsider.id}/groups`)).send({ groupIds: [group.id] });
   assert.equal(res.status, 400);
 });
+
+test("a company admin cannot edit or take over someone outside their companies", async () => {
+  const { app, store, companyAdmin, outsider, superAdmin, shared, as } = setup();
+  const admin = as(companyAdmin);
+  const takeOver = await admin(request(app).put(`/users/${outsider.id}`)).send({
+    companyRoles: [{ companyId: '1', role: 'Employee' }], email: 'mine@evil.example', password: 'Hacked123!',
+  });
+  assert.equal(takeOver.status, 403);
+  assert.equal(store.getUserById(outsider.id).email, 'omar@two.example');
+  // Pulling an outsider into one's own company without touching sign-in details is refused too.
+  const pull = await admin(request(app).put(`/users/${outsider.id}`)).send({ companyRoles: [{ companyId: '1', role: 'Employee' }] });
+  assert.equal(pull.status, 403);
+  assert.deepEqual(store.getUserById(outsider.id).companyIds, ['2']);
+
+  const root = await admin(request(app).put(`/users/${superAdmin.id}`)).send({ email: 'root@evil.example' });
+  assert.equal(root.status, 403, 'never the super admin');
+  assert.equal(store.getUserById(superAdmin.id).email, 'root@platform.example');
+
+  // Someone who also works elsewhere: their sign-in details belong to all their companies.
+  const sharedEmail = await admin(request(app).put(`/users/${shared.id}`)).send({ email: 'sara@new.example' });
+  assert.equal(sharedEmail.status, 403);
+});
+
+test('a user with no company assignments can only be deleted by the super admin', async () => {
+  const { app, store, as, superAdmin } = setup();
+  const orphan = store.createUser({ name: 'Orphan', email: 'orphan@x.example', password: 'Password1!', companyIds: [], companyRoles: [], role: 'Employee' });
+  const employee = store.listUsers().find((u) => u.email === 'charlie.d@innovatecorp.com');
+  assert.equal((await as(employee)(request(app).delete(`/users/${orphan.id}`))).status, 403);
+  assert.ok(store.getUserById(orphan.id));
+  assert.equal((await as(superAdmin)(request(app).delete(`/users/${orphan.id}`))).status, 200);
+});

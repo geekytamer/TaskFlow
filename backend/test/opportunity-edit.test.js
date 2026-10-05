@@ -27,3 +27,18 @@ test('editing an opportunity can clear its notes and close date, and winning it 
   assert.equal(won.status, 200);
   assert.ok(store.getContactById(contact.id).roles.includes('Client'), 'the contact became a client');
 });
+
+test('winning an opportunity by editing it closes it like the stage move does', async () => {
+  const dbPath = path.join(makeTmpDir('taskflow-opp2-'), 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy', logger: { info() {}, warn() {}, error() {} } }).listen(0);
+  app.unref();
+  const admin = store.listUsers().find((u) => u.email === 'admin@taskflow.com');
+  const as = (req) => req.set('Authorization', `Bearer ${store.issueToken(admin.id)}`);
+  const contact = (await as(request(app).post('/companies/1/contacts')).send({ name: 'Close Co', roles: ['Lead'] })).body;
+  const opp = (await as(request(app).post('/companies/1/opportunities')).send({ contactId: contact.id, title: 'Deal', serviceType: 'Web' })).body;
+  const won = await as(request(app).put(`/opportunities/${opp.id}`)).send({ stage: 'Won', title: 'Deal (signed)' });
+  assert.equal(won.status, 200, JSON.stringify(won.body));
+  assert.equal(won.body.title, 'Deal (signed)');
+  assert.ok(store.getOpportunityById(opp.id).closedAt, 'closedAt is set');
+});

@@ -7073,7 +7073,10 @@ export class DataStore {
     const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
     const threshold = this.getCompanyFinanceSettings(existing.companyId).poApprovalThreshold;
     const requiresApproval = threshold > 0 && totalAmount >= threshold;
-    const changed = totalAmount !== existing.totalAmount || updates.supplierId !== undefined && updates.supplierId !== existing.supplierId;
+    // What is being ordered changed: other lines, other amounts or another supplier.
+    const changed = totalAmount !== existing.totalAmount
+      || JSON.stringify(items) !== JSON.stringify(existing.items)
+      || (updates.supplierId !== undefined && updates.supplierId !== existing.supplierId);
     const approvalStatus = !changed && existing.approvalStatus !== 'rejected'
       ? existing.approvalStatus
       : requiresApproval ? 'pending' : 'not_required';
@@ -7212,7 +7215,8 @@ export class DataStore {
         || this.db.prepare('SELECT 1 FROM sales_orders WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
         || this.db.prepare('SELECT 1 FROM purchase_orders WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
         || this.db.prepare('SELECT 1 FROM quotations WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
-        || this.db.prepare('SELECT 1 FROM deliveries WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json);
+        || this.db.prepare('SELECT 1 FROM deliveries WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json)
+        || this.db.prepare('SELECT 1 FROM purchase_requisitions WHERE companyId = ? AND items LIKE ? LIMIT 1').get(item.companyId, json);
       if (referenced) {
         this.db.prepare('UPDATE inventory_items SET archivedAt = ? WHERE id = ?').run(new Date().toISOString(), id);
         this.db.prepare('DELETE FROM inventory_location_balances WHERE inventoryItemId = ? AND ABS(quantity) <= 0.0001').run(id);
@@ -7952,6 +7956,7 @@ export class DataStore {
       const totalQty = rfq.items.reduce((sum, item) => sum + item.quantity, 0) || 1;
       unitCosts = rfq.items.map(() => Number((quote.totalAmount / totalQty).toFixed(4)));
     }
+    const make = this.db.transaction(() => {
     const order = this.createPurchaseOrder({
       companyId: rfq.companyId,
       supplierName: supplier.name,
@@ -7970,7 +7975,10 @@ export class DataStore {
     const now = new Date().toISOString();
     this.db.prepare('UPDATE purchase_orders SET rfqId = ? WHERE id = ?').run(rfqId, order.id);
     this.db.prepare("UPDATE rfqs SET purchaseOrderId = ?, updatedAt = ? WHERE id = ?").run(order.id, now, rfqId);
-    return { order: this.getPurchaseOrderById(order.id)!, created: true };
+    return order.id;
+    });
+    // The order and both links are written together or not at all.
+    return { order: this.getPurchaseOrderById(make())!, created: true };
   }
 
   deleteRfq(id: string): boolean {
@@ -13145,7 +13153,8 @@ export class DataStore {
       summary: `Quotation ${quote.quoteNumber} created.`,
       metadata: { totalAmount: quote.totalAmount, clientId: quote.clientId, opportunityId: quote.opportunityId },
     });
-    return quote;
+    // Read back, so a quote dated with a valid-until already past says Expired at once.
+    return this.getQuotationById(quote.id)!;
   }
 
   /** Edit a quotation's offer. Only open (Draft, Sent or Expired) and unconverted quotations change. */
@@ -13164,10 +13173,12 @@ export class DataStore {
     const issueDate = updates.issueDate !== undefined ? new Date(updates.issueDate) : existing.issueDate;
     const validUntil = updates.validUntil !== undefined ? new Date(updates.validUntil) : existing.validUntil;
     this.assertQuotationDates(issueDate, validUntil);
+    // Re-sending the same currency keeps its rate; a new currency needs its own.
+    const sameCurrency = updates.currency === undefined || updates.currency.toUpperCase() === existing.currency;
     const money = this.resolveTransactionCurrency(
       existing.companyId,
       updates.currency ?? existing.currency,
-      updates.exchangeRate ?? (updates.currency === undefined ? existing.exchangeRate : undefined),
+      updates.exchangeRate ?? (sameCurrency ? existing.exchangeRate : undefined),
     );
     const totals = this.quotationTotals(items, updates.taxRate ?? existing.taxRate);
     this.db.prepare(
@@ -13198,8 +13209,9 @@ export class DataStore {
 
   /**
    * Move a quotation. Draft ⇄ Sent; Draft/Sent → Accepted or Declined;
-   * Declined (or Accepted, until converted) → Draft. Expired is derived, so an
-   * expired quotation can be sent again or reopened but not accepted.
+   * Declined (or Accepted, until converted) → Draft. Expired is derived from
+   * valid-until, so it stays Expired until that date is extended, and an
+   * expired quotation cannot be accepted.
    */
   setQuotationStatus(id: string, status: QuotationStatus): Quotation | undefined {
     const existing = this.getQuotationById(id);
@@ -14290,8 +14302,9 @@ export class DataStore {
     const insertReceipt = this.db.prepare(
       'INSERT INTO purchase_receipts (id, companyId, purchaseOrderId, receivedAt, notes, items) VALUES (@id, @companyId, @purchaseOrderId, @receivedAt, @notes, @items)',
     );
+    // Stock arriving for an item archived after it was ordered brings it back.
     const updateById = this.db.prepare(
-      'UPDATE inventory_items SET onHand = onHand + ? WHERE id = ? AND companyId = ?',
+      'UPDATE inventory_items SET onHand = onHand + ?, archivedAt = NULL WHERE id = ? AND companyId = ?',
     );
     const updateOrder = this.db.prepare(
       'UPDATE purchase_orders SET status = ?, receivedAt = ? WHERE id = ?',
@@ -15471,7 +15484,7 @@ export class DataStore {
     const rate = Number(exchangeRate);
     if (!Number.isFinite(rate) || rate <= 0) {
       throw new Error(
-        `Invoices in ${resolved} need an exchange rate to ${base}. Provide exchangeRate, or bill in ${base}.`,
+        `Amounts in ${resolved} need an exchange rate to ${base}. Provide exchangeRate, or use ${base}.`,
       );
     }
     return { currency: resolved, exchangeRate: rate };

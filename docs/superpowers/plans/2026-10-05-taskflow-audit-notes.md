@@ -21,6 +21,10 @@ Date: 2026-10-05. Branch `fix/taskflow-audit` (from `feature/client-portal-ux`).
 - A document could link another company's client or invoice and show it on its public page. Links are now checked, and the public payload carries only printable fields.
 - `POST /seed` (wipes every company) and shared positions were open to any company Admin. They are now super-admin only.
 - Group assignment now requires the user to belong to that company.
+- Found in review: a company admin could edit, and so take over, anyone in another company through `PUT /users/:id`, the super admin included. That path existed before this work. Now:
+  - A company admin edits only people already in a company they manage, and never the super admin.
+  - Name, email and password change only when the admin manages every company the person is in.
+  - A user in no company can be deleted only by the super admin.
 
 Each has a test, and the guards were mutation-checked (broken, seen to fail, restored): the public quotation DTO, the public document client allow-list, the cross-company document link, and the removed Admin shortcut.
 
@@ -32,7 +36,9 @@ Each has a test, and the guards were mutation-checked (broken, seen to fail, res
 - **Employees** on payroll runs are kept. **Payroll runs** in a locked period, **filed VAT returns**, and **ledger accounts** used by a budget cannot be deleted.
 - **Warehouses** move their items to the default warehouse, so they are not re-created on the next start-up. A draft count blocks the delete.
 - **Campaign deliverables** take their briefs, submissions, reviews and results. A billed deliverable blocks.
-- **Refusals explain themselves:** plain business-rule errors now answer 400 with their message instead of "Internal server error".
+- **Refusals explain themselves:** refusals from the data layer now answer 400 with their message instead of "Internal server error". Integration and configuration failures still answer 500 and are logged.
+- **Archived items** take no stock movements and go on no new purchase orders. Receiving stock for one ordered before it was archived restores it.
+- **Purchase-order approval:** an approved order goes back for approval when any line changes, even if the total stays the same.
 
 ## Other bugs fixed
 
@@ -40,7 +46,7 @@ Each has a test, and the guards were mutation-checked (broken, seen to fail, res
 - Invoice custom-column values were never saved.
 - The staff app dropped line discounts it read back from sales orders and invoices.
 - Sales-order invoices lost line discounts.
-- Opportunity edits could not clear notes or the close date, and winning by edit skipped commissions.
+- Opportunity edits could not clear notes or the close date. A stage change made through an edit now goes through the stage move: it closes the deal, schedules the follow-up and pays commissions.
 - Numbering settings had no labels for deliveries and requisitions.
 - A games test broke on any day after 2026-10-05.
 
