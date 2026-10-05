@@ -22,7 +22,7 @@ Calm, exact, trustworthy. Plain language, no hype. The portal speaks for an agen
 
 ## Brand Commitments
 
-- Visual direction (owner's choice, 2026-10-05): both portals wear Peak's own brand (peak-creative.agency: its colours, typefaces and logo). Structure and finish follow the category's best, Stripe Dashboard and Mercury: standard controls, precise numbers, no decorative theme beyond the brand.
+- Visual direction (owner's choice, 2026-10-05): both portals wear Peak's own brand, as on peak-creative.agency: a near-black ground (#050505), Peak orange (#ee7103), white type, warm hairlines and one soft orange glow. Structure and finish follow the category's best, Stripe Dashboard and Mercury: standard controls, precise numbers. Text on orange is near-black, because white on Peak orange is only 3:1.
 
 ## Anti-references
 

@@ -3,48 +3,53 @@
 @tailwind utilities;
 
 /*
- * One light palette: company logos are drawn for light backgrounds.
- *
- * Brand block: Peak's own colours go here, and only here. Everything else in
- * the portal reads the semantic tokens below, so a brand change is a values-only
- * edit. `field` is the input border and must reach 3:1 against the canvas;
- * `ink-soft` must reach 4.5:1 on both canvas and surface.
+ * Peak's own look (peak-creative.agency): a near-black ground, Peak orange,
+ * white type, warm hairlines. The brand block holds Peak's values; everything
+ * else reads the semantic tokens below. Contrast is checked for every token:
+ * ink-soft >= 7:1, field >= 3:1 against canvas and surfaces. White on Peak
+ * orange is only 3:1, so text on orange is near-black (6.7:1).
  */
 :root {
-  --brand: #0b6e52;
-  --brand-ink: #ffffff;
+  --brand: #ee7103;
+  --brand-ink: #0b0703;
 
-  --canvas: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #f8f9fa;
-  --ink: #101418;
-  --ink-soft: #545c68;
-  --line: #e2e5ea;
-  --field: #7c8490;
+  --canvas: #050505;
+  --surface: #0f0e0d;
+  --surface-2: #171513;
+  --ink: #f4f2ef;
+  --ink-soft: #a8a197;
+  --line: #26231f;
+  --field: #6f675e;
   --accent: var(--brand);
   --accent-ink: var(--brand-ink);
-  --success: #117a4c;
-  --warning: #9a5800;
-  --danger: #b42318;
-  /* Chart series, fixed order, validated for colour-vision deficiency (dataviz
-     validator, adjacent pairs, light surface). Slots 3 and 4 sit under 3:1, so
-     every chart ships a worded legend and a table view. */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
-  --series-4: #eda100;
-  --radius-control: 8px;
-  --radius-panel: 12px;
-  --shadow-float: 0 -1px 0 rgb(16 20 24 / 0.04), 0 -8px 24px -12px rgb(16 20 24 / 0.18);
-  color-scheme: light;
+  --success: #4cc48a;
+  --warning: #f0b74a;
+  --danger: #ff6f61;
+  /* Chart series, fixed order, validated for colour-vision deficiency on the
+     dark surface (dataviz validator, adjacent pairs): all four reach 3:1. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --shadow-float: 0 -1px 0 rgb(255 255 255 / 0.04), 0 -12px 32px -12px rgb(0 0 0 / 0.8);
+  color-scheme: dark;
 }
 
 html { background: var(--canvas); }
 
+/* Peak's warm glow, kept behind the work: one soft light from the top corner. */
+body {
+  background:
+    radial-gradient(60rem 32rem at 100% -10%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%),
+    var(--canvas);
+  background-attachment: fixed;
+}
+
 body {
   margin: 0;
   color: var(--ink);
-  background: var(--canvas);
   font-family: var(--font-latin), var(--font-arabic), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

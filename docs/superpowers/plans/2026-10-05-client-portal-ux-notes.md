@@ -26,15 +26,17 @@ The look was calm and nothing leaked, but the work did not flow. The main proble
 - Backend reads time out after 10 seconds. Before this, a slow backend left a blank page with no feedback; this was found by pausing the backend.
 
 **Look.**
-- This is the category standard, as the owner chose, with Stripe Dashboard and Mercury as the bar for finish:
-  - white panels on a cool canvas
-  - one accent
-  - figures in tabular numerals
-  - 44px controls
-  - one radius scale
-- Colours are tokens. Peak's own brand colours go in one block at the top of `portal/src/app/globals.css`.
-- Peak's site (peak-creative.agency) is blocked by this environment's network policy, so today's values stand in until the real ones arrive.
+- Peak's own brand, taken from a screenshot of peak-creative.agency (the site itself is blocked by this environment's network policy):
+  - near-black ground (#050505) with slightly lifted panels (#0f0e0d)
+  - Peak orange (#ee7103) for actions, selection and state
+  - white type, warm hairlines, and one soft orange glow from the top corner
+- Finish and structure follow Stripe Dashboard and Mercury: figures in tabular numerals, 44px controls, one radius scale.
+- Every token was contrast-checked: secondary text is at least 7:1 and input borders at least 3:1. White on Peak orange is only 3:1, so text on orange buttons is near-black (6.7:1). This differs slightly from the website.
+- Chart colours are re-validated for the dark surface; all four series reach 3:1.
+- Fonts stay Manrope and IBM Plex Sans Arabic until Peak's typefaces are confirmed.
+- The company logo comes from the company record (`logoUrl`). Upload Peak's white P-mark there and it shows in both portals.
 - Short names (people, campaigns) use `<bdi>`, so Latin names sit at the right edge in Arabic. `dir="auto"` stays on prose.
+- In Arabic, time on every chart runs right to left.
 
 **Screens.**
 - Home: one ranked "Needs you" list (overdue money, then proposals, then content to review) with a single primary button. Below it:
@@ -120,5 +122,5 @@ Never returned:
 
 ## Open
 
-- Peak's brand values: colours, typefaces and logo. Allow `peak-creative.agency` in the environment's network settings, or supply the values.
+- Peak's typefaces and logo file: colours are taken from the site screenshot; fonts and the logo still need confirming or uploading.
 - Impeccable can write a `DESIGN.md` from the built system once the brand values are in.

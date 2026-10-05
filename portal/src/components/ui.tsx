@@ -12,7 +12,7 @@ export const button = {
   primary: `${base} bg-accent text-accent-ink hover:bg-accent/90`,
   secondary: `${base} border border-field bg-surface text-ink hover:border-ink/60`,
   ghost: `${base} px-3 text-ink-soft hover:bg-ink/5 hover:text-ink`,
-  danger: `${base} bg-danger text-white hover:bg-danger/90`,
+  danger: `${base} bg-danger text-canvas hover:bg-danger/90`,
 } as const;
 
 /** A text link with a full 44px touch target. */

@@ -16,27 +16,27 @@ export function LineChart({ lang, title, points }: { lang: Lang; title: string; 
   const hi = Math.max(...values);
   const { min, max, ticks } = lineAxis(lo, hi);
   const y = (v: number) => 100 - ((v - min) / (max - min)) * 100;
-  const x = (i: number) => (i / (points.length - 1)) * 100;
+  // Time runs in the reading direction, like the bar charts: right to left in Arabic.
+  const x = (i: number) => { const v = (i / (points.length - 1)) * 100; return lang === 'ar' ? 100 - v : v; };
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(p.value).toFixed(2)}`).join(' ');
   const every = Math.max(1, Math.ceil(points.length / 4));
 
   return (
     <figure aria-label={title}>
-      <div className="relative h-44" aria-hidden="true" dir="ltr">
+      <div className="relative h-44" aria-hidden="true">
         {ticks.map((tick) => (
           <div key={tick} className="absolute inset-x-0 border-t border-line" style={{ bottom: `${100 - y(tick)}%` }}>
             <span className="absolute -top-2.5 start-0 bg-surface pe-1.5 text-[11px] leading-none text-ink-soft"><bdi>{fmt(tick, lang)}</bdi></span>
           </div>
         ))}
         <div className="absolute inset-0 ps-10">
-          {/* Time runs left to right in both languages, as on any chart. */}
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible">
             <path d={path} fill="none" stroke="var(--series-1)" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
           </svg>
         </div>
       </div>
-      <div className="mt-2 flex ps-10 text-[11px] text-ink-soft" dir="ltr" aria-hidden="true">
-        {points.map((p, i) => <span key={p.label + i} className="flex flex-1 justify-center whitespace-nowrap">{i % every === 0 ? p.label : ''}</span>)}
+      <div className="mt-2 flex ps-10 text-[11px] text-ink-soft" aria-hidden="true">
+        {points.map((p, i) => <span key={p.label + i} className="flex flex-1 justify-center whitespace-nowrap">{i % every === 0 ? <bdi>{p.label}</bdi> : ''}</span>)}
       </div>
     </figure>
   );

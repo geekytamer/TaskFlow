@@ -78,7 +78,7 @@ export default async function GamePage({ params, searchParams }: {
   const handle = typeof query.handle === 'string' ? query.handle.trim().slice(0, 64) : '';
   const [game, me] = await Promise.all([getGame(slug, handle || undefined), getMyStanding(slug).catch(() => null)]);
   const pick = (en: string | null, ar: string | null) => (lang === 'ar' && ar) || en;
-  const podium = ['bg-accent text-white', 'bg-ink text-white', 'bg-ink/80 text-white'];
+  const podium = ['bg-accent text-accent-ink', 'bg-ink text-canvas', 'bg-ink/80 text-canvas'];
   const n = numberFormat(lang);
   const you = game.you ?? null;
 
