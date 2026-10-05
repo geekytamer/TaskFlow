@@ -1,4 +1,6 @@
 import { FileList } from '@/components/file-list';
+import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
+import { getAlertSettings } from '@/lib/alerts';
 import { MessageComposer } from '@/components/message-composer';
 import { formatDateTime } from '@/lib/format';
 import { getAudience } from '@/lib/audience';
@@ -13,7 +15,7 @@ const authorLabel = (m: Message, lang: Lang) =>
 export default async function MessagesPage() {
   const audience = getAudience();
   const lang = await currentLang();
-  const messages = await getMessages();
+  const [messages, alerts] = await Promise.all([getMessages(), getAlertSettings().catch(() => null)]);
 
   return (
     <div className="max-w-3xl space-y-8">
@@ -21,6 +23,8 @@ export default async function MessagesPage() {
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t(lang, 'msg.title')}</h1>
         <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, audience === 'client' ? 'msg.subtitle' : 'msg.subtitleInfluencer')}</p>
       </header>
+
+      {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
 
       {messages.length === 0 ? (
         <section className="border-t border-line pt-8">

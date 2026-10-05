@@ -60,7 +60,8 @@ export async function getGame(slug: string, handle?: string): Promise<GameDetail
   if (res.status === 404) notFound();
   if (res.status !== 200) throw new Error(`The games API answered ${res.status}.`);
   // An API from before live metrics (mid-deploy, or a cached answer) lacks these.
-  return { audience: 'followers', tag: null, playOn: [], updatedAt: null, players: res.data.board?.length ?? 0, ...res.data };
+  const d = res.data;
+  return { ...d, audience: d.audience ?? 'followers', tag: d.tag ?? null, playOn: d.playOn ?? [], updatedAt: d.updatedAt ?? null, players: d.players ?? d.board?.length ?? 0 };
 }
 
 /** The signed-in influencer's own figures in a creators game; null anywhere else. */

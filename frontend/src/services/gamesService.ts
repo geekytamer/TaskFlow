@@ -75,6 +75,8 @@ export interface BoardRow {
   actorKey: string;
   points: number;
   breakdown?: Record<string, number>;
+  /** Signals for review, never applied automatically. */
+  flags?: Array<'same_text' | 'burst'>;
   excluded: 'exclude' | 'disqualify' | null;
   excludedReason: string | null;
 }

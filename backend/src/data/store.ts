@@ -12,6 +12,7 @@ import { PortalThreadStore } from '../portal/thread-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
+import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { PortalStore } from '../portal/portal-store';
 
@@ -640,6 +641,7 @@ export class DataStore {
   readonly referrals: PortalReferralsStore;
   readonly influencer: InfluencerPortalStore;
   readonly games: GamesStore;
+  readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
@@ -673,6 +675,7 @@ export class DataStore {
     this.influencer = new InfluencerPortalStore(this.db);
     this.games = new GamesStore(this.db);
     this.social = new SocialStore(this.db);
+    this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
     }
@@ -4155,6 +4158,30 @@ export class DataStore {
             DROP TABLE game_sources;
             ALTER TABLE game_sources_new RENAME TO game_sources;
             CREATE INDEX IF NOT EXISTS idx_game_sources_account ON game_sources (accountId);
+          `);
+        },
+      },
+      {
+        // WhatsApp alerts for portal users (opt-in). The log makes each event send once.
+        id: '097_portal_whatsapp_alerts',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_alert_prefs (
+              portalUserId TEXT PRIMARY KEY,
+              phone        TEXT,
+              whatsapp     INTEGER NOT NULL DEFAULT 0,
+              lang         TEXT NOT NULL DEFAULT 'en',
+              updatedAt    TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS portal_alert_log (
+              portalUserId TEXT NOT NULL,
+              event        TEXT NOT NULL,
+              refId        TEXT NOT NULL,
+              status       TEXT NOT NULL CHECK (status IN ('sent', 'skipped', 'failed')),
+              error        TEXT,
+              createdAt    TEXT NOT NULL,
+              PRIMARY KEY (portalUserId, event, refId)
+            );
           `);
         },
       },

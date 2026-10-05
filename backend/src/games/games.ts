@@ -69,7 +69,17 @@ export function ensureFrozen(store: DataStore, game: Game, now = Date.now()): Ga
   if (game.frozenAt || gameStatus(game, now) !== 'ended') return game;
   if (!game.reconciledAt && now - Date.parse(game.endsAt) < RECONCILE_GRACE_MS && collectsFromMeta(store, game)) return game;
   const rows = computeBoard(store, game).map((r) => ({ actorKey: r.actorKey, actorHandle: r.handle, rank: r.rank, points: r.points, breakdown: r.breakdown }));
-  store.games.freeze(game.id, rows);
+  if (store.games.freeze(game.id, rows)) {
+    // Tell whoever built it, once, with the podium, so winners can be contacted.
+    const podium = rows.slice(0, 3).map((r) => `${r.rank}. @${r.actorHandle} (${r.points})`).join(', ');
+    store.notify({
+      companyId: game.companyId, userIds: [game.createdByUserId], type: 'followup_assigned',
+      title: `Game "${game.name}" ended: results are final`,
+      body: podium || 'Nobody scored.',
+      data: { tKey: 'notif.followupAssigned.t', name: `${game.name}: results are final` },
+      link: '/games', entityType: 'game', entityId: game.id,
+    });
+  }
   return store.games.get(game.id)!;
 }
 
@@ -82,9 +92,41 @@ export function boardOf(store: DataStore, game: Game): Array<{ rank: number; act
   return computeBoard(store, current);
 }
 
+/** Several accounts posting the same text, or one account posting in bursts, look like bots. */
+export const RING_SIZE = 3;
+export const BURST = { events: 8, withinMs: 60_000 };
+
+/**
+ * Signals for staff, never applied automatically: `same_text` when an actor's
+ * comment text was also posted by RING_SIZE or more accounts in total, `burst`
+ * when BURST.events of their interactions fall within BURST.withinMs.
+ */
+export function integrityFlags(store: DataStore, game: Game): Map<string, Array<'same_text' | 'burst'>> {
+  const events = store.games.events(game.id).filter((e) => e.action === 'comment' || e.action === 'reply' || e.action === 'mention');
+  const byText = new Map<string, Set<string>>();
+  events.forEach((e) => { if (e.textHash && e.textLength >= 3) byText.set(e.textHash, (byText.get(e.textHash) ?? new Set()).add(e.actorKey)); });
+  const flags = new Map<string, Array<'same_text' | 'burst'>>();
+  const flag = (actorKey: string, f: 'same_text' | 'burst') => {
+    const list = flags.get(actorKey) ?? [];
+    if (!list.includes(f)) list.push(f);
+    flags.set(actorKey, list);
+  };
+  byText.forEach((actors) => { if (actors.size >= RING_SIZE) actors.forEach((a) => flag(a, 'same_text')); });
+  const times = new Map<string, number[]>();
+  events.forEach((e) => times.set(e.actorKey, [...(times.get(e.actorKey) ?? []), Date.parse(e.occurredAt)]));
+  times.forEach((list, actorKey) => {
+    const sorted = list.sort((a, b) => a - b);
+    for (let i = 0; i + BURST.events - 1 < sorted.length; i += 1) {
+      if (sorted[i + BURST.events - 1] - sorted[i] <= BURST.withinMs) { flag(actorKey, 'burst'); break; }
+    }
+  });
+  return flags;
+}
+
 /** Staff view: everyone who scored, with exclusions flagged rather than hidden. */
 export function staffBoard(store: DataStore, game: Game) {
   const rules = new Map(store.games.actorRules(game.id).map((r) => [r.actorKey, r]));
+  const flags = integrityFlags(store, game);
   const everyone = computeBoard(store, game, false);
   // Frozen games rank from their stored results; live ones re-rank this same list
   // without the excluded actors, instead of scoring the game a second time.
@@ -100,6 +142,7 @@ export function staffBoard(store: DataStore, game: Game) {
     breakdown: r.breakdown,
     excluded: rules.get(r.actorKey)?.kind ?? null,
     excludedReason: rules.get(r.actorKey)?.reason ?? null,
+    flags: flags.get(r.actorKey) ?? [],
   }));
 }
 

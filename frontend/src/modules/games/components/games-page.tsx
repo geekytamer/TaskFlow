@@ -31,7 +31,7 @@ import {
   type GameInput,
   type GameStatus,
 } from '@/services/gamesService';
-import { ExternalLink, Plus } from 'lucide-react';
+import { Download, ExternalLink, Plus } from 'lucide-react';
 import { GameLivePanel } from './game-live-panel';
 import { GameMetricsEditor } from './game-metrics-editor';
 
@@ -245,6 +245,27 @@ function GameForm({ tr, game, onSave, onCancel }: { tr: Tr; game?: Game; onSave:
   );
 }
 
+/** Results as a spreadsheet: rank, handle, points and each metric's share, for contacting winners. */
+function downloadCsv(game: Game, board: BoardRow[], labelOf: (key: string) => string) {
+  const keys = [...new Set(board.flatMap((r) => Object.keys(r.breakdown ?? {})))];
+  const cell = (v: unknown) => {
+    const text = String(v ?? '');
+    // Leading = + - @ would run as a formula in Excel/Sheets.
+    const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+    return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+  const rows = [
+    ['rank', 'platform', 'handle', 'points', ...keys.map(labelOf), 'excluded', 'flags'],
+    ...board.map((r) => [r.rank ?? '', r.platform, r.handle, r.points, ...keys.map((k) => r.breakdown?.[k] ?? 0), r.excluded ?? '', (r.flags ?? []).join(' ')]),
+  ];
+  const blob = new Blob(['\uFEFF' + rows.map((row) => row.map(cell).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${game.slug}-results.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function GameDetail({ companyId, game, tr, language, onChange, onError }: {
   companyId: string; game: Game; tr: Tr; language: string; onChange: (g: Game) => void; onError: (e: unknown) => void;
 }) {
@@ -380,7 +401,20 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
       )}
 
       <section className="space-y-2">
-        <h3 className="text-sm font-semibold">{tr('Scoreboard', 'لوحة النقاط')}</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">{tr('Scoreboard', 'لوحة النقاط')}</h3>
+          {board.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => downloadCsv(game, board, labelOf)}>
+              <Download className="me-1.5 h-4 w-4" />{tr('Download CSV', 'تنزيل CSV')}
+            </Button>
+          )}
+        </div>
+        {board.some((r) => r.flags?.length) && (
+          <p className="text-xs text-muted-foreground">
+            {tr('Flags are hints to review, not penalties: “same text” means 3 or more accounts posted identical comments; “burst” means 8 or more interactions within a minute. Exclude or disqualify after checking.',
+              'العلامات تنبيهات للمراجعة وليست عقوبات: «نص مكرر» يعني أن 3 حسابات أو أكثر نشرت التعليق نفسه؛ «دفعة» تعني 8 تفاعلات أو أكثر خلال دقيقة. استبعد أو أقصِ بعد التحقق.')}
+          </p>
+        )}
         {board.length === 0 ? <p className="text-sm text-muted-foreground">{tr('No points yet.', 'لا نقاط بعد.')}</p> : (
           <ol className="divide-y rounded-md border">
             {board.map((r) => (
@@ -394,6 +428,11 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
                     </span>
                   )}
                 </span>
+                {(r.flags ?? []).map((f) => (
+                  <Badge key={f} variant="outline" className="border-amber-500/60 text-amber-700 dark:text-amber-400">
+                    {f === 'same_text' ? tr('Same text', 'نص مكرر') : tr('Burst', 'دفعة')}
+                  </Badge>
+                ))}
                 {r.excluded && (
                   <span className="flex items-center gap-2">
                     <Badge variant="destructive" title={r.excludedReason ?? undefined}>{r.excluded === 'disqualify' ? tr('Disqualified', 'مُقصى') : tr('Excluded', 'مستبعد')}</Badge>

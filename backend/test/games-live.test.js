@@ -297,3 +297,25 @@ test('the lobby shows where to play, when it was updated and a visitor’s own r
   const client = await invite(ctx.brand, 'omar@alnoor.test', 'client');
   assert.equal((await request(ctx.server).get('/portal-api/influencer/games/creators-cup/me').set(client)).status, 401);
 });
+
+test('copy-paste rings and bursts are flagged for staff, not removed; the creator hears when results freeze', async () => {
+  const ctx = build();
+  const game = await followersGame(ctx);
+  const base = Date.now() - 5 * HOUR;
+  ctx.meta.comments = [
+    ...['bot1', 'bot2', 'bot3'].map((u, i) => ({ id: `r${i}`, username: u, text: 'Win win win giveaway!!', timestamp: new Date(base + i * 1000), userId: null, parentId: null })),
+    ...Array.from({ length: 8 }, (_, i) => ({ id: `b${i}`, username: 'speedy', text: `Different words ${i}`, timestamp: new Date(base + i * 5000), userId: null, parentId: null })),
+    { id: 'h1', username: 'honest', text: 'Ramadan Kareem to all', timestamp: new Date(base), userId: null, parentId: null },
+  ];
+  await collectGame(ctx.store, ctx.meta, ctx.store.games.get(game.id));
+  const rows = new Map((await ctx.staff('get', `/${game.id}/scoreboard`)).body.map((r) => [r.handle, r.flags]));
+  assert.deepEqual([rows.get('bot1'), rows.get('speedy'), rows.get('honest')], [['same_text'], ['burst'], []]);
+
+  ctx.store.games.updateGame(game.id, { endsAt: ago(1).toISOString() });
+  await sweepGames(ctx.store, ctx.meta, ctx.company.id);
+  ensureFrozen(ctx.store, ctx.store.games.get(game.id));
+  ensureFrozen(ctx.store, ctx.store.games.get(game.id));
+  const notes = ctx.store.listNotifications(ctx.admin.id).filter((n) => n.title.includes('results are final'));
+  assert.equal(notes.length, 1, 'once');
+  assert.match(notes[0].body, /^1\. @/);
+});

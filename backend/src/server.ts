@@ -35,6 +35,7 @@ import { createSocialPublicRouter, type SocialOptions } from './social/routes';
 import { FixtureMetaClient, HttpMetaClient } from './social/meta-client';
 import { sweepSocial } from './social/sync';
 import { sweepGames } from './games/collector';
+import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -220,6 +221,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   portalPdf?: PortalPdfRenderer;
   /** Instagram connections. Tests pass a fixture client; production builds one from META_* env. */
   social?: SocialOptions;
+  /** WhatsApp alerts to portal users; defaults to the company's Green API number. */
+  portalWhatsApp?: WhatsAppSender;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -8562,6 +8565,31 @@ export function createServer(options: CreateServerOptions = {}) {
       .finally(() => { collecting = null; });
     return collecting;
   };
+  // Portal alerts go out from the company's connected WhatsApp number and show in its WhatsApp inbox.
+  const portalWhatsApp: WhatsAppSender = options.portalWhatsApp ?? (async (companyId, phone, text, contactId) => {
+    const instance = store.getWhatsappInstanceForCompany(companyId);
+    const creds = store.getWhatsappCredentials(companyId);
+    if (!instance || !creds) throw new Error('WhatsApp is not connected.');
+    const chatId = toChatId(phone);
+    const sent = await greenApi.sendMessage(creds, chatId, text);
+    store.createWhatsappMessage({
+      companyId, instanceId: instance.id, direction: 'outbound', externalId: sent.idMessage, chatId, phone, contactId,
+      type: 'text', body: text, status: 'sent', contextEntityType: 'portal_alert', actorName: 'Portal alerts', sentAt: new Date(),
+    });
+  });
+  if (portalCompanyId && process.env.NODE_ENV !== 'test') {
+    const portalBase = (audience: 'client' | 'influencer') =>
+      (audience === 'client' ? process.env.PORTAL_CLIENT_URL || 'http://localhost:9003' : process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/+$/, '');
+    let alerting = false;
+    setInterval(() => {
+      if (alerting || !store.getCompanyById(portalCompanyId)) return;
+      alerting = true;
+      sweepPortalAlerts(store, portalWhatsApp, portalCompanyId, portalBase)
+        .then((n) => { if (n > 0) logger.info(`[portal] ${n} WhatsApp alert(s) sent`); })
+        .catch((error) => logger.error('[portal] alerts sweep failed', error))
+        .finally(() => { alerting = false; });
+    }, 5 * 60 * 1000).unref?.();
+  }
   if (portalCompanyId) {
     if (!store.getCompanyById(portalCompanyId)) {
       logger.warn(`[portal] PORTAL_COMPANY_ID ${portalCompanyId} matches no company yet.`);
