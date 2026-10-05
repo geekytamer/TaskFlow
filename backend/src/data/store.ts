@@ -4208,6 +4208,17 @@ export class DataStore {
           `);
         },
       },
+      {
+        // A game can belong to a brand (a client contact), whose portal users then
+        // read its report without being added as viewers one by one.
+        id: '099_game_client_link',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE games ADD COLUMN clientContactId TEXT;
+            CREATE INDEX IF NOT EXISTS idx_games_client ON games (companyId, clientContactId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

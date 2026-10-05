@@ -103,6 +103,7 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     return {
       ...game,
       status: gameStatus(game),
+      clientName: game.clientContactId ? store.getContactById(game.clientContactId)?.name ?? null : null,
       metrics: store.games.metrics(game.id),
       viewers: store.games.viewers(game.id),
       availableMetrics: offeredMetrics(suppliedFor(store, game)).map((m) => ({ key: m.key, label: m.label })),
@@ -403,6 +404,20 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     notFrozen(game);
     if (!store.games.removeActorRule(game.id, req.params.actorKey)) throw new HttpError(404, 'No rule for that actor.');
     res.status(204).end();
+  }));
+
+  // Who the game was run for. Allowed on frozen and archived games: it changes who reads, not the results.
+  router.put(`${base}/:id/client`, authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const game = load(companyId, req.params.id);
+    const body = asRecord(req.body, 'body');
+    const contactId = body.contactId === null ? null : typeof body.contactId === 'string' ? body.contactId : undefined;
+    if (contactId === undefined) throw new HttpError(400, 'contactId must be a client id or null.');
+    if (contactId !== null) {
+      const contact = store.getContactById(contactId);
+      if (!contact || contact.companyId !== companyId || !contact.roles?.includes('Client')) throw new HttpError(400, 'Choose one of this company\'s clients.');
+    }
+    res.json(view(store.games.setClient(game.id, contactId)!));
   }));
 
   router.put(`${base}/:id/viewers`, authMiddleware, wrap((req, res) => {

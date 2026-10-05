@@ -27,6 +27,8 @@ export interface Game {
   tag: string | null;
   /** Set when sources were fully re-read after the end, so removed comments no longer count. */
   reconciledAt: string | null;
+  /** The brand (a client contact) this game was run for; its portal users read the report. */
+  clientContactId: string | null;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -62,7 +64,7 @@ export interface CreatorStat { gameId: string; contactId: string; accountId: str
 export class GamesStore {
   constructor(private readonly db: Database.Database) {}
 
-  create(input: Omit<Game, 'id' | 'publishedAt' | 'archivedAt' | 'frozenAt' | 'reconciledAt' | 'audience' | 'tag' | 'createdAt' | 'updatedAt'> & Partial<Pick<Game, 'audience' | 'tag'>>): Game | undefined {
+  create(input: Omit<Game, 'id' | 'publishedAt' | 'archivedAt' | 'frozenAt' | 'reconciledAt' | 'audience' | 'tag' | 'clientContactId' | 'createdAt' | 'updatedAt'> & Partial<Pick<Game, 'audience' | 'tag'>>): Game | undefined {
     const now = new Date().toISOString();
     const id = uuid();
     try {
@@ -83,6 +85,16 @@ export class GamesStore {
 
   bySlug(companyId: string, slug: string): Game | undefined {
     return this.db.prepare('SELECT * FROM games WHERE companyId = ? AND slug = ?').get(companyId, slug) as Game | undefined;
+  }
+
+  /** Games run for this brand, newest first. Callers decide which states a reader may see. */
+  forClient(companyId: string, contactId: string): Game[] {
+    return this.db.prepare('SELECT * FROM games WHERE companyId = ? AND clientContactId = ? ORDER BY startsAt DESC, rowid DESC').all(companyId, contactId) as Game[];
+  }
+
+  setClient(id: string, contactId: string | null): Game | undefined {
+    this.db.prepare('UPDATE games SET clientContactId = ?, updatedAt = ? WHERE id = ?').run(contactId, new Date().toISOString(), id);
+    return this.get(id);
   }
 
   list(companyId: string): Game[] {
