@@ -76,7 +76,7 @@ function interactionsOf(store: DataStore, game: Game, now: number, tz: string) {
 
 export function brandGameReport(store: DataStore, game: Game, now = Date.now(), tz = timeZone()) {
   const board = boardOf(store, game);
-  const topFans = board.slice(0, 10).map(({ rank, handle, points }) => ({ rank, handle, points }));
+  const topFans = board.slice(0, 10).map(({ rank, actorKey, handle, points }) => ({ rank, platform: actorKey.split(':')[0], handle, points }));
   const excluded = new Set(store.games.actorRules(game.id).map((r) => r.actorKey));
   const creators = game.audience === 'creators';
   const stats = creators ? store.games.creatorStats(game.id).filter((s) => !excluded.has(s.actorKey)) : [];

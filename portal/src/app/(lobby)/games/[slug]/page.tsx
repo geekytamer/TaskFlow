@@ -71,7 +71,8 @@ export default async function GamePage({ params, searchParams }: {
   const [{ slug }, query, lang] = await Promise.all([params, searchParams, currentLang()]);
   // A game run for this client opens as its report rather than the public board.
   if (getHost() === 'client') {
-    const report = await getBrandGame(slug);
+    // If the report cannot be read, the public board below still works.
+    const report = await getBrandGame(slug).catch(() => null);
     if (report) return <BrandGameReportView report={report} lang={lang} />;
   }
   const handle = typeof query.handle === 'string' ? query.handle.trim().slice(0, 64) : '';

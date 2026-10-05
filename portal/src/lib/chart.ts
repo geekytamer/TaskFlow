@@ -53,3 +53,14 @@ export function fillWeeks<T extends { week: string }>(rows: T[], empty: Omit<T, 
   }
   return out;
 }
+
+/**
+ * A y-axis for one line: starts at a round step at or below the lowest value
+ * (follower counts rarely start near zero) and always reaches the highest.
+ */
+export function lineAxis(lo: number, hi: number): { min: number; max: number; ticks: number[] } {
+  const step = niceMax(Math.max(1, hi - lo)) / 4;
+  const min = Math.max(0, Math.floor(lo / step) * step);
+  const max = min + niceMax(Math.max(1, hi - min));
+  return { min, max, ticks: [min, (min + max) / 2, max] };
+}

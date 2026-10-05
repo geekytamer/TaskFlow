@@ -14,6 +14,6 @@ export interface BrandGameReport {
   totals: Record<string, number>;
   daily: Array<{ date: string; comments: number; replies: number; tags: number; likes: number }>;
   posts: Array<{ url: string; kind: 'comment' | 'like' }>;
-  topFans: Array<{ rank: number; handle: string; points: number }>;
-  winners: Array<{ rank: number; handle: string; points: number }> | null;
+  topFans: Array<{ rank: number; platform: string; handle: string; points: number }>;
+  winners: Array<{ rank: number; platform: string; handle: string; points: number }> | null;
 }

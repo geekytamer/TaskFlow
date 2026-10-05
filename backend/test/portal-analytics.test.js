@@ -245,3 +245,24 @@ test('influencer analytics: a date range trims growth, and no account means no g
   assert.equal(empty.body.averages, null);
   assert.deepEqual(empty.body.earnings, []);
 });
+
+test('client analytics: cost per result counts what was invoiced net of credit notes', async () => {
+  const ctx = build();
+  const ramadanInvoice = ctx.store.listInvoices(ctx.company.id).find((i) => i.campaignId === ctx.ramadan.id && i.total === 4100);
+  ctx.store.createCreditNote({ companyId: ctx.company.id, invoiceId: ramadanInvoice.id, clientId: ctx.client.id, lineItems: [{ description: 'Goodwill', amount: 1000 }] });
+  const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
+  const { body } = await request(ctx.server).get('/portal-api/client/analytics').set(huda);
+  const ramadan = body.byCampaign.find((c) => c.name === 'Ramadan launch');
+  assert.equal(ramadan.cost[0].invoiced, 4000);
+  assert.equal(ramadan.cost[0].perThousandViews, Number((4000 / 41000 * 1000).toFixed(2)));
+});
+
+test('influencer analytics: growth follows one account, so a second account connected midway is not counted as a gain', async () => {
+  const ctx = buildInfluencer();
+  const second = ctx.store.social.upsertAccount({ companyId: ctx.lina.companyId, contactId: ctx.lina.id, externalId: 'ext-second', username: 'lina.second', accountType: 'MEDIA_CREATOR', tokenSealed: 'v1:y', expiresAt: null });
+  ctx.store.social.addSnapshot({ accountId: second.id, takenOn: ctx.day(1), followers: 90000, views: 1, reach: 1, engagedAccounts: 1, demographics: null });
+  const lina = await ctx.session(ctx.lina, 'lina@creator.test');
+  const { body } = await request(ctx.server).get('/portal-api/influencer/analytics').set(lina);
+  assert.deepEqual(body.growth.days.map((d) => d.followers), [1000, 1100, 1250], 'the account with the longer history');
+  assert.equal(body.growth.change.followers, 250);
+});

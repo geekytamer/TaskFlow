@@ -1,4 +1,4 @@
-import { niceMax } from '@/lib/chart';
+import { lineAxis } from '@/lib/chart';
 import type { Lang } from '@/lib/i18n';
 
 const fmt = (n: number, lang: Lang) => new Intl.NumberFormat(lang === 'ar' ? 'ar-u-nu-latn' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
@@ -14,10 +14,7 @@ export function LineChart({ lang, title, points }: { lang: Lang; title: string; 
   const values = points.map((p) => p.value);
   const lo = Math.min(...values);
   const hi = Math.max(...values);
-  const span = niceMax(Math.max(1, hi - lo));
-  const min = Math.max(0, Math.floor(lo / (span / 4)) * (span / 4));
-  const max = min + span;
-  const ticks = [min, min + span / 2, max];
+  const { min, max, ticks } = lineAxis(lo, hi);
   const y = (v: number) => 100 - ((v - min) / (max - min)) * 100;
   const x = (i: number) => (i / (points.length - 1)) * 100;
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(p.value).toFixed(2)}`).join(' ');

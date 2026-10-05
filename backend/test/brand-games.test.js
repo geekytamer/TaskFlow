@@ -175,7 +175,7 @@ test('top fans match the public board, and winners appear only once results free
   const huda = await ctx.session(ctx.client, 'huda@alnoor.test');
   const live = await request(ctx.server).get('/portal-api/client/brand-games/ramadan-challenge').set(huda);
   const board = await request(ctx.server).get('/portal-api/client/games/ramadan-challenge').set(huda);
-  assert.deepEqual(live.body.topFans, board.body.board.slice(0, 10).map(({ rank, handle, points }) => ({ rank, handle, points })));
+  assert.deepEqual(live.body.topFans, board.body.board.slice(0, 10).map(({ rank, platform, handle, points }) => ({ rank, platform, handle, points })), 'with the platform, so a handle is never linked to the wrong network');
   assert.equal(live.body.winners, null);
   assert.equal(live.body.game.frozen, false);
 

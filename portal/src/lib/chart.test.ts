@@ -36,3 +36,14 @@ test('fillWeeks adds the empty weeks between the first and last, so time is not 
   ]);
   assert.deepEqual(fillWeeks<{ week: string; views: number }>([], { views: 0 }), []);
 });
+
+test('lineAxis always contains the highest value, starting near the lowest', async () => {
+  const { lineAxis } = await import('./chart');
+  for (const [lo, hi] of [[1300, 2300], [176000, 184000], [0, 7], [5, 5], [999, 1001]]) {
+    const { min, max } = lineAxis(lo, hi);
+    assert.ok(min <= lo, `min ${min} <= ${lo}`);
+    assert.ok(max >= hi, `max ${max} >= ${hi} (lo ${lo})`);
+    assert.ok(max > min);
+  }
+  assert.deepEqual(lineAxis(1300, 2300), { min: 1250, max: 2750, ticks: [1250, 2000, 2750] });
+});

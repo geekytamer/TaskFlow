@@ -114,7 +114,8 @@ export function clientAnalytics(store: DataStore, companyId: string, contactId: 
     const lViews = lifetime.reduce((s, r) => s + r.figures.views, 0);
     const lEng = lifetime.reduce((s, r) => s + engagementsOf(r.figures), 0);
     const invoiced = new Map<string, number>();
-    invoices.filter((i) => i.campaignId === c.id).forEach((i) => invoiced.set(i.currency ?? 'USD', (invoiced.get(i.currency ?? 'USD') ?? 0) + (i.total ?? 0)));
+    // What the client was actually charged: the invoice less any credit notes against it.
+    invoices.filter((i) => i.campaignId === c.id).forEach((i) => invoiced.set(i.currency ?? 'USD', (invoiced.get(i.currency ?? 'USD') ?? 0) + (i.total ?? 0) - (i.creditedAmount ?? 0)));
     return {
       id: c.id, name: c.name, posts: g.posts, views: g.views, engagements: g.engagements,
       cost: [...invoiced.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([currency, total]) => ({
@@ -150,12 +151,17 @@ const mean = (rows: Figures[]): Figures | null => rows.length === 0 ? null : {
 export function influencerAnalytics(store: DataStore, companyId: string, contactId: string, currency: string, q: AnalyticsQuery) {
   const range = parseRange(q);
   const accounts = store.social.accountsFor(companyId, contactId).filter((a) => a.status === 'active' || a.status === 'needs_reconnect');
+  // Growth follows one account: adding a second account's followers on the day
+  // it was connected would read as a gain. Prefer an active one with the longest history.
+  const account = [...accounts]
+    .map((a) => ({ a, n: store.social.snapshots(a.id).length }))
+    .sort((x, y) => Number(y.a.status === 'active') - Number(x.a.status === 'active') || y.n - x.n)[0]?.a;
 
   let growth: { days: Array<{ date: string; followers: number; reach: number; views: number; engaged: number }>; change: { followers: number; reach: number; views: number; engaged: number } | null } | null = null;
   let audience = null;
   if (accounts.length > 0) {
     const byDay = new Map<string, { followers: number; reach: number; views: number; engaged: number }>();
-    const all = accounts.flatMap((a) => store.social.snapshots(a.id));
+    const all = store.social.snapshots(account!.id);
     for (const s of all) {
       if (!range.contains(`${s.takenOn}T12:00:00Z`)) continue;
       const d = byDay.get(s.takenOn) ?? { followers: 0, reach: 0, views: 0, engaged: 0 };

@@ -16,9 +16,14 @@ function Ranked({ rows, lang, caption }: { rows: BrandGameReport['topFans']; lan
       {rows.map((r) => (
         <li key={r.rank} className="flex items-center gap-4 px-4 py-3 sm:px-5">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${r.rank <= 3 ? 'bg-accent/10 text-accent' : 'bg-ink/[0.05] text-ink-soft'}`}><bdi>{r.rank}</bdi></span>
-          <a href={`https://www.instagram.com/${encodeURIComponent(r.handle)}/`} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate font-medium hover:underline">
-            <bdi dir="ltr">@{r.handle}</bdi>
-          </a>
+          {/* Only Instagram handles become links; on other networks the same name can be someone else. */}
+          {(r.platform ?? 'instagram') === 'instagram' ? (
+            <a href={`https://www.instagram.com/${encodeURIComponent(r.handle)}/`} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate font-medium hover:underline">
+              <bdi dir="ltr">@{r.handle}</bdi>
+            </a>
+          ) : (
+            <span className="min-w-0 flex-1 truncate font-medium"><bdi dir="ltr">@{r.handle}</bdi> <span className="text-xs font-normal text-ink-soft">{r.platform}</span></span>
+          )}
           <span className="shrink-0 text-sm"><bdi className="font-semibold">{num(r.points, lang)}</bdi> <span className="text-ink-soft">{t(lang, 'lobby.points')}</span></span>
         </li>
       ))}
