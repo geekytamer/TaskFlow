@@ -154,3 +154,94 @@ test('client analytics: a client with nothing published gets empty answers', asy
   assert.equal(body.totals, null);
   assert.deepEqual([body.weekly, body.byCreator, body.byPlatform, body.byCampaign], [[], [], [], []]);
 });
+
+const buildInfluencer = () => {
+  const dbPath = path.join(makeTmpDir('taskflow-portal-analytics-inf-'), 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const company = store.createCompany({ name: 'Peak Media', website: '', address: '' });
+  const supplier = store.createSupplier({ companyId: company.id, name: 'Lina Haddad Trading', isActive: true });
+  const client = store.createContact({ companyId: company.id, kind: 'Organization', name: 'Al Noor Dates', roles: ['Client'] });
+  const lina = store.createContact({ companyId: company.id, kind: 'Person', name: 'Lina Haddad', roles: ['Influencer', 'Vendor'], supplierId: supplier.id, rateCardAmount: 5555.55 });
+  const rival = store.createContact({ companyId: company.id, kind: 'Person', name: 'Rival', roles: ['Influencer', 'Vendor'] });
+  const quiet3 = store.createContact({ companyId: company.id, kind: 'Person', name: 'No Account', roles: ['Influencer'] });
+  const campaign = store.createCrmCampaign({ companyId: company.id, contactId: client.id, name: 'Ramadan launch', status: 'Active', visibility: 'Public', budget: 98765.43 });
+  [lina, rival].forEach((c) => store.createCampaignAssignment({ companyId: company.id, campaignId: campaign.id, contactId: c.id, role: 'Influencer', status: 'Confirmed', agreedRate: 33333.19 }));
+  const deliverable = (who, title, cost, daysAgo) => store.createCampaignDeliverable({
+    companyId: company.id, campaignId: campaign.id, title, status: 'Published', fulfillment: 'External', vendorContactId: who.id,
+    cost, price: 11111.37, publishedAt: new Date(Date.now() - daysAgo * DAY), contentUrl: `https://www.instagram.com/p/${title.replace(/\W/g, '')}/`,
+  });
+  const reel = deliverable(lina, 'Iftar reel', 1500, 10);
+  const story = deliverable(lina, 'Story', 400, 2);
+  const rivalReel = deliverable(rival, 'Rival reel', 777, 3);
+  const result = (d, checkpoint, views) => store.social.addMediaResult({ deliverableId: d.id, accountId: 'acc', mediaId: `m-${d.id}`, checkpoint, views, likes: views / 10, comments: 5, saves: 2, shares: 1, fetchedAt: new Date().toISOString() });
+  result(reel, '24h', 4000); result(reel, '7d', 9000); result(story, '24h', 2000); result(rivalReel, '24h', 424242);
+  store.generateCampaignVendorBills(company.id, campaign.id);
+  const billOf = (d) => store.listCampaignDeliverables(campaign.id).find((x) => x.id === d.id).vendorBillId;
+  store.updateVendorBillStatus(billOf(reel), 'Approved');
+  store.createVendorBillPayment({ billId: billOf(reel), amount: 1500, paidAt: new Date(), method: 'Bank Transfer' });
+  store.createInvoice({ companyId: company.id, clientId: client.id, contactId: client.id, campaignId: campaign.id, issueDate: new Date(), dueDate: new Date(), status: 'Sent', total: 7777.77,
+    lineItems: [{ description: 'Campaign', quantity: 1, unitPrice: 7777.77, amount: 7777.77, itemType: 'Manual' }] });
+
+  const account = (contact, username) => store.social.upsertAccount({ companyId: company.id, contactId: contact.id, externalId: `ext-${username}`, username, accountType: 'MEDIA_CREATOR', tokenSealed: 'v1:x', expiresAt: null });
+  const mine = account(lina, 'lina.eats');
+  const theirs = account(rival, 'rival');
+  const demographics = { country: { OM: 0.6, AE: 0.3 }, age: { '18-24': 0.4, '25-34': 0.5 }, gender: { F: 0.7, M: 0.3 } };
+  const day = (n) => new Date(Date.now() - n * DAY).toISOString().slice(0, 10);
+  [[20, 1000], [10, 1100], [1, 1250]].forEach(([n, followers]) => store.social.addSnapshot({ accountId: mine.id, takenOn: day(n), followers, views: followers * 3, reach: followers * 2, engagedAccounts: followers / 10, demographics: n === 1 ? demographics : null }));
+  store.social.addSnapshot({ accountId: theirs.id, takenOn: day(1), followers: 424242, views: 1, reach: 1, engagedAccounts: 1, demographics: null });
+
+  const server = createServer({
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
+  }).listen(0);
+  server.unref();
+  const session = async (contact, email) => {
+    const { token } = store.portal.inviteUser({ companyId: company.id, audience: 'influencer', contactId: contact.id, email, name: email, role: 'influencer' });
+    store.portal.acceptInvitation(token, PASSWORD);
+    const res = await request(server).post('/portal-api/influencer/auth/login').send({ email, password: PASSWORD });
+    return { Authorization: `Bearer ${res.body.token}` };
+  };
+  return { server, store, lina, quiet3, session, day };
+};
+
+const INFLUENCER_POISON = ['5555.55', '11111.37', '33333.19', '98765.43', '7777.77', '424242', 'Rival', 'tokenSealed', 'v1:x', 'agreedRate'];
+
+test('influencer analytics: own account growth, audience, posts and earnings only', async () => {
+  const ctx = buildInfluencer();
+  const lina = await ctx.session(ctx.lina, 'lina@creator.test');
+  const res = await request(ctx.server).get('/portal-api/influencer/analytics').set(lina);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const { growth, audience, posts, averages, earnings } = res.body;
+  assert.deepEqual(growth.days.map((d) => d.followers), [1000, 1100, 1250]);
+  assert.deepEqual(growth.change, { followers: 250, reach: 500, views: 750, engaged: 25 });
+  assert.deepEqual(audience, { country: { OM: 0.6, AE: 0.3 }, age: { '18-24': 0.4, '25-34': 0.5 }, gender: { F: 0.7, M: 0.3 } });
+  assert.deepEqual(posts.map((p) => p.title), ['Story', 'Iftar reel'], 'newest first, own posts only');
+  assert.deepEqual(Object.keys(posts[1].checkpoints).sort(), ['24h', '7d']);
+  assert.equal(posts[1].checkpoints['7d'].views, 9000);
+  assert.equal(posts[1].campaign, 'Ramadan launch');
+  assert.equal(averages.views, (9000 + 2000) / 2, 'average of each post\'s latest result');
+  // Paid money sits in the month it was paid; pending money in the month it is due (bills fall due in 30 days).
+  const month = new Date().toISOString().slice(0, 7);
+  const dueMonth = new Date(Date.now() + 30 * DAY).toISOString().slice(0, 7);
+  assert.deepEqual(earnings, month === dueMonth
+    ? [{ month, currency: 'USD', paid: 1500, pending: 400 }]
+    : [{ month, currency: 'USD', paid: 1500, pending: 0 }, { month: dueMonth, currency: 'USD', paid: 0, pending: 400 }]);
+  const json = JSON.stringify(res.body);
+  for (const secret of INFLUENCER_POISON) assert.equal(json.includes(secret), false, `influencer analytics leaked ${secret}`);
+});
+
+test('influencer analytics: a date range trims growth, and no account means no growth or audience', async () => {
+  const ctx = buildInfluencer();
+  const lina = await ctx.session(ctx.lina, 'lina@creator.test');
+  const ranged = await request(ctx.server).get(`/portal-api/influencer/analytics?from=${ctx.day(15)}`).set(lina);
+  assert.deepEqual(ranged.body.growth.days.map((d) => d.followers), [1100, 1250]);
+  assert.deepEqual(ranged.body.posts.map((p) => p.title), ['Story', 'Iftar reel']);
+  const none = await ctx.session(ctx.quiet3, 'none@creator.test');
+  const empty = await request(ctx.server).get('/portal-api/influencer/analytics').set(none);
+  assert.equal(empty.status, 200);
+  assert.equal(empty.body.growth, null);
+  assert.equal(empty.body.audience, null);
+  assert.deepEqual(empty.body.posts, []);
+  assert.equal(empty.body.averages, null);
+  assert.deepEqual(empty.body.earnings, []);
+});

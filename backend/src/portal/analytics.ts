@@ -3,6 +3,7 @@ import { HttpError } from '../http';
 import type { CampaignAssignment, CampaignDeliverable } from '../types';
 import { resultsDto } from '../social/results';
 import { clientInvoices } from './billing';
+import { payoutsFor } from './payouts';
 
 /**
  * Analytics for the portals, computed from records the reader may already see.
@@ -130,5 +131,77 @@ export function clientAnalytics(store: DataStore, companyId: string, contactId: 
     },
     weekly, byCreator, byPlatform, byCampaign,
     campaigns: campaigns.map((c) => ({ id: c.id, name: c.name })),
+  };
+}
+
+const mean = (rows: Figures[]): Figures | null => rows.length === 0 ? null : {
+  views: Math.round(rows.reduce((s, r) => s + r.views, 0) / rows.length),
+  likes: Math.round(rows.reduce((s, r) => s + r.likes, 0) / rows.length),
+  comments: Math.round(rows.reduce((s, r) => s + r.comments, 0) / rows.length),
+  saves: Math.round(rows.reduce((s, r) => s + r.saves, 0) / rows.length),
+  shares: Math.round(rows.reduce((s, r) => s + r.shares, 0) / rows.length),
+};
+
+/**
+ * An influencer's own figures: their connected account's daily snapshots, the
+ * results of posts they were paid for, and their own payouts. Never a benchmark,
+ * another creator's numbers, or what the client pays.
+ */
+export function influencerAnalytics(store: DataStore, companyId: string, contactId: string, currency: string, q: AnalyticsQuery) {
+  const range = parseRange(q);
+  const accounts = store.social.accountsFor(companyId, contactId).filter((a) => a.status === 'active' || a.status === 'needs_reconnect');
+
+  let growth: { days: Array<{ date: string; followers: number; reach: number; views: number; engaged: number }>; change: { followers: number; reach: number; views: number; engaged: number } | null } | null = null;
+  let audience = null;
+  if (accounts.length > 0) {
+    const byDay = new Map<string, { followers: number; reach: number; views: number; engaged: number }>();
+    const all = accounts.flatMap((a) => store.social.snapshots(a.id));
+    for (const s of all) {
+      if (!range.contains(`${s.takenOn}T12:00:00Z`)) continue;
+      const d = byDay.get(s.takenOn) ?? { followers: 0, reach: 0, views: 0, engaged: 0 };
+      d.followers += s.followers; d.reach += s.reach; d.views += s.views; d.engaged += s.engagedAccounts;
+      byDay.set(s.takenOn, d);
+    }
+    const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, d]) => ({ date, ...d }));
+    const first = days[0];
+    const last = days[days.length - 1];
+    growth = {
+      days,
+      change: first ? { followers: last.followers - first.followers, reach: last.reach - first.reach, views: last.views - first.views, engaged: last.engaged - first.engaged } : null,
+    };
+    audience = [...all].sort((a, b) => a.takenOn.localeCompare(b.takenOn)).reverse().find((s) => s.demographics)?.demographics ?? null;
+  }
+
+  const posts = store.influencer.paidDeliverableIdsOf(companyId, contactId)
+    .map((id) => store.getCampaignDeliverableById(id))
+    .filter((d): d is CampaignDeliverable => Boolean(d && d.status !== 'Cancelled' && d.publishedAt && range.contains(d.publishedAt)))
+    .map((d) => {
+      const checkpoints: Partial<Record<'24h' | '7d' | '30d', Figures>> = {};
+      for (const r of store.social.mediaResults(d.id)) checkpoints[r.checkpoint] = { views: r.views, likes: r.likes, comments: r.comments, saves: r.saves, shares: r.shares };
+      const latest = checkpoints['30d'] ?? checkpoints['7d'] ?? checkpoints['24h'] ?? null;
+      return { id: d.id, title: d.title, campaign: store.getCrmCampaignById(d.campaignId)?.name ?? null, publishedAt: new Date(d.publishedAt!).toISOString(), checkpoints, latest };
+    })
+    .filter((p) => p.latest)
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+
+  // Paid money sits in the month it was paid; money still to come in the month it is due.
+  const months = new Map<string, { month: string; currency: string; paid: number; pending: number }>();
+  for (const p of payoutsFor(store, companyId, contactId, currency)) {
+    const when = p.status === 'paid' ? p.paidAt ?? p.dueDate : p.dueDate;
+    if (!when || !range.contains(when)) continue;
+    const key = `${when.slice(0, 7)}|${p.currency}`;
+    const m = months.get(key) ?? { month: when.slice(0, 7), currency: p.currency, paid: 0, pending: 0 };
+    if (p.status === 'paid') m.paid += p.amount; else m.pending += p.amount;
+    months.set(key, m);
+  }
+
+  return {
+    range: { from: range.from, to: range.to },
+    growth,
+    audience,
+    posts: posts.map(({ latest: _latest, ...p }) => p),
+    averages: mean(posts.map((p) => p.latest!)),
+    earnings: [...months.values()].sort((a, b) => a.month.localeCompare(b.month) || a.currency.localeCompare(b.currency))
+      .map((m) => ({ ...m, paid: Number(m.paid.toFixed(2)), pending: Number(m.pending.toFixed(2)) })),
   };
 }

@@ -1,3 +1,4 @@
+import { influencerAnalytics } from './analytics';
 import type { Request, RequestHandler, Response, Router } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
@@ -135,6 +136,10 @@ export function registerInfluencerRoutes(router: Router, store: DataStore, compa
 
   router.get('/influencer/payouts', requireInfluencerSession, (req: SessionRequest, res: Response) => {
     res.json(payoutsFor(store, companyId, self(req.portal!).id, currency()));
+  });
+
+  router.get('/influencer/analytics', requireInfluencerSession, (req: SessionRequest, res: Response) => {
+    res.json(influencerAnalytics(store, companyId, self(req.portal!).id, currency(), req.query));
   });
 
   router.get('/influencer/assignments', requireInfluencerSession, (req: SessionRequest, res: Response) => {
