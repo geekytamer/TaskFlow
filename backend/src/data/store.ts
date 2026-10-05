@@ -114,6 +114,8 @@ import {
   SalesOrder,
   SalesOrderStatus,
   SalesOrderFulfillmentStatus,
+  Quotation,
+  QuotationStatus,
   Delivery,
   DeliveryStatus,
   DeliveryLineItem,
@@ -453,6 +455,7 @@ const defaultNumberingSettings: Record<
   sales_invoice: { prefix: 'INV-', padLength: 4 },
   vendor_invoice: { prefix: 'VI-', padLength: 4 },
   delivery: { prefix: 'DL-', padLength: 4 },
+  quotation: { prefix: 'QT-', padLength: 4 },
 };
 
 const numberingEntityTypes = Object.keys(defaultNumberingSettings) as NumberingEntityType[];
@@ -4219,6 +4222,46 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Sales quotations: a priced offer to a client that, once accepted,
+        // becomes a sales order or an invoice. Expired is derived, never stored.
+        id: '100_quotations',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS quotations (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              quoteNumber TEXT NOT NULL,
+              clientId TEXT NOT NULL,
+              contactId TEXT,
+              opportunityId TEXT,
+              issueDate TEXT NOT NULL,
+              validUntil TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'Draft',
+              items TEXT NOT NULL,
+              subtotal REAL NOT NULL DEFAULT 0,
+              taxRate REAL NOT NULL DEFAULT 0,
+              taxAmount REAL NOT NULL DEFAULT 0,
+              totalAmount REAL NOT NULL DEFAULT 0,
+              currency TEXT NOT NULL,
+              exchangeRate REAL NOT NULL DEFAULT 1,
+              notes TEXT,
+              templateId TEXT,
+              salesOrderId TEXT,
+              invoiceId TEXT,
+              sentAt TEXT,
+              acceptedAt TEXT,
+              declinedAt TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_company_number ON quotations (companyId, quoteNumber);
+            CREATE INDEX IF NOT EXISTS idx_quotations_opportunity ON quotations (opportunityId);
+            CREATE INDEX IF NOT EXISTS idx_quotations_sales_order ON quotations (salesOrderId);
+            CREATE INDEX IF NOT EXISTS idx_quotations_invoice ON quotations (invoiceId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6889,6 +6932,7 @@ export class DataStore {
       // Release any campaign that pointed at this invoice, so a later sync
       // regenerates cleanly instead of chasing a dangling reference.
       this.db.prepare('UPDATE crm_campaigns SET invoiceId = NULL WHERE invoiceId = ?').run(id);
+      this.db.prepare('UPDATE quotations SET invoiceId = NULL WHERE invoiceId = ?').run(id);
       this.db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
     });
     trx();
@@ -6907,6 +6951,7 @@ export class DataStore {
     }
     const trx = this.db.transaction(() => {
       this.db.prepare('UPDATE opportunities SET wonSalesOrderId = NULL WHERE wonSalesOrderId = ?').run(id);
+      this.db.prepare('UPDATE quotations SET salesOrderId = NULL WHERE salesOrderId = ?').run(id);
       this.db.prepare('DELETE FROM sales_orders WHERE id = ?').run(id);
     });
     trx();
@@ -10967,8 +11012,8 @@ export class DataStore {
   }
 
   private getNumberingDataSource(entityType: NumberingEntityType): {
-    table: 'clients' | 'suppliers' | 'inventory_items' | 'purchase_orders' | 'purchase_requisitions' | 'sales_orders' | 'vendor_bills' | 'invoices' | 'deliveries';
-    column: 'reference' | 'sku' | 'orderNumber' | 'requisitionNumber' | 'billNumber' | 'invoiceNumber' | 'deliveryNumber';
+    table: 'clients' | 'suppliers' | 'inventory_items' | 'purchase_orders' | 'purchase_requisitions' | 'sales_orders' | 'vendor_bills' | 'invoices' | 'deliveries' | 'quotations';
+    column: 'reference' | 'sku' | 'orderNumber' | 'requisitionNumber' | 'billNumber' | 'invoiceNumber' | 'deliveryNumber' | 'quoteNumber';
   } {
     switch (entityType) {
       case 'client':
@@ -10989,6 +11034,8 @@ export class DataStore {
         return { table: 'vendor_bills', column: 'billNumber' };
       case 'delivery':
         return { table: 'deliveries', column: 'deliveryNumber' };
+      case 'quotation':
+        return { table: 'quotations', column: 'quoteNumber' };
     }
   }
 
@@ -12616,6 +12663,239 @@ export class DataStore {
       });
     }
     return result;
+  }
+
+  // ============================================================
+  // Quotations
+  // ============================================================
+
+  listQuotations(companyId: string, filter: { opportunityId?: string } = {}): Quotation[] {
+    const rows = filter.opportunityId
+      ? this.db.prepare('SELECT * FROM quotations WHERE companyId = ? AND opportunityId = ? ORDER BY issueDate DESC, quoteNumber DESC').all(companyId, filter.opportunityId)
+      : this.db.prepare('SELECT * FROM quotations WHERE companyId = ? ORDER BY issueDate DESC, quoteNumber DESC').all(companyId);
+    return (rows as any[]).map((row) => this.decodeQuotation(row));
+  }
+
+  getQuotationById(id: string): Quotation | undefined {
+    const row = this.db.prepare('SELECT * FROM quotations WHERE id = ?').get(id) as any;
+    return row ? this.decodeQuotation(row) : undefined;
+  }
+
+  /** The quotation a sales order was made from, if any. */
+  getQuotationForSalesOrder(salesOrderId: string): Quotation | undefined {
+    const row = this.db.prepare('SELECT * FROM quotations WHERE salesOrderId = ? LIMIT 1').get(salesOrderId) as any;
+    return row ? this.decodeQuotation(row) : undefined;
+  }
+
+  private quotationTotals(items: SalesOrder['items'], taxRate: number) {
+    const subtotal = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    const rate = Number(taxRate) > 0 ? Number(taxRate) : 0;
+    const taxAmount = Number(((subtotal * rate) / 100).toFixed(2));
+    return { subtotal, taxRate: rate, taxAmount, totalAmount: Number((subtotal + taxAmount).toFixed(2)) };
+  }
+
+  private assertQuotationDates(issueDate: Date, validUntil: Date) {
+    if (Number.isNaN(issueDate.getTime()) || Number.isNaN(validUntil.getTime())) throw new Error('Quotation dates are invalid.');
+    if (validUntil.toISOString().slice(0, 10) < issueDate.toISOString().slice(0, 10)) {
+      throw new Error('Valid until must be on or after the quotation date.');
+    }
+  }
+
+  createQuotation(input: {
+    companyId: string; clientId: string; contactId?: string; opportunityId?: string;
+    issueDate: Date | string; validUntil: Date | string; items: any[]; taxRate?: number;
+    currency?: string; exchangeRate?: number; notes?: string; templateId?: string; quoteNumber?: string;
+  }): Quotation {
+    const items = this.normalizeSalesOrderItems(input.items);
+    if (!items.length) throw new Error('A quotation needs at least one line.');
+    const issueDate = new Date(input.issueDate);
+    const validUntil = new Date(input.validUntil);
+    this.assertQuotationDates(issueDate, validUntil);
+    const money = this.resolveTransactionCurrency(input.companyId, input.currency, input.exchangeRate);
+    const now = new Date();
+    const quote: Quotation = {
+      id: uuid(),
+      companyId: input.companyId,
+      quoteNumber: input.quoteNumber || this.nextConfiguredSequenceValue(input.companyId, 'quotation'),
+      clientId: input.clientId,
+      contactId: input.contactId,
+      opportunityId: input.opportunityId,
+      issueDate,
+      validUntil,
+      status: 'Draft',
+      items,
+      ...this.quotationTotals(items, input.taxRate ?? 0),
+      currency: money.currency,
+      exchangeRate: money.exchangeRate,
+      notes: input.notes,
+      templateId: input.templateId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.prepare(
+      `INSERT INTO quotations (id, companyId, quoteNumber, clientId, contactId, opportunityId, issueDate, validUntil, status, items,
+         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, createdAt, updatedAt)
+       VALUES (@id, @companyId, @quoteNumber, @clientId, @contactId, @opportunityId, @issueDate, @validUntil, @status, @items,
+         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @createdAt, @updatedAt)`,
+    ).run({
+      ...quote,
+      contactId: quote.contactId ?? null,
+      opportunityId: quote.opportunityId ?? null,
+      issueDate: issueDate.toISOString(),
+      validUntil: validUntil.toISOString(),
+      items: JSON.stringify(items),
+      notes: quote.notes ?? null,
+      templateId: quote.templateId ?? null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    if (quote.contactId) this.addContactRole(quote.contactId, quote.companyId, 'Client', 'Quotation');
+    this.createActivityEvent({
+      companyId: quote.companyId, entityType: 'quotation', entityId: quote.id, action: 'created',
+      summary: `Quotation ${quote.quoteNumber} created.`,
+      metadata: { totalAmount: quote.totalAmount, clientId: quote.clientId, opportunityId: quote.opportunityId },
+    });
+    return quote;
+  }
+
+  /** Edit a quotation's offer. Only open (Draft, Sent or Expired) and unconverted quotations change. */
+  updateQuotation(id: string, updates: {
+    clientId?: string; contactId?: string | null; issueDate?: Date | string; validUntil?: Date | string; items?: any[];
+    taxRate?: number; currency?: string; exchangeRate?: number; notes?: string | null; templateId?: string | null;
+  }): Quotation | undefined {
+    const existing = this.getQuotationById(id);
+    if (!existing) return undefined;
+    if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
+    if (existing.status === 'Accepted' || existing.status === 'Declined') {
+      throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
+    }
+    const items = updates.items !== undefined ? this.normalizeSalesOrderItems(updates.items) : existing.items;
+    if (!items.length) throw new Error('A quotation needs at least one line.');
+    const issueDate = updates.issueDate !== undefined ? new Date(updates.issueDate) : existing.issueDate;
+    const validUntil = updates.validUntil !== undefined ? new Date(updates.validUntil) : existing.validUntil;
+    this.assertQuotationDates(issueDate, validUntil);
+    const money = this.resolveTransactionCurrency(
+      existing.companyId,
+      updates.currency ?? existing.currency,
+      updates.exchangeRate ?? (updates.currency === undefined ? existing.exchangeRate : undefined),
+    );
+    const totals = this.quotationTotals(items, updates.taxRate ?? existing.taxRate);
+    this.db.prepare(
+      `UPDATE quotations SET clientId=@clientId, contactId=@contactId, issueDate=@issueDate, validUntil=@validUntil, items=@items,
+         subtotal=@subtotal, taxRate=@taxRate, taxAmount=@taxAmount, totalAmount=@totalAmount, currency=@currency,
+         exchangeRate=@exchangeRate, notes=@notes, templateId=@templateId, updatedAt=@updatedAt WHERE id=@id`,
+    ).run({
+      id,
+      clientId: updates.clientId ?? existing.clientId,
+      contactId: updates.contactId === undefined ? existing.contactId ?? null : updates.contactId,
+      issueDate: issueDate.toISOString(),
+      validUntil: validUntil.toISOString(),
+      items: JSON.stringify(items),
+      ...totals,
+      currency: money.currency,
+      exchangeRate: money.exchangeRate,
+      notes: updates.notes === undefined ? existing.notes ?? null : updates.notes,
+      templateId: updates.templateId === undefined ? existing.templateId ?? null : updates.templateId,
+      updatedAt: new Date().toISOString(),
+    });
+    const result = this.getQuotationById(id);
+    this.createActivityEvent({
+      companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'updated',
+      summary: `Quotation ${existing.quoteNumber} updated.`, metadata: { totalAmount: result?.totalAmount },
+    });
+    return result;
+  }
+
+  /**
+   * Move a quotation. Draft ⇄ Sent; Draft/Sent → Accepted or Declined;
+   * Declined (or Accepted, until converted) → Draft. Expired is derived, so an
+   * expired quotation can be sent again or reopened but not accepted.
+   */
+  setQuotationStatus(id: string, status: QuotationStatus): Quotation | undefined {
+    const existing = this.getQuotationById(id);
+    if (!existing) return undefined;
+    if (status === 'Expired') throw new Error('A quotation expires on its own once its valid-until date passes.');
+    if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted; its status is final.');
+    const current = existing.status;
+    if (current === status) return existing;
+    const open = current === 'Draft' || current === 'Sent' || current === 'Expired';
+    const allowed =
+      (status === 'Draft' && current !== 'Draft')
+      || (status === 'Sent' && open)
+      || ((status === 'Accepted' || status === 'Declined') && (current === 'Draft' || current === 'Sent'));
+    if (!allowed) {
+      if (status === 'Accepted' && current === 'Expired') {
+        throw new Error('This quotation has expired. Extend its valid-until date before accepting it.');
+      }
+      throw new Error(`A ${current.toLowerCase()} quotation cannot move to ${status}.`);
+    }
+    const now = new Date().toISOString();
+    this.db.prepare(
+      `UPDATE quotations SET status = @status,
+         sentAt = CASE WHEN @status = 'Sent' THEN @now ELSE sentAt END,
+         acceptedAt = CASE WHEN @status = 'Accepted' THEN @now WHEN @status = 'Draft' THEN NULL ELSE acceptedAt END,
+         declinedAt = CASE WHEN @status = 'Declined' THEN @now WHEN @status = 'Draft' THEN NULL ELSE declinedAt END,
+         updatedAt = @now WHERE id = @id`,
+    ).run({ id, status, now });
+    const result = this.getQuotationById(id);
+    this.createActivityEvent({
+      companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'status_changed',
+      summary: `Quotation ${existing.quoteNumber} moved to ${status}.`, metadata: { status },
+    });
+    return result;
+  }
+
+  /** Record what an accepted quotation became. */
+  linkQuotation(id: string, link: { salesOrderId?: string; invoiceId?: string }) {
+    this.db.prepare(
+      'UPDATE quotations SET salesOrderId = COALESCE(@salesOrderId, salesOrderId), invoiceId = COALESCE(@invoiceId, invoiceId), updatedAt = @now WHERE id = @id',
+    ).run({ id, salesOrderId: link.salesOrderId ?? null, invoiceId: link.invoiceId ?? null, now: new Date().toISOString() });
+  }
+
+  deleteQuotation(id: string): void {
+    const existing = this.getQuotationById(id);
+    if (!existing) throw new Error('Quotation not found.');
+    if (existing.salesOrderId || existing.invoiceId) {
+      throw new Error('This quotation has been converted. Delete the sales order or invoice it became first.');
+    }
+    this.db.prepare('DELETE FROM quotations WHERE id = ?').run(id);
+    this.createActivityEvent({
+      companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'deleted',
+      summary: `Quotation ${existing.quoteNumber} deleted.`,
+    });
+  }
+
+  private decodeQuotation(row: any): Quotation {
+    const validUntil = new Date(row.validUntil);
+    const stored = row.status as QuotationStatus;
+    const lapsed = validUntil.toISOString().slice(0, 10) < new Date().toISOString().slice(0, 10);
+    return {
+      id: row.id,
+      companyId: row.companyId,
+      quoteNumber: row.quoteNumber,
+      clientId: row.clientId,
+      contactId: row.contactId ?? undefined,
+      opportunityId: row.opportunityId ?? undefined,
+      issueDate: new Date(row.issueDate),
+      validUntil,
+      status: (stored === 'Draft' || stored === 'Sent') && lapsed && !row.salesOrderId && !row.invoiceId ? 'Expired' : stored,
+      items: this.normalizeSalesOrderItems(this.parseJson(row.items) || []),
+      subtotal: Number(row.subtotal) || 0,
+      taxRate: Number(row.taxRate) || 0,
+      taxAmount: Number(row.taxAmount) || 0,
+      totalAmount: Number(row.totalAmount) || 0,
+      currency: row.currency,
+      exchangeRate: Number(row.exchangeRate) || 1,
+      notes: row.notes ?? undefined,
+      templateId: row.templateId ?? undefined,
+      salesOrderId: row.salesOrderId ?? undefined,
+      invoiceId: row.invoiceId ?? undefined,
+      sentAt: row.sentAt ? new Date(row.sentAt) : undefined,
+      acceptedAt: row.acceptedAt ? new Date(row.acceptedAt) : undefined,
+      declinedAt: row.declinedAt ? new Date(row.declinedAt) : undefined,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+    };
   }
 
   // ============================================================

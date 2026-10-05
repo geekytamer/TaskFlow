@@ -22,7 +22,8 @@ const { makeTmpDir } = require('./helpers/tmp');
 const quiet = { info() {}, warn() {}, error() {} };
 const MIN = 60_000;
 const FIXTURES = path.join(__dirname, 'fixtures', 'meta');
-const T0 = Date.parse('2026-10-05T12:00:00Z');
+// A fixed minute in the near future, so a game built around it is live whatever day the suite runs.
+const T0 = Math.ceil((Date.now() + 24 * 60 * 60000) / 60000) * 60000;
 
 /** A post's likes over time, and a Meta + fetcher pair that only see what has happened by `clock.now`. */
 const world = ({ perMinute, window = 100, likers = 3000, startAfter = 0 }) => {

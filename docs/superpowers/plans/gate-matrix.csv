@@ -337,3 +337,12 @@ POST,/companies/:companyId/payroll-runs,payroll,create,"Accountant Admin Manager
 PUT,/payroll-runs/:id/status,payroll,write,"Accountant Admin Manager",7996,roles,payroll-runs.status
 DELETE,/payroll-runs/:id,payroll,delete,"Accountant Admin Manager",8002,roles,payroll-runs
 DELETE,/tasks/:id,tasks,delete,"",8115,none,tasks
+GET,/public/quotations/:id,public,read,"",0,none,public.quotations
+GET,/companies/:companyId/quotations,sales,read,"Accountant Admin Manager",0,roles,quotations
+GET,/quotations/:id,sales,read,"Accountant Admin Manager",0,roles,quotations
+POST,/companies/:companyId/quotations,sales,create,"Accountant Admin Manager",0,roles,quotations
+PUT,/quotations/:id,sales,write,"Accountant Admin Manager",0,roles,quotations
+PATCH,/quotations/:id/status,sales,write,"Accountant Admin Manager",0,roles,quotations.status
+POST,/quotations/:id/sales-order,sales,create,"Accountant Admin Manager",0,roles,quotations.sales-order
+POST,/quotations/:id/invoice,sales,create,"Accountant Admin Manager",0,roles,quotations.invoice
+DELETE,/quotations/:id,sales,write,"Accountant Admin Manager",0,roles,quotations

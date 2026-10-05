@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 288 gated routes.
+ * 296 gated routes.
  */
 
 export interface RoutePermission {
@@ -301,6 +301,14 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/payroll-runs': { module: 'payroll', action: 'create' },
   'PUT /payroll-runs/:id/status': { module: 'payroll', action: 'write' },
   'DELETE /payroll-runs/:id': { module: 'payroll', action: 'delete' },
+  'GET /companies/:companyId/quotations': { module: 'sales', action: 'read' },
+  'GET /quotations/:id': { module: 'sales', action: 'read' },
+  'POST /companies/:companyId/quotations': { module: 'sales', action: 'create' },
+  'PUT /quotations/:id': { module: 'sales', action: 'write' },
+  'PATCH /quotations/:id/status': { module: 'sales', action: 'write' },
+  'POST /quotations/:id/sales-order': { module: 'sales', action: 'create' },
+  'POST /quotations/:id/invoice': { module: 'sales', action: 'create' },
+  'DELETE /quotations/:id': { module: 'sales', action: 'write' },
 };
 
 export function lookupRoutePermission(

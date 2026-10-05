@@ -28,7 +28,8 @@ export type NumberingEntityType =
   | 'sales_order'
   | 'sales_invoice'
   | 'vendor_invoice'
-  | 'delivery';
+  | 'delivery'
+  | 'quotation';
 
 export interface CompanyNumberingSetting {
   companyId: string;
@@ -745,6 +746,37 @@ export interface SalesOrder {
   deliveredQuantityByLine?: number[];
 }
 
+/** Stored quotation states. `Expired` is derived on read from `validUntil`. */
+export type QuotationStatus = 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Expired';
+
+export interface Quotation {
+  id: string;
+  companyId: string;
+  quoteNumber: string;
+  clientId: string;
+  contactId?: string;
+  opportunityId?: string;
+  issueDate: Date;
+  validUntil: Date;
+  status: QuotationStatus;
+  items: SalesOrderLineItem[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  totalAmount: number;
+  currency: string;
+  exchangeRate: number;
+  notes?: string;
+  templateId?: string;
+  salesOrderId?: string;
+  invoiceId?: string;
+  sentAt?: Date;
+  acceptedAt?: Date;
+  declinedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export type DeliveryStatus = 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
 
 export interface DeliveryLineItem {
@@ -1197,7 +1229,7 @@ export interface WhatsAppChatSettings {
 
 export type ContactKind = 'Organization' | 'Person';
 export type ContactRoleType = 'Lead' | 'Client' | 'Vendor' | 'Influencer' | 'Partner';
-export type ContactRoleSource = 'Manual' | 'SalesOrder' | 'PurchaseOrder' | 'Invoice' | 'VendorBill';
+export type ContactRoleSource = 'Manual' | 'SalesOrder' | 'PurchaseOrder' | 'Invoice' | 'VendorBill' | 'Quotation';
 
 export type LeadStatus = 'New' | 'Qualified' | 'Follow-up' | 'Proposal' | 'Won' | 'Lost' | 'Archived';
 export type LeadSource = 'Instagram' | 'TikTok' | 'WhatsApp' | 'Referral' | 'Website' | 'Campaign' | 'Former Client' | 'Other';
@@ -1610,6 +1642,7 @@ export interface ActivityEvent {
   actorName?: string;
   entityType:
 		  | 'contact'
+		  | 'quotation'
 		    | 'opportunity'
 		    | 'proposal'
 		    | 'campaign'
