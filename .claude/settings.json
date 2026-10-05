@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)"
+    ]
+  }
+}
