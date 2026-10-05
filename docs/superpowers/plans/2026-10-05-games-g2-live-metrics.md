@@ -27,3 +27,16 @@ Webhook endpoint `/social/meta/webhook`: GET verification with `META_WEBHOOK_VER
 5. Webhook route + immediate collection for dirty sources.
 6. Staff UI: audience, tag, sources (connected account + post link), participants, metric parameters, sync status, "Collect now".
 7. Tests: collector against fixtures (dedupe, replies, mentions, caps), creator stats, reconciliation before freeze, webhook signature and verification, access unchanged.
+
+## Status (2026-10-05)
+
+Built (`ce39303`…`c51b1e2`), backend 433 tests, portal 17, typecheck clean; driven in the browser against the fixture client (staff UI desktop; lobby and portal alerts in Arabic at 375px).
+
+- G2 as designed, plus: **likers lists** (`import` sources): Meta exposes likes only as totals and scraping Instagram is ruled out (it breaks Meta's terms and risks Peak's account and app review), so staff paste or upload the post's likers list; re-import replaces it.
+- **weighted_interactions** metric: points per comment/reply/tag/like, diminishing returns for repeats on a post, optional daily cap.
+- Lobby: where to play, find your rank (beyond the top 100), last update time; influencers see their own standing in creators games.
+- Integrity flags (same text from 3+ accounts, 8+ interactions in a minute) for staff review; results CSV; the creator is notified once when results freeze.
+- **M4 WhatsApp alerts** for portal users (opt-in on Messages): derived each 5 minutes, one digest, sent once, no amounts, from the company's Green API number.
+- Code review: 3 findings fixed (paging-cap false removals, metric reset before validation, webhook mark lost mid-read).
+
+Owner inputs still open: `META_WEBHOOK_VERIFY_TOKEN` and subscribing the app to `comments` and `mentions`; the brand's own Instagram account would need a staff connect flow (today only influencers connect).
