@@ -7,7 +7,7 @@ import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { getRequest } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
-import { backLink } from '@/components/field';
+import { PageHeader, RowLink, SectionTitle, list, panel } from '@/components/ui';
 
 export default async function RequestPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -21,32 +21,30 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
     : null;
 
   return (
-    <div className="space-y-10">
-      <Link href="/requests" className={backLink}>{t(lang, 'req.back')}</Link>
-
-      <header className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl"><bdi>{req.title}</bdi></h1>
-          <StatusBadge lang={lang} request={req.status} />
-        </div>
-        <p className="text-sm text-ink-soft">{t(lang, 'req.created')} <bdi>{formatDate(req.createdAt, lang)}</bdi></p>
-      </header>
+    <div className="space-y-8">
+      <PageHeader
+        back={{ href: '/requests', label: t(lang, 'req.back') }}
+        title={<span className="inline-flex flex-wrap items-center gap-3"><bdi>{req.title}</bdi><StatusBadge lang={lang} request={req.status} /></span>}
+        subtitle={<>{t(lang, 'req.created')} <bdi>{formatDate(req.createdAt, lang)}</bdi></>}
+      />
 
       <section aria-labelledby="proposals-title">
-        <h2 id="proposals-title" className="mb-3 text-base font-semibold">{t(lang, 'req.proposals')}</h2>
+        <SectionTitle id="proposals-title">{t(lang, 'req.proposals')}</SectionTitle>
         {req.proposals.length === 0 ? (
           <p className="text-ink-soft">{t(lang, 'req.noProposals')}</p>
         ) : (
-          <ul className="divide-y divide-line border-y border-line">
+          <ul className={list}>
             {req.proposals.map((p) => (
               <li key={p.id}>
-                <Link href={`/proposals/${p.id}`} className="flex flex-wrap items-center justify-between gap-3 px-1 py-4 hover:bg-surface sm:px-3">
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium"><bdi>{p.title}</bdi></span>
-                    <span className="block text-sm text-ink-soft"><bdi dir="ltr">{p.number}</bdi></span>
-                  </span>
-                  <StatusBadge lang={lang} proposal={p.status} />
-                </Link>
+                <RowLink href={`/proposals/${p.id}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium"><bdi>{p.title}</bdi></span>
+                      <span className="block text-sm text-ink-soft"><bdi dir="ltr">{p.number}</bdi></span>
+                    </span>
+                    <StatusBadge lang={lang} proposal={p.status} />
+                  </div>
+                </RowLink>
               </li>
             ))}
           </ul>
@@ -55,7 +53,7 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
 
       <section aria-labelledby="brief-title" className="max-w-3xl">
         <h2 id="brief-title" className="sr-only">{t(lang, 'req.objective')}</h2>
-        <dl className="divide-y divide-line border-y border-line">
+        <dl className={`${panel} divide-y divide-line px-5`}>
           <div className="grid gap-1 py-4 sm:grid-cols-[180px_1fr] sm:gap-6">
             <dt className="text-sm text-ink-soft">{t(lang, 'req.objective')}</dt>
             <dd dir="auto" className="whitespace-pre-line leading-relaxed">{req.objective}</dd>

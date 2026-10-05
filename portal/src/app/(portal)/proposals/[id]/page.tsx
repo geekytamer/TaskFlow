@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ProposalActions } from '@/components/proposal-actions';
 import { StatusBadge } from '@/components/status-badge';
@@ -7,7 +6,7 @@ import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { getProposal } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
-import { backLink } from '@/components/field';
+import { PageHeader, panel } from '@/components/ui';
 
 export default async function ProposalPage({ params }: { params: Promise<{ id: string }> }) {
   requireAudience('client');
@@ -18,15 +17,13 @@ export default async function ProposalPage({ params }: { params: Promise<{ id: s
   const money = (value: number) => formatMoney(value, proposal.currency, lang);
 
   return (
-    <div className="space-y-10">
-      <Link href="/requests" className={backLink}>{t(lang, 'req.back')}</Link>
-
-      <header className="space-y-3">
-        <p className="text-sm text-ink-soft">{t(lang, 'prop.title')} <bdi dir="ltr">{proposal.number}</bdi></p>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl"><bdi>{proposal.title}</bdi></h1>
-          <StatusBadge lang={lang} proposal={proposal.status} />
-        </div>
+    <div className="space-y-8">
+      <PageHeader
+        back={{ href: '/requests', label: t(lang, 'req.back') }}
+        title={<span className="inline-flex flex-wrap items-center gap-3"><bdi>{proposal.title}</bdi><StatusBadge lang={lang} proposal={proposal.status} /></span>}
+        subtitle={<>{t(lang, 'prop.title')} <bdi dir="ltr">{proposal.number}</bdi></>}
+      />
+      <header>
         <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
           <div><dt className="inline text-ink-soft">{t(lang, 'prop.issued')}: </dt><dd className="inline font-medium"><bdi>{formatDate(proposal.issueDate, lang)}</bdi></dd></div>
           {proposal.validUntil && (
@@ -38,9 +35,25 @@ export default async function ProposalPage({ params }: { params: Promise<{ id: s
         </dl>
       </header>
 
-      <section>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[32rem] border-y border-line text-sm">
+      <section className="space-y-4">
+        <div className={`${panel} flex flex-wrap items-baseline justify-between gap-3 p-5`}>
+          <span className="text-sm text-ink-soft">{t(lang, 'prop.total')}</span>
+          <span className="text-[28px] font-semibold leading-none tracking-tight"><bdi dir="ltr">{money(proposal.total)}</bdi></span>
+        </div>
+        {/* Phones: one stacked row per line, so no amount is scrolled out of view. */}
+        <ul className={`${panel} divide-y divide-line px-4 sm:hidden`}>
+          {proposal.items.map((item, index) => (
+            <li key={index} className="py-3 text-sm">
+              <p className="font-medium"><bdi>{item.description}</bdi></p>
+              <p className="mt-1 flex justify-between gap-4 text-ink-soft">
+                <span><bdi>{item.quantity}</bdi> × <bdi dir="ltr">{money(item.unitPrice)}</bdi></span>
+                <span className="font-semibold text-ink"><bdi dir="ltr">{money(item.lineTotal)}</bdi></span>
+              </p>
+            </li>
+          ))}
+        </ul>
+        <div className={`${panel} hidden overflow-x-auto px-5 sm:block`}>
+          <table className="w-full min-w-[32rem] text-sm">
             <thead className="text-ink-soft">
               <tr className="border-b border-line">
                 <th scope="col" className="py-3 pe-4 text-start font-medium">{t(lang, 'prop.item')}</th>

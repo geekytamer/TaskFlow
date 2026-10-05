@@ -1,11 +1,10 @@
-import Link from 'next/link';
 import { RequestForm } from '@/components/request-form';
 import { getCatalogue } from '@/lib/catalogue';
 import { formatCompact, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
-import { backLink } from '@/components/field';
+import { PageHeader } from '@/components/ui';
 
 export default async function NewRequestPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireAudience('client');
@@ -22,11 +21,7 @@ export default async function NewRequestPage({ searchParams }: { searchParams: P
 
   return (
     <div className="max-w-3xl space-y-10">
-      <Link href="/requests" className={backLink}>{t(lang, 'req.back')}</Link>
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t(lang, 'req.new')}</h1>
-        <p className="mt-2 leading-relaxed text-ink-soft">{t(lang, 'req.subtitle')}</p>
-      </header>
+      <PageHeader back={{ href: '/requests', label: t(lang, 'req.back') }} title={t(lang, 'req.new')} subtitle={t(lang, 'req.subtitle')} />
       <RequestForm lang={lang} currency={catalogue.currency} options={options} platforms={catalogue.facets.platforms} preselected={preselected} />
     </div>
   );

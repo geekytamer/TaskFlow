@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { t, type Lang } from '@/lib/i18n';
+import { button, panel } from './ui';
 
 type Mode = 'idle' | 'accepting' | 'declining';
 
@@ -36,8 +37,8 @@ export function ProposalActions({ lang, proposalId, totalLabel }: { lang: Lang; 
     setBusy(false);
   }
 
-  const solid = 'inline-flex h-11 items-center justify-center rounded-[10px] bg-ink px-6 text-[15px] font-semibold text-white transition-colors hover:bg-ink/90 disabled:opacity-60';
-  const plain = 'inline-flex h-11 items-center justify-center rounded-[10px] border border-field bg-surface px-5 text-[15px] font-semibold transition-colors hover:border-ink disabled:opacity-60';
+  const solid = `${button.primary} px-6`;
+  const plain = button.secondary;
 
   return (
     <div className="space-y-4">
@@ -49,7 +50,7 @@ export function ProposalActions({ lang, proposalId, totalLabel }: { lang: Lang; 
       )}
 
       {mode === 'accepting' && (
-        <div className="space-y-3 rounded-xl border border-line bg-surface p-5">
+        <div className={`${panel} space-y-3 p-5`}>
           <p className="font-semibold"><bdi dir="ltr">{totalLabel}</bdi></p>
           <p className="text-sm text-ink-soft">{t(lang, 'prop.confirmAccept')}</p>
           <div className="flex flex-wrap gap-3">
@@ -62,11 +63,11 @@ export function ProposalActions({ lang, proposalId, totalLabel }: { lang: Lang; 
       )}
 
       {mode === 'declining' && (
-        <div className="space-y-3 rounded-xl border border-line bg-surface p-5">
+        <div className={`${panel} space-y-3 p-5`}>
           <label htmlFor="decline-reason" className="block text-sm font-medium">{t(lang, 'prop.reason')}</label>
           <textarea id="decline-reason" rows={3} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)}
             aria-describedby="decline-hint"
-            className="w-full rounded-[10px] border border-field bg-canvas px-3.5 py-2.5 text-[15px] leading-relaxed focus-visible:border-ink" />
+            className="w-full rounded-control border border-field bg-surface px-3.5 py-2.5 text-[15px] leading-relaxed focus-visible:border-ink" />
           <p id="decline-hint" className="text-sm text-ink-soft">{t(lang, 'prop.reasonHint')}</p>
           <div className="flex flex-wrap gap-3">
             <button type="button" className={solid} disabled={busy} onClick={() => send('decline')}>

@@ -501,6 +501,10 @@ const en = {
   'cat.chosenMany': '{n} influencers chosen',
   'cat.clearShortlist': 'Clear',
   'cat.requestWith': 'Request them',
+  'req.titleBoth': 'Requests and proposals',
+  'req.waiting': 'Waiting for your answer',
+  'req.yours': 'Your requests',
+  'req.otherProposals': 'Other proposals',
 } as const;
 
 export type Key = keyof typeof en;
@@ -1003,6 +1007,10 @@ const ar: Record<Key, string> = {
   'cat.chosenMany': 'تم اختيار {n} مؤثرين',
   'cat.clearShortlist': 'مسح',
   'cat.requestWith': 'اطلبهم',
+  'req.titleBoth': 'الطلبات والعروض',
+  'req.waiting': 'بانتظار ردك',
+  'req.yours': 'طلباتك',
+  'req.otherProposals': 'عروض أخرى',
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };

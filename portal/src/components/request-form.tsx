@@ -13,7 +13,7 @@ export interface ShortlistOption {
 }
 
 const control =
-  'w-full rounded-[10px] border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
+  'w-full rounded-control border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
 
 export function RequestForm({
   lang, currency, options, platforms, preselected,
@@ -120,7 +120,7 @@ export function RequestForm({
             {platforms.map((p) => {
               const on = chosenPlatforms.has(p);
               return (
-                <label key={p} className={`cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors ${on ? 'border-ink bg-ink text-white' : 'border-field bg-surface hover:border-ink/60'}`}>
+                <label key={p} className={`inline-flex min-h-11 cursor-pointer items-center rounded-full border px-4 text-sm font-medium transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${on ? 'border-accent bg-accent text-accent-ink' : 'border-field bg-surface hover:border-ink/60'}`}>
                   <input type="checkbox" className="sr-only" checked={on} onChange={() => setChosenPlatforms(toggle(chosenPlatforms, p))} />
                   <bdi>{p}</bdi>
                 </label>
@@ -135,11 +135,11 @@ export function RequestForm({
           <legend className="text-sm font-medium">{t(lang, 'form.shortlist')}</legend>
           <label htmlFor="shortlist-filter" className="sr-only">{t(lang, 'form.shortlistFilter')}</label>
           <input id="shortlist-filter" type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t(lang, 'form.shortlistFilter')} className={`${control} h-10 max-w-sm`} />
-          <ul className="max-h-80 divide-y divide-line overflow-y-auto rounded-xl border border-line bg-surface">
+          <ul className="divide-y divide-line rounded-panel border border-line bg-surface md:max-h-96 md:overflow-y-auto">
             {visible.map((o) => (
               <li key={o.id}>
-                <label className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-canvas">
-                  <input type="checkbox" checked={chosen.has(o.id)} onChange={() => setChosen(toggle(chosen, o.id))} className="h-4 w-4 accent-[var(--accent)]" />
+                <label className="flex min-h-12 cursor-pointer items-center gap-3 px-4 py-3 hover:bg-surface-2">
+                  <input type="checkbox" checked={chosen.has(o.id)} onChange={() => setChosen(toggle(chosen, o.id))} className="h-5 w-5 accent-[var(--accent)]" />
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{o.name}</span>
                     {o.detail && <span className="block truncate text-sm text-ink-soft">{o.detail}</span>}
