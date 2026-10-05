@@ -6036,10 +6036,53 @@ export class DataStore {
     return this.getUserById(userId);
   }
 
+  /** Removes one id from a JSON array column wherever it appears. */
+  private scrubIdFromJsonArray(table: string, column: string, id: string) {
+    this.db.prepare(
+      `UPDATE ${table} SET ${column} = (SELECT json_group_array(value) FROM json_each(${table}.${column}) WHERE value <> @id)
+       WHERE json_valid(${column}) AND EXISTS (SELECT 1 FROM json_each(${table}.${column}) WHERE value = @id)`,
+    ).run({ id });
+  }
+
+  /** Files attached to a record mean nothing once the record is gone. */
+  private deleteRecordAttachmentsFor(entityType: string, entityId: string) {
+    this.db.prepare('DELETE FROM record_attachments WHERE entityType = ? AND entityId = ?').run(entityType, entityId);
+  }
+
+  /** Follow-ups about a record, and who they were assigned to. */
+  private deleteFollowUpsFor(entityType: string, entityId: string) {
+    this.db.prepare(
+      'DELETE FROM follow_up_assignees WHERE followUpId IN (SELECT id FROM follow_ups WHERE (entityType = ? AND entityId = ?) OR (sourceType = ? AND sourceId = ?))',
+    ).run(entityType, entityId, entityType, entityId);
+    this.db.prepare('DELETE FROM follow_ups WHERE (entityType = ? AND entityId = ?) OR (sourceType = ? AND sourceId = ?)').run(entityType, entityId, entityType, entityId);
+  }
+
+  /**
+   * Delete a user. Their private tasks would become invisible to everyone, so
+   * those must be handed over first; everywhere else their id is taken out so
+   * no task, project or session keeps pointing at someone who is gone.
+   */
   deleteUser(userId: string) {
-    this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ?').run(userId);
+    const privateTasks = (this.db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE ownerId = ? AND isPrivate = 1').get(userId) as { n: number }).n;
+    if (privateTasks > 0) {
+      throw new Error(`This user owns ${privateTasks} private task(s). Reassign them or make them visible before deleting the user.`);
+    }
+    const trx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ?').run(userId);
+      this.scrubIdFromJsonArray('tasks', 'assignedUserIds', userId);
+      this.scrubIdFromJsonArray('projects', 'memberIds', userId);
+      this.db.prepare('DELETE FROM tokens WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM follow_up_assignees WHERE userId = ?').run(userId);
+      this.db.prepare('UPDATE opportunities SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
+      this.db.prepare('UPDATE contacts SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
+      this.db.prepare('UPDATE employees SET userId = NULL WHERE userId = ?').run(userId);
+      // Contribution shares not yet turned into commissions would keep counting
+      // toward a deal's 100% with nobody to pay.
+      this.db.prepare('DELETE FROM contributions WHERE userId = ? AND id NOT IN (SELECT contributionId FROM commissions WHERE contributionId IS NOT NULL)').run(userId);
+      this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    });
+    trx();
     this.bumpAuthzVersion();
-    this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   }
 
   listProjects(): Project[] {
@@ -6142,12 +6185,40 @@ export class DataStore {
     return result;
   }
 
+  /**
+   * Delete a project with its tasks and everything that only belongs to them.
+   * A task already billed on an invoice blocks it: the invoice still lists it.
+   */
   deleteProject(id: string) {
+    const billed = this.db.prepare(
+      'SELECT i.invoiceNumber FROM tasks t JOIN invoices i ON i.id = t.generatedInvoiceId WHERE t.projectId = ? LIMIT 1',
+    ).get(id) as { invoiceNumber: string } | undefined;
+    if (billed) {
+      throw new Error(`A task in this project is billed on invoice ${billed.invoiceNumber}. Remove it from the invoice first.`);
+    }
+    const taskIds = (this.db.prepare('SELECT id FROM tasks WHERE projectId = ?').all(id) as Array<{ id: string }>).map((r) => r.id);
     const trx = this.db.transaction(() => {
+      for (const taskId of taskIds) this.removeTaskChildren(taskId);
+      this.db.prepare("DELETE FROM contributions WHERE sourceType = 'project' AND sourceId = ?").run(id);
+      this.db.prepare('UPDATE expenses SET projectId = NULL WHERE projectId = ?').run(id);
+      this.db.prepare('UPDATE crm_campaigns SET projectId = NULL WHERE projectId = ?').run(id);
+      this.db.prepare('UPDATE inventory_issues SET projectId = NULL WHERE projectId = ?').run(id);
+      this.deleteRecordAttachmentsFor('project', id);
       this.db.prepare('DELETE FROM tasks WHERE projectId = ?').run(id);
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
     });
     trx();
+  }
+
+  /** What a task owns, and the links other records keep to it. */
+  private removeTaskChildren(taskId: string) {
+    this.db.prepare('DELETE FROM time_entries WHERE taskId = ?').run(taskId);
+    this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(taskId);
+    this.db.prepare("DELETE FROM contributions WHERE sourceType = 'task' AND sourceId = ?").run(taskId);
+    this.db.prepare('UPDATE inventory_issues SET taskId = NULL WHERE taskId = ?').run(taskId);
+    this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(taskId);
+    this.scrubIdFromJsonArray('tasks', 'dependencies', taskId);
+    this.deleteRecordAttachmentsFor('task', taskId);
   }
 
   addProjectMember(projectId: string, userId: string) {
@@ -6868,11 +6939,23 @@ export class DataStore {
         { table: 'campaign_assignments', column: 'contactId', label: 'campaign assignment(s)' },
         { table: 'campaign_deliverables', column: 'vendorContactId', label: 'campaign deliverable(s)' },
         { table: 'campaign_expenses', column: 'contactId', label: 'campaign expense(s)' },
+        { table: 'campaign_deliverables', column: 'contactId', label: 'campaign deliverable(s)' },
+        { table: 'quotations', column: 'contactId', label: 'quotation(s)' },
+        { table: 'sales_orders', column: 'contactId', label: 'sales order(s)' },
+        { table: 'purchase_orders', column: 'contactId', label: 'purchase order(s)' },
+        { table: 'crm_campaigns', column: 'contactId', label: 'campaign(s)' },
+        { table: 'commissions', column: 'contactId', label: 'commission(s)' },
+        { table: 'vendor_requests', column: 'contactId', label: 'vendor request(s)' },
+        { table: 'portal_users', column: 'contactId', label: 'portal login(s)' },
       ],
       id,
       'contact',
     );
     const trx = this.db.transaction(() => {
+      this.deleteFollowUpsFor('contact', id);
+      this.deleteRecordAttachmentsFor('contact', id);
+      this.db.prepare('DELETE FROM client_pricing_profiles WHERE contactId = ?').run(id);
+      this.db.prepare('DELETE FROM portal_catalogue WHERE contactId = ?').run(id);
       this.db.prepare('DELETE FROM contact_roles WHERE contactId = ?').run(id);
       this.db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
     });
@@ -6927,11 +7010,8 @@ export class DataStore {
       this.db.prepare('UPDATE commissions SET invoiceId = NULL WHERE invoiceId = ?').run(id);
       this.removeJournalEntriesBySource('invoice', id);
       this.db.prepare('UPDATE tasks SET generatedInvoiceId = NULL WHERE generatedInvoiceId = ?').run(id);
-      this.db
-        .prepare(
-          "DELETE FROM follow_ups WHERE (entityType = 'invoice' AND entityId = ?) OR (sourceType = 'invoice' AND sourceId = ?)",
-        )
-        .run(id, id);
+      this.deleteFollowUpsFor('invoice', id);
+      this.deleteRecordAttachmentsFor('invoice', id);
       // Release any sales order that was invoiced from this invoice.
       this.db
         .prepare(
@@ -7110,10 +7190,12 @@ export class DataStore {
   deleteTask(id: string): void {
     const task = this.getTaskById(id);
     if (!task) throw new Error('Task not found.');
+    if (task.generatedInvoiceId) {
+      const invoice = this.getInvoiceById(task.generatedInvoiceId);
+      if (invoice) throw new Error(`This task is billed on invoice ${invoice.invoiceNumber}. Remove it from the invoice first.`);
+    }
     const trx = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM time_entries WHERE taskId = ?').run(id);
-      this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(id);
-      this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(id);
+      this.removeTaskChildren(id);
       this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
     });
     trx();
@@ -7261,6 +7343,10 @@ export class DataStore {
   /** Delete an employee, cascading their leave requests and detaching direct reports. */
   deleteEmployee(id: string): void {
     if (!this.getEmployeeById(id)) throw new Error('Employee not found.');
+    // Past payslips (and the bank files built from them) name this person.
+    if (this.db.prepare('SELECT 1 FROM payslips WHERE employeeId = ? LIMIT 1').get(id)) {
+      throw new Error('This employee appears on payroll runs. Set their status to Terminated instead of deleting them.');
+    }
     const trx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM leave_requests WHERE employeeId = ?').run(id);
       this.db.prepare('DELETE FROM attendance WHERE employeeId = ?').run(id);
@@ -7326,6 +7412,11 @@ export class DataStore {
         });
     }
     return this.decodeAttendance(this.db.prepare('SELECT * FROM attendance WHERE id = ?').get(id));
+  }
+
+  getAttendanceById(id: string): AttendanceRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM attendance WHERE id = ?').get(id) as any;
+    return row ? this.decodeAttendance(row) : undefined;
   }
 
   deleteAttendance(id: string): AttendanceRecord | undefined {
@@ -7486,6 +7577,10 @@ export class DataStore {
     if (run.status === 'paid') {
       throw new Error('A paid payroll run cannot be deleted; its wages are already posted.');
     }
+    const posted = this.db
+      .prepare("SELECT entryDate FROM journal_entries WHERE sourceType = 'payroll' AND sourceId = ? LIMIT 1")
+      .get(id) as { entryDate: string } | undefined;
+    if (posted) this.assertOpenFinancialDate(run.companyId, new Date(posted.entryDate), 'Payroll posting date');
     const trx = this.db.transaction(() => {
       this.removeJournalEntriesBySource('payroll', id);
       this.db.prepare('DELETE FROM payslips WHERE runId = ?').run(id);
@@ -9611,8 +9706,22 @@ export class DataStore {
 		    return this.getCampaignDeliverableById(id);
 		  }
 
+		  /** Delete a deliverable with the briefs, submissions, reviews and results that only belong to it. */
 		  deleteCampaignDeliverable(id: string): boolean {
-		    return this.db.prepare('DELETE FROM campaign_deliverables WHERE id = ?').run(id).changes > 0;
+		    const row = this.db.prepare('SELECT vendorBillId FROM campaign_deliverables WHERE id = ?').get(id) as { vendorBillId?: string | null } | undefined;
+		    if (!row) return false;
+		    if (row.vendorBillId && this.getVendorBillById(row.vendorBillId)) {
+		      throw new Error('This deliverable is billed on a vendor bill. Delete the bill first.');
+		    }
+		    const trx = this.db.transaction(() => {
+		      for (const table of ['deliverable_submissions', 'deliverable_reviews', 'portal_deliverable_briefs', 'media_results']) {
+		        this.db.prepare(`DELETE FROM ${table} WHERE deliverableId = ?`).run(id);
+		      }
+		      this.deleteRecordAttachmentsFor('campaign_deliverable', id);
+		      this.db.prepare('DELETE FROM campaign_deliverables WHERE id = ?').run(id);
+		    });
+		    trx();
+		    return true;
 		  }
 
 		  listCampaignAssignments(campaignId: string): CampaignAssignment[] {
@@ -11977,7 +12086,16 @@ export class DataStore {
     if (Number(stock?.q || 0) > 0) {
       throw new Error('Cannot delete a warehouse that still holds stock. Move or issue it first.');
     }
+    if (this.db.prepare("SELECT 1 FROM stock_counts WHERE companyId = ? AND location = ? AND status <> 'posted' LIMIT 1").get(existing.companyId, existing.name)) {
+      throw new Error('A draft stock count uses this warehouse. Post or delete the count first.');
+    }
+    // Items whose home was this warehouse move to the default one (or none);
+    // otherwise the next start-up would re-create the warehouse from them.
+    const fallback = this.db
+      .prepare('SELECT name FROM warehouses WHERE companyId = ? AND id <> ? AND isActive = 1 ORDER BY isDefault DESC, name ASC LIMIT 1')
+      .get(existing.companyId, id) as { name: string } | undefined;
     const tx = this.db.transaction(() => {
+      this.db.prepare('UPDATE inventory_items SET location = ? WHERE companyId = ? AND location = ?').run(fallback?.name ?? null, existing.companyId, existing.name);
       this.db.prepare('DELETE FROM warehouses WHERE id = ?').run(id);
       // Drop any leftover zero-quantity balance rows for this location.
       this.db.prepare('DELETE FROM inventory_location_balances WHERE companyId = ? AND location = ?').run(existing.companyId, existing.name);
@@ -15102,6 +15220,9 @@ export class DataStore {
   deleteVatReturn(id: string): boolean {
     const existing = this.getVatReturnById(id);
     if (!existing) return false;
+    if (existing.status === 'filed') {
+      throw new Error('A filed VAT return cannot be deleted. File a corrected return for the period instead.');
+    }
     this.db.prepare('DELETE FROM vat_returns WHERE id = ?').run(id);
     return true;
   }
@@ -16064,6 +16185,10 @@ export class DataStore {
       .get(id);
     if (vendorBillUsage) {
       throw new Error('Account cannot be deleted because it is linked to vendor invoices.');
+    }
+
+    if (this.db.prepare('SELECT 1 FROM budget_lines WHERE accountId = ? LIMIT 1').get(id)) {
+      throw new Error('Account cannot be deleted because a budget uses it. Remove it from the budget first.');
     }
 
     const result = this.db.prepare('DELETE FROM ledger_accounts WHERE id = ?').run(id);

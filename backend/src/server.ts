@@ -4781,7 +4781,13 @@ export function createServer(options: CreateServerOptions = {}) {
 		      const existing = store.getCampaignDeliverableById(req.params.id);
 		      if (!existing) throw new HttpError(404, 'Deliverable not found.');
 		      requireCampaignAccess(req, existing.campaignId, 'edit');
-		      if (!store.deleteCampaignDeliverable(req.params.id)) throw new HttpError(404, 'Deliverable not found.');
+		      let deleted: boolean;
+		      try {
+		        deleted = store.deleteCampaignDeliverable(req.params.id);
+		      } catch (error) {
+		        throw new HttpError(409, error instanceof Error ? error.message : 'Could not delete deliverable.');
+		      }
+		      if (!deleted) throw new HttpError(404, 'Deliverable not found.');
 		      res.status(204).end();
 		    }),
 		  );
@@ -8807,9 +8813,11 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   }));
   app.delete('/attendance/:id', authMiddleware, handler((req, res) => {
-    const record = store.deleteAttendance(req.params.id);
+    // Check who is asking before anything is removed.
+    const record = store.getAttendanceById(req.params.id);
     if (!record) throw new HttpError(404, 'Attendance record not found.');
     requireCompanyRoles(req, record.companyId, companyManagementRoles);
+    store.deleteAttendance(req.params.id);
     res.status(204).end();
   }));
 
