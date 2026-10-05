@@ -34,6 +34,8 @@ interface DocRendererProps {
   client?: Client | null;
   company?: Company | null;
   template?: InvoiceTemplate;
+  /** Where the QR code points. Defaults to the public invoice page; an empty string hides the code. */
+  publicUrl?: string;
   /** Designer-only: make top-level blocks selectable and drag-reorderable on the canvas. */
   editable?: boolean;
   selectedId?: string | null;
@@ -207,6 +209,7 @@ export function DocRenderer({
   client,
   company,
   template,
+  publicUrl,
   editable,
   selectedId,
   onSelectBlock,
@@ -230,7 +233,7 @@ export function DocRenderer({
     taxAmount,
     total,
     formatMoney: (v) => String(v),
-    publicUrl: publicInvoiceUrl(invoice.id),
+    publicUrl: publicUrl ?? publicInvoiceUrl(invoice.id),
   };
   const theme = doc.theme;
   const isRtl = isRtlLocale();
@@ -366,6 +369,8 @@ export function DocRenderer({
         ) : null;
       case 'qr': {
         const q = block as QrBlock;
+        // A record with no public page (a supplier's bill) prints no code.
+        if (!ctx.publicUrl) return null;
         const qrAlign = swapAlign(block.style?.align, isRtl);
         return (
           <div key={block.id} style={{ display: 'flex', justifyContent: qrAlign === 'right' ? 'flex-end' : qrAlign === 'left' ? 'flex-start' : 'center', ...base }}>

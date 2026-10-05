@@ -51,6 +51,9 @@ import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
 import { FileText, PlusCircle, Truck, Trash2 } from 'lucide-react';
 import { DeliveryManagementDialog } from './delivery-management-dialog';
+import { QuotationsPanel } from './quotations-panel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, prepareItems, type SalesItemForm } from './sales-line-items';
 import { usePermissionOr } from '@/context/permissions-context';
 
 const formatDisplayDate = (value: Date, locale: string) =>
@@ -73,30 +76,13 @@ const statusStyles: Record<SalesOrderStatus, string> = {
   Cancelled: 'bg-red-100 text-red-700 border-red-200',
 };
 
-type SalesItemForm = {
-  inventoryItemId: string;
-  description: string;
-  quantity: string;
-  unitPrice: string;
-  discount: string;
-  discountType: 'percent' | 'amount';
-};
-
-/** Net line total after applying a percent or fixed-amount discount. */
-const lineNet = (quantity: number, unitPrice: number, discount: number, discountType: 'percent' | 'amount') => {
-  const gross = quantity * unitPrice;
-  if (!discount || discount <= 0) return gross;
-  const off = discountType === 'percent' ? gross * (Math.min(discount, 100) / 100) : Math.min(discount, gross);
-  return Math.max(0, gross - off);
-};
-
 const emptyForm = () => ({
   contactId: '',
   orderDate: format(new Date(), 'yyyy-MM-dd'),
   expectedDate: '',
   status: 'Draft' as SalesOrderStatus,
   notes: '',
-  items: [{ inventoryItemId: '', description: '', quantity: '1', unitPrice: '0', discount: '0', discountType: 'percent' }] as SalesItemForm[],
+  items: [emptyItemRow()] as SalesItemForm[],
 });
 
 export function SalesPage() {
@@ -105,7 +91,7 @@ export function SalesPage() {
   const confirm = useConfirm();
   const canManage = usePermissionOr('sales', 'write', currentRole !== 'Employee');
   const { t, language } = useI18n();
-  const { money, amount } = useCompanyCurrency();
+  const { amount } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
@@ -122,6 +108,19 @@ export function SalesPage() {
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | SalesOrderStatus>('all');
   const locale = language === 'ar' ? 'ar' : 'en-US';
+  type SalesTab = 'orders' | 'quotations';
+  const [tab, setTab] = React.useState<SalesTab>('orders');
+  // Opening a quotation link (?tab=quotations) lands on that tab; switching keeps the URL shareable.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('tab') === 'quotations') setTab('quotations');
+  }, []);
+  const selectTab = (value: SalesTab) => {
+    setTab(value);
+    const url = new URL(window.location.href);
+    if (value === 'orders') url.searchParams.delete('tab'); else url.searchParams.set('tab', value);
+    window.history.replaceState(null, '', url.toString());
+  };
 
   const statusLabel = React.useCallback(
     (status: SalesOrderStatus) => {
@@ -199,14 +198,7 @@ export function SalesPage() {
     };
   }, [orders]);
 
-  const estimatedTotal = React.useMemo(
-    () =>
-      form.items.reduce(
-        (sum, item) => sum + lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType),
-        0,
-      ),
-    [form.items],
-  );
+  const estimatedTotal = React.useMemo(() => formItemsTotal(form.items), [form.items]);
 
   const filteredOrders = React.useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -227,24 +219,6 @@ export function SalesPage() {
 
   const resetForm = () => setForm(emptyForm());
 
-  const updateItemRow = (index: number, updates: Partial<SalesItemForm>) => {
-    setForm((prev) => ({
-      ...prev,
-      items: prev.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...updates } : item)),
-    }));
-  };
-
-  const addItemRow = () => {
-    setForm((prev) => ({
-      ...prev,
-      items: [...prev.items, { inventoryItemId: '', description: '', quantity: '1', unitPrice: '0', discount: '0', discountType: 'percent' }],
-    }));
-  };
-
-  const removeItemRow = (index: number) => {
-    setForm((prev) => ({ ...prev, items: prev.items.filter((_, itemIndex) => itemIndex !== index) }));
-  };
-
   const handleCreate = async () => {
     if (!selectedCompany) return;
     if (!form.contactId || !form.orderDate) {
@@ -254,26 +228,7 @@ export function SalesPage() {
     const selectedContact = clientMap.get(form.contactId);
     const clientId = selectedContact?.clientId || form.contactId;
 
-    const preparedItems = form.items
-      .map((item) => {
-        const inventoryItem = item.inventoryItemId ? inventoryMap.get(item.inventoryItemId) : undefined;
-        const quantity = Number(item.quantity || 0);
-        const unitPrice = Number(item.unitPrice || inventoryItem?.salePrice || 0);
-        const discount = Number(item.discount || 0);
-        const description = inventoryItem?.name || item.description.trim();
-        if (!description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice)) return null;
-        return {
-          inventoryItemId: inventoryItem?.id,
-          sku: inventoryItem?.sku,
-          description,
-          quantity,
-          unitPrice,
-          discount: discount > 0 ? discount : undefined,
-          discountType: discount > 0 ? item.discountType : undefined,
-          lineTotal: lineNet(quantity, unitPrice, discount, item.discountType),
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const preparedItems = prepareItems(form.items, inventoryMap);
 
     if (!preparedItems.length) {
       toast({ variant: 'destructive', title: t('sales.lineItemsRequiredTitle'), description: t('sales.lineItemsRequiredDescription') });
@@ -353,6 +308,15 @@ export function SalesPage() {
 
   return (
     <SectionPageShell title={t('sales.title')} description={t('sales.subtitle')}>
+      <Tabs value={tab} onValueChange={(value) => selectTab(value as SalesTab)}>
+        <TabsList>
+          <TabsTrigger value="orders">{t('sales.ordersTab')}</TabsTrigger>
+          <TabsTrigger value="quotations">{t('quotes.tab')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="quotations" className="mt-4">
+          <QuotationsPanel />
+        </TabsContent>
+        <TabsContent value="orders" className="mt-4 space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="sales-metrics">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.openOrders')}</CardTitle></CardHeader>
@@ -444,87 +408,7 @@ export function SalesPage() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label data-tutorial="sales-form-items">{t('sales.items')}</Label>
-                  <Button type="button" variant="outline" size="sm" onClick={addItemRow}>{t('sales.addItem')}</Button>
-                </div>
-                <div className="rounded-lg border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t('sales.inventoryItem')}</TableHead>
-                        <TableHead>{t('sales.description')}</TableHead>
-                        <TableHead className="w-20 text-end">{t('sales.qty')}</TableHead>
-                        <TableHead className="w-28 text-end">{t('sales.unitPrice')}</TableHead>
-                        <TableHead className="w-36 text-end">{t('sales.discount', 'Discount')}</TableHead>
-                        <TableHead className="w-28 text-end">{t('sales.lineTotal', 'Total')}</TableHead>
-                        <TableHead className="w-16 text-end">{t('sales.remove')}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {form.items.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <Select
-                              value={item.inventoryItemId || 'manual'}
-                              onValueChange={(value) => {
-                                if (value === 'manual') {
-                                  updateItemRow(index, { inventoryItemId: '', description: '', unitPrice: '0' });
-                                  return;
-                                }
-                                const inventoryItem = inventoryMap.get(value);
-                                updateItemRow(index, {
-                                  inventoryItemId: value,
-                                  description: inventoryItem?.name || '',
-                                  unitPrice: String(inventoryItem?.salePrice || 0),
-                                });
-                              }}
-                            >
-                              <SelectTrigger><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="manual">{t('sales.manualItem')}</SelectItem>
-                                {items.map((inventoryItem) => (
-                                  <SelectItem key={inventoryItem.id} value={inventoryItem.id}>
-                                    {inventoryItem.sku} - {inventoryItem.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell>
-                            <Input value={item.description} onChange={(event) => updateItemRow(index, { description: event.target.value })} placeholder={t('sales.description')} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="text-end" type="number" value={item.quantity} onChange={(event) => updateItemRow(index, { quantity: event.target.value })} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="text-end" type="number" value={item.unitPrice} onChange={(event) => updateItemRow(index, { unitPrice: event.target.value })} />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Input className="text-end" type="number" value={item.discount} onChange={(event) => updateItemRow(index, { discount: event.target.value })} />
-                              <Select value={item.discountType} onValueChange={(value) => updateItemRow(index, { discountType: value as 'percent' | 'amount' })}>
-                                <SelectTrigger className="w-16 px-2"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="percent">%</SelectItem>
-                                  <SelectItem value="amount">{t('sales.fixed', 'Fixed')}</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-end font-medium">
-                            {money(lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType))}
-                          </TableCell>
-                          <TableCell className="text-end">
-                            <Button type="button" variant="ghost" size="sm" onClick={() => removeItemRow(index)} disabled={form.items.length === 1}>{t('sales.remove')}</Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+              <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={items} />
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
                 <Button onClick={handleCreate}>{t('sales.createOrder')}</Button>
@@ -662,6 +546,9 @@ export function SalesPage() {
           </TableBody>
         </Table>
       </div>
+
+        </TabsContent>
+      </Tabs>
 
       <DeliveryManagementDialog
         order={deliveryOrder}

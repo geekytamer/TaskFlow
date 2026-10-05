@@ -72,10 +72,13 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
   // document we receive rather than issue: the counterparty billed us, and
   // there is nobody to hand a scan-to-pay code to.
   const isBill = docType === 'bill';
-  const documentHeading = docType === 'quote'
-    ? 'QUOTATION'
+  // A quotation is an offer, not a demand: it is valid until a date rather
+  // than due on one, and carries no payment details until it is accepted.
+  const isQuote = docType === 'quote';
+  const documentHeading = isQuote
+    ? (s.quotation ?? 'QUOTATION')
     : docType === 'statement'
-      ? 'ACCOUNT STATEMENT'
+      ? (s.statement ?? 'ACCOUNT STATEMENT')
       : isDelivery
         ? (s.deliveryNote ?? 'Delivery Note')
         : isBill
@@ -131,7 +134,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
     layout: 'row',
     style: { margin: { top: 16, bottom: 8 } },
     children: [
-      { id: id('billto'), type: 'details', title: isBill ? (s.billedBy ?? 'Billed By') : s.billTo, fields: [
+      { id: id('billto'), type: 'details', title: isBill ? (s.billedBy ?? 'Billed By') : isQuote ? (s.quoteFor ?? 'Prepared for') : s.billTo, fields: [
         { label: '', value: '{{client.name}}' },
         { label: '', value: '{{client.address}}' },
         { label: '', value: '{{client.email}}' },
@@ -140,7 +143,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
         ? [{ label: s.issueDate, value: '{{invoice.issueDate}}' }]
         : [
             { label: s.issueDate, value: '{{invoice.issueDate}}' },
-            { label: s.dueDate, value: '{{invoice.dueDate}}' },
+            { label: isQuote ? (s.validUntil ?? 'Valid until') : s.dueDate, value: '{{invoice.dueDate}}' },
             { label: s.currency, value: '{{invoice.currency}}' },
           ] },
     ],
@@ -153,7 +156,7 @@ export function templateToDoc(template?: InvoiceTemplate): InvoiceDoc {
     body.push({ id: id('totals'), type: 'totals', style: { margin: { top: 24 } } });
     // The payment block prints our own bank details for a customer to pay into.
     // On a bill we are the payer, so printing them there is backwards.
-    if (!isBill) {
+    if (!isBill && !isQuote) {
       if (breaks.has('payment')) body.push(pageBreak());
       body.push({ id: id('payment'), type: 'payment', style: { margin: { top: 32 } } });
     }

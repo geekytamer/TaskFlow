@@ -42,6 +42,9 @@ const entityLabels: Record<NumberingEntityType, string> = {
   sales_order: 'Sales Orders',
   sales_invoice: 'Sales Invoices',
   vendor_invoice: 'Vendor Invoices',
+  purchase_requisition: 'Purchase Requisitions',
+  delivery: 'Delivery Notes',
+  quotation: 'Quotations',
 };
 
 const months = [
@@ -79,6 +82,9 @@ export function NumberingSettingsPanel() {
     sales_order: 'settingsPage.entitySalesOrders',
     sales_invoice: 'settingsPage.entitySalesInvoices',
     vendor_invoice: 'settingsPage.entityVendorInvoices',
+    purchase_requisition: 'settingsPage.entityPurchaseRequisitions',
+    delivery: 'settingsPage.entityDeliveries',
+    quotation: 'settingsPage.entityQuotations',
   };
   const [settings, setSettings] = React.useState<EditableSetting[]>([]);
   const [financeSettings, setFinanceSettings] = React.useState<CompanyFinanceSettings | null>(null);

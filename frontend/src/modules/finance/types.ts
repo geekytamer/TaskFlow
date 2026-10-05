@@ -22,9 +22,12 @@ export type NumberingEntityType =
   | 'supplier'
   | 'inventory_item'
   | 'purchase_order'
+  | 'purchase_requisition'
   | 'sales_order'
   | 'sales_invoice'
-  | 'vendor_invoice';
+  | 'vendor_invoice'
+  | 'delivery'
+  | 'quotation';
 
 export interface CompanyNumberingSetting {
   companyId: string;
@@ -122,6 +125,37 @@ export interface SalesOrderLineItem {
   discount?: number;
   discountType?: LineDiscountType;
   lineTotal: number;
+}
+
+/** Stored states plus Expired, which the server derives from validUntil. */
+export type QuotationStatus = 'Draft' | 'Sent' | 'Accepted' | 'Declined' | 'Expired';
+
+export interface Quotation {
+  id: string;
+  companyId: string;
+  quoteNumber: string;
+  clientId: string;
+  contactId?: string;
+  opportunityId?: string;
+  issueDate: Date;
+  validUntil: Date;
+  status: QuotationStatus;
+  items: SalesOrderLineItem[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  totalAmount: number;
+  currency: string;
+  exchangeRate: number;
+  notes?: string;
+  templateId?: string;
+  salesOrderId?: string;
+  invoiceId?: string;
+  sentAt?: Date;
+  acceptedAt?: Date;
+  declinedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export type SalesOrderFulfillmentStatus = 'Unfulfilled' | 'Partially Fulfilled' | 'Fulfilled';

@@ -1,15 +1,16 @@
 'use client';
 
 import * as React from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { InvoiceDocument } from '@/modules/finance/components/invoice-document';
-import { getPublicInvoice, type PublicInvoicePayload } from '@/services/publicService';
+import { getPublicInvoice, resolvePublicDocumentPath, type PublicInvoicePayload } from '@/services/publicService';
 import { useI18n } from '@/context/i18n-context';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 
 export default function PublicInvoicePage() {
   const params = useParams();
+  const router = useRouter();
   const { setLanguage, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const id = params?.id as string;
@@ -32,9 +33,19 @@ export default function PublicInvoicePage() {
     let cancelled = false;
     setLoading(true);
     getPublicInvoice(id)
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e?.message || tr('Could not load invoice.', 'تعذر تحميل الفاتورة.')); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(async (e) => {
+        // Every QR printed before documents had their own pages points here;
+        // send a letter or quotation to its own page instead of "not found".
+        const elsewhere = await resolvePublicDocumentPath(id);
+        if (cancelled) return;
+        if (elsewhere && !elsewhere.startsWith('/invoice/')) {
+          router.replace(`${elsewhere}${window.location.search}`);
+          return;
+        }
+        setError(e?.message || tr('Could not load invoice.', 'تعذر تحميل الفاتورة.'));
+        setLoading(false);
+      });
     return () => { cancelled = true; };
   }, [id]);
 

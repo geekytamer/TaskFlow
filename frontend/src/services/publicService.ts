@@ -27,6 +27,79 @@ export function publicDeliveryUrl(deliveryId: string): string {
   return `${publicAppOrigin()}/delivery/${deliveryId}`;
 }
 
+export function publicQuotationUrl(quotationId: string): string {
+  return `${publicAppOrigin()}/quotation/${quotationId}`;
+}
+
+export function publicDocumentUrl(documentId: string): string {
+  return `${publicAppOrigin()}/document/${documentId}`;
+}
+
+const PUBLIC_PATHS: Record<string, string> = {
+  invoice: 'invoice',
+  quotation: 'quotation',
+  delivery: 'delivery',
+  document: 'document',
+};
+
+/**
+ * Finds which public page a scanned record id belongs to. Older printed QR
+ * codes all point at /invoice/:id, so a page that cannot find its own kind
+ * asks here before saying "not found". Returns a path, or null.
+ */
+export async function resolvePublicDocumentPath(id: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/public/resolve/${encodeURIComponent(id)}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const segment = PUBLIC_PATHS[data?.kind];
+    return segment ? `/${segment}/${encodeURIComponent(id)}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches a quotation and maps it into the invoice-shaped payload the shared
+ * document engine renders: valid-until stands where an invoice's due date is.
+ */
+export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string }> {
+  const res = await fetch(`${API_BASE}/public/quotations/${id}`, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error(res.status === 404 ? 'Quotation not found.' : 'Could not load quotation.');
+  }
+  const data = await res.json();
+  const q = data.quotation;
+  const validUntil = toDate(q.validUntil) || new Date();
+  const invoice = {
+    id: q.id,
+    invoiceNumber: q.quoteNumber,
+    companyId: data.company?.id || '',
+    clientId: data.client?.id || '',
+    issueDate: toDate(q.issueDate) || new Date(),
+    dueDate: validUntil,
+    status: q.status,
+    lineItems: (q.items || []).map((it: any) => ({
+      itemType: 'Manual' as const,
+      sku: it.sku,
+      description: it.description,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      discount: it.discount,
+      discountType: it.discountType,
+      amount: it.lineTotal,
+    })),
+    total: q.totalAmount,
+    taxRate: q.taxRate,
+    currency: q.currency,
+    notes: q.notes,
+  } as unknown as Invoice;
+  const template: InvoiceTemplate | undefined = data.template
+    ? { ...data.template, createdAt: toDate(data.template.createdAt) || new Date(), updatedAt: toDate(data.template.updatedAt) || new Date() }
+    : undefined;
+  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status };
+}
+
 /**
  * Fetches a delivery note and maps it into the invoice-shaped payload the
  * shared document engine renders. Delivery lines carry quantities only, so

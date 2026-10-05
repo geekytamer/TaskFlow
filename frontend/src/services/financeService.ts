@@ -93,7 +93,7 @@ const mapInvoice = (invoice: any): Invoice => ({
   creditedAmount: Number(invoice.creditedAmount || 0),
 });
 
-const mapSalesOrderLineItem = (item: any): SalesOrderLineItem => {
+export const mapSalesOrderLineItem = (item: any): SalesOrderLineItem => {
   const quantity = Number(item?.quantity ?? 0);
   const unitPrice = Number(item?.unitPrice ?? 0);
   const fallbackLineTotal = quantity * unitPrice;
@@ -105,6 +105,8 @@ const mapSalesOrderLineItem = (item: any): SalesOrderLineItem => {
     description: String(item?.description || ''),
     quantity: Number.isFinite(quantity) ? quantity : 0,
     unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+    discount: Number(item?.discount) > 0 ? Number(item.discount) : undefined,
+    discountType: Number(item?.discount) > 0 ? item.discountType : undefined,
     lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
   };
 };

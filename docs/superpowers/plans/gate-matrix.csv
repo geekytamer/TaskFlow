@@ -346,3 +346,4 @@ PATCH,/quotations/:id/status,sales,write,"Accountant Admin Manager",0,roles,quot
 POST,/quotations/:id/sales-order,sales,create,"Accountant Admin Manager",0,roles,quotations.sales-order
 POST,/quotations/:id/invoice,sales,create,"Accountant Admin Manager",0,roles,quotations.invoice
 DELETE,/quotations/:id,sales,write,"Accountant Admin Manager",0,roles,quotations
+GET,/public/resolve/:id,public,read,"",0,none,public.resolve

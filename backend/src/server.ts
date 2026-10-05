@@ -1657,10 +1657,16 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const quote = store.getQuotationById(req.params.id);
       if (!quote || !store.isModuleEnabled(quote.companyId, 'sales')) throw new HttpError(404, 'Quotation not found.');
-      const templates = store.listInvoiceTemplates(quote.companyId).filter((t) => t.docType === 'quote');
+      const quoteTemplates = store.listInvoiceTemplates(quote.companyId, 'quote');
+      const invoiceTemplates = store.listInvoiceTemplates(quote.companyId, 'invoice');
+      // Without a quotation template of its own, a quote wears the company's
+      // invoice branding laid out as a quotation (its hand-built invoice canvas
+      // would print "Invoice", so only the settings carry over).
+      const brand = invoiceTemplates.find((t) => t.isDefault) || invoiceTemplates[0];
       const template =
         (quote.templateId ? store.getInvoiceTemplateById(quote.templateId) : undefined)
-        || templates.find((t) => t.isDefault) || templates[0] || undefined;
+        || quoteTemplates.find((t) => t.isDefault) || quoteTemplates[0]
+        || (brand ? { ...brand, docType: 'quote' as const, doc: undefined } : undefined);
       const companyRecord = store.getCompanyById(quote.companyId);
       const client = store.getClientById(quote.clientId);
       res.json({
@@ -1687,6 +1693,30 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
         client: client ? { id: client.id, name: client.name, address: client.address, email: client.email } : undefined,
       });
+    }),
+  );
+
+  // A printed QR carries only a record id. This finds which kind of document
+  // it is, so a scan always opens the right page (and an old QR that points at
+  // /invoice/:id still lands on a letter or quotation). Kind and id only.
+  app.get(
+    '/public/resolve/:id',
+    handler((req, res) => {
+      const id = req.params.id;
+      const candidates: Array<{ kind: string; module: string; load: () => { companyId: string } | undefined }> = [
+        { kind: 'invoice', module: 'invoices', load: () => store.getInvoiceById(id) },
+        { kind: 'quotation', module: 'sales', load: () => store.getQuotationById(id) },
+        { kind: 'delivery', module: 'sales', load: () => store.getDeliveryById(id) },
+        { kind: 'document', module: 'documents', load: () => store.getDocumentById(id) },
+      ];
+      for (const candidate of candidates) {
+        const record = candidate.load();
+        if (record && store.isModuleEnabled(record.companyId, candidate.module)) {
+          res.json({ kind: candidate.kind, id });
+          return;
+        }
+      }
+      throw new HttpError(404, 'Document not found.');
     }),
   );
 

@@ -7,6 +7,7 @@ import type { DocBlock } from '@/modules/documents/types';
 import { resolveTokens, type TokenContext } from '@/modules/documents/tokens';
 import { DocRenderer } from '@/modules/finance/doc/doc-renderer';
 import { templateToDoc } from '@/modules/finance/doc/template-to-doc';
+import { publicDocumentUrl } from '@/services/publicService';
 
 function renderBlock(block: DocBlock, ctx: TokenContext, key: number) {
   switch (block.type) {
@@ -95,6 +96,7 @@ export default function DocumentPrintPage() {
           client={data.client}
           company={data.company}
           template={data.template}
+          publicUrl={publicDocumentUrl(id)}
         />
       </div>
     );

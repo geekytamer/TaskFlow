@@ -82,6 +82,7 @@ export function VendorBillDocument({ data }: { data: VendorBillDocumentPayload }
       client={counterparty}
       company={(company as unknown as Company) ?? null}
       template={template}
+      publicUrl=""
     />
   );
 }

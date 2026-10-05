@@ -29,6 +29,10 @@ export interface DocStrings {
   sku: string;
   description: string;
   quantity: string;
+  quotation: string;
+  quoteFor: string;
+  validUntil: string;
+  statement: string;
 }
 
 const EN: DocStrings = {
@@ -55,6 +59,10 @@ const EN: DocStrings = {
   sku: 'SKU',
   description: 'Description',
   quantity: 'Quantity',
+  quotation: 'QUOTATION',
+  quoteFor: 'Prepared for',
+  validUntil: 'Valid until',
+  statement: 'ACCOUNT STATEMENT',
 };
 
 const AR: DocStrings = {
@@ -81,6 +89,10 @@ const AR: DocStrings = {
   sku: 'الرمز',
   description: 'الوصف',
   quantity: 'الكمية',
+  quotation: 'عرض سعر',
+  quoteFor: 'مُعدّ لـ',
+  validUntil: 'صالح حتى',
+  statement: 'كشف حساب',
 };
 
 export function isRtlLocale(locale: string = getCurrentLocale()): boolean {

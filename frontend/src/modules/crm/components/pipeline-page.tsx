@@ -19,6 +19,8 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { ContributorsPanel } from './contributors-panel';
+import { QuotationsPanel } from '@/modules/sales/components/quotations-panel';
+import { usePermissionOr } from '@/context/permissions-context';
 import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
 import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
 import {
@@ -142,7 +144,9 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: 
 // ─── PipelinePage ─────────────────────────────────────────────────────────────
 
 export function PipelinePage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentRole } = useCompany();
+  // Quotations live in Sales; only people who can read Sales see them here.
+  const canSeeQuotations = usePermissionOr('sales', 'read', currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant');
   const { user } = useCurrentUser();
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -656,7 +660,7 @@ export function PipelinePage() {
         if (!v) { setEditingOpportunity(null); setOppForm(emptyOpportunityForm()); }
         setOppDialogOpen(v);
       }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={editingOpportunity ? 'max-h-[90vh] max-w-2xl overflow-y-auto' : 'max-w-lg'}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Target className="h-5 w-5 text-primary" />
@@ -715,6 +719,12 @@ export function PipelinePage() {
                   compact
                 />
               </div>
+            )}
+            {editingOpportunity && canSeeQuotations && (
+              <section className="space-y-2 border-t pt-3" aria-labelledby="opp-quotations">
+                <h3 id="opp-quotations" className="text-sm font-semibold">{t('quotes.forOpportunity')}</h3>
+                <QuotationsPanel opportunityId={editingOpportunity.id} compact />
+              </section>
             )}
           </div>
           <DialogFooter>

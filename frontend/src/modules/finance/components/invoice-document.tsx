@@ -11,6 +11,8 @@ interface InvoiceDocumentProps {
   client?: Client;
   company?: Company | null;
   template?: InvoiceTemplate;
+  /** Where the QR code points; the public invoice page when omitted. */
+  publicUrl?: string;
 }
 
 /**
@@ -20,10 +22,10 @@ interface InvoiceDocumentProps {
  * One engine means the on-screen preview, the print page, and the server-side
  * PDF are always pixel-identical.
  */
-export function InvoiceDocument({ invoice, client, company, template }: InvoiceDocumentProps) {
+export function InvoiceDocument({ invoice, client, company, template, publicUrl }: InvoiceDocumentProps) {
   const custom = template?.doc;
   const doc = isInvoiceDoc(custom) ? custom : templateToDoc(template);
   return (
-    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} />
+    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} />
   );
 }

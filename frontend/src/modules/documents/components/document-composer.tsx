@@ -17,6 +17,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { DocRenderer } from '@/modules/finance/doc/doc-renderer';
+import { publicDocumentUrl } from '@/services/publicService';
 import { templateToDoc } from '@/modules/finance/doc/template-to-doc';
 import type { Client, Invoice, InvoiceTemplate } from '@/modules/finance/types';
 import { createDocument } from '@/services/documentService';
@@ -179,6 +180,7 @@ export function DocumentComposer({
               client={selectedClient}
               company={selectedCompany}
               template={template}
+              publicUrl={publicDocumentUrl(previewInvoice.id)}
             />
           </div>
         </div>
