@@ -228,7 +228,7 @@ test('only admins manage sources; accounts must be connected and in the company'
   assert.equal((await ctx.staff('post', `/${game.id}/sources`, { kind: 'tags', accountId: ctx.linaAccount.id })).status, 201);
   assert.equal((await ctx.staff('post', `/${game.id}/sources`, { kind: 'tags', accountId: ctx.linaAccount.id })).status, 409);
   const accounts = await request(ctx.server).get(`/companies/${ctx.company.id}/game-accounts`).set({ Authorization: `Bearer ${ctx.store.issueToken(ctx.admin.id)}` });
-  assert.deepEqual(accounts.body.map((a) => a.username), ['lina.eats']);
+  assert.deepEqual(accounts.body.map((a) => [a.username, a.status]), [['lina.eats', 'active'], ['sami.cooks', 'needs_reconnect']], 'staff see who must reconnect');
   assert.equal(JSON.stringify(accounts.body).match(/token|v1:/i), null);
 });
 

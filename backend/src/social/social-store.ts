@@ -104,6 +104,11 @@ export class SocialStore {
     return this.db.prepare('SELECT * FROM connected_accounts WHERE companyId = ? AND contactId = ? ORDER BY createdAt').all(companyId, contactId) as ConnectedAccount[];
   }
 
+  /** Every connection staff should see: active ones and those waiting for the influencer to reconnect. */
+  liveAccounts(companyId: string): ConnectedAccount[] {
+    return this.db.prepare("SELECT * FROM connected_accounts WHERE companyId = ? AND status != 'revoked' ORDER BY username").all(companyId) as ConnectedAccount[];
+  }
+
   activeAccounts(companyId: string): ConnectedAccount[] {
     return this.db.prepare("SELECT * FROM connected_accounts WHERE companyId = ? AND status = 'active'").all(companyId) as ConnectedAccount[];
   }

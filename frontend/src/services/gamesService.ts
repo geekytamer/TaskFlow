@@ -18,9 +18,40 @@ export interface Game {
   archivedAt: string | null;
   frozenAt: string | null;
   status: GameStatus;
+  audience: 'followers' | 'creators';
+  tag: string | null;
+  reconciledAt: string | null;
+  /** Instagram is configured on the server, so sources can be read. */
+  instagram: boolean;
+  sources: GameSource[];
+  participants: GameParticipant[];
   metrics: Array<{ metricKey: string; weight: number; params: Record<string, unknown> }>;
   availableMetrics: Array<{ key: string; label: { en: string; ar: string } }>;
 }
+
+export interface GameSource {
+  id: string;
+  kind: 'post' | 'tags' | 'import';
+  accountId: string | null;
+  username: string | null;
+  accountStatus: 'active' | 'needs_reconnect' | 'revoked' | null;
+  permalink: string | null;
+  lastCollectedAt: string | null;
+  lastError: string | null;
+  interactions: number;
+}
+
+export interface GameParticipant {
+  contactId: string;
+  name: string | null;
+  username: string | null;
+  accountStatus: 'active' | 'needs_reconnect' | null;
+  stats: { posts: number; views: number; shares: number; engagement: number; followerGrowth: number; updatedAt: string } | null;
+}
+
+export interface GameAccount { id: string; username: string; status: 'active' | 'needs_reconnect'; contactId: string; contactName: string | null }
+
+export interface ImportResult { total: number; added: number; removed: number; skipped: string[]; skippedCount: number }
 
 export interface GameInput {
   slug?: string;
@@ -31,6 +62,8 @@ export interface GameInput {
   prize?: string;
   prizeAr?: string;
   visibility: 'public' | 'restricted';
+  audience?: 'followers' | 'creators';
+  tag?: string;
   startsAt: string;
   endsAt: string;
 }
@@ -41,6 +74,7 @@ export interface BoardRow {
   handle: string;
   actorKey: string;
   points: number;
+  breakdown?: Record<string, number>;
   excluded: 'exclude' | 'disqualify' | null;
   excludedReason: string | null;
 }
@@ -76,3 +110,11 @@ export const setActorRule = (companyId: string, id: string, body: { platform: st
 export const removeActorRule = (companyId: string, id: string, actorKey: string) =>
   apiFetch<void>(`${base(companyId)}/${id}/actor-rules/${encodeURIComponent(actorKey)}`, { method: 'DELETE' });
 export const getScoreboard = (companyId: string, id: string) => apiFetch<BoardRow[]>(`${base(companyId)}/${id}/scoreboard`);
+export const listGameAccounts = (companyId: string) => apiFetch<GameAccount[]>(`/companies/${companyId}/game-accounts`);
+export const addGameSource = (companyId: string, id: string, body: { kind: GameSource['kind']; accountId?: string; permalink?: string }) =>
+  send<Game>(`${base(companyId)}/${id}/sources`, 'POST', body);
+export const removeGameSource = (companyId: string, id: string, sourceId: string) => send<Game>(`${base(companyId)}/${id}/sources/${sourceId}`, 'DELETE');
+export const importLikers = (companyId: string, id: string, sourceId: string, text: string) =>
+  send<Game & { imported: ImportResult }>(`${base(companyId)}/${id}/sources/${sourceId}/likers`, 'POST', { text });
+export const setParticipants = (companyId: string, id: string, contactIds: string[]) => send<Game>(`${base(companyId)}/${id}/participants`, 'PUT', contactIds);
+export const collectNow = (companyId: string, id: string) => send<Game & { errors: string[] }>(`${base(companyId)}/${id}/collect`, 'POST');

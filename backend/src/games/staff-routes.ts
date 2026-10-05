@@ -108,14 +108,16 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
         store.games.events(game.id).forEach((e) => counts.set(e.sourceId, (counts.get(e.sourceId) ?? 0) + 1));
         return store.games.sources(game.id).map((src) => ({
           id: src.id, kind: src.kind, accountId: src.accountId || null, username: src.accountId ? accountName(src.accountId) : null, permalink: src.permalink,
+          accountStatus: src.accountId ? store.social.getAccount(src.accountId)?.status ?? 'revoked' : null,
           lastCollectedAt: src.lastCollectedAt, lastError: src.lastError, interactions: counts.get(src.id) ?? 0,
         }));
       })(),
       participants: store.games.participants(game.id).map((contactId) => {
         const st = stats.get(contactId);
         const connected = store.social.accountsFor(game.companyId, contactId).find((a) => a.status === 'active');
+        const any = connected ?? store.social.accountsFor(game.companyId, contactId).find((a) => a.status === 'needs_reconnect');
         return {
-          contactId, name: store.getContactById(contactId)?.name ?? null, username: connected?.username ?? null,
+          contactId, name: store.getContactById(contactId)?.name ?? null, username: any?.username ?? null, accountStatus: any?.status ?? null,
           stats: st ? { posts: st.posts, views: st.views, shares: st.shares, engagement: st.engagement, followerGrowth: st.followerGrowth, updatedAt: st.updatedAt } : null,
         };
       }),
@@ -137,8 +139,8 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
   // Connected Instagram accounts a game can read from, and the influencers who can take part.
   router.get('/companies/:companyId/game-accounts', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
-    res.json(store.social.activeAccounts(companyId).map((a) => ({
-      id: a.id, username: a.username, contactId: a.contactId, contactName: store.getContactById(a.contactId)?.name ?? null,
+    res.json(store.social.liveAccounts(companyId).map((a) => ({
+      id: a.id, username: a.username, status: a.status, contactId: a.contactId, contactName: store.getContactById(a.contactId)?.name ?? null,
     })));
   }));
 

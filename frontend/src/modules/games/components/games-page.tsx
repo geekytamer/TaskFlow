@@ -32,6 +32,8 @@ import {
   type GameStatus,
 } from '@/services/gamesService';
 import { ExternalLink, Plus } from 'lucide-react';
+import { GameLivePanel } from './game-live-panel';
+import { GameMetricsEditor } from './game-metrics-editor';
 
 type Tr = (en: string, ar: string) => string;
 const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'snapchat', 'x', 'facebook', 'other'] as const;
@@ -93,7 +95,7 @@ export function GamesPage() {
   return (
     <SectionPageShell
       title={tr('Games', 'الألعاب')}
-      description={tr('Leaderboards for followers: build a game, award points, publish it to the public lobby.', 'لوحات صدارة للمتابعين: أنشئ لعبة، امنح النقاط، وانشرها في الردهة العامة.')}
+      description={tr('Leaderboards scored from Instagram: followers play on your posts, or influencers compete on their own. Publish to the public lobby.', 'لوحات صدارة تُحتسب من إنستغرام: يلعب المتابعون على منشوراتك، أو يتنافس المؤثرون بمنشوراتهم. انشرها في الردهة العامة.')}
       actions={
         <>
           <Button variant="outline" asChild>
@@ -119,7 +121,11 @@ export function GamesPage() {
                   <span dir="auto" className="truncate font-medium">{(language === 'ar' && g.nameAr) || g.name}</span>
                   <Badge variant={g.status === 'live' ? 'default' : 'secondary'}>{statusLabel(tr, g.status)}</Badge>
                 </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground" dir="ltr">/{g.slug}{g.visibility === 'restricted' ? ` · ${tr('restricted', 'مقيّدة')}` : ''}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  <span dir="ltr">/{g.slug}</span>
+                  {` · ${g.audience === 'creators' ? tr('influencers compete', 'منافسة مؤثرين') : tr('followers play', 'يلعب المتابعون')}`}
+                  {g.visibility === 'restricted' ? ` · ${tr('restricted', 'مقيّدة')}` : ''}
+                </span>
               </button>
             </li>
           ))}
@@ -155,6 +161,8 @@ function GameForm({ tr, game, onSave, onCancel }: { tr: Tr; game?: Game; onSave:
     slug: game?.slug ?? '', name: game?.name ?? '', nameAr: game?.nameAr ?? '',
     rules: game?.rules ?? '', rulesAr: game?.rulesAr ?? '', prize: game?.prize ?? '', prizeAr: game?.prizeAr ?? '',
     visibility: game?.visibility ?? 'public' as 'public' | 'restricted',
+    audience: game?.audience ?? 'followers' as 'followers' | 'creators',
+    tag: game?.tag ?? '',
     startsAt: game ? toLocalInput(game.startsAt) : '', endsAt: game ? toLocalInput(game.endsAt) : '',
   });
   const [busy, setBusy] = React.useState(false);
@@ -167,7 +175,9 @@ function GameForm({ tr, game, onSave, onCancel }: { tr: Tr; game?: Game; onSave:
         : <Input id={`${id}-${k}`} dir={opts.dir ?? 'auto'} type={opts.type ?? 'text'} value={form[k]} onChange={(e) => set(k, e.target.value)} disabled={k === 'slug' && Boolean(game)} />}
     </div>
   );
-  const valid = form.name.trim() && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug) && form.startsAt && form.endsAt && form.endsAt > form.startsAt;
+  const tagOk = !form.tag.trim() || /^[@#][\p{L}\p{N}._]{2,60}$/u.test(form.tag.trim());
+  const valid = form.name.trim() && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug) && form.startsAt && form.endsAt && form.endsAt > form.startsAt && tagOk;
+  const audienceLocked = Boolean(game?.publishedAt);
 
   return (
     <form
@@ -179,6 +189,7 @@ function GameForm({ tr, game, onSave, onCancel }: { tr: Tr; game?: Game; onSave:
         await onSave({
           ...(game ? {} : { slug: form.slug }), name: form.name, nameAr: form.nameAr, rules: form.rules, rulesAr: form.rulesAr,
           prize: form.prize, prizeAr: form.prizeAr, visibility: form.visibility,
+          ...(audienceLocked ? {} : { audience: form.audience }), tag: form.tag.trim(),
           startsAt: new Date(form.startsAt).toISOString(), endsAt: new Date(form.endsAt).toISOString(),
         });
         setBusy(false);
@@ -197,6 +208,24 @@ function GameForm({ tr, game, onSave, onCancel }: { tr: Tr; game?: Game; onSave:
               <SelectItem value="restricted">{tr('Only invited viewers', 'المدعوون فقط')}</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-audience`}>{tr('Who plays', 'من يلعب')}</Label>
+          <Select value={form.audience} disabled={audienceLocked} onValueChange={(v) => set('audience', v)}>
+            <SelectTrigger id={`${id}-audience`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="followers">{tr('Followers: comments, tags and likes on posts', 'المتابعون: تعليقات ووسوم وإعجابات على المنشورات')}</SelectItem>
+              <SelectItem value="creators">{tr('Influencers: shares, views and growth on their own posts', 'المؤثرون: مشاركات ومشاهدات ونمو على منشوراتهم')}</SelectItem>
+            </SelectContent>
+          </Select>
+          {audienceLocked && <p className="text-xs text-muted-foreground">{tr('Fixed once published.', 'ثابت بعد النشر.')}</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-tag`}>{tr('Game tag (@handle or #hashtag)', 'وسم اللعبة (@حساب أو #وسم)')}</Label>
+          <Input id={`${id}-tag`} dir="ltr" placeholder="#RamadanWithAlNoor" value={form.tag} onChange={(e) => set('tag', e.target.value)} aria-invalid={!tagOk} />
+          <p className={`text-xs ${tagOk ? 'text-muted-foreground' : 'text-destructive'}`}>
+            {tagOk ? tr('Influencer posts count when their caption has it. Needed for influencer games.', 'تُحتسب منشورات المؤثرين التي تتضمنه. مطلوب لألعاب المؤثرين.') : tr('One @handle or #hashtag, no spaces.', 'حساب @ أو وسم # واحد دون مسافات.')}
+          </p>
         </div>
         {field('startsAt', tr('Starts', 'تبدأ'), { type: 'datetime-local', dir: 'ltr' })}
         {field('endsAt', tr('Ends', 'تنتهي'), { type: 'datetime-local', dir: 'ltr' })}
@@ -228,6 +257,10 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
   const [rule, setRule] = React.useState({ platform: 'instagram', handle: '', kind: 'disqualify' as 'exclude' | 'disqualify', reason: '' });
   const [reopen, setReopen] = React.useState({ reason: '', endsAt: '' });
   const locked = Boolean(game.frozenAt) || game.status === 'archived';
+  const labelOf = (key: string) => {
+    const m = game.availableMetrics.find((x) => x.key === key);
+    return m ? (language === 'ar' ? m.label.ar : m.label.en) : key;
+  };
 
   const refresh = React.useCallback(async () => {
     try {
@@ -265,6 +298,7 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
           <p className="text-sm text-muted-foreground">
             {statusLabel(tr, game.status)} · {new Date(game.startsAt).toLocaleString()} → {new Date(game.endsAt).toLocaleString()}
             {game.frozenAt && ` · ${tr('results frozen', 'النتائج مجمدة')}`}
+            {game.tag && <> · <span dir="ltr">{game.tag}</span></>}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -280,6 +314,9 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
           )}
         </div>
       </div>
+
+      <GameLivePanel companyId={companyId} game={game} tr={tr} locked={locked} onChange={onChange} onError={onError} onCollected={() => void refresh()} />
+      <GameMetricsEditor companyId={companyId} game={game} tr={tr} language={language} locked={locked} onChange={(g) => { onChange(g); void refresh(); }} onError={onError} />
 
       {!locked && (
         <div className="grid gap-4 2xl:grid-cols-2">
@@ -349,7 +386,14 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
             {board.map((r) => (
               <li key={r.actorKey} className={`flex flex-wrap items-center gap-3 p-2 text-sm ${r.excluded ? 'opacity-60' : ''}`}>
                 <span className="w-8 text-end font-semibold">{r.rank ?? '–'}</span>
-                <span className="min-w-0 flex-1"><span dir="ltr">@{r.handle}</span> <span className="text-xs text-muted-foreground">{r.platform}</span></span>
+                <span className="min-w-0 flex-1">
+                  <span dir="ltr">@{r.handle}</span> <span className="text-xs text-muted-foreground">{r.platform}</span>
+                  {r.breakdown && Object.keys(r.breakdown).length > 1 && (
+                    <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
+                      {Object.entries(r.breakdown).map(([k, v]) => `${labelOf(k)} ${Number(v.toFixed(2))}`).join(' · ')}
+                    </span>
+                  )}
+                </span>
                 {r.excluded && (
                   <span className="flex items-center gap-2">
                     <Badge variant="destructive" title={r.excludedReason ?? undefined}>{r.excluded === 'disqualify' ? tr('Disqualified', 'مُقصى') : tr('Excluded', 'مستبعد')}</Badge>
