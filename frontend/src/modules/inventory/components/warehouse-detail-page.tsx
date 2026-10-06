@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissionOr } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import {
   getInventoryItems,
@@ -24,9 +25,11 @@ import type {
 } from '@/modules/operations/types';
 import { ArrowLeft, Warehouse as WarehouseIcon } from 'lucide-react';
 import { ExpiryBadge } from './inventory-lots-dialog';
+import { ColdChainCard } from './cold-chain-card';
 
 export function WarehouseDetailPage({ warehouseId }: { warehouseId: string }) {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentRole } = useCompany();
+  const canConfigureStorage = usePermissionOr('inventory', 'write', currentRole === 'Admin' || currentRole === 'Manager');
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = React.useCallback(
@@ -162,6 +165,8 @@ export function WarehouseDetailPage({ warehouseId }: { warehouseId: string }) {
           </div>
         </CardContent>
       </Card>
+
+      <ColdChainCard warehouseId={warehouse.id} canConfigure={canConfigureStorage} tr={tr} />
 
       <Card>
         <CardHeader>

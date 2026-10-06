@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 332 gated routes.
+ * 335 gated routes.
  */
 
 export interface RoutePermission {
@@ -199,6 +199,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /companies/:companyId/inventory-location-balances': { module: 'inventory', action: 'read' },
   'GET /companies/:companyId/inventory-lots': { module: 'inventory', action: 'read' },
   'GET /companies/:companyId/inventory-lots/expiring': { module: 'inventory', action: 'read' },
+  'GET /warehouses/:id/storage': { module: 'inventory', action: 'read' },
   'GET /inventory-lots/:id/trace': { module: 'inventory', action: 'read' },
   'POST /companies/:companyId/warehouses': { module: 'inventory', action: 'warehouses.create' },
   'POST /inventory-items/:id/restore': { module: 'inventory', action: 'inventory-items.restore.create' },
@@ -210,8 +211,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/inventory-items/:itemId/adjustments': { module: 'inventory', action: 'create' },
   'POST /companies/:companyId/inventory-items/:itemId/issues': { module: 'inventory', action: 'create' },
   'POST /companies/:companyId/inventory-items/:itemId/transfers': { module: 'inventory', action: 'create' },
+  'POST /warehouses/:id/readings': { module: 'inventory', action: 'create' },
   'POST /inventory-lots/:id/inspections': { module: 'inventory', action: 'create' },
   'PUT /warehouses/:id': { module: 'inventory', action: 'write' },
+  'PUT /warehouses/:id/storage': { module: 'inventory', action: 'write' },
   'PUT /inventory-items/:id': { module: 'inventory', action: 'write' },
   'PUT /stock-counts/:id': { module: 'inventory', action: 'stock-counts.write' },
   'DELETE /warehouses/:id': { module: 'inventory', action: 'warehouses.delete' },

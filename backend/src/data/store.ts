@@ -17,7 +17,8 @@ import { invoiceVat, VAT_TREATMENTS, vatBreakdown } from '../finance/vat';
 import { BankReconciliationStore } from '../finance/bank-reconciliation';
 import { FixedAssetStore } from '../finance/fixed-assets';
 import { buildWpsFile } from '../hr/wps';
-import { QualityStore, type InspectionCheck, type InspectionStage } from '../inventory/quality';
+import { QualityStore } from '../inventory/quality';
+import { ColdChainStore } from '../inventory/cold-chain';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -669,6 +670,7 @@ export class DataStore {
   readonly bank: BankReconciliationStore;
   readonly assets: FixedAssetStore;
   readonly quality: QualityStore;
+  readonly coldChain: ColdChainStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -707,6 +709,7 @@ export class DataStore {
     this.bank = new BankReconciliationStore(this.db);
     this.assets = new FixedAssetStore(this.db);
     this.quality = new QualityStore(this.db);
+    this.coldChain = new ColdChainStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4589,6 +4592,34 @@ export class DataStore {
             );
             CREATE INDEX IF NOT EXISTS idx_delivery_lots_delivery ON delivery_lot_allocations(deliveryId);
             CREATE INDEX IF NOT EXISTS idx_delivery_lots_lot ON delivery_lot_allocations(lotId);
+          `);
+        },
+      },
+      {
+        // Cold-chain monitoring: storage conditions per warehouse and the readings taken.
+        id: '114_cold_chain',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS storage_conditions (
+              warehouseId          TEXT PRIMARY KEY REFERENCES warehouses(id) ON DELETE CASCADE,
+              companyId            TEXT NOT NULL,
+              tempMin              REAL NOT NULL,
+              tempMax              REAL NOT NULL,
+              humidityMax          REAL,
+              readingIntervalHours INTEGER NOT NULL DEFAULT 12
+            );
+            CREATE TABLE IF NOT EXISTS storage_readings (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL,
+              warehouseId    TEXT NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+              recordedAt     TEXT NOT NULL,
+              temperature    REAL NOT NULL,
+              humidity       REAL,
+              excursion      INTEGER NOT NULL DEFAULT 0,
+              note           TEXT,
+              recordedByName TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_storage_readings ON storage_readings(warehouseId, recordedAt);
           `);
         },
       },

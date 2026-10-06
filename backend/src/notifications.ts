@@ -29,6 +29,8 @@ export const NOTIFICATION_META: Record<
   po_approval: { category: 'finance', priority: 'critical' },
   po_approval_result: { category: 'finance', priority: 'normal' },
   recurring_document: { category: 'finance', priority: 'normal' },
+  storage_excursion: { category: 'inventory', priority: 'critical' },
+  storage_reading_due: { category: 'inventory', priority: 'normal' },
 };
 
 /**
@@ -52,6 +54,8 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   po_approval: 'purchasing',
   po_approval_result: 'purchasing',
   recurring_document: 'invoices',
+  storage_excursion: 'inventory',
+  storage_reading_due: 'inventory',
 };
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
