@@ -2359,14 +2359,14 @@ test('dashboard payload is finance-focused for accountants', async () => {
       companyRoles: [{ companyId: '1', role: 'Accountant' }],
     });
 
-  assert.equal(createUser.status, 201);
+  assert.equal(createUser.status, 201, JSON.stringify(createUser.body));
 
   const accountantToken = await login(app, 'avery.ledger@innovatecorp.com');
   const response = await request(app)
     .get('/companies/1/dashboard')
     .set('Authorization', `Bearer ${accountantToken}`);
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
   assert.equal(response.body.role, 'Accountant');
   assert.equal(response.body.scope, 'company');
   assert.deepEqual(

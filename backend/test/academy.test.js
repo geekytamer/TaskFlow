@@ -111,33 +111,36 @@ test('first-day steps are reported by the browser; a mission completes once and 
   assert.deepEqual(done.missions.map((m) => m.id), ['first-day', 'get-work-done', 'win-customer'], 'an employee path');
 });
 
-test('unfinished missions lock modules in real companies, not in practice; grace, exemptions and super admins open them', async () => {
+test('unfinished missions lock changes in their modules in real companies, not in practice; reads that other screens need stay open', async () => {
   const ctx = setup({ enforce: true });
   const nora = ctx.newUser('Manager', 'nora@x.example');
-  const crm = (u, companyId = '1') => ctx.as(u)(request(ctx.app).get(`/companies/${companyId}/opportunities`));
-  const locked = await crm(nora);
+  const client = ctx.store.createContact({ companyId: '1', kind: 'Organization', name: 'Al Noor', roles: ['Client'] });
+  const newOpp = (u, companyId = '1', contactId = client.id) => ctx.as(u)(request(ctx.app).post(`/companies/${companyId}/opportunities`)).send({ contactId, title: 'Iftar dates', serviceType: 'General', stage: 'New', expectedRevenue: 1200, probability: 50 });
+  const locked = await newOpp(nora);
   assert.equal(locked.status, 403);
   assert.deepEqual([locked.body.code, locked.body.module, locked.body.missionId], ['ACADEMY_LOCKED', 'crm', 'win-customer']);
+  assert.equal((await ctx.as(nora)(request(ctx.app).get('/companies/1/opportunities'))).status, 200, 'reads stay open');
+  assert.equal((await ctx.as(nora)(request(ctx.app).get('/companies/1/users'))).status, 200, 'supporting data stays open');
 
   const { practiceCompanyId } = await start(ctx, nora);
-  assert.equal((await crm(nora, practiceCompanyId)).status, 200, 'practice is never locked');
+  const practiceClient = ctx.store.createContact({ companyId: practiceCompanyId, kind: 'Organization', name: 'Al Noor Hotel', roles: ['Client'] });
+  assert.equal((await newOpp(nora, practiceCompanyId, practiceClient.id)).status, 201, 'practice is never locked');
 
   ctx.store.academy.complete(nora.id, 'win-customer', 100);
-  assert.equal((await crm(nora)).status, 200, 'unlocked by its mission');
-  const invoices = () => ctx.as(nora)(request(ctx.app).get('/companies/1/invoices'));
-  assert.equal((await invoices()).status, 403, 'other modules stay locked');
-  assert.equal((await ctx.as(nora)(request(ctx.app).get('/companies/1/expenses'))).status, 200, 'finance is not on a manager’s path');
+  assert.equal((await newOpp(nora)).status, 201, 'unlocked by its mission');
+  const newInvoiceTemplate = () => ctx.as(nora)(request(ctx.app).post('/companies/1/credit-notes')).send({ lineItems: [] });
+  assert.equal((await newInvoiceTemplate()).status, 403, 'other modules stay locked');
 
   assert.equal((await ctx.as(ctx.root)(request(ctx.app).post('/academy/exemptions')).send({ userId: nora.id, module: 'invoices', reason: 'Joined from our auditor' })).status, 201);
-  assert.equal((await invoices()).status, 200, 'exempt from one module');
+  assert.notEqual((await newInvoiceTemplate()).status, 403, 'exempt from one module');
   assert.equal((await ctx.as(nora)(request(ctx.app).post('/academy/exemptions')).send({ userId: nora.id, module: '*', reason: 'self' })).status, 403, 'only the super admin exempts');
 
   const old = ctx.newUser('Manager', 'old@x.example');
   ctx.store.academy.setPractice(old.id, null, {});
   ctx.store.db.prepare('UPDATE academy_state SET graceUntil = ? WHERE userId = ?').run(new Date(Date.now() + 86400000).toISOString(), old.id);
-  assert.equal((await crm(old)).status, 200, 'grace keeps everything open');
+  assert.equal((await newOpp(old)).status, 201, 'grace keeps everything open');
   ctx.store.db.prepare('UPDATE academy_state SET graceUntil = ? WHERE userId = ?').run(new Date(Date.now() - 1000).toISOString(), old.id);
-  assert.equal((await crm(old)).status, 403, 'and ends');
+  assert.equal((await newOpp(old)).status, 403, 'and ends');
 });
 
 test('the impact panel follows the books: an expense moves cash, expenses and profit by its amount', async () => {

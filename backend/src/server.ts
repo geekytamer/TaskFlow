@@ -933,14 +933,18 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   /**
-   * TaskFlow Academy: in a real company, a module stays locked until the user
-   * finishes the mission that teaches it. Practice companies and super admins
+   * TaskFlow Academy: in a real company, changes in a module stay locked until
+   * the user finishes the mission that teaches it. Practice companies and super admins
    * are never gated. The locked set is worked out once per request.
    */
   const academyEnforce = options.academyEnforce
     ?? (process.env.NODE_ENV !== 'test' && process.env.ACADEMY_ENFORCE !== 'false');
   const requireAcademyUnlocked = (req: AuthedRequest, companyId: string) => {
     if (!academyEnforce) return;
+    // Changes are what training gates. Reads stay open: other screens need
+    // company details, people, custom fields and the currency, and the app
+    // already shows a lock page instead of a locked module's own pages.
+    if (req.method === 'GET' || req.method === 'HEAD') return;
     const user = req.user;
     if (!user || user.isSuperAdmin || store.isTrainingCompany(companyId)) return;
     const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
