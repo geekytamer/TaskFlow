@@ -190,6 +190,25 @@ function useCrmBaseData() {
 // Social platforms used by campaign deliverables and vendor/influencer requests.
 const CAMPAIGN_PLATFORMS = ['Instagram', 'TikTok', 'YouTube', 'LinkedIn', 'Snapchat', 'Twitter/X', 'Facebook', 'Other'] as const;
 
+/** Badge tones for campaign records: one tinted background, a darker text of the same hue. */
+const tone = {
+  slate: 'bg-slate-50 text-slate-700 border-slate-200',
+  blue: 'bg-blue-50 text-blue-800 border-blue-200',
+  amber: 'bg-amber-50 text-amber-900 border-amber-200',
+  emerald: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  green: 'bg-green-50 text-green-800 border-green-200',
+  red: 'bg-red-50 text-red-800 border-red-200',
+} as const;
+const deliverableStatusColor: Record<string, string> = {
+  Planned: tone.slate, 'In Progress': tone.blue, Submitted: tone.amber, Approved: tone.emerald, Published: tone.green, Cancelled: tone.red,
+};
+const assignmentStatusColor: Record<string, string> = {
+  Planned: tone.slate, Contacted: tone.amber, Confirmed: tone.green, Completed: tone.blue, Cancelled: tone.red,
+};
+const campaignExpenseStatusColor: Record<string, string> = {
+  Draft: tone.slate, Submitted: tone.amber, Approved: tone.green, Rejected: tone.red, Paid: tone.blue,
+};
+
 // ─── Proposals Page ──────────────────────────────────────────────────────────
 
 export function ProposalsPage() {
@@ -936,7 +955,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Planned: 'bg-slate-50 text-slate-700 border-slate-200', 'In Progress': 'bg-blue-50 text-blue-700 border-blue-200', Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200', Published: 'bg-green-50 text-green-700 border-green-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
+                        <ColorBadge status={item.status} map={deliverableStatusColor} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -981,7 +1000,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Planned: 'bg-slate-50 text-slate-700 border-slate-200', Contacted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Confirmed: 'bg-green-50 text-green-700 border-green-200', Completed: 'bg-blue-50 text-blue-700 border-blue-200', Cancelled: 'bg-red-50 text-red-700 border-red-200' }} label={campaignStatusLabel(item.status)} />
+                        <ColorBadge status={item.status} map={assignmentStatusColor} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
@@ -1031,7 +1050,7 @@ export function CampaignsPage() {
                         </div>
                       </div>
                       <div className="mt-2">
-                        <ColorBadge status={item.status} map={{ Draft: 'bg-slate-50 text-slate-700 border-slate-200', Submitted: 'bg-yellow-50 text-yellow-700 border-yellow-200', Approved: 'bg-green-50 text-green-700 border-green-200', Rejected: 'bg-red-50 text-red-700 border-red-200', Paid: 'bg-blue-50 text-blue-700 border-blue-200' }} label={campaignStatusLabel(item.status)} />
+                        <ColorBadge status={item.status} map={campaignExpenseStatusColor} label={campaignStatusLabel(item.status)} />
                       </div>
                     </div>
                   ))}
