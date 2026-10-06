@@ -2,10 +2,13 @@ import type { SanitizedUser, UserRole } from './types';
 
 export class HttpError extends Error {
   status: number;
+  /** Extra fields for the JSON body, e.g. a machine-readable `code`. */
+  details?: Record<string, unknown>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.details = details;
   }
 }
 

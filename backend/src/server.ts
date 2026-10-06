@@ -35,6 +35,8 @@ import { createSocialPublicRouter, type SocialOptions } from './social/routes';
 import { FixtureMetaClient, HttpMetaClient } from './social/meta-client';
 import { sweepSocial } from './social/sync';
 import { sweepGames } from './games/collector';
+import { lockedModules as academyLockedModules, missionForModule } from './academy/academy';
+import { registerAcademyRoutes } from './academy/routes';
 import { likersFetcherFromEnv, type LikersFetcher } from './games/likers-fetcher';
 import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
@@ -228,6 +230,12 @@ export interface CreateServerOptions extends DataStoreOptions {
   portalWhatsApp?: WhatsAppSender;
   /** Who liked a post (a self-hosted worker or an Apify actor); defaults to the environment. */
   likersFetcher?: LikersFetcher;
+  /**
+   * Whether unfinished Academy missions lock modules in real companies. On by
+   * default; off under NODE_ENV=test unless a test turns it on; ACADEMY_ENFORCE=false
+   * switches it off in an emergency.
+   */
+  academyEnforce?: boolean;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
   /** Observes every record-rule decision. For tests. */
@@ -920,6 +928,41 @@ export function createServer(options: CreateServerOptions = {}) {
   const requireCompanyAccess = (req: AuthedRequest, companyId: string) => {
     if (!req.user || !canAccessCompany(req.user, companyId)) {
       throw new HttpError(403, 'You do not have access to this company.');
+    }
+    requireAcademyUnlocked(req, companyId);
+  };
+
+  /**
+   * TaskFlow Academy: in a real company, a module stays locked until the user
+   * finishes the mission that teaches it. Practice companies and super admins
+   * are never gated. The locked set is worked out once per request.
+   */
+  const academyEnforce = options.academyEnforce
+    ?? (process.env.NODE_ENV !== 'test' && process.env.ACADEMY_ENFORCE !== 'false');
+  const requireAcademyUnlocked = (req: AuthedRequest, companyId: string) => {
+    if (!academyEnforce) return;
+    const user = req.user;
+    if (!user || user.isSuperAdmin || store.isTrainingCompany(companyId)) return;
+    const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
+    if (!mapping) return;
+    const cached = req as AuthedRequest & { academyLocked?: Set<string> };
+    cached.academyLocked ??= new Set(academyLockedModules(store, user));
+    if (!cached.academyLocked.has(mapping.module)) return;
+    const mission = missionForModule(mapping.module);
+    throw new HttpError(
+      403,
+      `Finish the "${mission?.title.en ?? 'Academy'}" mission in the Academy to use this.`,
+      { code: 'ACADEMY_LOCKED', module: mapping.module, missionId: mission?.id ?? null },
+    );
+  };
+
+  /** A practice company has exactly one member: its trainee. */
+  const assertNoForeignPractice = (userId: string | null, companyIds: string[]) => {
+    for (const companyId of new Set(companyIds)) {
+      const company = store.getCompanyById(companyId);
+      if (company?.isTraining && company.trainingOwnerUserId !== userId) {
+        throw new HttpError(400, 'A practice company belongs to one trainee; nobody else can be added to it.');
+      }
     }
   };
 
@@ -2248,7 +2291,8 @@ export function createServer(options: CreateServerOptions = {}) {
     '/companies',
     authMiddleware,
     handler((req, res) => {
-      const companies = store.listCompanies();
+      // Practice companies are visible only to their own trainee, super admins included.
+      const companies = store.listCompanies().filter((c) => !c.isTraining || c.trainingOwnerUserId === req.user!.id);
       if (req.user!.isSuperAdmin) {
         return res.json(companies);
       }
@@ -2980,6 +3024,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler(async (req, res) => {
       const payload = parseUserPayload(req.body);
+      assertNoForeignPractice(null, [...(payload.companyIds ?? []), ...payload.companyRoles!.map((a) => a.companyId)]);
       assertUserManagementPermission(req, payload.companyRoles!);
       assertRolesAvailable(payload.companyRoles!);
       const authzBefore = snapshotAuthz([
@@ -3071,6 +3116,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ...existingAssignments.filter((a) => !manageable(a.companyId)),
         ];
       }
+      assertNoForeignPractice(existing.id, [...targetAssignments.map((a) => a.companyId), ...(payload.companyIds ?? [])]);
       if (req.user!.isSuperAdmin) {
         // Super-admins have role 'Employee' but full user-management power via
         // the isSuperAdmin flag, so route them through the simple check (which
@@ -9474,6 +9520,22 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  registerAcademyRoutes(app, {
+    store,
+    authMiddleware: authMiddleware as unknown as RequestHandler,
+    requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+    publishMembership: async (companyIds, change) => {
+      const before = snapshotAuthz(companyIds);
+      change();
+      await publishAuthzChange(before);
+    },
+    publishNewCompany: (companyId) => publishAuthzChange(new Map([[companyId, []]])),
+    recordActivity: ({ companyId, actor, summary, metadata }) => store.createActivityEvent({
+      companyId, entityType: 'contact', entityId: actor.id, action: 'academy_exemption',
+      actorUserId: actor.id, actorName: actor.name, summary, metadata,
+    }),
+  });
+
   app.use((_req, _res, next) => {
     next(new HttpError(404, 'Route not found.'));
   });
@@ -9484,7 +9546,7 @@ export function createServer(options: CreateServerOptions = {}) {
       console.error(`[fail] ${req.method} ${req.originalUrl} -> ${error.status} ${error.message}`);
     }
     if (error instanceof HttpError) {
-      return res.status(error.status).json({ message: error.message });
+      return res.status(error.status).json({ message: error.message, ...(error.details ?? {}) });
     }
     if (error instanceof AuthzUnavailableError) {
       // Never a 403: the user may well hold the permission, we just cannot

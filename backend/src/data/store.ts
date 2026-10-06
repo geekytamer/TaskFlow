@@ -12,6 +12,7 @@ import { PortalThreadStore } from '../portal/thread-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
+import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { PortalStore } from '../portal/portal-store';
@@ -644,6 +645,7 @@ export class DataStore {
   readonly referrals: PortalReferralsStore;
   readonly influencer: InfluencerPortalStore;
   readonly games: GamesStore;
+  readonly academy: AcademyStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -677,6 +679,7 @@ export class DataStore {
     this.referrals = new PortalReferralsStore(this.db);
     this.influencer = new InfluencerPortalStore(this.db);
     this.games = new GamesStore(this.db);
+    this.academy = new AcademyStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4304,6 +4307,53 @@ export class DataStore {
           }
         },
       },
+      {
+        // TaskFlow Academy: practice companies, mission progress, exemptions.
+        // Users who exist now get a 14-day grace before modules lock.
+        id: '104_academy',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE companies ADD COLUMN isTraining INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE companies ADD COLUMN trainingOwnerUserId TEXT;
+            CREATE TABLE IF NOT EXISTS academy_state (
+              userId            TEXT PRIMARY KEY,
+              practiceCompanyId TEXT,
+              baseline          TEXT,
+              startedAt         TEXT,
+              graceUntil        TEXT
+            );
+            CREATE TABLE IF NOT EXISTS academy_missions (
+              userId      TEXT NOT NULL,
+              missionId   TEXT NOT NULL,
+              xp          INTEGER NOT NULL,
+              completedAt TEXT NOT NULL,
+              PRIMARY KEY (userId, missionId)
+            );
+            CREATE TABLE IF NOT EXISTS academy_reported (
+              userId      TEXT NOT NULL,
+              objectiveId TEXT NOT NULL,
+              reportedAt  TEXT NOT NULL,
+              PRIMARY KEY (userId, objectiveId)
+            );
+            CREATE TABLE IF NOT EXISTS academy_exemptions (
+              userId    TEXT NOT NULL,
+              module    TEXT NOT NULL,
+              byUserId  TEXT NOT NULL,
+              reason    TEXT,
+              createdAt TEXT NOT NULL,
+              PRIMARY KEY (userId, module)
+            );
+            CREATE TABLE IF NOT EXISTS academy_settings (
+              key   TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            );
+          `);
+          const now = new Date();
+          const grace = new Date(now.getTime() + 14 * 86400_000).toISOString();
+          this.db.prepare('INSERT OR IGNORE INTO academy_settings (key, value) VALUES (?, ?)').run('launchedAt', now.toISOString());
+          this.db.prepare('INSERT OR IGNORE INTO academy_state (userId, graceUntil) SELECT id, ? FROM users').run(grace);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -4757,28 +4807,28 @@ export class DataStore {
     const startOfYear = new Date(new Date().getFullYear(), 0, 1).toISOString();
 
     return {
-      companies: (row<{ c: number }>('SELECT COUNT(*) AS c FROM companies')).c,
+      companies: (row<{ c: number }>('SELECT COUNT(*) AS c FROM companies WHERE isTraining = 0')).c,
       users: (row<{ c: number }>('SELECT COUNT(*) AS c FROM users')).c,
       usersByRole: this.db
         .prepare(`SELECT role, COUNT(*) AS c FROM users GROUP BY role`)
         .all() as Array<{ role: string; c: number }>,
-      contacts: (row<{ c: number }>('SELECT COUNT(*) AS c FROM contacts')).c,
+      contacts: (row<{ c: number }>('SELECT COUNT(*) AS c FROM contacts WHERE companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)')).c,
       openOpportunities: (row<{ c: number }>(
-        `SELECT COUNT(*) AS c FROM opportunities WHERE stage NOT IN ('Won','Lost','Cancelled')`,
+        `SELECT COUNT(*) AS c FROM opportunities WHERE stage NOT IN ('Won','Lost','Cancelled') AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).c,
-      invoices: (row<{ c: number }>('SELECT COUNT(*) AS c FROM invoices')).c,
+      invoices: (row<{ c: number }>('SELECT COUNT(*) AS c FROM invoices WHERE companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)')).c,
       openReceivables: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(total),0) AS s FROM invoices WHERE status != 'Paid' AND status != 'Draft'`,
+        `SELECT COALESCE(SUM(total),0) AS s FROM invoices WHERE status != 'Paid' AND status != 'Draft' AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).s,
       openPayables: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM vendor_bills WHERE status != 'Paid' AND status != 'Draft'`,
+        `SELECT COALESCE(SUM(amount),0) AS s FROM vendor_bills WHERE status != 'Paid' AND status != 'Draft' AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).s,
       revenueMtd: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE paidAt >= ?`,
+        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE paidAt >= ? AND invoiceId IN (SELECT id FROM invoices WHERE companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1))`,
         startOfMonth,
       )).s,
       revenueYtd: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE paidAt >= ?`,
+        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE paidAt >= ? AND invoiceId IN (SELECT id FROM invoices WHERE companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1))`,
         startOfYear,
       )).s,
       whatsappInstances: (row<{ c: number }>('SELECT COUNT(*) AS c FROM whatsapp_instances')).c,
@@ -4786,7 +4836,7 @@ export class DataStore {
         `SELECT COUNT(*) AS c FROM whatsapp_instances WHERE state = 'authorized'`,
       )).c,
       tasksOpen: (row<{ c: number }>(
-        `SELECT COUNT(*) AS c FROM tasks WHERE status != 'Done'`,
+        `SELECT COUNT(*) AS c FROM tasks WHERE status != 'Done' AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).c,
       followupsOpen: (row<{ c: number }>(
         `SELECT COUNT(*) AS c FROM activity_events WHERE nextActionDueDate IS NOT NULL`,
@@ -4796,20 +4846,20 @@ export class DataStore {
         new Date().toISOString(),
       )).c,
       commissionsDraft: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Draft'`,
+        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Draft' AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).s,
       commissionsApproved: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Approved'`,
+        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Approved' AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).s,
       commissionsPaid: (row<{ s: number }>(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Paid'`,
+        `SELECT COALESCE(SUM(amount),0) AS s FROM commissions WHERE status = 'Paid' AND companyId NOT IN (SELECT id FROM companies WHERE isTraining = 1)`,
       )).s,
     };
   }
 
   /** Per-company rollups for the Companies tab. */
   listAdminCompanies() {
-    const companies = this.db.prepare('SELECT * FROM companies').all() as Array<{ id: string; name: string; website?: string; address?: string }>;
+    const companies = this.db.prepare('SELECT * FROM companies WHERE isTraining = 0').all() as Array<{ id: string; name: string; website?: string; address?: string }>;
     return companies.map((c) => {
       const stats = this.db
         .prepare(
@@ -5023,7 +5073,18 @@ export class DataStore {
   }
 
   private mapCompanyRow(row: any): Company {
-    return { ...row, disabledModules: normalizeDisabledModules(this.parseJson(row.disabledModules)) };
+    return {
+      ...row,
+      disabledModules: normalizeDisabledModules(this.parseJson(row.disabledModules)),
+      isTraining: row.isTraining === 1,
+      trainingOwnerUserId: row.trainingOwnerUserId ?? undefined,
+    };
+  }
+
+  /** A trainee's practice company: never emailed from, never counted with real ones. */
+  isTrainingCompany(companyId: string): boolean {
+    const row = this.db.prepare('SELECT isTraining FROM companies WHERE id = ?').get(companyId) as { isTraining?: number } | undefined;
+    return row?.isTraining === 1;
   }
 
   /**
@@ -18877,6 +18938,12 @@ export class DataStore {
       created.push(notification);
     }
 
+    // A practice company stays in the app: mark its notifications emailed so
+    // neither the digest nor the critical-email hook ever sends them.
+    if (created.length > 0 && this.isTrainingCompany(input.companyId)) {
+      this.markNotificationEmailed(created.map((n) => n.id));
+      return created;
+    }
     if (created.length > 0 && this.onNotificationsCreated) {
       try {
         this.onNotificationsCreated(created);

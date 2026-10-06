@@ -17,6 +17,9 @@ export interface Company {
   taxDetails?: string;
   /** Modules the platform super admin switched off for this company. See permissions/company-modules.ts. */
   disabledModules?: string[];
+  /** A TaskFlow Academy practice company: one trainee's sandbox, never mixed with real ones. */
+  isTraining?: boolean;
+  trainingOwnerUserId?: string;
 }
 
 export type NumberingEntityType =
