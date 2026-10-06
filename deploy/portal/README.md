@@ -11,9 +11,10 @@ server yet, so expect to adjust paths and domains on the first deploy.
 | taskflow backend | 4005, loopback | the portal API at `/portal-api/*`, called only by the portals |
 | peak-portal-client | 9003, loopback | the client host |
 | peak-portal-influencer | 9004, loopback | the influencer host |
+| peak-games-lobby | 9005, loopback | the public games host (no sign-in; published public games only) |
 
-One build of `portal/` serves both hosts. `PORTAL_AUDIENCE` is read at runtime, so
-the same `.next` output runs as two processes.
+One build of `portal/` serves all three hosts. `PORTAL_AUDIENCE` is read at runtime, so
+the same `.next` output runs as three processes.
 
 The portals are dark, so they use Peak's light-on-dark logo from `portal/public/brand`
 (`PORTAL_LOGO_URL`, full logo; `PORTAL_MARK_URL`, the P-mark for phone headers). The pm2
@@ -51,7 +52,8 @@ cd portal && npm ci && npm run build
 pm2 startOrReload deploy/portal/ecosystem.portal.cjs --update-env
 ```
 
-5. Render `nginx-portal.conf.template` once per host (see its header), enable both,
+5. Render `nginx-portal.conf.template` once per host (see its header; the games host
+   uses port 9005), enable all three,
    and reload nginx.
 6. Restart the backend so it reads the new environment.
 
@@ -66,6 +68,7 @@ also serves as a password reset.
 - `https://<client host>/login` shows the Peak Media name and logo.
 - `https://<client host>/client` and `https://<influencer host>/influencer` return 404.
 - `https://<host>/portal-api/client/me` is not reachable from the internet.
+- `https://<games host>/games` lists published public games; `/login` there returns 404.
 - Sign in as a client user on the client host, then open the influencer host: you are
   sent to sign in, not shown a dashboard.
 

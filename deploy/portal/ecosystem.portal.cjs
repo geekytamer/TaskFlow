@@ -1,6 +1,7 @@
 /**
- * pm2 processes for the Peak portals. One build of portal/, two processes,
- * chosen by PORTAL_AUDIENCE at runtime. Both bind loopback: nginx is the only
+ * pm2 processes for the Peak portals and the public games lobby. One build of
+ * portal/, three processes,
+ * chosen by PORTAL_AUDIENCE at runtime. All bind loopback: nginx is the only
  * way in, and the backend's /portal-api is never routed by nginx.
  *
  *   cd portal && npm ci && npm run build
@@ -26,5 +27,7 @@ module.exports = {
   apps: [
     portal('peak-portal-client', 'client', 9003),
     portal('peak-portal-influencer', 'influencer', 9004),
+    // No accounts: shows published public games only.
+    portal('peak-games-lobby', 'lobby', 9005),
   ],
 };

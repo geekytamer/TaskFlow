@@ -1,6 +1,7 @@
-# One server block per portal host. Render twice:
+# One server block per portal host. Render three times:
 #   __PORTAL_DOMAIN__ = the client host,     __PORTAL_PORT__ = 9003
 #   __PORTAL_DOMAIN__ = the influencer host, __PORTAL_PORT__ = 9004
+#   __PORTAL_DOMAIN__ = the games host,      __PORTAL_PORT__ = 9005
 #
 # Only the portal app is proxied. The backend's /portal-api is reached by the
 # portal's own server over loopback and is never routed here.
