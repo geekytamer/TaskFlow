@@ -76,7 +76,7 @@ test('an admin can create a group and grant it permissions', async () => {
     .post(`/companies/${companyId}/permission-groups`)
     .set('Authorization', adminAuth)
     .send({ name: 'Warehouse Clerk', nameAr: 'أمين المخزن' });
-  assert.equal(created.status, 201);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
   assert.equal(created.body.key, 'warehouse-clerk');
   assert.equal(created.body.isSystem, 0);
 
@@ -84,7 +84,7 @@ test('an admin can create a group and grant it permissions', async () => {
     .put(`/permission-groups/${created.body.id}/permissions`)
     .set('Authorization', adminAuth)
     .send({ permissions: ['inventory:read', 'inventory:create'] });
-  assert.equal(granted.status, 200);
+  assert.equal(granted.status, 200, JSON.stringify(granted.body));
   assert.deepEqual(granted.body.permissions.sort(), ['inventory:create', 'inventory:read']);
 });
 

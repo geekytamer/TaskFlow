@@ -1309,6 +1309,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '105_credit_override',
     '106_customer_returns',
     '107_recurring_documents',
+    '108_bank_reconciliation',
   ]);
 });
 

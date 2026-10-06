@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 315 gated routes.
+ * 324 gated routes.
  */
 
 export interface RoutePermission {
@@ -51,6 +51,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /companies/:companyId/vat-returns': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/expenses': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/recurring-documents': { module: 'finance', action: 'read' },
+  'GET /companies/:companyId/bank-statements': { module: 'finance', action: 'read' },
+  'GET /bank-statements/:id': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/finance/accounts': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/finance/journal': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/finance/vendor-bills': { module: 'finance', action: 'read' },
@@ -252,6 +254,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/vat-returns': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/expenses': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/recurring-documents': { module: 'finance', action: 'create' },
+  'POST /companies/:companyId/bank-statements': { module: 'finance', action: 'create' },
+  'POST /bank-statements/:id/lines/:lineId/match': { module: 'finance', action: 'create' },
+  'POST /bank-statements/:id/lines/:lineId/ignore': { module: 'finance', action: 'create' },
+  'POST /bank-statements/:id/lines/:lineId/entry': { module: 'finance', action: 'create' },
+  'POST /bank-statements/:id/reconcile': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/finance/accounts': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/finance/journal': { module: 'finance', action: 'create' },
   'POST /journal-entries/:id/reverse': { module: 'finance', action: 'create' },
@@ -261,6 +268,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'DELETE /budgets/:id': { module: 'finance', action: 'delete' },
   'DELETE /vat-returns/:id': { module: 'finance', action: 'delete' },
   'DELETE /recurring-documents/:id': { module: 'finance', action: 'delete' },
+  'DELETE /bank-statements/:id/lines/:lineId/match': { module: 'finance', action: 'delete' },
+  'DELETE /bank-statements/:id': { module: 'finance', action: 'delete' },
   'DELETE /finance/accounts/:id': { module: 'finance', action: 'delete' },
   'DELETE /rfqs/:id/quotes/:quoteId': { module: 'purchasing', action: 'delete' },
   'DELETE /rfqs/:id': { module: 'purchasing', action: 'delete' },

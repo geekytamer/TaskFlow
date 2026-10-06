@@ -12,6 +12,7 @@ import { VendorBillTable } from './vendor-bill-table';
 import { PendingPayablesPanel } from './pending-payables-panel';
 import { JournalTable } from './journal-table';
 import { RecurringPanel } from './recurring-panel';
+import { BankReconciliationPanel } from './bank-reconciliation-panel';
 import { ReportsPanel } from './reports-panel';
 import { ActivityLogPanel } from './activity-log-panel';
 import { FinancialReportsPanel } from './financial-reports-panel';
@@ -24,6 +25,7 @@ import { usePermissions } from '@/context/permissions-context';
 const VALID_TABS = new Set([
   'overview',
   'recurring',
+  'bank',
   'invoices',
   'payables',
   'ledger',
@@ -86,6 +88,7 @@ export function FinancePage() {
           <TabsTrigger value="reports" data-tutorial="finance-tab-reports">{t('finance.tabReports')}</TabsTrigger>
           <TabsTrigger value="activity">{t('finance.tabActivity')}</TabsTrigger>
           <TabsTrigger value="expenses" data-tutorial="finance-tab-expenses">{t('finance.tabExpenses')}</TabsTrigger>
+          <TabsTrigger value="bank">{t('finance.tabBank', 'Bank')}</TabsTrigger>
           <TabsTrigger value="recurring">{t('finance.tabRecurring', 'Recurring')}</TabsTrigger>
           <TabsTrigger value="budgets">{t('finance.tabBudgets', 'Budgets')}</TabsTrigger>
           <TabsTrigger value="vat">{t('finance.tabVat', 'VAT')}</TabsTrigger>
@@ -123,6 +126,9 @@ export function FinancePage() {
           <StandaloneExpenseTable />
           {/* Task expenses come from the tasks module. */}
           {moduleOn('tasks') && <ExpenseTable />}
+        </TabsContent>
+        <TabsContent value="bank">
+          <BankReconciliationPanel />
         </TabsContent>
         <TabsContent value="recurring">
           <RecurringPanel />

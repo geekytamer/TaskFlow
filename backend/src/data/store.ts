@@ -13,6 +13,7 @@ import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
 import { RecurringStore } from '../finance/recurring';
+import { BankReconciliationStore } from '../finance/bank-reconciliation';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -658,6 +659,7 @@ export class DataStore {
   readonly games: GamesStore;
   readonly academy: AcademyStore;
   readonly recurring: RecurringStore;
+  readonly bank: BankReconciliationStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -693,6 +695,7 @@ export class DataStore {
     this.games = new GamesStore(this.db);
     this.academy = new AcademyStore(this.db);
     this.recurring = new RecurringStore(this.db);
+    this.bank = new BankReconciliationStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4432,6 +4435,41 @@ export class DataStore {
               createdAt   TEXT NOT NULL,
               PRIMARY KEY (recurringId, runDate)
             );
+          `);
+        },
+      },
+      {
+        // Bank statements and their lines, each matched to one ledger line.
+        id: '108_bank_reconciliation',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS bank_statements (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              accountId      TEXT NOT NULL,
+              name           TEXT NOT NULL,
+              periodStart    TEXT NOT NULL,
+              periodEnd      TEXT NOT NULL,
+              openingBalance REAL,
+              closingBalance REAL,
+              status         TEXT NOT NULL DEFAULT 'open',
+              reconciledAt   TEXT,
+              createdAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_bank_statements_company ON bank_statements(companyId, periodEnd);
+            CREATE TABLE IF NOT EXISTS bank_statement_lines (
+              id            TEXT PRIMARY KEY,
+              statementId   TEXT NOT NULL REFERENCES bank_statements(id) ON DELETE CASCADE,
+              rowIndex      INTEGER NOT NULL,
+              date          TEXT NOT NULL,
+              description   TEXT NOT NULL,
+              reference     TEXT,
+              amount        REAL NOT NULL,
+              journalLineId TEXT,
+              ignored       INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_bank_lines_statement ON bank_statement_lines(statementId);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_lines_journal ON bank_statement_lines(journalLineId) WHERE journalLineId IS NOT NULL;
           `);
         },
       },
