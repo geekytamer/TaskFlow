@@ -3302,7 +3302,7 @@ test('vendor bill payments in locked periods cannot be reversed', async () => {
     amount: 90,
     status: 'Approved',
   });
-  assert.equal(billResponse.status, 201);
+  assert.equal(billResponse.status, 201, JSON.stringify(billResponse.body));
   const billId = billResponse.body.id;
 
   const paymentResponse = await auth(request(app).post(`/vendor-bills/${billId}/payments`)).send({
@@ -3311,22 +3311,22 @@ test('vendor bill payments in locked periods cannot be reversed', async () => {
     note: 'Locked period payment',
     paidAt: '2026-05-10T12:00:00.000Z',
   });
-  assert.equal(paymentResponse.status, 201);
+  assert.equal(paymentResponse.status, 201, JSON.stringify(paymentResponse.body));
   const paymentId = paymentResponse.body.payment.id;
 
   const lockResponse = await auth(request(app).put('/companies/1/finance/settings')).send({
     lockedThroughDate: '2026-05-31T23:59:59.999Z',
   });
-  assert.equal(lockResponse.status, 200);
+  assert.equal(lockResponse.status, 200, JSON.stringify(lockResponse.body));
 
   const reverseResponse = await auth(
     request(app).delete(`/vendor-bills/${billId}/payments/${paymentId}`),
   );
-  assert.equal(reverseResponse.status, 400);
+  assert.equal(reverseResponse.status, 400, JSON.stringify(reverseResponse.body));
   assert.match(reverseResponse.body.message, /locked accounting period/i);
 
   const payments = await auth(request(app).get(`/vendor-bills/${billId}/payments`));
-  assert.equal(payments.body.length, 1);
+  assert.equal(payments.body.length, 1, JSON.stringify(payments.body));
   assert.equal(payments.body[0].id, paymentId);
 
   const journal = await auth(request(app).get('/companies/1/finance/journal?limit=500'));
@@ -3335,6 +3335,7 @@ test('vendor bill payments in locked periods cannot be reversed', async () => {
       (entry) => entry.sourceType === 'vendor_bill_payment' && entry.sourceId === paymentId,
     ),
     true,
+    `payment journal entry missing; journal returned ${journal.status} with ${Array.isArray(journal.body) ? journal.body.length : 'no'} entries`,
   );
 });
 
