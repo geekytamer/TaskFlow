@@ -1967,6 +1967,8 @@ export interface Expense {
   reference?: string;
   projectId?: string;
   attachmentUrl?: string;
+  /** not_required: posted when recorded. pending: waiting for its approval chain, not posted. */
+  approvalStatus?: 'not_required' | 'pending' | 'approved' | 'rejected';
   createdAt: Date;
   updatedAt: Date;
 }

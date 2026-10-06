@@ -20,6 +20,7 @@ import { buildWpsFile } from '../hr/wps';
 import { QualityStore } from '../inventory/quality';
 import { ColdChainStore } from '../inventory/cold-chain';
 import { ShipmentStore } from '../logistics/shipments';
+import { ApprovalStore, levelsFor, type ApprovalDocType } from '../approvals/approvals';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -673,6 +674,7 @@ export class DataStore {
   readonly quality: QualityStore;
   readonly coldChain: ColdChainStore;
   readonly shipments: ShipmentStore;
+  readonly approvals: ApprovalStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -713,6 +715,7 @@ export class DataStore {
     this.quality = new QualityStore(this.db);
     this.coldChain = new ColdChainStore(this.db);
     this.shipments = new ShipmentStore(this.db);
+    this.approvals = new ApprovalStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4664,6 +4667,38 @@ export class DataStore {
           for (const group of groups) insert.run(group.id);
         },
       },
+      {
+        // Approval chains: rules by amount and role per document type, and each document's steps.
+        id: '117_approval_chains',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS approval_rules (
+              id           TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              docType      TEXT NOT NULL,
+              minAmount    REAL NOT NULL,
+              approverRole TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_rules ON approval_rules(companyId, docType);
+            CREATE TABLE IF NOT EXISTS approval_steps (
+              companyId       TEXT NOT NULL,
+              docType         TEXT NOT NULL,
+              docId           TEXT NOT NULL,
+              level           INTEGER NOT NULL,
+              minAmount       REAL NOT NULL,
+              approverRole    TEXT NOT NULL,
+              status          TEXT NOT NULL,
+              decidedByUserId TEXT,
+              decidedByName   TEXT,
+              decidedAt       TEXT,
+              note            TEXT,
+              PRIMARY KEY (docType, docId, level)
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_steps_company ON approval_steps(companyId, status);
+            ALTER TABLE expenses ADD COLUMN approvalStatus TEXT NOT NULL DEFAULT 'not_required';
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7472,8 +7507,10 @@ export class DataStore {
     const items = updates.items !== undefined ? this.normalizePurchaseOrderItems(updates.items) : existing.items;
     if (!items.length) throw new Error('Purchase order requires at least one line item.');
     const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    const poRules = this.approvals.rules(existing.companyId, 'purchase_order');
+    const levels = levelsFor(poRules, totalAmount);
     const threshold = this.getCompanyFinanceSettings(existing.companyId).poApprovalThreshold;
-    const requiresApproval = threshold > 0 && totalAmount >= threshold;
+    const requiresApproval = poRules.length ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     // What is being ordered changed: other lines, other amounts or another supplier.
     const changed = totalAmount !== existing.totalAmount
       || JSON.stringify(items) !== JSON.stringify(existing.items)
@@ -7503,6 +7540,11 @@ export class DataStore {
       approvedAt: resetApproval ? null : existing.approvedAt?.toISOString() ?? null,
       rejectionReason: resetApproval ? null : existing.rejectionReason ?? null,
     });
+    // Changed lines start the chain again from the bottom: earlier sign-offs were for something else.
+    if (resetApproval) {
+      if (approvalStatus === 'pending' && levels.length) this.approvals.start(existing.companyId, 'purchase_order', id, levels);
+      else this.approvals.clear('purchase_order', id);
+    }
     const result = this.getPurchaseOrderById(id);
     this.createActivityEvent({
       companyId: existing.companyId, entityType: 'purchase_order', entityId: id, action: 'updated',
@@ -13188,8 +13230,11 @@ export class DataStore {
 
     // Approval gate: orders at/above the company threshold start as a pending
     // Draft and cannot move past Draft until an approver signs off.
+    // With approval rules for purchase orders, they decide; otherwise the single threshold does.
+    const poRules = this.approvals.rules(input.companyId, 'purchase_order');
+    const levels = levelsFor(poRules, totalAmount);
     const threshold = this.getCompanyFinanceSettings(input.companyId).poApprovalThreshold;
-    const requiresApproval = threshold > 0 && totalAmount >= threshold;
+    const requiresApproval = poRules.length ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     const approvalStatus: PurchaseOrder['approvalStatus'] = requiresApproval ? 'pending' : 'not_required';
 
     // A pending order is forced to Draft; auto-receive only runs once approved.
@@ -13235,6 +13280,7 @@ export class DataStore {
     if (input.contactId) {
       this.addContactRole(input.contactId, input.companyId, 'Vendor', 'PurchaseOrder');
     }
+    if (levels.length) this.approvals.start(order.companyId, 'purchase_order', order.id, levels);
 
     if (requiresApproval) {
       this.notify({
@@ -15311,6 +15357,11 @@ export class DataStore {
     return row ? this.decodeExpense(row) : undefined;
   }
 
+  /** Approval levels a document of this amount needs under the company's rules (empty: none, or no rules). */
+  approvalLevels(companyId: string, docType: ApprovalDocType, amount: number) {
+    return levelsFor(this.approvals.rules(companyId, docType), amount);
+  }
+
   createExpense(input: CreateExpenseInput): Expense {
     const category = (input.category || '').trim();
     if (!category) throw new Error('Expense category is required.');
@@ -15338,9 +15389,12 @@ export class DataStore {
       createdAt: new Date(nowIso),
       updatedAt: new Date(nowIso),
     };
+    // Above an approval level the expense waits, unposted, until it is approved.
+    const levels = this.approvalLevels(input.companyId, 'expense', expense.amount);
+    expense.approvalStatus = levels.length ? 'pending' : 'not_required';
     this.db
       .prepare(
-        'INSERT INTO expenses (id, companyId, expenseDate, category, vendor, amount, description, paymentMethod, reference, projectId, attachmentUrl, createdAt, updatedAt) VALUES (@id, @companyId, @expenseDate, @category, @vendor, @amount, @description, @paymentMethod, @reference, @projectId, @attachmentUrl, @createdAt, @updatedAt)',
+        'INSERT INTO expenses (id, companyId, expenseDate, category, vendor, amount, description, paymentMethod, reference, projectId, attachmentUrl, approvalStatus, createdAt, updatedAt) VALUES (@id, @companyId, @expenseDate, @category, @vendor, @amount, @description, @paymentMethod, @reference, @projectId, @attachmentUrl, @approvalStatus, @createdAt, @updatedAt)',
       )
       .run({
         ...expense,
@@ -15354,7 +15408,8 @@ export class DataStore {
         createdAt: nowIso,
         updatedAt: nowIso,
       });
-    this.postExpenseJournal(expense);
+    if (levels.length) this.approvals.start(expense.companyId, 'expense', expense.id, levels);
+    else this.postExpenseJournal(expense);
     this.createActivityEvent({
       companyId: expense.companyId,
       entityType: 'expense',
@@ -15447,7 +15502,14 @@ export class DataStore {
         updatedAt: next.updatedAt.toISOString(),
       });
       this.removeJournalEntriesBySource('expense', id);
-      this.postExpenseJournal(next);
+      // A changed amount is approved afresh; an unchanged approved expense stays approved.
+      const levels = this.approvalLevels(next.companyId, 'expense', next.amount);
+      const keep = next.amount === existing.amount && existing.approvalStatus === 'approved';
+      const status: Expense['approvalStatus'] = !levels.length ? 'not_required' : keep ? 'approved' : 'pending';
+      this.db.prepare('UPDATE expenses SET approvalStatus = ? WHERE id = ?').run(status, id);
+      if (status === 'pending') this.approvals.start(next.companyId, 'expense', id, levels);
+      else if (status === 'not_required') this.approvals.clear('expense', id);
+      if (status !== 'pending') this.postExpenseJournal({ ...next, approvalStatus: status });
     })();
     this.createActivityEvent({
       companyId: next.companyId, entityType: 'expense', entityId: id, action: 'updated',
@@ -15462,6 +15524,7 @@ export class DataStore {
     // Deleting removes the ledger entry too, so a closed period must stay closed.
     this.assertOpenFinancialDate(existing.companyId, existing.expenseDate, 'Expense date');
     this.removeJournalEntriesBySource('expense', id);
+    this.approvals.clear('expense', id);
     this.db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
     return true;
   }
@@ -15469,7 +15532,7 @@ export class DataStore {
   private sumExpensesBetween(companyId: string, fromIso: string, toIso: string): number {
     const row = this.db
       .prepare(
-        'SELECT COALESCE(SUM(amount), 0) as amount FROM expenses WHERE companyId = ? AND expenseDate >= ? AND expenseDate < ?',
+        "SELECT COALESCE(SUM(amount), 0) as amount FROM expenses WHERE companyId = ? AND expenseDate >= ? AND expenseDate < ? AND approvalStatus IN ('not_required', 'approved')",
       )
       .get(companyId, fromIso, toIso) as { amount: number };
     return Number(row.amount || 0);
@@ -15488,9 +15551,28 @@ export class DataStore {
       reference: row.reference ?? undefined,
       projectId: row.projectId ?? undefined,
       attachmentUrl: row.attachmentUrl ?? undefined,
+      approvalStatus: row.approvalStatus ?? 'not_required',
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
+  }
+
+  /** Records the outcome of an expense's approval chain; an approved expense posts to the books. */
+  settleExpenseApproval(id: string, outcome: 'approved' | 'rejected'): Expense {
+    const expense = this.getExpenseById(id);
+    if (!expense) throw new Error('Expense not found.');
+    this.db.prepare('UPDATE expenses SET approvalStatus = ? WHERE id = ?').run(outcome, id);
+    if (outcome === 'approved') this.postExpenseJournal({ ...expense, approvalStatus: 'approved' });
+    this.createActivityEvent({
+      companyId: expense.companyId, entityType: 'expense', entityId: id, action: outcome,
+      summary: `Expense ${outcome}: ${expense.category} (${expense.amount}).`,
+    });
+    return this.getExpenseById(id)!;
+  }
+
+  /** The final step of a purchase order's chain: it moves to approved or rejected like a single sign-off. */
+  settlePurchaseOrderApproval(id: string, outcome: 'approved' | 'rejected', by: string, reason?: string): PurchaseOrder | undefined {
+    return outcome === 'approved' ? this.approvePurchaseOrder(id, by) : this.rejectPurchaseOrder(id, by, reason);
   }
 
   // ─── Budgets ────────────────────────────────────────────────────────────────

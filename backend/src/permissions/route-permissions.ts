@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 340 gated routes.
+ * 345 gated routes.
  */
 
 export interface RoutePermission {
@@ -51,6 +51,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /companies/:companyId/vat-returns': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/expenses': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/recurring-documents': { module: 'finance', action: 'read' },
+  'GET /companies/:companyId/approvals/rules': { module: 'finance', action: 'read' },
+  'GET /companies/:companyId/approvals': { module: 'finance', action: 'read' },
+  'GET /approvals/:docType/:docId': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/fixed-assets': { module: 'finance', action: 'read' },
   'GET /companies/:companyId/bank-statements': { module: 'finance', action: 'read' },
   'GET /bank-statements/:id': { module: 'finance', action: 'read' },
@@ -70,6 +73,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /budgets/:id': { module: 'finance', action: 'write' },
   'PUT /expenses/:id': { module: 'finance', action: 'write' },
   'PUT /recurring-documents/:id': { module: 'finance', action: 'write' },
+  'PUT /companies/:companyId/approvals/rules': { module: 'finance', action: 'write' },
   'PUT /fixed-assets/:id': { module: 'finance', action: 'write' },
   'PUT /finance/accounts/:id': { module: 'finance', action: 'write' },
   'GET /companies/:companyId/document-templates': { module: 'documents', action: 'read' },
@@ -266,6 +270,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/vat-returns': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/expenses': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/recurring-documents': { module: 'finance', action: 'create' },
+  'POST /approvals/:docType/:docId/decision': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/fixed-assets': { module: 'finance', action: 'create' },
   'POST /companies/:companyId/fixed-assets/depreciation': { module: 'finance', action: 'create' },
   'POST /fixed-assets/:id/disposal': { module: 'finance', action: 'create' },

@@ -235,7 +235,11 @@ export function StandaloneExpenseTable() {
                 expenses.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell>{format(e.expenseDate, 'MMM d, yyyy')}</TableCell>
-                    <TableCell className="font-medium">{e.category}</TableCell>
+                    <TableCell className="font-medium">
+                      {e.category}
+                      {e.approvalStatus === 'pending' && <span className="ms-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-normal text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">{tr('Awaiting approval', 'بانتظار الموافقة')}</span>}
+                      {e.approvalStatus === 'rejected' && <span className="ms-2 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] font-normal text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{tr('Rejected', 'مرفوض')}</span>}
+                    </TableCell>
                     <TableCell>{e.vendor || '—'}</TableCell>
                     <TableCell className="max-w-[260px] truncate text-muted-foreground">{e.description || '—'}</TableCell>
                     <TableCell className="text-end">{amount(e.amount)}</TableCell>

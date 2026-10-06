@@ -97,6 +97,7 @@ const sections: NavSection[] = [
     labelKey: 'nav.section.finance',
     items: [
       { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-finance' },
+      { href: '/approvals', labelKey: 'nav.approvals', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-approvals' },
       { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-commissions' },
     ],
   },

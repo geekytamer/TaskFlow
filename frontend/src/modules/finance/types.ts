@@ -686,6 +686,8 @@ export interface Expense {
   reference?: string;
   projectId?: string;
   attachmentUrl?: string;
+  /** pending: waiting for approval and not yet in the books. */
+  approvalStatus?: 'not_required' | 'pending' | 'approved' | 'rejected';
   createdAt: Date;
   updatedAt: Date;
 }
