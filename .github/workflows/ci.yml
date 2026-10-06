@@ -1,0 +1,54 @@
+# Tests, type checks and builds on every push and pull request.
+# Node 22 matches the server; npm ci uses the committed lock files (written with npm 10).
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: backend/package-lock.json }
+      - run: npm ci
+      - run: npm test
+      # The permission catalogue is generated from the routes; a route change
+      # that was not followed by `npm run authz:extract` fails here.
+      - name: Permission catalogue is up to date
+        run: |
+          npm run authz:extract
+          git diff --exit-code -- ../docs/superpowers/plans/gate-matrix.csv src/permissions/route-permissions.ts
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  portal:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: portal } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: portal/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

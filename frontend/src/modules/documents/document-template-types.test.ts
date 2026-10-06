@@ -7,7 +7,7 @@ test('generic template builder offers every supported document type', async () =
 
   assert.deepEqual(
     templateTypes?.map((item: { value: string }) => item.value),
-    ['invoice', 'delivery', 'quote', 'letter', 'memo', 'certificate', 'statement', 'custom'],
+    ['invoice', 'delivery', 'bill', 'quote', 'letter', 'memo', 'certificate', 'statement', 'custom'],
   );
 });
 

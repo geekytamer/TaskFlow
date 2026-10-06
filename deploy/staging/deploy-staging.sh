@@ -17,7 +17,7 @@
 set -Eeuo pipefail
 
 STAGING_DOMAIN="${STAGING_DOMAIN:-staging.erp.alyarubi-group.com}"
-BRANCH="${BRANCH:-feature/openfga-permissions}"
+BRANCH="${BRANCH:-master}"
 REPO_URL="${REPO_URL:-https://github.com/geekytamer/TaskFlow.git}"
 PROD_DB="${PROD_DB:-/var/lib/taskflow/taskflow.db}"
 PROD_APP_DIR=/var/www/TaskFlow

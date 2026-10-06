@@ -12,10 +12,9 @@ test('letter templates start as letters rather than invoices', async () => {
 
   assert.equal(doc.body.some((block) => block.type === 'lineItems'), false);
   assert.equal(doc.body.some((block) => block.type === 'totals'), false);
-  assert.equal(
-    doc.body.some((block) => block.type === 'heading' && /letter/i.test(block.content)),
-    true,
-  );
+  // A letter opens on a subject line the writer fills in, and ends on a signature.
+  assert.equal(doc.body.some((block) => block.type === 'heading' && block.content === '{{field.subject}}'), true);
+  assert.equal(doc.body.at(-1)?.type, 'signature');
   assert.equal(JSON.stringify(doc).includes('{{invoice.'), false);
 });
 
