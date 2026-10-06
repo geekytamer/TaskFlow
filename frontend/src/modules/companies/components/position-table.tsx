@@ -17,7 +17,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
-import { getPositions, getCompanies, deletePosition } from '@/services/companyService';
+import { getPositions, getCompanies, deletePosition, updatePosition } from '@/services/companyService';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { Position, Company } from '@/modules/companies/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddPositionDialog } from './add-position-dialog';
@@ -41,6 +44,24 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
   const [loading, setLoading] = React.useState(true);
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
   const [positionToDelete, setPositionToDelete] = React.useState<Position | null>(null);
+  const [positionToEdit, setPositionToEdit] = React.useState<Position | null>(null);
+  const [editTitle, setEditTitle] = React.useState('');
+  const [savingEdit, setSavingEdit] = React.useState(false);
+
+  const handleRename = async () => {
+    if (!positionToEdit || editTitle.trim().length < 2) return;
+    setSavingEdit(true);
+    try {
+      await updatePosition(positionToEdit.id, editTitle.trim());
+      toast({ title: tr('Position renamed', 'تمت إعادة تسمية المنصب') });
+      setPositionToEdit(null);
+      fetchData();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not rename the position', 'تعذرت إعادة تسمية المنصب'), description: error?.message });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
   const { toast } = useToast();
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -154,7 +175,7 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem>{t('companiesPage.editPosition')}</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => { setPositionToEdit(position); setEditTitle(position.title); }}>{t('companiesPage.editPosition')}</DropdownMenuItem>
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setPositionToDelete(position); }}>
                                 {t('companiesPage.deletePosition')}
@@ -184,6 +205,22 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
             </TableBody>
         </Table>
         </div>
+    <Dialog open={Boolean(positionToEdit)} onOpenChange={(open) => { if (!open) setPositionToEdit(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{tr('Rename position', 'إعادة تسمية المنصب')}</DialogTitle>
+              <DialogDescription>{tr('Positions are shared by every company; the new name shows everywhere it is used.', 'المناصب مشتركة بين كل الشركات؛ يظهر الاسم الجديد في كل مكان تُستخدم فيه.')}</DialogDescription>
+            </DialogHeader>
+            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void handleRename(); }}>
+              <Label htmlFor="position-title">{tr('Position title', 'المسمى الوظيفي')}</Label>
+              <Input id="position-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} autoFocus />
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setPositionToEdit(null)}>{tr('Cancel', 'إلغاء')}</Button>
+                <Button type="submit" disabled={savingEdit || editTitle.trim().length < 2}>{tr('Save', 'حفظ')}</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
     </div>
   );
 }

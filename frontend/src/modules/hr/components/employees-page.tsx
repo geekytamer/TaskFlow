@@ -20,6 +20,7 @@ import {
   createDepartment,
   createEmployee,
   deleteDepartment,
+  updateDepartment,
   deleteEmployee,
   getDepartments,
   getEmployees,
@@ -56,6 +57,7 @@ export function EmployeesPage() {
   const { language } = useI18n();
   const { toast } = useToast();
   const confirm = useConfirm();
+  const [editingDept, setEditingDept] = React.useState<Department | null>(null);
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const canManage = usePermissionOr('hr', 'write', currentRole !== 'Employee');
 
@@ -162,16 +164,23 @@ export function EmployeesPage() {
   const handleAddDept = async () => {
     if (!selectedCompany || !newDept.trim()) return;
     try {
-      await createDepartment(selectedCompany.id, newDept.trim());
+      if (editingDept) await updateDepartment(editingDept.id, newDept.trim());
+      else await createDepartment(selectedCompany.id, newDept.trim());
+      setEditingDept(null);
       setNewDept('');
       setDeptDialogOpen(false);
       await load();
     } catch (error: any) {
-      toast({ variant: 'destructive', title: tr('Could not add department', 'تعذر إضافة القسم'), description: error?.message });
+      toast({ variant: 'destructive', title: editingDept ? tr('Could not rename department', 'تعذرت إعادة تسمية القسم') : tr('Could not add department', 'تعذر إضافة القسم'), description: error?.message });
     }
   };
 
   const handleDeleteDept = async (d: Department) => {
+    if (!(await confirm({
+      title: tr(`Delete ${d.name}?`, `حذف ${d.name}؟`),
+      description: tr('Employees in it keep their records and become unassigned.', 'يحتفظ موظفوه بسجلاتهم ويصبحون بلا قسم.'),
+      confirmText: tr('Delete', 'حذف'), cancelText: tr('Cancel', 'إلغاء'), destructive: true,
+    }))) return;
     try {
       await deleteDepartment(d.id);
       await load();
@@ -202,13 +211,16 @@ export function EmployeesPage() {
             <div className="flex flex-wrap items-center gap-2">
               {departments.map((d) => (
                 <Badge key={d.id} variant="outline" className="gap-1 py-1">
-                  {d.name}
-                  <button onClick={() => handleDeleteDept(d)} className="ms-1 text-muted-foreground hover:text-destructive">
+                  <button type="button" className="hover:underline" title={tr('Rename', 'إعادة تسمية')}
+                    onClick={() => { setEditingDept(d); setNewDept(d.name); setDeptDialogOpen(true); }}>
+                    {d.name}
+                  </button>
+                  <button type="button" onClick={() => handleDeleteDept(d)} className="ms-1 text-muted-foreground hover:text-destructive" aria-label={tr(`Delete ${d.name}`, `حذف ${d.name}`)}>
                     <X className="h-3 w-3" />
                   </button>
                 </Badge>
               ))}
-              <Button size="sm" variant="outline" onClick={() => { setNewDept(''); setDeptDialogOpen(true); }}>
+              <Button size="sm" variant="outline" onClick={() => { setEditingDept(null); setNewDept(''); setDeptDialogOpen(true); }}>
                 <Plus className="me-1.5 h-3.5 w-3.5" />{tr('Add department', 'أضف قسماً')}
               </Button>
             </div>
@@ -363,9 +375,9 @@ export function EmployeesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deptDialogOpen} onOpenChange={setDeptDialogOpen}>
+      <Dialog open={deptDialogOpen} onOpenChange={(v) => { setDeptDialogOpen(v); if (!v) setEditingDept(null); }}>
         <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>{tr('Add Department', 'إضافة قسم')}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingDept ? tr('Rename Department', 'إعادة تسمية القسم') : tr('Add Department', 'إضافة قسم')}</DialogTitle></DialogHeader>
           <div className="space-y-1">
             <Label>{tr('Name', 'الاسم')}</Label>
             <Input
@@ -378,7 +390,7 @@ export function EmployeesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeptDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
-            <Button onClick={handleAddDept} disabled={!newDept.trim()}>{tr('Add', 'إضافة')}</Button>
+            <Button onClick={handleAddDept} disabled={!newDept.trim()}>{editingDept ? tr('Save', 'حفظ') : tr('Add', 'إضافة')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

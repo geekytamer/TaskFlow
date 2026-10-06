@@ -5,10 +5,12 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import {
-  getEmployees, getAttendance, upsertAttendance,
+  getEmployees, getAttendance, upsertAttendance, deleteAttendance,
   type Employee, type AttendanceRecord, type AttendanceStatus,
 } from '@/services/hrService';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -75,6 +77,17 @@ export function AttendancePage() {
     }
   };
 
+  const clearDay = async (employeeId: string) => {
+    const rec = records[employeeId];
+    if (!rec) return;
+    try {
+      await deleteAttendance(rec.id);
+      setRecords((p) => { const next = { ...p }; delete next[employeeId]; return next; });
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not clear the day', 'تعذر مسح اليوم'), description: error?.message });
+    }
+  };
+
   const setHours = async (employeeId: string, hours: number) => {
     if (!companyId) return;
     const status = records[employeeId]?.status || 'present';
@@ -116,6 +129,7 @@ export function AttendancePage() {
                 <TableHead>{tr('Employee', 'الموظف')}</TableHead>
                 <TableHead className="w-[200px]">{tr('Status', 'الحالة')}</TableHead>
                 <TableHead className="w-[120px]">{tr('Hours', 'الساعات')}</TableHead>
+                <TableHead className="w-[56px]"><span className="sr-only">{tr('Clear', 'مسح')}</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -146,6 +160,15 @@ export function AttendancePage() {
                         onBlur={(ev) => rec && setHours(e.id, Number(ev.target.value))}
                         className="w-20"
                       />
+                    </TableCell>
+                    <TableCell className="text-end">
+                      {rec && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          title={tr('Clear this day', 'مسح هذا اليوم')} aria-label={tr(`Clear ${e.name}'s record for this day`, `مسح سجل ${e.name} لهذا اليوم`)}
+                          onClick={() => clearDay(e.id)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

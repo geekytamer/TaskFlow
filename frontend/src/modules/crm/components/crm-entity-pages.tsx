@@ -60,6 +60,7 @@ import {
   updateCampaignExpense,
   updateCommissionStatus,
   updateProposalStatus,
+  updateProposal,
   updateVendorRequestStatus,
   type CampaignAssignment,
   type CampaignDeliverable,
@@ -195,14 +196,24 @@ export function ProposalsPage() {
   const { selectedCompany, loading, opportunities, contactName } = useCrmBaseData();
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const confirm = useConfirm();
   const proposalStatusLabel = (s: string) => t(`proposalsPage.status${s}`, s);
   const [proposals, setProposals] = React.useState<CrmProposal[]>([]);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
-  const [form, setForm] = React.useState({
-    opportunityId: '', title: '', description: '', quantity: '1', unitPrice: '', validUntil: '', notes: '',
-  });
+  type LineForm = { description: string; quantity: string; unitPrice: string };
+  const emptyLine = (): LineForm => ({ description: '', quantity: '1', unitPrice: '' });
+  const [form, setForm] = React.useState({ opportunityId: '', title: '', validUntil: '', notes: '' });
+  const [lines, setLines] = React.useState<LineForm[]>([emptyLine()]);
+  /** The draft being edited; null while creating. Only drafts change: sent ones are with the client. */
+  const [editing, setEditing] = React.useState<CrmProposal | null>(null);
+  const setLine = (i: number, patch: Partial<LineForm>) => setLines((p) => p.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const cleanLines = lines
+    .filter((l) => l.description.trim())
+    .map((l) => ({ description: l.description.trim(), quantity: Number(l.quantity || 1), unitPrice: Number(l.unitPrice || 0), lineTotal: Number(l.quantity || 1) * Number(l.unitPrice || 0) }));
+  const linesTotal = cleanLines.reduce((sum, l) => sum + l.lineTotal, 0);
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) return setProposals([]);
@@ -212,30 +223,42 @@ export function ProposalsPage() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  const resetForm = () => setForm({ opportunityId: '', title: '', description: '', quantity: '1', unitPrice: '', validUntil: '', notes: '' });
+  const resetForm = () => { setForm({ opportunityId: '', title: '', validUntil: '', notes: '' }); setLines([emptyLine()]); setEditing(null); };
+
+  const openEdit = (p: CrmProposal) => {
+    setEditing(p);
+    setForm({
+      opportunityId: p.opportunityId, title: p.title,
+      validUntil: p.validUntil ? new Date(p.validUntil).toISOString().slice(0, 10) : '', notes: p.notes ?? '',
+    });
+    setLines(p.items.length ? p.items.map((i) => ({ description: i.description, quantity: String(i.quantity), unitPrice: String(i.unitPrice) })) : [emptyLine()]);
+    setDialogOpen(true);
+  };
+
+  /** Runs a row action, reloading on success and saying what went wrong otherwise. */
+  const act = async (fn: () => Promise<unknown>, failed: string) => {
+    try { await fn(); await load(); }
+    catch (error: any) { toast({ variant: 'destructive', title: failed, description: error?.message }); }
+  };
 
   const submit = async () => {
-    if (!selectedCompany || !form.opportunityId || !form.title.trim() || !form.description.trim()) return;
+    if (!selectedCompany || !form.opportunityId || !form.title.trim() || cleanLines.length === 0) return;
     setSubmitting(true);
     try {
-      await createProposal(selectedCompany.id, {
-        opportunityId: form.opportunityId,
+      const data = {
         title: form.title.trim(),
         validUntil: form.validUntil ? new Date(form.validUntil) : undefined,
-        items: [{
-          description: form.description.trim(),
-          quantity: Number(form.quantity || 1),
-          unitPrice: Number(form.unitPrice || 0),
-          lineTotal: Number(form.quantity || 1) * Number(form.unitPrice || 0),
-        }],
+        items: cleanLines,
         notes: form.notes.trim() || undefined,
-      });
+      };
+      if (editing) await updateProposal(editing.id, { ...data, notes: form.notes.trim() });
+      else await createProposal(selectedCompany.id, { opportunityId: form.opportunityId, ...data });
       resetForm();
       setDialogOpen(false);
       await load();
-      toast({ title: t('proposalsPage.toastCreated') });
+      toast({ title: editing ? tr('Proposal updated', 'تم تحديث العرض') : t('proposalsPage.toastCreated') });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: t('proposalsPage.toastCreateFailed'), description: error?.message });
+      toast({ variant: 'destructive', title: editing ? tr('Could not update the proposal', 'تعذر تحديث العرض') : t('proposalsPage.toastCreateFailed'), description: error?.message });
     } finally { setSubmitting(false); }
   };
 
@@ -264,7 +287,7 @@ export function ProposalsPage() {
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{(proposals.length !== 1 ? t('proposalsPage.countPlural') : t('proposalsPage.countSingular')).replace('{count}', String(proposals.length))}</p>
-        <Button onClick={() => setDialogOpen(true)} data-tutorial="proposals-create">
+        <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-tutorial="proposals-create">
           <Plus className="me-2 h-4 w-4" /> {t('proposalsPage.newProposal')}
         </Button>
       </div>
@@ -306,26 +329,40 @@ export function ProposalsPage() {
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     {item.status === 'Draft' && (
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                        aria-label={tr('Edit draft', 'تعديل المسودة')} title={tr('Edit draft', 'تعديل المسودة')} onClick={() => openEdit(item)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {item.status === 'Draft' && (
                       <Button size="sm" variant="outline" className="h-7 gap-1 text-xs"
-                        onClick={async () => { await updateProposalStatus(item.id, 'Sent'); await load(); }}>
+                        onClick={() => act(() => updateProposalStatus(item.id, 'Sent'), tr('Could not send', 'تعذر الإرسال'))}>
                         <Send className="h-3 w-3" /> {t('proposalsPage.actionSend')}
                       </Button>
                     )}
                     {item.status === 'Sent' && (
                       <Button size="sm" className="h-7 gap-1 text-xs bg-green-600 hover:bg-green-700 text-white"
-                        onClick={async () => { await updateProposalStatus(item.id, 'Accepted'); await load(); }}>
+                        onClick={() => act(() => updateProposalStatus(item.id, 'Accepted'), tr('Could not accept', 'تعذر القبول'))}>
                         <CheckCircle2 className="h-3 w-3" /> {t('proposalsPage.actionAccept')}
                       </Button>
                     )}
                     {item.status === 'Sent' && (
                       <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 border-red-200 hover:bg-red-50"
-                        onClick={async () => { await updateProposalStatus(item.id, 'Declined'); await load(); }}>
+                        onClick={() => act(() => updateProposalStatus(item.id, 'Declined'), tr('Could not decline', 'تعذر الرفض'))}>
                         <XCircle className="h-3 w-3" /> {t('proposalsPage.actionDecline')}
                       </Button>
                     )}
                     {item.status !== 'Expired' && (
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                        onClick={async () => { await deleteProposal(item.id); await load(); }}>
+                        aria-label={tr('Delete', 'حذف')}
+                        onClick={async () => {
+                          if (!(await confirm({
+                            title: tr(`Delete ${item.proposalNumber}?`, `حذف ${item.proposalNumber}؟`),
+                            description: tr('This cannot be undone.', 'لا يمكن التراجع عن هذا.'),
+                            confirmText: tr('Delete', 'حذف'), cancelText: tr('Cancel', 'إلغاء'), destructive: true,
+                          }))) return;
+                          await act(() => deleteProposal(item.id), tr('Could not delete', 'تعذر الحذف'));
+                        }}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     )}
@@ -347,16 +384,16 @@ export function ProposalsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" /> {t('proposalsPage.newProposal')}
+              <FileText className="h-5 w-5 text-primary" /> {editing ? tr(`Edit ${editing.proposalNumber}`, `تعديل ${editing.proposalNumber}`) : t('proposalsPage.newProposal')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>{t('proposalsPage.fieldOpportunity')} <span className="text-destructive">*</span></Label>
-              <Select value={form.opportunityId} onValueChange={(v) => setForm((p) => ({ ...p, opportunityId: v }))}>
+              <Select disabled={Boolean(editing)} value={form.opportunityId} onValueChange={(v) => setForm((p) => ({ ...p, opportunityId: v }))}>
                 <SelectTrigger><SelectValue placeholder={t('proposalsPage.fieldSelectOpportunity')} /></SelectTrigger>
                 <SelectContent>
-                  {opportunities.filter((o) => !['Won', 'Lost', 'Cancelled'].includes(o.stage)).map((o) => (
+                  {opportunities.filter((o) => o.id === form.opportunityId || !['Won', 'Lost', 'Cancelled'].includes(o.stage)).map((o) => (
                     <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>
                   ))}
                 </SelectContent>
@@ -373,26 +410,33 @@ export function ProposalsPage() {
               </div>
             </div>
             <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t('proposalsPage.lineItem')}</p>
-              <div className="space-y-1.5">
-                <Label>{t('proposalsPage.fieldDescription')} <span className="text-destructive">*</span></Label>
-                <Input placeholder={t('proposalsPage.fieldDescriptionPh')} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>{t('proposalsPage.fieldQuantity')}</Label>
-                  <Input type="number" min="1" placeholder="1" value={form.quantity} onChange={(e) => setForm((p) => ({ ...p, quantity: e.target.value }))} />
+              <p className="text-xs font-medium text-muted-foreground">{t('proposalsPage.lineItem')}</p>
+              {lines.map((line, i) => (
+                <div key={i} className="grid grid-cols-[minmax(0,1fr)_72px_96px_36px] items-end gap-2">
+                  <div className="space-y-1.5">
+                    {i === 0 && <Label>{t('proposalsPage.fieldDescription')} <span className="text-destructive">*</span></Label>}
+                    <Input placeholder={t('proposalsPage.fieldDescriptionPh')} value={line.description} onChange={(e) => setLine(i, { description: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    {i === 0 && <Label>{t('proposalsPage.fieldQuantity')}</Label>}
+                    <Input type="number" min="1" placeholder="1" value={line.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    {i === 0 && <Label>{t('proposalsPage.fieldUnitPrice')}</Label>}
+                    <Input type="number" min="0" placeholder="0.00" value={line.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9" disabled={lines.length === 1}
+                    aria-label={tr('Remove line', 'إزالة السطر')} onClick={() => setLines((p) => p.filter((_, j) => j !== i))}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>{t('proposalsPage.fieldUnitPrice')}</Label>
-                  <Input type="number" min="0" placeholder="0.00" value={form.unitPrice} onChange={(e) => setForm((p) => ({ ...p, unitPrice: e.target.value }))} />
-                </div>
+              ))}
+              <div className="flex items-center justify-between">
+                <Button type="button" variant="outline" size="sm" onClick={() => setLines((p) => [...p, emptyLine()])}>
+                  <Plus className="me-1.5 h-3.5 w-3.5" />{tr('Add line', 'إضافة سطر')}
+                </Button>
+                {linesTotal > 0 && <p className="text-sm font-medium tabular-nums">{t('proposalsPage.totalLabel')} {amount(linesTotal)}</p>}
               </div>
-              {form.quantity && form.unitPrice && (
-                <p className="text-sm font-medium">
-                  {t('proposalsPage.totalLabel')} {amount(Number(form.quantity) * Number(form.unitPrice))}
-                </p>
-              )}
             </div>
             <div className="space-y-1.5">
               <Label>{t('proposalsPage.fieldNotes')}</Label>
@@ -401,8 +445,8 @@ export function ProposalsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { resetForm(); setDialogOpen(false); }}>{t('common.cancel')}</Button>
-            <Button onClick={submit} disabled={submitting || !form.opportunityId || !form.title.trim() || !form.description.trim()}>
-              {submitting ? t('proposalsPage.creating') : t('proposalsPage.createProposal')}
+            <Button onClick={submit} disabled={submitting || !form.opportunityId || !form.title.trim() || cleanLines.length === 0}>
+              {submitting ? t('proposalsPage.creating') : editing ? tr('Save changes', 'حفظ التغييرات') : t('proposalsPage.createProposal')}
             </Button>
           </DialogFooter>
         </DialogContent>

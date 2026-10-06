@@ -9,9 +9,11 @@ import {
   getBudgetVariance,
   getLedgerAccounts,
   createBudget,
+  updateBudget,
   deleteBudget,
 } from '@/services/financeService';
-import type { Budget, BudgetVarianceReport, LedgerAccount } from '@/modules/finance/types';
+import type { Budget, BudgetStatus, BudgetVarianceReport, LedgerAccount } from '@/modules/finance/types';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,7 +29,7 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter,
 } from '@/components/ui/sheet';
-import { Plus, Trash2, ArrowLeft, PieChart } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, PieChart, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function money(n: number) {
@@ -38,23 +40,38 @@ function money(n: number) {
 /* Create sheet                                                   */
 /* -------------------------------------------------------------- */
 
-function CreateBudgetSheet({
-  accounts, onCreated,
+/** Creates a budget, or edits one (name, year, status, lines) when `budget` is given. */
+function BudgetSheet({
+  accounts, onCreated, budget, open: openProp, onOpenChange,
 }: {
   accounts: LedgerAccount[];
   onCreated: () => void;
+  budget?: Budget;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const [open, setOpen] = React.useState(false);
+  const [openState, setOpenState] = React.useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setOpenState(v); };
   const [name, setName] = React.useState('');
   const [year, setYear] = React.useState(new Date().getFullYear());
+  const [status, setStatus] = React.useState<BudgetStatus>('active');
   const [lines, setLines] = React.useState<{ accountId: string; amount: string }[]>([
     { accountId: '', amount: '' },
   ]);
   const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!budget || !open) return;
+    setName(budget.name);
+    setYear(budget.fiscalYear);
+    setStatus(budget.status);
+    setLines(budget.lines.length ? budget.lines.map((l) => ({ accountId: l.accountId, amount: String(l.amount) })) : [{ accountId: '', amount: '' }]);
+  }, [budget, open]);
 
   const reset = () => {
     setName(''); setYear(new Date().getFullYear());
@@ -73,8 +90,9 @@ function CreateBudgetSheet({
     }
     setSaving(true);
     try {
-      await createBudget(selectedCompany.id, { name: name.trim(), fiscalYear: year, status: 'active', lines: clean });
-      toast({ title: tr('Budget created', 'تم إنشاء الميزانية') });
+      if (budget) await updateBudget(budget.id, { name: name.trim(), fiscalYear: year, status, lines: clean });
+      else await createBudget(selectedCompany.id, { name: name.trim(), fiscalYear: year, status: 'active', lines: clean });
+      toast({ title: budget ? tr('Budget updated', 'تم تحديث الميزانية') : tr('Budget created', 'تم إنشاء الميزانية') });
       setOpen(false); reset(); onCreated();
     } catch (e: any) {
       toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message || tr('Could not create budget.', 'تعذر إنشاء الميزانية.') });
@@ -85,11 +103,13 @@ function CreateBudgetSheet({
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button><Plus className="me-2 h-4 w-4" />{tr('New budget', 'ميزانية جديدة')}</Button>
-      </SheetTrigger>
+      {!budget && (
+        <SheetTrigger asChild>
+          <Button><Plus className="me-2 h-4 w-4" />{tr('New budget', 'ميزانية جديدة')}</Button>
+        </SheetTrigger>
+      )}
       <SheetContent className="w-full sm:max-w-lg flex flex-col">
-        <SheetHeader><SheetTitle>{tr('New budget', 'ميزانية جديدة')}</SheetTitle></SheetHeader>
+        <SheetHeader><SheetTitle>{budget ? tr(`Edit ${budget.name}`, `تعديل ${budget.name}`) : tr('New budget', 'ميزانية جديدة')}</SheetTitle></SheetHeader>
         <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-4">
           <div className="grid gap-2">
             <Label>{tr('Name', 'الاسم')}</Label>
@@ -99,6 +119,19 @@ function CreateBudgetSheet({
             <Label>{tr('Fiscal year', 'السنة المالية')}</Label>
             <Input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="w-40" />
           </div>
+          {budget && (
+            <div className="grid gap-2">
+              <Label>{tr('Status', 'الحالة')}</Label>
+              <Select value={status} onValueChange={(v) => setStatus(v as BudgetStatus)}>
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">{tr('Draft', 'مسودة')}</SelectItem>
+                  <SelectItem value="active">{tr('Active', 'نشطة')}</SelectItem>
+                  <SelectItem value="archived">{tr('Archived', 'مؤرشفة')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <Label>{tr('Budgeted accounts', 'الحسابات المُدرجة')}</Label>
             {lines.map((line, i) => (
@@ -124,7 +157,7 @@ function CreateBudgetSheet({
         </div>
         <SheetFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
-          <Button onClick={submit} disabled={saving}>{saving ? tr('Saving…', 'جارٍ الحفظ…') : tr('Create budget', 'إنشاء الميزانية')}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? tr('Saving…', 'جارٍ الحفظ…') : budget ? tr('Save changes', 'حفظ التغييرات') : tr('Create budget', 'إنشاء الميزانية')}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -227,6 +260,8 @@ export function BudgetPanel() {
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [report, setReport] = React.useState<BudgetVarianceReport | null>(null);
+  const [editing, setEditing] = React.useState<Budget | null>(null);
+  const confirm = useConfirm();
 
   const load = React.useCallback(async () => {
     if (!companyId) return;
@@ -253,6 +288,11 @@ export function BudgetPanel() {
   };
 
   const remove = async (id: string) => {
+    if (!(await confirm({
+      title: tr('Delete this budget?', 'حذف هذه الميزانية؟'),
+      description: tr('Spending is not affected; only the plan is removed.', 'لا يتأثر الإنفاق؛ تُحذف الخطة فقط.'),
+      confirmText: tr('Delete', 'حذف'), cancelText: tr('Cancel', 'إلغاء'), destructive: true,
+    }))) return;
     try {
       await deleteBudget(id);
       toast({ title: tr('Budget deleted', 'تم حذف الميزانية') });
@@ -274,7 +314,8 @@ export function BudgetPanel() {
             {tr('Set annual budgets per account and track spend against actuals.', 'حدّد ميزانيات سنوية لكل حساب وتابع الإنفاق مقابل الفعلي.')}
           </p>
         </div>
-        <CreateBudgetSheet accounts={accounts} onCreated={load} />
+        <BudgetSheet accounts={accounts} onCreated={load} />
+        {editing && <BudgetSheet accounts={accounts} budget={editing} open onOpenChange={(v) => { if (!v) setEditing(null); }} onCreated={() => { setEditing(null); load(); }} />}
       </div>
 
       {budgets.length === 0 ? (
@@ -303,7 +344,8 @@ export function BudgetPanel() {
                   <TableCell><Badge variant={b.status === 'active' ? 'default' : 'secondary'}>{b.status}</Badge></TableCell>
                   <TableCell className="text-end" onClick={(e) => e.stopPropagation()}>
                     <Button variant="ghost" size="sm" onClick={() => openReport(b.id)}>{tr('View variance', 'عرض الفرق')}</Button>
-                    <Button variant="ghost" size="icon" onClick={() => remove(b.id)}><Trash2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => setEditing(b)} aria-label={tr('Edit', 'تعديل')}><Pencil className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => remove(b.id)} aria-label={tr('Delete', 'حذف')}><Trash2 className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
               ))}

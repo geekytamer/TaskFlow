@@ -910,6 +910,12 @@ export async function createJournalEntry(
   return mapJournalEntry(entry);
 }
 
+/** Reverses a manual entry once, with a mirror entry dated today (or the given date). */
+export async function reverseJournalEntry(entryId: string, data: { reason?: string; entryDate?: string } = {}): Promise<JournalEntry> {
+  const entry = await apiFetch<JournalEntry>(`/journal-entries/${entryId}/reverse`, { method: 'POST', body: JSON.stringify(data) });
+  return mapJournalEntry(entry);
+}
+
 export async function getAccountActivityReport(
   companyId: string,
   accountId: string,
@@ -1135,6 +1141,15 @@ export async function createVendorBill(
   return mapVendorBill(bill);
 }
 
+/** Edits a draft vendor bill; approved bills change by reversing payments or deleting. */
+export async function updateVendorBill(
+  billId: string,
+  data: Partial<{ vendorName: string; supplierId: string; referenceInvoiceNumber: string; issueDate: Date; dueDate: Date; amount: number; notes: string; expenseAccountId: string }>,
+): Promise<VendorBill> {
+  const bill = await apiFetch<VendorBill>(`/vendor-bills/${billId}`, { method: 'PUT', body: JSON.stringify(data) });
+  return mapVendorBill(bill);
+}
+
 export async function updateVendorBillStatus(
   billId: string,
   status: VendorBillStatus,
@@ -1236,6 +1251,12 @@ export async function createExpense(companyId: string, data: CreateExpenseInput)
     body: JSON.stringify(data),
   });
   return mapExpense(created);
+}
+
+/** Edits an expense; the server re-posts its ledger entry. Send '' to clear an optional field. */
+export async function updateExpense(expenseId: string, data: Partial<CreateExpenseInput>): Promise<Expense> {
+  const updated = await apiFetch<Expense>(`/expenses/${expenseId}`, { method: 'PUT', body: JSON.stringify(data) });
+  return mapExpense(updated);
 }
 
 export async function deleteExpense(expenseId: string): Promise<void> {

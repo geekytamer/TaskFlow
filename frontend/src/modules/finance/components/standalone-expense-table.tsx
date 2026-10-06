@@ -29,9 +29,9 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
-import { createExpense, deleteExpense, getExpenses } from '@/services/financeService';
+import { createExpense, deleteExpense, getExpenses, updateExpense } from '@/services/financeService';
 import type { Expense } from '@/modules/finance/types';
-import { Plus, Trash2, Receipt } from 'lucide-react';
+import { Pencil, Plus, Trash2, Receipt } from 'lucide-react';
 import { usePermissionOr } from '@/context/permissions-context';
 
 const emptyForm = () => ({
@@ -61,6 +61,18 @@ export function StandaloneExpenseTable() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [form, setForm] = React.useState(emptyForm);
+  /** The expense being edited; null while recording a new one. */
+  const [editing, setEditing] = React.useState<Expense | null>(null);
+
+  const closeDialog = () => { setForm(emptyForm()); setEditing(null); setDialogOpen(false); };
+  const openEdit = (e: Expense) => {
+    setEditing(e);
+    setForm({
+      category: e.category, amount: String(e.amount), expenseDate: format(e.expenseDate, 'yyyy-MM-dd'),
+      vendor: e.vendor ?? '', description: e.description ?? '', paymentMethod: e.paymentMethod ?? '', projectId: e.projectId ?? '',
+    });
+    setDialogOpen(true);
+  };
 
   const companyProjects = React.useMemo(
     () => projects.filter((p) => p.companyId === selectedCompany?.id),
@@ -104,6 +116,27 @@ export function StandaloneExpenseTable() {
       return;
     }
     setSaving(true);
+    if (editing) {
+      try {
+        await updateExpense(editing.id, {
+          category: form.category.trim(),
+          amount: Number(form.amount),
+          expenseDate: form.expenseDate || undefined,
+          vendor: form.vendor.trim(),
+          description: form.description.trim(),
+          paymentMethod: form.paymentMethod.trim(),
+          projectId: form.projectId,
+        });
+        closeDialog();
+        await load();
+        toast({ title: tr('Expense updated', 'تم تحديث المصروف') });
+      } catch (error: any) {
+        toast({ variant: 'destructive', title: tr('Could not update expense', 'تعذر تحديث المصروف'), description: error?.message });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     try {
       await createExpense(selectedCompany.id, {
         category: form.category.trim(),
@@ -207,7 +240,16 @@ export function StandaloneExpenseTable() {
                     <TableCell className="max-w-[260px] truncate text-muted-foreground">{e.description || '—'}</TableCell>
                     <TableCell className="text-end">{amount(e.amount)}</TableCell>
                     {canManage && (
-                      <TableCell className="text-end">
+                      <TableCell className="whitespace-nowrap text-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                          onClick={() => openEdit(e)}
+                          aria-label={tr('Edit', 'تعديل')}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -233,12 +275,14 @@ export function StandaloneExpenseTable() {
         </div>
       </CardContent>
 
-      <Dialog open={dialogOpen} onOpenChange={(v) => { if (!v) setForm(emptyForm()); setDialogOpen(v); }}>
+      <Dialog open={dialogOpen} onOpenChange={(v) => { if (!v) closeDialog(); else setDialogOpen(true); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{tr('Record Expense', 'تسجيل مصروف')}</DialogTitle>
+            <DialogTitle>{editing ? tr('Edit Expense', 'تعديل المصروف') : tr('Record Expense', 'تسجيل مصروف')}</DialogTitle>
             <DialogDescription>
-              {tr('Capture a business expense. Only category and amount are required.', 'سجّل مصروف عمل. الفئة والمبلغ فقط مطلوبان.')}
+              {editing
+                ? tr('Changes update the ledger entry too. The date must be in an open period.', 'تُحدِّث التغييرات قيد الدفتر أيضًا. يجب أن يكون التاريخ ضمن فترة مفتوحة.')
+                : tr('Capture a business expense. Only category and amount are required.', 'سجّل مصروف عمل. الفئة والمبلغ فقط مطلوبان.')}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2 sm:grid-cols-2">
@@ -309,11 +353,11 @@ export function StandaloneExpenseTable() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setForm(emptyForm()); setDialogOpen(false); }}>
+            <Button variant="outline" onClick={closeDialog}>
               {tr('Cancel', 'إلغاء')}
             </Button>
             <Button onClick={handleCreate} disabled={saving}>
-              {tr('Save Expense', 'حفظ المصروف')}
+              {editing ? tr('Save Changes', 'حفظ التغييرات') : tr('Save Expense', 'حفظ المصروف')}
             </Button>
           </DialogFooter>
         </DialogContent>

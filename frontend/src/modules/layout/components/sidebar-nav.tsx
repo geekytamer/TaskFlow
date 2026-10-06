@@ -42,7 +42,7 @@ import {
   Factory,
   Building2,
   FileText,
-  ShieldCheck,
+  ShieldCheck, ClipboardList
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -83,6 +83,7 @@ const sections: NavSection[] = [
     items: [
       { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
       { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
+      { href: '/purchases/requisitions', labelKey: 'nav.requisitions', icon: ClipboardList, roles: ['Admin', 'Manager', 'Accountant'] },
       { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-rfq' },
       { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-matching' },
       { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },

@@ -35,6 +35,7 @@ import {
   createVendorBillPayment,
   reverseVendorBillPayment,
   createVendorBill,
+  updateVendorBill,
   getLedgerAccounts,
   getPurchaseOrderPayables,
   getVendorBillPayments,
@@ -55,7 +56,7 @@ import type {
 } from '@/modules/finance/types';
 import { getPurchaseOrders, getSuppliers } from '@/services/operationsService';
 import type { PurchaseOrder, Supplier } from '@/modules/operations/types';
-import { ArrowUpRight, CircleDollarSign, Download, Eye, FilePlus, ListChecks, Printer, Undo2, Trash2 } from 'lucide-react';
+import { ArrowUpRight, CircleDollarSign, Download, Eye, FilePlus, ListChecks, Pencil, Printer, Undo2, Trash2 } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import Link from 'next/link';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
@@ -172,6 +173,8 @@ export function VendorBillTable() {
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | VendorBillStatus>('all');
   const [openCreate, setOpenCreate] = React.useState(false);
+  /** The draft bill being edited in the create dialog; null when creating. */
+  const [editingBill, setEditingBill] = React.useState<VendorBill | null>(null);
   const [openPayment, setOpenPayment] = React.useState(false);
   const [preview, setPreview] = React.useState<VendorBillDocumentPayload | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
@@ -331,6 +334,28 @@ export function VendorBillTable() {
         title: t('vendorBills.toastInvalidAmountTitle'),
         description: t('vendorBills.toastInvalidAmountDesc'),
       });
+      return;
+    }
+    if (editingBill) {
+      try {
+        await updateVendorBill(editingBill.id, {
+          vendorName,
+          supplierId: form.supplierId || undefined,
+          referenceInvoiceNumber: form.referenceInvoiceNumber,
+          issueDate: new Date(form.issueDate),
+          dueDate: form.dueDate ? new Date(form.dueDate) : undefined,
+          amount,
+          notes: form.notes,
+          expenseAccountId: form.expenseAccountId || undefined,
+        });
+        setOpenCreate(false);
+        setEditingBill(null);
+        resetForm();
+        await load();
+        toast({ title: tr('Draft bill updated', 'تم تحديث مسودة الفاتورة') });
+      } catch (error: any) {
+        toast({ variant: 'destructive', title: tr('Could not update the bill', 'تعذر تحديث الفاتورة'), description: error?.message });
+      }
       return;
     }
     try {
@@ -574,7 +599,7 @@ export function VendorBillTable() {
             {t('vendorBills.exportCsv')}
           </Button>
           {canManageFinance && (
-          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+          <Dialog open={openCreate} onOpenChange={(open) => { setOpenCreate(open); if (!open && editingBill) { setEditingBill(null); resetForm(); } }}>
             <DialogTrigger asChild>
               <Button>
                 <FilePlus className="me-2 h-4 w-4" />
@@ -583,9 +608,11 @@ export function VendorBillTable() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
-                <DialogTitle>{t('vendorBills.createTitle')}</DialogTitle>
+                <DialogTitle>{editingBill ? tr(`Edit draft ${editingBill.billNumber}`, `تعديل المسودة ${editingBill.billNumber}`) : t('vendorBills.createTitle')}</DialogTitle>
                 <DialogDescription>
-                  {t('vendorBills.createDescription')}
+                  {editingBill
+                    ? tr('Drafts have no ledger entries yet, so they can change freely. Approve it when it is right.', 'المسودات بلا قيود بعد، لذا يمكن تعديلها بحرية. اعتمدها حين تكون صحيحة.')
+                    : t('vendorBills.createDescription')}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 py-2 sm:grid-cols-2">
@@ -624,6 +651,7 @@ export function VendorBillTable() {
                 <div className="space-y-1">
                   <Label>{t('vendorBills.purchaseOrderLabel')}</Label>
                   <Select
+                    disabled={Boolean(editingBill)}
                     value={form.purchaseOrderId || 'none'}
                     onValueChange={(value) => {
                       const nextOrderId = value === 'none' ? '' : value;
@@ -715,6 +743,7 @@ export function VendorBillTable() {
                 <div className="space-y-1">
                   <Label>{t('vendorBills.statusLabel')}</Label>
                   <Select
+                    disabled={Boolean(editingBill)}
                     value={form.status}
                     onValueChange={(value) =>
                       setForm((prev) => ({ ...prev, status: value as VendorBillStatus }))
@@ -769,7 +798,7 @@ export function VendorBillTable() {
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>
                   {t('vendorBills.cancel')}
                 </Button>
-            <Button onClick={handleCreate}>{t('vendorBills.createBill')}</Button>
+            <Button onClick={handleCreate}>{editingBill ? tr('Save changes', 'حفظ التغييرات') : t('vendorBills.createBill')}</Button>
             </DialogFooter>
           </DialogContent>
           </Dialog>
@@ -877,6 +906,32 @@ export function VendorBillTable() {
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
+                    {canManageFinance && bill.status === 'Draft' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title={tr('Edit draft', 'تعديل المسودة')}
+                        aria-label={tr('Edit draft', 'تعديل المسودة')}
+                        onClick={() => {
+                          setEditingBill(bill);
+                          setForm({
+                            vendorName: bill.vendorName,
+                            supplierId: bill.supplierId ?? '',
+                            purchaseOrderId: bill.purchaseOrderId ?? '',
+                            referenceInvoiceNumber: bill.referenceInvoiceNumber ?? '',
+                            issueDate: format(bill.issueDate, 'yyyy-MM-dd'),
+                            dueDate: format(bill.dueDate, 'yyyy-MM-dd'),
+                            amount: String(bill.amount),
+                            status: bill.status,
+                            expenseAccountId: bill.expenseAccountId ?? '',
+                            notes: bill.notes ?? '',
+                          });
+                          setOpenCreate(true);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                     {!canManageFinance ? null : bill.status === 'Draft' ? (
                       <Button
                         variant="outline"

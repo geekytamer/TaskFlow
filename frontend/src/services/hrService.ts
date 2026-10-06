@@ -141,6 +141,9 @@ export async function getDepartments(companyId: string): Promise<Department[]> {
 export async function createDepartment(companyId: string, name: string): Promise<Department> {
   return apiFetch<Department>(`/companies/${companyId}/departments`, { method: 'POST', body: JSON.stringify({ name }) });
 }
+export async function updateDepartment(id: string, name: string): Promise<Department> {
+  return apiFetch<Department>(`/departments/${id}`, { method: 'PUT', body: JSON.stringify({ name }) });
+}
 export async function deleteDepartment(id: string): Promise<void> {
   await apiFetch(`/departments/${id}`, { method: 'DELETE' });
 }
@@ -178,6 +181,9 @@ export async function getLeaveTypes(companyId: string): Promise<LeaveType[]> {
 }
 export async function createLeaveType(companyId: string, name: string, paid: boolean): Promise<LeaveType> {
   return apiFetch<LeaveType>(`/companies/${companyId}/leave-types`, { method: 'POST', body: JSON.stringify({ name, paid }) });
+}
+export async function updateLeaveType(id: string, name: string, paid: boolean): Promise<LeaveType> {
+  return apiFetch<LeaveType>(`/leave-types/${id}`, { method: 'PUT', body: JSON.stringify({ name, paid }) });
 }
 export async function deleteLeaveType(id: string): Promise<void> {
   await apiFetch(`/leave-types/${id}`, { method: 'DELETE' });

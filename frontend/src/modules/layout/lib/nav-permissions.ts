@@ -14,6 +14,7 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/documents': 'documents:read',
   '/sales': 'sales:read',
   '/purchases': 'purchasing:read',
+  '/purchases/requisitions': 'purchasing:read',
   '/purchases/rfq': 'purchasing:read',
   '/purchases/matching': 'purchasing:read',
   '/inventory': 'inventory:read',

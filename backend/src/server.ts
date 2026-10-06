@@ -4563,6 +4563,14 @@ export function createServer(options: CreateServerOptions = {}) {
 		        }
 		      }
 		      const body = asRecord(req.body, 'body');
+		      // A sent proposal is what the client saw (and may have accepted in the portal):
+		      // its title, dates and prices are fixed. Notes can still change; status moves through /status.
+		      if (existing.status !== 'Draft') {
+		        const fixed = ['title', 'items', 'issueDate', 'validUntil'].filter((k) => body[k] !== undefined);
+		        if (fixed.length) {
+		          throw new HttpError(409, `A ${existing.status.toLowerCase()} proposal cannot change ${fixed.join(', ')}. Create a new proposal instead.`);
+		        }
+		      }
 		      const updated = withActor(req, () =>
 		        store.updateCrmProposal(req.params.id, {
 		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,

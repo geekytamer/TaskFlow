@@ -6,8 +6,8 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getRecipes, createRecipe, deleteRecipe,
-  getWorkOrders, createWorkOrder, completeWorkOrder, cancelWorkOrder, deleteWorkOrder,
+  getRecipes, createRecipe, updateRecipe, deleteRecipe,
+  getWorkOrders, createWorkOrder, updateWorkOrder, completeWorkOrder, cancelWorkOrder, deleteWorkOrder,
   getInventoryItems,
   type Recipe, type WorkOrder, type WorkOrderStatus,
 } from '@/services/operationsService';
@@ -28,7 +28,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Factory, FlaskConical, CheckCircle2, Ban } from 'lucide-react';
+import { Plus, Trash2, Factory, FlaskConical, CheckCircle2, Ban, Pencil } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 function num(n: number) {
@@ -40,17 +42,31 @@ function money(n: number) {
 
 /* ---------------- Recipes ---------------- */
 
-function CreateRecipeSheet({ items, onCreated }: { items: InventoryItem[]; onCreated: () => void }) {
+/** Creates a recipe, or edits one when `recipe` is given (then it opens from the row's edit button). */
+function RecipeSheet({ items, onCreated, recipe, open: openProp, onOpenChange }: {
+  items: InventoryItem[]; onCreated: () => void; recipe?: Recipe; open?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const [open, setOpen] = React.useState(false);
+  const [openState, setOpenState] = React.useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setOpenState(v); };
   const [name, setName] = React.useState('');
   const [outputItemId, setOutputItemId] = React.useState('');
   const [outputQty, setOutputQty] = React.useState('');
   const [components, setComponents] = React.useState([{ componentItemId: '', quantity: '' }]);
   const [saving, setSaving] = React.useState(false);
+
+  // Editing starts from the recipe as it is now.
+  React.useEffect(() => {
+    if (!recipe || !open) return;
+    setName(recipe.name);
+    setOutputItemId(recipe.outputItemId);
+    setOutputQty(String(recipe.outputQuantity));
+    setComponents(recipe.components.map((c) => ({ componentItemId: c.componentItemId, quantity: String(c.quantity) })));
+  }, [recipe, open]);
 
   const submit = async () => {
     if (!selectedCompany) return;
@@ -63,8 +79,10 @@ function CreateRecipeSheet({ items, onCreated }: { items: InventoryItem[]; onCre
     }
     setSaving(true);
     try {
-      await createRecipe(selectedCompany.id, { name: name.trim(), outputItemId, outputQuantity: Number(outputQty), components: clean });
-      toast({ title: tr('Recipe created', 'تم إنشاء الوصفة') });
+      const data = { name: name.trim(), outputItemId, outputQuantity: Number(outputQty), components: clean };
+      if (recipe) await updateRecipe(recipe.id, data);
+      else await createRecipe(selectedCompany.id, data);
+      toast({ title: recipe ? tr('Recipe updated', 'تم تحديث الوصفة') : tr('Recipe created', 'تم إنشاء الوصفة') });
       setOpen(false); setName(''); setOutputItemId(''); setOutputQty(''); setComponents([{ componentItemId: '', quantity: '' }]);
       onCreated();
     } catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
@@ -73,9 +91,12 @@ function CreateRecipeSheet({ items, onCreated }: { items: InventoryItem[]; onCre
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild><Button><Plus className="me-2 h-4 w-4" />{tr('New recipe', 'وصفة جديدة')}</Button></SheetTrigger>
+      {!recipe && <SheetTrigger asChild><Button><Plus className="me-2 h-4 w-4" />{tr('New recipe', 'وصفة جديدة')}</Button></SheetTrigger>}
       <SheetContent className="w-full sm:max-w-lg flex flex-col">
-        <SheetHeader><SheetTitle>{tr('New recipe (bill of materials)', 'وصفة جديدة (قائمة المكوّنات)')}</SheetTitle></SheetHeader>
+        <SheetHeader>
+          <SheetTitle>{recipe ? tr(`Edit ${recipe.name}`, `تعديل ${recipe.name}`) : tr('New recipe (bill of materials)', 'وصفة جديدة (قائمة المكوّنات)')}</SheetTitle>
+          {recipe && <p className="text-sm text-muted-foreground">{tr('Open work orders use the new components when they complete; completed ones keep what they used.', 'تستخدم أوامر العمل المفتوحة المكوّنات الجديدة عند إكمالها؛ وتحتفظ المكتملة بما استخدمته.')}</p>}
+        </SheetHeader>
         <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-4">
           <div className="grid gap-2">
             <Label>{tr('Name', 'الاسم')}</Label>
@@ -114,7 +135,7 @@ function CreateRecipeSheet({ items, onCreated }: { items: InventoryItem[]; onCre
         </div>
         <SheetFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
-          <Button onClick={submit} disabled={saving}>{tr('Create', 'إنشاء')}</Button>
+          <Button onClick={submit} disabled={saving}>{recipe ? tr('Save', 'حفظ') : tr('Create', 'إنشاء')}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -127,6 +148,7 @@ function RecipesTab({ items, recipes, reload }: { items: InventoryItem[]; recipe
   const confirm = useConfirm();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const itemName = (id: string) => items.find((i) => i.id === id)?.name ?? '—';
+  const [editing, setEditing] = React.useState<Recipe | null>(null);
 
   const remove = async (id: string) => {
     const ok = await confirm({ title: tr('Delete recipe?', 'حذف الوصفة؟'), confirmText: tr('Delete', 'حذف') });
@@ -137,7 +159,8 @@ function RecipesTab({ items, recipes, reload }: { items: InventoryItem[]; recipe
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end"><CreateRecipeSheet items={items} onCreated={reload} /></div>
+      <div className="flex justify-end"><RecipeSheet items={items} onCreated={reload} /></div>
+      {editing && <RecipeSheet items={items} recipe={editing} open onOpenChange={(v) => { if (!v) setEditing(null); }} onCreated={() => { setEditing(null); reload(); }} />}
       {recipes.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-center">
           <FlaskConical className="h-8 w-8 text-muted-foreground" />
@@ -162,7 +185,10 @@ function RecipesTab({ items, recipes, reload }: { items: InventoryItem[]; recipe
                       {r.components.map((c) => <Badge key={c.id} variant="outline">{num(c.quantity)} {itemName(c.componentItemId)}</Badge>)}
                     </div>
                   </TableCell>
-                  <TableCell className="text-end"><Button variant="ghost" size="icon" onClick={() => remove(r.id)}><Trash2 className="h-4 w-4" /></Button></TableCell>
+                  <TableCell className="whitespace-nowrap text-end">
+                    <Button variant="ghost" size="icon" onClick={() => setEditing(r)} aria-label={tr('Edit', 'تعديل')}><Pencil className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => remove(r.id)} aria-label={tr('Delete', 'حذف')}><Trash2 className="h-4 w-4" /></Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -188,6 +214,21 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
   const [recipeId, setRecipeId] = React.useState('');
   const [batches, setBatches] = React.useState('1');
   const [creating, setCreating] = React.useState(false);
+  const [editingWo, setEditingWo] = React.useState<WorkOrder | null>(null);
+  const [woForm, setWoForm] = React.useState({ batches: '', notes: '' });
+  const [savingWo, setSavingWo] = React.useState(false);
+
+  const saveWo = async () => {
+    if (!editingWo || !(Number(woForm.batches) > 0)) return;
+    setSavingWo(true);
+    try {
+      await updateWorkOrder(editingWo.id, { batches: Number(woForm.batches), notes: woForm.notes });
+      toast({ title: tr('Work order updated', 'تم تحديث أمر العمل') });
+      setEditingWo(null);
+      reload();
+    } catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
+    finally { setSavingWo(false); }
+  };
 
   const create = async () => {
     if (!selectedCompany || !recipeId || !(Number(batches) > 0)) {
@@ -277,6 +318,12 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
                   <TableCell className="text-end">
                     {(wo.status === 'planned' || wo.status === 'in_progress') && (
                       <>
+                        {wo.status === 'planned' && (
+                          <Button variant="ghost" size="icon" title={tr('Edit', 'تعديل')} aria-label={tr('Edit', 'تعديل')}
+                            onClick={() => { setEditingWo(wo); setWoForm({ batches: String(wo.batches), notes: wo.notes ?? '' }); }}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => complete(wo)}><CheckCircle2 className="me-1 h-4 w-4" />{tr('Complete', 'إكمال')}</Button>
                         <Button variant="ghost" size="icon" onClick={() => cancel(wo.id)} title={tr('Cancel', 'إلغاء')}><Ban className="h-4 w-4" /></Button>
                         <Button variant="ghost" size="icon" onClick={() => remove(wo.id)}><Trash2 className="h-4 w-4" /></Button>
@@ -289,6 +336,29 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
           </Table>
         </div>
       )}
+
+      <Dialog open={Boolean(editingWo)} onOpenChange={(v) => { if (!v) setEditingWo(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{tr(`Edit ${editingWo?.reference ?? ''}`, `تعديل ${editingWo?.reference ?? ''}`)}</DialogTitle>
+            <DialogDescription>{tr('A planned order can change its batches; expected output follows the recipe.', 'يمكن لأمر مخطط تغيير عدد الدفعات؛ ويتبع الناتج المتوقع الوصفة.')}</DialogDescription>
+          </DialogHeader>
+          <form className="grid gap-3" onSubmit={(e) => { e.preventDefault(); void saveWo(); }}>
+            <div className="grid gap-1.5">
+              <Label htmlFor="wo-batches">{tr('Batches', 'عدد الدفعات')}</Label>
+              <Input id="wo-batches" type="number" min={1} value={woForm.batches} onChange={(e) => setWoForm((f) => ({ ...f, batches: e.target.value }))} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="wo-notes">{tr('Notes', 'ملاحظات')}</Label>
+              <Textarea id="wo-notes" value={woForm.notes} onChange={(e) => setWoForm((f) => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditingWo(null)}>{tr('Cancel', 'إلغاء')}</Button>
+              <Button type="submit" disabled={savingWo || !(Number(woForm.batches) > 0)}>{tr('Save', 'حفظ')}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

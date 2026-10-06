@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getRfqs, getRfq, createRfq, addRfqQuote, deleteRfqQuote, awardRfqQuote, deleteRfq, createPurchaseOrderFromRfq,
+  getRfqs, getRfq, createRfq, updateRfq, addRfqQuote, deleteRfqQuote, awardRfqQuote, deleteRfq, createPurchaseOrderFromRfq,
   getSuppliers, type Rfq,
 } from '@/services/operationsService';
 import type { Supplier } from '@/modules/operations/types';
@@ -26,23 +26,36 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, ArrowLeft, Award, FileQuestion, Trophy, ShoppingCart } from 'lucide-react';
+import { Plus, Pencil, Trash2, ArrowLeft, Award, FileQuestion, Trophy, ShoppingCart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
+/** Creates an RFQ, or edits one when `rfq` is given (items lock once a quote is awarded). */
+function RfqSheet({ onCreated, rfq, open: openProp, onOpenChange }: {
+  onCreated: (rfq: Rfq) => void; rfq?: Rfq; open?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const [open, setOpen] = React.useState(false);
+  const [openState, setOpenState] = React.useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setOpenState(v); };
   const [title, setTitle] = React.useState('');
   const [notes, setNotes] = React.useState('');
   const [items, setItems] = React.useState([{ description: '', quantity: '', unit: '' }]);
   const [saving, setSaving] = React.useState(false);
+  const itemsLocked = Boolean(rfq?.awardedQuoteId || rfq?.purchaseOrderId);
+
+  React.useEffect(() => {
+    if (!rfq || !open) return;
+    setTitle(rfq.title);
+    setNotes(rfq.notes ?? '');
+    setItems(rfq.items.map((i) => ({ description: i.description, quantity: String(i.quantity), unit: i.unit ?? '' })));
+  }, [rfq, open]);
 
   const submit = async () => {
     if (!selectedCompany) return;
@@ -55,21 +68,29 @@ function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
     }
     setSaving(true);
     try {
-      await createRfq(selectedCompany.id, { title: title.trim(), notes: notes.trim() || undefined, items: clean });
-      toast({ title: tr('RFQ created', 'تم إنشاء طلب عروض الأسعار') });
-      setOpen(false); setTitle(''); setNotes(''); setItems([{ description: '', quantity: '', unit: '' }]);
-      onCreated();
+      const saved = rfq
+        ? await updateRfq(rfq.id, { title: title.trim(), notes: notes.trim(), ...(itemsLocked ? {} : { items: clean }) })
+        : await createRfq(selectedCompany.id, { title: title.trim(), notes: notes.trim() || undefined, items: clean });
+      toast({ title: rfq ? tr('RFQ updated', 'تم تحديث طلب عروض الأسعار') : tr('RFQ created', 'تم إنشاء طلب عروض الأسعار') });
+      setOpen(false);
+      if (!rfq) { setTitle(''); setNotes(''); setItems([{ description: '', quantity: '', unit: '' }]); }
+      onCreated(saved);
     } catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
     finally { setSaving(false); }
   };
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button data-tutorial="rfq-create"><Plus className="me-2 h-4 w-4" />{tr('New RFQ', 'طلب عروض جديد')}</Button>
-      </SheetTrigger>
+      {!rfq && (
+        <SheetTrigger asChild>
+          <Button data-tutorial="rfq-create"><Plus className="me-2 h-4 w-4" />{tr('New RFQ', 'طلب عروض جديد')}</Button>
+        </SheetTrigger>
+      )}
       <SheetContent className="w-full sm:max-w-lg flex flex-col">
-        <SheetHeader><SheetTitle>{tr('New request for quotation', 'طلب عروض أسعار جديد')}</SheetTitle></SheetHeader>
+        <SheetHeader>
+          <SheetTitle>{rfq ? tr(`Edit ${rfq.reference}`, `تعديل ${rfq.reference}`) : tr('New request for quotation', 'طلب عروض أسعار جديد')}</SheetTitle>
+          {itemsLocked && <p className="text-sm text-muted-foreground">{tr('A quote is awarded, so the items are fixed. Title and notes can still change.', 'تمت ترسية عرض، لذا الأصناف ثابتة. يمكن تغيير العنوان والملاحظات.')}</p>}
+        </SheetHeader>
         <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-4">
           <div className="grid gap-2">
             <Label>{tr('Title', 'العنوان')}</Label>
@@ -78,7 +99,7 @@ function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
           <div className="flex flex-col gap-2">
             <Label>{tr('Items', 'الأصناف')}</Label>
             {items.map((it, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <fieldset key={i} disabled={itemsLocked} className="flex items-center gap-2 disabled:opacity-60">
                 <Input className="flex-1" placeholder={tr('Description', 'الوصف')} value={it.description}
                   onChange={(e) => setItems((p) => p.map((x, j) => j === i ? { ...x, description: e.target.value } : x))} />
                 <Input className="w-20" type="number" placeholder={tr('Qty', 'الكمية')} value={it.quantity}
@@ -87,9 +108,9 @@ function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
                   onChange={(e) => setItems((p) => p.map((x, j) => j === i ? { ...x, unit: e.target.value } : x))} />
                 <Button variant="ghost" size="icon" disabled={items.length === 1}
                   onClick={() => setItems((p) => p.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>
-              </div>
+              </fieldset>
             ))}
-            <Button variant="outline" size="sm" className="self-start" onClick={() => setItems((p) => [...p, { description: '', quantity: '', unit: '' }])}>
+            <Button variant="outline" size="sm" className="self-start" disabled={itemsLocked} onClick={() => setItems((p) => [...p, { description: '', quantity: '', unit: '' }])}>
               <Plus className="me-2 h-3.5 w-3.5" />{tr('Add item', 'إضافة صنف')}
             </Button>
           </div>
@@ -100,7 +121,7 @@ function CreateRfqSheet({ onCreated }: { onCreated: () => void }) {
         </div>
         <SheetFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
-          <Button onClick={submit} disabled={saving}>{tr('Create', 'إنشاء')}</Button>
+          <Button onClick={submit} disabled={saving}>{rfq ? tr('Save', 'حفظ') : tr('Create', 'إنشاء')}</Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -206,6 +227,7 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
   const [supplierName, setSupplierName] = React.useState('');
   const [amount, setAmount] = React.useState('');
   const [lead, setLead] = React.useState('');
+  const [editOpen, setEditOpen] = React.useState(false);
 
 
   const addQuote = async () => {
@@ -246,6 +268,8 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
           <p className="text-sm text-muted-foreground">{rfq.reference}</p>
         </div>
         <Badge variant={rfq.status === 'awarded' ? 'default' : 'secondary'}>{rfq.status}</Badge>
+        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="me-1.5 h-4 w-4" />{tr('Edit', 'تعديل')}</Button>
+        <RfqSheet rfq={rfq} open={editOpen} onOpenChange={setEditOpen} onCreated={(saved) => setRfq(saved)} />
       </div>
 
       <div className="rounded-lg border p-4">
@@ -370,7 +394,7 @@ export function RfqPage() {
         <Skeleton className="h-64 w-full rounded-lg" />
       ) : (
         <div className="flex flex-col gap-4">
-          <div className="flex justify-end"><CreateRfqSheet onCreated={load} /></div>
+          <div className="flex justify-end"><RfqSheet onCreated={() => load()} /></div>
           {rfqs.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-center">
               <FileQuestion className="h-8 w-8 text-muted-foreground" />

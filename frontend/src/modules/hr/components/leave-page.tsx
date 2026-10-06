@@ -15,13 +15,14 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { Plus, Trash2, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { usePermissionOr } from '@/context/permissions-context';
 import {
   createLeaveRequest,
   createLeaveType,
   deleteLeaveRequest,
   deleteLeaveType,
+  updateLeaveType,
   getEmployees,
   getLeaveBalance,
   getLeaveRequests,
@@ -56,6 +57,7 @@ export function LeavePage() {
   const [loading, setLoading] = React.useState(true);
 
   const [newTypeName, setNewTypeName] = React.useState('');
+  const [editingType, setEditingType] = React.useState<LeaveType | null>(null);
   const [newTypePaid, setNewTypePaid] = React.useState(true);
   const [typeDialogOpen, setTypeDialogOpen] = React.useState(false);
 
@@ -91,7 +93,9 @@ export function LeavePage() {
   const handleAddType = async () => {
     if (!selectedCompany || !newTypeName.trim()) return;
     try {
-      await createLeaveType(selectedCompany.id, newTypeName.trim(), newTypePaid);
+      if (editingType) await updateLeaveType(editingType.id, newTypeName.trim(), newTypePaid);
+      else await createLeaveType(selectedCompany.id, newTypeName.trim(), newTypePaid);
+      setEditingType(null);
       setNewTypeName(''); setNewTypePaid(true);
       setTypeDialogOpen(false);
       await load();
@@ -240,13 +244,14 @@ export function LeavePage() {
                         <Badge variant="outline" className={t.paid ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}>
                           {t.paid ? tr('Paid', 'مدفوعة') : tr('Unpaid', 'غير مدفوعة')}
                         </Badge>
-                        <button onClick={() => handleDeleteType(t)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => { setEditingType(t); setNewTypeName(t.name); setNewTypePaid(t.paid); setTypeDialogOpen(true); }} className="text-muted-foreground hover:text-foreground" aria-label={tr(`Edit ${t.name}`, `تعديل ${t.name}`)}><Pencil className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => handleDeleteType(t)} className="text-muted-foreground hover:text-destructive" aria-label={tr(`Delete ${t.name}`, `حذف ${t.name}`)}><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="border-t pt-3">
-                  <Button size="sm" variant="outline" onClick={() => { setNewTypeName(''); setNewTypePaid(true); setTypeDialogOpen(true); }}>
+                  <Button size="sm" variant="outline" onClick={() => { setEditingType(null); setNewTypeName(''); setNewTypePaid(true); setTypeDialogOpen(true); }}>
                     <Plus className="me-1.5 h-3.5 w-3.5" />{tr('Add leave type', 'إضافة نوع إجازة')}
                   </Button>
                 </div>
@@ -321,9 +326,9 @@ export function LeavePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
+      <Dialog open={typeDialogOpen} onOpenChange={(v) => { setTypeDialogOpen(v); if (!v) setEditingType(null); }}>
         <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>{tr('Add Leave Type', 'إضافة نوع إجازة')}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingType ? tr('Edit Leave Type', 'تعديل نوع الإجازة') : tr('Add Leave Type', 'إضافة نوع إجازة')}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>{tr('Name', 'الاسم')}</Label>
@@ -342,7 +347,7 @@ export function LeavePage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTypeDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
-            <Button onClick={handleAddType} disabled={!newTypeName.trim()}>{tr('Add', 'إضافة')}</Button>
+            <Button onClick={handleAddType} disabled={!newTypeName.trim()}>{editingType ? tr('Save', 'حفظ') : tr('Add', 'إضافة')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

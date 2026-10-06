@@ -398,7 +398,8 @@ export type JournalSourceType =
   | 'invoice'
   | 'invoice_payment'
   | 'vendor_bill'
-  | 'vendor_bill_payment';
+  | 'vendor_bill_payment'
+  | 'journal_reversal';
 
 export interface JournalEntry {
   id: string;

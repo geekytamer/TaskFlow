@@ -34,11 +34,13 @@ import {
   createLedgerAccount,
   deleteLedgerAccount,
   getJournalEntries,
+  reverseJournalEntry,
   getLedgerAccounts,
   updateLedgerAccount,
 } from '@/services/financeService';
 import type { JournalEntry, LedgerAccount, LedgerAccountType } from '@/modules/finance/types';
-import { Download, FilePlus2, NotebookPen, Pencil, Trash2 } from 'lucide-react';
+import { Download, FilePlus2, NotebookPen, Pencil, Trash2, Undo2 } from 'lucide-react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { useI18n } from '@/context/i18n-context';
@@ -91,7 +93,9 @@ const accountColumnGroup = (
 export function JournalTable() {
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const confirm = useConfirm();
   const { amount } = useCompanyCurrency();
   const typeLabel = (type: LedgerAccountType) => t(`journal.type${type}`);
   const typeDescription = (type: LedgerAccountType) => t(accountTypeDescriptionKeys[type]);
@@ -113,6 +117,32 @@ export function JournalTable() {
     creditAccountId: '',
     description: '',
   });
+
+  // Manual entries already reversed, so the action is offered once.
+  const reversedIds = React.useMemo(
+    () => new Set(entries.filter((e) => e.sourceType === 'journal_reversal' && e.sourceId).map((e) => e.sourceId as string)),
+    [entries],
+  );
+
+  const handleReverse = async (entry: JournalEntry) => {
+    const ok = await confirm({
+      title: tr('Reverse this entry?', 'عكس هذا القيد؟'),
+      description: tr(
+        'A mirror entry dated today swaps every debit and credit, so the two cancel out. The original stays in the journal. This can be done once.',
+        'يُنشأ قيد معاكس بتاريخ اليوم يبدّل كل مدين ودائن فيلغي أحدهما الآخر. يبقى القيد الأصلي في اليومية. لا يمكن ذلك إلا مرة واحدة.',
+      ),
+      confirmText: tr('Reverse', 'عكس'),
+      cancelText: tr('Cancel', 'إلغاء'),
+    });
+    if (!ok) return;
+    try {
+      await reverseJournalEntry(entry.id);
+      toast({ title: tr('Entry reversed', 'تم عكس القيد') });
+      await load();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not reverse', 'تعذر العكس'), description: error?.message });
+    }
+  };
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) {
@@ -709,12 +739,13 @@ export function JournalTable() {
                   <TableHead>{t('journal.colLines')}</TableHead>
                   <TableHead className="text-end">{t('journal.colTotalDebit')}</TableHead>
                   <TableHead className="text-end">{t('journal.colTotalCredit')}</TableHead>
+                  <TableHead className="text-end">{t('journal.colActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {entries.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
                       {t('journal.noEntries')}
                     </TableCell>
                   </TableRow>
@@ -741,6 +772,15 @@ export function JournalTable() {
                         </TableCell>
                         <TableCell className="text-end">{amount(totalDebit)}</TableCell>
                         <TableCell className="text-end">{amount(totalCredit)}</TableCell>
+                        <TableCell className="text-end">
+                          {entry.sourceType === 'manual' && (reversedIds.has(entry.id) ? (
+                            <Badge variant="secondary">{tr('Reversed', 'معكوس')}</Badge>
+                          ) : (
+                            <Button variant="ghost" size="sm" className="h-8" onClick={() => handleReverse(entry)}>
+                              <Undo2 className="me-1.5 h-4 w-4" />{tr('Reverse', 'عكس')}
+                            </Button>
+                          ))}
+                        </TableCell>
                       </TableRow>
                     );
                   })

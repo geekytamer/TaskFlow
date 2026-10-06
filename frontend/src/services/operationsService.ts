@@ -253,6 +253,11 @@ export async function createRfq(
   return apiFetch<Rfq>(`/companies/${companyId}/rfqs`, { method: 'POST', body: JSON.stringify(data) });
 }
 
+/** Title and notes always; items only until a quote is awarded. */
+export async function updateRfq(id: string, data: { title?: string; items?: RfqLineItem[]; notes?: string }): Promise<Rfq> {
+  return apiFetch<Rfq>(`/rfqs/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
 export async function addRfqQuote(
   rfqId: string,
   data: { supplierId?: string; supplierName: string; totalAmount: number; leadTimeDays?: number; notes?: string },
@@ -354,6 +359,13 @@ export async function createRecipe(
   return apiFetch<Recipe>(`/companies/${companyId}/recipes`, { method: 'POST', body: JSON.stringify(data) });
 }
 
+export async function updateRecipe(
+  id: string,
+  data: { name: string; outputItemId: string; outputQuantity: number; components: { componentItemId: string; quantity: number }[]; notes?: string },
+): Promise<Recipe> {
+  return apiFetch<Recipe>(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
 export async function deleteRecipe(id: string): Promise<void> {
   await apiFetch(`/recipes/${id}`, { method: 'DELETE' });
 }
@@ -367,6 +379,11 @@ export async function createWorkOrder(
   companyId: string, data: { recipeId: string; batches: number; notes?: string },
 ): Promise<WorkOrder> {
   return apiFetch<WorkOrder>(`/companies/${companyId}/work-orders`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+/** A planned work order's batches and notes. */
+export async function updateWorkOrder(id: string, data: { batches?: number; notes?: string }): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 }
 
 export async function completeWorkOrder(id: string, producedQuantity?: number): Promise<WorkOrder> {
@@ -714,4 +731,56 @@ export async function getArchivedInventoryItems(companyId: string): Promise<Inve
 
 export async function deletePurchaseOrder(id: string): Promise<void> {
   await apiFetch(`/purchase-orders/${id}`, { method: 'DELETE' });
+}
+
+// ── Purchase requisitions: internal requests approved before they become a PO ──
+export type PurchaseRequisitionStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | 'Converted';
+
+export interface PurchaseRequisitionLine {
+  inventoryItemId?: string;
+  sku?: string;
+  description: string;
+  quantity: number;
+  estimatedUnitCost: number;
+}
+
+export interface PurchaseRequisition {
+  id: string;
+  companyId: string;
+  requisitionNumber: string;
+  requestedByUserId?: string;
+  department?: string;
+  status: PurchaseRequisitionStatus;
+  items: PurchaseRequisitionLine[];
+  neededBy?: string;
+  notes?: string;
+  preferredSupplierId?: string;
+  rejectionReason?: string;
+  purchaseOrderId?: string;
+  createdAt: string;
+}
+
+export async function getPurchaseRequisitions(companyId: string): Promise<PurchaseRequisition[]> {
+  if (!companyId) return [];
+  return apiFetch<PurchaseRequisition[]>(`/companies/${companyId}/purchase-requisitions`);
+}
+
+export async function createPurchaseRequisition(
+  companyId: string,
+  data: { department?: string; items: PurchaseRequisitionLine[]; neededBy?: string; notes?: string; preferredSupplierId?: string },
+): Promise<PurchaseRequisition> {
+  return apiFetch<PurchaseRequisition>(`/companies/${companyId}/purchase-requisitions`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+/** submit · approve · reject (with a reason) · convert (to a purchase order, with a supplier). */
+export async function actOnPurchaseRequisition(
+  id: string,
+  action: 'submit' | 'approve' | 'reject' | 'convert',
+  body: { reason?: string; supplierId?: string } = {},
+): Promise<unknown> {
+  return apiFetch(`/purchase-requisitions/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function deletePurchaseRequisition(id: string): Promise<void> {
+  await apiFetch(`/purchase-requisitions/${id}`, { method: 'DELETE' });
 }

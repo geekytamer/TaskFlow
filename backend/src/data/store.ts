@@ -7930,6 +7930,10 @@ export class DataStore {
     if (!rfq) return undefined;
     const title = updates.title !== undefined ? updates.title.trim() : rfq.title;
     if (!title) throw new Error('RFQ title is required.');
+    // Quotes were priced against these items; once one is awarded they are the deal.
+    if (updates.items !== undefined && (rfq.awardedQuoteId || rfq.purchaseOrderId)) {
+      throw new Error('Items cannot change after a quote is awarded. Start a new RFQ instead.');
+    }
     const items = updates.items !== undefined ? this.normalizeRfqItems(updates.items) : rfq.items;
     const status = updates.status ?? rfq.status;
     const notes = updates.notes !== undefined ? (updates.notes.trim() || null) : (rfq.notes ?? null);

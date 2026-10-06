@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { InvoiceTable } from './invoice-table';
+import { CreditNotesPanel } from './credit-notes-panel';
 import { ExpenseTable } from './expense-table';
 import { StandaloneExpenseTable } from './standalone-expense-table';
 import { FinanceOverviewPanel } from './finance-overview';
@@ -91,8 +92,9 @@ export function FinancePage() {
           <FinanceOverviewPanel />
         </TabsContent>
         {tabOn('invoices') && (
-          <TabsContent value="invoices">
+          <TabsContent value="invoices" className="space-y-4">
             <InvoiceTable />
+            <CreditNotesPanel />
           </TabsContent>
         )}
         {tabOn('payables') && (

@@ -116,3 +116,34 @@ test('positions are renamed only by the super admin; a planned work order change
   store.cancelWorkOrder(wo.id);
   assert.equal((await manager(request(app).put(`/work-orders/${wo.id}`)).send({ batches: 1 })).status, 409, 'a cancelled order is history');
 });
+
+test('an RFQ keeps its items once a quote is awarded; title and notes can still change', async () => {
+  const { app, store, manager } = setup();
+  const rfq = store.createRfq('1', { title: 'Dates supply', items: [{ description: 'Khalas dates', quantity: 100, unit: 'kg' }] });
+  const edited = await manager(request(app).put(`/rfqs/${rfq.id}`)).send({ items: [{ description: 'Khalas dates', quantity: 150, unit: 'kg' }] });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.equal(edited.body.items[0].quantity, 150);
+  const withQuote = store.addRfqQuote(rfq.id, { supplierName: 'Al Noor Farms', totalAmount: 900 });
+  store.awardRfqQuote(rfq.id, withQuote.quotes[0].id);
+  const blocked = await manager(request(app).put(`/rfqs/${rfq.id}`)).send({ items: [{ description: 'Khalas dates', quantity: 1, unit: 'kg' }] });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.body.message, /awarded/);
+  const renamed = await manager(request(app).put(`/rfqs/${rfq.id}`)).send({ title: 'Dates supply Q4', notes: 'Deliver weekly' });
+  assert.deepEqual([renamed.status, renamed.body.title, renamed.body.items[0].quantity], [200, 'Dates supply Q4', 150]);
+});
+
+test('a proposal is edited only as a draft: once sent, its prices are what the client saw', async () => {
+  const { app, store, admin } = setup();
+  const client = store.createContact({ companyId: '1', kind: 'Organization', name: 'Al Noor', roles: ['Client'] });
+  const opp = store.createOpportunity({ companyId: '1', contactId: client.id, title: 'Ramadan', serviceType: 'Influencer campaign', stage: 'Proposal', expectedRevenue: 0, probability: 50 });
+  const draft = store.createCrmProposal({ companyId: '1', opportunityId: opp.id, title: 'Launch', status: 'Draft', issueDate: new Date(), items: [{ description: 'Reel', quantity: 1, unitPrice: 500 }] });
+  const ok = await admin(request(app).put(`/proposals/${draft.id}`)).send({ items: [{ description: 'Reel', quantity: 2, unitPrice: 500 }] });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.totalAmount, 1000);
+  store.updateCrmProposal(draft.id, { status: 'Sent' });
+  const blocked = await admin(request(app).put(`/proposals/${draft.id}`)).send({ items: [{ description: 'Reel', quantity: 2, unitPrice: 1 }] });
+  assert.equal(blocked.status, 409);
+  assert.equal(store.getCrmProposalById(draft.id).totalAmount, 1000, 'price unchanged');
+  const notes = await admin(request(app).put(`/proposals/${draft.id}`)).send({ notes: 'Client asked for Friday' });
+  assert.equal(notes.status, 200, 'notes stay editable');
+});

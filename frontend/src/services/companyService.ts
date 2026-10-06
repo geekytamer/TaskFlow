@@ -67,6 +67,11 @@ export async function createPosition(positionData: Omit<Position, 'id'>): Promis
   });
 }
 
+/** Renames a shared position (super admin only on the server). */
+export async function updatePosition(positionId: string, title: string): Promise<Position> {
+  return apiFetch<Position>(`/positions/${positionId}`, { method: 'PUT', body: JSON.stringify({ title }) });
+}
+
 export async function deletePosition(positionId: string): Promise<void> {
   await apiFetch(`/positions/${positionId}`, { method: 'DELETE' });
 }
