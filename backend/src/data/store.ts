@@ -12,6 +12,7 @@ import { PortalThreadStore } from '../portal/thread-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
+import { RecurringStore } from '../finance/recurring';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -656,6 +657,7 @@ export class DataStore {
   readonly influencer: InfluencerPortalStore;
   readonly games: GamesStore;
   readonly academy: AcademyStore;
+  readonly recurring: RecurringStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -690,6 +692,7 @@ export class DataStore {
     this.influencer = new InfluencerPortalStore(this.db);
     this.games = new GamesStore(this.db);
     this.academy = new AcademyStore(this.db);
+    this.recurring = new RecurringStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4394,6 +4397,41 @@ export class DataStore {
             );
             CREATE INDEX IF NOT EXISTS idx_customer_returns_company ON customer_returns(companyId, createdAt);
             CREATE INDEX IF NOT EXISTS idx_customer_returns_delivery ON customer_returns(deliveryId);
+          `);
+        },
+      },
+      {
+        // Recurring invoices and bills, and a log claiming each run date once.
+        id: '107_recurring_documents',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS recurring_documents (
+              id               TEXT PRIMARY KEY,
+              companyId        TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              kind             TEXT NOT NULL,
+              name             TEXT NOT NULL,
+              partyId          TEXT NOT NULL,
+              content          TEXT NOT NULL,
+              frequency        TEXT NOT NULL,
+              startDate        TEXT NOT NULL,
+              nextRunDate      TEXT NOT NULL,
+              endDate          TEXT,
+              mode             TEXT NOT NULL DEFAULT 'draft',
+              paymentTermsDays INTEGER NOT NULL DEFAULT 30,
+              active           INTEGER NOT NULL DEFAULT 1,
+              createdByUserId  TEXT NOT NULL,
+              createdAt        TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_recurring_due ON recurring_documents(active, nextRunDate);
+            CREATE TABLE IF NOT EXISTS recurring_runs (
+              recurringId TEXT NOT NULL REFERENCES recurring_documents(id) ON DELETE CASCADE,
+              runDate     TEXT NOT NULL,
+              documentId  TEXT,
+              status      TEXT NOT NULL,
+              message     TEXT,
+              createdAt   TEXT NOT NULL,
+              PRIMARY KEY (recurringId, runDate)
+            );
           `);
         },
       },

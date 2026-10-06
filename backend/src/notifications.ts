@@ -28,6 +28,7 @@ export const NOTIFICATION_META: Record<
   expiry_warning: { category: 'inventory', priority: 'normal' },
   po_approval: { category: 'finance', priority: 'critical' },
   po_approval_result: { category: 'finance', priority: 'normal' },
+  recurring_document: { category: 'finance', priority: 'normal' },
 };
 
 /**
@@ -50,6 +51,7 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   expiry_warning: 'inventory',
   po_approval: 'purchasing',
   po_approval_result: 'purchasing',
+  recurring_document: 'invoices',
 };
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];

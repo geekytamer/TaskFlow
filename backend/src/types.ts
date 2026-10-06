@@ -1711,7 +1711,8 @@ export interface ActivityEvent {
     | 'document'
     | 'whatsapp_message'
     | 'game'
-    | 'customer_return';
+    | 'customer_return'
+    | 'recurring_document';
   entityId: string;
   action: string;
   summary: string;
@@ -1742,7 +1743,8 @@ export type NotificationType =
   | 'low_stock'
   | 'expiry_warning'
   | 'po_approval'
-  | 'po_approval_result';
+  | 'po_approval_result'
+  | 'recurring_document';
 
 export interface Notification {
   id: string;

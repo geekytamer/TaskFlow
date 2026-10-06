@@ -38,15 +38,18 @@ const IMPACT_ROWS: Array<{ key: keyof AcademyImpact; en: string; ar: string; goo
  * clicks everywhere else, so while one is open the dock gives the screen to it
  * and shrinks to a note on the side the modal leaves free.
  */
-function useOpenModal(): 'left' | 'right' | null {
-  const [side, setSide] = React.useState<'left' | 'right' | null>(null);
+function useOpenModal(): 'left' | 'right' | 'covered' | null {
+  const [side, setSide] = React.useState<'left' | 'right' | 'covered' | null>(null);
   React.useEffect(() => {
     const check = () => {
       const open = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'))
         .filter((el) => !el.closest('[data-academy-dock]'));
       if (open.length === 0) { setSide(null); return; }
       const rect = open[open.length - 1].getBoundingClientRect();
-      setSide(rect.left + rect.width / 2 >= window.innerWidth / 2 ? 'right' : 'left');
+      const modalOnRight = rect.left + rect.width / 2 >= window.innerWidth / 2;
+      // The note is 16rem wide plus its margin; with less room than that on the free side it would cover the modal.
+      const free = modalOnRight ? rect.left : window.innerWidth - rect.right;
+      setSide(free < 288 ? 'covered' : modalOnRight ? 'right' : 'left');
     };
     check();
     const observer = new MutationObserver(check);
@@ -318,6 +321,7 @@ export function AcademyDock() {
   const allDone = progress.missions.every((m) => m.status === 'done');
 
   if (modalSide && !statements) {
+    if (modalSide === 'covered') return null;
     const title = objective ? tr(objective.title.en, objective.title.ar) : currentMission ? tr(currentMission.title.en, currentMission.title.ar) : tr('Academy', 'الأكاديمية');
     return <ModalNote modalSide={modalSide} step={steps[stepIndex]} title={title} tr={tr} />;
   }
