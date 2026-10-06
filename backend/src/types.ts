@@ -1760,7 +1760,8 @@ export type NotificationType =
   | 'po_approval_result'
   | 'recurring_document'
   | 'storage_excursion'
-  | 'storage_reading_due';
+  | 'storage_reading_due'
+  | 'shipment_due';
 
 export interface Notification {
   id: string;

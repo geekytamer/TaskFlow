@@ -43,7 +43,7 @@ const GATE_MODULES: readonly PermissionModule[] = [
     key: 'inventory',
     labelKey: 'perm.module.inventory',
     group: 'operations',
-    actions: ["create","delete","inventory-items.restore.create","post","read","stock-counts.write","warehouses.create","warehouses.delete","write"],
+    actions: ["create","delete","inventory-items.restore.create","post","read","shipments.write","stock-counts.write","warehouses.create","warehouses.delete","write"],
   },
   {
     key: 'manufacturing',

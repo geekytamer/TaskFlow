@@ -19,6 +19,7 @@ import { FixedAssetStore } from '../finance/fixed-assets';
 import { buildWpsFile } from '../hr/wps';
 import { QualityStore } from '../inventory/quality';
 import { ColdChainStore } from '../inventory/cold-chain';
+import { ShipmentStore } from '../logistics/shipments';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -671,6 +672,7 @@ export class DataStore {
   readonly assets: FixedAssetStore;
   readonly quality: QualityStore;
   readonly coldChain: ColdChainStore;
+  readonly shipments: ShipmentStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -710,6 +712,7 @@ export class DataStore {
     this.assets = new FixedAssetStore(this.db);
     this.quality = new QualityStore(this.db);
     this.coldChain = new ColdChainStore(this.db);
+    this.shipments = new ShipmentStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4621,6 +4624,44 @@ export class DataStore {
             );
             CREATE INDEX IF NOT EXISTS idx_storage_readings ON storage_readings(warehouseId, recordedAt);
           `);
+        },
+      },
+      {
+        // Import and export shipments with their document checklists.
+        id: '115_shipments',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS shipments (
+              id              TEXT PRIMARY KEY,
+              companyId       TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              reference       TEXT NOT NULL,
+              direction       TEXT NOT NULL,
+              mode            TEXT NOT NULL,
+              carrier         TEXT,
+              containers      TEXT NOT NULL DEFAULT '[]',
+              origin          TEXT,
+              destination     TEXT,
+              etd             TEXT,
+              eta             TEXT,
+              status          TEXT NOT NULL DEFAULT 'planned',
+              purchaseOrderId TEXT,
+              salesOrderId    TEXT,
+              documents       TEXT NOT NULL DEFAULT '[]',
+              notes           TEXT,
+              statusChangedAt TEXT NOT NULL,
+              createdAt       TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_shipments_company ON shipments(companyId, status);
+          `);
+        },
+      },
+      {
+        // Editing a shipment is its own permission (accountants keep the paperwork).
+        id: '116_shipments_write',
+        run: () => {
+          const groups = this.db.prepare("SELECT id FROM permission_groups WHERE isSystem = 1 AND key IN ('admin', 'manager', 'accountant')").all() as Array<{ id: string }>;
+          const insert = this.db.prepare("INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, 'inventory', 'shipments.write')");
+          for (const group of groups) insert.run(group.id);
         },
       },
     ];

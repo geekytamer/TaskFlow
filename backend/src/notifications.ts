@@ -31,6 +31,7 @@ export const NOTIFICATION_META: Record<
   recurring_document: { category: 'finance', priority: 'normal' },
   storage_excursion: { category: 'inventory', priority: 'critical' },
   storage_reading_due: { category: 'inventory', priority: 'normal' },
+  shipment_due: { category: 'inventory', priority: 'normal' },
 };
 
 /**
@@ -56,6 +57,7 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   recurring_document: 'invoices',
   storage_excursion: 'inventory',
   storage_reading_due: 'inventory',
+  shipment_due: 'inventory',
 };
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];

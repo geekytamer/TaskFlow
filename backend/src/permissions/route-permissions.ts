@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 335 gated routes.
+ * 340 gated routes.
  */
 
 export interface RoutePermission {
@@ -199,6 +199,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /companies/:companyId/inventory-location-balances': { module: 'inventory', action: 'read' },
   'GET /companies/:companyId/inventory-lots': { module: 'inventory', action: 'read' },
   'GET /companies/:companyId/inventory-lots/expiring': { module: 'inventory', action: 'read' },
+  'GET /companies/:companyId/shipments': { module: 'inventory', action: 'read' },
   'GET /warehouses/:id/storage': { module: 'inventory', action: 'read' },
   'GET /inventory-lots/:id/trace': { module: 'inventory', action: 'read' },
   'POST /companies/:companyId/warehouses': { module: 'inventory', action: 'warehouses.create' },
@@ -211,14 +212,18 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/inventory-items/:itemId/adjustments': { module: 'inventory', action: 'create' },
   'POST /companies/:companyId/inventory-items/:itemId/issues': { module: 'inventory', action: 'create' },
   'POST /companies/:companyId/inventory-items/:itemId/transfers': { module: 'inventory', action: 'create' },
+  'POST /companies/:companyId/shipments': { module: 'inventory', action: 'create' },
+  'POST /shipments/:id/status': { module: 'inventory', action: 'create' },
   'POST /warehouses/:id/readings': { module: 'inventory', action: 'create' },
   'POST /inventory-lots/:id/inspections': { module: 'inventory', action: 'create' },
   'PUT /warehouses/:id': { module: 'inventory', action: 'write' },
   'PUT /warehouses/:id/storage': { module: 'inventory', action: 'write' },
   'PUT /inventory-items/:id': { module: 'inventory', action: 'write' },
   'PUT /stock-counts/:id': { module: 'inventory', action: 'stock-counts.write' },
+  'PUT /shipments/:id': { module: 'inventory', action: 'shipments.write' },
   'DELETE /warehouses/:id': { module: 'inventory', action: 'warehouses.delete' },
   'DELETE /stock-counts/:id': { module: 'inventory', action: 'delete' },
+  'DELETE /shipments/:id': { module: 'inventory', action: 'delete' },
   'DELETE /inventory-items/:id': { module: 'inventory', action: 'delete' },
   'GET /companies/:companyId/recipes': { module: 'manufacturing', action: 'read' },
   'GET /recipes/:id': { module: 'manufacturing', action: 'read' },
