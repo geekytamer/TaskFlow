@@ -43,7 +43,7 @@ const GATE_MODULES: readonly PermissionModule[] = [
     key: 'inventory',
     labelKey: 'perm.module.inventory',
     group: 'operations',
-    actions: ["create","delete","post","read","stock-counts.delete","stock-counts.write","warehouses.create","write"],
+    actions: ["create","delete","inventory-items.restore.create","post","read","stock-counts.write","warehouses.create","warehouses.delete","write"],
   },
   {
     key: 'manufacturing',
@@ -67,13 +67,13 @@ const GATE_MODULES: readonly PermissionModule[] = [
     key: 'sales',
     labelKey: 'perm.module.sales',
     group: 'operations',
-    actions: ["cancel","create","deliveries.pdf.read","read","write"],
+    actions: ["cancel","create","delete","deliveries.pdf.read","read","write"],
   },
   {
     key: 'tasks',
     labelKey: 'perm.module.tasks',
     group: 'operations',
-    actions: ["tasks.create","write"],
+    actions: ["delete","tasks.create","write"],
   },
   // ── Finance ───────────────────────────────────────
   {

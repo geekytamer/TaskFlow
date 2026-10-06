@@ -5845,6 +5845,11 @@ export class DataStore {
     return newPosition;
   }
 
+  updatePosition(id: string, title: string): Position | undefined {
+    this.db.prepare('UPDATE positions SET title = ? WHERE id = ?').run(title, id);
+    return this.getPositionById(id);
+  }
+
   deletePosition(id: string) {
     this.db.prepare('DELETE FROM positions WHERE id = ?').run(id);
   }
@@ -7135,6 +7140,44 @@ export class DataStore {
   }
 
   /** Delete a vendor bill. Blocks if it has payments; otherwise reverses its journal entries. */
+  /**
+   * Edits a draft vendor bill. Drafts have no ledger entries yet; once a bill is
+   * approved it is changed by reversing it (or its payments), not by editing.
+   */
+  updateVendorBill(id: string, input: Partial<Pick<VendorBill, 'vendorName' | 'supplierId' | 'referenceInvoiceNumber' | 'issueDate' | 'dueDate' | 'amount' | 'taxRate' | 'notes' | 'expenseAccountId'>>): VendorBill {
+    const bill = this.getVendorBillById(id);
+    if (!bill) throw new Error('Vendor bill not found.');
+    if (bill.status !== 'Draft') throw new Error('Only a draft vendor bill can be edited.');
+    const next = { ...bill, ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) } as VendorBill;
+    next.issueDate = new Date(next.issueDate);
+    next.dueDate = new Date(next.dueDate);
+    if (!next.vendorName?.trim()) throw new Error('Vendor name is required.');
+    if (!(Number(next.amount) > 0)) throw new Error('Amount must be greater than zero.');
+    if (next.dueDate < next.issueDate) throw new Error('The due date cannot be before the issue date.');
+    this.assertOpenFinancialDate(bill.companyId, bill.issueDate, 'Vendor invoice issue date');
+    this.assertOpenFinancialDate(bill.companyId, next.issueDate, 'Vendor invoice issue date');
+    if (bill.purchaseOrderId && next.amount !== bill.amount) {
+      const purchaseOrder = this.getPurchaseOrderById(bill.purchaseOrderId);
+      const remaining = purchaseOrder ? purchaseOrder.totalAmount - this.getLinkedVendorBillAmount(bill.purchaseOrderId) + bill.amount : Infinity;
+      if (next.amount > remaining + 0.0001) {
+        throw new Error(`Vendor bill amount exceeds remaining purchase order amount (${remaining.toFixed(2)}).`);
+      }
+    }
+    if (next.referenceInvoiceNumber !== bill.referenceInvoiceNumber || next.supplierId !== bill.supplierId || next.vendorName !== bill.vendorName) {
+      this.assertUniqueVendorReference(bill.companyId, next.supplierId, next.vendorName, next.referenceInvoiceNumber, id);
+    }
+    this.db.prepare(
+      `UPDATE vendor_bills SET vendorName = @vendorName, supplierId = @supplierId, referenceInvoiceNumber = @referenceInvoiceNumber,
+         issueDate = @issueDate, dueDate = @dueDate, amount = @amount, taxRate = @taxRate, notes = @notes, expenseAccountId = @expenseAccountId WHERE id = @id`,
+    ).run({
+      id, vendorName: next.vendorName.trim(), supplierId: next.supplierId ?? null, referenceInvoiceNumber: next.referenceInvoiceNumber ?? null,
+      issueDate: next.issueDate.toISOString(), dueDate: next.dueDate.toISOString(), amount: Number(Number(next.amount).toFixed(2)),
+      taxRate: Number(next.taxRate) || 0, notes: next.notes ?? null, expenseAccountId: next.expenseAccountId ?? null,
+    });
+    this.createActivityEvent({ companyId: bill.companyId, entityType: 'vendor_bill', entityId: id, action: 'updated', summary: `Vendor bill ${bill.billNumber} updated.` });
+    return this.getVendorBillById(id)!;
+  }
+
   deleteVendorBill(id: string): void {
     const bill = this.getVendorBillById(id);
     if (!bill) throw new Error('Vendor bill not found.');
@@ -8191,6 +8234,21 @@ export class DataStore {
     this.db.prepare('INSERT INTO work_orders (id, companyId, reference, recipeId, batches, expectedQuantity, producedQuantity, materialCost, status, notes, createdAt, completedAt) VALUES (@id,@companyId,@reference,@recipeId,@batches,@expectedQuantity,0,0,@status,@notes,@createdAt,NULL)')
       .run({ id, companyId, reference, recipeId: recipe.id, batches, expectedQuantity: Number((recipe.outputQuantity * batches).toFixed(3)), status: 'planned', notes: input.notes?.trim() || null, createdAt: nowIso });
     this.createActivityEvent({ companyId, entityType: 'work_order', entityId: id, action: 'created', summary: `Work order ${reference} created.` });
+    return this.getWorkOrderById(id)!;
+  }
+
+  /** A planned work order's batches and notes; once started or finished, it is history. */
+  updateWorkOrder(id: string, input: { batches?: number; notes?: string | null }): WorkOrder {
+    const wo = this.getWorkOrderById(id);
+    if (!wo) throw new Error('Work order not found.');
+    if (wo.status !== 'planned') throw new Error('Only a planned work order can be edited.');
+    const recipe = this.getRecipeById(wo.recipeId);
+    const batches = input.batches === undefined ? wo.batches : Number(input.batches);
+    if (!(batches > 0)) throw new Error('Batches must be greater than zero.');
+    const expectedQuantity = recipe ? Number((recipe.outputQuantity * batches).toFixed(3)) : wo.expectedQuantity;
+    const notes = input.notes === undefined ? wo.notes ?? null : input.notes?.trim() || null;
+    this.db.prepare('UPDATE work_orders SET batches = ?, expectedQuantity = ?, notes = ? WHERE id = ?').run(batches, expectedQuantity, notes, id);
+    this.createActivityEvent({ companyId: wo.companyId, entityType: 'work_order', entityId: id, action: 'updated', summary: `Work order ${wo.reference} updated.` });
     return this.getWorkOrderById(id)!;
   }
 
@@ -14750,6 +14808,59 @@ export class DataStore {
     });
   }
 
+  /**
+   * Edits an expense and re-posts its ledger entry, so the P&L follows the
+   * change. Both the old and the new date must be in an open period.
+   */
+  updateExpense(id: string, input: Partial<Omit<CreateExpenseInput, 'companyId'>>): Expense {
+    const existing = this.getExpenseById(id);
+    if (!existing) throw new Error('Expense not found.');
+    this.assertOpenFinancialDate(existing.companyId, existing.expenseDate, 'Expense date');
+    const pick = <T>(v: T | undefined, fallback: T) => (v === undefined ? fallback : v);
+    const category = pick(input.category, existing.category)?.trim();
+    if (!category) throw new Error('Expense category is required.');
+    const amount = Number(pick(input.amount as number | undefined, existing.amount));
+    if (!(amount > 0)) throw new Error('Expense amount must be greater than zero.');
+    const projectId = pick(input.projectId, existing.projectId) || undefined;
+    if (projectId) {
+      const project = this.getProjectById(projectId);
+      if (!project || project.companyId !== existing.companyId) throw new Error('Project does not belong to this company.');
+    }
+    const expenseDate = input.expenseDate ? new Date(input.expenseDate) : existing.expenseDate;
+    this.assertOpenFinancialDate(existing.companyId, expenseDate, 'Expense date');
+    const text = (v: string | undefined, fallback?: string) => (v === undefined ? fallback : v.trim() || undefined);
+    const next: Expense = {
+      ...existing,
+      category,
+      amount: Number(amount.toFixed(2)),
+      expenseDate,
+      vendor: text(input.vendor, existing.vendor),
+      description: text(input.description, existing.description),
+      paymentMethod: text(input.paymentMethod, existing.paymentMethod),
+      reference: text(input.reference, existing.reference),
+      projectId,
+      attachmentUrl: pick(input.attachmentUrl, existing.attachmentUrl) || undefined,
+      updatedAt: new Date(),
+    };
+    this.db.transaction(() => {
+      this.db.prepare(
+        'UPDATE expenses SET expenseDate = @expenseDate, category = @category, vendor = @vendor, amount = @amount, description = @description, paymentMethod = @paymentMethod, reference = @reference, projectId = @projectId, attachmentUrl = @attachmentUrl, updatedAt = @updatedAt WHERE id = @id',
+      ).run({
+        id, category: next.category, amount: next.amount, expenseDate: next.expenseDate.toISOString(),
+        vendor: next.vendor ?? null, description: next.description ?? null, paymentMethod: next.paymentMethod ?? null,
+        reference: next.reference ?? null, projectId: next.projectId ?? null, attachmentUrl: next.attachmentUrl ?? null,
+        updatedAt: next.updatedAt.toISOString(),
+      });
+      this.removeJournalEntriesBySource('expense', id);
+      this.postExpenseJournal(next);
+    })();
+    this.createActivityEvent({
+      companyId: next.companyId, entityType: 'expense', entityId: id, action: 'updated',
+      summary: `Expense updated: ${next.category} (${next.amount}).`, metadata: { from: existing.amount, to: next.amount },
+    });
+    return this.getExpenseById(id)!;
+  }
+
   deleteExpense(id: string): boolean {
     const existing = this.getExpenseById(id);
     if (!existing) return false;
@@ -16403,6 +16514,12 @@ export class DataStore {
     return result.changes > 0;
   }
 
+  getJournalEntryById(id: string): JournalEntry | undefined {
+    const entry = this.db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(id) as any;
+    if (!entry) return undefined;
+    return this.decodeJournalEntry(entry, this.db.prepare('SELECT * FROM journal_lines WHERE entryId = ? ORDER BY id ASC').all(id) as any[]);
+  }
+
   listJournalEntries(companyId: string, limit: number = 100): JournalEntry[] {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const entries = this.db
@@ -16640,6 +16757,30 @@ export class DataStore {
       totalExpenses,
       netIncome: Number((totalRevenue - totalExpenses).toFixed(2)),
     };
+  }
+
+  /**
+   * Reverses a manual journal entry with a mirror entry (debits and credits
+   * swapped), dated today unless given. Entries posted by documents (invoices,
+   * bills, payroll…) are reversed by acting on the document instead, so the
+   * books and the documents never disagree. An entry is reversed at most once.
+   */
+  reverseJournalEntry(id: string, input: { entryDate?: Date; reason?: string } = {}): JournalEntry {
+    const entry = this.getJournalEntryById(id);
+    if (!entry) throw new Error('Journal entry not found.');
+    if (entry.sourceType === 'journal_reversal') throw new Error('A reversal cannot itself be reversed; post a new entry instead.');
+    if (entry.sourceType !== 'manual') throw new Error('This entry was posted by a document. Reverse it from that document (credit note, payment reversal or delete).');
+    const already = this.db.prepare("SELECT id FROM journal_entries WHERE sourceType = 'journal_reversal' AND sourceId = ? LIMIT 1").get(id);
+    if (already) throw new Error('This entry has already been reversed.');
+    const reason = input.reason?.trim();
+    return this.createJournalEntry({
+      companyId: entry.companyId,
+      sourceType: 'journal_reversal',
+      sourceId: entry.id,
+      memo: `Reversal of ${entry.memo ? `"${entry.memo}"` : 'manual entry'}${reason ? ` — ${reason}` : ''}`,
+      entryDate: input.entryDate ?? new Date(),
+      lines: entry.lines.map((line: JournalEntry['lines'][number]) => ({ id: uuid(), accountId: line.accountId, description: line.description, debit: line.credit, credit: line.debit })),
+    });
   }
 
   createJournalEntry(input: CreateJournalInput): JournalEntry {

@@ -73,7 +73,7 @@ const MODULE_ALIASES: Record<string, string> = {
 
   'commission-rules': 'commissions',
 
-  'sales-orders': 'sales', deliveries: 'sales',
+  'sales-orders': 'sales', deliveries: 'sales', quotations: 'sales',
 
   'credit-notes': 'invoices', 'invoice-templates': 'invoices',
 
@@ -83,7 +83,7 @@ const MODULE_ALIASES: Record<string, string> = {
 
   payables: 'vendor-bills',
 
-  budgets: 'finance', expenses: 'finance', vat: 'finance',
+  budgets: 'finance', expenses: 'finance', vat: 'finance', 'journal-entries': 'finance',
   'vat-returns': 'finance', reports: 'finance',
 
   'inventory-items': 'inventory', 'inventory-lots': 'inventory',

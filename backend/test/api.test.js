@@ -2764,7 +2764,7 @@ test('invoice update rejects changing company when existing invoice relationship
       clientId: 'client-1',
       issueDate: '2026-04-08T00:00:00.000Z',
       dueDate: '2026-05-18T00:00:00.000Z',
-      status: 'Sent',
+      status: 'Draft',
       lineItems: [
         {
           taskId: 'task-1',

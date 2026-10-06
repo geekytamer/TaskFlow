@@ -2890,6 +2890,18 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.put(
+    '/positions/:id',
+    authMiddleware,
+    handler((req, res) => {
+      // Positions are shared by every company, so only the super admin changes them.
+      requireSuperAdmin(req);
+      if (!store.getPositionById(req.params.id)) throw new HttpError(404, 'Position not found.');
+      const body = asRecord(req.body, 'body');
+      res.json(store.updatePosition(req.params.id, requiredString(body.title, 'title', { min: 2 })));
+    }),
+  );
+
   app.delete(
     '/positions/:id',
     authMiddleware,
@@ -5795,6 +5807,16 @@ export function createServer(options: CreateServerOptions = {}) {
       throw new HttpError(400, error instanceof Error ? error.message : 'Could not create work order.');
     }
   }));
+  app.put('/work-orders/:id', authMiddleware, handler((req, res) => {
+    const wo = loadWorkOrder(req);
+    requireCompanyRoles(req, wo.companyId, companyManagementRoles);
+    if (wo.status !== 'planned') throw new HttpError(409, 'Only a planned work order can be edited.');
+    const body = asRecord(req.body, 'body');
+    res.json(withActor(req, () => store.updateWorkOrder(wo.id, {
+      batches: body.batches !== undefined ? requiredNumber(body.batches, 'batches') : undefined,
+      notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
+    })));
+  }));
   app.get('/work-orders/:id', authMiddleware, handler((req, res) => { res.json(loadWorkOrder(req)); }));
   app.get('/work-orders/:id/material-availability', authMiddleware, handler((req, res) => {
     loadWorkOrder(req);
@@ -6675,6 +6697,28 @@ export function createServer(options: CreateServerOptions = {}) {
         if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not record expense.');
       }
+    }),
+  );
+
+  app.put(
+    '/expenses/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getExpenseById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Expense not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const has = (k: string) => body[k] !== undefined;
+      res.json(withActor(req, () => store.updateExpense(existing.id, {
+        category: has('category') ? requiredString(body.category, 'category', { min: 1 }) : undefined,
+        amount: has('amount') ? requiredNumber(body.amount, 'amount') : undefined,
+        expenseDate: has('expenseDate') ? optionalDateInput(body.expenseDate) : undefined,
+        vendor: has('vendor') ? optionalString(body.vendor) ?? '' : undefined,
+        description: has('description') ? optionalString(body.description) ?? '' : undefined,
+        paymentMethod: has('paymentMethod') ? optionalString(body.paymentMethod) ?? '' : undefined,
+        reference: has('reference') ? optionalString(body.reference) ?? '' : undefined,
+        projectId: has('projectId') ? optionalString(body.projectId) ?? '' : undefined,
+      })));
     }),
   );
 
@@ -7952,6 +7996,15 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getInvoiceById(req.params.id);
       if (!existing) throw new HttpError(404, 'Invoice not found.');
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      // Once an invoice is sent, its money and parties are fixed: corrections go
+      // through a credit note. Notes, due date and template can still change.
+      if (existing.status !== 'Draft') {
+        const allowed = new Set(['notes', 'dueDate', 'templateId']);
+        const changing = Object.keys(asRecord(req.body, 'body')).filter((k) => !allowed.has(k));
+        if (changing.length) {
+          throw new HttpError(409, `A ${existing.status.toLowerCase()} invoice cannot change ${changing.join(', ')}. Issue a credit note instead.`);
+        }
+      }
       const payload = parseInvoicePayload(req.body, { partial: true });
       const targetCompanyId = payload.companyId || existing.companyId;
       if (targetCompanyId !== existing.companyId) {
@@ -8213,6 +8266,28 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  app.post(
+    '/journal-entries/:id/reverse',
+    authMiddleware,
+    handler((req, res) => {
+      const entry = store.getJournalEntryById(req.params.id);
+      if (!entry) throw new HttpError(404, 'Journal entry not found.');
+      requireCompanyRoles(req, entry.companyId, companyManagementRoles);
+      const body = asRecord(req.body ?? {}, 'body');
+      try {
+        res.status(201).json(withActor(req, () => store.reverseJournalEntry(entry.id, {
+          entryDate: body.entryDate !== undefined ? new Date(requiredDateInput(body.entryDate, 'entryDate')) : undefined,
+          reason: optionalString(body.reason),
+        })));
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        const message = error instanceof Error ? error.message : 'Could not reverse the entry.';
+        // Refusals about what the entry is are conflicts; a closed period or bad date is bad input.
+        throw new HttpError(/reversed|document/.test(message) ? 409 : 400, message);
+      }
+    }),
+  );
+
   app.get(
     '/companies/:companyId/finance/vendor-bills',
     authMiddleware,
@@ -8343,6 +8418,34 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       if (!updated) throw new HttpError(404, 'Vendor bill not found.');
       res.json(updated);
+    }),
+  );
+
+  app.put(
+    '/vendor-bills/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const bill = store.getVendorBillById(req.params.id);
+      if (!bill) throw new HttpError(404, 'Vendor bill not found.');
+      requireCompanyRoles(req, bill.companyId, companyManagementRoles);
+      if (bill.status !== 'Draft') throw new HttpError(409, 'Only a draft vendor bill can be edited. Reverse its payments or delete it instead.');
+      const body = asRecord(req.body, 'body');
+      const has = (k: string) => body[k] !== undefined;
+      const expenseAccountId = has('expenseAccountId') ? optionalString(body.expenseAccountId) : undefined;
+      ensureLedgerAccountBelongsToCompany(expenseAccountId, bill.companyId);
+      const supplierId = has('supplierId') ? optionalString(body.supplierId) : undefined;
+      ensureSupplierBelongsToCompany(supplierId, bill.companyId);
+      res.json(withActor(req, () => store.updateVendorBill(bill.id, {
+        vendorName: has('vendorName') ? requiredString(body.vendorName, 'vendorName', { min: 1 }) : undefined,
+        supplierId,
+        referenceInvoiceNumber: has('referenceInvoiceNumber') ? optionalString(body.referenceInvoiceNumber) : undefined,
+        issueDate: has('issueDate') ? new Date(requiredDateInput(body.issueDate, 'issueDate')) : undefined,
+        dueDate: has('dueDate') ? new Date(requiredDateInput(body.dueDate, 'dueDate')) : undefined,
+        amount: has('amount') ? requiredNumber(body.amount, 'amount') : undefined,
+        taxRate: has('taxRate') ? requiredNumber(body.taxRate, 'taxRate') : undefined,
+        notes: has('notes') ? optionalString(body.notes) : undefined,
+        expenseAccountId,
+      })));
     }),
   );
 
