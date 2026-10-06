@@ -4281,6 +4281,29 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Routes added in the 2026-10 audit check permissions that built-in groups
+        // created earlier never received, so under OpenFGA nobody could delete a
+        // task or quotation, or delete warehouses and restore items. Grants exactly
+        // those, to built-in groups only; nothing an admin removed elsewhere returns.
+        id: '103_backfill_new_route_permissions',
+        run: () => {
+          const grants: Record<string, string[]> = {
+            admin: ['inventory:delete', 'inventory:inventory-items.restore.create', 'inventory:warehouses.delete', 'sales:delete', 'tasks:delete'],
+            manager: ['inventory:delete', 'inventory:inventory-items.restore.create', 'inventory:warehouses.delete', 'sales:delete', 'tasks:delete'],
+            accountant: ['inventory:delete', 'sales:delete', 'tasks:delete'],
+            employee: ['tasks:delete'],
+          };
+          const groups = this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>;
+          const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+          for (const group of groups) {
+            for (const permission of grants[group.key] ?? []) {
+              const [module, action] = permission.split(':');
+              insert.run(group.id, module, action);
+            }
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
