@@ -70,18 +70,26 @@ Each has a test, and the guards were mutation-checked (broken, seen to fail, res
 - **Inventory edits:** item edit and restore are Admin/Manager only, matching the permission model where Accountants have no `inventory:write`.
 - **Finalized documents:** a finalized document cannot be reopened. Create a new one instead.
 
-## Still open (found, not done)
+## Second pass (2026-10-06, branch fix/taskflow-audit-2)
 
-These were reported by the audit but are left for a later pass:
-- Purchase requisitions have a full API but no screens.
-- The credit note list and delete have no screen.
-- Journal entries cannot be reversed.
-- Expenses, vendor bills, positions and work orders have no edit.
-- Recipes, RFQs, proposals, budgets, departments and leave types have edit APIs without screens.
-- Attendance cannot be deleted from its page.
-- Any assignee may delete a task. This was a deliberate earlier choice and is left as is.
-- The invoice edit API accepts any status; only the screen limits editing to drafts.
+Everything listed as still open in the first pass is done:
+- **Purchase requisitions** have a page (Purchases → Requisitions): raise, submit, approve or reject with a reason (Admin/Manager), turn into a draft PO, delete drafts.
+- **Credit notes** are listed under Finance → Invoices, with delete.
+- **Journal entries** reverse: a manual entry gets one mirror entry (debits and credits swapped). Entries posted by documents are changed through the document; a reversal cannot be reversed.
+- **Edits added:** expenses (the ledger entry is re-posted), draft vendor bills (within the PO's remaining amount), positions (super admin), planned work orders (batches and expected output), recipes, RFQs, draft proposals (several lines), budgets (with status), departments, leave types. Attendance for a day can be cleared.
+- **Invoice edits are locked on the server too:** a non-draft invoice changes only notes, due date and template; anything else is refused with a pointer to credit notes.
+
+Found and fixed on the way:
+- A **sent proposal** (which the client may have accepted in the portal) could still have its prices changed through the API. Now only notes change once it is sent.
+- An **RFQ's items** could change after a quote was awarded and turned into a PO. Now fixed once awarded.
+- The **permission catalogue** had drifted from the routes added in the first pass (quotations, warehouse delete, item restore, task delete). The gate matrix was regenerated (quotations belong to Sales) and the catalogue and seeded groups synced, so OpenFGA mode matches the legacy roles again.
+- Proposal and budget deletes now ask first; proposal actions report errors instead of failing silently; position "Edit" did nothing and now renames.
+- Emptying a draft bill's notes, reference or supplier, or a draft proposal's valid-until date, now clears it.
+
+Left as decided earlier: any assignee may delete a task.
 
 ## Verification
 
 Backend: the full suite, including new tests for quotations, public resolve, document fields, inventory removal, user scope, delete integrity and record edits. Staff app: typecheck and eslint on every changed module. Browser screenshots were taken of quotations (en/ar print), documents with variables, the user form with custom roles, the RFQ order panel and the PO edit form.
+
+Second pass: backend 521/521 (new `record-edits-2.test.js`, every guard mutation-checked), portal 34/34, staff app and client portal production builds clean. Browser: requisition draft → submit → approve → PO; journal reverse; credit notes panel.
