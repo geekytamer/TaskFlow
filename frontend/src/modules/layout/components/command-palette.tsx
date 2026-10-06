@@ -14,9 +14,7 @@ import {
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { getContacts, type Contact } from '@/services/contactService';
-import { getInvoices, getSalesOrders } from '@/services/financeService';
-import type { Invoice, SalesOrder } from '@/modules/finance/types';
+import { searchCompany, type SearchGroup, type SearchType } from '@/services/searchService';
 import { usePermissions } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
@@ -39,6 +37,7 @@ import {
   ReceiptText,
   Settings,
   ShoppingCart,
+  Ship,
   Truck,
   UserRoundSearch,
   Users,
@@ -75,9 +74,23 @@ const navTargets: PaletteNavItem[] = [
   { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'] },
 ];
 
+const SEARCH_GROUPS: Record<SearchType, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
+  contacts: { en: 'Contacts', ar: 'جهات الاتصال', icon: BookUser },
+  invoices: { en: 'Invoices', ar: 'الفواتير', icon: FileText },
+  salesOrders: { en: 'Sales orders', ar: 'أوامر البيع', icon: ReceiptText },
+  purchaseOrders: { en: 'Purchase orders', ar: 'أوامر الشراء', icon: ShoppingCart },
+  items: { en: 'Stock items', ar: 'أصناف المخزون', icon: Package },
+  batches: { en: 'Batches', ar: 'الدفعات', icon: Package },
+  shipments: { en: 'Shipments', ar: 'الشحنات', icon: Ship },
+  projects: { en: 'Projects', ar: 'المشاريع', icon: FolderKanban },
+  tasks: { en: 'Tasks', ar: 'المهام', icon: CheckSquare },
+  employees: { en: 'People', ar: 'الموظفون', icon: Users },
+};
+
 export function CommandPalette() {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { selectedCompany } = useCompany();
   const { effectiveRole } = useAuthGuard();
   const { can, moduleOn, loaded: permissionsLoaded } = usePermissions();
@@ -102,9 +115,8 @@ export function CommandPalette() {
     { href: '/crm/followups', labelKey: 'cmdk.openFollowups', icon: CalendarClock },
   ].filter((action) => allowsHref(action.href))), [allowsHref]);
   const [open, setOpen] = React.useState(false);
-  const [contacts, setContacts] = React.useState<Contact[]>([]);
-  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
-  const [orders, setOrders] = React.useState<SalesOrder[]>([]);
+  const [query, setQuery] = React.useState('');
+  const [results, setResults] = React.useState<SearchGroup[]>([]);
 
   // Toggle on ⌘K / Ctrl+K
   React.useEffect(() => {
@@ -119,16 +131,16 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Lazy-load entity data the first time the palette opens
+  // Search the company as the person types (server-side, so every record counts, not the first few).
   React.useEffect(() => {
-    if (!open || !selectedCompany?.id) return;
-    const cid = selectedCompany.id;
-    Promise.allSettled([
-      (moduleOn('contacts') ? getContacts(cid) : Promise.resolve([])).then((d) => setContacts(d)),
-      (moduleOn('invoices') ? getInvoices(cid) : Promise.resolve([])).then((d) => setInvoices(d)),
-      (moduleOn('sales') ? getSalesOrders(cid) : Promise.resolve([])).then((d) => setOrders(d)),
-    ]);
-  }, [open, selectedCompany?.id, moduleOn]);
+    if (!open || !selectedCompany?.id || query.trim().length < 2) { setResults([]); return; }
+    let live = true;
+    const timer = window.setTimeout(() => {
+      searchCompany(selectedCompany.id, query.trim()).then((r) => { if (live) setResults(r); }).catch(() => { if (live) setResults([]); });
+    }, 200);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [open, query, selectedCompany?.id]);
+  React.useEffect(() => { if (!open) setQuery(''); }, [open]);
 
   const visibleNav = React.useMemo(
     () =>
@@ -159,7 +171,7 @@ export function CommandPalette() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder={t('cmdk.placeholder')} />
+      <CommandInput placeholder={t('cmdk.placeholder')} value={query} onValueChange={setQuery} />
       <CommandList>
         <CommandEmpty>{t('cmdk.empty')}</CommandEmpty>
 
@@ -180,68 +192,31 @@ export function CommandPalette() {
           })}
         </CommandGroup>
 
-        {contacts.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading={t('cmdk.contacts')}>
-              {contacts.slice(0, 12).map((c) => (
-                <CommandItem
-                  key={c.id}
-                  value={`contact ${c.name} ${c.phone || ''} ${c.email || ''}`}
-                  onSelect={() => go('/contacts')}
-                >
-                  <BookUser className="me-2 h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span className="text-sm">{c.name}</span>
-                    {(c.phone || c.email) && (
-                      <span className="text-xs text-muted-foreground">
-                        {c.phone || c.email}
-                      </span>
-                    )}
-                  </div>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
-
-        {invoices.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading={t('cmdk.invoices')}>
-              {invoices.slice(0, 12).map((inv) => (
-                <CommandItem
-                  key={inv.id}
-                  value={`invoice ${inv.invoiceNumber} ${inv.status}`}
-                  onSelect={() => go('/finance')}
-                >
-                  <FileText className="me-2 h-4 w-4" />
-                  <span>{inv.invoiceNumber}</span>
-                  <span className="ms-auto text-xs text-muted-foreground">{inv.status}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
-
-        {orders.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading={t('cmdk.salesOrders')}>
-              {orders.slice(0, 12).map((so) => (
-                <CommandItem
-                  key={so.id}
-                  value={`sales order ${so.orderNumber} ${so.status}`}
-                  onSelect={() => go('/sales')}
-                >
-                  <ReceiptText className="me-2 h-4 w-4" />
-                  <span>{so.orderNumber}</span>
-                  <span className="ms-auto text-xs text-muted-foreground">{so.status}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
+        {results.map((group) => {
+          const meta = SEARCH_GROUPS[group.type];
+          const Icon = meta?.icon ?? FileText;
+          return (
+            <React.Fragment key={group.type}>
+              <CommandSeparator />
+              <CommandGroup heading={meta ? tr(meta.en, meta.ar) : group.type}>
+                {group.items.map((item) => (
+                  <CommandItem
+                    key={`${group.type}-${item.id}`}
+                    // The server already matched it; the typed text keeps the list's own filter from hiding it.
+                    value={`${query} ${group.type} ${item.title} ${item.subtitle ?? ''} ${item.id}`}
+                    onSelect={() => go(item.route)}
+                  >
+                    <Icon className="me-2 h-4 w-4" />
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm" dir="auto">{item.title}</span>
+                      {item.subtitle && <span className="truncate text-xs text-muted-foreground" dir="auto">{item.subtitle}</span>}
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </React.Fragment>
+          );
+        })}
 
         <CommandSeparator />
         {quickActions.length > 0 && (

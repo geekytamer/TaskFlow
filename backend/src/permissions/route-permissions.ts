@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 345 gated routes.
+ * 346 gated routes.
  */
 
 export interface RoutePermission {
@@ -307,6 +307,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /quotations/:id': { module: 'sales', action: 'write' },
   'PATCH /quotations/:id/status': { module: 'sales', action: 'write' },
   'PATCH /deliveries/:id/status': { module: 'sales', action: 'write' },
+  'GET /companies/:companyId/search': { module: 'dashboard', action: 'read' },
+  'GET /companies/:companyId/dashboard': { module: 'dashboard', action: 'read' },
   'POST /customer-returns/:id/cancel': { module: 'sales', action: 'cancel' },
   'POST /deliveries/:id/cancel': { module: 'sales', action: 'cancel' },
   'DELETE /quotations/:id': { module: 'sales', action: 'delete' },
@@ -345,7 +347,6 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/attendance': { module: 'hr', action: 'create' },
   'POST /companies/:companyId/leave-types': { module: 'hr', action: 'create' },
   'POST /companies/:companyId/leave-requests': { module: 'hr', action: 'create' },
-  'GET /companies/:companyId/dashboard': { module: 'dashboard', action: 'read' },
   'PUT /departments/:id': { module: 'hr', action: 'write' },
   'PUT /employees/:id': { module: 'hr', action: 'write' },
   'PUT /leave-types/:id': { module: 'hr', action: 'write' },
