@@ -26,7 +26,7 @@ jobs:
       - name: Permission catalogue is up to date
         run: |
           npm run authz:extract
-          git diff --exit-code -- ../docs/superpowers/plans/gate-matrix.csv src/permissions/route-permissions.ts
+          git diff --exit-code -- ../docs/superpowers/plans/gate-matrix.csv src/permissions/route-permissions.ts src/permissions/catalogue.ts src/permissions/seed-matrix.ts
 
   frontend:
     runs-on: ubuntu-latest

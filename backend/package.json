@@ -11,7 +11,8 @@
     "ops:status": "npm run ops -- status",
     "ops:migrate": "npm run ops -- migrate",
     "authz:routemap": "tsx src/scripts/generate-route-map.ts",
-    "authz:extract": "tsx src/scripts/extract-gates.ts > ../docs/superpowers/plans/gate-matrix.csv && npm run authz:routemap"
+    "authz:extract": "tsx src/scripts/extract-gates.ts > ../docs/superpowers/plans/gate-matrix.csv && npm run authz:routemap && npm run authz:catalogue",
+    "authz:catalogue": "tsx src/scripts/generate-catalogue.ts"
   },
   "dependencies": {
     "@openfga/sdk": "^0.9.7",
