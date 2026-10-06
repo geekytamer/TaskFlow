@@ -17,6 +17,7 @@ import { invoiceVat, VAT_TREATMENTS, vatBreakdown } from '../finance/vat';
 import { BankReconciliationStore } from '../finance/bank-reconciliation';
 import { FixedAssetStore } from '../finance/fixed-assets';
 import { buildWpsFile } from '../hr/wps';
+import { QualityStore, type InspectionCheck, type InspectionStage } from '../inventory/quality';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -667,6 +668,7 @@ export class DataStore {
   readonly recurring: RecurringStore;
   readonly bank: BankReconciliationStore;
   readonly assets: FixedAssetStore;
+  readonly quality: QualityStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -704,6 +706,7 @@ export class DataStore {
     this.recurring = new RecurringStore(this.db);
     this.bank = new BankReconciliationStore(this.db);
     this.assets = new FixedAssetStore(this.db);
+    this.quality = new QualityStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4559,6 +4562,36 @@ export class DataStore {
           for (const group of groups) insert.run(group.id);
         },
       },
+      {
+        // Quality control: items that need it, inspections, and which batches each delivery took.
+        id: '113_quality_control',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE inventory_items ADD COLUMN requiresQc INTEGER NOT NULL DEFAULT 0;
+            CREATE TABLE IF NOT EXISTS qc_inspections (
+              id                TEXT PRIMARY KEY,
+              companyId         TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              lotId             TEXT NOT NULL REFERENCES inventory_lots(id) ON DELETE CASCADE,
+              stage             TEXT NOT NULL,
+              result            TEXT NOT NULL,
+              checks            TEXT NOT NULL,
+              notes             TEXT,
+              inspectedByUserId TEXT,
+              inspectedByName   TEXT,
+              inspectedAt       TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_qc_inspections_lot ON qc_inspections(lotId);
+            CREATE TABLE IF NOT EXISTS delivery_lot_allocations (
+              deliveryId TEXT NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+              lineIndex  INTEGER NOT NULL,
+              lotId      TEXT NOT NULL,
+              quantity   REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_delivery_lots_delivery ON delivery_lot_allocations(deliveryId);
+            CREATE INDEX IF NOT EXISTS idx_delivery_lots_lot ON delivery_lot_allocations(lotId);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7577,7 +7610,7 @@ export class DataStore {
    */
   updateInventoryItem(id: string, updates: {
     sku?: string; barcode?: string | null; name?: string; category?: string; unit?: string; vatApplicable?: boolean;
-    tracksInventory?: boolean; reorderPoint?: number; salePrice?: number | null; preferredVendor?: string | null;
+    tracksInventory?: boolean; requiresQc?: boolean; reorderPoint?: number; salePrice?: number | null; preferredVendor?: string | null;
     preferredSupplierId?: string | null; location?: string | null; customFields?: Record<string, unknown>;
   }): InventoryItem | undefined {
     const existing = this.getInventoryItemById(id);
@@ -7593,7 +7626,7 @@ export class DataStore {
     const pick = <K extends keyof typeof updates>(key: K, fallback: unknown) => (updates[key] === undefined ? fallback : updates[key]);
     this.db.prepare(
       `UPDATE inventory_items SET sku=@sku, barcode=@barcode, name=@name, category=@category, unit=@unit, vatApplicable=@vatApplicable,
-         tracksInventory=@tracksInventory, reorderPoint=@reorderPoint, salePrice=@salePrice, preferredVendor=@preferredVendor,
+         tracksInventory=@tracksInventory, requiresQc=@requiresQc, reorderPoint=@reorderPoint, salePrice=@salePrice, preferredVendor=@preferredVendor,
          preferredSupplierId=@preferredSupplierId, location=@location, customFields=@customFields WHERE id=@id`,
     ).run({
       id,
@@ -7604,6 +7637,7 @@ export class DataStore {
       unit: (updates.unit ?? existing.unit).trim(),
       vatApplicable: (updates.vatApplicable ?? existing.vatApplicable) ? 1 : 0,
       tracksInventory: (updates.tracksInventory ?? existing.tracksInventory) ? 1 : 0,
+      requiresQc: (updates.requiresQc ?? existing.requiresQc) ? 1 : 0,
       reorderPoint: updates.reorderPoint ?? existing.reorderPoint,
       salePrice: pick('salePrice', existing.salePrice ?? null),
       preferredVendor: pick('preferredVendor', existing.preferredVendor ?? null),
@@ -12749,8 +12783,9 @@ export class DataStore {
       summary: `Inventory item ${item.name} (${item.sku}) created.`,
       metadata: { onHand: item.onHand, unitCost: item.unitCost },
     });
+    if (input.requiresQc) this.db.prepare('UPDATE inventory_items SET requiresQc = 1 WHERE id = ?').run(item.id);
 
-    return item;
+    return { ...item, requiresQc: Boolean(input.requiresQc) };
   }
 
   listStockMovements(companyId: string, inventoryItemId?: string): StockMovement[] {
@@ -13791,11 +13826,20 @@ export class DataStore {
     let dispatchedCost = 0;
 
     const trx = this.db.transaction(() => {
-      delivery.items.forEach((line) => {
+      delivery.items.forEach((line, lineIndex) => {
         if (!line.inventoryItemId) return;
         const inventoryItem = this.getInventoryItemById(line.inventoryItemId);
         if (!inventoryItem || !inventoryItem.tracksInventory) return;
         const location = this.normalizeInventoryLocation(line.location || inventoryItem.location);
+        // Ship from released batches, earliest expiry first, and remember which, so a
+        // batch can be traced to the customers who received it. Stock that needs QC can
+        // only leave from released batches: quarantined or rejected units stay put.
+        const allocation = this.drawDownLotsFEFO(delivery.companyId, line.inventoryItemId, Number(line.quantity), location);
+        const allocated = allocation.reduce((sum, a) => sum + a.quantity, 0);
+        if (inventoryItem.requiresQc && allocated + 0.0001 < Number(line.quantity)) {
+          throw new Error(`Only ${Number(allocated.toFixed(4))} ${inventoryItem.unit} of ${inventoryItem.name} at ${location} has passed QC; ${line.quantity} are on this delivery.`);
+        }
+        this.quality.recordAllocations(allocation.map((a) => ({ deliveryId: delivery.id, lineIndex, lotId: a.lotId, quantity: a.quantity })));
         dispatchedCost += Number(line.quantity) * (Number(inventoryItem.unitCost) || 0);
         // decrement on-hand (allow negative; surface warnings on stock movement)
         updateItemQty.run(line.quantity, line.inventoryItemId, delivery.companyId);
@@ -14535,6 +14579,13 @@ export class DataStore {
             note: `Reversal of ${delivery.deliveryNumber}${reason ? ` (${reason})` : ''}`,
           });
         });
+      }
+
+      if (wasShipped) {
+        // The batches it took get their units back.
+        const restore = this.db.prepare("UPDATE inventory_lots SET quantity = quantity + ?, status = CASE WHEN status = 'Depleted' THEN 'Active' ELSE status END, updatedAt = ? WHERE id = ?");
+        for (const a of this.quality.allocationsForDelivery(delivery.id)) restore.run(a.quantity, cancelledAt.toISOString(), a.lotId);
+        this.quality.removeAllocations(delivery.id);
       }
 
       this.db
@@ -20407,6 +20458,7 @@ export class DataStore {
       unit: row.unit,
       vatApplicable: row.vatApplicable === null || row.vatApplicable === undefined ? true : Boolean(row.vatApplicable),
       tracksInventory: row.tracksInventory === null || row.tracksInventory === undefined ? true : Boolean(row.tracksInventory),
+      requiresQc: row.requiresQc === 1,
       onHand: Number(row.onHand) || 0,
       reorderPoint: Number(row.reorderPoint) || 0,
       unitCost: Number(row.unitCost) || 0,
@@ -20660,6 +20712,10 @@ export class DataStore {
     return rows.map((row) => this.decodeInventoryLot(row));
   }
 
+  setInventoryLotStatus(id: string, status: InventoryLotStatus): void {
+    this.db.prepare('UPDATE inventory_lots SET status = ?, updatedAt = ? WHERE id = ?').run(status, new Date().toISOString(), id);
+  }
+
   getInventoryLotById(id: string): InventoryLot | undefined {
     const row = this.db.prepare('SELECT * FROM inventory_lots WHERE id = ?').get(id) as any;
     return row ? this.decodeInventoryLot(row) : undefined;
@@ -20704,7 +20760,8 @@ export class DataStore {
       manufactureDate: input.manufactureDate ? new Date(input.manufactureDate) : undefined,
       supplierId: input.supplierId,
       receivedAt,
-      status: 'Active',
+      // Batches of an item that needs QC wait in quarantine until an inspection passes them.
+      status: item.requiresQc ? 'Quarantine' : 'Active',
       note: input.note,
       createdAt: new Date(nowIso),
       updatedAt: new Date(nowIso),

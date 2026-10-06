@@ -19,6 +19,7 @@ export interface CreateInventoryItemInput {
   barcode?: string;
   vatApplicable?: boolean;
   tracksInventory?: boolean;
+  requiresQc?: boolean;
   onHand: number;
   reorderPoint: number;
   unitCost: number;

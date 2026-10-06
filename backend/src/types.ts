@@ -301,6 +301,8 @@ export interface InventoryItem {
   companyId: string;
   sku: string;
   barcode?: string;
+  /** Batches arrive in quarantine and need a passed inspection before they can ship. */
+  requiresQc?: boolean;
   name: string;
   category: string;
   unit: string;
@@ -391,7 +393,8 @@ export interface StockCount {
   postedAt?: Date;
 }
 
-export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired';
+/** Quarantine: received, awaiting QC. Rejected: failed QC; never shipped or used. */
+export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired' | 'Quarantine' | 'Rejected';
 
 /**
  * A received batch/lot of an inventory item, tracked separately for expiry and

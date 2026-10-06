@@ -1314,6 +1314,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '110_fixed_assets',
     '111_wps_details',
     '112_payroll_pay_read',
+    '113_quality_control',
   ]);
 });
 

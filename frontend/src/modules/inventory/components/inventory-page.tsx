@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -75,6 +76,7 @@ type InventoryFormState = {
   unit: string;
   vatApplicable: 'yes' | 'no';
   tracksInventory: 'tracked' | 'non-tracked';
+  requiresQc: boolean;
   onHand: string;
   reorderPoint: string;
   unitCost: string;
@@ -117,6 +119,7 @@ const emptyForm = (): InventoryFormState => ({
   unit: 'pcs',
   vatApplicable: 'yes',
   tracksInventory: 'tracked',
+  requiresQc: false,
   onHand: '0',
   reorderPoint: '0',
   unitCost: '0',
@@ -401,6 +404,7 @@ export function InventoryPage() {
       unit: item.unit,
       vatApplicable: item.vatApplicable === false ? 'no' : 'yes',
       tracksInventory: item.tracksInventory === false ? 'non-tracked' : 'tracked',
+      requiresQc: Boolean(item.requiresQc),
       onHand: String(item.onHand),
       reorderPoint: String(item.reorderPoint),
       unitCost: String(item.unitCost),
@@ -434,6 +438,7 @@ export function InventoryPage() {
           unit: form.unit,
           vatApplicable: form.vatApplicable === 'yes',
           tracksInventory: form.tracksInventory === 'tracked',
+          requiresQc: form.requiresQc,
           reorderPoint: Number(form.reorderPoint || 0),
           salePrice: form.salePrice ? Number(form.salePrice) : (null as any),
           preferredVendor: selectedSupplier?.name ?? (null as any),
@@ -455,6 +460,7 @@ export function InventoryPage() {
         unit: form.unit,
         vatApplicable: form.vatApplicable === 'yes',
         tracksInventory: form.tracksInventory === 'tracked',
+        requiresQc: form.requiresQc,
         onHand: Number(form.onHand || 0),
         reorderPoint: Number(form.reorderPoint || 0),
         unitCost: Number(form.unitCost || 0),
@@ -826,6 +832,15 @@ export function InventoryPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {form.tracksInventory === 'tracked' && (
+                <label className="flex items-start gap-3 rounded-md border p-3 text-sm sm:col-span-2">
+                  <Switch checked={form.requiresQc} onCheckedChange={(v) => setForm((prev) => ({ ...prev, requiresQc: v }))} className="mt-0.5" />
+                  <span>
+                    <span className="font-medium">{tr('Needs a quality check before use', 'يحتاج فحص جودة قبل الاستخدام')}</span>
+                    <span className="block text-muted-foreground">{tr('New batches wait in quarantine until an inspection passes them; they cannot be shipped before.', 'تنتظر الدفعات الجديدة في الحجر حتى يجتازها الفحص؛ ولا يمكن شحنها قبل ذلك.')}</span>
+                  </span>
+                </label>
+              )}
               <div className="space-y-1">
                 <Label>{tr('On Hand', 'الكمية المتاحة')}</Label>
                 <Input

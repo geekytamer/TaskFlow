@@ -1,383 +1,385 @@
 method,route,module,action,roles,line,gate,resource
-GET,/health,health,read,"",1733,none,health
-GET,/public/invoices/:id,public,read,"",1748,none,public.invoices
-GET,/public/quotations/:id,public,read,"",1782,none,public.quotations
-GET,/public/resolve/:id,public,read,"",1829,none,public.resolve
-GET,/public/deliveries/:id,public,read,"",1851,none,public.deliveries
-GET,/public/vendor-bills/:id,public,read,"",2042,none,public.vendor-bills
-GET,/public/documents/:id,public,read,"",2776,none,public.documents
-GET,/deliveries/:id/pdf,sales,deliveries.pdf.read,"Accountant Admin Employee Manager",1886,access,deliveries.pdf
-GET,/companies/:companyId/sales-orders,sales,read,"Accountant Admin Manager",6999,roles,sales-orders
-GET,/companies/:companyId/customer-returns,sales,read,"Accountant Admin Manager",7501,roles,customer-returns
-GET,/companies/:companyId/quotations,sales,read,"Accountant Admin Manager",7689,roles,quotations
-GET,/quotations/:id,sales,read,"Accountant Admin Manager",7749,roles,quotations
-GET,/companies/:companyId/deliveries,sales,read,"Accountant Admin Manager",7918,roles,deliveries
-GET,/sales-orders/:id/deliveries,sales,read,"Accountant Admin Manager",7927,roles,sales-orders.deliveries
-GET,/invoices/:id/pdf,invoices,invoices.pdf.read,"Accountant Admin Employee Manager",1918,access,invoices.pdf
-GET,/companies/:companyId/invoice-templates,invoices,read,"Accountant Admin Manager",2845,roles,invoice-templates
-GET,/companies/:companyId/invoices,invoices,read,"Accountant Admin Manager",8441,roles,invoices
-GET,/companies/:companyId/credit-notes,invoices,read,"Accountant Admin Manager",8452,roles,credit-notes
-GET,/invoices/:id,invoices,read,"Accountant Admin Manager",8551,roles,invoices
-GET,/vendor-bills/:id/document,vendor-bills,read,"Accountant Admin Manager",2030,roles,vendor-bills.document
-GET,/vendor-bills/:id/pdf,vendor-bills,read,"Accountant Admin Manager",2073,roles,vendor-bills.pdf
-GET,/vendor-bills/:id/match,vendor-bills,read,"Accountant Admin Manager",8906,roles,vendor-bills.match
-GET,/companies/:companyId/payables/pending,vendor-bills,read,"Accountant Admin Manager",9234,roles,payables.pending
-PATCH,/vendor-bills/:id/template,vendor-bills,write,"Accountant Admin Manager",2056,roles,vendor-bills.template
-PATCH,/vendor-bills/:id/status,vendor-bills,write,"Accountant Admin Manager",8998,roles,vendor-bills.status
-PUT,/vendor-bills/:id,vendor-bills,write,"Accountant Admin Manager",9022,roles,vendor-bills
-POST,/auth/login,auth,create,"",2104,none,auth.login
-POST,/auth/logout,auth,create,"",2128,none,auth.logout
-GET,/auth/me,auth,read,"",2137,none,auth.me
-PUT,/auth/me,auth,write,"",2145,none,auth.me
-GET,/notifications,notifications,read,"",2161,none,notifications
-GET,/notifications/unread-count,notifications,read,"",2171,none,notifications.unread-count
-GET,/notifications/preferences,notifications,read,"",2196,none,notifications.preferences
-POST,/notifications/read-all,notifications,create,"",2179,none,notifications.read-all
-POST,/notifications/:id/read,notifications,create,"",2187,none,notifications.read
-PUT,/notifications/preferences,notifications,write,"",2204,none,notifications.preferences
-GET,/admin/overview,admin,read,"",2227,none,admin.overview
-GET,/admin/companies,admin,read,"",2232,none,admin.companies
-GET,/admin/users,admin,read,"",2237,none,admin.users
-GET,/admin/activity,admin,read,"",2242,none,admin.activity
-GET,/admin/health,admin,read,"",2261,none,admin.health
-GET,/admin/tools/backup,admin,read,"",2282,none,admin.tools.backup
-POST,/admin/tools/sweep-overdue-all,admin,create,"",2267,none,admin.tools.sweep-overdue-all
-POST,/admin/tools/recompute-commissions-all,admin,create,"",2272,none,admin.tools.recompute-commissions-all
-POST,/admin/tools/refresh-invoice-statuses,admin,create,"",2277,none,admin.tools.refresh-invoice-statuses
-POST,/admin/impersonate/:userId,admin,create,"",2295,none,admin.impersonate
-GET,/companies,settings,read,"",2325,none,companies
-GET,/users,settings,read,"",2997,none,users
-GET,/users/:id,settings,read,"",3016,none,users
-GET,/companies/:id,settings,companies.read,"Accountant Admin Employee Manager",2339,access,companies
-GET,/companies/:companyId/custom-fields,settings,custom-fields.read,"Accountant Admin Employee Manager",2505,roles,custom-fields
-GET,/companies/:companyId/members,settings,members.read,"Accountant Admin Employee Manager",3044,access,members
-GET,/companies/:companyId/numbering-settings,settings,numbering-settings.read,"Admin Manager",2417,roles,numbering-settings
-GET,/companies/:companyId/users,settings,users.read,"Admin Manager",3032,roles,users
-GET,/companies/:companyId/activity-events,settings,activity-events.read,"Accountant Admin Manager",5578,roles,activity-events
-POST,/companies,settings,create,"",2350,none,companies
-POST,/users,settings,create,"",3059,none,users
-POST,/companies/:companyId/custom-fields,settings,custom-fields.create,"Admin Manager",2518,roles,custom-fields
-PUT,/companies/:id,settings,write,"Admin Manager",2369,roles,companies
-PUT,/companies/:companyId/numbering-settings/:entityType,settings,write,"Admin Manager",2426,roles,numbering-settings
-PUT,/custom-fields/:id,settings,write,"Admin Manager",2542,roles,custom-fields
-PUT,/users/:id,settings,users.write,"",3102,none,users
-DELETE,/companies/:id,settings,delete,"",2404,none,companies
-DELETE,/users/:id,settings,delete,"",3243,none,users
-DELETE,/custom-fields/:id,settings,custom-fields.delete,"Admin Manager",2566,roles,custom-fields
-GET,/companies/:companyId/finance/settings,finance,finance.settings.read,"Accountant Admin Employee Manager",2450,access,finance.settings
-GET,/companies/:companyId/budgets,finance,read,"Accountant Admin Manager",6599,roles,budgets
-GET,/budgets/:id,finance,read,"Accountant Admin Manager",6641,roles,budgets
-GET,/budgets/:id/variance,finance,read,"Accountant Admin Manager",6650,roles,budgets.variance
-GET,/companies/:companyId/vat/preview,finance,read,"Accountant Admin Manager",6707,roles,vat.preview
-GET,/companies/:companyId/vat-returns,finance,read,"Accountant Admin Manager",6717,roles,vat-returns
-GET,/companies/:companyId/expenses,finance,read,"Accountant Admin Manager",6757,roles,expenses
-GET,/companies/:companyId/recurring-documents,finance,read,"Accountant Admin Manager",7120,roles,recurring-documents
-GET,/companies/:companyId/fixed-assets,finance,read,"Accountant Admin Manager",7204,roles,fixed-assets
-GET,/companies/:companyId/bank-statements,finance,read,"Accountant Admin Manager",7351,roles,bank-statements
-GET,/bank-statements/:id,finance,read,"Accountant Admin Manager",7391,roles,bank-statements
-GET,/companies/:companyId/finance/accounts,finance,read,"Accountant Admin Manager",8750,roles,finance.accounts
-GET,/companies/:companyId/finance/journal,finance,read,"Accountant Admin Manager",8825,roles,finance.journal
-GET,/companies/:companyId/finance/vendor-bills,finance,read,"Accountant Admin Manager",8888,roles,finance.vendor-bills
-GET,/companies/:companyId/finance/supplier-payables,finance,read,"Accountant Admin Manager",8917,roles,finance.supplier-payables
-GET,/companies/:companyId/finance/overview,finance,read,"Accountant Admin Manager",9150,roles,finance.overview
-GET,/companies/:companyId/finance/aging,finance,read,"Accountant Admin Manager",9159,roles,finance.aging
-GET,/companies/:companyId/finance/accounts/:accountId/activity,finance,read,"Accountant Admin Manager",9176,roles,finance.accounts.activity
-GET,/companies/:companyId/finance/trial-balance,finance,read,"Accountant Admin Manager",9204,roles,finance.trial-balance
-GET,/companies/:companyId/finance/profit-and-loss,finance,read,"Accountant Admin Manager",9217,roles,finance.profit-and-loss
-GET,/companies/:companyId/reports/management-summary,finance,read,"Accountant Admin Manager",9349,roles,reports.management-summary
-GET,/companies/:companyId/reports/export/:dataset,finance,read,"Accountant Admin Manager",9358,roles,reports.export
-GET,/companies/:companyId/finance/export/:dataset,finance,read,"Accountant Admin Manager",9453,roles,finance.export
-PUT,/companies/:companyId/finance/settings,finance,finance.settings.write,"Admin Manager",2462,roles,finance.settings
-PUT,/budgets/:id,finance,write,"Accountant Admin Manager",6661,roles,budgets
-PUT,/expenses/:id,finance,write,"Accountant Admin Manager",6796,roles,expenses
-PUT,/recurring-documents/:id,finance,write,"Accountant Admin Manager",7143,roles,recurring-documents
-PUT,/fixed-assets/:id,finance,write,"Accountant Admin Manager",7252,roles,fixed-assets
-PUT,/finance/accounts/:id,finance,write,"Accountant Admin Manager",8783,roles,finance.accounts
-GET,/companies/:companyId/document-templates,documents,read,"Accountant Admin Manager",2595,roles,document-templates
-GET,/document-templates/:id,documents,read,"Accountant Admin Manager",2617,roles,document-templates
-GET,/companies/:companyId/documents,documents,read,"Accountant Admin Manager",2680,roles,documents
-GET,/documents/:id,documents,read,"Accountant Admin Manager",2705,roles,documents
-GET,/documents/:id/pdf,documents,read,"Accountant Admin Manager",2819,roles,documents.pdf
-GET,/companies/:companyId/records/:entityType/:entityId/attachments,documents,read,"Accountant Admin Manager",5603,roles,records.attachments
-GET,/record-attachments/:id/content,documents,read,"Accountant Admin Manager",5669,roles,record-attachments.content
-GET,/companies/:companyId/records/:entityType/:entityId/timeline,documents,read,"Accountant Admin Manager",5687,roles,records.timeline
-POST,/companies/:companyId/document-templates,documents,create,"Accountant Admin Manager",2599,roles,document-templates
-POST,/companies/:companyId/documents,documents,create,"Accountant Admin Manager",2684,roles,documents
-POST,/companies/:companyId/records/:entityType/:entityId/attachments,documents,create,"Accountant Admin Manager",5617,roles,records.attachments
-PUT,/document-templates/:id,documents,write,"Accountant Admin Manager",2618,roles,document-templates
-PUT,/documents/:id,documents,write,"Accountant Admin Manager",2706,roles,documents
-DELETE,/document-templates/:id,documents,delete,"Accountant Admin Manager",2635,roles,document-templates
-DELETE,/documents/:id,documents,delete,"Accountant Admin Manager",2732,roles,documents
-DELETE,/record-attachments/:id,documents,delete,"Accountant Admin Manager",5705,roles,record-attachments
-POST,/companies/:companyId/invoice-templates,invoices,create,"Accountant Admin Manager",2859,roles,invoice-templates
-POST,/companies/:companyId/credit-notes,invoices,create,"Accountant Admin Manager",8461,roles,credit-notes
-POST,/invoices,invoices,create,"Accountant Admin Manager",8493,roles,invoices
-POST,/companies/:companyId/invoices/bulk-status,invoices,create,"Accountant Admin Manager",8718,roles,invoices.bulk-status
-PUT,/invoice-templates/:id,invoices,write,"Accountant Admin Manager",2905,roles,invoice-templates
-PATCH,/invoices/:id/status,invoices,write,"Accountant Admin Manager",8562,roles,invoices.status
-PUT,/invoices/:id,invoices,write,"Accountant Admin Manager",8587,roles,invoices
-DELETE,/invoice-templates/:id,invoices,delete,"Accountant Admin Manager",2923,roles,invoice-templates
-DELETE,/invoices/:id/payments/:paymentId,invoices,delete,"Accountant Admin Manager",8695,roles,invoices.payments
-DELETE,/invoices/:id,invoices,delete,"Accountant Admin Manager",9826,roles,invoices
-GET,/positions,positions,read,"",2939,none,positions
-GET,/positions/:id,positions,read,"",2948,none,positions
-POST,/positions,positions,create,"",2959,none,positions
-PUT,/positions/:id,positions,write,"",2974,none,positions
-DELETE,/positions/:id,positions,delete,"",2986,none,positions
-GET,/projects,projects,read,"",3268,none,projects
-GET,/projects/:id,projects,read,"",3284,none,projects
-POST,/projects,projects,create,"Admin Manager",3295,roles,projects
-POST,/projects/:id/members,projects,create,"Admin Manager",3352,roles,projects.members
-PUT,/projects/:id,projects,write,"Admin Manager",3318,roles,projects
-DELETE,/projects/:id,projects,delete,"Admin Manager",3340,roles,projects
-DELETE,/projects/:id/members/:userId,projects,delete,"Admin Manager",3368,roles,projects.members
-GET,/tasks,tasks,read,"",3382,none,tasks
-GET,/tasks/:id,tasks,read,"",3396,none,tasks
-GET,/tasks/:taskId/comments,tasks,read,"",3531,none,tasks.comments
-GET,/tasks/:taskId/time-entries,tasks,read,"",3561,none,tasks.time-entries
-GET,/companies/:companyId/clients/:clientId/tasks,contacts,read,"Accountant Admin Employee Manager",3407,access,clients.tasks
-GET,/companies/:companyId/contacts,contacts,read,"Accountant Admin Employee Manager",3616,roles,contacts
-GET,/companies/:companyId/contacts/export,contacts,read,"Accountant Admin Employee Manager",3628,roles,contacts.export
-GET,/companies/:companyId/influencers/export,contacts,read,"Accountant Admin Employee Manager",3685,roles,influencers.export
-GET,/contacts/:id/summary,contacts,read,"Accountant Admin Employee Manager",3884,roles,contacts.summary
-GET,/contacts/:id,contacts,contacts.read,"Accountant Admin Manager",3812,roles,contacts
-GET,/contacts/:id/activities,contacts,contacts.activities.read,"Accountant Admin Manager",4026,roles,contacts.activities
-GET,/companies/:companyId/clients,contacts,clients.read,"Accountant Admin Manager",5499,roles,clients
-GET,/companies/:companyId/suppliers,contacts,suppliers.read,"Accountant Admin Manager",5717,roles,suppliers
-POST,/tasks,tasks,tasks.create,"Accountant Admin Employee Manager",3423,access,tasks
-POST,/tasks/:taskId/comments,tasks,create,"",3542,none,tasks.comments
-POST,/tasks/:taskId/time-entries,tasks,create,"",3572,none,tasks.time-entries
-PUT,/tasks/:id,tasks,write,"Accountant Admin Employee Manager",3465,access,tasks
-POST,/tasks/mark-invoiced,tasks,invoice,"",3504,none,tasks.mark-invoiced
-DELETE,/time-entries/:id,time-entries,delete,"",3598,none,time-entries
-POST,/companies/:companyId/contacts/import,contacts,create,"Accountant Admin Manager",3647,roles,contacts.import
-POST,/companies/:companyId/influencers/import,contacts,create,"Accountant Admin Manager",3717,roles,influencers.import
-POST,/contacts/:id/roles,contacts,create,"Accountant Admin Manager",3866,roles,contacts.roles
-POST,/contacts/:id/activities,contacts,create,"Accountant Admin Manager",4000,roles,contacts.activities
-POST,/clients,contacts,create,"Accountant Admin Manager",5509,roles,clients
-POST,/companies/:companyId/suppliers,contacts,create,"Accountant Admin Manager",5726,roles,suppliers
-POST,/companies/:companyId/contacts,contacts,contacts.create,"Accountant Admin Employee Manager",3761,roles,contacts
-PUT,/contacts/:id,contacts,write,"Accountant Admin Manager",3823,roles,contacts
-PUT,/clients/:id,contacts,write,"Accountant Admin Manager",5536,roles,clients
-PATCH,/contacts/:id,contacts,contacts.write,"Accountant Admin Employee Manager",4039,roles,contacts
-DELETE,/contacts/:id/roles/:role,contacts,delete,"Accountant Admin Manager",3974,roles,contacts.roles
-DELETE,/contacts/:id,contacts,delete,"Accountant Admin Manager",3986,roles,contacts
-POST,/followups/:id/done,crm,create,"Accountant Admin Employee Manager",4075,roles,followups.done
-POST,/followups/:id/reschedule,crm,create,"Accountant Admin Employee Manager",4108,roles,followups.reschedule
-POST,/companies/:companyId/followups,crm,create,"Accountant Admin Employee Manager",4151,roles,followups
-POST,/followups/:id/snooze,crm,create,"Accountant Admin Employee Manager",4208,roles,followups.snooze
-POST,/followups/:id/reassign,crm,create,"Accountant Admin Employee Manager",4220,roles,followups.reassign
-POST,/followups/:id/assignees,crm,create,"Accountant Admin Employee Manager",4235,roles,followups.assignees
-POST,/followups/:id/complete,crm,create,"Accountant Admin Employee Manager",4263,roles,followups.complete
-POST,/companies/:companyId/opportunities,crm,create,"Accountant Admin Employee Manager",4447,roles,opportunities
-POST,/companies/:companyId/proposals,crm,create,"Accountant Admin Employee Manager",4581,roles,proposals
-POST,/companies/:companyId/vendor-requests,crm,create,"Accountant Admin Employee Manager",5108,roles,vendor-requests
-POST,/companies/:companyId/followups/sweep-overdue,crm,followups.sweep-overdue.create,"Accountant Admin Manager",4299,roles,followups.sweep-overdue
-POST,/companies/:companyId/contributions,crm,contributions.create,"Accountant Admin Manager",5228,roles,contributions
-POST,/opportunities/:id/commissions/recalculate,crm,opportunities.commissions.recalculate.create,"Accountant Admin Manager",5486,roles,opportunities.commissions.recalculate
-POST,/companies/:companyId/followups/bulk-reassign,crm,followups.bulk-reassign.create,"Admin Manager",4383,roles,followups.bulk-reassign
-PATCH,/followups/:id,crm,write,"Accountant Admin Employee Manager",4187,roles,followups
-PATCH,/opportunities/:id/stage,crm,write,"Accountant Admin Employee Manager",4473,roles,opportunities.stage
-PUT,/opportunities/:id,crm,write,"Accountant Admin Employee Manager",4496,roles,opportunities
-PATCH,/proposals/:id/status,crm,write,"Accountant Admin Employee Manager",4611,roles,proposals.status
-PUT,/proposals/:id,crm,write,"Accountant Admin Employee Manager",4634,roles,proposals
-PUT,/vendor-requests/:id,crm,write,"Accountant Admin Employee Manager",5157,roles,vendor-requests
-PATCH,/vendor-requests/:id/status,crm,vendor-requests.status.write,"Admin Manager",5134,roles,vendor-requests.status
-DELETE,/followups/:id/assignees/:userId,crm,delete,"Accountant Admin Employee Manager",4251,roles,followups.assignees
-DELETE,/opportunities/:id,crm,delete,"Accountant Admin Employee Manager",4542,roles,opportunities
-DELETE,/proposals/:id,crm,delete,"Accountant Admin Employee Manager",4673,roles,proposals
-DELETE,/vendor-requests/:id,crm,delete,"Accountant Admin Employee Manager",5192,roles,vendor-requests
-DELETE,/contributions/:id,crm,contributions.delete,"Accountant Admin Manager",5266,roles,contributions
-GET,/companies/:companyId/followups,crm,read,"Accountant Admin Employee Manager",4309,roles,followups
-GET,/companies/:companyId/crm-dashboard,crm,read,"Accountant Admin Employee Manager",4406,roles,crm-dashboard
-GET,/companies/:companyId/opportunities,crm,read,"Accountant Admin Employee Manager",4436,roles,opportunities
-GET,/companies/:companyId/proposals,crm,read,"Accountant Admin Employee Manager",4561,roles,proposals
-GET,/companies/:companyId/vendor-requests,crm,read,"Accountant Admin Employee Manager",5097,roles,vendor-requests
-GET,/companies/:companyId/contributions,crm,read,"Accountant Admin Employee Manager",5213,roles,contributions
-GET,/companies/:companyId/followups/workload,crm,followups.workload.read,"Admin Manager",4364,roles,followups.workload
-GET,/companies/:companyId/followups/coverage-gaps,crm,followups.coverage-gaps.read,"Admin Manager",4373,roles,followups.coverage-gaps
-GET,/companies/:companyId/crm-performance,crm,crm-performance.read,"Accountant Admin Manager",4420,roles,crm-performance
-GET,/companies/:companyId/campaigns,campaigns,read,"Accountant Admin Employee Manager",4694,roles,campaigns
-GET,/campaigns/:id/deliverables,campaigns,read,"Accountant Admin Employee Manager",4862,roles,campaigns.deliverables
-GET,/campaigns/:id/assignments,campaigns,read,"Accountant Admin Employee Manager",4960,roles,campaigns.assignments
-GET,/campaigns/:id/expenses,campaigns,read,"Accountant Admin Employee Manager",5025,roles,campaigns.expenses
-POST,/companies/:companyId/campaigns,campaigns,create,"Accountant Admin Employee Manager",4706,roles,campaigns
-POST,/companies/:companyId/campaigns/:campaignId/generate-vendor-bills,campaigns,create,"Accountant Admin Employee Manager",4835,roles,campaigns.generate-vendor-bills
-POST,/campaigns/:id/deliverables,campaigns,create,"Accountant Admin Employee Manager",4871,roles,campaigns.deliverables
-POST,/campaigns/:id/assignments,campaigns,create,"Accountant Admin Employee Manager",4969,roles,campaigns.assignments
-POST,/campaigns/:id/expenses,campaigns,create,"Accountant Admin Employee Manager",5034,roles,campaigns.expenses
-POST,/companies/:companyId/campaigns/:campaignId/generate-invoice,campaigns,campaigns.generate-invoice.create,"Accountant Admin Manager",4790,roles,campaigns.generate-invoice
-POST,/companies/:companyId/campaigns/:campaignId/sync-invoice,campaigns,campaigns.sync-invoice.create,"Accountant Admin Manager",4814,roles,campaigns.sync-invoice
-PUT,/campaigns/:id,campaigns,write,"Accountant Admin Employee Manager",4744,roles,campaigns
-PUT,/campaign-deliverables/:id,campaigns,write,"Accountant Admin Employee Manager",4905,roles,campaign-deliverables
-PUT,/campaign-assignments/:id,campaigns,write,"Accountant Admin Employee Manager",4992,roles,campaign-assignments
-PUT,/campaign-expenses/:id,campaigns,write,"Accountant Admin Employee Manager",5058,roles,campaign-expenses
-DELETE,/campaigns/:id,campaigns,campaigns.delete,"Admin Manager",4778,roles,campaigns
-DELETE,/campaign-deliverables/:id,campaigns,delete,"Accountant Admin Employee Manager",4942,roles,campaign-deliverables
-DELETE,/campaign-assignments/:id,campaigns,delete,"Accountant Admin Employee Manager",5013,roles,campaign-assignments
-DELETE,/campaign-expenses/:id,campaigns,delete,"Accountant Admin Employee Manager",5083,roles,campaign-expenses
-GET,/companies/:companyId/commission-rules,commissions,read,"Accountant Admin Employee Manager",5280,roles,commission-rules
-GET,/companies/:companyId/commissions,commissions,read,"Accountant Admin Employee Manager",5395,roles,commissions
-POST,/companies/:companyId/commission-rules,commissions,create,"Accountant Admin Manager",5289,roles,commission-rules
-POST,/companies/:companyId/commissions/recompute,commissions,create,"Accountant Admin Manager",5385,roles,commissions.recompute
-POST,/commissions/:id/pay,commissions,create,"Accountant Admin Manager",5449,roles,commissions.pay
-PUT,/commission-rules/:id,commissions,write,"Accountant Admin Manager",5326,roles,commission-rules
-PATCH,/commissions/:id/status,commissions,write,"Accountant Admin Manager",5408,roles,commissions.status
-DELETE,/commission-rules/:id,commissions,delete,"Accountant Admin Manager",5370,roles,commission-rules
-POST,/commissions/:id/approve,commissions,approve,"Accountant Admin Manager",5432,roles,commissions.approve
-POST,/commissions/:id/void,commissions,void,"Accountant Admin Manager",5466,roles,commissions.void
-GET,/companies/:companyId/warehouses,inventory,read,"Accountant Admin Manager",5750,roles,warehouses
-GET,/companies/:companyId/stock-counts,inventory,read,"Accountant Admin Manager",5946,roles,stock-counts
-GET,/stock-counts/:id,inventory,read,"Accountant Admin Manager",5963,roles,stock-counts
-GET,/companies/:companyId/inventory-items,inventory,read,"Accountant Admin Manager",5999,roles,inventory-items
-GET,/companies/:companyId/inventory-items/export,inventory,read,"Accountant Admin Manager",6009,roles,inventory-items.export
-GET,/companies/:companyId/stock-movements,inventory,read,"Accountant Admin Manager",6119,roles,stock-movements
-GET,/companies/:companyId/inventory-location-balances,inventory,read,"Accountant Admin Manager",6138,roles,inventory-location-balances
-GET,/companies/:companyId/inventory-lots,inventory,read,"Accountant Admin Manager",6157,roles,inventory-lots
-GET,/companies/:companyId/inventory-lots/expiring,inventory,read,"Accountant Admin Manager",6176,roles,inventory-lots.expiring
-POST,/companies/:companyId/warehouses,inventory,warehouses.create,"Admin Manager",5759,roles,warehouses
-POST,/inventory-items/:id/restore,inventory,inventory-items.restore.create,"Admin Manager",9913,roles,inventory-items.restore
-POST,/companies/:companyId/stock-counts,inventory,create,"Accountant Admin Manager",5950,roles,stock-counts
-POST,/companies/:companyId/inventory-items/import,inventory,create,"Accountant Admin Manager",6028,roles,inventory-items.import
-POST,/companies/:companyId/inventory-items,inventory,create,"Accountant Admin Manager",6069,roles,inventory-items
-POST,/companies/:companyId/inventory-items/:itemId/lots,inventory,create,"Accountant Admin Manager",6187,roles,inventory-items.lots
-POST,/companies/:companyId/inventory-items/:itemId/consume-fefo,inventory,create,"Accountant Admin Manager",6230,roles,inventory-items.consume-fefo
-POST,/companies/:companyId/inventory-items/:itemId/adjustments,inventory,create,"Accountant Admin Manager",6266,roles,inventory-items.adjustments
-POST,/companies/:companyId/inventory-items/:itemId/issues,inventory,create,"Accountant Admin Manager",6309,roles,inventory-items.issues
-POST,/companies/:companyId/inventory-items/:itemId/transfers,inventory,create,"Accountant Admin Manager",6352,roles,inventory-items.transfers
-PUT,/warehouses/:id,inventory,write,"Admin Manager",5781,roles,warehouses
-PUT,/inventory-items/:id,inventory,write,"Admin Manager",9877,roles,inventory-items
-PUT,/stock-counts/:id,inventory,stock-counts.write,"Accountant Admin Manager",5966,roles,stock-counts
-DELETE,/warehouses/:id,inventory,warehouses.delete,"Admin Manager",5804,roles,warehouses
-DELETE,/stock-counts/:id,inventory,delete,"Accountant Admin Manager",5989,roles,stock-counts
-DELETE,/inventory-items/:id,inventory,delete,"Accountant Admin Manager",9856,roles,inventory-items
-GET,/companies/:companyId/recipes,manufacturing,read,"Accountant Admin Manager",5834,roles,recipes
-GET,/recipes/:id,manufacturing,read,"Accountant Admin Manager",5855,roles,recipes
-GET,/companies/:companyId/work-orders,manufacturing,read,"Accountant Admin Manager",5884,roles,work-orders
-GET,/work-orders/:id,manufacturing,read,"Accountant Admin Manager",5913,roles,work-orders
-GET,/work-orders/:id/material-availability,manufacturing,read,"Accountant Admin Manager",5914,roles,work-orders.material-availability
-POST,/companies/:companyId/recipes,manufacturing,create,"Accountant Admin Manager",5838,roles,recipes
-POST,/companies/:companyId/work-orders,manufacturing,create,"Accountant Admin Manager",5888,roles,work-orders
-POST,/work-orders/:id/complete,manufacturing,create,"Accountant Admin Manager",5918,roles,work-orders.complete
-PUT,/recipes/:id,manufacturing,write,"Accountant Admin Manager",5856,roles,recipes
-PUT,/work-orders/:id,manufacturing,write,"Accountant Admin Manager",5903,roles,work-orders
-DELETE,/recipes/:id,manufacturing,delete,"Accountant Admin Manager",5872,roles,recipes
-DELETE,/work-orders/:id,manufacturing,delete,"Accountant Admin Manager",5933,roles,work-orders
-POST,/work-orders/:id/cancel,manufacturing,cancel,"Accountant Admin Manager",5928,roles,work-orders.cancel
-POST,/stock-counts/:id/post,inventory,post,"Accountant Admin Manager",5981,roles,stock-counts.post
-GET,/companies/:companyId/purchase-orders,purchasing,read,"Accountant Admin Manager",6396,roles,purchase-orders
-GET,/companies/:companyId/purchase-order-payables,purchasing,read,"Accountant Admin Manager",6405,roles,purchase-order-payables
-GET,/companies/:companyId/purchase-receipts,purchasing,read,"Accountant Admin Manager",6484,roles,purchase-receipts
-GET,/companies/:companyId/rfqs,purchasing,read,"Accountant Admin Manager",6836,roles,rfqs
-GET,/rfqs/:id,purchasing,read,"Accountant Admin Manager",6855,roles,rfqs
-GET,/companies/:companyId/purchase-requisitions,purchasing,read,"Accountant Admin Manager",6928,roles,purchase-requisitions
-GET,/companies/:companyId/bill-matches,purchasing,read,"Accountant Admin Manager",8898,roles,bill-matches
-POST,/companies/:companyId/purchase-orders,purchasing,create,"Accountant Admin Manager",6414,roles,purchase-orders
-POST,/purchase-orders/:id/receipts,purchasing,create,"Accountant Admin Manager",6566,roles,purchase-orders.receipts
-POST,/companies/:companyId/rfqs,purchasing,create,"Accountant Admin Manager",6840,roles,rfqs
-POST,/rfqs/:id/quotes,purchasing,create,"Accountant Admin Manager",6871,roles,rfqs.quotes
-POST,/rfqs/:id/award,purchasing,create,"Accountant Admin Manager",6891,roles,rfqs.award
-POST,/rfqs/:id/purchase-order,purchasing,create,"Accountant Admin Manager",6901,roles,rfqs.purchase-order
-POST,/companies/:companyId/purchase-requisitions,purchasing,create,"Accountant Admin Manager",6937,roles,purchase-requisitions
-POST,/purchase-requisitions/:id/submit,purchasing,create,"Accountant Admin Manager",6987,roles,purchase-requisitions.submit
-POST,/purchase-requisitions/:id/convert,purchasing,create,"Accountant Admin Manager",6992,roles,purchase-requisitions.convert
-POST,/purchase-orders/:id/reject,purchasing,purchase-orders.reject.create,"Admin Manager",6544,roles,purchase-orders.reject
-POST,/purchase-requisitions/:id/reject,purchasing,purchase-requisitions.reject.create,"Admin Manager",6989,roles,purchase-requisitions.reject
-PUT,/purchase-orders/:id,purchasing,write,"Accountant Admin Manager",6451,roles,purchase-orders
-PATCH,/purchase-orders/:id/status,purchasing,write,"Accountant Admin Manager",6497,roles,purchase-orders.status
-PUT,/rfqs/:id,purchasing,write,"Accountant Admin Manager",6856,roles,rfqs
-POST,/purchase-orders/:id/approve,purchasing,approve,"Admin Manager",6525,roles,purchase-orders.approve
-POST,/purchase-requisitions/:id/approve,purchasing,approve,"Admin Manager",6988,roles,purchase-requisitions.approve
-POST,/companies/:companyId/budgets,finance,create,"Accountant Admin Manager",6608,roles,budgets
-POST,/companies/:companyId/vat-returns,finance,create,"Accountant Admin Manager",6726,roles,vat-returns
-POST,/companies/:companyId/expenses,finance,create,"Accountant Admin Manager",6766,roles,expenses
-POST,/companies/:companyId/recurring-documents,finance,create,"Accountant Admin Manager",7129,roles,recurring-documents
-POST,/companies/:companyId/fixed-assets,finance,create,"Accountant Admin Manager",7213,roles,fixed-assets
-POST,/companies/:companyId/fixed-assets/depreciation,finance,create,"Accountant Admin Manager",7274,roles,fixed-assets.depreciation
-POST,/fixed-assets/:id/disposal,finance,create,"Accountant Admin Manager",7286,roles,fixed-assets.disposal
-POST,/companies/:companyId/bank-statements,finance,create,"Accountant Admin Manager",7360,roles,bank-statements
-POST,/bank-statements/:id/lines/:lineId/match,finance,create,"Accountant Admin Manager",7401,roles,bank-statements.lines.match
-POST,/bank-statements/:id/lines/:lineId/ignore,finance,create,"Accountant Admin Manager",7431,roles,bank-statements.lines.ignore
-POST,/bank-statements/:id/lines/:lineId/entry,finance,create,"Accountant Admin Manager",7444,roles,bank-statements.lines.entry
-POST,/bank-statements/:id/reconcile,finance,create,"Accountant Admin Manager",7465,roles,bank-statements.reconcile
-POST,/companies/:companyId/finance/accounts,finance,create,"Accountant Admin Manager",8759,roles,finance.accounts
-POST,/companies/:companyId/finance/journal,finance,create,"Accountant Admin Manager",8835,roles,finance.journal
-POST,/journal-entries/:id/reverse,finance,create,"Accountant Admin Manager",8866,roles,journal-entries.reverse
-POST,/companies/:companyId/finance/vendor-bills,finance,create,"Accountant Admin Manager",8926,roles,finance.vendor-bills
-POST,/companies/:companyId/finance/vendor-bills/bulk-status,finance,create,"Accountant Admin Manager",9119,roles,finance.vendor-bills.bulk-status
-POST,/companies/:companyId/finance/revalue-foreign-balances,finance,create,"Accountant Admin Manager",9299,roles,finance.revalue-foreign-balances
-DELETE,/budgets/:id,finance,delete,"Accountant Admin Manager",6686,roles,budgets
-DELETE,/vat-returns/:id,finance,delete,"Accountant Admin Manager",6745,roles,vat-returns
-DELETE,/recurring-documents/:id,finance,delete,"Accountant Admin Manager",7159,roles,recurring-documents
-DELETE,/fixed-assets/:id,finance,delete,"Accountant Admin Manager",7308,roles,fixed-assets
-DELETE,/bank-statements/:id/lines/:lineId/match,finance,delete,"Accountant Admin Manager",7419,roles,bank-statements.lines.match
-DELETE,/bank-statements/:id,finance,delete,"Accountant Admin Manager",7488,roles,bank-statements
-DELETE,/finance/accounts/:id,finance,delete,"Accountant Admin Manager",8808,roles,finance.accounts
-DELETE,/rfqs/:id/quotes/:quoteId,purchasing,delete,"Accountant Admin Manager",6887,roles,rfqs.quotes
-DELETE,/rfqs/:id,purchasing,delete,"Accountant Admin Manager",6922,roles,rfqs
-POST,/companies/:companyId/sales-orders,sales,create,"Accountant Admin Manager",7008,roles,sales-orders
-POST,/companies/:companyId/customer-returns,sales,create,"Accountant Admin Manager",7510,roles,customer-returns
-POST,/customer-returns/:id/receipt,sales,create,"Accountant Admin Manager",7535,roles,customer-returns.receipt
-POST,/sales-orders/:id/invoice,sales,create,"Accountant Admin Manager",7595,roles,sales-orders.invoice
-POST,/companies/:companyId/quotations,sales,create,"Accountant Admin Manager",7699,roles,quotations
-POST,/quotations/:id/sales-order,sales,create,"Accountant Admin Manager",7808,roles,quotations.sales-order
-POST,/quotations/:id/invoice,sales,create,"Accountant Admin Manager",7844,roles,quotations.invoice
-POST,/sales-orders/:id/deliveries,sales,create,"Accountant Admin Manager",7938,roles,sales-orders.deliveries
-PUT,/sales-orders/:id,sales,write,"Accountant Admin Manager",7037,roles,sales-orders
-PATCH,/sales-orders/:id/status,sales,write,"Accountant Admin Manager",7570,roles,sales-orders.status
-PUT,/quotations/:id,sales,write,"Accountant Admin Manager",7757,roles,quotations
-PATCH,/quotations/:id/status,sales,write,"Accountant Admin Manager",7796,roles,quotations.status
-PATCH,/deliveries/:id/status,sales,write,"Accountant Admin Manager",7974,roles,deliveries.status
-POST,/customer-returns/:id/cancel,sales,cancel,"Accountant Admin Manager",7555,roles,customer-returns.cancel
-POST,/deliveries/:id/cancel,sales,cancel,"Accountant Admin Manager",8005,roles,deliveries.cancel
-DELETE,/quotations/:id,sales,delete,"Accountant Admin Manager",7900,roles,quotations
-GET,/companies/:companyId/whatsapp/instance,whatsapp,read,"Admin",8047,roles,whatsapp.instance
-GET,/companies/:companyId/whatsapp/state,whatsapp,read,"Admin",8090,roles,whatsapp.state
-GET,/companies/:companyId/whatsapp/qr,whatsapp,read,"Admin",8102,roles,whatsapp.qr
-GET,/companies/:companyId/whatsapp/messages,whatsapp,whatsapp.messages.read,"Accountant Admin Manager",8199,roles,whatsapp.messages
-GET,/companies/:companyId/whatsapp/chats,whatsapp,whatsapp.chats.read,"Accountant Admin Manager",8223,roles,whatsapp.chats
-GET,/companies/:companyId/whatsapp/chats/:chatId/settings,whatsapp,whatsapp.chats.settings.read,"Accountant Admin Manager",8233,roles,whatsapp.chats.settings
-PUT,/companies/:companyId/whatsapp/instance,whatsapp,write,"Admin",8057,roles,whatsapp.instance
-PATCH,/companies/:companyId/whatsapp/chats/:chatId/settings,whatsapp,whatsapp.chats.settings.write,"Accountant Admin Manager",8242,roles,whatsapp.chats.settings
-DELETE,/companies/:companyId/whatsapp/instance,whatsapp,delete,"Admin",8080,roles,whatsapp.instance
-POST,/companies/:companyId/whatsapp/configure-webhook,whatsapp,whatsapp.configure-webhook.create,"Admin",8113,roles,whatsapp.configure-webhook
-POST,/companies/:companyId/whatsapp/logout,whatsapp,whatsapp.logout.create,"Admin",8130,roles,whatsapp.logout
-POST,/companies/:companyId/whatsapp/chats/:chatId/read,whatsapp,create,"Accountant Admin Manager",8276,roles,whatsapp.chats.read
-POST,/companies/:companyId/whatsapp/chats/:chatId/sync-history,whatsapp,create,"Accountant Admin Manager",8286,roles,whatsapp.chats.sync-history
-POST,/companies/:companyId/whatsapp/open-chat,whatsapp,create,"Accountant Admin Manager",8310,roles,whatsapp.open-chat
-POST,/whatsapp/webhook/:webhookToken,whatsapp,whatsapp.webhook.create,"",8349,none,whatsapp.webhook
-POST,/companies/:companyId/whatsapp/send,whatsapp,send,"Accountant Admin Manager",8142,roles,whatsapp.send
-GET,/invoices/:id/payments,invoices,pay,"Accountant Admin Manager",8653,roles,invoices.payments
-POST,/invoices/:id/payments,invoices,pay,"Accountant Admin Manager",8664,roles,invoices.payments
-GET,/vendor-bills/:id/payments,vendor-bills,pay,"Accountant Admin Manager",9053,roles,vendor-bills.payments
-POST,/vendor-bills/:id/payments,vendor-bills,pay,"Accountant Admin Manager",9064,roles,vendor-bills.payments
-DELETE,/vendor-bills/:id/payments/:paymentId,vendor-bills,delete,"Accountant Admin Manager",9096,roles,vendor-bills.payments
-POST,/companies/:companyId/payables/pending/bill,vendor-bills,create,"Accountant Admin Manager",9243,roles,payables.pending.bill
-GET,/companies/:companyId/hr/gratuity,hr,hr.gratuity.read,"Accountant Admin Manager",9272,roles,hr.gratuity
-GET,/companies/:companyId/attendance,hr,attendance.read,"Accountant Admin Manager",9672,roles,attendance
-GET,/companies/:companyId/departments,hr,read,"Accountant Admin Employee Manager",9617,access,departments
-GET,/companies/:companyId/employees,hr,read,"Accountant Admin Employee Manager",9641,access,employees
-GET,/employees/:id,hr,read,"Accountant Admin Employee Manager",9651,access,employees
-GET,/employees/:id/leave-balance,hr,read,"Accountant Admin Employee Manager",9663,access,employees.leave-balance
-GET,/companies/:companyId/leave-types,hr,read,"Accountant Admin Employee Manager",9758,access,leave-types
-GET,/companies/:companyId/leave-requests,hr,read,"Accountant Admin Employee Manager",9775,access,leave-requests
-POST,/companies/:companyId/hr/gratuity/accrue,hr,create,"Accountant Admin Manager",9283,roles,hr.gratuity.accrue
-POST,/companies/:companyId/departments,hr,create,"Accountant Admin Manager",9621,roles,departments
-POST,/companies/:companyId/employees,hr,create,"Accountant Admin Manager",9645,roles,employees
-POST,/companies/:companyId/attendance,hr,create,"Accountant Admin Manager",9680,roles,attendance
-POST,/companies/:companyId/leave-types,hr,create,"Accountant Admin Manager",9762,roles,leave-types
-POST,/companies/:companyId/leave-requests,hr,create,"Accountant Admin Manager",9782,roles,leave-requests
-GET,/companies/:companyId/dashboard,dashboard,read,"Accountant Admin Employee Manager",9329,access,dashboard
-POST,/seed,seed,create,"",9602,none,seed
-PUT,/departments/:id,hr,write,"Accountant Admin Manager",9627,roles,departments
-PUT,/employees/:id,hr,write,"Accountant Admin Manager",9657,roles,employees
-PUT,/leave-types/:id,hr,write,"Accountant Admin Manager",9768,roles,leave-types
-PUT,/leave-requests/:id/status,hr,write,"Accountant Admin Manager",9803,roles,leave-requests.status
-DELETE,/attendance/:id,hr,delete,"Accountant Admin Manager",9698,roles,attendance
-GET,/companies/:companyId/payroll-runs,payroll,read,"Accountant Admin Manager",9708,roles,payroll-runs
-GET,/payroll-runs/:id,payroll,read,"Accountant Admin Manager",9731,roles,payroll-runs
-GET,/payroll-runs/:id/wps,payroll,read,"Accountant Admin Manager",9745,roles,payroll-runs.wps
-POST,/companies/:companyId/payroll-runs,payroll,create,"Accountant Admin Manager",9712,roles,payroll-runs
-PUT,/payroll-runs/:id/status,payroll,write,"Accountant Admin Manager",9734,roles,payroll-runs.status
-DELETE,/payroll-runs/:id,payroll,delete,"Accountant Admin Manager",9740,roles,payroll-runs
-DELETE,/tasks/:id,tasks,delete,"Accountant Admin Employee Manager",9926,access,tasks
+GET,/health,health,read,"",1734,none,health
+GET,/public/invoices/:id,public,read,"",1749,none,public.invoices
+GET,/public/quotations/:id,public,read,"",1783,none,public.quotations
+GET,/public/resolve/:id,public,read,"",1830,none,public.resolve
+GET,/public/deliveries/:id,public,read,"",1852,none,public.deliveries
+GET,/public/vendor-bills/:id,public,read,"",2043,none,public.vendor-bills
+GET,/public/documents/:id,public,read,"",2777,none,public.documents
+GET,/deliveries/:id/pdf,sales,deliveries.pdf.read,"Accountant Admin Employee Manager",1887,access,deliveries.pdf
+GET,/companies/:companyId/sales-orders,sales,read,"Accountant Admin Manager",7001,roles,sales-orders
+GET,/companies/:companyId/customer-returns,sales,read,"Accountant Admin Manager",7549,roles,customer-returns
+GET,/companies/:companyId/quotations,sales,read,"Accountant Admin Manager",7737,roles,quotations
+GET,/quotations/:id,sales,read,"Accountant Admin Manager",7797,roles,quotations
+GET,/companies/:companyId/deliveries,sales,read,"Accountant Admin Manager",7966,roles,deliveries
+GET,/sales-orders/:id/deliveries,sales,read,"Accountant Admin Manager",7975,roles,sales-orders.deliveries
+GET,/invoices/:id/pdf,invoices,invoices.pdf.read,"Accountant Admin Employee Manager",1919,access,invoices.pdf
+GET,/companies/:companyId/invoice-templates,invoices,read,"Accountant Admin Manager",2846,roles,invoice-templates
+GET,/companies/:companyId/invoices,invoices,read,"Accountant Admin Manager",8489,roles,invoices
+GET,/companies/:companyId/credit-notes,invoices,read,"Accountant Admin Manager",8500,roles,credit-notes
+GET,/invoices/:id,invoices,read,"Accountant Admin Manager",8599,roles,invoices
+GET,/vendor-bills/:id/document,vendor-bills,read,"Accountant Admin Manager",2031,roles,vendor-bills.document
+GET,/vendor-bills/:id/pdf,vendor-bills,read,"Accountant Admin Manager",2074,roles,vendor-bills.pdf
+GET,/vendor-bills/:id/match,vendor-bills,read,"Accountant Admin Manager",8954,roles,vendor-bills.match
+GET,/companies/:companyId/payables/pending,vendor-bills,read,"Accountant Admin Manager",9282,roles,payables.pending
+PATCH,/vendor-bills/:id/template,vendor-bills,write,"Accountant Admin Manager",2057,roles,vendor-bills.template
+PATCH,/vendor-bills/:id/status,vendor-bills,write,"Accountant Admin Manager",9046,roles,vendor-bills.status
+PUT,/vendor-bills/:id,vendor-bills,write,"Accountant Admin Manager",9070,roles,vendor-bills
+POST,/auth/login,auth,create,"",2105,none,auth.login
+POST,/auth/logout,auth,create,"",2129,none,auth.logout
+GET,/auth/me,auth,read,"",2138,none,auth.me
+PUT,/auth/me,auth,write,"",2146,none,auth.me
+GET,/notifications,notifications,read,"",2162,none,notifications
+GET,/notifications/unread-count,notifications,read,"",2172,none,notifications.unread-count
+GET,/notifications/preferences,notifications,read,"",2197,none,notifications.preferences
+POST,/notifications/read-all,notifications,create,"",2180,none,notifications.read-all
+POST,/notifications/:id/read,notifications,create,"",2188,none,notifications.read
+PUT,/notifications/preferences,notifications,write,"",2205,none,notifications.preferences
+GET,/admin/overview,admin,read,"",2228,none,admin.overview
+GET,/admin/companies,admin,read,"",2233,none,admin.companies
+GET,/admin/users,admin,read,"",2238,none,admin.users
+GET,/admin/activity,admin,read,"",2243,none,admin.activity
+GET,/admin/health,admin,read,"",2262,none,admin.health
+GET,/admin/tools/backup,admin,read,"",2283,none,admin.tools.backup
+POST,/admin/tools/sweep-overdue-all,admin,create,"",2268,none,admin.tools.sweep-overdue-all
+POST,/admin/tools/recompute-commissions-all,admin,create,"",2273,none,admin.tools.recompute-commissions-all
+POST,/admin/tools/refresh-invoice-statuses,admin,create,"",2278,none,admin.tools.refresh-invoice-statuses
+POST,/admin/impersonate/:userId,admin,create,"",2296,none,admin.impersonate
+GET,/companies,settings,read,"",2326,none,companies
+GET,/users,settings,read,"",2998,none,users
+GET,/users/:id,settings,read,"",3017,none,users
+GET,/companies/:id,settings,companies.read,"Accountant Admin Employee Manager",2340,access,companies
+GET,/companies/:companyId/custom-fields,settings,custom-fields.read,"Accountant Admin Employee Manager",2506,roles,custom-fields
+GET,/companies/:companyId/members,settings,members.read,"Accountant Admin Employee Manager",3045,access,members
+GET,/companies/:companyId/numbering-settings,settings,numbering-settings.read,"Admin Manager",2418,roles,numbering-settings
+GET,/companies/:companyId/users,settings,users.read,"Admin Manager",3033,roles,users
+GET,/companies/:companyId/activity-events,settings,activity-events.read,"Accountant Admin Manager",5579,roles,activity-events
+POST,/companies,settings,create,"",2351,none,companies
+POST,/users,settings,create,"",3060,none,users
+POST,/companies/:companyId/custom-fields,settings,custom-fields.create,"Admin Manager",2519,roles,custom-fields
+PUT,/companies/:id,settings,write,"Admin Manager",2370,roles,companies
+PUT,/companies/:companyId/numbering-settings/:entityType,settings,write,"Admin Manager",2427,roles,numbering-settings
+PUT,/custom-fields/:id,settings,write,"Admin Manager",2543,roles,custom-fields
+PUT,/users/:id,settings,users.write,"",3103,none,users
+DELETE,/companies/:id,settings,delete,"",2405,none,companies
+DELETE,/users/:id,settings,delete,"",3244,none,users
+DELETE,/custom-fields/:id,settings,custom-fields.delete,"Admin Manager",2567,roles,custom-fields
+GET,/companies/:companyId/finance/settings,finance,finance.settings.read,"Accountant Admin Employee Manager",2451,access,finance.settings
+GET,/companies/:companyId/budgets,finance,read,"Accountant Admin Manager",6601,roles,budgets
+GET,/budgets/:id,finance,read,"Accountant Admin Manager",6643,roles,budgets
+GET,/budgets/:id/variance,finance,read,"Accountant Admin Manager",6652,roles,budgets.variance
+GET,/companies/:companyId/vat/preview,finance,read,"Accountant Admin Manager",6709,roles,vat.preview
+GET,/companies/:companyId/vat-returns,finance,read,"Accountant Admin Manager",6719,roles,vat-returns
+GET,/companies/:companyId/expenses,finance,read,"Accountant Admin Manager",6759,roles,expenses
+GET,/companies/:companyId/recurring-documents,finance,read,"Accountant Admin Manager",7122,roles,recurring-documents
+GET,/companies/:companyId/fixed-assets,finance,read,"Accountant Admin Manager",7252,roles,fixed-assets
+GET,/companies/:companyId/bank-statements,finance,read,"Accountant Admin Manager",7399,roles,bank-statements
+GET,/bank-statements/:id,finance,read,"Accountant Admin Manager",7439,roles,bank-statements
+GET,/companies/:companyId/finance/accounts,finance,read,"Accountant Admin Manager",8798,roles,finance.accounts
+GET,/companies/:companyId/finance/journal,finance,read,"Accountant Admin Manager",8873,roles,finance.journal
+GET,/companies/:companyId/finance/vendor-bills,finance,read,"Accountant Admin Manager",8936,roles,finance.vendor-bills
+GET,/companies/:companyId/finance/supplier-payables,finance,read,"Accountant Admin Manager",8965,roles,finance.supplier-payables
+GET,/companies/:companyId/finance/overview,finance,read,"Accountant Admin Manager",9198,roles,finance.overview
+GET,/companies/:companyId/finance/aging,finance,read,"Accountant Admin Manager",9207,roles,finance.aging
+GET,/companies/:companyId/finance/accounts/:accountId/activity,finance,read,"Accountant Admin Manager",9224,roles,finance.accounts.activity
+GET,/companies/:companyId/finance/trial-balance,finance,read,"Accountant Admin Manager",9252,roles,finance.trial-balance
+GET,/companies/:companyId/finance/profit-and-loss,finance,read,"Accountant Admin Manager",9265,roles,finance.profit-and-loss
+GET,/companies/:companyId/reports/management-summary,finance,read,"Accountant Admin Manager",9397,roles,reports.management-summary
+GET,/companies/:companyId/reports/export/:dataset,finance,read,"Accountant Admin Manager",9406,roles,reports.export
+GET,/companies/:companyId/finance/export/:dataset,finance,read,"Accountant Admin Manager",9501,roles,finance.export
+PUT,/companies/:companyId/finance/settings,finance,finance.settings.write,"Admin Manager",2463,roles,finance.settings
+PUT,/budgets/:id,finance,write,"Accountant Admin Manager",6663,roles,budgets
+PUT,/expenses/:id,finance,write,"Accountant Admin Manager",6798,roles,expenses
+PUT,/recurring-documents/:id,finance,write,"Accountant Admin Manager",7145,roles,recurring-documents
+PUT,/fixed-assets/:id,finance,write,"Accountant Admin Manager",7300,roles,fixed-assets
+PUT,/finance/accounts/:id,finance,write,"Accountant Admin Manager",8831,roles,finance.accounts
+GET,/companies/:companyId/document-templates,documents,read,"Accountant Admin Manager",2596,roles,document-templates
+GET,/document-templates/:id,documents,read,"Accountant Admin Manager",2618,roles,document-templates
+GET,/companies/:companyId/documents,documents,read,"Accountant Admin Manager",2681,roles,documents
+GET,/documents/:id,documents,read,"Accountant Admin Manager",2706,roles,documents
+GET,/documents/:id/pdf,documents,read,"Accountant Admin Manager",2820,roles,documents.pdf
+GET,/companies/:companyId/records/:entityType/:entityId/attachments,documents,read,"Accountant Admin Manager",5604,roles,records.attachments
+GET,/record-attachments/:id/content,documents,read,"Accountant Admin Manager",5670,roles,record-attachments.content
+GET,/companies/:companyId/records/:entityType/:entityId/timeline,documents,read,"Accountant Admin Manager",5688,roles,records.timeline
+POST,/companies/:companyId/document-templates,documents,create,"Accountant Admin Manager",2600,roles,document-templates
+POST,/companies/:companyId/documents,documents,create,"Accountant Admin Manager",2685,roles,documents
+POST,/companies/:companyId/records/:entityType/:entityId/attachments,documents,create,"Accountant Admin Manager",5618,roles,records.attachments
+PUT,/document-templates/:id,documents,write,"Accountant Admin Manager",2619,roles,document-templates
+PUT,/documents/:id,documents,write,"Accountant Admin Manager",2707,roles,documents
+DELETE,/document-templates/:id,documents,delete,"Accountant Admin Manager",2636,roles,document-templates
+DELETE,/documents/:id,documents,delete,"Accountant Admin Manager",2733,roles,documents
+DELETE,/record-attachments/:id,documents,delete,"Accountant Admin Manager",5706,roles,record-attachments
+POST,/companies/:companyId/invoice-templates,invoices,create,"Accountant Admin Manager",2860,roles,invoice-templates
+POST,/companies/:companyId/credit-notes,invoices,create,"Accountant Admin Manager",8509,roles,credit-notes
+POST,/invoices,invoices,create,"Accountant Admin Manager",8541,roles,invoices
+POST,/companies/:companyId/invoices/bulk-status,invoices,create,"Accountant Admin Manager",8766,roles,invoices.bulk-status
+PUT,/invoice-templates/:id,invoices,write,"Accountant Admin Manager",2906,roles,invoice-templates
+PATCH,/invoices/:id/status,invoices,write,"Accountant Admin Manager",8610,roles,invoices.status
+PUT,/invoices/:id,invoices,write,"Accountant Admin Manager",8635,roles,invoices
+DELETE,/invoice-templates/:id,invoices,delete,"Accountant Admin Manager",2924,roles,invoice-templates
+DELETE,/invoices/:id/payments/:paymentId,invoices,delete,"Accountant Admin Manager",8743,roles,invoices.payments
+DELETE,/invoices/:id,invoices,delete,"Accountant Admin Manager",9874,roles,invoices
+GET,/positions,positions,read,"",2940,none,positions
+GET,/positions/:id,positions,read,"",2949,none,positions
+POST,/positions,positions,create,"",2960,none,positions
+PUT,/positions/:id,positions,write,"",2975,none,positions
+DELETE,/positions/:id,positions,delete,"",2987,none,positions
+GET,/projects,projects,read,"",3269,none,projects
+GET,/projects/:id,projects,read,"",3285,none,projects
+POST,/projects,projects,create,"Admin Manager",3296,roles,projects
+POST,/projects/:id/members,projects,create,"Admin Manager",3353,roles,projects.members
+PUT,/projects/:id,projects,write,"Admin Manager",3319,roles,projects
+DELETE,/projects/:id,projects,delete,"Admin Manager",3341,roles,projects
+DELETE,/projects/:id/members/:userId,projects,delete,"Admin Manager",3369,roles,projects.members
+GET,/tasks,tasks,read,"",3383,none,tasks
+GET,/tasks/:id,tasks,read,"",3397,none,tasks
+GET,/tasks/:taskId/comments,tasks,read,"",3532,none,tasks.comments
+GET,/tasks/:taskId/time-entries,tasks,read,"",3562,none,tasks.time-entries
+GET,/companies/:companyId/clients/:clientId/tasks,contacts,read,"Accountant Admin Employee Manager",3408,access,clients.tasks
+GET,/companies/:companyId/contacts,contacts,read,"Accountant Admin Employee Manager",3617,roles,contacts
+GET,/companies/:companyId/contacts/export,contacts,read,"Accountant Admin Employee Manager",3629,roles,contacts.export
+GET,/companies/:companyId/influencers/export,contacts,read,"Accountant Admin Employee Manager",3686,roles,influencers.export
+GET,/contacts/:id/summary,contacts,read,"Accountant Admin Employee Manager",3885,roles,contacts.summary
+GET,/contacts/:id,contacts,contacts.read,"Accountant Admin Manager",3813,roles,contacts
+GET,/contacts/:id/activities,contacts,contacts.activities.read,"Accountant Admin Manager",4027,roles,contacts.activities
+GET,/companies/:companyId/clients,contacts,clients.read,"Accountant Admin Manager",5500,roles,clients
+GET,/companies/:companyId/suppliers,contacts,suppliers.read,"Accountant Admin Manager",5718,roles,suppliers
+POST,/tasks,tasks,tasks.create,"Accountant Admin Employee Manager",3424,access,tasks
+POST,/tasks/:taskId/comments,tasks,create,"",3543,none,tasks.comments
+POST,/tasks/:taskId/time-entries,tasks,create,"",3573,none,tasks.time-entries
+PUT,/tasks/:id,tasks,write,"Accountant Admin Employee Manager",3466,access,tasks
+POST,/tasks/mark-invoiced,tasks,invoice,"",3505,none,tasks.mark-invoiced
+DELETE,/time-entries/:id,time-entries,delete,"",3599,none,time-entries
+POST,/companies/:companyId/contacts/import,contacts,create,"Accountant Admin Manager",3648,roles,contacts.import
+POST,/companies/:companyId/influencers/import,contacts,create,"Accountant Admin Manager",3718,roles,influencers.import
+POST,/contacts/:id/roles,contacts,create,"Accountant Admin Manager",3867,roles,contacts.roles
+POST,/contacts/:id/activities,contacts,create,"Accountant Admin Manager",4001,roles,contacts.activities
+POST,/clients,contacts,create,"Accountant Admin Manager",5510,roles,clients
+POST,/companies/:companyId/suppliers,contacts,create,"Accountant Admin Manager",5727,roles,suppliers
+POST,/companies/:companyId/contacts,contacts,contacts.create,"Accountant Admin Employee Manager",3762,roles,contacts
+PUT,/contacts/:id,contacts,write,"Accountant Admin Manager",3824,roles,contacts
+PUT,/clients/:id,contacts,write,"Accountant Admin Manager",5537,roles,clients
+PATCH,/contacts/:id,contacts,contacts.write,"Accountant Admin Employee Manager",4040,roles,contacts
+DELETE,/contacts/:id/roles/:role,contacts,delete,"Accountant Admin Manager",3975,roles,contacts.roles
+DELETE,/contacts/:id,contacts,delete,"Accountant Admin Manager",3987,roles,contacts
+POST,/followups/:id/done,crm,create,"Accountant Admin Employee Manager",4076,roles,followups.done
+POST,/followups/:id/reschedule,crm,create,"Accountant Admin Employee Manager",4109,roles,followups.reschedule
+POST,/companies/:companyId/followups,crm,create,"Accountant Admin Employee Manager",4152,roles,followups
+POST,/followups/:id/snooze,crm,create,"Accountant Admin Employee Manager",4209,roles,followups.snooze
+POST,/followups/:id/reassign,crm,create,"Accountant Admin Employee Manager",4221,roles,followups.reassign
+POST,/followups/:id/assignees,crm,create,"Accountant Admin Employee Manager",4236,roles,followups.assignees
+POST,/followups/:id/complete,crm,create,"Accountant Admin Employee Manager",4264,roles,followups.complete
+POST,/companies/:companyId/opportunities,crm,create,"Accountant Admin Employee Manager",4448,roles,opportunities
+POST,/companies/:companyId/proposals,crm,create,"Accountant Admin Employee Manager",4582,roles,proposals
+POST,/companies/:companyId/vendor-requests,crm,create,"Accountant Admin Employee Manager",5109,roles,vendor-requests
+POST,/companies/:companyId/followups/sweep-overdue,crm,followups.sweep-overdue.create,"Accountant Admin Manager",4300,roles,followups.sweep-overdue
+POST,/companies/:companyId/contributions,crm,contributions.create,"Accountant Admin Manager",5229,roles,contributions
+POST,/opportunities/:id/commissions/recalculate,crm,opportunities.commissions.recalculate.create,"Accountant Admin Manager",5487,roles,opportunities.commissions.recalculate
+POST,/companies/:companyId/followups/bulk-reassign,crm,followups.bulk-reassign.create,"Admin Manager",4384,roles,followups.bulk-reassign
+PATCH,/followups/:id,crm,write,"Accountant Admin Employee Manager",4188,roles,followups
+PATCH,/opportunities/:id/stage,crm,write,"Accountant Admin Employee Manager",4474,roles,opportunities.stage
+PUT,/opportunities/:id,crm,write,"Accountant Admin Employee Manager",4497,roles,opportunities
+PATCH,/proposals/:id/status,crm,write,"Accountant Admin Employee Manager",4612,roles,proposals.status
+PUT,/proposals/:id,crm,write,"Accountant Admin Employee Manager",4635,roles,proposals
+PUT,/vendor-requests/:id,crm,write,"Accountant Admin Employee Manager",5158,roles,vendor-requests
+PATCH,/vendor-requests/:id/status,crm,vendor-requests.status.write,"Admin Manager",5135,roles,vendor-requests.status
+DELETE,/followups/:id/assignees/:userId,crm,delete,"Accountant Admin Employee Manager",4252,roles,followups.assignees
+DELETE,/opportunities/:id,crm,delete,"Accountant Admin Employee Manager",4543,roles,opportunities
+DELETE,/proposals/:id,crm,delete,"Accountant Admin Employee Manager",4674,roles,proposals
+DELETE,/vendor-requests/:id,crm,delete,"Accountant Admin Employee Manager",5193,roles,vendor-requests
+DELETE,/contributions/:id,crm,contributions.delete,"Accountant Admin Manager",5267,roles,contributions
+GET,/companies/:companyId/followups,crm,read,"Accountant Admin Employee Manager",4310,roles,followups
+GET,/companies/:companyId/crm-dashboard,crm,read,"Accountant Admin Employee Manager",4407,roles,crm-dashboard
+GET,/companies/:companyId/opportunities,crm,read,"Accountant Admin Employee Manager",4437,roles,opportunities
+GET,/companies/:companyId/proposals,crm,read,"Accountant Admin Employee Manager",4562,roles,proposals
+GET,/companies/:companyId/vendor-requests,crm,read,"Accountant Admin Employee Manager",5098,roles,vendor-requests
+GET,/companies/:companyId/contributions,crm,read,"Accountant Admin Employee Manager",5214,roles,contributions
+GET,/companies/:companyId/followups/workload,crm,followups.workload.read,"Admin Manager",4365,roles,followups.workload
+GET,/companies/:companyId/followups/coverage-gaps,crm,followups.coverage-gaps.read,"Admin Manager",4374,roles,followups.coverage-gaps
+GET,/companies/:companyId/crm-performance,crm,crm-performance.read,"Accountant Admin Manager",4421,roles,crm-performance
+GET,/companies/:companyId/campaigns,campaigns,read,"Accountant Admin Employee Manager",4695,roles,campaigns
+GET,/campaigns/:id/deliverables,campaigns,read,"Accountant Admin Employee Manager",4863,roles,campaigns.deliverables
+GET,/campaigns/:id/assignments,campaigns,read,"Accountant Admin Employee Manager",4961,roles,campaigns.assignments
+GET,/campaigns/:id/expenses,campaigns,read,"Accountant Admin Employee Manager",5026,roles,campaigns.expenses
+POST,/companies/:companyId/campaigns,campaigns,create,"Accountant Admin Employee Manager",4707,roles,campaigns
+POST,/companies/:companyId/campaigns/:campaignId/generate-vendor-bills,campaigns,create,"Accountant Admin Employee Manager",4836,roles,campaigns.generate-vendor-bills
+POST,/campaigns/:id/deliverables,campaigns,create,"Accountant Admin Employee Manager",4872,roles,campaigns.deliverables
+POST,/campaigns/:id/assignments,campaigns,create,"Accountant Admin Employee Manager",4970,roles,campaigns.assignments
+POST,/campaigns/:id/expenses,campaigns,create,"Accountant Admin Employee Manager",5035,roles,campaigns.expenses
+POST,/companies/:companyId/campaigns/:campaignId/generate-invoice,campaigns,campaigns.generate-invoice.create,"Accountant Admin Manager",4791,roles,campaigns.generate-invoice
+POST,/companies/:companyId/campaigns/:campaignId/sync-invoice,campaigns,campaigns.sync-invoice.create,"Accountant Admin Manager",4815,roles,campaigns.sync-invoice
+PUT,/campaigns/:id,campaigns,write,"Accountant Admin Employee Manager",4745,roles,campaigns
+PUT,/campaign-deliverables/:id,campaigns,write,"Accountant Admin Employee Manager",4906,roles,campaign-deliverables
+PUT,/campaign-assignments/:id,campaigns,write,"Accountant Admin Employee Manager",4993,roles,campaign-assignments
+PUT,/campaign-expenses/:id,campaigns,write,"Accountant Admin Employee Manager",5059,roles,campaign-expenses
+DELETE,/campaigns/:id,campaigns,campaigns.delete,"Admin Manager",4779,roles,campaigns
+DELETE,/campaign-deliverables/:id,campaigns,delete,"Accountant Admin Employee Manager",4943,roles,campaign-deliverables
+DELETE,/campaign-assignments/:id,campaigns,delete,"Accountant Admin Employee Manager",5014,roles,campaign-assignments
+DELETE,/campaign-expenses/:id,campaigns,delete,"Accountant Admin Employee Manager",5084,roles,campaign-expenses
+GET,/companies/:companyId/commission-rules,commissions,read,"Accountant Admin Employee Manager",5281,roles,commission-rules
+GET,/companies/:companyId/commissions,commissions,read,"Accountant Admin Employee Manager",5396,roles,commissions
+POST,/companies/:companyId/commission-rules,commissions,create,"Accountant Admin Manager",5290,roles,commission-rules
+POST,/companies/:companyId/commissions/recompute,commissions,create,"Accountant Admin Manager",5386,roles,commissions.recompute
+POST,/commissions/:id/pay,commissions,create,"Accountant Admin Manager",5450,roles,commissions.pay
+PUT,/commission-rules/:id,commissions,write,"Accountant Admin Manager",5327,roles,commission-rules
+PATCH,/commissions/:id/status,commissions,write,"Accountant Admin Manager",5409,roles,commissions.status
+DELETE,/commission-rules/:id,commissions,delete,"Accountant Admin Manager",5371,roles,commission-rules
+POST,/commissions/:id/approve,commissions,approve,"Accountant Admin Manager",5433,roles,commissions.approve
+POST,/commissions/:id/void,commissions,void,"Accountant Admin Manager",5467,roles,commissions.void
+GET,/companies/:companyId/warehouses,inventory,read,"Accountant Admin Manager",5751,roles,warehouses
+GET,/companies/:companyId/stock-counts,inventory,read,"Accountant Admin Manager",5947,roles,stock-counts
+GET,/stock-counts/:id,inventory,read,"Accountant Admin Manager",5964,roles,stock-counts
+GET,/companies/:companyId/inventory-items,inventory,read,"Accountant Admin Manager",6000,roles,inventory-items
+GET,/companies/:companyId/inventory-items/export,inventory,read,"Accountant Admin Manager",6010,roles,inventory-items.export
+GET,/companies/:companyId/stock-movements,inventory,read,"Accountant Admin Manager",6121,roles,stock-movements
+GET,/companies/:companyId/inventory-location-balances,inventory,read,"Accountant Admin Manager",6140,roles,inventory-location-balances
+GET,/companies/:companyId/inventory-lots,inventory,read,"Accountant Admin Manager",6159,roles,inventory-lots
+GET,/companies/:companyId/inventory-lots/expiring,inventory,read,"Accountant Admin Manager",6178,roles,inventory-lots.expiring
+GET,/inventory-lots/:id/trace,inventory,read,"Accountant Admin Manager",7209,roles,inventory-lots.trace
+POST,/companies/:companyId/warehouses,inventory,warehouses.create,"Admin Manager",5760,roles,warehouses
+POST,/inventory-items/:id/restore,inventory,inventory-items.restore.create,"Admin Manager",9962,roles,inventory-items.restore
+POST,/companies/:companyId/stock-counts,inventory,create,"Accountant Admin Manager",5951,roles,stock-counts
+POST,/companies/:companyId/inventory-items/import,inventory,create,"Accountant Admin Manager",6029,roles,inventory-items.import
+POST,/companies/:companyId/inventory-items,inventory,create,"Accountant Admin Manager",6070,roles,inventory-items
+POST,/companies/:companyId/inventory-items/:itemId/lots,inventory,create,"Accountant Admin Manager",6189,roles,inventory-items.lots
+POST,/companies/:companyId/inventory-items/:itemId/consume-fefo,inventory,create,"Accountant Admin Manager",6232,roles,inventory-items.consume-fefo
+POST,/companies/:companyId/inventory-items/:itemId/adjustments,inventory,create,"Accountant Admin Manager",6268,roles,inventory-items.adjustments
+POST,/companies/:companyId/inventory-items/:itemId/issues,inventory,create,"Accountant Admin Manager",6311,roles,inventory-items.issues
+POST,/companies/:companyId/inventory-items/:itemId/transfers,inventory,create,"Accountant Admin Manager",6354,roles,inventory-items.transfers
+POST,/inventory-lots/:id/inspections,inventory,create,"Accountant Admin Manager",7180,roles,inventory-lots.inspections
+PUT,/warehouses/:id,inventory,write,"Admin Manager",5782,roles,warehouses
+PUT,/inventory-items/:id,inventory,write,"Admin Manager",9925,roles,inventory-items
+PUT,/stock-counts/:id,inventory,stock-counts.write,"Accountant Admin Manager",5967,roles,stock-counts
+DELETE,/warehouses/:id,inventory,warehouses.delete,"Admin Manager",5805,roles,warehouses
+DELETE,/stock-counts/:id,inventory,delete,"Accountant Admin Manager",5990,roles,stock-counts
+DELETE,/inventory-items/:id,inventory,delete,"Accountant Admin Manager",9904,roles,inventory-items
+GET,/companies/:companyId/recipes,manufacturing,read,"Accountant Admin Manager",5835,roles,recipes
+GET,/recipes/:id,manufacturing,read,"Accountant Admin Manager",5856,roles,recipes
+GET,/companies/:companyId/work-orders,manufacturing,read,"Accountant Admin Manager",5885,roles,work-orders
+GET,/work-orders/:id,manufacturing,read,"Accountant Admin Manager",5914,roles,work-orders
+GET,/work-orders/:id/material-availability,manufacturing,read,"Accountant Admin Manager",5915,roles,work-orders.material-availability
+POST,/companies/:companyId/recipes,manufacturing,create,"Accountant Admin Manager",5839,roles,recipes
+POST,/companies/:companyId/work-orders,manufacturing,create,"Accountant Admin Manager",5889,roles,work-orders
+POST,/work-orders/:id/complete,manufacturing,create,"Accountant Admin Manager",5919,roles,work-orders.complete
+PUT,/recipes/:id,manufacturing,write,"Accountant Admin Manager",5857,roles,recipes
+PUT,/work-orders/:id,manufacturing,write,"Accountant Admin Manager",5904,roles,work-orders
+DELETE,/recipes/:id,manufacturing,delete,"Accountant Admin Manager",5873,roles,recipes
+DELETE,/work-orders/:id,manufacturing,delete,"Accountant Admin Manager",5934,roles,work-orders
+POST,/work-orders/:id/cancel,manufacturing,cancel,"Accountant Admin Manager",5929,roles,work-orders.cancel
+POST,/stock-counts/:id/post,inventory,post,"Accountant Admin Manager",5982,roles,stock-counts.post
+GET,/companies/:companyId/purchase-orders,purchasing,read,"Accountant Admin Manager",6398,roles,purchase-orders
+GET,/companies/:companyId/purchase-order-payables,purchasing,read,"Accountant Admin Manager",6407,roles,purchase-order-payables
+GET,/companies/:companyId/purchase-receipts,purchasing,read,"Accountant Admin Manager",6486,roles,purchase-receipts
+GET,/companies/:companyId/rfqs,purchasing,read,"Accountant Admin Manager",6838,roles,rfqs
+GET,/rfqs/:id,purchasing,read,"Accountant Admin Manager",6857,roles,rfqs
+GET,/companies/:companyId/purchase-requisitions,purchasing,read,"Accountant Admin Manager",6930,roles,purchase-requisitions
+GET,/companies/:companyId/bill-matches,purchasing,read,"Accountant Admin Manager",8946,roles,bill-matches
+POST,/companies/:companyId/purchase-orders,purchasing,create,"Accountant Admin Manager",6416,roles,purchase-orders
+POST,/purchase-orders/:id/receipts,purchasing,create,"Accountant Admin Manager",6568,roles,purchase-orders.receipts
+POST,/companies/:companyId/rfqs,purchasing,create,"Accountant Admin Manager",6842,roles,rfqs
+POST,/rfqs/:id/quotes,purchasing,create,"Accountant Admin Manager",6873,roles,rfqs.quotes
+POST,/rfqs/:id/award,purchasing,create,"Accountant Admin Manager",6893,roles,rfqs.award
+POST,/rfqs/:id/purchase-order,purchasing,create,"Accountant Admin Manager",6903,roles,rfqs.purchase-order
+POST,/companies/:companyId/purchase-requisitions,purchasing,create,"Accountant Admin Manager",6939,roles,purchase-requisitions
+POST,/purchase-requisitions/:id/submit,purchasing,create,"Accountant Admin Manager",6989,roles,purchase-requisitions.submit
+POST,/purchase-requisitions/:id/convert,purchasing,create,"Accountant Admin Manager",6994,roles,purchase-requisitions.convert
+POST,/purchase-orders/:id/reject,purchasing,purchase-orders.reject.create,"Admin Manager",6546,roles,purchase-orders.reject
+POST,/purchase-requisitions/:id/reject,purchasing,purchase-requisitions.reject.create,"Admin Manager",6991,roles,purchase-requisitions.reject
+PUT,/purchase-orders/:id,purchasing,write,"Accountant Admin Manager",6453,roles,purchase-orders
+PATCH,/purchase-orders/:id/status,purchasing,write,"Accountant Admin Manager",6499,roles,purchase-orders.status
+PUT,/rfqs/:id,purchasing,write,"Accountant Admin Manager",6858,roles,rfqs
+POST,/purchase-orders/:id/approve,purchasing,approve,"Admin Manager",6527,roles,purchase-orders.approve
+POST,/purchase-requisitions/:id/approve,purchasing,approve,"Admin Manager",6990,roles,purchase-requisitions.approve
+POST,/companies/:companyId/budgets,finance,create,"Accountant Admin Manager",6610,roles,budgets
+POST,/companies/:companyId/vat-returns,finance,create,"Accountant Admin Manager",6728,roles,vat-returns
+POST,/companies/:companyId/expenses,finance,create,"Accountant Admin Manager",6768,roles,expenses
+POST,/companies/:companyId/recurring-documents,finance,create,"Accountant Admin Manager",7131,roles,recurring-documents
+POST,/companies/:companyId/fixed-assets,finance,create,"Accountant Admin Manager",7261,roles,fixed-assets
+POST,/companies/:companyId/fixed-assets/depreciation,finance,create,"Accountant Admin Manager",7322,roles,fixed-assets.depreciation
+POST,/fixed-assets/:id/disposal,finance,create,"Accountant Admin Manager",7334,roles,fixed-assets.disposal
+POST,/companies/:companyId/bank-statements,finance,create,"Accountant Admin Manager",7408,roles,bank-statements
+POST,/bank-statements/:id/lines/:lineId/match,finance,create,"Accountant Admin Manager",7449,roles,bank-statements.lines.match
+POST,/bank-statements/:id/lines/:lineId/ignore,finance,create,"Accountant Admin Manager",7479,roles,bank-statements.lines.ignore
+POST,/bank-statements/:id/lines/:lineId/entry,finance,create,"Accountant Admin Manager",7492,roles,bank-statements.lines.entry
+POST,/bank-statements/:id/reconcile,finance,create,"Accountant Admin Manager",7513,roles,bank-statements.reconcile
+POST,/companies/:companyId/finance/accounts,finance,create,"Accountant Admin Manager",8807,roles,finance.accounts
+POST,/companies/:companyId/finance/journal,finance,create,"Accountant Admin Manager",8883,roles,finance.journal
+POST,/journal-entries/:id/reverse,finance,create,"Accountant Admin Manager",8914,roles,journal-entries.reverse
+POST,/companies/:companyId/finance/vendor-bills,finance,create,"Accountant Admin Manager",8974,roles,finance.vendor-bills
+POST,/companies/:companyId/finance/vendor-bills/bulk-status,finance,create,"Accountant Admin Manager",9167,roles,finance.vendor-bills.bulk-status
+POST,/companies/:companyId/finance/revalue-foreign-balances,finance,create,"Accountant Admin Manager",9347,roles,finance.revalue-foreign-balances
+DELETE,/budgets/:id,finance,delete,"Accountant Admin Manager",6688,roles,budgets
+DELETE,/vat-returns/:id,finance,delete,"Accountant Admin Manager",6747,roles,vat-returns
+DELETE,/recurring-documents/:id,finance,delete,"Accountant Admin Manager",7161,roles,recurring-documents
+DELETE,/fixed-assets/:id,finance,delete,"Accountant Admin Manager",7356,roles,fixed-assets
+DELETE,/bank-statements/:id/lines/:lineId/match,finance,delete,"Accountant Admin Manager",7467,roles,bank-statements.lines.match
+DELETE,/bank-statements/:id,finance,delete,"Accountant Admin Manager",7536,roles,bank-statements
+DELETE,/finance/accounts/:id,finance,delete,"Accountant Admin Manager",8856,roles,finance.accounts
+DELETE,/rfqs/:id/quotes/:quoteId,purchasing,delete,"Accountant Admin Manager",6889,roles,rfqs.quotes
+DELETE,/rfqs/:id,purchasing,delete,"Accountant Admin Manager",6924,roles,rfqs
+POST,/companies/:companyId/sales-orders,sales,create,"Accountant Admin Manager",7010,roles,sales-orders
+POST,/companies/:companyId/customer-returns,sales,create,"Accountant Admin Manager",7558,roles,customer-returns
+POST,/customer-returns/:id/receipt,sales,create,"Accountant Admin Manager",7583,roles,customer-returns.receipt
+POST,/sales-orders/:id/invoice,sales,create,"Accountant Admin Manager",7643,roles,sales-orders.invoice
+POST,/companies/:companyId/quotations,sales,create,"Accountant Admin Manager",7747,roles,quotations
+POST,/quotations/:id/sales-order,sales,create,"Accountant Admin Manager",7856,roles,quotations.sales-order
+POST,/quotations/:id/invoice,sales,create,"Accountant Admin Manager",7892,roles,quotations.invoice
+POST,/sales-orders/:id/deliveries,sales,create,"Accountant Admin Manager",7986,roles,sales-orders.deliveries
+PUT,/sales-orders/:id,sales,write,"Accountant Admin Manager",7039,roles,sales-orders
+PATCH,/sales-orders/:id/status,sales,write,"Accountant Admin Manager",7618,roles,sales-orders.status
+PUT,/quotations/:id,sales,write,"Accountant Admin Manager",7805,roles,quotations
+PATCH,/quotations/:id/status,sales,write,"Accountant Admin Manager",7844,roles,quotations.status
+PATCH,/deliveries/:id/status,sales,write,"Accountant Admin Manager",8022,roles,deliveries.status
+POST,/customer-returns/:id/cancel,sales,cancel,"Accountant Admin Manager",7603,roles,customer-returns.cancel
+POST,/deliveries/:id/cancel,sales,cancel,"Accountant Admin Manager",8053,roles,deliveries.cancel
+DELETE,/quotations/:id,sales,delete,"Accountant Admin Manager",7948,roles,quotations
+GET,/companies/:companyId/whatsapp/instance,whatsapp,read,"Admin",8095,roles,whatsapp.instance
+GET,/companies/:companyId/whatsapp/state,whatsapp,read,"Admin",8138,roles,whatsapp.state
+GET,/companies/:companyId/whatsapp/qr,whatsapp,read,"Admin",8150,roles,whatsapp.qr
+GET,/companies/:companyId/whatsapp/messages,whatsapp,whatsapp.messages.read,"Accountant Admin Manager",8247,roles,whatsapp.messages
+GET,/companies/:companyId/whatsapp/chats,whatsapp,whatsapp.chats.read,"Accountant Admin Manager",8271,roles,whatsapp.chats
+GET,/companies/:companyId/whatsapp/chats/:chatId/settings,whatsapp,whatsapp.chats.settings.read,"Accountant Admin Manager",8281,roles,whatsapp.chats.settings
+PUT,/companies/:companyId/whatsapp/instance,whatsapp,write,"Admin",8105,roles,whatsapp.instance
+PATCH,/companies/:companyId/whatsapp/chats/:chatId/settings,whatsapp,whatsapp.chats.settings.write,"Accountant Admin Manager",8290,roles,whatsapp.chats.settings
+DELETE,/companies/:companyId/whatsapp/instance,whatsapp,delete,"Admin",8128,roles,whatsapp.instance
+POST,/companies/:companyId/whatsapp/configure-webhook,whatsapp,whatsapp.configure-webhook.create,"Admin",8161,roles,whatsapp.configure-webhook
+POST,/companies/:companyId/whatsapp/logout,whatsapp,whatsapp.logout.create,"Admin",8178,roles,whatsapp.logout
+POST,/companies/:companyId/whatsapp/chats/:chatId/read,whatsapp,create,"Accountant Admin Manager",8324,roles,whatsapp.chats.read
+POST,/companies/:companyId/whatsapp/chats/:chatId/sync-history,whatsapp,create,"Accountant Admin Manager",8334,roles,whatsapp.chats.sync-history
+POST,/companies/:companyId/whatsapp/open-chat,whatsapp,create,"Accountant Admin Manager",8358,roles,whatsapp.open-chat
+POST,/whatsapp/webhook/:webhookToken,whatsapp,whatsapp.webhook.create,"",8397,none,whatsapp.webhook
+POST,/companies/:companyId/whatsapp/send,whatsapp,send,"Accountant Admin Manager",8190,roles,whatsapp.send
+GET,/invoices/:id/payments,invoices,pay,"Accountant Admin Manager",8701,roles,invoices.payments
+POST,/invoices/:id/payments,invoices,pay,"Accountant Admin Manager",8712,roles,invoices.payments
+GET,/vendor-bills/:id/payments,vendor-bills,pay,"Accountant Admin Manager",9101,roles,vendor-bills.payments
+POST,/vendor-bills/:id/payments,vendor-bills,pay,"Accountant Admin Manager",9112,roles,vendor-bills.payments
+DELETE,/vendor-bills/:id/payments/:paymentId,vendor-bills,delete,"Accountant Admin Manager",9144,roles,vendor-bills.payments
+POST,/companies/:companyId/payables/pending/bill,vendor-bills,create,"Accountant Admin Manager",9291,roles,payables.pending.bill
+GET,/companies/:companyId/hr/gratuity,hr,hr.gratuity.read,"Accountant Admin Manager",9320,roles,hr.gratuity
+GET,/companies/:companyId/attendance,hr,attendance.read,"Accountant Admin Manager",9720,roles,attendance
+GET,/companies/:companyId/departments,hr,read,"Accountant Admin Employee Manager",9665,access,departments
+GET,/companies/:companyId/employees,hr,read,"Accountant Admin Employee Manager",9689,access,employees
+GET,/employees/:id,hr,read,"Accountant Admin Employee Manager",9699,access,employees
+GET,/employees/:id/leave-balance,hr,read,"Accountant Admin Employee Manager",9711,access,employees.leave-balance
+GET,/companies/:companyId/leave-types,hr,read,"Accountant Admin Employee Manager",9806,access,leave-types
+GET,/companies/:companyId/leave-requests,hr,read,"Accountant Admin Employee Manager",9823,access,leave-requests
+POST,/companies/:companyId/hr/gratuity/accrue,hr,create,"Accountant Admin Manager",9331,roles,hr.gratuity.accrue
+POST,/companies/:companyId/departments,hr,create,"Accountant Admin Manager",9669,roles,departments
+POST,/companies/:companyId/employees,hr,create,"Accountant Admin Manager",9693,roles,employees
+POST,/companies/:companyId/attendance,hr,create,"Accountant Admin Manager",9728,roles,attendance
+POST,/companies/:companyId/leave-types,hr,create,"Accountant Admin Manager",9810,roles,leave-types
+POST,/companies/:companyId/leave-requests,hr,create,"Accountant Admin Manager",9830,roles,leave-requests
+GET,/companies/:companyId/dashboard,dashboard,read,"Accountant Admin Employee Manager",9377,access,dashboard
+POST,/seed,seed,create,"",9650,none,seed
+PUT,/departments/:id,hr,write,"Accountant Admin Manager",9675,roles,departments
+PUT,/employees/:id,hr,write,"Accountant Admin Manager",9705,roles,employees
+PUT,/leave-types/:id,hr,write,"Accountant Admin Manager",9816,roles,leave-types
+PUT,/leave-requests/:id/status,hr,write,"Accountant Admin Manager",9851,roles,leave-requests.status
+DELETE,/attendance/:id,hr,delete,"Accountant Admin Manager",9746,roles,attendance
+GET,/companies/:companyId/payroll-runs,payroll,read,"Accountant Admin Manager",9756,roles,payroll-runs
+GET,/payroll-runs/:id,payroll,read,"Accountant Admin Manager",9779,roles,payroll-runs
+GET,/payroll-runs/:id/wps,payroll,read,"Accountant Admin Manager",9793,roles,payroll-runs.wps
+POST,/companies/:companyId/payroll-runs,payroll,create,"Accountant Admin Manager",9760,roles,payroll-runs
+PUT,/payroll-runs/:id/status,payroll,write,"Accountant Admin Manager",9782,roles,payroll-runs.status
+DELETE,/payroll-runs/:id,payroll,delete,"Accountant Admin Manager",9788,roles,payroll-runs
+DELETE,/tasks/:id,tasks,delete,"Accountant Admin Employee Manager",9975,access,tasks

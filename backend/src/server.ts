@@ -8,6 +8,7 @@ import { CreditLimitError, DataStore, type DataStoreOptions } from './data/store
 import { runDueRecurring } from './finance/recurring-runner';
 import { disposeAsset, monthOf, postDepreciation } from './finance/fixed-assets';
 import { WpsDataError } from './hr/wps';
+import { INSPECTION_STAGES, inspectLot, traceLot, type InspectionCheck, type InspectionStage } from './inventory/quality';
 import { autoMatch, postStatementLine, readStatementCsv, reconcileCheck, type CsvColumns, type DateFormat } from './finance/bank-reconciliation';
 import type { RecurringDocument, RecurringFrequency, RecurringKind, RecurringMode } from './finance/recurring';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
@@ -6098,6 +6099,7 @@ export function createServer(options: CreateServerOptions = {}) {
             barcode: optionalString(body.barcode),
             vatApplicable: optionalBoolean(body.vatApplicable) ?? true,
             tracksInventory: tracks,
+            requiresQc: optionalBoolean(body.requiresQc) ?? false,
             onHand: openingQty,
             reorderPoint: requiredNumber(body.reorderPoint ?? 0, 'reorderPoint'),
             unitCost: requiredNumber(body.unitCost ?? 0, 'unitCost'),
@@ -7165,6 +7167,52 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       store.recurring.remove(existing.id);
       res.status(204).end();
+    }),
+  );
+
+  // ── Quality control ──
+  const lotFor = (req: AuthedRequest) => {
+    const lot = store.getInventoryLotById(req.params.id);
+    if (!lot) throw new HttpError(404, 'Batch not found.');
+    return lot;
+  };
+
+  app.post(
+    '/inventory-lots/:id/inspections',
+    authMiddleware,
+    handler((req, res) => {
+      const lot = lotFor(req);
+      requireCompanyRoles(req, lot.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      if (!Array.isArray(body.checks) || body.checks.length === 0) throw new HttpError(400, 'Record at least one check.');
+      const checks: InspectionCheck[] = (body.checks as unknown[]).map((raw, i) => {
+        const c = asRecord(raw, `checks[${i}]`);
+        return { name: requiredString(c.name, `checks[${i}].name`, { min: 1 }), expected: optionalString(c.expected), actual: optionalString(c.actual), pass: c.pass === true };
+      });
+      try {
+        const record = inspectLot(store, lot.id, {
+          stage: enumValue(body.stage ?? 'incoming', 'stage', INSPECTION_STAGES) as InspectionStage,
+          checks, notes: optionalString(body.notes), actor: req.user ? { id: req.user.id, name: req.user.name } : undefined,
+        });
+        withActor(req, () => store.createActivityEvent({
+          companyId: lot.companyId, entityType: 'inventory_item', entityId: lot.inventoryItemId, action: record.result === 'pass' ? 'qc_passed' : 'qc_failed',
+          summary: `Batch ${lot.lotNumber} ${record.result === 'pass' ? 'passed' : 'failed'} ${record.stage.replace('_', '-')} inspection.`,
+          metadata: { lotId: lot.id, inspectionId: record.id },
+        }));
+        res.status(201).json({ inspection: record, lot: store.getInventoryLotById(lot.id) });
+      } catch (error) {
+        throw new HttpError(409, error instanceof Error ? error.message : 'Could not record the inspection.');
+      }
+    }),
+  );
+
+  app.get(
+    '/inventory-lots/:id/trace',
+    authMiddleware,
+    handler((req, res) => {
+      const lot = lotFor(req);
+      requireCompanyRoles(req, lot.companyId, companyManagementRoles);
+      res.json(traceLot(store, lot.id));
     }),
   );
 
@@ -9896,6 +9944,7 @@ export function createServer(options: CreateServerOptions = {}) {
           unit: body.unit !== undefined ? requiredString(body.unit, 'unit', { min: 1 }) : undefined,
           vatApplicable: optionalBoolean(body.vatApplicable),
           tracksInventory: optionalBoolean(body.tracksInventory),
+          requiresQc: optionalBoolean(body.requiresQc),
           reorderPoint: body.reorderPoint !== undefined ? requiredNumber(body.reorderPoint, 'reorderPoint') : undefined,
           salePrice: body.salePrice === null || body.salePrice === '' ? null : optionalNumber(body.salePrice),
           preferredVendor: nullable(body.preferredVendor),

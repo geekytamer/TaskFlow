@@ -8,6 +8,7 @@ export interface InventoryItem {
   unit: string;
   vatApplicable: boolean;
   tracksInventory: boolean;
+  requiresQc?: boolean;
   onHand: number;
   reorderPoint: number;
   unitCost: number;
@@ -150,7 +151,7 @@ export interface StockMovement {
   createdAt: Date;
 }
 
-export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired';
+export type InventoryLotStatus = 'Active' | 'Depleted' | 'Expired' | 'Quarantine' | 'Rejected';
 
 export interface InventoryLot {
   id: string;

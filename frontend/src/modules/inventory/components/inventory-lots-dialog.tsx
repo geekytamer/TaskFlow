@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { InspectDialog, LotStatusBadge, TraceDialog } from './lot-quality';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
@@ -158,6 +159,8 @@ export function InventoryLotsDialog({
     [item, defaultWarehouseName],
   );
   const [form, setForm] = React.useState<ReceiveForm>(emptyForm);
+  const [inspecting, setInspecting] = React.useState<InventoryLot | null>(null);
+  const [tracing, setTracing] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     if (!item) return;
@@ -344,13 +347,14 @@ export function InventoryLotsDialog({
                 <TableHead>{tr('Expiry', 'الانتهاء')}</TableHead>
                 <TableHead className="text-end">{tr('Unit Cost', 'تكلفة الوحدة')}</TableHead>
                 <TableHead>{tr('Status', 'الحالة')}</TableHead>
+                <TableHead className="text-end"><span className="sr-only">{tr('Actions', 'الإجراءات')}</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading &&
                 Array.from({ length: 3 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 6 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-5 w-16" />
                       </TableCell>
@@ -370,12 +374,20 @@ export function InventoryLotsDialog({
                       <ExpiryBadge expiryDate={lot.expiryDate} tr={tr} />
                     </TableCell>
                     <TableCell className="text-end">{amount(lot.unitCost)}</TableCell>
-                    <TableCell>{lot.status}</TableCell>
+                    <TableCell><LotStatusBadge status={lot.status} tr={tr} /></TableCell>
+                    <TableCell className="text-end">
+                      <div className="flex justify-end gap-1">
+                        {canManage && (lot.status === 'Quarantine' || lot.status === 'Active') && (
+                          <Button size="sm" variant={lot.status === 'Quarantine' ? 'default' : 'ghost'} onClick={() => setInspecting(lot)}>{tr('Inspect', 'فحص')}</Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => setTracing(lot.id)}>{tr('Trace', 'تتبع')}</Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               {!loading && lots.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
                     {tr('No lots received yet for this item.', 'لم يتم استلام دفعات لهذا الصنف بعد.')}
                   </TableCell>
                 </TableRow>
@@ -383,6 +395,8 @@ export function InventoryLotsDialog({
             </TableBody>
           </Table>
         </div>
+        {inspecting && <InspectDialog lot={inspecting} tr={tr} onClose={() => setInspecting(null)} onDone={() => { setInspecting(null); void reload(); onChanged(); }} />}
+        {tracing && <TraceDialog lotId={tracing} tr={tr} onClose={() => setTracing(null)} />}
       </DialogContent>
     </Dialog>
   );
