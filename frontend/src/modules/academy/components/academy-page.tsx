@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Check, Clock, GraduationCap, Lock, Play, RotateCcw, Sparkles, Users } from 'lucide-react';
+import { Check, Clock, GraduationCap, Lightbulb, Lock, Play, RotateCcw, Sparkles, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { getTeam, type AcademyMission, type TeamMember } from '@/services/academyService';
 import { moduleLabel } from '@/modules/permissions/lib/labels';
 import { useAcademy } from '../academy-context';
+import { EXPLAINERS } from '../lib/explainers';
 
 const LEVEL_XP = 200;
 
@@ -126,6 +127,25 @@ export function AcademyPage() {
           </ul>
         </section>
       )}
+
+      {(() => {
+        const learned = progress.missions.flatMap((m) => m.objectives.filter((o) => o.done).map((o) => EXPLAINERS[`${m.id}/${o.id}`]).filter(Boolean));
+        if (learned.length === 0) return null;
+        return (
+          <section aria-labelledby="learned-title">
+            <h2 id="learned-title" className="mb-1 flex items-center gap-2 text-lg font-semibold"><Lightbulb className="h-5 w-5 text-amber-500" />{tr('What you have learned', 'ما تعلّمته')}</h2>
+            <p className="mb-3 text-sm text-muted-foreground">{tr('The rules behind the steps you took, to look back on.', 'القواعد وراء الخطوات التي قمت بها، للرجوع إليها.')}</p>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              {learned.map((e) => (
+                <div key={e.title.en} className="rounded-lg border p-3">
+                  <dt className="font-medium" dir="auto">{tr(e.title.en, e.title.ar)}</dt>
+                  <dd className="mt-1 text-sm text-muted-foreground" dir="auto">{tr(e.en, e.ar)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        );
+      })()}
 
       {team && team.length > 0 && realCompany && (
         <section aria-labelledby="team-title">

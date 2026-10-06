@@ -35,6 +35,9 @@ export const GUIDES: Record<string, GuideStep[]> = {
   'get-work-done/assign': [
     { route: '/projects', target: nav('projects-tasks-table'), en: 'Open the task and assign it to yourself.', ar: 'افتح المهمة وأسندها إلى نفسك.' },
   ],
+  'get-work-done/private': [
+    { route: '/projects', target: nav('projects-tasks-table'), en: 'Add a personal task such as "Renew my visa" and tick Private.', ar: 'أضف مهمة شخصية مثل "تجديد تأشيرتي" وفعّل خيار خاص.' },
+  ],
   'get-work-done/time': [
     { route: '/projects', target: nav('projects-tasks-table'), en: 'In the task, log the time you spent (try 45 minutes).', ar: 'في المهمة، سجّل الوقت الذي قضيته (جرّب 45 دقيقة).' },
   ],

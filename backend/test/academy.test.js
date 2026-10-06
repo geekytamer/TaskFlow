@@ -217,3 +217,18 @@ test('the new missions check real work in the practice company', async () => {
   for (const k of ['stock-control/warehouse', 'credit-currency/limit', 'close-quarter/vat', 'documents/template', 'documents/document']) assert.equal(after[k], true, k);
   assert.equal(after['documents/final'], false, 'a draft is not final');
 });
+
+test('every objective has a guide, and guides and explanations point only at real objectives', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { MISSIONS } = require('../dist/academy/missions');
+  const objectives = MISSIONS.flatMap((m) => m.objectives.map((o) => `${m.id}/${o.id}`));
+  const keysOf = (file) => [...fs.readFileSync(path.join(__dirname, '../../frontend/src/modules/academy/lib', file), 'utf8')
+    .matchAll(/^ {2}'([a-z-]+\/[a-z-]+)': [[{]/gm)].map((m) => m[1]);
+  const guides = keysOf('guides.ts');
+  const explainers = keysOf('explainers.ts');
+  assert.deepEqual(objectives.filter((k) => !guides.includes(k)), [], 'objectives without a guide');
+  assert.deepEqual(guides.filter((k) => !objectives.includes(k)), [], 'guides for objectives that do not exist');
+  assert.deepEqual(explainers.filter((k) => !objectives.includes(k)), [], 'explanations for objectives that do not exist');
+  assert.ok(explainers.includes('get-work-done/private') && explainers.includes('get-work-done/project'), 'visibility is explained');
+});

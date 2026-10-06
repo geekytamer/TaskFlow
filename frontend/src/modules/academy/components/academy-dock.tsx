@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Check, ChevronDown, ChevronUp, Circle, Compass, LogOut, Scale, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Circle, Compass, Lightbulb, LogOut, Scale, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -11,6 +11,7 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { cn } from '@/lib/utils';
 import { getStatements, type AcademyImpact, type AcademyStatements, type StatementLine } from '@/services/academyService';
 import { useAcademy } from '../academy-context';
+import { EXPLAINERS, type Explainer } from '../lib/explainers';
 import { GUIDES, type GuideStep } from '../lib/guides';
 
 type Tr = (en: string, ar: string) => string;
@@ -30,6 +31,59 @@ const IMPACT_ROWS: Array<{ key: keyof AcademyImpact; en: string; ar: string; goo
   { key: 'expenses', en: 'Expenses', ar: 'المصروفات', goodWhenUp: false },
   { key: 'profit', en: 'Profit', ar: 'الربح', goodWhenUp: true },
 ];
+
+/**
+ * Where an open dialog or sheet sits, or null when none is open. A modal blocks
+ * clicks everywhere else, so while one is open the dock gives the screen to it
+ * and shrinks to a note on the side the modal leaves free.
+ */
+function useOpenModal(): 'left' | 'right' | null {
+  const [side, setSide] = React.useState<'left' | 'right' | null>(null);
+  React.useEffect(() => {
+    const check = () => {
+      const open = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'))
+        .filter((el) => !el.closest('[data-academy-dock]'));
+      if (open.length === 0) { setSide(null); return; }
+      const rect = open[open.length - 1].getBoundingClientRect();
+      setSide(rect.left + rect.width / 2 >= window.innerWidth / 2 ? 'right' : 'left');
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state'] });
+    return () => observer.disconnect();
+  }, []);
+  return side;
+}
+
+/** The current step, small, out of the modal's way. Clicks pass through it. */
+function ModalNote({ modalSide, step, title, tr }: { modalSide: 'left' | 'right'; step?: GuideStep; title: string; tr: Tr }) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        'pointer-events-none fixed bottom-4 z-[55] hidden w-64 rounded-lg border bg-background/95 p-2.5 text-xs shadow-lg backdrop-blur sm:block',
+        modalSide === 'right' ? 'left-4' : 'right-4',
+      )}
+    >
+      <p className="flex items-center gap-1.5 font-semibold text-primary"><Sparkles className="h-3.5 w-3.5" /><span className="truncate" dir="auto">{title}</span></p>
+      {step && <p className="mt-1 text-muted-foreground" dir="auto">{tr(step.en, step.ar)}</p>}
+    </div>
+  );
+}
+
+/** Why the step works the way it does: who sees it, what it does to the books, what is final. */
+function HowItWorks({ explainer, tr }: { explainer: Explainer; tr: Tr }) {
+  return (
+    <details className="group mt-2 rounded-md border bg-muted/40 p-2 text-sm" open>
+      <summary className="flex cursor-pointer list-none items-center gap-2 font-medium [&::-webkit-details-marker]:hidden">
+        <Lightbulb className="h-4 w-4 shrink-0 text-amber-500" />
+        <span className="flex-1" dir="auto">{tr('How this works: ', 'كيف يعمل هذا: ')}{tr(explainer.title.en, explainer.title.ar)}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <p className="mt-1.5 text-muted-foreground" dir="auto">{tr(explainer.en, explainer.ar)}</p>
+    </details>
+  );
+}
 
 /**
  * A ring around the step's target that lets every click through, and a small
@@ -229,14 +283,27 @@ export function AcademyDock() {
   const [statements, setStatements] = React.useState(false);
 
   const objective = currentMission?.objectives.find((o) => !o.done) ?? null;
-  const steps = objective && currentMission ? GUIDES[`${currentMission.id}/${objective.id}`] ?? [] : [];
+  const steps = React.useMemo(() => (objective && currentMission ? GUIDES[`${currentMission.id}/${objective.id}`] ?? [] : []), [objective, currentMission]);
   const objectiveKey = `${currentMission?.id}/${objective?.id}`;
+  const explainer = EXPLAINERS[objectiveKey];
+  const modalSide = useOpenModal();
   React.useEffect(() => { setStepIndex(0); setGuiding(true); }, [objectiveKey]);
   const advance = React.useCallback(() => setStepIndex((i) => Math.min(i + 1, Math.max(steps.length - 1, 0))), [steps.length]);
+  // "Open X" steps are done once the trainee is on the page the next step works on.
+  const pathname = usePathname();
+  React.useEffect(() => {
+    const next = steps[stepIndex + 1];
+    if (next?.route && next.route.split('?')[0] === pathname) setStepIndex((i) => i + 1);
+  }, [pathname, stepIndex, steps]);
 
   if (!inPractice || !progress) return null;
   const xpInLevel = progress.xp % LEVEL_XP;
   const allDone = progress.missions.every((m) => m.status === 'done');
+
+  if (modalSide && !statements) {
+    const title = objective ? tr(objective.title.en, objective.title.ar) : currentMission ? tr(currentMission.title.en, currentMission.title.ar) : tr('Academy', 'الأكاديمية');
+    return <ModalNote modalSide={modalSide} step={steps[stepIndex]} title={title} tr={tr} />;
+  }
 
   return (
     <>
@@ -244,6 +311,7 @@ export function AcademyDock() {
         <Spotlight step={steps[stepIndex]} tr={tr} onAdvance={advance} onClose={() => setGuiding(false)} />
       )}
       <aside
+        data-academy-dock
         aria-label={tr('Academy mission', 'مهمة الأكاديمية')}
         className="fixed bottom-4 end-4 z-[55] w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-background shadow-xl"
       >
@@ -283,6 +351,7 @@ export function AcademyDock() {
                   })}
                 </ol>
                 {steps[stepIndex] && <NextStep step={steps[stepIndex]} tr={tr} />}
+                {explainer && <HowItWorks key={objectiveKey} explainer={explainer} tr={tr} />}
               </div>
             )}
             {allDone && (

@@ -75,6 +75,7 @@ export const MISSIONS: Mission[] = [
       { id: 'project', title: { en: 'Create a project', ar: 'أنشئ مشروعاً' }, measure: rows('projects') },
       { id: 'task', title: { en: 'Add a task to it', ar: 'أضف مهمة إليه' }, measure: rows('tasks', 'projectId IS NOT NULL') },
       { id: 'assign', title: { en: 'Assign the task to yourself', ar: 'أسند المهمة إلى نفسك' }, measure: rows('tasks', "assignedUserIds IS NOT NULL AND assignedUserIds NOT IN ('', '[]')") },
+      { id: 'private', title: { en: 'Make a personal task private', ar: 'اجعل مهمة شخصية خاصة' }, measure: rows('tasks', 'isPrivate = 1') },
       { id: 'time', title: { en: 'Log time on it', ar: 'سجّل وقتاً عليها' }, measure: rows('time_entries') },
       { id: 'done', title: { en: 'Mark it done', ar: 'علّمها كمنجزة' }, measure: rows('tasks', "status = 'Done'") },
     ],
