@@ -340,7 +340,7 @@ export function VendorBillTable() {
       try {
         await updateVendorBill(editingBill.id, {
           vendorName,
-          supplierId: form.supplierId || undefined,
+          supplierId: form.supplierId,
           referenceInvoiceNumber: form.referenceInvoiceNumber,
           issueDate: new Date(form.issueDate),
           dueDate: form.dueDate ? new Date(form.dueDate) : undefined,

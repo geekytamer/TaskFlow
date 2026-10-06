@@ -251,7 +251,7 @@ export function ProposalsPage() {
         items: cleanLines,
         notes: form.notes.trim() || undefined,
       };
-      if (editing) await updateProposal(editing.id, { ...data, notes: form.notes.trim() });
+      if (editing) await updateProposal(editing.id, { ...data, validUntil: data.validUntil ?? null, notes: form.notes.trim() });
       else await createProposal(selectedCompany.id, { opportunityId: form.opportunityId, ...data });
       resetForm();
       setDialogOpen(false);

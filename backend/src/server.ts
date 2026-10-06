@@ -4576,7 +4576,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		          title: body.title !== undefined ? requiredString(body.title, 'title', { min: 2 }) : undefined,
 		          status: body.status !== undefined ? enumValue(body.status, 'status', proposalStatuses) : undefined,
 		          issueDate: body.issueDate !== undefined && body.issueDate ? new Date(optionalDateInput(body.issueDate)!) : undefined,
-		          validUntil: body.validUntil !== undefined && body.validUntil ? new Date(optionalDateInput(body.validUntil)!) : undefined,
+		          // Absent: unchanged. Emptied: removed.
+		          validUntil: body.validUntil === undefined ? undefined : body.validUntil ? new Date(optionalDateInput(body.validUntil)!) : null,
 		          items: body.items !== undefined ? parseProposalItems(body.items) : undefined,
 		          notes: body.notes !== undefined ? optionalString(body.notes) : undefined,
 		        }),
@@ -8441,17 +8442,19 @@ export function createServer(options: CreateServerOptions = {}) {
       const has = (k: string) => body[k] !== undefined;
       const expenseAccountId = has('expenseAccountId') ? optionalString(body.expenseAccountId) : undefined;
       ensureLedgerAccountBelongsToCompany(expenseAccountId, bill.companyId);
-      const supplierId = has('supplierId') ? optionalString(body.supplierId) : undefined;
-      ensureSupplierBelongsToCompany(supplierId, bill.companyId);
+      // An emptied field is cleared (null); an absent one is left as it is (undefined).
+      const cleared = (k: string) => (has(k) ? optionalString(body[k]) ?? null : undefined);
+      const supplierId = cleared('supplierId');
+      ensureSupplierBelongsToCompany(supplierId ?? undefined, bill.companyId);
       res.json(withActor(req, () => store.updateVendorBill(bill.id, {
         vendorName: has('vendorName') ? requiredString(body.vendorName, 'vendorName', { min: 1 }) : undefined,
         supplierId,
-        referenceInvoiceNumber: has('referenceInvoiceNumber') ? optionalString(body.referenceInvoiceNumber) : undefined,
+        referenceInvoiceNumber: cleared('referenceInvoiceNumber'),
         issueDate: has('issueDate') ? new Date(requiredDateInput(body.issueDate, 'issueDate')) : undefined,
         dueDate: has('dueDate') ? new Date(requiredDateInput(body.dueDate, 'dueDate')) : undefined,
         amount: has('amount') ? requiredNumber(body.amount, 'amount') : undefined,
         taxRate: has('taxRate') ? requiredNumber(body.taxRate, 'taxRate') : undefined,
-        notes: has('notes') ? optionalString(body.notes) : undefined,
+        notes: cleared('notes'),
         expenseAccountId,
       })));
     }),

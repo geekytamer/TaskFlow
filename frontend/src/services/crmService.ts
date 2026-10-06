@@ -786,7 +786,8 @@ export async function updateProposal(id: string, input: Partial<{
   title: string;
   status: ProposalStatus;
   issueDate: Date;
-  validUntil: Date;
+  /** null removes the date. */
+  validUntil: Date | null;
   items: ProposalLineItem[];
   notes: string;
 }>): Promise<CrmProposal> {
@@ -795,7 +796,7 @@ export async function updateProposal(id: string, input: Partial<{
     body: JSON.stringify({
       ...input,
       issueDate: input.issueDate?.toISOString(),
-      validUntil: input.validUntil?.toISOString(),
+      validUntil: input.validUntil === null ? '' : input.validUntil?.toISOString(),
     }),
   });
   return decodeCrmProposal(data);

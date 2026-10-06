@@ -92,6 +92,8 @@ test('only a draft vendor bill can be edited, within its purchase order', async 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual([res.body.amount, res.body.referenceInvoiceNumber, res.body.notes, res.body.status], [320, 'PC-77', 'Corrected', 'Draft']);
   assert.equal((await manager(request(app).put(`/vendor-bills/${bill.id}`)).send({ dueDate: '2026-09-01' })).status, 400, 'due before issue');
+  const cleared = await manager(request(app).put(`/vendor-bills/${bill.id}`)).send({ notes: '', referenceInvoiceNumber: '' });
+  assert.deepEqual([cleared.status, cleared.body.notes ?? null, cleared.body.referenceInvoiceNumber ?? null], [200, null, null], 'emptied fields are cleared');
   store.updateVendorBillStatus(bill.id, 'Approved');
   assert.equal((await manager(request(app).put(`/vendor-bills/${bill.id}`)).send({ amount: 1 })).status, 409);
 });
@@ -140,6 +142,10 @@ test('a proposal is edited only as a draft: once sent, its prices are what the c
   const ok = await admin(request(app).put(`/proposals/${draft.id}`)).send({ items: [{ description: 'Reel', quantity: 2, unitPrice: 500 }] });
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.equal(ok.body.totalAmount, 1000);
+  await admin(request(app).put(`/proposals/${draft.id}`)).send({ validUntil: '2026-12-31' });
+  const noDate = await admin(request(app).put(`/proposals/${draft.id}`)).send({ validUntil: '' });
+  assert.equal(noDate.status, 200);
+  assert.equal(store.getCrmProposalById(draft.id).validUntil, undefined, 'an emptied date is removed');
   store.updateCrmProposal(draft.id, { status: 'Sent' });
   const blocked = await admin(request(app).put(`/proposals/${draft.id}`)).send({ items: [{ description: 'Reel', quantity: 2, unitPrice: 1 }] });
   assert.equal(blocked.status, 409);

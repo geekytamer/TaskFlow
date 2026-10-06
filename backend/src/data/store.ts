@@ -283,8 +283,8 @@ type CreateCrmProposalInput = Omit<
   updatedAt?: Date | string;
 };
 type UpdateCrmProposalInput = Partial<
-  Omit<CrmProposal, 'id' | 'companyId' | 'opportunityId' | 'contactId' | 'proposalNumber' | 'totalAmount' | 'acceptedAt' | 'declinedAt' | 'createdAt' | 'updatedAt'>
->;
+  Omit<CrmProposal, 'id' | 'companyId' | 'opportunityId' | 'contactId' | 'proposalNumber' | 'totalAmount' | 'acceptedAt' | 'declinedAt' | 'createdAt' | 'updatedAt' | 'validUntil'>
+> & { /** null removes the date. */ validUntil?: Date | null };
 type CreateCrmCampaignInput = Omit<CrmCampaign, 'id' | 'archivedAt' | 'createdAt' | 'updatedAt'> & {
   id?: string;
   archivedAt?: Date | string;
@@ -7144,11 +7144,12 @@ export class DataStore {
    * Edits a draft vendor bill. Drafts have no ledger entries yet; once a bill is
    * approved it is changed by reversing it (or its payments), not by editing.
    */
-  updateVendorBill(id: string, input: Partial<Pick<VendorBill, 'vendorName' | 'supplierId' | 'referenceInvoiceNumber' | 'issueDate' | 'dueDate' | 'amount' | 'taxRate' | 'notes' | 'expenseAccountId'>>): VendorBill {
+  updateVendorBill(id: string, input: Partial<{ [K in 'vendorName' | 'supplierId' | 'referenceInvoiceNumber' | 'issueDate' | 'dueDate' | 'amount' | 'taxRate' | 'notes' | 'expenseAccountId']: VendorBill[K] | null }>): VendorBill {
     const bill = this.getVendorBillById(id);
     if (!bill) throw new Error('Vendor bill not found.');
     if (bill.status !== 'Draft') throw new Error('Only a draft vendor bill can be edited.');
-    const next = { ...bill, ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) } as VendorBill;
+    // undefined leaves a field alone; null clears it.
+    const next = { ...bill, ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined).map(([k, v]) => [k, v ?? undefined])) } as VendorBill;
     next.issueDate = new Date(next.issueDate);
     next.dueDate = new Date(next.dueDate);
     if (!next.vendorName?.trim()) throw new Error('Vendor name is required.');
