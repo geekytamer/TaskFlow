@@ -55,7 +55,7 @@ Portal app (create, all under `portal/`): `package.json`, `tsconfig.json`, `next
 
 Internal frontend: create `frontend/src/services/portalAccessService.ts`, `frontend/src/modules/portal-access/components/portal-access-panel.tsx`; modify `frontend/src/modules/clients/components/clients-page.tsx`, `frontend/src/modules/influencers/components/influencer-edit-sheet.tsx`.
 
-Deploy (create): `deploy/portal/ecosystem.portal.cjs`, `deploy/portal/nginx-portal.conf.template`, `deploy/portal/README.md`.
+Deploy (create): `deploy/portal/ecosystem.portal.config.cjs`, `deploy/portal/nginx-portal.conf.template`, `deploy/portal/README.md`.
 
 ---
 
@@ -3367,7 +3367,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ### Task 6: Deployment artifacts and end-to-end check
 
 **Files:**
-- Create: `deploy/portal/ecosystem.portal.cjs`, `deploy/portal/nginx-portal.conf.template`, `deploy/portal/README.md`
+- Create: `deploy/portal/ecosystem.portal.config.cjs`, `deploy/portal/nginx-portal.conf.template`, `deploy/portal/README.md`
 - Modify: `docs/superpowers/plans/2026-09-24-peak-portals-roadmap.md` (mark Phase 1 verified only if it is)
 
 **Interfaces:**
@@ -3375,7 +3375,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the pm2 entries**
 
-Create `deploy/portal/ecosystem.portal.cjs`:
+Create `deploy/portal/ecosystem.portal.config.cjs`:
 
 ```js
 /**
@@ -3383,7 +3383,7 @@ Create `deploy/portal/ecosystem.portal.cjs`:
  * chosen by PORTAL_AUDIENCE. Both bind loopback: nginx is the only way in, and
  * the backend's /portal-api is never routed by nginx.
  *
- *   pm2 startOrReload deploy/portal/ecosystem.portal.cjs --update-env
+ *   pm2 startOrReload deploy/portal/ecosystem.portal.config.cjs --update-env
  */
 const path = require('path');
 
@@ -3489,7 +3489,7 @@ The backend must bind loopback (`HOST=127.0.0.1`) and sit behind nginx with
 
 ```bash
 cd portal && npm ci && npm run build
-pm2 startOrReload deploy/portal/ecosystem.portal.cjs --update-env
+pm2 startOrReload deploy/portal/ecosystem.portal.config.cjs --update-env
 ```
 
 5. Render `nginx-portal.conf.template` once per host (see its header), enable both,

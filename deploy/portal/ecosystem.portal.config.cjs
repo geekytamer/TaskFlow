@@ -5,7 +5,7 @@
  * way in, and the backend's /portal-api is never routed by nginx.
  *
  *   cd portal && npm ci && npm run build
- *   pm2 startOrReload deploy/portal/ecosystem.portal.cjs --update-env
+ *   pm2 startOrReload deploy/portal/ecosystem.portal.config.cjs --update-env
  */
 const path = require('path');
 

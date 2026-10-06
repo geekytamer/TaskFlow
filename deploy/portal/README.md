@@ -49,7 +49,7 @@ startup.
 
 ```bash
 cd portal && npm ci && npm run build
-pm2 startOrReload deploy/portal/ecosystem.portal.cjs --update-env
+pm2 startOrReload deploy/portal/ecosystem.portal.config.cjs --update-env
 ```
 
 5. Render `nginx-portal.conf.template` once per host (see its header; the games host
