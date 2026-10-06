@@ -2,12 +2,18 @@ import { APPROVAL_DOC_TYPES, APPROVER_ROLES, rolesActingAs, type ApprovalDocType
 import { HttpError, getEffectiveRole } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber } from '../validation';
 import type { RouteContext } from './context';
-import { companyManagementRoles, handler } from './shared';
+import { type AuthedRequest, companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
 
+/** Deciding a document stays in server.ts, where the purchase-order and expense routes use it too. */
+export interface ApprovalDecisions {
+  docSummary: (docType: ApprovalDocType, docId: string) => { companyId: string; number: string; amount: number; party: string | null; date: Date } | undefined;
+  decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => object;
+}
+
 /** Approval chains. */
-export function registerApprovalRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyRoles, allowsRule, docSummary, decideDocument } = ctx;
+export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSummary, decideDocument }: ApprovalDecisions): void {
+  const { store, authMiddleware, requireCompanyRoles, allowsRule } = ctx;
 
   app.get(
     '/companies/:companyId/approvals/rules',

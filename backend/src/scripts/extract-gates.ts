@@ -413,7 +413,7 @@ export function loadRouteSource(srcDir = path.join(__dirname, '..', '..', 'src')
   const out: string[] = [];
   const origin: Array<{ file: string; line: number }> = [];
   fs.readFileSync(path.join(srcDir, 'server.ts'), 'utf8').split('\n').forEach((line, index) => {
-    const call = /^\s*(register\w+)\(app, routeContext\);/.exec(line);
+    const call = /^\s*(register\w+)\(app, routeContext\b/.exec(line);
     const module = call ? modules.get(call[1]) : undefined;
     if (!module) {
       out.push(line);

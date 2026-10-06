@@ -1,9 +1,9 @@
 import type { NextFunction, Response } from 'express';
-import type { ApprovalDocType } from '../approvals/approvals';
 import type { DataStore } from '../data/store';
 import type { AuthzEngine } from '../permissions/fga-client';
 import type { RecordRuleName } from '../permissions/record-rules';
-import type { InvoiceLineItem, Project, UserRole } from '../types';
+import type { InvoiceLineItem, Project, SalesOrderLineItem, UserRole } from '../types';
+import type { TupleKey } from '../permissions/tuples';
 import type { AuthedRequest } from './shared';
 
 /**
@@ -22,6 +22,12 @@ export interface RouteContext {
   canViewTask: (req: AuthedRequest, task: { companyId: string; projectId?: string | null; assignedUserIds?: string[]; ownerId?: string | null; isPrivate?: boolean }) => boolean;
   ensureClientBelongsToCompany: (clientId: string | undefined, companyId: string) => void;
   parseInvoiceLineItems: (value: unknown) => InvoiceLineItem[];
-  docSummary: (docType: ApprovalDocType, docId: string) => { companyId: string; number: string; amount: number; party: string | null; date: Date } | undefined;
-  decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => object;
+  parseSalesOrderItems: (value: unknown) => SalesOrderLineItem[];
+  ensureSalesItemsBelongToCompany: (items: SalesOrderLineItem[], companyId: string) => void;
+  requireSuperAdmin: (req: AuthedRequest) => void;
+  uploadedImage: (value: unknown, fieldName: string) => string;
+  /** Authorization tuples before a change, and publishing the difference to OpenFGA after it. */
+  snapshotAuthz: (companyIds: Iterable<string>) => Map<string, TupleKey[]>;
+  publishAuthzChange: (before: Map<string, TupleKey[]>) => Promise<void>;
+  logger: Pick<Console, 'info' | 'warn' | 'error'>;
 }
