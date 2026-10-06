@@ -57,6 +57,14 @@ export class ColdChainStore {
       .map((r) => ({ ...r, excursion: r.excursion === 1, humidity: r.humidity ?? null, note: r.note ?? null, recordedByName: r.recordedByName ?? null }));
   }
 
+  /** Out-of-range readings in a company since a moment, with the store's name. */
+  excursionsSince(companyId: string, sinceIso: string): Array<{ warehouseId: string; warehouseName: string; recordedAt: string }> {
+    return this.db.prepare(
+      `SELECT r.warehouseId, w.name AS warehouseName, r.recordedAt FROM storage_readings r JOIN warehouses w ON w.id = r.warehouseId
+        WHERE r.companyId = ? AND r.excursion = 1 AND r.recordedAt >= ? ORDER BY r.recordedAt DESC`,
+    ).all(companyId, sinceIso) as Array<{ warehouseId: string; warehouseName: string; recordedAt: string }>;
+  }
+
   lastReadingAt(warehouseId: string): string | null {
     const row = this.db.prepare('SELECT MAX(recordedAt) AS at FROM storage_readings WHERE warehouseId = ?').get(warehouseId) as { at: string | null };
     return row.at;

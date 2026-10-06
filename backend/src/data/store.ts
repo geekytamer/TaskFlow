@@ -21,6 +21,7 @@ import { QualityStore } from '../inventory/quality';
 import { ColdChainStore } from '../inventory/cold-chain';
 import { ShipmentStore } from '../logistics/shipments';
 import { ApprovalStore, levelsFor, type ApprovalDocType } from '../approvals/approvals';
+import { attentionAlerts } from '../dashboard/attention';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -47,6 +48,8 @@ const DASHBOARD_ALERT_MODULES: Readonly<Record<string, string>> = {
   'awaiting-receipt': 'purchasing',
   'overdue-invoice-': 'invoices', 'admin-overdue-invoice-': 'invoices',
   'overdue-bill-': 'vendor-bills', 'admin-overdue-bill-': 'vendor-bills',
+  'attention-cold': 'inventory', 'attention-shipments': 'inventory', 'attention-qc': 'inventory',
+  'attention-recurring': 'finance', 'attention-bank': 'finance',
 };
 const DASHBOARD_ROUTE_MODULES: Readonly<Record<string, string>> = {
   '/projects': 'projects', '/tasks': 'tasks', '/inventory': 'inventory', '/purchases': 'purchasing',
@@ -18556,9 +18559,11 @@ export class DataStore {
    */
   getDashboardPayload(
     companyId: string,
-    viewer: { userId: string; role: UserRole },
+    viewer: { userId: string; role: UserRole; companyRole?: string },
   ): DashboardPayload {
-    const payload = this.buildDashboardPayload(companyId, viewer);
+    const built = this.buildDashboardPayload(companyId, viewer);
+    // What needs attention today comes first.
+    const payload = { ...built, alerts: [...attentionAlerts(this, companyId, { userId: viewer.userId, variant: viewer.role, companyRole: viewer.companyRole }), ...built.alerts] };
     const disabled = this.getDisabledModules(companyId);
     if (disabled.length === 0) return payload;
     const off = (module: string | undefined) => Boolean(module && disabled.includes(module));

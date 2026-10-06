@@ -435,11 +435,12 @@ test('a group other groups inherit from cannot be deleted', async () => {
 test('a custom group never takes a built-in key, even after that built-in is deleted', async () => {
   const { app, adminAuth, companyId, store } = build();
   const accountant = store.getPermissionGroupByKey(companyId, 'accountant');
-  await request(app).delete(`/permission-groups/${accountant.id}`).set('Authorization', adminAuth);
+  const deleted = await request(app).delete(`/permission-groups/${accountant.id}`).set('Authorization', adminAuth);
+  assert.ok(deleted.status < 300, `delete: ${deleted.status} ${JSON.stringify(deleted.body)}`);
 
   const created = await request(app).post(`/companies/${companyId}/permission-groups`)
     .set('Authorization', adminAuth).send({ name: 'Accountant' });
-  assert.equal(created.status, 201);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
   assert.notEqual(created.body.key, 'accountant');
 
   const person = store.createUser({

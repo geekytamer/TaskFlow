@@ -9675,7 +9675,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const variant: UserRole = operations && finance
         ? 'Admin'
         : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
-      res.json(store.getDashboardPayload(req.params.companyId, { userId: req.user!.id, role: variant }));
+      res.json(store.getDashboardPayload(req.params.companyId, { userId: req.user!.id, role: variant, companyRole: getEffectiveRole(req.user!, req.params.companyId) ?? undefined }));
     }),
   );
 

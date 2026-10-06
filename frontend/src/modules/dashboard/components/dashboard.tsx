@@ -137,6 +137,23 @@ function localizeDashboardText(text: string, language: 'en' | 'ar'): string {
   if (language !== 'ar' || !text) return text;
   if (DASHBOARD_AR[text]) return DASHBOARD_AR[text];
 
+  // Attention alerts (src/dashboard/attention.ts on the server).
+  const attention: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
+    [/^(\d+) waiting for your approval$/, (m) => `${m[1]} بانتظار موافقتك`],
+    [/^Purchase orders and expenses above an approval level\.$/, () => 'أوامر شراء ومصروفات فوق مستوى الموافقة.'],
+    [/^(\d+) out-of-range readings? in the last 24 hours$/, (m) => `${m[1]} قراءات خارج النطاق خلال آخر 24 ساعة`],
+    [/^(\d+) shipments? past arrival date$/, (m) => `${m[1]} شحنات تجاوزت موعد وصولها`],
+    [/^(\d+) batch(?:es)? waiting for QC$/, (m) => `${m[1]} دفعات بانتظار فحص الجودة`],
+    [/^(\d+) recurring documents? could not be created$/, (m) => `${m[1]} مستندات متكررة تعذّر إنشاؤها`],
+    [/^(\d+) bank statements? not reconciled$/, (m) => `${m[1]} كشوف بنكية لم تُسوَّ`],
+    [/^(\d+) lines? still to match$/, (m) => `${m[1]} أسطر لم تُطابق بعد`],
+    [/^Ready to mark reconciled$/, () => 'جاهزة لتأكيد التسوية'],
+  ];
+  for (const [pattern, render] of attention) {
+    const m = text.match(pattern);
+    if (m) return render(m);
+  }
+
   const overdueTasks = text.match(/^(\d+) overdue tasks$/);
   if (overdueTasks) return `${overdueTasks[1]} مهام متأخرة`;
 
