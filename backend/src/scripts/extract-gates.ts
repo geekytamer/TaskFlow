@@ -398,9 +398,45 @@ function splitConflictingPermissions(rows: GateRow[]): GateRow[] {
   return result;
 }
 
+/**
+ * server.ts with each route module (src/routes) spliced in where it is
+ * registered, so routes are read in registration order whichever file holds
+ * them. `locate` turns a line of the combined text back into its own file.
+ */
+export function loadRouteSource(srcDir = path.join(__dirname, '..', '..', 'src')): { source: string; locate: (line: number) => string } {
+  const routesDir = path.join(srcDir, 'routes');
+  const modules = new Map<string, { file: string; text: string }>();
+  for (const file of fs.existsSync(routesDir) ? fs.readdirSync(routesDir).filter((f) => f.endsWith('.ts')) : []) {
+    const text = fs.readFileSync(path.join(routesDir, file), 'utf8');
+    for (const match of text.matchAll(/^export function (register\w+)\(/gm)) modules.set(match[1], { file: `routes/${file}`, text });
+  }
+  const out: string[] = [];
+  const origin: Array<{ file: string; line: number }> = [];
+  fs.readFileSync(path.join(srcDir, 'server.ts'), 'utf8').split('\n').forEach((line, index) => {
+    const call = /^\s*(register\w+)\(app, routeContext\);/.exec(line);
+    const module = call ? modules.get(call[1]) : undefined;
+    if (!module) {
+      out.push(line);
+      origin.push({ file: 'server.ts', line: index + 1 });
+      return;
+    }
+    module.text.split('\n').forEach((moduleLine, moduleIndex) => {
+      out.push(moduleLine);
+      origin.push({ file: module.file, line: moduleIndex + 1 });
+    });
+  });
+  return {
+    source: out.join('\n'),
+    locate: (line) => {
+      const at = origin[line - 1];
+      return at.file === 'server.ts' ? String(at.line) : `${at.file}:${at.line}`;
+    },
+  };
+}
+
 if (require.main === module) {
-  const serverPath = path.join(__dirname, '..', '..', 'src', 'server.ts');
-  const rows = extractGates(fs.readFileSync(serverPath, 'utf8'));
+  const { source, locate } = loadRouteSource();
+  const rows = extractGates(source).map((r) => ({ ...r, line: locate(r.line) }));
   const header = 'method,route,module,action,roles,line,gate,resource';
   const body = rows
     .map(

@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { extractGates } = require('../dist/scripts/extract-gates');
+const { extractGates, loadRouteSource } = require('../dist/scripts/extract-gates');
 
 /**
  * Routes the permission extractor finds no role check in. Each is public, an
@@ -67,8 +67,7 @@ const KNOWN_UNGATED = new Set([
 ]);
 
 test('no route is ungated by accident', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.ts'), 'utf8');
-  const ungated = extractGates(source).filter((r) => r.gate === 'none').map((r) => `${r.method} ${r.route}`);
+  const ungated = extractGates(loadRouteSource(path.join(__dirname, '..', 'src')).source).filter((r) => r.gate === 'none').map((r) => `${r.method} ${r.route}`);
   assert.deepEqual(ungated.filter((r) => !KNOWN_UNGATED.has(r)), [], 'new ungated routes');
   assert.deepEqual([...KNOWN_UNGATED].filter((r) => !ungated.includes(r)), [], 'listed routes that are now gated: remove them from the list');
 });

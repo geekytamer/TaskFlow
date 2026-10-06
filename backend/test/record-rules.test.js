@@ -72,7 +72,9 @@ test('migration 081 grants the rules to existing built-in groups, and skips dele
 
 test('every rule declared is enforced somewhere', () => {
   const read = (...parts) => require('node:fs').readFileSync(path.join(__dirname, '..', 'src', ...parts), 'utf8');
-  const enforcing = read('server.ts') + read('permissions', 'routes.ts');
+  const fs = require('node:fs');
+  const routeModules = fs.readdirSync(path.join(__dirname, '..', 'src', 'routes')).map((file) => read('routes', file)).join('\n');
+  const enforcing = read('server.ts') + read('permissions', 'routes.ts') + routeModules;
   for (const name of Object.keys(RECORD_RULES)) {
     assert.ok(enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
   }

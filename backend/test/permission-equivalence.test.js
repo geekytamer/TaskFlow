@@ -65,7 +65,7 @@ test('for every gated route and every role, group permissions match legacy roles
       const newAllowed = effective[role].has(`${row.module}:${row.action}`);
       if (legacyAllowed !== newAllowed) {
         mismatches.push(
-          `${row.method} ${row.route} [${role}] legacy=${legacyAllowed} new=${newAllowed} (server.ts:${row.line})`,
+          `${row.method} ${row.route} [${role}] legacy=${legacyAllowed} new=${newAllowed} (line ${row.line})`,
         );
       }
     }
