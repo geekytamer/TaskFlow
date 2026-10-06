@@ -110,7 +110,7 @@ export function EditCompanyDialog({
           <div className="space-y-1"><Label>{t('companyEdit.address')}</Label><Input value={form.address} onChange={(e) => setForm((current) => ({ ...current, address: e.target.value }))} /></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1"><Label>{t('companyEdit.legalName', 'Legal name')}</Label><Input value={form.legalName} onChange={(e) => setForm((c) => ({ ...c, legalName: e.target.value }))} /></div>
-            <div className="space-y-1"><Label>{t('companyEdit.taxNumber', 'Tax / VAT number')}</Label><Input value={form.taxNumber} onChange={(e) => setForm((c) => ({ ...c, taxNumber: e.target.value }))} /></div>
+            <div className="space-y-1"><Label>{t('companyEdit.taxNumber', 'VAT Number')}</Label><Input value={form.taxNumber} onChange={(e) => setForm((c) => ({ ...c, taxNumber: e.target.value }))} /></div>
             <div className="space-y-1"><Label>{t('companyEdit.registrationNumber', 'Registration number')}</Label><Input value={form.registrationNumber} onChange={(e) => setForm((c) => ({ ...c, registrationNumber: e.target.value }))} /></div>
             <div className="space-y-1"><Label>{t('companyEdit.phone', 'Phone')}</Label><Input value={form.phone} onChange={(e) => setForm((c) => ({ ...c, phone: e.target.value }))} /></div>
             <div className="space-y-1"><Label>{t('companyEdit.email', 'Email')}</Label><Input value={form.email} onChange={(e) => setForm((c) => ({ ...c, email: e.target.value }))} /></div>

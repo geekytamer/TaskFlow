@@ -1417,8 +1417,8 @@ export const TOURS: Tour[] = [
       {
         optional: true,
         target: 'main',
-        en: { title: 'Details That Print', desc: 'Legal name, address, tax number and logo are pulled onto every invoice, quotation and delivery note. Setting them once here means never retyping them onto a document.' },
-        ar: { title: 'التفاصيل التي تُطبع', desc: 'يُسحب الاسم القانوني والعنوان والرقم الضريبي والشعار إلى كل فاتورة وعرض سعر وإشعار تسليم. وضبطها مرة هنا يعني عدم إعادة كتابتها على أي مستند.' },
+        en: { title: 'Details That Print', desc: 'Legal name, address, VAT Number and logo are pulled onto every invoice, quotation and delivery note. Setting them once here means never retyping them onto a document.' },
+        ar: { title: 'التفاصيل التي تُطبع', desc: 'يُسحب الاسم القانوني والعنوان ورقم ضريبة القيمة المضافة والشعار إلى كل فاتورة وعرض سعر وإشعار تسليم. وضبطها مرة هنا يعني عدم إعادة كتابتها على أي مستند.' },
       },
       {
         optional: true,

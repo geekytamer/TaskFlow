@@ -201,7 +201,7 @@ export const MISSIONS: Mission[] = [
       ar: 'اجعل النظام خاصاً بك: بيانات الشركة على كل مستند، وحقل تحتاجه.',
     },
     objectives: [
-      { id: 'details', title: { en: 'Fill in the tax number', ar: 'أدخل الرقم الضريبي' }, measure: (c) => c.count("SELECT COUNT(*) AS n FROM companies WHERE id = ? AND taxNumber IS NOT NULL AND taxNumber != ''", c.companyId) },
+      { id: 'details', title: { en: 'Fill in the VAT Number', ar: 'أدخل رقم ضريبة القيمة المضافة' }, measure: (c) => c.count("SELECT COUNT(*) AS n FROM companies WHERE id = ? AND taxNumber IS NOT NULL AND taxNumber != ''", c.companyId) },
       { id: 'field', title: { en: 'Add a custom field', ar: 'أضف حقلاً مخصصاً' }, measure: rows('custom_field_definitions') },
     ],
   },

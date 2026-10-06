@@ -101,7 +101,7 @@ export function CompanyProfilePanel() {
         <CardContent className="grid gap-3 sm:grid-cols-2">
           {field(tr('Display name', 'الاسم المعروض') + ' *', 'name')}
           {field(tr('Legal name', 'الاسم القانوني'), 'legalName')}
-          {field(tr('Tax / VAT number', 'الرقم الضريبي'), 'taxNumber')}
+          {field(tr('VAT Number', 'رقم ضريبة القيمة المضافة'), 'taxNumber')}
           {field(tr('Registration number', 'رقم السجل التجاري'), 'registrationNumber')}
         </CardContent>
       </Card>

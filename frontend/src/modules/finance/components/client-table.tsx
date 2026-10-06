@@ -374,7 +374,7 @@ export function ClientTable() {
                     <p className="text-sm text-muted-foreground">{tr('Billing Profile', 'ملف الفوترة')}</p>
                     <p className="text-xl font-semibold">{selectedClient.paymentMethod || tr('Not set', 'غير محدد')}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {tr('VAT', 'الضريبة')}: {selectedClient.vatNumber || tr('Not set', 'غير محدد')}
+                      {tr('VAT Number', 'رقم ضريبة القيمة المضافة')}: {selectedClient.vatNumber || tr('Not set', 'غير محدد')}
                     </p>
                   </div>
                 </div>
@@ -413,7 +413,7 @@ export function ClientTable() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>{tr('VAT Number', 'الرقم الضريبي')}</Label>
+                    <Label>{tr('VAT Number', 'رقم ضريبة القيمة المضافة')}</Label>
                     <Input
                       value={form.vatNumber || ''}
                       onChange={(event) => setForm((prev) => ({ ...prev, vatNumber: event.target.value }))}

@@ -197,7 +197,7 @@ export function AddClientDialog({
               name="vatNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{tr('VAT Number', 'الرقم الضريبي')}</FormLabel>
+                  <FormLabel>{tr('VAT Number', 'رقم ضريبة القيمة المضافة')}</FormLabel>
                   <FormControl>
                     <Input placeholder={tr('e.g. VAT-2041', 'مثال: VAT-2041')} {...field} />
                   </FormControl>

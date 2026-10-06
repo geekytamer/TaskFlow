@@ -854,7 +854,7 @@ export function InvoiceTemplatePanel({
                 checked={form.showTaxId}
                 onCheckedChange={(checked) => updateForm('showTaxId', checked)}
               />
-              {tr('Show tax ID', 'إظهار الرقم الضريبي')}
+              {tr('Show VAT Number', 'إظهار رقم ضريبة القيمة المضافة')}
             </label>
           </div>
 

@@ -151,7 +151,7 @@ export const GUIDES: Record<string, GuideStep[]> = {
   ],
 
   'run-company/details': [
-    { route: '/company-profile', en: 'Fill in the company tax number. It prints on every document.', ar: 'أدخل الرقم الضريبي للشركة. يُطبع على كل مستند.' },
+    { route: '/company-profile', en: 'Fill in the company VAT Number. It prints on every document.', ar: 'أدخل رقم ضريبة القيمة المضافة للشركة. يُطبع على كل مستند.' },
   ],
   'run-company/field': [
     { route: '/settings', en: 'Add a custom field you need, such as "Delivery zone" on contacts.', ar: 'أضف حقلاً مخصصاً تحتاجه، مثل "منطقة التوصيل" للجهات.' },
