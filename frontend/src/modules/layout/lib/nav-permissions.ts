@@ -20,6 +20,7 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/inventory': 'inventory:read',
   '/inventory/counts': 'inventory:read',
   '/shipments': 'inventory:read',
+  '/warehouse': 'inventory:read',
   '/approvals': 'finance:read',
   '/manufacturing': 'manufacturing:read',
   '/finance': 'finance:read',

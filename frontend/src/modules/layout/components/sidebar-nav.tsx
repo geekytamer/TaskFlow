@@ -42,7 +42,7 @@ import {
   Factory,
   Building2,
   FileText,
-  ShieldCheck, ClipboardList, GraduationCap, Lock, Ship } from 'lucide-react';
+  ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
@@ -90,6 +90,7 @@ const sections: NavSection[] = [
       { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
       { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-stock-counts' },
       { href: '/shipments', labelKey: 'nav.shipments', icon: Ship, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-shipments' },
+      { href: '/warehouse', labelKey: 'nav.warehouseMode', icon: ScanLine, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-warehouse-mode' },
       { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-manufacturing' },
     ],
   },
