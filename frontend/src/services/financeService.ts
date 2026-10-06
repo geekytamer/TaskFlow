@@ -1125,6 +1125,8 @@ export interface CreateVendorBillInput {
   issueDate: Date;
   dueDate?: Date;
   amount?: number;
+  taxRate?: number;
+  vatTreatment?: import('@/lib/vat').VatTreatment;
   status?: VendorBillStatus;
   notes?: string;
   expenseAccountId?: string;
@@ -1144,7 +1146,7 @@ export async function createVendorBill(
 /** Edits a draft vendor bill; approved bills change by reversing payments or deleting. */
 export async function updateVendorBill(
   billId: string,
-  data: Partial<{ vendorName: string; supplierId: string; referenceInvoiceNumber: string; issueDate: Date; dueDate: Date; amount: number; notes: string; expenseAccountId: string }>,
+  data: Partial<{ vendorName: string; supplierId: string; referenceInvoiceNumber: string; issueDate: Date; dueDate: Date; amount: number; taxRate: number; vatTreatment: import('@/lib/vat').VatTreatment; notes: string; expenseAccountId: string }>,
 ): Promise<VendorBill> {
   const bill = await apiFetch<VendorBill>(`/vendor-bills/${billId}`, { method: 'PUT', body: JSON.stringify(data) });
   return mapVendorBill(bill);

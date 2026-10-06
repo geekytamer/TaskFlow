@@ -1,5 +1,6 @@
 'use client';
 
+import { invoiceVat } from '@/lib/vat';
 import * as React from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Company } from '@/modules/companies/types';
@@ -218,9 +219,10 @@ export function DocRenderer({
   onSelectBlock,
   onReorderBlock,
 }: DocRendererProps) {
-  const subtotal = Number(invoice.lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
-  const taxRate = invoice.taxRate || 0;
-  const taxAmount = Number((subtotal * (taxRate / 100)).toFixed(2));
+  // Only standard-rated lines carry VAT (the same rule the server totals and posts with).
+  const vat = invoiceVat(invoice.lineItems, invoice.taxRate || 0);
+  const subtotal = vat.net;
+  const taxAmount = vat.tax;
   // Always derive the total from subtotal + tax so the document adds up. The
   // stored invoice.total is tax-inclusive and agrees with this; falling back to
   // it here would let a stale/net total contradict the lines above it.
@@ -343,6 +345,7 @@ export function DocRenderer({
             money={money}
             template={template}
             style={base}
+            s={s}
             lineItems={
               lineItemStart === undefined
                 ? undefined
@@ -632,9 +635,9 @@ export function DocRenderer({
 
 const alignClass: Record<string, React.CSSProperties['textAlign']> = { left: 'left', center: 'center', right: 'right' };
 
-function LineItemsView({ block, ctx, theme, money, template, style, lineItems, rowOffset = 0 }: {
+function LineItemsView({ block, ctx, theme, money, template, style, lineItems, rowOffset = 0, s }: {
   block: LineItemsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme'];
-  money: (v: number) => React.ReactNode; template?: InvoiceTemplate; style: React.CSSProperties;
+  money: (v: number) => React.ReactNode; template?: InvoiceTemplate; style: React.CSSProperties; s?: DocStrings;
   lineItems?: Invoice['lineItems']; rowOffset?: number;
 }) {
   const rows = lineItems ?? ctx.invoice.lineItems;
@@ -642,7 +645,11 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
   const cell = (col: InvoiceColumn, line: typeof ctx.invoice.lineItems[number]) => {
     switch (col.key) {
       case 'sku': return line.sku ?? '';
-      case 'description': return line.description;
+      case 'description': {
+        // A line that does not carry the standard VAT says so on the document.
+        const note = line.vatTreatment === 'zero' ? s?.vatZero : line.vatTreatment === 'exempt' ? s?.vatExempt : line.vatTreatment === 'out_of_scope' ? s?.vatOutOfScope : undefined;
+        return note ? <>{line.description} <span style={{ color: '#64748b', fontSize: 12 }}>({note})</span></> : line.description;
+      }
       case 'quantity': return line.quantity;
       case 'unitPrice': return money(line.unitPrice);
       case 'amount': return money(line.amount);

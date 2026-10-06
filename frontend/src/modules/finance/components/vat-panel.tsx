@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   getVatPreview, getVatReturns, fileVatReturn, deleteVatReturn,
 } from '@/services/financeService';
-import type { VatReturn, VatReturnPreview } from '@/modules/finance/types';
+import type { VatBreakdown, VatReturn, VatReturnPreview } from '@/modules/finance/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -95,8 +95,8 @@ export function VatPanel() {
       <div>
         <h3 className="text-lg font-semibold">{tr('VAT return', 'إقرار ضريبة القيمة المضافة')}</h3>
         <p className="text-sm text-muted-foreground">
-          {tr('Compute output and input VAT for a period from posted ledger entries (Oman standard rate 5%).',
-              'احتساب ضريبة المخرجات والمدخلات لفترة من قيود دفتر الأستاذ (المعدل القياسي في عُمان 5%).')}
+          {tr('VAT owed comes from the ledger; sales and purchases come from your invoices and bills, by VAT treatment (Oman standard rate 5%).',
+              'الضريبة المستحقة من الدفاتر؛ والمبيعات والمشتريات من فواتيرك وفواتير الموردين حسب المعاملة الضريبية (النسبة القياسية في عُمان 5%).')}
         </p>
       </div>
 
@@ -122,6 +122,7 @@ export function VatPanel() {
             <Stat label={tr('Net VAT payable', 'صافي الضريبة المستحقة')} value={preview.netVat}
                   accent={preview.netVat >= 0 ? 'text-red-600' : 'text-emerald-600'} />
           </div>
+          {preview.breakdown && <VatBreakdownView b={preview.breakdown} tr={tr} />}
           <div className="flex items-center gap-3">
             <Button onClick={file} disabled={filing}>
               <FileText className="me-2 h-4 w-4" />{filing ? tr('Filing…', 'جارٍ التقديم…') : tr('File this return', 'تقديم الإقرار')}
@@ -178,6 +179,42 @@ export function VatPanel() {
         {tr('Input VAT is drawn from the Recoverable VAT account; it populates once purchase tax is posted there.',
             'ضريبة المدخلات مأخوذة من حساب الضريبة القابلة للاسترداد؛ وتظهر عند ترحيل ضريبة المشتريات إليه.')}
       </p>
+    </div>
+  );
+}
+
+/** Where the figures come from: the period's invoices and bills by VAT treatment, and any gap with the ledger. */
+function VatBreakdownView({ b, tr }: { b: VatBreakdown; tr: (en: string, ar: string) => string }) {
+  const row = (label: string, value: number, vat?: number) => (
+    <div className="flex items-baseline justify-between gap-4 py-1 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="tabular-nums">{money(value)}{vat !== undefined && <span className="ms-2 text-xs text-muted-foreground">{tr('VAT', 'ضريبة')} {money(vat)}</span>}</span>
+    </div>
+  );
+  const gap = Math.abs(b.outputVatGap) >= 0.005 || Math.abs(b.inputVatGap) >= 0.005;
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <div className="rounded-lg border p-3">
+        <p className="mb-1 text-sm font-semibold">{tr('Sales in the period (invoices less credit notes)', 'مبيعات الفترة (الفواتير ناقص الإشعارات الدائنة)')}</p>
+        {row(tr('Standard-rated', 'خاضعة للنسبة القياسية'), b.sales.standard, b.salesVat)}
+        {row(tr('Zero-rated', 'خاضعة لنسبة صفرية'), b.sales.zero)}
+        {row(tr('Exempt', 'معفاة'), b.sales.exempt)}
+        {row(tr('Out of scope', 'خارج النطاق'), b.sales.out_of_scope)}
+      </div>
+      <div className="rounded-lg border p-3">
+        <p className="mb-1 text-sm font-semibold">{tr('Purchases in the period (approved bills)', 'مشتريات الفترة (فواتير الموردين المعتمدة)')}</p>
+        {row(tr('Standard-rated', 'خاضعة للنسبة القياسية'), b.purchases.standard, b.purchasesVat)}
+        {row(tr('Zero-rated', 'خاضعة لنسبة صفرية'), b.purchases.zero)}
+        {row(tr('Exempt', 'معفاة'), b.purchases.exempt)}
+        {row(tr('Out of scope', 'خارج النطاق'), b.purchases.out_of_scope)}
+        {b.purchases.unstated > 0 && row(tr('No VAT stated', 'دون ضريبة محددة'), b.purchases.unstated)}
+      </div>
+      {gap && (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 md:col-span-2 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          {tr(`The ledger has ${money(b.outputVatGap)} output VAT and ${money(b.inputVatGap)} input VAT that no invoice or bill explains (manual entries). They are included above at the standard rate; check them before filing.`,
+            `في الدفاتر ${money(b.outputVatGap)} ضريبة مخرجات و${money(b.inputVatGap)} ضريبة مدخلات لا تفسرها أي فاتورة (قيود يدوية). أُدرجت أعلاه بالنسبة القياسية؛ راجعها قبل التقديم.`)}
+        </p>
+      )}
     </div>
   );
 }

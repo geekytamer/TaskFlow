@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { VAT_TREATMENTS, vatTreatmentLabel, type VatTreatment } from '@/lib/vat';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -192,6 +193,9 @@ export function VendorBillTable() {
     issueDate: format(new Date(), 'yyyy-MM-dd'),
     dueDate: format(new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), 'yyyy-MM-dd'),
     amount: '',
+    // A company with a VAT Number reclaims input VAT; one without cannot.
+    taxRate: selectedCompany?.taxNumber ? '5' : '0',
+    vatTreatment: 'standard' as VatTreatment,
     status: 'Draft' as VendorBillStatus,
     expenseAccountId: '',
     notes: '',
@@ -311,6 +315,8 @@ export function VendorBillTable() {
       issueDate: format(new Date(), 'yyyy-MM-dd'),
       dueDate: format(new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), 'yyyy-MM-dd'),
       amount: '',
+      taxRate: selectedCompany?.taxNumber ? '5' : '0',
+      vatTreatment: 'standard',
       status: 'Draft',
       expenseAccountId: '',
       notes: '',
@@ -345,6 +351,8 @@ export function VendorBillTable() {
           issueDate: new Date(form.issueDate),
           dueDate: form.dueDate ? new Date(form.dueDate) : undefined,
           amount,
+          taxRate: form.vatTreatment === 'standard' ? Number(form.taxRate) || 0 : 0,
+          vatTreatment: form.vatTreatment,
           notes: form.notes,
           expenseAccountId: form.expenseAccountId || undefined,
         });
@@ -367,6 +375,8 @@ export function VendorBillTable() {
         issueDate: new Date(form.issueDate),
         dueDate: form.dueDate ? new Date(form.dueDate) : undefined,
         amount,
+        taxRate: form.vatTreatment === 'standard' ? Number(form.taxRate) || 0 : 0,
+        vatTreatment: form.vatTreatment,
         status: form.status,
         notes: form.notes || undefined,
         expenseAccountId: form.expenseAccountId || undefined,
@@ -741,6 +751,19 @@ export function VendorBillTable() {
                   />
                 </div>
                 <div className="space-y-1">
+                  <Label>{tr('VAT', 'الضريبة')}</Label>
+                  <div className="flex gap-2">
+                    <Select value={form.vatTreatment} onValueChange={(v) => setForm((prev) => ({ ...prev, vatTreatment: v as VatTreatment }))}>
+                      <SelectTrigger className="flex-1" aria-label={tr('VAT treatment', 'المعاملة الضريبية')}><SelectValue /></SelectTrigger>
+                      <SelectContent>{VAT_TREATMENTS.map((v) => <SelectItem key={v} value={v}>{vatTreatmentLabel(v, tr)}</SelectItem>)}</SelectContent>
+                    </Select>
+                    {form.vatTreatment === 'standard' && (
+                      <Input className="w-20" type="number" min={0} max={100} step="any" aria-label={tr('VAT %', 'نسبة الضريبة')} value={form.taxRate} onChange={(e) => setForm((prev) => ({ ...prev, taxRate: e.target.value }))} />
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{tr('The amount includes this VAT; it is reclaimed as input VAT.', 'المبلغ شامل لهذه الضريبة، وتُسترد كضريبة مدخلات.')}</p>
+                </div>
+                <div className="space-y-1">
                   <Label>{t('vendorBills.statusLabel')}</Label>
                   <Select
                     disabled={Boolean(editingBill)}
@@ -922,6 +945,8 @@ export function VendorBillTable() {
                             issueDate: format(bill.issueDate, 'yyyy-MM-dd'),
                             dueDate: format(bill.dueDate, 'yyyy-MM-dd'),
                             amount: String(bill.amount),
+                            taxRate: String(bill.taxRate ?? 0),
+                            vatTreatment: bill.vatTreatment ?? (Number(bill.taxRate) > 0 ? 'standard' : 'exempt'),
                             status: bill.status,
                             expenseAccountId: bill.expenseAccountId ?? '',
                             notes: bill.notes ?? '',

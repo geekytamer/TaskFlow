@@ -10,7 +10,7 @@ import { autoMatch, postStatementLine, readStatementCsv, reconcileCheck, type Cs
 import type { RecurringDocument, RecurringFrequency, RecurringKind, RecurringMode } from './finance/recurring';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
-import type { Notification, NotificationPrefs, VendorBill } from './types';
+import type { Notification, NotificationPrefs, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import {
   PermissionService,
@@ -450,6 +450,9 @@ const parseInvoiceLineItems = (value: unknown): InvoiceLineItem[] => {
         `lineItems[${index}].amount`,
       ),
       custom: parseLineCustom(record.custom, index),
+      vatTreatment: record.vatTreatment == null || record.vatTreatment === ''
+        ? undefined
+        : enumValue(record.vatTreatment, `lineItems[${index}].vatTreatment`, ['standard', 'zero', 'exempt', 'out_of_scope'] as VatTreatment[]),
     };
   });
 };
@@ -8823,6 +8826,7 @@ export function createServer(options: CreateServerOptions = {}) {
             dueDate,
             amount,
             taxRate: optionalNumber(body.taxRate),
+            vatTreatment: body.vatTreatment == null || body.vatTreatment === '' ? undefined : enumValue(body.vatTreatment, 'vatTreatment', ['standard', 'zero', 'exempt', 'out_of_scope'] as VatTreatment[]),
             status: enumValue(body.status ?? 'Draft', 'status', vendorBillStatuses),
             notes: optionalString(body.notes),
             expenseAccountId,
@@ -8884,6 +8888,7 @@ export function createServer(options: CreateServerOptions = {}) {
         dueDate: has('dueDate') ? new Date(requiredDateInput(body.dueDate, 'dueDate')) : undefined,
         amount: has('amount') ? requiredNumber(body.amount, 'amount') : undefined,
         taxRate: has('taxRate') ? requiredNumber(body.taxRate, 'taxRate') : undefined,
+        vatTreatment: has('vatTreatment') ? (body.vatTreatment == null || body.vatTreatment === '' ? null : enumValue(body.vatTreatment, 'vatTreatment', ['standard', 'zero', 'exempt', 'out_of_scope'] as VatTreatment[])) : undefined,
         notes: cleared('notes'),
         expenseAccountId,
       })));

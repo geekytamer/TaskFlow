@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { invoiceVat, VAT_TREATMENTS, vatTreatmentLabel, type VatTreatment } from '@/lib/vat';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Button } from '@/components/ui/button';
 import {
@@ -219,6 +220,11 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     return (tmpl?.columns ?? []).filter((c) => c.key === 'custom' && c.visible);
   }, [templates, selectedTemplateId]);
 
+  const updateManualLineVat = (index: number, vatTreatment: VatTreatment) => {
+    setManualLines((prev) => prev.map((line, i) =>
+      i === index ? { ...line, vatTreatment: vatTreatment === 'standard' ? undefined : vatTreatment } : line));
+  };
+
   const updateManualLineCustom = (index: number, colId: string, value: string) => {
     setManualLines((prev) => prev.map((line, i) =>
       i === index ? { ...line, custom: { ...(line.custom || {}), [colId]: value } } : line));
@@ -227,9 +233,10 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const invoiceSubtotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
+  // Only standard-rated lines carry VAT (same rule as the server).
   const invoiceTaxAmount = React.useMemo(
-    () => Number((invoiceSubtotal * ((Number(taxRate) || 0) / 100)).toFixed(2)),
-    [invoiceSubtotal, taxRate],
+    () => invoiceVat(selectedLineItems, Number(taxRate) || 0).tax,
+    [selectedLineItems, taxRate],
   );
   const invoiceTotal = React.useMemo(
     () => Number((invoiceSubtotal + invoiceTaxAmount).toFixed(2)),
@@ -668,6 +675,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                           <TableHead className="text-end">{tr('Qty', 'الكمية')}</TableHead>
                           <TableHead className="text-end">{tr('Unit Price', 'سعر الوحدة')}</TableHead>
                           <TableHead className="text-end">{tr('Amount', 'المبلغ')}</TableHead>
+                          <TableHead>{tr('VAT', 'الضريبة')}</TableHead>
                           <TableHead className="text-end">{tr('Remove', 'إزالة')}</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -689,6 +697,14 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                             <TableCell className="text-end">{line.quantity}</TableCell>
                             <TableCell className="text-end">{amount(line.unitPrice)}</TableCell>
                             <TableCell className="text-end">{amount(line.amount)}</TableCell>
+                            <TableCell>
+                              <Select value={line.vatTreatment ?? 'standard'} onValueChange={(v) => updateManualLineVat(index, v as VatTreatment)}>
+                                <SelectTrigger className="h-8 w-36" aria-label={tr(`VAT for ${line.description}`, `ضريبة ${line.description}`)}><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {VAT_TREATMENTS.map((t) => <SelectItem key={t} value={t}>{vatTreatmentLabel(t, tr)}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
                             <TableCell className="text-end">
                               <Button
                                 type="button"

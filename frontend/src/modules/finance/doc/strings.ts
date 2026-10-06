@@ -24,6 +24,9 @@ export interface DocStrings {
   signature: string;
   scan: string;
   deliveryNote: string;
+  vatZero: string;
+  vatExempt: string;
+  vatOutOfScope: string;
   vendorBill: string;
   billedBy: string;
   sku: string;
@@ -54,6 +57,9 @@ const EN: DocStrings = {
   signature: 'Authorized signature',
   scan: 'Scan to view & download',
   deliveryNote: 'Delivery Note',
+  vatZero: 'zero-rated',
+  vatExempt: 'VAT exempt',
+  vatOutOfScope: 'outside the scope of VAT',
   vendorBill: 'VENDOR BILL',
   billedBy: 'Billed By',
   sku: 'SKU',
@@ -84,6 +90,9 @@ const AR: DocStrings = {
   signature: 'التوقيع المعتمد',
   scan: 'امسح للعرض والتحميل',
   deliveryNote: 'إشعار تسليم',
+  vatZero: 'خاضع لنسبة صفرية',
+  vatExempt: 'معفى من الضريبة',
+  vatOutOfScope: 'خارج نطاق الضريبة',
   vendorBill: 'فاتورة مورّد',
   billedBy: 'الفاتورة من',
   sku: 'الرمز',

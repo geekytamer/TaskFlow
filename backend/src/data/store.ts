@@ -13,6 +13,7 @@ import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
 import { RecurringStore } from '../finance/recurring';
+import { invoiceVat, VAT_TREATMENTS, vatBreakdown } from '../finance/vat';
 import { BankReconciliationStore } from '../finance/bank-reconciliation';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
@@ -230,6 +231,7 @@ import {
   CustomerReturn,
   CustomerReturnLine,
   ReturnCondition,
+  VatTreatment,
 } from '../types';
 import {
   NOTIFICATION_META, NOTIFICATION_MODULES,
@@ -4473,6 +4475,16 @@ export class DataStore {
           `);
         },
       },
+      {
+        // VAT treatment on bills, and the document breakdown kept with each return.
+        id: '109_vat_treatments',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE vendor_bills ADD COLUMN vatTreatment TEXT;
+            ALTER TABLE vat_returns ADD COLUMN breakdown TEXT;
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7347,7 +7359,7 @@ export class DataStore {
    * Edits a draft vendor bill. Drafts have no ledger entries yet; once a bill is
    * approved it is changed by reversing it (or its payments), not by editing.
    */
-  updateVendorBill(id: string, input: Partial<{ [K in 'vendorName' | 'supplierId' | 'referenceInvoiceNumber' | 'issueDate' | 'dueDate' | 'amount' | 'taxRate' | 'notes' | 'expenseAccountId']: VendorBill[K] | null }>): VendorBill {
+  updateVendorBill(id: string, input: Partial<{ [K in 'vendorName' | 'supplierId' | 'referenceInvoiceNumber' | 'issueDate' | 'dueDate' | 'amount' | 'taxRate' | 'vatTreatment' | 'notes' | 'expenseAccountId']: VendorBill[K] | null }>): VendorBill {
     const bill = this.getVendorBillById(id);
     if (!bill) throw new Error('Vendor bill not found.');
     if (bill.status !== 'Draft') throw new Error('Only a draft vendor bill can be edited.');
@@ -7372,11 +7384,11 @@ export class DataStore {
     }
     this.db.prepare(
       `UPDATE vendor_bills SET vendorName = @vendorName, supplierId = @supplierId, referenceInvoiceNumber = @referenceInvoiceNumber,
-         issueDate = @issueDate, dueDate = @dueDate, amount = @amount, taxRate = @taxRate, notes = @notes, expenseAccountId = @expenseAccountId WHERE id = @id`,
+         issueDate = @issueDate, dueDate = @dueDate, amount = @amount, taxRate = @taxRate, vatTreatment = @vatTreatment, notes = @notes, expenseAccountId = @expenseAccountId WHERE id = @id`,
     ).run({
       id, vendorName: next.vendorName.trim(), supplierId: next.supplierId ?? null, referenceInvoiceNumber: next.referenceInvoiceNumber ?? null,
       issueDate: next.issueDate.toISOString(), dueDate: next.dueDate.toISOString(), amount: Number(Number(next.amount).toFixed(2)),
-      taxRate: Number(next.taxRate) || 0, notes: next.notes ?? null, expenseAccountId: next.expenseAccountId ?? null,
+      taxRate: Number(next.taxRate) || 0, vatTreatment: next.vatTreatment ?? null, notes: next.notes ?? null, expenseAccountId: next.expenseAccountId ?? null,
     });
     this.createActivityEvent({ companyId: bill.companyId, entityType: 'vendor_bill', entityId: id, action: 'updated', summary: `Vendor bill ${bill.billNumber} updated.` });
     return this.getVendorBillById(id)!;
@@ -15867,16 +15879,26 @@ export class DataStore {
     return { ...this.getGratuityLiability(companyId, asOf), posted: movement };
   }
 
-  /** Compute VAT figures from the ledger for a period. Oman standard rate is 5%. */
+  /**
+   * VAT figures for a period. Output and input VAT come from the ledger (what
+   * is actually owed); sales and purchases come from the documents, by VAT
+   * treatment. Taxable sales are standard plus zero-rated supplies; taxable
+   * purchases are standard-rated bills. VAT posted by manual entry is added
+   * at the standard rate, and the breakdown shows that gap.
+   */
   computeVatFigures(companyId: string, from: Date, to: Date): VatReturnPreview {
-    const OMAN_VAT_RATE = 0.05;
     const outputVat = Math.max(0, this.accountMovementByCode(companyId, '2200', from, to));
     const inputVat = Math.max(0, this.accountMovementByCode(companyId, '1150', from, to));
-    const taxableSales = Math.max(0, this.movementByAccountType(companyId, 'Revenue', from, to));
-    // Purchase base isn't captured separately yet; derive it from recoverable VAT.
-    const taxablePurchases = inputVat > 0 ? Number((inputVat / OMAN_VAT_RATE).toFixed(2)) : 0;
+    const breakdown = vatBreakdown(this, companyId, from, to, { outputVat, inputVat });
+    // VAT posted outside invoices and bills (manual entries) still counts: its base is
+    // taken back at the standard rate, as the return did before documents were read.
+    const OMAN_STANDARD_RATE = 0.05;
+    const manualSalesBase = breakdown.outputVatGap > 0 ? breakdown.outputVatGap / OMAN_STANDARD_RATE : 0;
+    const manualPurchasesBase = breakdown.inputVatGap > 0 ? breakdown.inputVatGap / OMAN_STANDARD_RATE : 0;
+    const taxableSales = Number((breakdown.sales.standard + breakdown.sales.zero + manualSalesBase).toFixed(2));
+    const taxablePurchases = Number((breakdown.purchases.standard + manualPurchasesBase).toFixed(2));
     const netVat = Number((outputVat - inputVat).toFixed(2));
-    return { companyId, periodStart: from, periodEnd: to, taxableSales, outputVat, taxablePurchases, inputVat, netVat };
+    return { companyId, periodStart: from, periodEnd: to, taxableSales, outputVat, taxablePurchases, inputVat, netVat, breakdown };
   }
 
   private decodeVatReturn(row: any): VatReturn {
@@ -15890,6 +15912,7 @@ export class DataStore {
       taxablePurchases: Number(row.taxablePurchases) || 0,
       inputVat: Number(row.inputVat) || 0,
       netVat: Number(row.netVat) || 0,
+      breakdown: row.breakdown ? JSON.parse(row.breakdown) : undefined,
       status: row.status as VatReturnStatus,
       notes: row.notes ?? undefined,
       filedAt: row.filedAt ? new Date(row.filedAt) : undefined,
@@ -15918,14 +15941,15 @@ export class DataStore {
     const id = uuid();
     this.db
       .prepare(
-        `INSERT INTO vat_returns (id, companyId, periodStart, periodEnd, taxableSales, outputVat, taxablePurchases, inputVat, netVat, status, notes, filedAt, createdAt)
-         VALUES (@id, @companyId, @periodStart, @periodEnd, @taxableSales, @outputVat, @taxablePurchases, @inputVat, @netVat, @status, @notes, @filedAt, @createdAt)`,
+        `INSERT INTO vat_returns (id, companyId, periodStart, periodEnd, taxableSales, outputVat, taxablePurchases, inputVat, netVat, breakdown, status, notes, filedAt, createdAt)
+         VALUES (@id, @companyId, @periodStart, @periodEnd, @taxableSales, @outputVat, @taxablePurchases, @inputVat, @netVat, @breakdown, @status, @notes, @filedAt, @createdAt)`,
       )
       .run({
         id, companyId,
         periodStart: from.toISOString(), periodEnd: to.toISOString(),
         taxableSales: figures.taxableSales, outputVat: figures.outputVat,
         taxablePurchases: figures.taxablePurchases, inputVat: figures.inputVat, netVat: figures.netVat,
+        breakdown: figures.breakdown ? JSON.stringify(figures.breakdown) : null,
         status: 'filed', notes: notes?.trim() || null, filedAt: nowIso, createdAt: nowIso,
       });
     this.createActivityEvent({
@@ -16011,12 +16035,10 @@ export class DataStore {
    * to the sum of line amounts; the stored `total` is the gross (tax-inclusive)
    * figure, which is what the customer owes and what posts to receivables.
    */
-  private computeInvoiceTotals(lineItems: Array<{ amount: number }>, taxRate?: number) {
-    const net = Number(lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
-    const rate = Number(taxRate) > 0 ? Number(taxRate) : 0;
-    const tax = Number((net * (rate / 100)).toFixed(2));
-    return { net, tax, gross: Number((net + tax).toFixed(2)) };
+  private computeInvoiceTotals(lineItems: Array<{ amount: number; vatTreatment?: VatTreatment }>, taxRate?: number) {
+    return invoiceVat(lineItems, taxRate);
   }
+
 
   /**
    * Resolves the currency and base-currency conversion rate for a transaction.
@@ -16489,8 +16511,11 @@ export class DataStore {
       const arAccountId = this.getSystemAccountId(input.companyId, '1100');
       const revenueAccountId = this.getSystemAccountId(input.companyId, '4000');
       const sourceInvoice = note.invoiceId ? this.getInvoiceById(note.invoiceId) : undefined;
-      const rate = Number(sourceInvoice?.taxRate) > 0 ? Number(sourceInvoice!.taxRate) : 0;
-      const netCredit = rate > 0 ? Number((total / (1 + rate / 100)).toFixed(2)) : total;
+      // Credit VAT in the invoice's own proportion: an invoice with zero-rated or
+      // exempt lines carries less VAT than its rate applied to the whole.
+      const sourceVat = sourceInvoice ? this.computeInvoiceTotals(sourceInvoice.lineItems || [], sourceInvoice.taxRate) : undefined;
+      const netShare = sourceVat && sourceVat.gross > 0 ? sourceVat.net / sourceVat.gross : 1;
+      const netCredit = Number((total * netShare).toFixed(2));
       const taxCredit = Number((total - netCredit).toFixed(2));
 
       const creditLines = [
@@ -16500,7 +16525,7 @@ export class DataStore {
         creditLines.push({
           id: uuid(),
           accountId: this.getSystemAccountId(input.companyId, '2200'),
-          description: `Output VAT reversal ${rate}%`,
+          description: `Output VAT reversal ${Number(sourceInvoice?.taxRate) || 0}%`,
           debit: taxCredit,
           credit: 0,
         });
@@ -16574,6 +16599,7 @@ export class DataStore {
           amount: Number.isFinite(amount) ? amount : 0,
           discount: hasDiscount ? discount : undefined,
           discountType: hasDiscount ? discountType : undefined,
+          vatTreatment: item?.vatTreatment && item.vatTreatment !== 'standard' && VAT_TREATMENTS.includes(item.vatTreatment) ? item.vatTreatment as VatTreatment : undefined,
           custom: item?.custom && typeof item.custom === 'object'
             ? Object.fromEntries(
                 Object.entries(item.custom as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]),
@@ -17521,11 +17547,12 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO vendor_bills (id, companyId, vendorName, supplierId, purchaseOrderId, campaignId, billNumber, referenceInvoiceNumber, issueDate, dueDate, amount, taxRate, status, notes, expenseAccountId, paidAt) VALUES (@id, @companyId, @vendorName, @supplierId, @purchaseOrderId, @campaignId, @billNumber, @referenceInvoiceNumber, @issueDate, @dueDate, @amount, @taxRate, @status, @notes, @expenseAccountId, @paidAt)',
+        'INSERT INTO vendor_bills (id, companyId, vendorName, supplierId, purchaseOrderId, campaignId, billNumber, referenceInvoiceNumber, issueDate, dueDate, amount, taxRate, vatTreatment, status, notes, expenseAccountId, paidAt) VALUES (@id, @companyId, @vendorName, @supplierId, @purchaseOrderId, @campaignId, @billNumber, @referenceInvoiceNumber, @issueDate, @dueDate, @amount, @taxRate, @vatTreatment, @status, @notes, @expenseAccountId, @paidAt)',
       )
       .run({
         ...bill,
         taxRate: Number(bill.taxRate) || 0,
+        vatTreatment: bill.vatTreatment ?? null,
         supplierId: bill.supplierId ?? null,
         purchaseOrderId: bill.purchaseOrderId ?? null,
         campaignId: bill.campaignId ?? null,
@@ -20873,6 +20900,7 @@ export class DataStore {
       issueDate: new Date(row.issueDate),
       dueDate: new Date(row.dueDate),
       amount,
+      vatTreatment: row.vatTreatment ?? undefined,
       taxRate: Number(row.taxRate) || 0,
       status: row.status as VendorBillStatus,
       notes: row.notes ?? undefined,
@@ -21377,6 +21405,7 @@ export class DataStore {
     const fromLines = this.computeInvoiceTotals(
       (invoice.lineItems || []).map((line) => ({
         amount: Number.isFinite(Number((line as any)?.amount)) ? Number((line as any).amount) : 0,
+        vatTreatment: line.vatTreatment,
       })),
       rate,
     );

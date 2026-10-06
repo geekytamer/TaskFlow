@@ -670,7 +670,11 @@ export interface InvoiceLineItem {
   amount: number;
   /** Values for template-defined custom columns, keyed by column id. */
   custom?: Record<string, string>;
+  /** How VAT applies to this line; absent means standard-rated. */
+  vatTreatment?: VatTreatment;
 }
+
+export type VatTreatment = 'standard' | 'zero' | 'exempt' | 'out_of_scope';
 
 export interface Invoice {
   id: string;
@@ -1118,6 +1122,8 @@ export interface VendorBill {
   amount: number;
   /** VAT percentage included in `amount`; drives recoverable input tax. */
   taxRate?: number;
+  /** How VAT applies; absent means standard when there is a rate, otherwise not stated. */
+  vatTreatment?: VatTreatment;
   status: VendorBillStatus;
   notes?: string;
   expenseAccountId?: string;
@@ -2018,13 +2024,29 @@ export interface VatReturnFigures {
   netVat: number;
 }
 
+export interface VatBreakdown {
+  /** Net sales per treatment, from the invoices issued in the period less credit notes. */
+  sales: Record<VatTreatment, number>;
+  /** VAT on standard-rated sales, from the documents. */
+  salesVat: number;
+  /** Net purchases per treatment from approved bills ('unstated' = no rate and no treatment given). */
+  purchases: Record<VatTreatment | 'unstated', number>;
+  /** VAT on standard-rated purchases, from the documents. */
+  purchasesVat: number;
+  /** Ledger minus documents: non-zero means VAT was posted outside invoices and bills (manual entries). */
+  outputVatGap: number;
+  inputVatGap: number;
+}
+
 export interface VatReturnPreview extends VatReturnFigures {
   companyId: string;
   periodStart: Date;
   periodEnd: Date;
+  breakdown?: VatBreakdown;
 }
 
 export interface VatReturn extends VatReturnFigures {
+  breakdown?: VatBreakdown;
   id: string;
   companyId: string;
   periodStart: Date;

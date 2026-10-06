@@ -1310,6 +1310,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '106_customer_returns',
     '107_recurring_documents',
     '108_bank_reconciliation',
+    '109_vat_treatments',
   ]);
 });
 

@@ -68,6 +68,8 @@ export interface InvoiceLineItem {
   discountType?: LineDiscountType;
   amount: number;
   custom?: Record<string, string>;
+  /** How VAT applies to the line; absent means standard-rated. */
+  vatTreatment?: import('@/lib/vat').VatTreatment;
 }
 
 export interface Invoice {
@@ -370,10 +372,20 @@ export interface VatReturnFigures {
   netVat: number;
 }
 
+export interface VatBreakdown {
+  sales: Record<'standard' | 'zero' | 'exempt' | 'out_of_scope', number>;
+  salesVat: number;
+  purchases: Record<'standard' | 'zero' | 'exempt' | 'out_of_scope' | 'unstated', number>;
+  purchasesVat: number;
+  outputVatGap: number;
+  inputVatGap: number;
+}
+
 export interface VatReturnPreview extends VatReturnFigures {
   companyId: string;
   periodStart: string;
   periodEnd: string;
+  breakdown?: VatBreakdown;
 }
 
 export interface VatReturn extends VatReturnFigures {
@@ -497,6 +509,7 @@ export interface VendorBill {
   expenseAccountId?: string;
   /** VAT percentage included in `amount`; drives recoverable input tax. */
   taxRate?: number;
+  vatTreatment?: import('@/lib/vat').VatTreatment;
   /** Template used to render the bill document; falls back to the default. */
   templateId?: string;
   paidAt?: Date;
