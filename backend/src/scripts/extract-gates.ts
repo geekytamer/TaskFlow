@@ -73,7 +73,7 @@ const MODULE_ALIASES: Record<string, string> = {
 
   'commission-rules': 'commissions',
 
-  'sales-orders': 'sales', deliveries: 'sales', quotations: 'sales',
+  'sales-orders': 'sales', deliveries: 'sales', quotations: 'sales', 'customer-returns': 'sales',
 
   'credit-notes': 'invoices', 'invoice-templates': 'invoices',
 

@@ -16,6 +16,7 @@ import { GUIDES, type GuideStep } from '../lib/guides';
 
 type Tr = (en: string, ar: string) => string;
 const LEVEL_XP = 200;
+const DOCK_COLLAPSED_KEY = 'taskflow_academy_dock_collapsed';
 
 /** The figures the impact panel can show, in reading order. */
 const IMPACT_ROWS: Array<{ key: keyof AcademyImpact; en: string; ar: string; goodWhenUp: boolean }> = [
@@ -277,7 +278,23 @@ export function AcademyDock() {
   const { inPractice, currentMission, progress, leavePractice, dismissCompleted, justCompleted } = useAcademy();
   const { language } = useI18n();
   const tr: Tr = React.useCallback((en, ar) => (language === 'ar' ? ar : en), [language]);
-  const [collapsed, setCollapsed] = React.useState(false);
+  // Remembered for the session; on narrower screens the dock starts folded so it does not cover the page.
+  const [collapsed, setCollapsedState] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(DOCK_COLLAPSED_KEY);
+      setCollapsedState(saved !== null ? saved === '1' : window.innerWidth < 1280);
+    } catch { setCollapsedState(window.innerWidth < 1280); }
+  }, []);
+  // A finished mission is worth seeing: unfold to show what it did to the books.
+  React.useEffect(() => { if (justCompleted) setCollapsedState(false); }, [justCompleted]);
+  const setCollapsed = React.useCallback((next: boolean | ((c: boolean) => boolean)) => {
+    setCollapsedState((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      try { sessionStorage.setItem(DOCK_COLLAPSED_KEY, value ? '1' : '0'); } catch { /* private mode */ }
+      return value;
+    });
+  }, []);
   const [guiding, setGuiding] = React.useState(true);
   const [stepIndex, setStepIndex] = React.useState(0);
   const [statements, setStatements] = React.useState(false);

@@ -54,6 +54,7 @@ import { FileText, Pencil, PlusCircle, Truck, Trash2 } from 'lucide-react';
 import { DeliveryManagementDialog } from './delivery-management-dialog';
 import { QuotationsPanel } from './quotations-panel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ReturnsPanel } from './returns-panel';
 import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
 import { usePermissionOr } from '@/context/permissions-context';
 
@@ -111,12 +112,13 @@ export function SalesPage() {
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | SalesOrderStatus>('all');
   const locale = language === 'ar' ? 'ar' : 'en-US';
-  type SalesTab = 'orders' | 'quotations';
+  type SalesTab = 'orders' | 'quotations' | 'returns';
   const [tab, setTab] = React.useState<SalesTab>('orders');
   // Opening a quotation link (?tab=quotations) lands on that tab; switching keeps the URL shareable.
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (new URLSearchParams(window.location.search).get('tab') === 'quotations') setTab('quotations');
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    if (requested === 'quotations' || requested === 'returns') setTab(requested);
   }, []);
   const selectTab = (value: SalesTab) => {
     setTab(value);
@@ -340,9 +342,13 @@ export function SalesPage() {
         <TabsList>
           <TabsTrigger value="orders">{t('sales.ordersTab')}</TabsTrigger>
           <TabsTrigger value="quotations">{t('quotes.tab')}</TabsTrigger>
+          <TabsTrigger value="returns">{language === 'ar' ? 'المرتجعات' : 'Returns'}</TabsTrigger>
         </TabsList>
         <TabsContent value="quotations" className="mt-4">
           <QuotationsPanel />
+        </TabsContent>
+        <TabsContent value="returns" className="mt-4">
+          <ReturnsPanel />
         </TabsContent>
         <TabsContent value="orders" className="mt-4 space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="sales-metrics">

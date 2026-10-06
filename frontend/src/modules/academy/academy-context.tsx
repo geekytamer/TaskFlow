@@ -4,6 +4,7 @@ import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import {
   getAcademy, getImpact, reportObjective, resetAcademy, startAcademy,
   type AcademyImpact, type AcademyMission, type AcademyProgress,
@@ -34,7 +35,10 @@ interface AcademyContextValue {
 
 const AcademyContext = React.createContext<AcademyContextValue | null>(null);
 
-const POLL_MS = 3000;
+/** Fallback check; changes made through the app trigger an immediate one. */
+const POLL_MS = 15000;
+/** Several writes in a row (a form saving lines) settle into one check. */
+const SETTLE_MS = 500;
 const REDIRECTED_KEY = 'taskflow_academy_redirected';
 
 export function AcademyProvider({ children }: { children: React.ReactNode }) {
@@ -94,11 +98,24 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => { void refresh(); }, [refresh]);
 
-  // In practice, objectives are checked as the trainee works.
+  // In practice, objectives are checked as the trainee works: right after
+  // anything they change, with a slow fallback while the tab is visible.
   React.useEffect(() => {
     if (!inPractice) return;
-    const timer = window.setInterval(() => { void refresh(); }, POLL_MS);
-    return () => window.clearInterval(timer);
+    let settle: number | undefined;
+    const onChange = () => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => { void refresh(); }, SETTLE_MS);
+    };
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, POLL_MS);
+    window.addEventListener(DATA_CHANGED_EVENT, onChange);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(settle);
+      window.removeEventListener(DATA_CHANGED_EVENT, onChange);
+    };
   }, [inPractice, refresh]);
 
   // Steps the server cannot see (first-day actions, page visits): report them once each.

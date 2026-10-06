@@ -225,6 +225,9 @@ import {
   LeaveType,
   LeaveRequest,
   LeaveBalance,
+  CustomerReturn,
+  CustomerReturnLine,
+  ReturnCondition,
 } from '../types';
 import {
   NOTIFICATION_META, NOTIFICATION_MODULES,
@@ -4368,6 +4371,30 @@ export class DataStore {
           const groups = this.db.prepare("SELECT id FROM permission_groups WHERE isSystem = 1 AND key IN ('admin', 'accountant')").all() as Array<{ id: string }>;
           const insert = this.db.prepare("INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, 'invoices', 'credit.override')");
           for (const group of groups) insert.run(group.id);
+        },
+      },
+      {
+        // Customer returns (RMA) against shipped deliveries.
+        id: '106_customer_returns',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS customer_returns (
+              id           TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              returnNumber TEXT NOT NULL,
+              deliveryId   TEXT NOT NULL,
+              salesOrderId TEXT NOT NULL,
+              clientId     TEXT NOT NULL,
+              status       TEXT NOT NULL DEFAULT 'Draft',
+              reason       TEXT,
+              items        TEXT NOT NULL,
+              creditNoteId TEXT,
+              receivedAt   TEXT,
+              createdAt    TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_customer_returns_company ON customer_returns(companyId, createdAt);
+            CREATE INDEX IF NOT EXISTS idx_customer_returns_delivery ON customer_returns(deliveryId);
+          `);
         },
       },
     ];
@@ -13517,7 +13544,7 @@ export class DataStore {
       throw new Error('Delivery template does not belong to this company or document type.');
     }
 
-    const deliveredByLine = this.getDeliveredQuantityByLine(order.id);
+    const deliveredByLine = this.getDeliveredQuantityByLine(order.id, true);
     const normalized = input.items
       .map((item) => ({
         salesOrderLineIndex: Number(item.salesOrderLineIndex),
@@ -13538,7 +13565,7 @@ export class DataStore {
       const previouslyDelivered = deliveredByLine.get(item.salesOrderLineIndex) || 0;
       const remaining = Number((soLine.quantity - previouslyDelivered).toFixed(4));
       if (remaining <= 0) {
-        throw new Error(`Line ${item.salesOrderLineIndex} is already fully delivered.`);
+        throw new Error(`Line ${item.salesOrderLineIndex} is already fully delivered or on a delivery being prepared.`);
       }
       if (item.quantity > remaining + 0.0001) {
         throw new Error(`Delivery quantity for line ${item.salesOrderLineIndex} exceeds the remaining amount (${remaining}).`);
@@ -14372,6 +14399,20 @@ export class DataStore {
 
     trx();
 
+    // Undo the cost of sales posted at dispatch, so stock value and the ledger agree again.
+    if (wasShipped) {
+      const posted = this.db.prepare("SELECT id FROM journal_entries WHERE sourceType = 'delivery_cogs' AND sourceId = ? LIMIT 1").get(id) as { id?: string } | undefined;
+      const reversed = this.db.prepare("SELECT id FROM journal_entries WHERE sourceType = 'delivery_cogs_reversal' AND sourceId = ? LIMIT 1").get(id) as { id?: string } | undefined;
+      const entry = posted?.id && !reversed?.id ? this.getJournalEntryById(posted.id) : undefined;
+      if (entry) {
+        this.createJournalEntry({
+          companyId: delivery.companyId, sourceType: 'delivery_cogs_reversal', sourceId: id,
+          memo: `Cancelled ${delivery.deliveryNumber}: cost of goods sold reversed`, entryDate: cancelledAt,
+          lines: entry.lines.map((line) => ({ id: uuid(), accountId: line.accountId, description: line.description, debit: line.credit, credit: line.debit })),
+        });
+      }
+    }
+
     const updated = this.getDeliveryById(id);
     if (!updated) throw new Error('Delivery not found after cancellation.');
     this.createActivityEvent({
@@ -14383,6 +14424,187 @@ export class DataStore {
       metadata: { salesOrderId: order?.id, reason, reversed: wasShipped },
     });
     return updated;
+  }
+
+  // ── Customer returns (RMA) ────────────────────────────────────────────────
+
+  private decodeCustomerReturn(row: any): CustomerReturn {
+    return {
+      id: row.id, companyId: row.companyId, returnNumber: row.returnNumber, deliveryId: row.deliveryId,
+      salesOrderId: row.salesOrderId, clientId: row.clientId, status: row.status, reason: row.reason ?? undefined,
+      items: JSON.parse(row.items || '[]'), creditNoteId: row.creditNoteId ?? undefined,
+      receivedAt: row.receivedAt ? new Date(row.receivedAt) : undefined, createdAt: new Date(row.createdAt),
+    };
+  }
+
+  listCustomerReturns(companyId: string): CustomerReturn[] {
+    return (this.db.prepare('SELECT * FROM customer_returns WHERE companyId = ? ORDER BY createdAt DESC').all(companyId) as any[])
+      .map((row) => this.decodeCustomerReturn(row));
+  }
+
+  getCustomerReturnById(id: string): CustomerReturn | undefined {
+    const row = this.db.prepare('SELECT * FROM customer_returns WHERE id = ?').get(id);
+    return row ? this.decodeCustomerReturn(row) : undefined;
+  }
+
+  /** Units per delivery line already on a return that is not cancelled. */
+  private returnedQuantityByLine(deliveryId: string, exceptReturnId?: string): Map<number, number> {
+    const totals = new Map<number, number>();
+    const rows = this.db.prepare("SELECT id, items FROM customer_returns WHERE deliveryId = ? AND status != 'Cancelled'").all(deliveryId) as Array<{ id: string; items: string }>;
+    for (const row of rows) {
+      if (row.id === exceptReturnId) continue;
+      for (const line of JSON.parse(row.items) as CustomerReturnLine[]) {
+        totals.set(line.deliveryLineIndex, (totals.get(line.deliveryLineIndex) ?? 0) + line.quantity);
+      }
+    }
+    return totals;
+  }
+
+  /**
+   * Opens a return against a shipped delivery. Nothing moves until it is
+   * received. A line cannot return more than was shipped on it, less what
+   * earlier returns already took back.
+   */
+  createCustomerReturn(input: {
+    companyId: string;
+    deliveryId: string;
+    reason?: string;
+    items: Array<{ deliveryLineIndex: number; quantity: number; condition?: ReturnCondition }>;
+  }): CustomerReturn {
+    const delivery = this.getDeliveryById(input.deliveryId);
+    if (!delivery || delivery.companyId !== input.companyId) throw new Error('Delivery not found for this company.');
+    if (delivery.status !== 'Shipped' && delivery.status !== 'Delivered') {
+      throw new Error('Only shipped or delivered goods can be returned.');
+    }
+    const order = this.getSalesOrderById(delivery.salesOrderId);
+    if (!order) throw new Error('Linked sales order not found.');
+    const already = this.returnedQuantityByLine(delivery.id);
+    const items: CustomerReturnLine[] = (input.items || [])
+      .map((item) => ({
+        deliveryLineIndex: Number(item.deliveryLineIndex),
+        quantity: Number(item.quantity),
+        condition: (item.condition === 'Scrap' ? 'Scrap' : 'Restock') as ReturnCondition,
+      }))
+      .filter((item) => Number.isInteger(item.deliveryLineIndex) && Number.isFinite(item.quantity) && item.quantity > 0)
+      .map((item) => {
+        const line = delivery.items[item.deliveryLineIndex];
+        if (!line) throw new Error(`Delivery line ${item.deliveryLineIndex + 1} does not exist.`);
+        const left = Number((line.quantity - (already.get(item.deliveryLineIndex) ?? 0)).toFixed(4));
+        if (item.quantity > left + 0.0001) {
+          throw new Error(`Only ${left} of "${line.description}" can still be returned.`);
+        }
+        return { ...item, inventoryItemId: line.inventoryItemId, description: line.description };
+      });
+    if (items.length === 0) throw new Error('A return needs at least one line with a quantity.');
+    const seq = Number((this.db.prepare('SELECT COUNT(*) AS c FROM customer_returns WHERE companyId = ?').get(input.companyId) as any)?.c ?? 0) + 1;
+    const record: CustomerReturn = {
+      id: uuid(), companyId: input.companyId, returnNumber: `RMA-${String(seq).padStart(4, '0')}`,
+      deliveryId: delivery.id, salesOrderId: order.id, clientId: order.clientId, status: 'Draft',
+      reason: input.reason?.trim() || undefined, items, createdAt: new Date(),
+    };
+    this.db.prepare(
+      `INSERT INTO customer_returns (id, companyId, returnNumber, deliveryId, salesOrderId, clientId, status, reason, items, createdAt)
+       VALUES (@id, @companyId, @returnNumber, @deliveryId, @salesOrderId, @clientId, @status, @reason, @items, @createdAt)`,
+    ).run({ ...record, reason: record.reason ?? null, items: JSON.stringify(items), createdAt: record.createdAt.toISOString() });
+    this.createActivityEvent({
+      companyId: record.companyId, entityType: 'customer_return', entityId: record.id, action: 'created',
+      summary: `Return ${record.returnNumber} opened against ${delivery.deliveryNumber}.`,
+      metadata: { deliveryId: delivery.id, lines: items.length },
+    });
+    return record;
+  }
+
+  /**
+   * Receives the goods. Restocked lines go back on the shelf at the item's
+   * current cost, and that cost comes off cost of sales (Dr Inventory / Cr
+   * COGS). Scrapped lines move nothing: their cost stays a loss. With
+   * `issueCredit`, a credit note for the returned goods (price after discount,
+   * plus the invoice's VAT, capped at what is left to credit) is issued against
+   * the order's invoice.
+   */
+  receiveCustomerReturn(id: string, input: { receivedAt?: Date; issueCredit?: boolean } = {}): CustomerReturn {
+    const record = this.getCustomerReturnById(id);
+    if (!record) throw new Error('Return not found.');
+    if (record.status !== 'Draft') throw new Error(`A ${record.status.toLowerCase()} return cannot be received.`);
+    const delivery = this.getDeliveryById(record.deliveryId);
+    const order = this.getSalesOrderById(record.salesOrderId);
+    if (!delivery || !order) throw new Error('The delivery or order behind this return no longer exists.');
+    const receivedAt = input.receivedAt ?? new Date();
+    this.assertOpenFinancialDate(record.companyId, receivedAt, 'Return date');
+    const addStock = this.db.prepare('UPDATE inventory_items SET onHand = onHand + ? WHERE id = ? AND companyId = ?');
+
+    let restockedCost = 0;
+    let creditNoteId: string | undefined;
+    const items = record.items.map((line) => ({ ...line }));
+    this.db.transaction(() => {
+      for (const line of items) {
+        if (!line.inventoryItemId || line.condition !== 'Restock') continue;
+        const item = this.getInventoryItemById(line.inventoryItemId);
+        if (!item || !item.tracksInventory) continue;
+        line.unitCost = Number(item.unitCost) || 0;
+        restockedCost += line.quantity * line.unitCost;
+        const location = this.normalizeInventoryLocation(delivery.items[line.deliveryLineIndex]?.location || item.location);
+        addStock.run(line.quantity, item.id, record.companyId);
+        this.incrementLocationBalance(record.companyId, item.id, location, line.quantity);
+        this.createStockMovement({
+          companyId: record.companyId, inventoryItemId: item.id, movementType: 'Adjustment', quantityChange: line.quantity,
+          unitCost: line.unitCost, referenceType: 'customer_return', referenceId: record.id,
+          note: `Returned on ${record.returnNumber} (${delivery.deliveryNumber})`,
+        });
+      }
+      const amount = Number(restockedCost.toFixed(2));
+      if (amount > 0) {
+        this.createJournalEntry({
+          companyId: record.companyId, sourceType: 'customer_return', sourceId: record.id,
+          memo: `Goods returned on ${record.returnNumber}`, entryDate: receivedAt,
+          lines: [
+            { id: uuid(), accountId: this.getSystemAccountId(record.companyId, '1200'), description: 'Returned to stock', debit: amount, credit: 0 },
+            { id: uuid(), accountId: this.getSystemAccountId(record.companyId, '5100'), description: 'Cost of goods sold reversed', debit: 0, credit: amount },
+          ],
+        });
+      }
+      if (input.issueCredit) {
+        const invoice = order.invoiceId ? this.getInvoiceById(order.invoiceId) : undefined;
+        if (!invoice || invoice.status === 'Draft') throw new Error('The order has no issued invoice to credit. Receive without a credit note, or issue the invoice first.');
+        const rate = Number(invoice.taxRate) > 0 ? Number(invoice.taxRate) : 0;
+        const lineItems = items.map((line) => {
+          const soLine = order.items[delivery.items[line.deliveryLineIndex]?.salesOrderLineIndex ?? -1];
+          if (!soLine || !(soLine.quantity > 0)) return null;
+          const net = this.resolveLineDiscount(soLine.quantity * soLine.unitPrice, soLine.discount, soLine.discountType).net / soLine.quantity;
+          return { description: `Return of ${line.quantity} × ${line.description}`, amount: Number((net * line.quantity * (1 + rate / 100)).toFixed(2)) };
+        }).filter((l): l is { description: string; amount: number } => Boolean(l && l.amount > 0));
+        const available = Number((invoice.total - this.getInvoiceCreditedAmount(invoice.id)).toFixed(2));
+        let total = Number(lineItems.reduce((sum, l) => sum + l.amount, 0).toFixed(2));
+        if (total > available && lineItems.length) {
+          // Cap at what is left to credit, trimming the last line.
+          const over = Number((total - available).toFixed(2));
+          lineItems[lineItems.length - 1].amount = Number((lineItems[lineItems.length - 1].amount - over).toFixed(2));
+          total = available;
+        }
+        if (total > 0) {
+          creditNoteId = this.createCreditNote({
+            companyId: record.companyId, invoiceId: invoice.id, issueDate: receivedAt,
+            lineItems: lineItems.filter((l) => l.amount > 0), reason: `Goods returned on ${record.returnNumber}${record.reason ? `: ${record.reason}` : ''}`,
+          }).id;
+        }
+      }
+      this.db.prepare("UPDATE customer_returns SET status = 'Received', items = ?, receivedAt = ?, creditNoteId = ? WHERE id = ?")
+        .run(JSON.stringify(items), receivedAt.toISOString(), creditNoteId ?? null, record.id);
+    })();
+    this.createActivityEvent({
+      companyId: record.companyId, entityType: 'customer_return', entityId: record.id, action: 'received',
+      summary: `Return ${record.returnNumber} received${creditNoteId ? ' and credited' : ''}.`,
+      metadata: { restockedCost: Number(restockedCost.toFixed(2)), creditNoteId },
+    });
+    return this.getCustomerReturnById(record.id)!;
+  }
+
+  cancelCustomerReturn(id: string): CustomerReturn {
+    const record = this.getCustomerReturnById(id);
+    if (!record) throw new Error('Return not found.');
+    if (record.status !== 'Draft') throw new Error('Only a return not yet received can be cancelled.');
+    this.db.prepare("UPDATE customer_returns SET status = 'Cancelled' WHERE id = ?").run(id);
+    return this.getCustomerReturnById(id)!;
   }
 
   receivePurchaseOrder(
@@ -20171,13 +20393,18 @@ export class DataStore {
     };
   }
 
-  private getDeliveredQuantityByLine(salesOrderId: string): Map<number, number> {
+  /**
+   * Units per order line on shipped or delivered deliveries. With
+   * `includePending`, deliveries still being prepared count too: they already
+   * claim those units, so a second delivery cannot take them again.
+   */
+  private getDeliveredQuantityByLine(salesOrderId: string, includePending = false): Map<number, number> {
     const rows = this.db
       .prepare(`SELECT items, status FROM deliveries WHERE salesOrderId = ?`)
       .all(salesOrderId) as Array<{ items: string; status: string }>;
     const map = new Map<number, number>();
     rows.forEach((row) => {
-      if (row.status === 'Cancelled' || row.status === 'Pending') return;
+      if (row.status === 'Cancelled' || (row.status === 'Pending' && !includePending)) return;
       const items = this.parseJson<any[]>(row.items) || [];
       items.forEach((item: any) => {
         const idx = Number(item.salesOrderLineIndex) || 0;

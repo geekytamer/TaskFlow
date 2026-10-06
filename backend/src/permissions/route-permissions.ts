@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 307 gated routes.
+ * 311 gated routes.
  */
 
 export interface RoutePermission {
@@ -15,6 +15,7 @@ export interface RoutePermission {
 export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /deliveries/:id/pdf': { module: 'sales', action: 'deliveries.pdf.read' },
   'GET /companies/:companyId/sales-orders': { module: 'sales', action: 'read' },
+  'GET /companies/:companyId/customer-returns': { module: 'sales', action: 'read' },
   'GET /companies/:companyId/quotations': { module: 'sales', action: 'read' },
   'GET /quotations/:id': { module: 'sales', action: 'read' },
   'GET /companies/:companyId/deliveries': { module: 'sales', action: 'read' },
@@ -260,6 +261,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'DELETE /rfqs/:id/quotes/:quoteId': { module: 'purchasing', action: 'delete' },
   'DELETE /rfqs/:id': { module: 'purchasing', action: 'delete' },
   'POST /companies/:companyId/sales-orders': { module: 'sales', action: 'create' },
+  'POST /companies/:companyId/customer-returns': { module: 'sales', action: 'create' },
+  'POST /customer-returns/:id/receipt': { module: 'sales', action: 'create' },
   'POST /sales-orders/:id/invoice': { module: 'sales', action: 'create' },
   'POST /companies/:companyId/quotations': { module: 'sales', action: 'create' },
   'POST /quotations/:id/sales-order': { module: 'sales', action: 'create' },
@@ -270,8 +273,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /quotations/:id': { module: 'sales', action: 'write' },
   'PATCH /quotations/:id/status': { module: 'sales', action: 'write' },
   'PATCH /deliveries/:id/status': { module: 'sales', action: 'write' },
-  'DELETE /quotations/:id': { module: 'sales', action: 'delete' },
+  'POST /customer-returns/:id/cancel': { module: 'sales', action: 'cancel' },
   'POST /deliveries/:id/cancel': { module: 'sales', action: 'cancel' },
+  'DELETE /quotations/:id': { module: 'sales', action: 'delete' },
   'GET /companies/:companyId/whatsapp/instance': { module: 'whatsapp', action: 'read' },
   'GET /companies/:companyId/whatsapp/state': { module: 'whatsapp', action: 'read' },
   'GET /companies/:companyId/whatsapp/qr': { module: 'whatsapp', action: 'read' },

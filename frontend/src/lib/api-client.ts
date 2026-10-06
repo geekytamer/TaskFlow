@@ -39,6 +39,9 @@ export function setCreditLimitPrompt(prompt: typeof creditLimitPrompt) {
   creditLimitPrompt = prompt;
 }
 
+/** Fired on window after any request that changed data succeeds. */
+export const DATA_CHANGED_EVENT = 'taskflow:data-changed';
+
 export function getStoredToken() {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -116,6 +119,11 @@ export async function apiFetch<T>(
       }
     }
     throw new ApiError(response.status, message, details);
+  }
+
+  const method = (options.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD' && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
   }
 
   if (response.status === 204) {

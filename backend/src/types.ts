@@ -642,7 +642,8 @@ export interface StockMovement {
     | 'inventory_issue'
     | 'inventory_transfer'
     | 'delivery'
-    | 'inventory_lot';
+    | 'inventory_lot'
+    | 'customer_return';
   referenceId?: string;
   /** The batch/lot this movement received into or consumed from, when tracked. */
   lotId?: string;
@@ -787,6 +788,36 @@ export interface Quotation {
 }
 
 export type DeliveryStatus = 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
+
+/** What happens to returned goods: back on the shelf, or written off. */
+export type ReturnCondition = 'Restock' | 'Scrap';
+export type CustomerReturnStatus = 'Draft' | 'Received' | 'Cancelled';
+
+export interface CustomerReturnLine {
+  deliveryLineIndex: number;
+  inventoryItemId?: string;
+  description: string;
+  quantity: number;
+  condition: ReturnCondition;
+  /** Carrying cost per unit, fixed when the goods are received. */
+  unitCost?: number;
+}
+
+/** Goods a client sends back against a shipped delivery (RMA). */
+export interface CustomerReturn {
+  id: string;
+  companyId: string;
+  returnNumber: string;
+  deliveryId: string;
+  salesOrderId: string;
+  clientId: string;
+  status: CustomerReturnStatus;
+  reason?: string;
+  items: CustomerReturnLine[];
+  creditNoteId?: string;
+  receivedAt?: Date;
+  createdAt: Date;
+}
 
 export interface DeliveryLineItem {
   salesOrderLineIndex: number;
@@ -998,7 +1029,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'gratuity_accrual' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note' | 'journal_reversal';
+  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'gratuity_accrual' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note' | 'journal_reversal' | 'delivery_cogs_reversal' | 'customer_return';
   sourceId?: string;
   memo?: string;
   entryDate: Date;
@@ -1679,7 +1710,8 @@ export interface ActivityEvent {
     | 'work_order'
     | 'document'
     | 'whatsapp_message'
-    | 'game';
+    | 'game'
+    | 'customer_return';
   entityId: string;
   action: string;
   summary: string;
