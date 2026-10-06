@@ -12,6 +12,7 @@ import { VendorBillTable } from './vendor-bill-table';
 import { PendingPayablesPanel } from './pending-payables-panel';
 import { JournalTable } from './journal-table';
 import { RecurringPanel } from './recurring-panel';
+import { FixedAssetsPanel } from './fixed-assets-panel';
 import { BankReconciliationPanel } from './bank-reconciliation-panel';
 import { ReportsPanel } from './reports-panel';
 import { ActivityLogPanel } from './activity-log-panel';
@@ -26,6 +27,7 @@ const VALID_TABS = new Set([
   'overview',
   'recurring',
   'bank',
+  'assets',
   'invoices',
   'payables',
   'ledger',
@@ -90,6 +92,7 @@ export function FinancePage() {
           <TabsTrigger value="expenses" data-tutorial="finance-tab-expenses">{t('finance.tabExpenses')}</TabsTrigger>
           <TabsTrigger value="bank">{t('finance.tabBank', 'Bank')}</TabsTrigger>
           <TabsTrigger value="recurring">{t('finance.tabRecurring', 'Recurring')}</TabsTrigger>
+          <TabsTrigger value="assets">{t('finance.tabAssets', 'Fixed assets')}</TabsTrigger>
           <TabsTrigger value="budgets">{t('finance.tabBudgets', 'Budgets')}</TabsTrigger>
           <TabsTrigger value="vat">{t('finance.tabVat', 'VAT')}</TabsTrigger>
           </TabsList>
@@ -129,6 +132,9 @@ export function FinancePage() {
         </TabsContent>
         <TabsContent value="bank">
           <BankReconciliationPanel />
+        </TabsContent>
+        <TabsContent value="assets">
+          <FixedAssetsPanel />
         </TabsContent>
         <TabsContent value="recurring">
           <RecurringPanel />

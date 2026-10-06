@@ -15,6 +15,7 @@ import { GamesStore } from '../games/games-store';
 import { RecurringStore } from '../finance/recurring';
 import { invoiceVat, VAT_TREATMENTS, vatBreakdown } from '../finance/vat';
 import { BankReconciliationStore } from '../finance/bank-reconciliation';
+import { FixedAssetStore } from '../finance/fixed-assets';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -416,6 +417,7 @@ const defaultLedgerAccounts: Array<
   { code: '1300', name: 'Prepaid Expenses', type: 'Asset', detailType: 'Prepayments', description: 'Advance payments for future periods.', isActive: true, isSystem: true },
   { code: '1150', name: 'Recoverable VAT (Input Tax)', type: 'Asset', detailType: 'Tax asset', description: 'Input VAT recoverable on purchases.', isActive: true, isSystem: true },
   { code: '1500', name: 'Equipment', type: 'Asset', detailType: 'Fixed assets', description: 'Operational equipment and devices.', isActive: true, isSystem: true },
+  { code: '1590', name: 'Accumulated Depreciation', type: 'Asset', detailType: 'Accumulated depreciation', description: 'Depreciation charged to date on fixed assets; a credit balance that reduces their cost.', isActive: true, isSystem: true },
   { code: '1510', name: 'Furniture and Fixtures', type: 'Asset', detailType: 'Fixed assets', description: 'Office furniture and fixtures.', isActive: true, isSystem: true },
   { code: '2000', name: 'Accounts Payable', type: 'Liability', detailType: 'Trade payables', description: 'Outstanding supplier invoices.', isActive: true, isSystem: true },
   { code: '2100', name: 'Accrued Expenses', type: 'Liability', detailType: 'Accruals', description: 'Expenses incurred but not yet invoiced.', isActive: true, isSystem: true },
@@ -438,6 +440,7 @@ const defaultLedgerAccounts: Array<
   { code: '5700', name: 'Marketing Expense', type: 'Expense', detailType: 'Marketing', description: 'Promotional and campaign spend.', isActive: true, isSystem: true },
   { code: '5800', name: 'Travel Expense', type: 'Expense', detailType: 'Travel', description: 'Business travel and related costs.', isActive: true, isSystem: true },
   { code: '5900', name: 'Commission Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Sales commissions earned by staff (accrual basis).', isActive: true, isSystem: true },
+  { code: '5960', name: 'Loss on Asset Disposal', type: 'Expense', detailType: 'Other expense', description: 'What a fixed asset sold or scrapped for below its book value.', isActive: true, isSystem: true },
   { code: '5950', name: 'Foreign Exchange Gain / (Loss)', type: 'Expense', detailType: 'Currency revaluation', description: 'Movement on foreign-currency balances; a debit is a loss, a credit a gain.', isActive: true, isSystem: true },
   { code: '5250', name: 'End-of-Service Gratuity Expense', type: 'Expense', detailType: 'Payroll expense', description: 'Monthly accrual of end-of-service benefits earned by staff.', isActive: true, isSystem: true },
 ];
@@ -662,6 +665,7 @@ export class DataStore {
   readonly academy: AcademyStore;
   readonly recurring: RecurringStore;
   readonly bank: BankReconciliationStore;
+  readonly assets: FixedAssetStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -698,6 +702,7 @@ export class DataStore {
     this.academy = new AcademyStore(this.db);
     this.recurring = new RecurringStore(this.db);
     this.bank = new BankReconciliationStore(this.db);
+    this.assets = new FixedAssetStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4483,6 +4488,52 @@ export class DataStore {
             ALTER TABLE vendor_bills ADD COLUMN vatTreatment TEXT;
             ALTER TABLE vat_returns ADD COLUMN breakdown TEXT;
           `);
+        },
+      },
+      {
+        // Fixed assets, their monthly depreciation postings, and the two accounts they need.
+        id: '110_fixed_assets',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS fixed_assets (
+              id                 TEXT PRIMARY KEY,
+              companyId          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              name               TEXT NOT NULL,
+              category           TEXT,
+              assetAccountId     TEXT NOT NULL,
+              cost               REAL NOT NULL,
+              salvageValue       REAL NOT NULL DEFAULT 0,
+              acquiredOn         TEXT NOT NULL,
+              usefulLifeMonths   INTEGER NOT NULL,
+              status             TEXT NOT NULL DEFAULT 'active',
+              disposedOn         TEXT,
+              disposalProceeds   REAL,
+              acquisitionEntryId TEXT,
+              disposalEntryId    TEXT,
+              notes              TEXT,
+              createdAt          TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_fixed_assets_company ON fixed_assets(companyId);
+            CREATE TABLE IF NOT EXISTS asset_depreciation (
+              assetId        TEXT NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
+              period         TEXT NOT NULL,
+              amount         REAL NOT NULL,
+              journalEntryId TEXT NOT NULL,
+              PRIMARY KEY (assetId, period)
+            );
+          `);
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+          const exists = this.db.prepare('SELECT 1 FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1');
+          const insert = this.db.prepare(
+            'INSERT INTO ledger_accounts (id, companyId, code, name, type, detailType, description, isActive, isSystem) VALUES (@id, @companyId, @code, @name, @type, @detailType, @description, 1, 1)',
+          );
+          const accounts = [
+            { code: '1590', name: 'Accumulated Depreciation', type: 'Asset', detailType: 'Accumulated depreciation', description: 'Depreciation charged to date on fixed assets; a credit balance that reduces their cost.' },
+            { code: '5960', name: 'Loss on Asset Disposal', type: 'Expense', detailType: 'Other expense', description: 'What a fixed asset sold or scrapped for below its book value.' },
+          ];
+          for (const c of companies) {
+            for (const a of accounts) if (!exists.get(c.id, a.code)) insert.run({ id: uuid(), companyId: c.id, ...a });
+          }
         },
       },
     ];

@@ -1033,7 +1033,7 @@ export interface JournalEntryLine {
 export interface JournalEntry {
   id: string;
   companyId: string;
-  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'gratuity_accrual' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note' | 'journal_reversal' | 'delivery_cogs_reversal' | 'customer_return' | 'bank_statement';
+  sourceType: 'manual' | 'invoice' | 'delivery_cogs' | 'invoice_payment' | 'vendor_bill' | 'vendor_bill_payment' | 'purchase_receipt' | 'expense' | 'payroll' | 'gratuity_accrual' | 'fx_revaluation' | 'commission_accrual' | 'commission_payment' | 'commission_reversal' | 'campaign_expense' | 'credit_note' | 'journal_reversal' | 'delivery_cogs_reversal' | 'customer_return' | 'bank_statement' | 'depreciation' | 'asset_disposal' | 'asset_purchase';
   sourceId?: string;
   memo?: string;
   entryDate: Date;
@@ -1719,7 +1719,8 @@ export interface ActivityEvent {
     | 'game'
     | 'customer_return'
     | 'recurring_document'
-    | 'bank_statement';
+    | 'bank_statement'
+    | 'fixed_asset';
   entityId: string;
   action: string;
   summary: string;

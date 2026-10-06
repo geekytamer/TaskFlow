@@ -1311,6 +1311,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '107_recurring_documents',
     '108_bank_reconciliation',
     '109_vat_treatments',
+    '110_fixed_assets',
   ]);
 });
 
@@ -3368,9 +3369,9 @@ test('chart of accounts supports rich custom account CRUD while protecting syste
       isActive: true,
     });
   assert.equal(createResponse.status, 201);
-  // Next available Expense code after the seeded defaults (…, 5900 Commission
-  // Expense, 5950 Foreign Exchange Gain/(Loss)) is 5960.
-  assert.equal(createResponse.body.code, '5960');
+  // Next available Expense code after the seeded defaults (…, 5950 Foreign
+  // Exchange Gain/(Loss), 5960 Loss on Asset Disposal) is 5970.
+  assert.equal(createResponse.body.code, '5970');
   assert.equal(createResponse.body.detailType, 'Staff development');
   const accountId = createResponse.body.id;
 
@@ -3385,7 +3386,7 @@ test('chart of accounts supports rich custom account CRUD while protecting syste
     });
   assert.equal(updateResponse.status, 200);
   // Code is immutable — the attempted change to 9999 is ignored.
-  assert.equal(updateResponse.body.code, '5960');
+  assert.equal(updateResponse.body.code, '5970');
   assert.equal(updateResponse.body.name, 'Learning and Training Expense');
   assert.equal(updateResponse.body.isActive, false);
 
