@@ -21,6 +21,9 @@ import { useCompany } from '@/context/company-context';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
 import { useI18n } from '@/context/i18n-context';
 import { TourProvider } from '@/components/tutorial/tour-context';
+import { AcademyProvider } from '@/modules/academy/academy-context';
+import { AcademyDock } from '@/modules/academy/components/academy-dock';
+import { AcademyGate, PracticeBanner } from '@/modules/academy/components/academy-gate';
 import { TourOverlay } from '@/components/tutorial/tour-overlay';
 import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-launcher';
 import { CommandPalette } from '@/modules/layout/components/command-palette';
@@ -84,6 +87,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
     <TourProvider>
+    <AcademyProvider>
       <Sidebar side={isRtl ? 'right' : 'left'}>
         <SidebarHeader className="p-4">
           <div className="flex items-center gap-2">
@@ -108,6 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <StagingBanner />
         <ImpersonationBanner />
+        <PracticeBanner />
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6">
           <SidebarTrigger className="md:hidden" />
           <button
@@ -130,11 +135,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <CompanySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6"><ModuleGate>{children}</ModuleGate></main>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6"><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
       </SidebarInset>
       <TourOverlay />
       <WelcomeTourModal />
       <CommandPalette />
+      <AcademyDock />
+    </AcademyProvider>
     </TourProvider>
     </SidebarProvider>
   );

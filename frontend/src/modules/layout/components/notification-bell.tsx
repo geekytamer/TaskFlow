@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { NOTIFICATIONS_OPENED_EVENT } from '@/modules/academy/academy-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import Link from 'next/link';
 import { Bell, CheckCheck } from 'lucide-react';
@@ -119,10 +120,11 @@ export function NotificationBell() {
   const display = total > 99 ? '99+' : String(total);
 
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => { if (open) window.dispatchEvent(new Event(NOTIFICATIONS_OPENED_EVENT)); }}>
       <PopoverTrigger asChild>
         <button
           type="button"
+          data-academy="notifications"
           className="relative inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background/60 transition hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
           aria-label={t('notif.button')}
           title={t('notif.button')}

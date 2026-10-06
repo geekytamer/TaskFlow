@@ -14,6 +14,9 @@ export interface Company {
   taxDetails?: string;
   /** Modules the platform super admin switched off for this company. */
   disabledModules?: string[];
+  /** A TaskFlow Academy practice company (only its trainee sees it). */
+  isTraining?: boolean;
+  trainingOwnerUserId?: string;
 }
 
 export interface Position {

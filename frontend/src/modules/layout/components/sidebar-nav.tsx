@@ -42,7 +42,7 @@ import {
   Factory,
   Building2,
   FileText,
-  ShieldCheck, ClipboardList
+  ShieldCheck, ClipboardList, GraduationCap, Lock
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -51,6 +51,7 @@ import { useCompany } from '@/context/company-context';
 import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions, usePermissionOr } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { useAcademy } from '@/modules/academy/academy-context';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
 type NavItem = {
@@ -72,6 +73,7 @@ const sections: NavSection[] = [
     labelKey: 'nav.section.workspace',
     items: [
       { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-dashboard' },
+      { href: '/academy', labelKey: 'nav.academy', icon: GraduationCap, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-academy' },
       { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-projects' },
       { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-tasks' },
       { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-diagram' },
@@ -172,6 +174,7 @@ export function SidebarNav() {
     '/whatsapp': whatsappUnread,
   };
 
+  const academy = useAcademy();
   if (loading || !user) {
     return (
       <div className="p-4 space-y-2">
@@ -181,6 +184,13 @@ export function SidebarNav() {
       </div>
     );
   }
+
+  /** Locked by an unfinished Academy mission (never inside the practice company). */
+  const isLocked = (href: string) => {
+    if (academy.inPractice) return false;
+    const itemModule = moduleForPath(href);
+    return Boolean(itemModule && academy.locked.has(itemModule));
+  };
 
   const canSeeItem = (item: NavItem) => {
     // A module the company switched off is hidden under every engine.
@@ -235,6 +245,9 @@ export function SidebarNav() {
                             <Icon />
                             <span className="truncate">{t(item.labelKey)}</span>
                           </span>
+                          {isLocked(item.href) && (
+                            <Lock className="ms-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={t('nav.lockedByAcademy')} />
+                          )}
                           {badge > 0 && (
                             <span className="ms-2 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
                               {badge > 99 ? '99+' : badge}

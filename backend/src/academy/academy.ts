@@ -51,6 +51,8 @@ export function startPractice(store: DataStore, user: SanitizedUser): string {
   if (state.practiceCompanyId && store.getCompanyById(state.practiceCompanyId)) return state.practiceCompanyId;
   const company = store.createCompany({ name: PRACTICE_NAME, city: 'Muscat', country: 'Oman' });
   store.academy.markTraining(company.id, user.id);
+  // Al Waha Trading is in Muscat: Omani rials, as the story says.
+  store.updateCompanyFinanceSettings(company.id, { currencyCode: 'OMR' });
   // Owner's capital in the bank, so cash never starts negative.
   const accounts = store.listLedgerAccounts(company.id);
   const bank = accounts.find((a) => a.code === '1010');
