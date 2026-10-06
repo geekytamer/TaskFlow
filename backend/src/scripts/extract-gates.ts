@@ -73,7 +73,7 @@ const MODULE_ALIASES: Record<string, string> = {
 
   'commission-rules': 'commissions',
 
-  'sales-orders': 'sales', deliveries: 'sales', quotations: 'sales', 'customer-returns': 'sales', 'recurring-documents': 'finance', 'bank-statements': 'finance', 'fixed-assets': 'finance', shipments: 'inventory', approvals: 'finance', search: 'dashboard',
+  'sales-orders': 'sales', deliveries: 'sales', quotations: 'sales', 'customer-returns': 'sales', 'recurring-documents': 'finance', 'bank-statements': 'finance', 'fixed-assets': 'finance', shipments: 'inventory', approvals: 'finance', search: 'dashboard', 'client-reminders': 'invoices',
 
   'credit-notes': 'invoices', 'invoice-templates': 'invoices',
 

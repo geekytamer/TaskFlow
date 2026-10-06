@@ -6,6 +6,7 @@ import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
 import { CreditLimitError, DataStore, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
+import { DEFAULT_REMINDER_DAYS, emailInvoice, sweepClientReminders } from './finance/client-email';
 import { disposeAsset, monthOf, postDepreciation } from './finance/fixed-assets';
 import { WpsDataError } from './hr/wps';
 import { INSPECTION_STAGES, inspectLot, traceLot, type InspectionCheck, type InspectionStage } from './inventory/quality';
@@ -775,6 +776,9 @@ export function createServer(options: CreateServerOptions = {}) {
         const expiring = store.sweepExpiryNotifications();
         sweepOverdueReadings(store);
         sweepShipments(store);
+        void sweepClientReminders(store)
+          .then((n) => { if (n > 0) logger.info(`[reminders] ${n} overdue reminder(s) emailed to clients`); })
+          .catch((error) => logger.error('[reminders] client reminder sweep failed', error));
         const recurring = runDueRecurring(store);
         if (recurring.created + recurring.held + recurring.failed > 0) {
           logger.info(`[recurring] ${recurring.created} created, ${recurring.held} held as draft, ${recurring.failed} failed`);
@@ -7180,6 +7184,47 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       store.recurring.remove(existing.id);
       res.status(204).end();
+    }),
+  );
+
+  // ── Email to clients ──
+  app.post(
+    '/invoices/:id/email',
+    authMiddleware,
+    handler(async (req, res) => {
+      const invoice = store.getInvoiceById(req.params.id);
+      if (!invoice) throw new HttpError(404, 'Invoice not found.');
+      requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
+      const body = asRecord(req.body ?? {}, 'body');
+      const to = optionalString(body.to) ?? store.getClientById(invoice.clientId)?.email;
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new HttpError(400, 'The client has no valid email address; enter one.');
+      const result = await emailInvoice(store, invoice, { to, message: optionalString(body.message) });
+      // emailConfigured only describes a send that reached the provider step; a refusal is about the invoice.
+      if (!result.sent) throw new HttpError(409, result.error ?? 'The email was not sent.', 'refused' in result ? undefined : { emailConfigured: Boolean(process.env.RESEND_API_KEY) });
+      withActor(req, () => store.createActivityEvent({ companyId: invoice.companyId, entityType: 'invoice', entityId: invoice.id, action: 'emailed', summary: `Invoice ${invoice.invoiceNumber} emailed to ${to}.` }));
+      res.json({ sent: true, to });
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/client-reminders',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json({ ...store.clientEmail.settings(req.params.companyId), emailConfigured: Boolean(process.env.RESEND_API_KEY) });
+    }),
+  );
+
+  app.put(
+    '/companies/:companyId/client-reminders',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const days = body.days === undefined ? DEFAULT_REMINDER_DAYS : (Array.isArray(body.days) ? body.days : []).map((d) => Number(d));
+      if (!days.length || days.length > 8 || days.some((d) => !Number.isInteger(d) || d < 1 || d > 365)) throw new HttpError(400, 'Reminder days are 1 to 365, up to 8 of them.');
+      store.clientEmail.setSettings(req.params.companyId, body.enabled === true, [...new Set(days)].sort((a, b) => a - b));
+      res.json({ ...store.clientEmail.settings(req.params.companyId), emailConfigured: Boolean(process.env.RESEND_API_KEY) });
     }),
   );
 

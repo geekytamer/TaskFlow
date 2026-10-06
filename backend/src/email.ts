@@ -72,7 +72,15 @@ export const escapeHtml = (value: string) =>
 
 export type EmailResult = { sent: boolean; error?: string };
 
+/** Replaces how mail leaves (tests capture it; null restores Resend). */
+type Transport = (message: { from: string; to: string; subject: string; html: string }) => Promise<EmailResult>;
+let transport: Transport | null = null;
+export function setEmailTransport(next: Transport | null): void {
+  transport = next;
+}
+
 export async function send(to: string, subject: string, html: string, from: string = fromEmail): Promise<EmailResult> {
+  if (transport) return transport({ from, to, subject, html });
   if (!resendApiKey) {
     return { sent: false, error: 'RESEND_API_KEY not set; skipping email.' };
   }

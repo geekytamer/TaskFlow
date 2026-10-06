@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 346 gated routes.
+ * 349 gated routes.
  */
 
 export interface RoutePermission {
@@ -22,6 +22,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /sales-orders/:id/deliveries': { module: 'sales', action: 'read' },
   'GET /invoices/:id/pdf': { module: 'invoices', action: 'invoices.pdf.read' },
   'GET /companies/:companyId/invoice-templates': { module: 'invoices', action: 'read' },
+  'GET /companies/:companyId/client-reminders': { module: 'invoices', action: 'read' },
   'GET /companies/:companyId/invoices': { module: 'invoices', action: 'read' },
   'GET /companies/:companyId/credit-notes': { module: 'invoices', action: 'read' },
   'GET /invoices/:id': { module: 'invoices', action: 'read' },
@@ -93,10 +94,12 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'DELETE /documents/:id': { module: 'documents', action: 'delete' },
   'DELETE /record-attachments/:id': { module: 'documents', action: 'delete' },
   'POST /companies/:companyId/invoice-templates': { module: 'invoices', action: 'create' },
+  'POST /invoices/:id/email': { module: 'invoices', action: 'create' },
   'POST /companies/:companyId/credit-notes': { module: 'invoices', action: 'create' },
   'POST /invoices': { module: 'invoices', action: 'create' },
   'POST /companies/:companyId/invoices/bulk-status': { module: 'invoices', action: 'create' },
   'PUT /invoice-templates/:id': { module: 'invoices', action: 'write' },
+  'PUT /companies/:companyId/client-reminders': { module: 'invoices', action: 'write' },
   'PATCH /invoices/:id/status': { module: 'invoices', action: 'write' },
   'PUT /invoices/:id': { module: 'invoices', action: 'write' },
   'DELETE /invoice-templates/:id': { module: 'invoices', action: 'delete' },

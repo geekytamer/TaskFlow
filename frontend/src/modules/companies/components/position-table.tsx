@@ -68,14 +68,20 @@ export function PositionTable({ companyId }: { companyId?: string } = {}) {
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
-    const [positionsData, companiesData] = await Promise.all([
-        getPositions(),
-        getCompanies(),
-    ]);
-    // When scoped to a company, only show that company's positions.
-    setPositions(companyId ? positionsData.filter((p) => p.companyId === companyId) : positionsData);
-    setCompanies(companiesData);
-    setLoading(false);
+    try {
+      const [positionsData, companiesData] = await Promise.all([
+          getPositions(),
+          getCompanies(),
+      ]);
+      // When scoped to a company, only show that company's positions.
+      setPositions(companyId ? positionsData.filter((p) => p.companyId === companyId) : positionsData);
+      setCompanies(companiesData);
+    } catch {
+      // Positions are global-admin data; anyone else sees an empty table, not a crash.
+      setPositions([]);
+    } finally {
+      setLoading(false);
+    }
   }, [companyId]);
 
   React.useEffect(() => {

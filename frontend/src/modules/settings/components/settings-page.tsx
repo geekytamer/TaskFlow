@@ -32,6 +32,7 @@ import { usePermissionOr } from '@/context/permissions-context';
 import { NumberingSettingsPanel } from './numbering-settings-panel';
 import { CustomFieldsPanel } from './custom-fields-panel';
 import { ApprovalRulesPanel } from './approval-rules-panel';
+import { ClientRemindersPanel } from './client-reminders-panel';
 import { WhatsappSettingsPanel } from './whatsapp-settings-panel';
 import { PositionTable } from '@/modules/companies/components/position-table';
 import { useCompany } from '@/context/company-context';
@@ -142,6 +143,8 @@ export function SettingsPage() {
       <NumberingSettingsPanel />
 
       {selectedCompany && <ApprovalRulesPanel canEdit={canAdminister} />}
+
+      {selectedCompany && <ClientRemindersPanel canEdit={canAdminister || currentRole === 'Manager' || currentRole === 'Accountant'} />}
 
       {selectedCompany && <CustomFieldsPanel />}
 

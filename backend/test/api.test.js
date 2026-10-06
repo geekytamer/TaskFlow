@@ -1319,6 +1319,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '115_shipments',
     '116_shipments_write',
     '117_approval_chains',
+    '118_client_reminders',
   ]);
 });
 

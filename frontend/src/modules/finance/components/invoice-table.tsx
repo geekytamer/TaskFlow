@@ -43,6 +43,7 @@ import { Label } from '@/components/ui/label';
 import { getTasks } from '@/services/projectService';
 import type { Task } from '@/modules/projects/types';
 import { format } from 'date-fns';
+import { EmailInvoiceButton } from './email-invoice-button';
 import { getClients } from '@/services/financeService';
 import { CreateInvoiceSheet } from './create-invoice-sheet';
 import { downloadCsv } from '@/modules/finance/lib/csv';
@@ -824,6 +825,9 @@ export function InvoiceTable() {
                   {t('invoiceTable.creditNote')}
                 </Button>
               ) : null}
+              {canManageFinance && previewInvoice && previewInvoice.status !== 'Draft' && (
+                <EmailInvoiceButton invoiceId={previewInvoice.id} invoiceNumber={previewInvoice.invoiceNumber} defaultTo={clients.find((c) => c.id === previewInvoice.clientId)?.email} />
+              )}
               <Button asChild variant="outline">
                 <a href={`/finance/invoices/${previewInvoice?.id}/print?print=1`} target="_blank" rel="noopener noreferrer">
                   <Printer className="me-2 h-4 w-4" />

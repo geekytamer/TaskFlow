@@ -22,6 +22,7 @@ import { ColdChainStore } from '../inventory/cold-chain';
 import { ShipmentStore } from '../logistics/shipments';
 import { ApprovalStore, levelsFor, type ApprovalDocType } from '../approvals/approvals';
 import { attentionAlerts } from '../dashboard/attention';
+import { ClientEmailStore } from '../finance/client-email';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -678,6 +679,7 @@ export class DataStore {
   readonly coldChain: ColdChainStore;
   readonly shipments: ShipmentStore;
   readonly approvals: ApprovalStore;
+  readonly clientEmail: ClientEmailStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -719,6 +721,7 @@ export class DataStore {
     this.coldChain = new ColdChainStore(this.db);
     this.shipments = new ShipmentStore(this.db);
     this.approvals = new ApprovalStore(this.db);
+    this.clientEmail = new ClientEmailStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4699,6 +4702,25 @@ export class DataStore {
             );
             CREATE INDEX IF NOT EXISTS idx_approval_steps_company ON approval_steps(companyId, status);
             ALTER TABLE expenses ADD COLUMN approvalStatus TEXT NOT NULL DEFAULT 'not_required';
+          `);
+        },
+      },
+      {
+        // Overdue reminders to clients: the company's choice, and which reminder went out for which invoice.
+        id: '118_client_reminders',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS client_reminder_settings (
+              companyId TEXT PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+              enabled   INTEGER NOT NULL DEFAULT 0,
+              days      TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS client_reminders (
+              invoiceId TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+              stage     INTEGER NOT NULL,
+              sentAt    TEXT NOT NULL,
+              PRIMARY KEY (invoiceId, stage)
+            );
           `);
         },
       },
