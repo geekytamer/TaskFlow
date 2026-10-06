@@ -5,6 +5,7 @@ import { CompanyProvider } from '@/context/company-context';
 import { PermissionsProvider } from '@/context/permissions-context';
 import { I18nProvider } from '@/context/i18n-context';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
+import { CreditLimitBridge } from '@/components/credit-limit-bridge';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -12,6 +13,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <CompanyProvider>
         <PermissionsProvider>
           <ConfirmProvider>
+            <CreditLimitBridge />
             {children}
           </ConfirmProvider>
         </PermissionsProvider>

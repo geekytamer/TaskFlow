@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { cn } from '@/lib/utils';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import {
   Table,
@@ -44,7 +45,7 @@ export function ClientTable() {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const { amount } = useCompanyCurrency();
+  const { amount, money } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -365,7 +366,21 @@ export function ClientTable() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-lg border p-4">
                     <p className="text-sm text-muted-foreground">{tr('Credit Limit', 'حد الائتمان')}</p>
-                    <p className="text-xl font-semibold">{amount(selectedClient.creditLimit || 0)}</p>
+                    <p className="text-xl font-semibold">{selectedClient.creditLimit ? amount(selectedClient.creditLimit) : tr('No limit', 'بلا حد')}</p>
+                    {(() => {
+                      const limit = selectedClient.creditLimit || 0;
+                      const owed = selectedClient.creditExposure ?? 0;
+                      if (!limit) return null;
+                      const pct = Math.min(100, Math.round((owed / limit) * 100));
+                      return (
+                        <>
+                          <Progress value={pct} className={cn('mt-2', owed > limit && '[&>div]:bg-destructive')} aria-label={tr('Credit used', 'الائتمان المستخدم')} />
+                          <p className={cn('mt-1 text-xs', owed > limit ? 'font-medium text-destructive' : 'text-muted-foreground')}>
+                            {tr(`Owes ${money(owed)} incl. confirmed orders · ${money(Math.max(0, limit - owed))} left`, `يدين بـ ${money(owed)} شاملاً الطلبات المؤكدة · المتبقي ${money(Math.max(0, limit - owed))}`)}
+                          </p>
+                        </>
+                      );
+                    })()}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {selectedClient.creditNumber || tr('No credit number', 'لا يوجد رقم ائتمان')}
                     </p>

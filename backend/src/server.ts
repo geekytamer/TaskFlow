@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
-import { DataStore, type DataStoreOptions } from './data/store';
+import { CreditLimitError, DataStore, type DataStoreOptions } from './data/store';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
 import type { Notification, NotificationPrefs, VendorBill } from './types';
@@ -1007,6 +1007,25 @@ export function createServer(options: CreateServerOptions = {}) {
     options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: legacyAllowed });
     return legacyAllowed;
   };
+
+  /**
+   * Runs a change that may raise what a client owes, refusing it (409
+   * CREDIT_LIMIT_EXCEEDED) if it takes them past their credit limit. Someone
+   * allowed to override sends `overrideCreditLimit: true` to go ahead.
+   */
+  const creditGuard = <T>(req: AuthedRequest, companyId: string, clientId: string | undefined | null, change: () => T): T => {
+    const canOverride = () => allowsRule(req, companyId, 'INVOICES_CREDIT_OVERRIDE');
+    const asked = Boolean(req.body && typeof req.body === 'object' && (req.body as Record<string, unknown>).overrideCreditLimit === true);
+    try {
+      return store.withinCreditLimit(clientId, change, { override: asked && canOverride() });
+    } catch (error) {
+      if (!(error instanceof CreditLimitError)) throw error;
+      throw new HttpError(409, error.message, {
+        code: 'CREDIT_LIMIT_EXCEEDED', limit: error.limit, owed: error.owed, adding: error.adding, canOverride: canOverride(),
+      });
+    }
+  };
+
 
   /** Company access plus a record rule, for routes registered outside this file. */
   const requireCompanyRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): void => {
@@ -5468,7 +5487,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      res.json(store.listClients(req.params.companyId));
+      // What each client could owe now, for the credit limit beside it.
+      res.json(store.listClients(req.params.companyId).map((c) => ({ ...c, creditExposure: store.clientCreditExposure(c.id) })));
     }),
   );
 
@@ -6983,7 +7003,7 @@ export function createServer(options: CreateServerOptions = {}) {
       ensureClientBelongsToCompany(clientId, req.params.companyId);
       ensureSalesItemsBelongToCompany(items, req.params.companyId);
       const expectedDate = optionalDateInput(body.expectedDate);
-      const order = withActor(req, () =>
+      const order = creditGuard(req, req.params.companyId, clientId, () => withActor(req, () =>
         store.createSalesOrder({
           companyId: req.params.companyId,
           clientId,
@@ -6994,7 +7014,7 @@ export function createServer(options: CreateServerOptions = {}) {
           items,
           notes: optionalString(body.notes),
         }),
-      );
+      ));
       autoConvertContactToClient(contactId, req.params.companyId);
       res.status(201).json(order);
     }),
@@ -7019,14 +7039,14 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       const expectedDate = body.expectedDate === null || body.expectedDate === '' ? null : optionalDateInput(body.expectedDate);
       try {
-        res.json(withActor(req, () => store.updateSalesOrder(existing.id, {
+        res.json(creditGuard(req, existing.companyId, clientId ?? existing.clientId, () => withActor(req, () => store.updateSalesOrder(existing.id, {
           clientId,
           contactId,
           orderDate: body.orderDate !== undefined ? new Date(requiredDateInput(body.orderDate, 'orderDate')) : undefined,
           expectedDate: expectedDate === null ? null : expectedDate ? new Date(expectedDate) : undefined,
           items,
           notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
-        })));
+        }))));
       } catch (error) {
         if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update sales order.');
@@ -7044,13 +7064,14 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       let order;
       try {
-        order = withActor(req, () =>
+        order = creditGuard(req, existing.companyId, existing.clientId, () => withActor(req, () =>
           store.updateSalesOrderStatus(
             req.params.id,
             enumValue(body.status, 'status', salesOrderStatuses),
           ),
-        );
+        ));
       } catch (error) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update sales order status.');
       }
       if (!order) throw new HttpError(404, 'Sales order not found.');
@@ -7985,7 +8006,7 @@ export function createServer(options: CreateServerOptions = {}) {
       );
       let invoice;
       try {
-        invoice = withActor(req, () =>
+        invoice = creditGuard(req, payload.companyId!, payload.clientId, () => withActor(req, () =>
           store.createInvoice({
             invoiceNumber: payload.invoiceNumber,
             companyId: payload.companyId!,
@@ -8004,8 +8025,9 @@ export function createServer(options: CreateServerOptions = {}) {
             sentAt: payload.sentAt ? new Date(payload.sentAt) : undefined,
             paidAt: payload.paidAt ? new Date(payload.paidAt) : undefined,
           }),
-        );
+        ));
       } catch (error: any) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error?.message || 'Could not create invoice.');
       }
       autoConvertContactToClient(payload.contactId ?? undefined, payload.companyId!);
@@ -8034,13 +8056,14 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       let updated;
       try {
-        updated = withActor(req, () =>
+        updated = creditGuard(req, existing.companyId, existing.clientId, () => withActor(req, () =>
           store.updateInvoiceStatus(
             req.params.id,
             enumValue(body.status, 'status', invoiceStatuses),
           ),
-        );
+        ));
       } catch (error) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update invoice status.');
       }
       if (!updated) throw new HttpError(404, 'Invoice not found.');
@@ -8058,7 +8081,7 @@ export function createServer(options: CreateServerOptions = {}) {
       // Once an invoice is sent, its money and parties are fixed: corrections go
       // through a credit note. Notes, due date and template can still change.
       if (existing.status !== 'Draft') {
-        const allowed = new Set(['notes', 'dueDate', 'templateId']);
+        const allowed = new Set(['notes', 'dueDate', 'templateId', 'overrideCreditLimit']);
         const changing = Object.keys(asRecord(req.body, 'body')).filter((k) => !allowed.has(k));
         if (changing.length) {
           throw new HttpError(409, `A ${existing.status.toLowerCase()} invoice cannot change ${changing.join(', ')}. Issue a credit note instead.`);
@@ -8096,7 +8119,7 @@ export function createServer(options: CreateServerOptions = {}) {
       );
       let updated;
       try {
-        updated = withActor(req, () =>
+        updated = creditGuard(req, targetCompanyId, targetClientId, () => withActor(req, () =>
           store.updateInvoice(req.params.id, {
             ...payload,
             issueDate: payload.issueDate ? new Date(payload.issueDate) : undefined,
@@ -8104,8 +8127,9 @@ export function createServer(options: CreateServerOptions = {}) {
             sentAt: payload.sentAt ? new Date(payload.sentAt) : undefined,
             paidAt: payload.paidAt ? new Date(payload.paidAt) : undefined,
           }),
-        );
+        ));
       } catch (error) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update invoice.');
       }
       if (!updated) throw new HttpError(404, 'Invoice not found.');
@@ -8200,9 +8224,10 @@ export function createServer(options: CreateServerOptions = {}) {
       let updated;
       try {
         updated = invoices
-          .map((invoice) => withActor(req, () => store.updateInvoiceStatus(invoice.id, targetStatus)))
+          .map((invoice) => creditGuard(req, req.params.companyId, invoice.clientId, () => withActor(req, () => store.updateInvoiceStatus(invoice.id, targetStatus))))
           .filter(Boolean);
       } catch (error) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update invoice statuses.');
       }
       res.json({ updatedCount: updated.length, items: updated });

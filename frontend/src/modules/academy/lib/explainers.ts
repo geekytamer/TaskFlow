@@ -143,8 +143,8 @@ export const EXPLAINERS: Record<string, Explainer> = {
 
   'credit-currency/limit': {
     title: { en: 'Credit limits', ar: 'سقف الائتمان' },
-    en: 'The limit is the most a client should owe you at once. Compare it with what they owe on the aging report before you deliver more on credit.',
-    ar: 'السقف هو أقصى ما ينبغي أن يدين لك به العميل في وقت واحد. قارنه بما عليه في تقرير الأعمار قبل أن تسلّمه المزيد بالآجل.',
+    en: 'The limit is the most a client may owe at once: unpaid invoices plus confirmed orders. Sending an invoice or confirming an order that goes past it is refused; Admins and Accountants can go ahead anyway, and are asked first.',
+    ar: 'السقف هو أقصى ما يجوز أن يدين به العميل في وقت واحد: الفواتير غير المدفوعة والطلبات المؤكدة. يُرفض إرسال فاتورة أو تأكيد طلب يتجاوزه؛ ويمكن للمدير العام والمحاسب المتابعة رغم ذلك بعد سؤالهم.',
   },
   'credit-currency/fx': {
     title: { en: 'Other currencies', ar: 'العملات الأخرى' },

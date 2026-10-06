@@ -1306,6 +1306,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '102_rfq_purchase_order',
     '103_backfill_new_route_permissions',
     '104_academy',
+    '105_credit_override',
   ]);
 });
 

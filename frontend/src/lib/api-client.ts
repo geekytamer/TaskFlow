@@ -19,6 +19,26 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
+/** The server refused a change because it would take a client past their credit limit. */
+export interface CreditLimitRefusal {
+  code: 'CREDIT_LIMIT_EXCEEDED';
+  message: string;
+  limit: number;
+  owed: number;
+  adding: number;
+  canOverride: boolean;
+}
+
+/**
+ * Asked when a request is refused for the credit limit and the user may
+ * override: resolves true to send the same request again with the override.
+ * Registered once by the app (see CreditLimitBridge).
+ */
+let creditLimitPrompt: ((refusal: CreditLimitRefusal) => Promise<boolean>) | null = null;
+export function setCreditLimitPrompt(prompt: typeof creditLimitPrompt) {
+  creditLimitPrompt = prompt;
+}
+
 export function getStoredToken() {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -87,6 +107,13 @@ export async function apiFetch<T>(
     }
     if (response.status === 401) {
       clearStoredToken();
+    }
+    const refusal = details as CreditLimitRefusal | undefined;
+    if (response.status === 409 && refusal?.code === 'CREDIT_LIMIT_EXCEEDED' && typeof options.body === 'string') {
+      const body = JSON.parse(options.body || '{}') as Record<string, unknown>;
+      if (refusal.canOverride && !body.overrideCreditLimit && creditLimitPrompt && (await creditLimitPrompt(refusal))) {
+        return apiFetch<T>(path, { ...options, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
+      }
     }
     throw new ApiError(response.status, message, details);
   }

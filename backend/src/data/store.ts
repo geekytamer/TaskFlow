@@ -630,6 +630,13 @@ function taskLink(projectId?: string | null): string {
   return projectId ? `/projects/${projectId}` : '/tasks';
 }
 
+/** A change would take a client past their credit limit. */
+export class CreditLimitError extends Error {
+  constructor(public readonly clientName: string, public readonly limit: number, public readonly owed: number, public readonly adding: number) {
+    super(`${clientName} would owe ${(owed + adding).toFixed(3)}, over their credit limit of ${limit.toFixed(3)} (owed now ${owed.toFixed(3)}).`);
+  }
+}
+
 export class DataStore {
   private db: Database.Database;
   /** Identity for the external portals: their own users, invitations and sessions. */
@@ -4352,6 +4359,15 @@ export class DataStore {
           const grace = new Date(now.getTime() + 14 * 86400_000).toISOString();
           this.db.prepare('INSERT OR IGNORE INTO academy_settings (key, value) VALUES (?, ?)').run('launchedAt', now.toISOString());
           this.db.prepare('INSERT OR IGNORE INTO academy_state (userId, graceUntil) SELECT id, ? FROM users').run(grace);
+        },
+      },
+      {
+        // Credit limits are enforced; Admins and Accountants may override.
+        id: '105_credit_override',
+        run: () => {
+          const groups = this.db.prepare("SELECT id FROM permission_groups WHERE isSystem = 1 AND key IN ('admin', 'accountant')").all() as Array<{ id: string }>;
+          const insert = this.db.prepare("INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, 'invoices', 'credit.override')");
+          for (const group of groups) insert.run(group.id);
         },
       },
     ];
@@ -15630,6 +15646,43 @@ export class DataStore {
     }
     this.db.prepare('DELETE FROM vat_returns WHERE id = ?').run(id);
     return true;
+  }
+
+  /**
+   * What a client could owe the company, in the company currency: issued
+   * invoices not yet paid or credited, plus confirmed sales orders (whether
+   * not yet invoiced or invoiced only as a draft). Credit limits are measured
+   * against this.
+   */
+  clientCreditExposure(clientId: string): number {
+    // A draft made from a sales order still stands for that order.
+    const invoices = (this.db.prepare("SELECT * FROM invoices WHERE clientId = ? AND (status != 'Draft' OR salesOrderId IS NOT NULL)").all(clientId) as any[])
+      .map((row) => this.decodeInvoice(row));
+    const owed = invoices.reduce((sum, inv) => sum + (inv.outstandingAmount ?? inv.total) * (inv.exchangeRate || 1), 0);
+    const ordered = (this.db.prepare("SELECT COALESCE(SUM(totalAmount), 0) AS n FROM sales_orders WHERE clientId = ? AND status = 'Confirmed' AND invoiceId IS NULL").get(clientId) as { n: number }).n;
+    return Number((owed + Number(ordered)).toFixed(3));
+  }
+
+  /**
+   * Runs `change` and undoes it if it pushed the client over their credit
+   * limit. Only an increase is refused: payments, credit notes and invoicing
+   * an already-confirmed order never are. Returns the change's result.
+   */
+  withinCreditLimit<T>(clientId: string | undefined | null, change: () => T, opts: { override?: boolean } = {}): T {
+    if (!clientId || opts.override) return change();
+    return this.db.transaction(() => {
+      const client = this.getClientById(clientId);
+      const limit = client?.creditLimit;
+      const before = this.clientCreditExposure(clientId);
+      const result = change();
+      if (limit !== undefined && limit !== null && limit > 0) {
+        const after = this.clientCreditExposure(clientId);
+        if (after > before + 0.0005 && after > limit + 0.0005) {
+          throw new CreditLimitError(client!.name, limit, before, after - before);
+        }
+      }
+      return result;
+    })();
   }
 
   listInvoices(companyId: string): Invoice[] {

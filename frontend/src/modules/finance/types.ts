@@ -10,6 +10,8 @@ export interface Client {
   contactName?: string;
   phone?: string;
   vatNumber?: string;
+  /** What the client could owe now (unpaid invoices + confirmed orders), from the client list. */
+  creditExposure?: number;
   creditLimit?: number;
   creditNumber?: string;
   paymentMethod?: string;
