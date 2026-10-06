@@ -44,12 +44,14 @@ type Form = {
   departmentId: string; managerId: string; employmentType: EmploymentType;
   status: EmployeeStatus; hireDate: string; annualLeaveAllowance: string; notes: string;
   basicSalary: string; allowances: string; deductions: string; bankName: string; iban: string;
+  bankCode: string; idType: 'civil_id' | 'passport'; idNumber: string;
 };
 
 const emptyForm = (): Form => ({
   name: '', email: '', phone: '', jobTitle: '', departmentId: '', managerId: '',
   employmentType: 'Full-time', status: 'Active', hireDate: '', annualLeaveAllowance: '21', notes: '',
   basicSalary: '', allowances: '', deductions: '', bankName: '', iban: '',
+  bankCode: '', idType: 'civil_id', idNumber: '',
 });
 
 export function EmployeesPage() {
@@ -104,6 +106,7 @@ export function EmployeesPage() {
       allowances: e.allowances ? String(e.allowances) : '',
       deductions: e.deductions ? String(e.deductions) : '',
       bankName: e.bankName ?? '', iban: e.iban ?? '',
+      bankCode: e.bankCode ?? '', idType: e.idType ?? 'civil_id', idNumber: e.idNumber ?? '',
     });
     setDialogOpen(true);
   };
@@ -127,7 +130,10 @@ export function EmployeesPage() {
       allowances: Number(form.allowances || 0),
       deductions: Number(form.deductions || 0),
       bankName: form.bankName.trim() || undefined,
-      iban: form.iban.trim() || undefined,
+      iban: form.iban.trim().replace(/\s+/g, '').toUpperCase() || undefined,
+      bankCode: form.bankCode.trim().toUpperCase() || undefined,
+      idType: form.idType,
+      idNumber: form.idNumber.trim() || undefined,
     } as Partial<Employee>;
     try {
       if (editing) {
@@ -363,10 +369,29 @@ export function EmployeesPage() {
               <Label>{tr('Bank name', 'اسم البنك')}</Label>
               <Input value={form.bankName} onChange={(e) => setForm((p) => ({ ...p, bankName: e.target.value }))} />
             </div>
-            <div className="space-y-1 sm:col-span-2">
+            <div className="space-y-1">
               <Label>{tr('IBAN', 'رقم الآيبان')}</Label>
               <Input value={form.iban} onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value }))} />
             </div>
+            <div className="space-y-1">
+              <Label>{tr('Bank SWIFT code', 'رمز سويفت للبنك')}</Label>
+              <Input value={form.bankCode} placeholder="BMUSOMRX" onChange={(e) => setForm((p) => ({ ...p, bankCode: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('ID document', 'وثيقة الهوية')}</Label>
+              <Select value={form.idType} onValueChange={(v) => setForm((p) => ({ ...p, idType: v as Form['idType'] }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="civil_id">{tr('Civil ID / resident card', 'البطاقة المدنية / بطاقة الإقامة')}</SelectItem>
+                  <SelectItem value="passport">{tr('Passport', 'جواز السفر')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('ID number', 'رقم الهوية')}</Label>
+              <Input value={form.idNumber} onChange={(e) => setForm((p) => ({ ...p, idNumber: e.target.value }))} />
+            </div>
+            <p className="text-xs text-muted-foreground sm:col-span-2">{tr('The WPS salary file needs the IBAN, the bank\u2019s SWIFT code and the ID number.', 'يحتاج ملف حماية الأجور إلى الآيبان ورمز سويفت للبنك ورقم الهوية.')}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>

@@ -9,6 +9,9 @@ export interface Company {
   legalName?: string;
   taxNumber?: string;
   registrationNumber?: string;
+  /** Account salaries are paid from (IBAN), and its bank's SWIFT/BIC code, for WPS files. */
+  payrollAccount?: string;
+  payrollBankCode?: string;
   phone?: string;
   email?: string;
   city?: string;
@@ -2109,6 +2112,11 @@ export interface Employee {
   deductions?: number;
   bankName?: string;
   iban?: string;
+  /** Bank SWIFT/BIC code, which WPS salary files identify the employee's bank by. */
+  bankCode?: string;
+  /** Identity document WPS files carry: Omani Civil ID (also resident cards) or passport. */
+  idType?: 'civil_id' | 'passport';
+  idNumber?: string;
   createdAt: Date;
   updatedAt: Date;
 }

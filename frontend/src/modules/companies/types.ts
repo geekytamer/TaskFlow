@@ -6,6 +6,8 @@ export interface Company {
   logoUrl?: string;
   legalName?: string;
   taxNumber?: string;
+  payrollAccount?: string;
+  payrollBankCode?: string;
   registrationNumber?: string;
   phone?: string;
   email?: string;

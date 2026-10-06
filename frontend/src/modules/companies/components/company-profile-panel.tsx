@@ -15,7 +15,7 @@ import type { Company } from '@/modules/companies/types';
 type Form = {
   name: string; legalName: string; taxNumber: string; registrationNumber: string;
   phone: string; email: string; website: string; address: string; city: string;
-  country: string; taxDetails: string;
+  country: string; taxDetails: string; payrollAccount: string; payrollBankCode: string;
 };
 
 const fromCompany = (c?: Company | null): Form => ({
@@ -23,6 +23,7 @@ const fromCompany = (c?: Company | null): Form => ({
   registrationNumber: c?.registrationNumber ?? '', phone: c?.phone ?? '', email: c?.email ?? '',
   website: c?.website ?? '', address: c?.address ?? '', city: c?.city ?? '',
   country: c?.country ?? '', taxDetails: c?.taxDetails ?? '',
+  payrollAccount: c?.payrollAccount ?? '', payrollBankCode: c?.payrollBankCode ?? '',
 });
 
 export function CompanyProfilePanel() {
@@ -65,6 +66,8 @@ export function CompanyProfilePanel() {
         city: form.city.trim(),
         country: form.country.trim(),
         taxDetails: form.taxDetails.trim(),
+        payrollAccount: form.payrollAccount.trim(),
+        payrollBankCode: form.payrollBankCode.trim(),
       });
       await refreshCompanies?.();
       toast({ title: tr('Company details saved', 'تم حفظ بيانات الشركة') });
@@ -103,6 +106,17 @@ export function CompanyProfilePanel() {
           {field(tr('Legal name', 'الاسم القانوني'), 'legalName')}
           {field(tr('VAT Number', 'رقم ضريبة القيمة المضافة'), 'taxNumber')}
           {field(tr('Registration number', 'رقم السجل التجاري'), 'registrationNumber')}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{tr('Payroll bank account', 'الحساب البنكي للرواتب')}</CardTitle>
+          <CardDescription>{tr('The account salaries are paid from. The WPS salary file names it, with your registration number.', 'الحساب الذي تُدفع منه الرواتب. يذكره ملف حماية الأجور مع رقم السجل التجاري.')}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          {field(tr('Account (IBAN)', 'الحساب (الآيبان)'), 'payrollAccount')}
+          {field(tr('Bank SWIFT code', 'رمز سويفت للبنك'), 'payrollBankCode')}
         </CardContent>
       </Card>
 

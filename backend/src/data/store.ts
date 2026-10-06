@@ -16,6 +16,7 @@ import { RecurringStore } from '../finance/recurring';
 import { invoiceVat, VAT_TREATMENTS, vatBreakdown } from '../finance/vat';
 import { BankReconciliationStore } from '../finance/bank-reconciliation';
 import { FixedAssetStore } from '../finance/fixed-assets';
+import { buildWpsFile } from '../hr/wps';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -4536,6 +4537,28 @@ export class DataStore {
           }
         },
       },
+      {
+        // What a WPS salary file needs: the employee's ID and bank code, the employer's payroll account.
+        id: '111_wps_details',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE employees ADD COLUMN bankCode TEXT;
+            ALTER TABLE employees ADD COLUMN idType TEXT;
+            ALTER TABLE employees ADD COLUMN idNumber TEXT;
+            ALTER TABLE companies ADD COLUMN payrollAccount TEXT;
+            ALTER TABLE companies ADD COLUMN payrollBankCode TEXT;
+          `);
+        },
+      },
+      {
+        // Salaries, bank details and ID numbers were readable by every member of the company.
+        id: '112_payroll_pay_read',
+        run: () => {
+          const groups = this.db.prepare("SELECT id FROM permission_groups WHERE isSystem = 1 AND key IN ('admin', 'manager', 'accountant')").all() as Array<{ id: string }>;
+          const insert = this.db.prepare("INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, 'payroll', 'pay.read')");
+          for (const group of groups) insert.run(group.id);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5343,7 +5366,7 @@ export class DataStore {
         `UPDATE companies SET name=@name, website=@website, address=@address, logoUrl=@logoUrl,
            legalName=@legalName, taxNumber=@taxNumber, registrationNumber=@registrationNumber,
            phone=@phone, email=@email, city=@city, country=@country, taxDetails=@taxDetails,
-           disabledModules=@disabledModules
+           payrollAccount=@payrollAccount, payrollBankCode=@payrollBankCode, disabledModules=@disabledModules
          WHERE id=@id`,
       )
       .run({
@@ -5360,6 +5383,8 @@ export class DataStore {
         city: updated.city ?? null,
         country: updated.country ?? null,
         taxDetails: updated.taxDetails ?? null,
+        payrollAccount: updated.payrollAccount ?? null,
+        payrollBankCode: updated.payrollBankCode ?? null,
         disabledModules: updated.disabledModules?.length ? JSON.stringify(updated.disabledModules) : null,
       });
     // Clients refetch their permission feed when the version moves, which is
@@ -7682,6 +7707,9 @@ export class DataStore {
       deductions: Number(row.deductions ?? 0),
       bankName: row.bankName ?? undefined,
       iban: row.iban ?? undefined,
+      bankCode: row.bankCode ?? undefined,
+      idType: row.idType ?? undefined,
+      idNumber: row.idNumber ?? undefined,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt),
     };
@@ -7719,13 +7747,16 @@ export class DataStore {
       deductions: Number(input.deductions ?? 0),
       bankName: input.bankName ?? null,
       iban: input.iban ?? null,
+      bankCode: input.bankCode ?? null,
+      idType: input.idType === 'passport' ? 'passport' : input.idType === 'civil_id' ? 'civil_id' : null,
+      idNumber: input.idNumber ?? null,
       createdAt: now,
       updatedAt: now,
     };
     this.db
       .prepare(
-        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, basicSalary, allowances, deductions, bankName, iban, createdAt, updatedAt)
-         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @basicSalary, @allowances, @deductions, @bankName, @iban, @createdAt, @updatedAt)`,
+        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, basicSalary, allowances, deductions, bankName, iban, bankCode, idType, idNumber, createdAt, updatedAt)
+         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @basicSalary, @allowances, @deductions, @bankName, @iban, @bankCode, @idType, @idNumber, @createdAt, @updatedAt)`,
       )
       .run(row);
     return this.getEmployeeById(row.id)!;
@@ -7737,7 +7768,7 @@ export class DataStore {
     const merged = { ...e, ...updates };
     this.db
       .prepare(
-        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, basicSalary=@basicSalary, allowances=@allowances, deductions=@deductions, bankName=@bankName, iban=@iban, updatedAt=@updatedAt WHERE id=@id`,
+        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, basicSalary=@basicSalary, allowances=@allowances, deductions=@deductions, bankName=@bankName, iban=@iban, bankCode=@bankCode, idType=@idType, idNumber=@idNumber, updatedAt=@updatedAt WHERE id=@id`,
       )
       .run({
         id,
@@ -7759,6 +7790,9 @@ export class DataStore {
         deductions: Number(merged.deductions ?? 0),
         bankName: merged.bankName ?? null,
         iban: merged.iban ?? null,
+        bankCode: merged.bankCode ?? null,
+        idType: merged.idType === 'passport' ? 'passport' : merged.idType === 'civil_id' ? 'civil_id' : null,
+        idNumber: merged.idNumber ?? null,
         updatedAt: new Date().toISOString(),
       });
     return this.getEmployeeById(id);
@@ -8835,37 +8869,9 @@ export class DataStore {
     return true;
   }
 
-  /** Build a WPS (Wage Protection System) SIF-style CSV for a payroll run. */
+  /** The WPS salary file for a payroll run (see src/hr/wps.ts). */
   buildWpsCsv(id: string): string {
-    const run = this.getPayrollRunById(id);
-    if (!run) throw new Error('Payroll run not found.');
-
-    // A SIF file with missing IBANs is rejected by the bank — or worse, silently
-    // skips those employees. Fail loudly here, naming who needs bank details.
-    const missing = run.payslips
-      .map((slip) => ({ slip, employee: this.getEmployeeById(slip.employeeId) }))
-      .filter(({ employee }) => !(employee?.iban || '').trim())
-      .map(({ slip }) => slip.employeeName);
-    if (missing.length > 0) {
-      throw new Error(
-        `Cannot build the WPS file: missing IBAN for ${missing.join(', ')}. Add bank details for these employees first.`,
-      );
-    }
-
-    const header = ['EmployeeID', 'EmployeeName', 'BankName', 'IBAN', 'Period', 'NetSalary'];
-    const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const rows = run.payslips.map((s) => {
-      const emp = this.getEmployeeById(s.employeeId);
-      return [
-        s.employeeId,
-        s.employeeName,
-        emp?.bankName ?? '',
-        emp?.iban ?? '',
-        run.period,
-        s.net.toFixed(2),
-      ].map((c) => esc(String(c))).join(',');
-    });
-    return [header.map(esc).join(','), ...rows].join('\r\n');
+    return buildWpsFile(this, id);
   }
 
   // ─── HR: leave types ───────────────────────────────────────────────────────

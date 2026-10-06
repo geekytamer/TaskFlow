@@ -1312,6 +1312,8 @@ test('health endpoint reports status and applied migrations', async () => {
     '108_bank_reconciliation',
     '109_vat_treatments',
     '110_fixed_assets',
+    '111_wps_details',
+    '112_payroll_pay_read',
   ]);
 });
 
@@ -1449,6 +1451,7 @@ test('payroll run generates payslips from salaries and exports a WPS file', asyn
   // Two employees with salaries + bank details.
   const e1 = await admin(request(app).post('/companies/1/employees')).send({
     name: 'Aisha', basicSalary: 800, allowances: 200, deductions: 50, bankName: 'Bank Muscat', iban: 'OM1234',
+    bankCode: 'BMUSOMRX', idType: 'civil_id', idNumber: '12345678',
   });
   assert.equal(e1.status, 201);
   assert.equal(e1.body.basicSalary, 800);
@@ -1478,17 +1481,36 @@ test('payroll run generates payslips from salaries and exports a WPS file', asyn
   assert.equal(aisha.net, 950); // 800 + 200 − 50
   assert.equal(run.body.totalNet, 950 + 900); // Bilal: 1000 − 100
 
-  // WPS export is a CSV with the net salaries and bank details.
-  const wps = await admin(request(app).get(`/payroll-runs/${run.body.id}/wps`));
-  assert.equal(wps.status, 200);
-  assert.match(wps.headers['content-type'], /csv/);
-  assert.match(wps.text, /OM1234/);
-  assert.match(wps.text, /950\.00/);
+  // The WPS file needs the employer's CR and payroll account and each employee's ID and bank:
+  // everything missing is listed at once.
+  const blocked = await admin(request(app).get(`/payroll-runs/${run.body.id}/wps`));
+  assert.equal(blocked.status, 409);
+  assert.ok(blocked.body.problems.some((p) => /CR/.test(p)), JSON.stringify(blocked.body));
+  assert.ok(blocked.body.problems.some((p) => /Bilal has no Civil ID or passport number, bank SWIFT code/.test(p)), JSON.stringify(blocked.body));
+  assert.ok(!blocked.body.problems.some((p) => /Aisha/.test(p)), 'Aisha is complete');
+  await admin(request(app).put(`/employees/${e2.body.id}`)).send({ bankCode: 'NBOMOMRX', idType: 'passport', idNumber: 'P99887' });
+  await admin(request(app).put('/companies/1')).send({ registrationNumber: '1234567', payrollAccount: 'om02 0001 2345', payrollBankCode: 'bmusomrx' });
 
-  // Employees cannot run payroll.
+  const wps = await admin(request(app).get(`/payroll-runs/${run.body.id}/wps`));
+  assert.equal(wps.status, 200, JSON.stringify(wps.body));
+  assert.match(wps.headers['content-type'], /csv/);
+  const lines = wps.text.split('\r\n');
+  assert.equal(lines[1], '"1234567","BMUSOMRX","OM0200012345","2026","03","1850.000","2","Salary"', 'employer record');
+  assert.ok(lines.some((l) => l.startsWith('"C","12345678",') && l.includes('"Aisha","BMUSOMRX","OM1234","M","31","950.000","800.000","0","200.000","50.000"')), lines.join('\n'));
+  assert.ok(lines.some((l) => l.startsWith('"P","P99887",')), 'passport holder');
+
+  // Employees cannot run payroll, nor see colleagues' pay, bank or ID details.
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/payroll-runs').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
+  const roster = await request(app).get('/companies/1/employees').set('Authorization', `Bearer ${empToken}`);
+  assert.equal(roster.status, 200);
+  const seen = roster.body.find((e) => e.name === 'Aisha');
+  assert.ok(seen, 'still listed');
+  for (const field of ['basicSalary', 'allowances', 'deductions', 'bankName', 'iban', 'bankCode', 'idNumber']) assert.equal(seen[field], undefined, field);
+  const one = await request(app).get(`/employees/${e1.body.id}`).set('Authorization', `Bearer ${empToken}`);
+  assert.equal(one.body.iban, undefined);
+  assert.equal((await admin(request(app).get(`/employees/${e1.body.id}`))).body.iban, 'OM1234', 'payroll staff see it');
 });
 
 test('cycle count posts on-hand adjustments from the physical count', async () => {

@@ -63,6 +63,10 @@ export const RECORD_RULES = {
     module: 'invoices', action: 'credit.override', roles: ['Admin', 'Accountant'],
     description: "Issue an invoice or confirm an order that takes a client past their credit limit.",
   },
+  PAYROLL_PAY_READ: {
+    module: 'payroll', action: 'pay.read', roles: MANAGEMENT,
+    description: "See employees' salaries, bank details and ID numbers (everyone sees their own).",
+  },
   CRM_ALL_READ: {
     module: 'crm', action: 'all.read', roles: MANAGEMENT,
     description: "See everyone's follow-ups, opportunities, proposals and vendor requests.",

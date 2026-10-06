@@ -35,6 +35,9 @@ export interface Employee {
   deductions?: number;
   bankName?: string;
   iban?: string;
+  bankCode?: string;
+  idType?: 'civil_id' | 'passport';
+  idNumber?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -272,12 +275,20 @@ export async function deletePayrollRun(id: string): Promise<void> {
   await apiFetch(`/payroll-runs/${id}`, { method: 'DELETE' });
 }
 
+/** The bank file cannot be built: `problems` names each missing detail. */
+export class WpsDownloadError extends Error {
+  constructor(message: string, public readonly problems: string[]) { super(message); }
+}
+
 /** Fetch the WPS CSV (authenticated) and trigger a browser download. */
 export async function downloadWps(runId: string, period: string): Promise<void> {
   const res = await fetch(`${API_BASE}/payroll-runs/${runId}/wps`, {
     headers: { Authorization: `Bearer ${getStoredToken() ?? ''}` },
   });
-  if (!res.ok) throw new Error('Could not download WPS file.');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new WpsDownloadError(body?.message || 'Could not download the WPS file.', Array.isArray(body?.problems) ? body.problems : []);
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

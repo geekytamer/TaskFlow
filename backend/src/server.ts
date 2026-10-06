@@ -7,11 +7,12 @@ import { randomUUID } from 'node:crypto';
 import { CreditLimitError, DataStore, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
 import { disposeAsset, monthOf, postDepreciation } from './finance/fixed-assets';
+import { WpsDataError } from './hr/wps';
 import { autoMatch, postStatementLine, readStatementCsv, reconcileCheck, type CsvColumns, type DateFormat } from './finance/bank-reconciliation';
 import type { RecurringDocument, RecurringFrequency, RecurringKind, RecurringMode } from './finance/recurring';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import { NOTIFICATION_CATEGORIES, normalizeNotificationPrefs } from './notifications';
-import type { Notification, NotificationPrefs, VatTreatment, VendorBill } from './types';
+import type { Employee, Notification, NotificationPrefs, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import {
   PermissionService,
@@ -2391,6 +2392,8 @@ export function createServer(options: CreateServerOptions = {}) {
         city: optionalText(body.city),
         country: optionalText(body.country),
         taxDetails: optionalText(body.taxDetails),
+        payrollAccount: optionalText(body.payrollAccount)?.replace(/\s+/g, '').toUpperCase(),
+        payrollBankCode: optionalText(body.payrollBankCode)?.trim().toUpperCase(),
         disabledModules: body.disabledModules !== undefined ? parseDisabledModules(body.disabledModules) : undefined,
       });
       if (!company) throw new HttpError(404, 'Company not found.');
@@ -9628,9 +9631,16 @@ export function createServer(options: CreateServerOptions = {}) {
     res.json(store.updateDepartment(req.params.id, { name: typeof req.body?.name === 'string' ? req.body.name.trim() : undefined }));
   }));
 
+  /** Pay, bank and ID details are for those who run payroll, and for the employee themself. */
+  const employeeFor = (req: AuthedRequest, employee: Employee): Partial<Employee> => {
+    if (employee.userId === req.user?.id || allowsRule(req, employee.companyId, 'PAYROLL_PAY_READ')) return employee;
+    const { basicSalary: _b, allowances: _a, deductions: _d, bankName: _n, iban: _i, bankCode: _c, idType: _t, idNumber: _x, ...rest } = employee;
+    return rest;
+  };
+
   app.get('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
     requireCompanyAccess(req, req.params.companyId);
-    res.json(store.listEmployees(req.params.companyId));
+    res.json(store.listEmployees(req.params.companyId).map((e) => employeeFor(req, e)));
   }));
   app.post('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
@@ -9642,7 +9652,7 @@ export function createServer(options: CreateServerOptions = {}) {
     const employee = store.getEmployeeById(req.params.id);
     if (!employee) throw new HttpError(404, 'Employee not found.');
     requireCompanyAccess(req, employee.companyId);
-    res.json(employee);
+    res.json(employeeFor(req, employee));
   }));
   app.put('/employees/:id', authMiddleware, handler((req, res) => {
     const employee = store.getEmployeeById(req.params.id);
@@ -9734,7 +9744,12 @@ export function createServer(options: CreateServerOptions = {}) {
   }));
   app.get('/payroll-runs/:id/wps', authMiddleware, handler((req, res) => {
     const run = loadPayrollRun(req);
-    const csv = store.buildWpsCsv(req.params.id);
+    let csv: string;
+    try { csv = store.buildWpsCsv(req.params.id); }
+    catch (error) {
+      if (error instanceof WpsDataError) throw new HttpError(409, error.message, { problems: error.problems });
+      throw error;
+    }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="wps-${run.period}.csv"`);
     res.send(csv);

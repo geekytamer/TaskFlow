@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
-  getPayrollRuns, createPayrollRun, deletePayrollRun, downloadWps, setPayrollRunStatus,
+  getPayrollRuns, createPayrollRun, deletePayrollRun, downloadWps, setPayrollRunStatus, WpsDownloadError,
   type PayrollRun,
 } from '@/services/hrService';
 import { Button } from '@/components/ui/button';
@@ -66,7 +66,16 @@ function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id:
   const download = async () => {
     setDownloading(true);
     try { await downloadWps(run.id, run.period); }
-    catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
+    catch (e: any) {
+      const problems = e instanceof WpsDownloadError ? e.problems : [];
+      toast({
+        variant: 'destructive',
+        title: problems.length ? tr('The WPS file needs a few details first', 'يحتاج ملف حماية الأجور إلى بعض البيانات أولاً') : tr('Error', 'خطأ'),
+        description: problems.length
+          ? <ul className="mt-1 list-disc space-y-0.5 ps-4">{problems.map((p) => <li key={p} dir="auto">{p}</li>)}</ul>
+          : e?.message,
+      });
+    }
     finally { setDownloading(false); }
   };
 
