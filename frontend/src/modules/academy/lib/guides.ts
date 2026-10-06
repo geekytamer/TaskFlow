@@ -122,12 +122,6 @@ export const GUIDES: Record<string, GuideStep[]> = {
   'run-books/budget': [
     { route: '/finance?tab=budgets', en: 'Set next year’s budget for a couple of expense accounts.', ar: 'ضع ميزانية العام القادم لحسابين من المصروفات.' },
   ],
-  'run-books/vat': [
-    { route: '/finance?tab=vat', en: 'Prepare a VAT return for this quarter.', ar: 'جهّز إقرار ضريبة القيمة المضافة لهذا الربع.' },
-  ],
-  'run-books/lock': [
-    { route: '/settings', en: 'In finance settings, lock last month so nobody can change it.', ar: 'في إعدادات المالية، أقفل الشهر الماضي كي لا يغيّره أحد.' },
-  ],
 
   'people-pay/employee': [
     { route: '/hr/employees', en: 'Add your storekeeper with a basic salary of OMR 400.', ar: 'أضف أمين المستودع براتب أساسي 400 ر.ع.' },
@@ -159,8 +153,81 @@ export const GUIDES: Record<string, GuideStep[]> = {
   'run-company/field': [
     { route: '/settings', en: 'Add a custom field you need, such as "Delivery zone" on contacts.', ar: 'أضف حقلاً مخصصاً تحتاجه، مثل "منطقة التوصيل" للجهات.' },
   ],
-  'run-company/template': [
-    { route: '/documents', en: 'Create a letter template.', ar: 'أنشئ قالب خطاب.' },
+
+  'follow-through/complete': [
+    { target: nav('nav-followups'), en: 'Open Follow-ups.', ar: 'افتح المتابعات.' },
+    { route: '/crm/followups', en: 'Complete the follow-up you planned for Al Noor Hotel and note how it went.', ar: 'أكمل المتابعة التي خطّطتها لفندق النور ودوّن نتيجتها.' },
+  ],
+  'follow-through/snooze': [
+    { route: '/crm/followups', en: 'Plan another follow-up, then snooze it to next week.', ar: 'خطّط متابعة أخرى ثم أجّلها إلى الأسبوع القادم.' },
+  ],
+
+  'see-the-work/my-tasks': [
+    { target: nav('nav-tasks'), en: 'Open Tasks: everything assigned to you, across projects.', ar: 'افتح المهام: كل ما أُسند إليك في كل المشاريع.' },
+  ],
+  'see-the-work/diagram': [
+    { target: nav('nav-diagram'), en: 'Open the Diagram: how tasks depend on each other.', ar: 'افتح المخطط: كيف تعتمد المهام على بعضها.' },
+  ],
+  'see-the-work/performance': [
+    { target: nav('nav-performance'), en: 'Open Performance: won deals, follow-ups done, revenue per person.', ar: 'افتح الأداء: الصفقات المكسوبة والمتابعات المنجزة والإيراد لكل شخص.' },
+  ],
+
+  'stock-control/warehouse': [
+    { target: nav('nav-inventory'), en: 'Open Inventory.', ar: 'افتح المخزون.' },
+    { route: '/inventory', target: nav('inventory-warehouses'), en: 'Add a warehouse called "Cold store".', ar: 'أضف مستودعاً باسم "المخزن المبرّد".' },
+  ],
+  'stock-control/lot': [
+    { target: nav('nav-purchases'), en: 'Open Purchases.', ar: 'افتح المشتريات.' },
+    { route: '/purchases', target: nav('purchases-table'), en: 'Order more dates and, when you receive them, enter a batch number and an expiry date.', ar: 'اطلب تموراً إضافية، وعند الاستلام أدخل رقم الدفعة وتاريخ الانتهاء.' },
+  ],
+  'stock-control/count': [
+    { target: nav('nav-stock-counts'), en: 'Open Stock counts.', ar: 'افتح جرد المخزون.' },
+    { route: '/inventory/counts', target: nav('count-create'), en: 'Count the shelf, enter what you found and post it. Any difference moves stock value.', ar: 'اعدد الرف وأدخل ما وجدته ثم رحّله. أي فرق يحرّك قيمة المخزون.' },
+  ],
+
+  'match-bill/linked': [
+    { route: '/purchases', target: nav('purchases-table'), en: 'From a received purchase order, create the supplier bill and approve it.', ar: 'من أمر شراء مستلَم، أنشئ فاتورة المورّد واعتمدها.' },
+  ],
+  'match-bill/matching': [
+    { target: nav('nav-matching'), en: 'Open Bill matching: ordered, received and billed side by side.', ar: 'افتح مطابقة الفواتير: المطلوب والمستلَم والمفوتَر جنباً إلى جنب.' },
+  ],
+
+  'credit-currency/limit': [
+    { target: nav('nav-clients'), en: 'Open Clients.', ar: 'افتح العملاء.' },
+    { route: '/clients', en: 'Edit Al Noor Hotel (or add a Dubai hotel) and give it a credit limit of OMR 2,000.', ar: 'عدّل فندق النور (أو أضف فندقاً في دبي) وحدّد له سقف ائتمان 2,000 ر.ع.' },
+  ],
+  'credit-currency/fx': [
+    { route: '/finance?tab=invoices', target: nav('invoice-create-btn'), en: 'Create an invoice in AED and send it. The books still record it in OMR.', ar: 'أنشئ فاتورة بالدرهم وأرسلها. تسجّلها الدفاتر بالريال رغم ذلك.' },
+  ],
+
+  'documents/template': [
+    { target: nav('nav-documents'), en: 'Open Documents.', ar: 'افتح المستندات.' },
+    { route: '/documents?tab=templates', en: 'Create a letter template with the client name as a field.', ar: 'أنشئ قالب خطاب يكون فيه اسم العميل حقلاً.' },
+  ],
+  'documents/document': [
+    { route: '/documents', en: 'Write a letter to Al Noor Hotel from the template.', ar: 'اكتب خطاباً لفندق النور من القالب.' },
+  ],
+  'documents/final': [
+    { route: '/documents', en: 'Finalize the letter. A final letter can no longer be edited.', ar: 'اعتمد الخطاب نهائياً. لا يمكن تعديل الخطاب المعتمد.' },
+  ],
+
+  'close-quarter/vat': [
+    { route: '/finance?tab=vat', en: 'Review this quarter: output VAT on sales minus input VAT on purchases. Then file the return; what you owe the tax authority is now on the books.', ar: 'راجع الربع: ضريبة المبيعات ناقص ضريبة المشتريات. ثم قدّم الإقرار؛ صار المستحق للجهة الضريبية في الدفاتر.' },
+  ],
+  'close-quarter/lock': [
+    { route: '/settings', en: 'In finance settings, lock the closed period so nobody can change it.', ar: 'في إعدادات المالية، أقفل الفترة المنتهية كي لا يغيّرها أحد.' },
+  ],
+
+  'campaigns/influencer': [
+    { target: nav('nav-contacts'), en: 'Open Contacts.', ar: 'افتح جهات الاتصال.' },
+    { route: '/contacts', en: 'Add an influencer: a contact with the Influencer role and their handle.', ar: 'أضف مؤثراً: جهة اتصال بدور مؤثر مع حسابه.' },
+  ],
+
+  'look-around/whatsapp': [
+    { target: nav('nav-whatsapp'), en: 'Open WhatsApp. Customer chats land here once the company connects a number.', ar: 'افتح واتساب. تصل هنا محادثات العملاء بعد ربط رقم الشركة.' },
+  ],
+  'look-around/influencers': [
+    { target: nav('nav-influencers'), en: 'Open Influencers: rates, audience and availability in one place.', ar: 'افتح المؤثرين: الأسعار والجمهور والتوفر في مكان واحد.' },
   ],
 
   'month-end/balanced': [

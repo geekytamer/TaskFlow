@@ -24,8 +24,8 @@ Every staff user learns TaskFlow by **doing real work in their own practice comp
    - Admin overview counts and cross-company lists exclude training companies.
    - Tests plant a training company with invoices, overdue items and notifications and assert none of it shows in another user's company list, the admin overview, sweeps or email.
 3. **Missions are code, not data** (`backend/src/academy/missions.ts`): id, chapter order, roles, modules unlocked, XP, story (en/ar), objectives. Each objective has a server **check** — a pure query against the practice company (e.g. "an invoice for a client exists and is fully paid") — so progress cannot be faked and survives reloads. Guided steps (route, target selector, text en/ar) live with the frontend mission content, keyed by objective id.
-4. **Which missions a user must do = their highest real role.** Employee: First day, Get work done, Win a customer. Accountant adds Sell, Buy, Run the books, People & pay. Manager adds Make, Campaigns. Admin: all. Missions whose modules are disabled in every one of the user's real companies are skipped.
-5. **Unlocks map module → mission** from the mission list. Modules no mission teaches (documents, WhatsApp, games, portal access) stay open. Enforcement:
+4. **Everyone takes the whole course** (owner, 2026-10-06: "it should cover everything from the start; in the practice company the user becomes like a manager"). Seeing how one person's work lands in someone else's numbers is the point. The highest real role only decides the **order**: missions of their own daily work first, so they unlock what they need soonest; First day always first, the month-end check always last. Missions whose modules are disabled in every one of the user's real companies are skipped. Left out on purpose: creating users and companies, permission groups, and module switches (administration, not daily work).
+5. **Unlocks map module → mission** from the mission list. Modules no mission teaches (games, portal access, users, companies, permissions) stay open. Enforcement:
    - Frontend: locked modules show a lock in the sidebar and a "Finish mission X" card instead of the page.
    - Server: in a **real** company, *changes* (POST/PUT/PATCH/DELETE) to a locked module are refused with `403 { code: 'ACADEMY_LOCKED', module, missionId }`, checked inside `requireCompanyAccess`/`requireCompanyRoles` from the route's generated permission mapping, so list and record routes are both covered. Reads stay open: other screens rely on company details, people, custom fields and the currency (all in `settings`/`finance`), and blocking them broke modules the user had already unlocked. The app's lock page stands in for a locked module's own pages. Training companies are never gated.
    - Super admins are never gated (they must be able to administer and exempt). Exemptions (whole academy or one module) are super-admin actions, recorded in the activity log.
@@ -38,19 +38,29 @@ Every staff user learns TaskFlow by **doing real work in their own practice comp
 
 ## Missions
 
-| # | id | Objectives (server checks) | Unlocks | Roles |
+19 missions, 60 objectives, about 2–2.5 hours. Order below is the story order; each role's path pulls its own missions forward. "Visit" objectives are reported by the browser; all others are server checks against the practice company.
+
+| # | id | Objectives | Unlocks | Daily work of |
 |---|---|---|---|---|
-| 0 | first-day | open the academy; open notifications; switch language once; open the dashboard (client-reported, marked server-side) | dashboard | all |
-| 1 | get-work-done | a project exists; a task in it; the task is assigned; time logged on it; the task is Done | projects, tasks | all |
-| 2 | win-customer | a client contact; an opportunity for it; a follow-up on it; the opportunity moved past its first stage | contacts, crm | all |
-| 3 | buy-restock | a supplier; an inventory item; an approved requisition; an RFQ with two quotes, one awarded; a purchase order received; a supplier bill matched or approved; the bill paid | purchasing, inventory, vendor-bills | Admin, Manager, Accountant |
-| 4 | sell-get-paid | a quotation accepted; a sales order; a delivery; an invoice; a partial payment; the invoice paid; a credit note | sales, invoices | Admin, Manager, Accountant |
-| 5 | make | a recipe; a work order completed | manufacturing | Admin, Manager |
-| 6 | run-books | an expense; a manual journal entry reversed; a budget; a VAT return; a locked period | finance | Admin, Accountant |
-| 7 | people-pay | an employee; attendance recorded; a leave request; a payroll run paid | hr, payroll | Admin, Manager, Accountant |
-| 8 | campaigns | a campaign with a deliverable; a commission rule; a commission accrued | campaigns, commissions | Admin, Manager |
-| 9 | run-company | a custom field; a document template; numbering changed | settings | Admin |
-| ★ | month-end | the trial balance balances; no unpaid invoice older than its due date; profit is positive | — (badge Ready) | all |
+| 0 | first-day | open the dashboard; open notifications; switch language (reported) | dashboard | all |
+| 1 | get-work-done | a project; a task; assigned; time logged; Done | projects, tasks | all |
+| 2 | win-customer | a client contact; an opportunity; a follow-up; moved past first stage | contacts, crm | all |
+| 3 | follow-through | a follow-up completed; one snoozed | — | Admin, Manager, Employee |
+| 4 | see-the-work | visit Tasks, Diagram, Performance | — | Admin, Manager, Employee |
+| 5 | buy-restock | supplier; item; approved requisition; RFQ awarded; PO received; bill approved; bill paid | purchasing, inventory, vendor-bills | Admin, Manager, Accountant |
+| 6 | stock-control | a warehouse; a lot with expiry; a posted stock count | — | Admin, Manager, Accountant |
+| 7 | match-bill | a non-draft bill linked to its PO; visit Bill matching | — | Admin, Manager, Accountant |
+| 8 | sell-get-paid | quotation accepted; sales order; delivery; invoice; part paid; fully paid; credit note | sales, invoices | Admin, Manager, Accountant |
+| 9 | credit-currency | a client credit limit; a sent invoice in a non-OMR currency | — | Admin, Manager, Accountant |
+| 10 | make | a recipe; a completed work order | manufacturing | Admin, Manager |
+| 11 | campaigns | an influencer contact; a campaign deliverable; a commission rule; a commission accrued | campaigns, commissions | Admin, Manager |
+| 12 | documents | a template; a document; a final document | documents | all |
+| 13 | run-books | an expense; a reversed journal entry; a budget | finance | Admin, Accountant |
+| 14 | close-quarter | a filed VAT return; a locked period | — | Admin, Accountant |
+| 15 | people-pay | employee; attendance; leave; payroll paid | hr, payroll | Admin, Manager, Accountant |
+| 16 | run-company | company details; a custom field | settings | Admin |
+| 17 | look-around | visit WhatsApp; visit Influencers | whatsapp | all |
+| ★ | month-end | trial balance balances; nothing overdue; profit positive (after buy, sell, books) | — (badge Ready) | all |
 
 ## Data
 
@@ -61,7 +71,7 @@ Migration `104_academy`: `companies.isTraining`, `companies.trainingOwnerUserId`
 - `GET /academy/me` → practice company, missions for the user (status, objectives done/total with each objective's state), xp, level, badges, locked modules, grace.
 - `POST /academy/start` (idempotent) → creates the practice company.
 - `POST /academy/reset` → deletes and recreates the practice company (progress kept).
-- `POST /academy/objectives/:missionId/:objectiveId` → for client-reported objectives only (mission 0).
+- `POST /academy/objectives/:missionId/:objectiveId` → for client-reported objectives only: first-day actions and "open this screen" objectives (`visit`, reported by the browser when the trainee opens that page in the practice company).
 - `GET /academy/impact` → the metrics above for the practice company; `GET /academy/statements` → mini P&L and balance sheet.
 - `GET /academy/team?companyId` → colleagues' mission counts (same real company, needs access).
 - `POST /academy/exemptions` / `DELETE /academy/exemptions/:userId/:module` (super admin).

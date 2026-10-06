@@ -25,13 +25,15 @@ export interface Objective {
   title: { en: string; ar: string };
   /** A number that must exceed its baseline. Absent for objectives the browser reports. */
   measure?: (ctx: ObjectiveContext) => number;
+  /** Browser-reported when the trainee opens this page (screens that only show things). */
+  visit?: string;
 }
 
 export interface Mission {
   id: string;
   order: number;
   xp: number;
-  /** Roles that must complete it. */
+  /** Roles whose daily work this is: their path puts it first. Everyone does every mission. */
   roles: AcademyRole[];
   /** Real-company modules (route permission modules) it unlocks. */
   modules: string[];
@@ -92,7 +94,7 @@ export const MISSIONS: Mission[] = [
     ],
   },
   {
-    id: 'buy-restock', order: 3, xp: 150, roles: MONEY, modules: ['purchasing', 'inventory', 'vendor-bills'],
+    id: 'buy-restock', order: 5, xp: 150, roles: MONEY, modules: ['purchasing', 'inventory', 'vendor-bills'],
     title: { en: 'Buy and restock', ar: 'اشترِ وأعد التخزين' },
     story: {
       en: 'You need stock before you can sell. Buy Khalas dates from Nakheel Farms the proper way, and watch cash turn into stock.',
@@ -115,7 +117,7 @@ export const MISSIONS: Mission[] = [
     ],
   },
   {
-    id: 'sell-get-paid', order: 4, xp: 150, roles: MONEY, modules: ['sales', 'invoices'],
+    id: 'sell-get-paid', order: 8, xp: 150, roles: MONEY, modules: ['sales', 'invoices'],
     title: { en: 'Sell and get paid', ar: 'بِع واقبض' },
     story: {
       en: 'The hotel accepted your price. Quote, deliver, invoice and collect — and see where every rial lands.',
@@ -138,7 +140,7 @@ export const MISSIONS: Mission[] = [
     ],
   },
   {
-    id: 'make', order: 5, xp: 100, roles: ['Admin', 'Manager'], modules: ['manufacturing'],
+    id: 'make', order: 10, xp: 100, roles: ['Admin', 'Manager'], modules: ['manufacturing'],
     title: { en: 'Make gift boxes', ar: 'اصنع علب الهدايا' },
     story: {
       en: 'Loose dates sell; gift boxes sell better. Write the recipe and run a batch.',
@@ -150,22 +152,20 @@ export const MISSIONS: Mission[] = [
     ],
   },
   {
-    id: 'run-books', order: 6, xp: 150, roles: ['Admin', 'Accountant'], modules: ['finance'],
+    id: 'run-books', order: 13, xp: 150, roles: ['Admin', 'Accountant'], modules: ['finance'],
     title: { en: 'Run the books', ar: 'أدِر الدفاتر' },
     story: {
-      en: 'Month end. Record what was spent, fix a mistake the right way, plan next year, file VAT and close the month.',
-      ar: 'نهاية الشهر. سجّل المصروفات، وصحّح خطأً بالطريقة الصحيحة، وخطّط للعام القادم، وقدّم إقرار الضريبة، وأغلق الشهر.',
+      en: 'Day-to-day books: record what was spent, fix a mistake the right way, and plan next year.',
+      ar: 'الدفاتر اليومية: سجّل المصروفات، وصحّح خطأً بالطريقة الصحيحة، وخطّط للعام القادم.',
     },
     objectives: [
       { id: 'expense', title: { en: 'Record an expense', ar: 'سجّل مصروفاً' }, measure: rows('expenses') },
       { id: 'reverse', title: { en: 'Post a journal entry, then reverse it', ar: 'سجّل قيداً ثم اعكسه' }, measure: rows('journal_entries', "sourceType = 'journal_reversal'") },
       { id: 'budget', title: { en: 'Set a budget', ar: 'ضع ميزانية' }, measure: rows('budgets') },
-      { id: 'vat', title: { en: 'Prepare a VAT return', ar: 'جهّز إقرار ضريبة القيمة المضافة' }, measure: rows('vat_returns') },
-      { id: 'lock', title: { en: 'Lock a closed period', ar: 'أقفل فترة منتهية' }, measure: rows('company_finance_settings', 'lockedThroughDate IS NOT NULL') },
     ],
   },
   {
-    id: 'people-pay', order: 7, xp: 120, roles: MONEY, modules: ['hr', 'payroll'],
+    id: 'people-pay', order: 15, xp: 120, roles: MONEY, modules: ['hr', 'payroll'],
     title: { en: 'People and pay', ar: 'الموظفون والرواتب' },
     story: {
       en: 'You hired a storekeeper. Add them, track a working day, handle a leave request and pay the month.',
@@ -179,33 +179,33 @@ export const MISSIONS: Mission[] = [
     ],
   },
   {
-    id: 'campaigns', order: 8, xp: 120, roles: ['Admin', 'Manager'], modules: ['campaigns', 'commissions'],
+    id: 'campaigns', order: 11, xp: 120, roles: ['Admin', 'Manager'], modules: ['campaigns', 'commissions'],
     title: { en: 'Campaigns and commissions', ar: 'الحملات والعمولات' },
     story: {
       en: 'Promote the gift boxes with an influencer campaign, and reward the salesperson who closed the deal.',
       ar: 'روّج لعلب الهدايا بحملة مؤثرين، وكافئ مندوب المبيعات الذي أغلق الصفقة.',
     },
     objectives: [
+      { id: 'influencer', title: { en: 'Add an influencer', ar: 'أضف مؤثراً' }, measure: rows('contact_roles', "role = 'Influencer'") },
       { id: 'campaign', title: { en: 'Plan a campaign with a deliverable', ar: 'خطّط حملة بمخرَج' }, measure: rows('campaign_deliverables') },
       { id: 'rule', title: { en: 'Set a commission rule', ar: 'ضع قاعدة عمولة' }, measure: rows('commission_rules') },
       { id: 'commission', title: { en: 'Earn a commission', ar: 'احتسب عمولة' }, measure: rows('commissions') },
     ],
   },
   {
-    id: 'run-company', order: 9, xp: 100, roles: ['Admin'], modules: ['settings'],
+    id: 'run-company', order: 16, xp: 100, roles: ['Admin'], modules: ['settings'],
     title: { en: 'Run the company', ar: 'أدِر الشركة' },
     story: {
-      en: 'Make the system yours: company details on every document, a field you need, and a letter template.',
-      ar: 'اجعل النظام خاصاً بك: بيانات الشركة على كل مستند، وحقل تحتاجه، وقالب خطاب.',
+      en: 'Make the system yours: company details on every document, and a field you need.',
+      ar: 'اجعل النظام خاصاً بك: بيانات الشركة على كل مستند، وحقل تحتاجه.',
     },
     objectives: [
       { id: 'details', title: { en: 'Fill in the tax number', ar: 'أدخل الرقم الضريبي' }, measure: (c) => c.count("SELECT COUNT(*) AS n FROM companies WHERE id = ? AND taxNumber IS NOT NULL AND taxNumber != ''", c.companyId) },
       { id: 'field', title: { en: 'Add a custom field', ar: 'أضف حقلاً مخصصاً' }, measure: rows('custom_field_definitions') },
-      { id: 'template', title: { en: 'Create a document template', ar: 'أنشئ قالب مستند' }, measure: rows('document_templates') },
     ],
   },
   {
-    id: 'month-end', order: 10, xp: 200, roles: MONEY, modules: [], after: ['sell-get-paid', 'buy-restock'],
+    id: 'month-end', order: 18, xp: 200, roles: MONEY, modules: [], after: ['sell-get-paid', 'buy-restock', 'run-books'],
     title: { en: 'Month-end check', ar: 'مراجعة نهاية الشهر' },
     story: {
       en: 'The owner asks three questions: do the books balance, has every customer paid on time, and did we make money?',
@@ -215,6 +215,111 @@ export const MISSIONS: Mission[] = [
       { id: 'balanced', title: { en: 'The trial balance balances', ar: 'ميزان المراجعة متوازن' }, measure: (c) => (c.balanced() ? 1 : 0) },
       { id: 'no-overdue', title: { en: 'No overdue invoices', ar: 'لا فواتير متأخرة' }, measure: (c) => (c.count("SELECT COUNT(*) AS n FROM invoices WHERE companyId = ? AND status = 'Overdue'", c.companyId) === 0 && c.count("SELECT COUNT(*) AS n FROM invoices WHERE companyId = ? AND status = 'Paid'", c.companyId) > 0 ? 1 : 0) },
       { id: 'profit', title: { en: 'The month made a profit', ar: 'حقق الشهر ربحاً' }, measure: (c) => (c.profit() > 0 ? 1 : 0) },
+    ],
+  },
+
+  {
+    id: 'follow-through', order: 3, xp: 80, roles: ['Admin', 'Manager', 'Employee'], modules: [],
+    title: { en: 'Follow through', ar: 'تابع حتى النهاية' },
+    story: {
+      en: 'Deals are won by following up. Clear today\u2019s follow-ups: finish one, push one to later.',
+      ar: 'الصفقات تُكسب بالمتابعة. أنهِ متابعات اليوم: أكمل واحدة وأجّل أخرى.',
+    },
+    objectives: [
+      { id: 'complete', title: { en: 'Complete a follow-up with its outcome', ar: 'أكمل متابعة مع نتيجتها' }, measure: rows('follow_ups', "status = 'completed'") },
+      { id: 'snooze', title: { en: 'Snooze one to later', ar: 'أجّل متابعة إلى وقت لاحق' }, measure: rows('follow_ups', 'snoozedUntil IS NOT NULL') },
+    ],
+  },
+  {
+    id: 'see-the-work', order: 4, xp: 60, roles: ['Admin', 'Manager', 'Employee'], modules: [],
+    title: { en: 'See the work', ar: 'شاهد العمل' },
+    story: {
+      en: 'The same work, seen three ways: your own list, how tasks depend on each other, and how the team is doing.',
+      ar: 'العمل نفسه من ثلاث زوايا: قائمتك، وكيف تعتمد المهام على بعضها، وأداء الفريق.',
+    },
+    objectives: [
+      { id: 'my-tasks', title: { en: 'Open your task list', ar: 'افتح قائمة مهامك' }, visit: '/tasks' },
+      { id: 'diagram', title: { en: 'Open the task diagram', ar: 'افتح مخطط المهام' }, visit: '/diagram' },
+      { id: 'performance', title: { en: 'Open the performance dashboard', ar: 'افتح لوحة الأداء' }, visit: '/crm/performance' },
+    ],
+  },
+
+  {
+    id: 'stock-control', order: 6, xp: 120, roles: ['Admin', 'Manager', 'Accountant'], modules: [],
+    title: { en: 'Stock control', ar: 'ضبط المخزون' },
+    story: {
+      en: 'Dates spoil. Store them in the right place, track each batch\u2019s expiry, and count what is really on the shelf.',
+      ar: 'التمر يتلف. خزّنه في مكانه الصحيح، وتتبّع انتهاء كل دفعة، واعدد ما على الرف فعلاً.',
+    },
+    objectives: [
+      { id: 'warehouse', title: { en: 'Add a warehouse', ar: 'أضف مستودعاً' }, measure: rows('warehouses') },
+      { id: 'lot', title: { en: 'Receive a batch with an expiry date', ar: 'استلم دفعة بتاريخ انتهاء' }, measure: rows('inventory_lots', 'expiryDate IS NOT NULL') },
+      { id: 'count', title: { en: 'Post a stock count', ar: 'رحّل جرداً للمخزون' }, measure: rows('stock_counts', "status = 'posted'") },
+    ],
+  },
+  {
+    id: 'match-bill', order: 7, xp: 80, roles: ['Admin', 'Manager', 'Accountant'], modules: [],
+    title: { en: 'Match a bill', ar: 'طابق فاتورة' },
+    story: {
+      en: 'Before paying, check the bill against what you ordered and what arrived. That is how overcharges get caught.',
+      ar: 'قبل الدفع، طابق الفاتورة مع ما طلبته وما وصل. هكذا تُكتشف المبالغ الزائدة.',
+    },
+    objectives: [
+      { id: 'linked', title: { en: 'Approve a supplier bill linked to its purchase order', ar: 'اعتمد فاتورة مورّد مرتبطة بأمر الشراء' }, measure: rows('vendor_bills', "purchaseOrderId IS NOT NULL AND status != 'Draft'") },
+      { id: 'matching', title: { en: 'Review it on the matching screen', ar: 'راجعها في شاشة المطابقة' }, visit: '/purchases/matching' },
+    ],
+  },
+
+  {
+    id: 'credit-currency', order: 9, xp: 90, roles: ['Admin', 'Manager', 'Accountant'], modules: [],
+    title: { en: 'Credit and currency', ar: 'الائتمان والعملات' },
+    story: {
+      en: 'A Dubai hotel wants to buy on credit, in dirhams. Set how much they may owe, and invoice them in their currency.',
+      ar: 'فندق في دبي يريد الشراء بالآجل وبالدرهم. حدّد ما يمكنه أن يدين به، وأصدر فاتورته بعملته.',
+    },
+    objectives: [
+      { id: 'limit', title: { en: 'Give a client a credit limit', ar: 'حدّد سقف ائتمان لعميل' }, measure: rows('clients', 'creditLimit > 0') },
+      { id: 'fx', title: { en: 'Send an invoice in another currency', ar: 'أرسل فاتورة بعملة أخرى' }, measure: rows('invoices', "currency IS NOT NULL AND currency != 'OMR' AND status != 'Draft'") },
+    ],
+  },
+
+  {
+    id: 'documents', order: 12, xp: 80, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], modules: ['documents'],
+    title: { en: 'Documents and letters', ar: 'المستندات والخطابات' },
+    story: {
+      en: 'The hotel needs a letter confirming the Ramadan supply. Design a template once, then produce the letter from it.',
+      ar: 'يحتاج الفندق خطاباً يؤكد توريد رمضان. صمّم قالباً مرة واحدة، ثم أنتج الخطاب منه.',
+    },
+    objectives: [
+      { id: 'template', title: { en: 'Create a letter template', ar: 'أنشئ قالب خطاب' }, measure: rows('document_templates') },
+      { id: 'document', title: { en: 'Produce a letter from it', ar: 'أنتج خطاباً منه' }, measure: rows('documents') },
+      { id: 'final', title: { en: 'Finalize it', ar: 'اعتمده نهائياً' }, measure: rows('documents', "status = 'final'") },
+    ],
+  },
+
+  {
+    id: 'close-quarter', order: 14, xp: 120, roles: ['Admin', 'Accountant'], modules: [],
+    title: { en: 'Close the quarter', ar: 'أغلق الربع' },
+    story: {
+      en: 'Quarter end: work out the VAT, file it, and lock the period so nobody changes what was reported.',
+      ar: 'نهاية الربع: احسب ضريبة القيمة المضافة وقدّمها، وأقفل الفترة كي لا يغيّر أحد ما أُبلغ عنه.',
+    },
+    objectives: [
+      { id: 'vat', title: { en: 'File the quarter\u2019s VAT return', ar: 'قدّم إقرار ضريبة القيمة المضافة للربع' }, measure: rows('vat_returns', "status = 'filed'") },
+      { id: 'lock', title: { en: 'Lock the closed period', ar: 'أقفل الفترة المنتهية' }, measure: rows('company_finance_settings', 'lockedThroughDate IS NOT NULL') },
+    ],
+  },
+
+  {
+    id: 'look-around', order: 17, xp: 50, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], modules: ['whatsapp'],
+    title: { en: 'Look around', ar: 'جولة سريعة' },
+    story: {
+      en: 'Two more places you will use: the WhatsApp inbox (a practice company has no number, so just look), and the influencer roster.',
+      ar: 'مكانان آخران ستستخدمهما: صندوق واتساب (لا رقم للشركة التدريبية، فاكتفِ بالنظر)، وقائمة المؤثرين.',
+    },
+    objectives: [
+      { id: 'whatsapp', title: { en: 'Open the WhatsApp inbox', ar: 'افتح صندوق واتساب' }, visit: '/whatsapp' },
+      { id: 'influencers', title: { en: 'Open the influencer roster', ar: 'افتح قائمة المؤثرين' }, visit: '/influencers' },
     ],
   },
 ];
@@ -228,12 +333,17 @@ export function highestRole(roles: string[]): AcademyRole {
   return roles.reduce<AcademyRole>((best, r) => (r in RANK && RANK[r as AcademyRole] > RANK[best] ? (r as AcademyRole) : best), 'Employee');
 }
 
-/** Missions a role must complete, in order. Missions for modules switched off everywhere are skipped. */
+/**
+ * Every mission, for everyone: understanding how one person's work lands in
+ * someone else's numbers is the point. The role only decides the order — the
+ * missions of their own daily work first — so they unlock what they need
+ * soonest. The month-end check always comes last. Missions whose modules are
+ * switched off in all their companies are skipped.
+ */
 export function requiredMissions(role: AcademyRole, disabledEverywhere: Set<string> = new Set()): Mission[] {
-  return MISSIONS
-    .filter((m) => m.roles.includes(role))
-    .filter((m) => m.modules.length === 0 || m.modules.some((mod) => !disabledEverywhere.has(mod)))
-    .sort((a, b) => a.order - b.order);
+  const available = MISSIONS.filter((m) => m.modules.length === 0 || m.modules.some((mod) => !disabledEverywhere.has(mod)));
+  const rank = (m: Mission) => (m.id === 'first-day' ? 0 : m.id === 'month-end' ? 3 : m.roles.includes(role) ? 1 : 2);
+  return available.sort((a, b) => rank(a) - rank(b) || a.order - b.order);
 }
 
 export const LEVEL_XP = 200;

@@ -2,7 +2,7 @@ import { apiFetch } from '@/lib/api-client';
 
 export type Bilingual = { en: string; ar: string };
 
-export interface AcademyObjective { id: string; title: Bilingual; done: boolean; reported: boolean }
+export interface AcademyObjective { id: string; title: Bilingual; done: boolean; reported: boolean; visit: string | null }
 export interface AcademyMission {
   id: string;
   order: number;

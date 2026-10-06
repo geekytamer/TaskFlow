@@ -92,7 +92,7 @@ test('objectives count only what the trainee did in the practice company, after 
   const admin = ctx.newUser('Admin', 'admin2@x.example');
   await start(ctx, admin);
   const run = (await ctx.as(admin)(request(ctx.app).get('/academy/me'))).body.missions.find((m) => m.id === 'run-company');
-  assert.deepEqual(run.objectives.map((o) => o.done), [false, false, false]);
+  assert.deepEqual(run.objectives.map((o) => o.done), [false, false]);
 });
 
 test('first-day steps are reported by the browser; a mission completes once and its XP counts once', async () => {
@@ -108,7 +108,33 @@ test('first-day steps are reported by the browser; a mission completes once and 
   assert.equal(done.xp, 50);
   const again = (await report('switch-language')).body;
   assert.equal(again.xp, 50, 'once');
-  assert.deepEqual(done.missions.map((m) => m.id), ['first-day', 'get-work-done', 'win-customer'], 'an employee path');
+  // Screens that only show things are ticked when the trainee opens them.
+  const visit = await ctx.as(sara)(request(ctx.app).post('/academy/objectives/see-the-work/diagram')).send({});
+  assert.equal(visit.body.missions.find((m) => m.id === 'see-the-work').objectives.find((o) => o.id === 'diagram').done, true);
+});
+
+test('everyone takes the whole course; their role only decides the order', async () => {
+  const { MISSIONS, requiredMissions } = require('../dist/academy/missions');
+  const all = MISSIONS.map((m) => m.id).sort();
+  for (const role of ['Employee', 'Accountant', 'Manager', 'Admin']) {
+    const path = requiredMissions(role).map((m) => m.id);
+    assert.deepEqual([...path].sort(), all, `${role} does every mission`);
+    assert.equal(path[0], 'first-day');
+    assert.equal(path.at(-1), 'month-end');
+  }
+  const accountant = requiredMissions('Accountant').map((m) => m.id);
+  const employee = requiredMissions('Employee').map((m) => m.id);
+  assert.ok(accountant.indexOf('buy-restock') < accountant.indexOf('follow-through'), 'an accountant meets the books first');
+  assert.ok(employee.indexOf('follow-through') < employee.indexOf('buy-restock'), 'an employee meets their own daily work first');
+  assert.ok(!requiredMissions('Admin', new Set(['documents'])).some((m) => m.id === 'documents'), 'a module switched off everywhere is skipped');
+  // The things the course leaves out: creating users and companies, permission groups, module switches.
+  const taught = new Set(MISSIONS.flatMap((m) => m.modules));
+  for (const left of ['users', 'companies', 'permissions']) assert.ok(!taught.has(left), `${left} is not taught`);
+
+  const ctx = setup({ enforce: false });
+  const sara = ctx.newUser('Employee', 'sara@x.example');
+  const me = (await ctx.as(sara)(request(ctx.app).get('/academy/me'))).body;
+  assert.equal(me.missions.length, MISSIONS.length);
 });
 
 test('unfinished missions lock changes in their modules in real companies, not in practice; reads that other screens need stay open', async () => {
@@ -168,4 +194,26 @@ test('reset gives a fresh practice company and keeps finished missions', async (
   assert.equal(ctx.store.getCompanyById(practiceCompanyId), undefined);
   assert.equal(res.body.missions.find((m) => m.id === 'first-day').status, 'done');
   assert.equal(ctx.store.getUserById(sara.id).companyRoles.some((r) => r.companyId === practiceCompanyId), false);
+});
+
+test('the new missions check real work in the practice company', async () => {
+  const ctx = setup({ enforce: false });
+  const lina = ctx.newUser('Accountant', 'lina@x.example');
+  const { practiceCompanyId: pc } = await start(ctx, lina);
+  const done = async () => Object.fromEntries((await ctx.as(lina)(request(ctx.app).get('/academy/me'))).body.missions
+    .flatMap((m) => m.objectives.map((o) => [`${m.id}/${o.id}`, o.done])));
+
+  const before = await done();
+  for (const k of ['stock-control/warehouse', 'credit-currency/limit', 'close-quarter/vat', 'documents/template', 'documents/document', 'documents/final']) assert.equal(before[k], false, k);
+
+  ctx.store.createWarehouse({ companyId: pc, name: 'Cold store' });
+  const hotel = ctx.store.createClient({ name: 'Dubai Hotel', email: 'd@x.example', address: 'Dubai', companyId: pc });
+  ctx.store.updateClient(hotel.id, { creditLimit: 2000 });
+  ctx.store.fileVatReturn(pc, new Date(Date.now() - 90 * 86400000), new Date());
+  const template = ctx.store.createDocumentTemplate(pc, { name: 'Supply letter', type: 'letter', dataSource: 'none' });
+  ctx.store.createDocument(pc, { templateId: template.id, title: 'Ramadan supply', status: 'draft' });
+
+  const after = await done();
+  for (const k of ['stock-control/warehouse', 'credit-currency/limit', 'close-quarter/vat', 'documents/template', 'documents/document']) assert.equal(after[k], true, k);
+  assert.equal(after['documents/final'], false, 'a draft is not final');
 });

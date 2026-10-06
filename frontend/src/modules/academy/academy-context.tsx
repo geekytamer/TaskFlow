@@ -101,13 +101,13 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearInterval(timer);
   }, [inPractice, refresh]);
 
-  // First-day steps the server cannot see: report them once each.
-  const report = React.useCallback(async (objectiveId: string) => {
-    const mission = progress?.missions.find((m) => m.id === 'first-day');
+  // Steps the server cannot see (first-day actions, page visits): report them once each.
+  const report = React.useCallback(async (objectiveId: string, missionId = 'first-day') => {
+    const mission = progress?.missions.find((m) => m.id === missionId);
     const objective = mission?.objectives.find((o) => o.id === objectiveId);
-    if (!mission || mission.status === 'done' || !objective || objective.done) return;
+    if (!mission || mission.status !== 'open' || !objective || objective.done) return;
     try {
-      const next = await reportObjective('first-day', objectiveId);
+      const next = await reportObjective(missionId, objectiveId);
       const done = firstNewlyDone(previous.current, next);
       previous.current = next;
       setProgress(next);
@@ -121,6 +121,13 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
     if (pathname === '/' && lastPath.current !== null && lastPath.current !== '/') void report('open-dashboard');
     lastPath.current = pathname;
   }, [pathname, report]);
+  // "Open this screen" objectives count in the practice company, where the screen shows the trainee's own work.
+  React.useEffect(() => {
+    if (!inPractice || !pathname) return;
+    for (const m of progress?.missions ?? []) {
+      for (const o of m.objectives) if (o.visit === pathname && !o.done) void report(o.id, m.id);
+    }
+  }, [pathname, inPractice, progress, report]);
   React.useEffect(() => {
     const onOpen = () => { void report('open-notifications'); };
     window.addEventListener(NOTIFICATIONS_OPENED_EVENT, onOpen);

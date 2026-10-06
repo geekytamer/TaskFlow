@@ -83,7 +83,7 @@ export function resetPractice(store: DataStore, user: SanitizedUser): string {
   return startPractice(store, store.getUserById(user.id)!);
 }
 
-export interface ObjectiveView { id: string; title: { en: string; ar: string }; done: boolean; reported: boolean }
+export interface ObjectiveView { id: string; title: { en: string; ar: string }; done: boolean; reported: boolean; visit: string | null }
 export interface MissionView {
   id: string; order: number; xp: number; title: { en: string; ar: string }; story: { en: string; ar: string };
   modules: string[]; status: 'done' | 'open' | 'waiting'; completedAt: string | null; objectives: ObjectiveView[];
@@ -117,7 +117,7 @@ export function progressFor(store: DataStore, user: SanitizedUser) {
       objectives: m.objectives.map((o) => {
         const key = `${m.id}/${o.id}`;
         const met = Boolean(done) || (o.measure ? practice !== null && (now[key] ?? 0) > (state.baseline[key] ?? 0) : reported.has(key));
-        return { id: o.id, title: o.title, done: met, reported: !o.measure };
+        return { id: o.id, title: o.title, done: met, reported: !o.measure, visit: o.visit ?? null };
       }),
     };
   });

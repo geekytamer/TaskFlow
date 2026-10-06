@@ -164,7 +164,7 @@ function MissionCard({ mission, index, current, tr, labels }: { mission: Academy
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-semibold" dir="auto">{tr(mission.title.en, mission.title.ar)}</h3>
           <Badge variant="outline" className="tabular-nums">{mission.xp} XP</Badge>
-          {mission.status === 'waiting' && <Badge variant="secondary">{tr('After the selling and buying missions', 'بعد مهمتي البيع والشراء')}</Badge>}
+          {mission.status === 'waiting' && <Badge variant="secondary">{tr('Opens after the buying, selling and books missions', 'تُفتح بعد مهام الشراء والبيع والدفاتر')}</Badge>}
           <span className="ms-auto text-xs tabular-nums text-muted-foreground">{doneCount}/{mission.objectives.length}</span>
         </div>
         <p className="mt-1 text-sm text-muted-foreground" dir="auto">{tr(mission.story.en, mission.story.ar)}</p>
