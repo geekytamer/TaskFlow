@@ -117,6 +117,10 @@ export const updateGame = (companyId: string, id: string, input: Partial<GameInp
 export const setGameMetrics = (companyId: string, id: string, metrics: Array<{ metricKey: string; weight: number; params: Record<string, unknown> }>) =>
   send<Game>(`${base(companyId)}/${id}/metrics`, 'PUT', metrics);
 export const publishGame = (companyId: string, id: string) => send<Game>(`${base(companyId)}/${id}/publish`, 'POST');
+export interface ViewerCandidate { subjectType: 'user' | 'portal_user'; subjectId: string; name: string; detail: string }
+export const getViewerCandidates = (companyId: string, id: string) => apiFetch<{ staff: ViewerCandidate[]; portal: ViewerCandidate[] }>(`${base(companyId)}/${id}/viewer-candidates`);
+export const setGameViewers = (companyId: string, id: string, viewers: Array<{ subjectType: 'user' | 'portal_user'; subjectId: string }>) =>
+  send<Array<{ subjectType: 'user' | 'portal_user'; subjectId: string }>>(`${base(companyId)}/${id}/viewers`, 'PUT', viewers);
 export const setGameClient = (companyId: string, id: string, contactId: string | null) => send<Game>(`${base(companyId)}/${id}/client`, 'PUT', { contactId });
 export const archiveGame = (companyId: string, id: string) => send<Game>(`${base(companyId)}/${id}/archive`, 'POST');
 export const reopenGame = (companyId: string, id: string, reason: string, endsAt: string) => send<Game>(`${base(companyId)}/${id}/reopen`, 'POST', { reason, endsAt });

@@ -420,6 +420,18 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     res.json(view(store.games.setClient(game.id, contactId)!));
   }));
 
+  /** Who can be invited to a restricted game: the company's staff and its portal users. */
+  router.get(`${base}/:id/viewer-candidates`, authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    load(companyId, req.params.id);
+    res.json({
+      staff: store.listUsers().filter((u) => u.companyIds?.includes(companyId)).map((u) => ({ subjectType: 'user', subjectId: u.id, name: u.name, detail: u.email })),
+      portal: store.portal.listUsers(companyId).map((u) => ({
+        subjectType: 'portal_user', subjectId: u.id, name: u.name || u.email, detail: `${u.audience === 'client' ? 'Client' : 'Influencer'}${u.contactId ? ` · ${store.getContactById(u.contactId)?.name ?? ''}` : ''}`,
+      })),
+    });
+  }));
+
   router.put(`${base}/:id/viewers`, authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const game = load(companyId, req.params.id);

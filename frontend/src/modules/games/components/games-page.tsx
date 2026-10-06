@@ -33,6 +33,7 @@ import {
 } from '@/services/gamesService';
 import { Download, ExternalLink, Plus } from 'lucide-react';
 import { GameClientPicker } from './game-client-picker';
+import { GameViewersPicker } from './game-viewers-picker';
 import { GameLivePanel } from './game-live-panel';
 import { GameMetricsEditor } from './game-metrics-editor';
 
@@ -338,6 +339,7 @@ function GameDetail({ companyId, game, tr, language, onChange, onError }: {
       </div>
 
       <GameClientPicker companyId={companyId} game={game} tr={tr} onChange={onChange} onError={onError} />
+      {game.visibility === 'restricted' && <GameViewersPicker companyId={companyId} game={game} tr={tr} onError={onError} />}
       <GameLivePanel companyId={companyId} game={game} tr={tr} locked={locked} onChange={onChange} onError={onError} onCollected={() => void refresh()} />
       <GameMetricsEditor companyId={companyId} game={game} tr={tr} language={language} locked={locked} onChange={(g) => { onChange(g); void refresh(); }} onError={onError} />
 

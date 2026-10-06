@@ -124,6 +124,11 @@ test('a restricted game exists only for its viewers', async () => {
   assert.equal((await request(ctx.server).get('/public-api/games/staff-only')).status, 404);
   assert.deepEqual((await request(ctx.server).get('/public-api/games')).body, []);
   assert.equal((await request(ctx.server).get('/portal-api/client/games/staff-only').set(omar.headers)).status, 404);
+  // The picker offers the company's staff and portal users, nobody else.
+  const candidates = (await staff(ctx, 'get', `/${id}/viewer-candidates`)).body;
+  assert.ok(candidates.portal.some((c) => c.subjectId === lina.portalUserId && c.subjectType === 'portal_user'), JSON.stringify(candidates));
+  assert.ok(candidates.staff.length > 0 && candidates.staff.every((c) => c.subjectType === 'user'));
+  assert.ok(!JSON.stringify(candidates).includes('passwordHash'), 'names and emails only');
   assert.equal((await staff(ctx, 'put', `/${id}/viewers`, [{ subjectType: 'portal_user', subjectId: lina.portalUserId }])).status, 200);
   assert.equal((await request(ctx.server).get('/portal-api/influencer/games/staff-only').set(lina.headers)).status, 200);
   assert.deepEqual((await request(ctx.server).get('/portal-api/influencer/games').set(lina.headers)).body.map((g) => g.slug), ['staff-only']);
