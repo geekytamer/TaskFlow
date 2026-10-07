@@ -4807,6 +4807,17 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Staff reading an influencer's work outside Peak, and making one of their contacts a Peak lead: Admin and Manager groups.
+        id: '120_workspace_staff_permission',
+        run: () => {
+          const groups = this.db.prepare("SELECT id FROM permission_groups WHERE isSystem = 1 AND key IN ('admin', 'manager')").all() as Array<{ id: string }>;
+          const insert = this.db.prepare("INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, 'contacts', ?)");
+          for (const group of groups) {
+            for (const action of ['contacts.workspace.read', 'contacts.workspace.contacts.peak-contact.create']) insert.run(group.id, action);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

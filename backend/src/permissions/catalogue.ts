@@ -111,7 +111,7 @@ const GATE_MODULES: readonly PermissionModule[] = [
     key: 'contacts',
     labelKey: 'perm.module.contacts',
     group: 'crm',
-    actions: ["clients.read","contacts.activities.read","contacts.create","contacts.read","contacts.write","create","delete","read","suppliers.read","write"],
+    actions: ["clients.read","contacts.activities.read","contacts.create","contacts.read","contacts.workspace.contacts.peak-contact.create","contacts.workspace.read","contacts.write","create","delete","read","suppliers.read","write"],
   },
   {
     key: 'crm',

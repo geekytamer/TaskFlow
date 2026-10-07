@@ -124,6 +124,7 @@ import { registerQuotationRoutes } from './routes/quotations';
 import { registerDeliveryRoutes } from './routes/deliveries';
 import { registerWhatsappRoutes } from './routes/whatsapp';
 import { registerHrRoutes } from './routes/hr';
+import { registerWorkspaceRoutes } from './routes/workspace';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
@@ -7674,6 +7675,7 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   registerHrRoutes(app, routeContext);
+  registerWorkspaceRoutes(app, routeContext);
 
   // ─── Graceful record deletion ──────────────────────────────────────────────
   // Each route loads the record (404 if missing), checks the caller's role, then

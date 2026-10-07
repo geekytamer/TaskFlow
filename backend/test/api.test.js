@@ -1321,6 +1321,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '117_approval_chains',
     '118_client_reminders',
     '119_creator_workspace',
+    '120_workspace_staff_permission',
   ]);
 });
 

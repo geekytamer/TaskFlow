@@ -4,7 +4,7 @@
  *
  * Regenerate with: npm run authz:routemap
  *
- * 349 gated routes.
+ * 351 gated routes.
  */
 
 export interface RoutePermission {
@@ -119,6 +119,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /contacts/:id/activities': { module: 'contacts', action: 'contacts.activities.read' },
   'GET /companies/:companyId/clients': { module: 'contacts', action: 'clients.read' },
   'GET /companies/:companyId/suppliers': { module: 'contacts', action: 'suppliers.read' },
+  'GET /contacts/:id/workspace': { module: 'contacts', action: 'contacts.workspace.read' },
   'POST /tasks': { module: 'tasks', action: 'tasks.create' },
   'PUT /tasks/:id': { module: 'tasks', action: 'write' },
   'POST /companies/:companyId/contacts/import': { module: 'contacts', action: 'create' },
@@ -128,6 +129,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /clients': { module: 'contacts', action: 'create' },
   'POST /companies/:companyId/suppliers': { module: 'contacts', action: 'create' },
   'POST /companies/:companyId/contacts': { module: 'contacts', action: 'contacts.create' },
+  'POST /contacts/:id/workspace/contacts/:wsContactId/peak-contact': { module: 'contacts', action: 'contacts.workspace.contacts.peak-contact.create' },
   'PUT /contacts/:id': { module: 'contacts', action: 'write' },
   'PUT /clients/:id': { module: 'contacts', action: 'write' },
   'PATCH /contacts/:id': { module: 'contacts', action: 'contacts.write' },
