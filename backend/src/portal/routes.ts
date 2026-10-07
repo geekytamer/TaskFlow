@@ -9,6 +9,7 @@ import { registerClientRequestRoutes } from './client-requests-routes';
 import { registerThreadRoutes } from './thread-routes';
 import { registerReferralRoutes } from './referral-routes';
 import { registerInfluencerRoutes } from './influencer-routes';
+import { registerWorkspacePortalRoutes } from '../workspace/portal-routes';
 import { registerPortalGameRoutes } from '../games/portal-routes';
 import { registerAlertRoutes } from './alerts-routes';
 import { registerSocialPortalRoutes, type SocialOptions } from '../social/routes';
@@ -152,6 +153,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
+    registerWorkspacePortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
     registerPortalGameRoutes(router, options.requestsStore, companyId, requireSession, options.pdf);
     registerAlertRoutes(router, options.requestsStore, companyId, requireSession);
     if (options.social) registerSocialPortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'), options.social);

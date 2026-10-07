@@ -834,11 +834,12 @@ export function createServer(options: CreateServerOptions = {}) {
       : next()
   ));
   // Portal files are capped at 10 MB of real content (portal/files.ts); base64
-  // inside JSON inflates that by a third, so these two upload paths get room for it.
+  // inside JSON inflates that by a third, so these upload paths get room for it.
   const portalFileJson = express.json({ limit: '16mb' });
   app.use((req, res, next) => (
     req.method === 'POST' && (/^\/portal-api\/(?:client|influencer)\/files$/.test(req.path)
-      || /^\/companies\/[^/]+\/contacts\/[^/]+\/files$/.test(req.path))
+      || /^\/companies\/[^/]+\/contacts\/[^/]+\/files$/.test(req.path)
+      || /^\/portal-api\/influencer\/workspace\/deals\/[^/]+\/files$/.test(req.path))
       ? portalFileJson(req, res, next)
       : next()
   ));
