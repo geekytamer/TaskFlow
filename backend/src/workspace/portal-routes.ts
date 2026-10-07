@@ -6,6 +6,7 @@ import { downloadHeaders, readUpload } from '../portal/files';
 import { companyCurrency, type SessionRequest } from '../portal/common';
 import type { PortalSession } from '../portal/portal-store';
 import { calendarItems } from './calendar';
+import { applyKitChanges, kitStats, ownKit } from './media-kit';
 import { moneySummary } from './money';
 import { PEAK_PREFIX, peakDeal, peakDeals } from './peak-mirror';
 import { checkDealDates, currency, day, parseContact, parseDeal, parseDeliverable, parseExpense, parsePayment, text } from './validation';
@@ -239,6 +240,24 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
     const raw = req.query.year === undefined ? String(new Date().getUTCFullYear()) : String(req.query.year);
     if (!/^\d{4}$/.test(raw)) throw new HttpError(400, 'year must be like 2026.');
     res.json(moneySummary(store, companyId, influencer(o), Number(raw)));
+  });
+
+  // ── Media kit ──
+  const kitDto = (o: Owner) => {
+    const kit = ownKit(store, o, influencer(o));
+    return { ...kit, stats: kitStats(store, o, kit) };
+  };
+  route('get', '/media-kit', (_req, res, o) => res.json(kitDto(o)));
+
+  route('post', '/media-kit', (req, res, o) => {
+    const next = applyKitChanges(store, o, ownKit(store, o, influencer(o)), body(req));
+    try {
+      store.mediaKits.save(o, next);
+    } catch (error) {
+      if ((error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') throw new HttpError(409, 'That address is taken. Try another.');
+      throw error;
+    }
+    res.json(kitDto(o));
   });
 
   // ── Settings ──

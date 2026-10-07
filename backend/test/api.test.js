@@ -1323,6 +1323,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '119_creator_workspace',
     '120_workspace_staff_permission',
     '121_workspace_money',
+    '122_workspace_media_kit',
   ]);
 });
 

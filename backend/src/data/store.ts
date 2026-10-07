@@ -24,6 +24,7 @@ import { ApprovalStore, levelsFor, type ApprovalDocType } from '../approvals/app
 import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
 import { WorkspaceStore } from '../workspace/workspace-store';
+import { MediaKitStore } from '../workspace/media-kit';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -682,6 +683,7 @@ export class DataStore {
   readonly approvals: ApprovalStore;
   readonly clientEmail: ClientEmailStore;
   readonly workspace: WorkspaceStore;
+  readonly mediaKits: MediaKitStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -725,6 +727,7 @@ export class DataStore {
     this.approvals = new ApprovalStore(this.db);
     this.clientEmail = new ClientEmailStore(this.db);
     this.workspace = new WorkspaceStore(this.db);
+    this.mediaKits = new MediaKitStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4848,6 +4851,28 @@ export class DataStore {
               createdAt      TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ws_expenses_owner ON ws_expenses (companyId, ownerContactId, spentOn);
+          `);
+        },
+      },
+      {
+        // The influencer's public media kit (workspace/media-kit.ts).
+        id: '122_workspace_media_kit',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS ws_media_kits (
+              companyId          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId     TEXT NOT NULL,
+              slug               TEXT NOT NULL,
+              published          INTEGER NOT NULL DEFAULT 0,
+              headline           TEXT,
+              bio                TEXT,
+              contactEmail       TEXT,
+              featuredContactIds TEXT NOT NULL DEFAULT '[]',
+              manualStats        TEXT NOT NULL DEFAULT '[]',
+              updatedAt          TEXT NOT NULL,
+              PRIMARY KEY (companyId, ownerContactId),
+              UNIQUE (companyId, slug)
+            );
           `);
         },
       },

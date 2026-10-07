@@ -31,6 +31,7 @@ import { createPortalStaffRouter } from './portal/staff-routes';
 import { sweepPortalDeliverableReminders } from './portal/reminders';
 import { createGamesStaffRouter } from './games/staff-routes';
 import { createPublicGamesRouter } from './games/public-routes';
+import { createPublicKitRouter } from './workspace/public-routes';
 import { ensureFrozen } from './games/games';
 import { companyCurrency } from './portal/common';
 import type { PortalPdfRenderer } from './portal/client-billing-routes';
@@ -7915,6 +7916,7 @@ export function createServer(options: CreateServerOptions = {}) {
     if (social) app.use('/social', createSocialPublicRouter(store, { ...social, onSourcesDirty: () => void collectGamesNow() }));
     // Engagement games exist only for the portal company (see the G1 plan).
     app.use('/public-api', createPublicGamesRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
+    app.use('/public-api', createPublicKitRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
     app.use(createGamesStaffRouter({
       store,
       companyId: portalCompanyId,
