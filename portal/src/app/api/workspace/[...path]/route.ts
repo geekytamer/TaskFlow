@@ -13,7 +13,7 @@ const WRITES = [
   'contacts', `contacts/${ID}`, `contacts/${ID}/archive`, `contacts/${ID}/notes`,
   'deals', `deals/${ID}`, `deals/${ID}/delete`, `deals/${ID}/deliverables`, `deals/${ID}/files`,
   `deliverables/${ID}`, `deliverables/${ID}/delete`, `files/${ID}/delete`, 'settings',
-  `deals/${ID}/payments`, `payments/${ID}/delete`, 'expenses', `expenses/${ID}/delete`,
+  `deals/${ID}/payments`, `payments/${ID}/delete`, 'expenses', `expenses/${ID}/delete`, 'media-kit',
 ].map((p) => new RegExp(`^${p}$`));
 const DOWNLOAD = new RegExp(`^files/${ID}/content$`);
 

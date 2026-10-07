@@ -1,5 +1,5 @@
 import { portalGet, portalGetOrNull } from './client-api';
-import type { CalendarData, DealDetail, DealSummary, MoneySummary, WsContact, WsContactPage, WsExpense } from './workspace-types';
+import type { MediaKit, CalendarData, DealDetail, DealSummary, MoneySummary, WsContact, WsContactPage, WsExpense } from './workspace-types';
 
 export * from './workspace-types';
 
@@ -11,3 +11,4 @@ export const getWorkspaceSettings = () => portalGet<{ defaultCurrency: string }>
 export const getMoney = (year: number) => portalGet<MoneySummary>(`/workspace/money?year=${year}`);
 export const getExpenses = () => portalGet<WsExpense[]>('/workspace/expenses');
 export const getCalendar = (from: string, to: string) => portalGet<CalendarData>(`/workspace/calendar?from=${from}&to=${to}`);
+export const getMediaKit = () => portalGet<MediaKit>('/workspace/media-kit');

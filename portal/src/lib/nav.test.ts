@@ -17,7 +17,7 @@ test('influencer navigation', () => {
   const nav = navFor('influencer');
   assert.deepEqual(hrefs(nav.bar), ['/', '/deals', '/calendar', '/money']);
   assert.deepEqual(hrefs(nav.primary), ['/', '/deals', '/calendar', '/money', '/messages']);
-  assert.deepEqual(hrefs(nav.secondary), ['/contacts', '/analytics', '/profile', '/games', '/referrals']);
+  assert.deepEqual(hrefs(nav.secondary), ['/contacts', '/media-kit', '/analytics', '/profile', '/games', '/referrals']);
 });
 
 test('the active item: home only on exact match, others by prefix', async () => {

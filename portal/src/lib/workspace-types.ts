@@ -100,3 +100,12 @@ export interface CalendarItem {
 export interface CalendarData { from: string; to: string; items: CalendarItem[]; overdue: CalendarItem[] }
 
 export const expenseCategoryKey = (c: ExpenseCategory) => `money.cat.${c}` as Key;
+
+export const KIT_PLATFORMS = ['Instagram', 'TikTok', 'Snapchat', 'Facebook', 'YouTube', 'X', 'Other'] as const;
+export interface KitStat { platform: string; handle: string | null; followers: number | null; engagementRate: number | null; verified: boolean; asOf: string | null }
+export interface MediaKit {
+  slug: string; published: boolean; headline: string | null; bio: string | null; contactEmail: string | null;
+  featuredContactIds: string[]; manualStats: Array<{ platform: string; handle: string | null; followers: number | null; engagementRate: number | null }>;
+  updatedAt: string | null; stats: KitStat[];
+}
+export interface PublicKit { name: string; headline: string | null; bio: string | null; contactEmail: string | null; brands: string[]; stats: KitStat[] }

@@ -4,7 +4,7 @@ import type { Key } from './i18n';
 /** Browser safe: the shell's client components read this. */
 export type NavIcon =
   | 'home' | 'campaigns' | 'creators' | 'requests' | 'messages' | 'billing' | 'analytics' | 'games' | 'referrals'
-  | 'assignments' | 'payouts' | 'profile' | 'deals' | 'contacts' | 'calendar' | 'money';
+  | 'assignments' | 'payouts' | 'profile' | 'deals' | 'contacts' | 'calendar' | 'money' | 'mediaKit';
 
 export interface NavEntry { href: string; label: Key; icon: NavIcon }
 
@@ -22,6 +22,7 @@ const ITEMS: Record<string, NavEntry> = {
   contacts: { href: '/contacts', label: 'nav.contacts', icon: 'contacts' },
   calendar: { href: '/calendar', label: 'nav.calendar', icon: 'calendar' },
   money: { href: '/money', label: 'nav.money', icon: 'money' },
+  mediaKit: { href: '/media-kit', label: 'nav.mediaKit', icon: 'mediaKit' },
   payouts: { href: '/payouts', label: 'nav.payouts', icon: 'payouts' },
   profile: { href: '/profile', label: 'nav.profile', icon: 'profile' },
 };
@@ -40,7 +41,7 @@ export function navFor(audience: Audience): { primary: NavEntry[]; secondary: Na
     }
     : {
       primary: [i.home, i.deals, i.calendar, i.money, i.messages],
-      secondary: [i.contacts, i.analytics, i.profile, i.games, i.referrals],
+      secondary: [i.contacts, i.mediaKit, i.analytics, i.profile, i.games, i.referrals],
       bar: [i.home, i.deals, i.calendar, i.money],
     };
 }
