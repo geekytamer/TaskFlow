@@ -32,6 +32,15 @@ export interface WsDeliverable {
   id: string; dealId: string; title: string; platform: string | null; dueDate: string | null; status: WsDeliverableStatus;
   postUrl: string | null; createdAt: string;
 }
+export const WS_EXPENSE_CATEGORIES = ['production', 'travel', 'agency_fee', 'manager_fee', 'equipment', 'other'] as const;
+export type WsExpenseCategory = (typeof WS_EXPENSE_CATEGORIES)[number];
+export interface WsPayment { id: string; dealId: string; amount: number; currency: string; receivedOn: string; note: string | null; createdAt: string }
+export interface WsExpense {
+  id: string; dealId: string | null; category: WsExpenseCategory; amount: number; currency: string; spentOn: string; note: string | null; createdAt: string;
+}
+export type PaymentInput = Pick<WsPayment, 'amount' | 'currency' | 'receivedOn'> & { note?: string | null };
+export type ExpenseInput = Pick<WsExpense, 'category' | 'amount' | 'currency' | 'spentOn'> & { dealId?: string | null; note?: string | null };
+
 export interface WsFileMeta { id: string; dealId: string; fileName: string; mimeType: string; sizeBytes: number; createdAt: string }
 
 export type ContactInput = Partial<Pick<WsContact, 'company' | 'email' | 'phone' | 'notes'>> & Pick<WsContact, 'name' | 'kind'>;
@@ -139,6 +148,8 @@ export class WorkspaceStore {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM ws_deliverables WHERE dealId = ?').run(id);
       this.db.prepare('DELETE FROM ws_files WHERE dealId = ?').run(id);
+      this.db.prepare('DELETE FROM ws_payments WHERE dealId = ?').run(id);
+      this.db.prepare('UPDATE ws_expenses SET dealId = NULL WHERE dealId = ?').run(id);
       this.db.prepare('DELETE FROM ws_deals WHERE id = ?').run(id);
     })();
     return true;
@@ -216,6 +227,54 @@ export class WorkspaceStore {
 
   deleteFile(o: Owner, id: string): boolean {
     return this.db.prepare('DELETE FROM ws_files WHERE id = ? AND companyId = ? AND ownerContactId = ?').run(id, o.companyId, o.ownerContactId).changes > 0;
+  }
+
+  // ── Payments ──
+  payments(o: Owner, dealId: string): WsPayment[] {
+    if (!this.deal(o, dealId)) return [];
+    return this.db.prepare('SELECT id, dealId, amount, currency, receivedOn, note, createdAt FROM ws_payments WHERE dealId = ? ORDER BY receivedOn, createdAt').all(dealId) as WsPayment[];
+  }
+
+  allPayments(o: Owner): WsPayment[] {
+    return this.db.prepare('SELECT id, dealId, amount, currency, receivedOn, note, createdAt FROM ws_payments WHERE companyId = ? AND ownerContactId = ? ORDER BY receivedOn, createdAt')
+      .all(o.companyId, o.ownerContactId) as WsPayment[];
+  }
+
+  addPayment(o: Owner, dealId: string, input: PaymentInput): WsPayment | undefined {
+    if (!this.deal(o, dealId)) return undefined;
+    const row: WsPayment = { id: uuid(), dealId, amount: input.amount, currency: input.currency, receivedOn: input.receivedOn, note: input.note ?? null, createdAt: now() };
+    this.db.prepare(
+      `INSERT INTO ws_payments (id, companyId, ownerContactId, dealId, amount, currency, receivedOn, note, createdAt)
+       VALUES (@id, @companyId, @ownerContactId, @dealId, @amount, @currency, @receivedOn, @note, @createdAt)`,
+    ).run({ ...row, ...o });
+    return row;
+  }
+
+  deletePayment(o: Owner, id: string): boolean {
+    return this.db.prepare('DELETE FROM ws_payments WHERE id = ? AND companyId = ? AND ownerContactId = ?').run(id, o.companyId, o.ownerContactId).changes > 0;
+  }
+
+  // ── Expenses ──
+  expenses(o: Owner): WsExpense[] {
+    return this.db.prepare('SELECT id, dealId, category, amount, currency, spentOn, note, createdAt FROM ws_expenses WHERE companyId = ? AND ownerContactId = ? ORDER BY spentOn DESC, createdAt DESC')
+      .all(o.companyId, o.ownerContactId) as WsExpense[];
+  }
+
+  addExpense(o: Owner, input: ExpenseInput): WsExpense | undefined {
+    if (input.dealId && !this.deal(o, input.dealId)) return undefined;
+    const row: WsExpense = {
+      id: uuid(), dealId: input.dealId ?? null, category: input.category, amount: input.amount, currency: input.currency, spentOn: input.spentOn,
+      note: input.note ?? null, createdAt: now(),
+    };
+    this.db.prepare(
+      `INSERT INTO ws_expenses (id, companyId, ownerContactId, dealId, category, amount, currency, spentOn, note, createdAt)
+       VALUES (@id, @companyId, @ownerContactId, @dealId, @category, @amount, @currency, @spentOn, @note, @createdAt)`,
+    ).run({ ...row, ...o });
+    return row;
+  }
+
+  deleteExpense(o: Owner, id: string): boolean {
+    return this.db.prepare('DELETE FROM ws_expenses WHERE id = ? AND companyId = ? AND ownerContactId = ?').run(id, o.companyId, o.ownerContactId).changes > 0;
   }
 
   // ── Settings ──

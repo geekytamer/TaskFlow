@@ -1,7 +1,7 @@
 import { HttpError } from '../http';
 import {
-  WS_CONTACT_KINDS, WS_DEAL_STATUSES, WS_DELIVERABLE_STATUSES,
-  type ContactInput, type DealInput, type DeliverableInput,
+  WS_CONTACT_KINDS, WS_DEAL_STATUSES, WS_DELIVERABLE_STATUSES, WS_EXPENSE_CATEGORIES,
+  type ContactInput, type DealInput, type DeliverableInput, type ExpenseInput, type PaymentInput,
 } from './workspace-store';
 
 /** Parses workspace request bodies. `partial` accepts any subset of fields (updates); otherwise required fields must be present. */
@@ -92,4 +92,36 @@ export function parseDeliverable(body: Body, partial = false): Partial<Deliverab
     if (out.postUrl && !/^https?:\/\//i.test(out.postUrl)) throw new HttpError(400, 'postUrl must be an http or https link.');
   }
   return out;
+}
+
+function requiredMoney(value: unknown, field: string): number {
+  const n = money(value, field);
+  if (n === null) throw new HttpError(400, `${field} is required.`);
+  return n;
+}
+
+function requiredDay(value: unknown, field: string): string {
+  const d = day(value, field);
+  if (!d) throw new HttpError(400, `${field} is required.`);
+  return d;
+}
+
+export function parsePayment(body: Body): PaymentInput {
+  return {
+    amount: requiredMoney(body.amount, 'amount'),
+    currency: currency(body.currency),
+    receivedOn: requiredDay(body.receivedOn, 'receivedOn'),
+    note: optionalText(body.note, 'note', 500),
+  };
+}
+
+export function parseExpense(body: Body): ExpenseInput {
+  return {
+    dealId: typeof body.dealId === 'string' && body.dealId ? body.dealId : null,
+    category: oneOf(body.category, 'category', WS_EXPENSE_CATEGORIES),
+    amount: requiredMoney(body.amount, 'amount'),
+    currency: currency(body.currency),
+    spentOn: requiredDay(body.spentOn, 'spentOn'),
+    note: optionalText(body.note, 'note', 500),
+  };
 }

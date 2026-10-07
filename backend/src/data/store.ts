@@ -4818,6 +4818,39 @@ export class DataStore {
           }
         },
       },
+      {
+        // Money in the creator workspace: payments received on a deal, and expenses.
+        id: '121_workspace_money',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS ws_payments (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              dealId         TEXT NOT NULL REFERENCES ws_deals(id) ON DELETE CASCADE,
+              amount         REAL NOT NULL,
+              currency       TEXT NOT NULL,
+              receivedOn     TEXT NOT NULL,
+              note           TEXT,
+              createdAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_payments_owner ON ws_payments (companyId, ownerContactId, receivedOn);
+            CREATE TABLE IF NOT EXISTS ws_expenses (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              dealId         TEXT REFERENCES ws_deals(id) ON DELETE SET NULL,
+              category       TEXT NOT NULL CHECK (category IN ('production', 'travel', 'agency_fee', 'manager_fee', 'equipment', 'other')),
+              amount         REAL NOT NULL,
+              currency       TEXT NOT NULL,
+              spentOn        TEXT NOT NULL,
+              note           TEXT,
+              createdAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_expenses_owner ON ws_expenses (companyId, ownerContactId, spentOn);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

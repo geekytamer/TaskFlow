@@ -6,8 +6,8 @@ import { downloadHeaders, readUpload } from '../portal/files';
 import { companyCurrency, type SessionRequest } from '../portal/common';
 import type { PortalSession } from '../portal/portal-store';
 import { PEAK_PREFIX, peakDeal, peakDeals } from './peak-mirror';
-import { checkDealDates, currency, parseContact, parseDeal, parseDeliverable, text } from './validation';
-import type { Owner, WsContact, WsDeal, WsDeliverable, WsFileMeta } from './workspace-store';
+import { checkDealDates, currency, parseContact, parseDeal, parseDeliverable, parseExpense, parsePayment, text } from './validation';
+import type { Owner, WsContact, WsDeal, WsDeliverable, WsExpense, WsFileMeta, WsPayment } from './workspace-store';
 
 /**
  * The influencer's own workspace through the portal. Every id is looked up
@@ -21,6 +21,9 @@ export const contactDto = (c: WsContact) => ({
 export const deliverableDto = (d: WsDeliverable) => ({
   id: d.id, title: d.title, platform: d.platform, dueDate: d.dueDate, status: d.status, postUrl: d.postUrl,
 });
+
+export const paymentDto = (p: WsPayment) => ({ id: p.id, dealId: p.dealId, amount: p.amount, currency: p.currency, receivedOn: p.receivedOn, note: p.note });
+export const expenseDto = (e: WsExpense) => ({ id: e.id, dealId: e.dealId, category: e.category, amount: e.amount, currency: e.currency, spentOn: e.spentOn, note: e.note });
 
 const fileDto = (f: WsFileMeta) => ({ id: f.id, fileName: f.fileName, mimeType: f.mimeType, sizeBytes: f.sizeBytes, createdAt: f.createdAt });
 
@@ -128,7 +131,15 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
     }
     const deal = ws.deal(o, req.params.id);
     if (!deal) throw notFound();
-    res.json({ ...dealDto(store, o, deal), deliverables: ws.deliverables(o, deal.id).map(deliverableDto), files: ws.files(o, deal.id).map(fileDto) });
+    const payments = ws.payments(o, deal.id);
+    res.json({
+      ...dealDto(store, o, deal),
+      deliverables: ws.deliverables(o, deal.id).map(deliverableDto),
+      files: ws.files(o, deal.id).map(fileDto),
+      payments: payments.map(paymentDto),
+      expenses: ws.expenses(o).filter((e) => e.dealId === deal.id).map(expenseDto),
+      received: Math.round(payments.reduce((sum, p) => sum + p.amount, 0) * 1000) / 1000,
+    });
   });
 
   route('post', '/deals/:id', (req, res, o) => {
@@ -180,6 +191,33 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
 
   route('post', '/files/:id/delete', (req, res, o) => {
     if (!ws.deleteFile(o, req.params.id)) throw notFound();
+    res.status(204).end();
+  });
+
+  // ── Payments and expenses ──
+  route('post', '/deals/:id/payments', (req, res, o) => {
+    const deal = ws.deal(o, req.params.id);
+    if (!deal) throw notFound();
+    const input = parsePayment(body(req));
+    if (input.currency !== deal.currency) throw new HttpError(400, `This deal is in ${deal.currency}; record the payment in ${deal.currency}.`);
+    res.status(201).json(paymentDto(ws.addPayment(o, deal.id, input)!));
+  });
+
+  route('post', '/payments/:id/delete', (req, res, o) => {
+    if (!ws.deletePayment(o, req.params.id)) throw notFound();
+    res.status(204).end();
+  });
+
+  route('get', '/expenses', (_req, res, o) => res.json(ws.expenses(o).map(expenseDto)));
+
+  route('post', '/expenses', (req, res, o) => {
+    const created = ws.addExpense(o, parseExpense(body(req)));
+    if (!created) throw notFound();
+    res.status(201).json(expenseDto(created));
+  });
+
+  route('post', '/expenses/:id/delete', (req, res, o) => {
+    if (!ws.deleteExpense(o, req.params.id)) throw notFound();
     res.status(204).end();
   });
 
