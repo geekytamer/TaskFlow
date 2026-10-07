@@ -23,6 +23,7 @@ import { ShipmentStore } from '../logistics/shipments';
 import { ApprovalStore, levelsFor, type ApprovalDocType } from '../approvals/approvals';
 import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
+import { WorkspaceStore } from '../workspace/workspace-store';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -680,6 +681,7 @@ export class DataStore {
   readonly shipments: ShipmentStore;
   readonly approvals: ApprovalStore;
   readonly clientEmail: ClientEmailStore;
+  readonly workspace: WorkspaceStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -722,6 +724,7 @@ export class DataStore {
     this.shipments = new ShipmentStore(this.db);
     this.approvals = new ApprovalStore(this.db);
     this.clientEmail = new ClientEmailStore(this.db);
+    this.workspace = new WorkspaceStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4720,6 +4723,86 @@ export class DataStore {
               stage     INTEGER NOT NULL,
               sentAt    TEXT NOT NULL,
               PRIMARY KEY (invoiceId, stage)
+            );
+          `);
+        },
+      },
+      {
+        // The creator workspace: an influencer's own contacts, deals, deliverables and files (workspace/workspace-store.ts).
+        id: '119_creator_workspace',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS ws_contacts (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              name           TEXT NOT NULL,
+              kind           TEXT NOT NULL CHECK (kind IN ('brand', 'agency', 'manager', 'other')),
+              company        TEXT,
+              email          TEXT,
+              phone          TEXT,
+              notes          TEXT,
+              peakContactId  TEXT,
+              archivedAt     TEXT,
+              createdAt      TEXT NOT NULL,
+              updatedAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_contacts_owner ON ws_contacts (companyId, ownerContactId);
+            CREATE TABLE IF NOT EXISTS ws_contact_notes (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              wsContactId    TEXT NOT NULL REFERENCES ws_contacts(id) ON DELETE CASCADE,
+              body           TEXT NOT NULL,
+              createdAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_contact_notes_contact ON ws_contact_notes (wsContactId);
+            CREATE TABLE IF NOT EXISTS ws_deals (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              wsContactId    TEXT REFERENCES ws_contacts(id) ON DELETE SET NULL,
+              title          TEXT NOT NULL,
+              amount         REAL,
+              currency       TEXT NOT NULL,
+              status         TEXT NOT NULL CHECK (status IN ('lead', 'confirmed', 'delivered', 'paid', 'cancelled')),
+              startDate      TEXT,
+              endDate        TEXT,
+              notes          TEXT,
+              createdAt      TEXT NOT NULL,
+              updatedAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_deals_owner ON ws_deals (companyId, ownerContactId);
+            CREATE TABLE IF NOT EXISTS ws_deliverables (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              dealId         TEXT NOT NULL REFERENCES ws_deals(id) ON DELETE CASCADE,
+              title          TEXT NOT NULL,
+              platform       TEXT,
+              dueDate        TEXT,
+              status         TEXT NOT NULL CHECK (status IN ('todo', 'done')),
+              postUrl        TEXT,
+              createdAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_deliverables_owner ON ws_deliverables (companyId, ownerContactId, dueDate);
+            CREATE TABLE IF NOT EXISTS ws_files (
+              id             TEXT PRIMARY KEY,
+              companyId      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId TEXT NOT NULL,
+              dealId         TEXT NOT NULL REFERENCES ws_deals(id) ON DELETE CASCADE,
+              fileName       TEXT NOT NULL,
+              mimeType       TEXT NOT NULL,
+              sizeBytes      INTEGER NOT NULL,
+              content        BLOB NOT NULL,
+              createdAt      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ws_files_deal ON ws_files (dealId);
+            CREATE TABLE IF NOT EXISTS ws_settings (
+              companyId       TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+              ownerContactId  TEXT NOT NULL,
+              defaultCurrency TEXT,
+              PRIMARY KEY (companyId, ownerContactId)
             );
           `);
         },
