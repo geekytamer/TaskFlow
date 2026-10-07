@@ -20,6 +20,7 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
+import { WorkspaceSection } from './workspace-section';
 import {
   ArrowLeft,
   BadgeCheck,
@@ -73,6 +74,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
     'pricing.read',
     currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
   );
+  const canSeeWorkspace = usePermissionOr('contacts', 'contacts.workspace.read', currentRole === 'Admin' || currentRole === 'Manager');
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -278,6 +280,11 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Their own business, from the creator workspace: Admin and Manager only (the API enforces it too). */}
+      {(c.roles || []).includes('Influencer') && canSeeWorkspace && (
+        <WorkspaceSection contactId={c.id} />
       )}
 
       {/* Detailed sections */}
