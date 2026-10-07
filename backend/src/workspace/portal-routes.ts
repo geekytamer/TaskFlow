@@ -5,6 +5,7 @@ import { asRecord } from '../validation';
 import { downloadHeaders, readUpload } from '../portal/files';
 import { companyCurrency, type SessionRequest } from '../portal/common';
 import type { PortalSession } from '../portal/portal-store';
+import { moneySummary } from './money';
 import { PEAK_PREFIX, peakDeal, peakDeals } from './peak-mirror';
 import { checkDealDates, currency, parseContact, parseDeal, parseDeliverable, parseExpense, parsePayment, text } from './validation';
 import type { Owner, WsContact, WsDeal, WsDeliverable, WsExpense, WsFileMeta, WsPayment } from './workspace-store';
@@ -219,6 +220,12 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
   route('post', '/expenses/:id/delete', (req, res, o) => {
     if (!ws.deleteExpense(o, req.params.id)) throw notFound();
     res.status(204).end();
+  });
+
+  route('get', '/money', (req, res, o) => {
+    const raw = req.query.year === undefined ? String(new Date().getUTCFullYear()) : String(req.query.year);
+    if (!/^\d{4}$/.test(raw)) throw new HttpError(400, 'year must be like 2026.');
+    res.json(moneySummary(store, companyId, influencer(o), Number(raw)));
   });
 
   // ── Settings ──
