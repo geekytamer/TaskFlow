@@ -42,22 +42,26 @@ export function MessageComposer({ lang }: { lang: Lang }) {
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-3 rounded-panel border border-line bg-surface p-4">
+    <form onSubmit={onSubmit} noValidate className="space-y-2 rounded-panel border border-line bg-surface p-3 shadow-float lg:shadow-none">
       <label htmlFor="message" className="sr-only">{t(lang, 'msg.placeholder')}</label>
       <textarea
         id="message"
         dir="auto"
-        rows={4}
+        rows={2}
         maxLength={4000}
         value={body}
         onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(e) => {
+          // Ctrl or Cmd + Enter sends; plain Enter is a new line, as people write longer notes here.
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); }
+        }}
         placeholder={t(lang, 'msg.placeholder')}
-        className="w-full resize-y rounded-control border border-field bg-surface px-3.5 py-2.5 text-[15px] leading-relaxed text-ink hover:border-ink/60 focus-visible:border-ink"
+        className="max-h-48 min-h-11 w-full resize-none rounded-control border border-field bg-surface px-3.5 py-2.5 text-[15px] leading-relaxed text-ink [field-sizing:content] hover:border-ink/60 focus-visible:border-ink"
       />
-      <FilePicker key={round} lang={lang} files={files} onChange={setFiles} disabled={busy} />
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-      <div className="flex justify-end">
-        <button type="submit" disabled={busy} className={`${button.primary} w-full md:w-auto md:px-8`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1"><FilePicker key={round} lang={lang} files={files} onChange={setFiles} disabled={busy} /></div>
+        <button type="submit" disabled={busy} className={`${button.primary} px-6`}>
           {busy ? t(lang, 'msg.sending') : t(lang, 'msg.send')}
         </button>
       </div>

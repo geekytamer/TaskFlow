@@ -7,11 +7,13 @@ import { requireAudience } from '@/lib/guard';
 import { t, type Key } from '@/lib/i18n';
 import { getProfile } from '@/lib/influencer';
 import { currentLang } from '@/lib/session';
+import { getAlertSettings } from '@/lib/alerts';
+import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireAudience('influencer');
   const lang = await currentLang();
-  const [profile, accounts, params] = await Promise.all([getProfile(), getSocialAccounts().catch(() => null), searchParams]);
+  const [profile, accounts, params, alerts] = await Promise.all([getProfile(), getSocialAccounts().catch(() => null), searchParams, getAlertSettings().catch(() => null)]);
   // Back from Instagram: ?connected=instagram, with &error=... when it did not work.
   const notice: Key | null = params.connected !== 'instagram' ? null
     : params.error === 'personal_account' ? 'social.errPersonal'
@@ -79,6 +81,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <ProfileChangeForm lang={lang} profile={profile} />
         </>
       )}
+
+      {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );
 }

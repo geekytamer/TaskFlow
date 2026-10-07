@@ -781,6 +781,9 @@ const en = {
   'cal.empty': "Nothing due this month.",
   'cal.more': "+{n} more",
   'cal.done': "Done",
+  'msg.today': "Today",
+  'msg.yesterday': "Yesterday",
+  'msg.jumpLatest': "Latest message",
 } as const;
 
 export type Key = keyof typeof en;
@@ -1563,6 +1566,9 @@ const ar: Record<Key, string> = {
   'cal.empty': "لا شيء مستحق هذا الشهر.",
   'cal.more': "+{n} أخرى",
   'cal.done': "مُنجز",
+  'msg.today': "اليوم",
+  'msg.yesterday': "أمس",
+  'msg.jumpLatest': "آخر رسالة",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };
