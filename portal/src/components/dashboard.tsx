@@ -102,7 +102,7 @@ export function Dashboard({
         <section aria-labelledby="payouts-title">
           <div className="mb-3 flex items-baseline justify-between gap-4">
             <h2 id="payouts-title" className="text-base font-semibold">{t(lang, 'dash.recentPayouts')}</h2>
-            <Link href="/payouts" className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{t(lang, 'dash.allPayouts')}</Link>
+            <Link href="/money" className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{t(lang, 'dash.allPayouts')}</Link>
           </div>
           <PayoutList payouts={payouts} lang={lang} />
         </section>

@@ -83,7 +83,8 @@ export function moneySummary(store: DataStore, companyId: string, contact: Conta
 
   // Peak payouts: paid ones in the year are received; the rest are owed.
   for (const p of peak) {
-    const label = p.kind === 'referral' ? `Referral: ${p.label}` : p.label;
+    // A campaign can be paid by several bills; what each covers tells them apart.
+    const label = p.kind === 'referral' ? `Referral: ${p.label}` : p.items.length ? `${p.label}: ${p.items.join(', ')}` : p.label;
     if (p.status === 'paid') {
       if (!inYear(p.paidAt)) continue;
       bucket(p.currency).received += p.amount;

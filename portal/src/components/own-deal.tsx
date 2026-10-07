@@ -9,6 +9,7 @@ import { PLATFORMS } from '@/lib/influencer-types';
 import { wsWrite } from '@/lib/workspace-client';
 import type { OwnDeal, WsContact, WsDeliverable } from '@/lib/workspace-types';
 import { DealForm } from './deal-form';
+import { DealMoney } from './deal-money';
 import { control } from './field';
 import { FileIcon } from './file-list';
 import { StatusBadge } from './status-badge';
@@ -59,6 +60,7 @@ export function OwnDealView({ lang, deal, contacts, defaultCurrency }: { lang: L
       </section>
 
       <Deliverables lang={lang} dealId={deal.id} items={deal.deliverables} />
+      <DealMoney lang={lang} deal={deal} />
       <Files lang={lang} dealId={deal.id} files={deal.files} />
 
       <div className="border-t border-line pt-6">

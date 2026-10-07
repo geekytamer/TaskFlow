@@ -7,6 +7,7 @@ import { getCampaigns } from '@/lib/campaigns';
 import { getAssignments, getPayouts } from '@/lib/influencer';
 import { getInvoices } from '@/lib/billing';
 import { getMessages } from '@/lib/messages';
+import { getCalendar } from '@/lib/workspace';
 import { requireMe } from '@/lib/portal';
 import { getProposals } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
@@ -16,7 +17,11 @@ export default async function Home() {
   const me = await requireMe(audience);
   const lang = await currentLang();
   if (audience !== 'client') {
-    const [assignments, payouts, messages] = await Promise.all([getAssignments(), getPayouts(), getMessages()]);
+    const today = new Date().toISOString().slice(0, 10);
+    const weekAhead = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [assignments, payouts, messages, calendar] = await Promise.all([
+      getAssignments(), getPayouts(), getMessages(), getCalendar(today, weekAhead).catch(() => null),
+    ]);
     const soon = Date.now() + 7 * 24 * 60 * 60 * 1000;
     const work = assignments.filter((a) => a.status === 'confirmed').flatMap((a) => a.deliverables.map((d) => ({ ...d, campaign: a.campaign.name, assignmentId: a.id })));
     const attention = [
@@ -26,6 +31,10 @@ export default async function Home() {
       ...work
         .filter((d) => (d.status === 'planned' || (d.status === 'in_progress' && !d.latestSubmission)) && d.dueDate && new Date(d.dueDate).getTime() <= soon)
         .map((d) => ({ key: `due-${d.id}`, kind: 'due' as const, title: d.title, detail: d.campaign, dueDate: d.dueDate, href: `/deals/peak-${d.assignmentId}#work-${d.id}` })),
+      // Their own deliverables, overdue or due this week (Peak's are above).
+      ...(calendar ? [...calendar.overdue, ...calendar.items] : [])
+        .filter((i) => i.source === 'own' && !i.done)
+        .map((i) => ({ key: `own-${i.id}`, kind: 'due' as const, title: i.title, detail: i.dealTitle, dueDate: i.dueDate, href: `/deals/${i.dealId}` })),
       // Derived, not tracked: the team wrote last, so there is something to read.
       ...(messages.length > 0 && messages[messages.length - 1].author.kind === 'team'
         ? [{ key: 'replied', kind: 'replied' as const, title: '', detail: messages[messages.length - 1].body.slice(0, 120), href: '/messages' }]

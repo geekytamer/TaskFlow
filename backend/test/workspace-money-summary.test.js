@@ -65,6 +65,7 @@ test('Peak paid payouts count as received once; pending and approved ones as owe
   const peakRows = body.ledger.filter((l) => l.kind === 'peak_payout');
   assert.deepEqual(peakRows.map((l) => [l.amount, l.status, l.deletable]).sort(), [[1500, 'paid', false], [400, 'approved', false]]);
   assert.ok(body.byBrand.some((b) => b.source === 'peak' && b.currency === 'USD' && b.received === 1500));
+  assert.deepEqual(body.owedItems.filter((o) => o.source === 'peak').map((o) => o.title), ['Ramadan launch: Story'], 'each Peak bill says what it covers');
 });
 
 test('only the asked year counts', async () => {
