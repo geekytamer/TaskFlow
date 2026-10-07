@@ -5,9 +5,10 @@ import { asRecord } from '../validation';
 import { downloadHeaders, readUpload } from '../portal/files';
 import { companyCurrency, type SessionRequest } from '../portal/common';
 import type { PortalSession } from '../portal/portal-store';
+import { calendarItems } from './calendar';
 import { moneySummary } from './money';
 import { PEAK_PREFIX, peakDeal, peakDeals } from './peak-mirror';
-import { checkDealDates, currency, parseContact, parseDeal, parseDeliverable, parseExpense, parsePayment, text } from './validation';
+import { checkDealDates, currency, day, parseContact, parseDeal, parseDeliverable, parseExpense, parsePayment, text } from './validation';
 import type { Owner, WsContact, WsDeal, WsDeliverable, WsExpense, WsFileMeta, WsPayment } from './workspace-store';
 
 /**
@@ -220,6 +221,18 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
   route('post', '/expenses/:id/delete', (req, res, o) => {
     if (!ws.deleteExpense(o, req.params.id)) throw notFound();
     res.status(204).end();
+  });
+
+  /** `from` and `to` (YYYY-MM-DD), at most 93 days apart; this month when not given. */
+  route('get', '/calendar', (req, res, o) => {
+    const now = new Date();
+    const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+    const from = req.query.from === undefined ? first.toISOString().slice(0, 10) : day(req.query.from, 'from');
+    const to = req.query.to === undefined ? last.toISOString().slice(0, 10) : day(req.query.to, 'to');
+    if (!from || !to || to < from) throw new HttpError(400, 'Give from and to as dates, from first.');
+    if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 93) throw new HttpError(400, 'Ask for at most 93 days at a time.');
+    res.json(calendarItems(store, companyId, influencer(o), from, to));
   });
 
   route('get', '/money', (req, res, o) => {
