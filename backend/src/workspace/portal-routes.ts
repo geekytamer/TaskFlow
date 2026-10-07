@@ -5,6 +5,7 @@ import { asRecord } from '../validation';
 import { downloadHeaders, readUpload } from '../portal/files';
 import { companyCurrency, type SessionRequest } from '../portal/common';
 import type { PortalSession } from '../portal/portal-store';
+import { PEAK_PREFIX, peakDeal, peakDeals } from './peak-mirror';
 import { checkDealDates, currency, parseContact, parseDeal, parseDeliverable, text } from './validation';
 import type { Owner, WsContact, WsDeal, WsDeliverable, WsFileMeta } from './workspace-store';
 
@@ -93,7 +94,20 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
   });
 
   // ── Deals ──
-  route('get', '/deals', (_req, res, o) => res.json(ws.deals(o).map((d) => dealDto(store, o, d))));
+  const influencer = (o: Owner) => {
+    const contact = store.getContactById(o.ownerContactId);
+    if (!contact || contact.companyId !== companyId) throw notFound();
+    return contact;
+  };
+  const sortKey = (d: { startDate: string | null; updatedAt: string }) => d.startDate ?? d.updatedAt.slice(0, 10);
+
+  /** Own deals and Peak deals in one list, newest first; `?source=own|peak` narrows it. */
+  route('get', '/deals', (req, res, o) => {
+    const source = req.query.source;
+    const own = source === 'peak' ? [] : ws.deals(o).map((d) => dealDto(store, o, d));
+    const peak = source === 'own' ? [] : peakDeals(store, companyId, influencer(o), companyCurrency(store, companyId)).map(({ assignment: _a, ...d }) => d);
+    res.json([...own, ...peak].sort((a, b) => sortKey(b).localeCompare(sortKey(a))));
+  });
 
   route('post', '/deals', (req, res, o) => {
     const input = parseDeal(body(req));
@@ -104,6 +118,14 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
   });
 
   route('get', '/deals/:id', (req, res, o) => {
+    if (req.params.id.startsWith(PEAK_PREFIX)) {
+      const assignment = store.getCampaignAssignmentById(req.params.id.slice(PEAK_PREFIX.length));
+      const deal = assignment && assignment.companyId === companyId && assignment.contactId === o.ownerContactId
+        ? peakDeal(store, assignment, influencer(o), companyCurrency(store, companyId)) : undefined;
+      if (!deal) throw notFound();
+      res.json(deal);
+      return;
+    }
     const deal = ws.deal(o, req.params.id);
     if (!deal) throw notFound();
     res.json({ ...dealDto(store, o, deal), deliverables: ws.deliverables(o, deal.id).map(deliverableDto), files: ws.files(o, deal.id).map(fileDto) });
