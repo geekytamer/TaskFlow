@@ -53,7 +53,7 @@ export function Dashboard({
             <h2 id="answer-title" className="font-semibold text-accent">{t(lang, 'dash.answer')}</h2>
             <p dir="auto" className="mt-0.5 truncate text-sm">{toAnswer.campaign.name}{toAnswer.campaign.brand ? ` · ${toAnswer.campaign.brand}` : ''}</p>
           </div>
-          <Link href={`/assignments#${toAnswer.id}`} className={button.primary}>
+          <Link href={`/deals/peak-${toAnswer.id}`} className={button.primary}>
             {t(lang, 'dash.openAssignment')}
           </Link>
         </section>
@@ -88,7 +88,7 @@ export function Dashboard({
           <ul className={list}>
             {active.slice(0, 5).map((a) => (
               <li key={a.id}>
-                <Link href={`/assignments#${a.id}`} className="flex items-center justify-between gap-4 px-4 py-4 hover:bg-surface-2 sm:px-5">
+                <Link href={`/deals/peak-${a.id}`} className="flex items-center justify-between gap-4 px-4 py-4 hover:bg-surface-2 sm:px-5">
                   <span className="min-w-0 truncate font-medium"><bdi>{a.campaign.name}</bdi></span>
                   <StatusBadge lang={lang} assignment={a.status} />
                 </Link>

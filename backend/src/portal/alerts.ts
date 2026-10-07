@@ -72,11 +72,11 @@ export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[
   }
   for (const id of store.influencer.assignmentIdsOf(user.companyId, user.contactId)) {
     const a = store.getCampaignAssignmentById(id);
-    if (a?.status === 'Contacted') out.push({ event: 'invitation', refId: a.id, path: '/assignments' });
+    if (a?.status === 'Contacted') out.push({ event: 'invitation', refId: a.id, path: `/deals/peak-${a.id}` });
     if (!a) continue;
     for (const d of store.listCampaignDeliverables(a.campaignId).filter((x) => paidContactOf(x) === user.contactId)) {
       const latest = store.influencer.latestSubmission(d.id);
-      if (latest?.staffDecision === 'changes_requested') out.push({ event: 'changes', refId: latest.id, path: '/assignments' });
+      if (latest?.staffDecision === 'changes_requested') out.push({ event: 'changes', refId: latest.id, path: `/deals/peak-${a.id}#work-${d.id}` });
     }
   }
   for (const id of store.influencer.paidDeliverableIdsOf(user.companyId, user.contactId)) {

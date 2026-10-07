@@ -20,3 +20,7 @@ export const backLink =
 
 export const primaryButton =
   'inline-flex h-11 w-full items-center justify-center rounded-control bg-accent px-5 text-[15px] font-semibold text-accent-ink transition-[background-color,transform] hover:bg-accent/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
+
+/** The text input, select and textarea look, shared by every form. */
+export const control =
+  'w-full rounded-control border border-field bg-surface px-3.5 text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink disabled:opacity-60';

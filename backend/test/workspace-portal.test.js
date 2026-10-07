@@ -30,8 +30,11 @@ test('an influencer records a brand, a deal and a deliverable', async () => {
   assert.equal(done.body.status, 'done');
   const contact = await lina.get(`/contacts/${brand.body.id}`);
   assert.deepEqual(contact.body.deals.map((d) => d.id), [deal.body.id]);
+  await lina.post(`/contacts/${brand.body.id}`, { notes: 'Coffee chain, 12 branches.' });
   await lina.post(`/contacts/${brand.body.id}/notes`, { body: 'Prefers WhatsApp.' });
-  assert.deepEqual((await lina.get(`/contacts/${brand.body.id}`)).body.notes.map((n) => n.body), ['Prefers WhatsApp.']);
+  const withNotes = (await lina.get(`/contacts/${brand.body.id}`)).body;
+  assert.deepEqual(withNotes.log.map((n) => n.body), ['Prefers WhatsApp.']);
+  assert.equal(withNotes.notes, 'Coffee chain, 12 branches.', 'the about text survives beside the notes log');
 });
 
 test('another influencer gets 404 for every workspace id', async () => {

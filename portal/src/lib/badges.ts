@@ -18,7 +18,7 @@ export async function navBadges(audience: Audience): Promise<Partial<Record<stri
       };
     }
     const assignments = await getAssignments();
-    return { '/assignments': assignments.filter((a) => a.status === 'awaiting_reply').length };
+    return { '/deals': assignments.filter((a) => a.status === 'awaiting_reply').length };
   } catch {
     return {};
   }

@@ -70,7 +70,7 @@ export function registerWorkspacePortalRoutes(router: Router, store: DataStore, 
     if (!contact) throw notFound();
     res.json({
       ...contactDto(contact),
-      notes: ws.notes(o, contact.id).map((n) => ({ id: n.id, body: n.body, createdAt: n.createdAt })),
+      log: ws.notes(o, contact.id).map((n) => ({ id: n.id, body: n.body, createdAt: n.createdAt })),
       deals: ws.deals(o).filter((d) => d.wsContactId === contact.id).map((d) => dealDto(store, o, d)),
     });
   });

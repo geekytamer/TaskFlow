@@ -4,6 +4,7 @@ import type { ProposalStatus, RequestStatus } from '@/lib/requests';
 import type { CommissionStatus, ReferralStatus } from '@/lib/referrals';
 import type { InvoiceStatus } from '@/lib/billing';
 import type { AssignmentStatus, InfluencerDeliverableStatus, Payout } from '@/lib/influencer-types';
+import type { DealStatus } from '@/lib/workspace-types';
 
 type Tone = 'action' | 'done' | 'quiet' | 'warn';
 
@@ -33,6 +34,8 @@ const WORK_TONE: Record<InfluencerDeliverableStatus, Tone> = { planned: 'quiet',
 
 const PAYOUT_TONE: Record<Payout['status'], Tone> = { pending: 'quiet', approved: 'action', paid: 'done' };
 
+const DEAL_TONE: Record<DealStatus, Tone> = { lead: 'quiet', confirmed: 'action', delivered: 'quiet', paid: 'done', cancelled: 'quiet' };
+
 const INVOICE_TONE: Record<InvoiceStatus, Tone> = { due: 'quiet', overdue: 'warn', partly_paid: 'quiet', paid: 'done' };
 
 type Subject =
@@ -45,7 +48,8 @@ type Subject =
   | { assignment: AssignmentStatus }
   | { work: InfluencerDeliverableStatus }
   | { payout: Payout['status'] }
-  | { invoice: InvoiceStatus };
+  | { invoice: InvoiceStatus }
+  | { deal: DealStatus };
 
 function toneAndKey(subject: Subject): [Tone, string] {
   if ('request' in subject) return [REQUEST_TONE[subject.request], `req.status.${subject.request}`];
@@ -53,6 +57,7 @@ function toneAndKey(subject: Subject): [Tone, string] {
   if ('campaign' in subject) return [CAMPAIGN_TONE[subject.campaign], `camp.status.${subject.campaign}`];
   if ('referral' in subject) return [REFERRAL_TONE[subject.referral], `ref.status.${subject.referral}`];
   if ('assignment' in subject) return [ASSIGNMENT_TONE[subject.assignment], `asg.status.${subject.assignment}`];
+  if ('deal' in subject) return [DEAL_TONE[subject.deal], `deal.status.${subject.deal}`];
   if ('invoice' in subject) return [INVOICE_TONE[subject.invoice], `bill.status.${subject.invoice}`];
   if ('payout' in subject) return [PAYOUT_TONE[subject.payout], `pay.status.${subject.payout}`];
   if ('work' in subject) return [WORK_TONE[subject.work], `idl.status.${subject.work}`];

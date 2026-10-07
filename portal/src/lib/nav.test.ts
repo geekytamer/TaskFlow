@@ -15,8 +15,9 @@ test('client navigation: four tabs on the phone bar, the rest behind More', () =
 
 test('influencer navigation', () => {
   const nav = navFor('influencer');
-  assert.deepEqual(hrefs(nav.bar), ['/', '/assignments', '/payouts', '/messages']);
-  assert.deepEqual(hrefs(nav.secondary), ['/analytics', '/profile', '/games', '/referrals']);
+  assert.deepEqual(hrefs(nav.bar), ['/', '/deals', '/payouts', '/messages']);
+  assert.deepEqual(hrefs(nav.primary), ['/', '/deals', '/payouts', '/messages']);
+  assert.deepEqual(hrefs(nav.secondary), ['/contacts', '/analytics', '/profile', '/games', '/referrals']);
 });
 
 test('the active item: home only on exact match, others by prefix', async () => {
