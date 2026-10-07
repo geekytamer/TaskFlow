@@ -646,7 +646,7 @@ export function trustProxySetting(raw = process.env.TRUST_PROXY): boolean | numb
  */
 function socialFromEnv(): SocialOptions | undefined {
   const base = (process.env.PUBLIC_BASE_URL || 'http://localhost:4005').replace(/\/$/, '');
-  const portalReturnUrl = `${(process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/$/, '')}/profile`;
+  const portalReturnUrl = `${(process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/$/, '')}/connections`;
   const redirectUri = `${base}/social/instagram/callback`;
   if (process.env.META_APP_ID && process.env.META_APP_SECRET) {
     return {

@@ -1,10 +1,12 @@
 import { AvailabilitySwitch } from '@/components/availability-switch';
-import { ConnectedAccounts } from '@/components/connected-accounts';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { panel } from '@/components/ui';
 import { getSocialAccounts } from '@/lib/social';
 import { ProfileChangeForm } from '@/components/profile-change-form';
 import { formatCompact, formatMoney, formatPercent, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t, type Key } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 import { getProfile } from '@/lib/influencer';
 import { currentLang } from '@/lib/session';
 import { getAlertSettings } from '@/lib/alerts';
@@ -14,12 +16,9 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   requireAudience('influencer');
   const lang = await currentLang();
   const [profile, accounts, params, alerts] = await Promise.all([getProfile(), getSocialAccounts().catch(() => null), searchParams, getAlertSettings().catch(() => null)]);
-  // Back from Instagram: ?connected=instagram, with &error=... when it did not work.
-  const notice: Key | null = params.connected !== 'instagram' ? null
-    : params.error === 'personal_account' ? 'social.errPersonal'
-    : params.error === 'taken' ? 'social.errTaken'
-    : params.error ? 'social.errCancelled'
-    : 'social.connected';
+  // Older Instagram returns still come here; the notice lives on Connected accounts now.
+  if (params.connected === 'instagram') redirect(`/connections?${new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => typeof e[1] === 'string')).toString()}`);
+  const linked = accounts?.find((a) => a.status === 'active' || a.status === 'needs_reconnect');
   const dash = '-';
 
   return (
@@ -31,7 +30,15 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
 
       <AvailabilitySwitch lang={lang} value={profile.availability} />
 
-      {accounts && <ConnectedAccounts lang={lang} accounts={accounts} notice={notice} />}
+      <Link href="/connections" className={`${panel} flex items-center justify-between gap-4 px-5 py-4 hover:bg-surface-2`}>
+        <span className="min-w-0">
+          <span className="block font-semibold">{t(lang, 'conn.profileLink')}</span>
+          <span className="block text-sm text-ink-soft">
+            {linked ? t(lang, 'conn.profileSome').replace('{u}', linked.username) : t(lang, 'conn.profileNone')}
+          </span>
+        </span>
+        <span aria-hidden="true" className="text-ink-soft rtl:rotate-180">›</span>
+      </Link>
 
       <section aria-labelledby="details-title" className="space-y-3">
         <h2 id="details-title" className="text-lg font-semibold tracking-tight">{t(lang, 'prof.details')}</h2>

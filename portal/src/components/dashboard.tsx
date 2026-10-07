@@ -21,11 +21,13 @@ export interface AttentionItem {
 const ATTENTION_LABEL: Record<AttentionItem['kind'], Key> = { changes: 'dash.changes', due: 'dash.dueSoon', replied: 'dash.replied' };
 
 export function Dashboard({
-  me, lang, audience, waiting, campaigns = [], assignments = [], attention = [], payouts = [], overdue,
+  me, lang, audience, waiting, campaigns = [], assignments = [], attention = [], payouts = [], overdue, nudge,
 }: {
   me: Me; lang: Lang; audience: Audience; waiting?: { id: string; title: string }; campaigns?: CampaignSummary[];
   overdue?: { id: string; number: string };
   assignments?: Assignment[]; attention?: AttentionItem[]; payouts?: Payout[];
+  /** Shown under the greeting, e.g. the prompt to connect Instagram. */
+  nudge?: React.ReactNode;
 }) {
   const toAnswer = assignments.find((a) => a.status === 'awaiting_reply');
   const active = assignments.filter((a) => a.status === 'confirmed');
@@ -34,6 +36,7 @@ export function Dashboard({
   return (
     <div className="space-y-14">
       <PageHeader title={`${t(lang, 'dash.hello')} ${me.user.name.split(/\s+/)[0]}`} />
+      {nudge}
 
       {waiting && (
         <section aria-labelledby="waiting-title" className="flex flex-wrap items-center justify-between gap-4 rounded-panel border border-accent/30 bg-accent/[0.06] p-5">

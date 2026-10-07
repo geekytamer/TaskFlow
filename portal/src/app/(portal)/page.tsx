@@ -8,6 +8,8 @@ import { getAssignments, getPayouts } from '@/lib/influencer';
 import { getInvoices } from '@/lib/billing';
 import { getMessages } from '@/lib/messages';
 import { getCalendar } from '@/lib/workspace';
+import { getSocialAccounts } from '@/lib/social';
+import { ConnectNudge } from '@/components/connect-nudge';
 import { requireMe } from '@/lib/portal';
 import { getProposals } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
@@ -22,6 +24,8 @@ export default async function Home() {
     const [assignments, payouts, messages, calendar] = await Promise.all([
       getAssignments(), getPayouts(), getMessages(), getCalendar(today, weekAhead).catch(() => null),
     ]);
+    const social = await getSocialAccounts().catch(() => null);
+    const nudge = social && !social.some((a) => a.status === 'active' || a.status === 'needs_reconnect') ? <ConnectNudge lang={lang} /> : null;
     const soon = Date.now() + 7 * 24 * 60 * 60 * 1000;
     const work = assignments.filter((a) => a.status === 'confirmed').flatMap((a) => a.deliverables.map((d) => ({ ...d, campaign: a.campaign.name, assignmentId: a.id })));
     const attention = [
@@ -40,7 +44,7 @@ export default async function Home() {
         ? [{ key: 'replied', kind: 'replied' as const, title: '', detail: messages[messages.length - 1].body.slice(0, 120), href: '/messages' }]
         : []),
     ];
-    return <Dashboard me={me} lang={lang} audience={audience} assignments={assignments} attention={attention} payouts={payouts.slice(0, 3)} />;
+    return <Dashboard me={me} lang={lang} audience={audience} assignments={assignments} attention={attention} payouts={payouts.slice(0, 3)} nudge={nudge} />;
   }
 
   const [proposals, campaigns, invoices, messages] = await Promise.all([getProposals(), getCampaigns(), getInvoices(), getMessages()]);

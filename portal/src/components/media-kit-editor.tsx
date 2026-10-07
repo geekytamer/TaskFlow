@@ -94,6 +94,9 @@ export function MediaKitEditor({ lang, kit, brands, origin }: { lang: Lang; kit:
       <section aria-labelledby="kit-stats-title" className="space-y-4">
         <SectionTitle id="kit-stats-title">{t(lang, 'kit.stats')}</SectionTitle>
         <p className="text-sm text-ink-soft">{t(lang, 'kit.statsHint')}</p>
+        {verifiedPlatforms.size === 0 && (
+          <a href="/connections" className="inline-flex min-h-11 items-center text-sm font-semibold text-accent underline-offset-4 hover:underline">{t(lang, 'conn.kitPrompt')}</a>
+        )}
         {kit.stats.filter((s) => s.verified).map((s) => (
           <div key={s.platform} className={`${panel} flex items-center justify-between gap-4 px-4 py-3`}>
             <span className="font-medium">{s.platform} <bdi className="text-ink-soft">{s.handle}</bdi></span>
