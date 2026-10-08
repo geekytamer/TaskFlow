@@ -843,6 +843,21 @@ const en = {
   'rev.now': "The new version",
   'rev.openThis': "Open the content",
   'rev.decideTitle': "Your decision",
+  'push.title': "Phone notifications",
+  'push.why': "Get a notification on this device when something needs you, like content to review, a proposal or a new message.",
+  'push.enable': "Turn on phone notifications",
+  'push.disable': "Turn off",
+  'push.on': "On for this device.",
+  'push.working': "One moment…",
+  'push.unsupported': "This browser cannot show notifications. Try Chrome on Android, or add the portal to your iPhone home screen.",
+  'push.iosOld': "Update your iPhone or iPad to iOS 16.4 or later to get notifications.",
+  'push.iosInstall': "On iPhone and iPad, notifications work once the portal is on your home screen:",
+  'push.iosStep1': "Tap the Share button in Safari.",
+  'push.iosStep2': "Choose “Add to Home Screen”.",
+  'push.iosStep3': "Open the portal from the new icon and turn notifications on here.",
+  'push.blocked': "Notifications are blocked for this site. Allow them in your browser or phone settings, then come back here.",
+  'push.notSetUp': "Phone notifications are not available yet.",
+  'push.failed': "That did not work. Please try again.",
 } as const;
 
 export type Key = keyof typeof en;
@@ -1687,6 +1702,21 @@ const ar: Record<Key, string> = {
   'rev.now': "النسخة الجديدة",
   'rev.openThis': "افتح المحتوى",
   'rev.decideTitle': "قرارك",
+  'push.title': "إشعارات الهاتف",
+  'push.why': "تصلك إشعارات على هذا الجهاز عندما يحتاجك شيء، مثل محتوى للمراجعة أو عرض أو رسالة جديدة.",
+  'push.enable': "تفعيل إشعارات الهاتف",
+  'push.disable': "إيقاف",
+  'push.on': "مفعّلة على هذا الجهاز.",
+  'push.working': "لحظة…",
+  'push.unsupported': "هذا المتصفح لا يعرض الإشعارات. جرّب كروم على أندرويد، أو أضف البوابة إلى الشاشة الرئيسية في آيفون.",
+  'push.iosOld': "حدّث آيفون أو آيباد إلى iOS 16.4 أو أحدث لتصلك الإشعارات.",
+  'push.iosInstall': "في آيفون وآيباد تعمل الإشعارات بعد إضافة البوابة إلى الشاشة الرئيسية:",
+  'push.iosStep1': "اضغط زر المشاركة في سفاري.",
+  'push.iosStep2': "اختر «إضافة إلى الشاشة الرئيسية».",
+  'push.iosStep3': "افتح البوابة من الأيقونة الجديدة وفعّل الإشعارات من هنا.",
+  'push.blocked': "الإشعارات محظورة لهذا الموقع. اسمح بها من إعدادات المتصفح أو الهاتف ثم عد إلى هنا.",
+  'push.notSetUp': "إشعارات الهاتف غير متاحة بعد.",
+  'push.failed': "لم تنجح العملية. حاول مرة أخرى.",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };

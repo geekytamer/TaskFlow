@@ -4,6 +4,7 @@ import { MessageComposer } from '@/components/message-composer';
 import { ScrollToLatest } from '@/components/scroll-to-latest';
 import { EmptyState, PageHeader, textLink } from '@/components/ui';
 import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
+import { PhoneNotifications } from '@/components/phone-notifications';
 import { getAlertSettings } from '@/lib/alerts';
 import { getAudience } from '@/lib/audience';
 import { formatDate } from '@/lib/format';
@@ -89,6 +90,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
         <MessageComposer lang={lang} />
       </div>
 
+      {audience === 'client' && <PhoneNotifications lang={lang} />}
       {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );

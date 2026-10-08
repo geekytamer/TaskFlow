@@ -7,6 +7,10 @@ import { baselinePortalPush } from './push-alerts';
 
 /** Portal users turn phone notifications on or off for their own devices. */
 export function registerPortalPushRoutes(router: Router, store: DataStore, companyId: string, requireSession: RequestHandler, push: PushConfig | undefined): void {
+  router.get('/:audience/push/public-key', requireSession, (_req: SessionRequest, res: Response) => {
+    res.json(push ? { enabled: true, publicKey: push.publicKey } : { enabled: false });
+  });
+
   router.post('/:audience/push/subscribe', requireSession, (req: SessionRequest, res: Response) => {
     if (!push) throw new HttpError(409, 'Phone notifications are not set up on this server.');
     const session = req.portal!;

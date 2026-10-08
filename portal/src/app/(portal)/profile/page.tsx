@@ -11,6 +11,7 @@ import { getProfile } from '@/lib/influencer';
 import { currentLang } from '@/lib/session';
 import { getAlertSettings } from '@/lib/alerts';
 import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
+import { PhoneNotifications } from '@/components/phone-notifications';
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireAudience('influencer');
@@ -89,6 +90,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </>
       )}
 
+      <PhoneNotifications lang={lang} />
       {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );

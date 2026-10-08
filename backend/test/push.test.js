@@ -58,6 +58,7 @@ test('a staff member subscribes a device; the same device subscribed by someone 
 test('a portal user subscribes their device', async () => {
   const ctx = build();
   const s = await ctx.portalSession();
+  assert.deepEqual((await request(ctx.server).get('/portal-api/client/push/public-key').set(s)).body, { enabled: true, publicKey: 'BPublicVapidKeyForTests' });
   assert.equal((await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(sub(3))).status, 201);
   const user = ctx.store.portal.listUsers(ctx.company.id)[0];
   assert.equal(ctx.store.push.forPrincipal('client', user.id).length, 1);
