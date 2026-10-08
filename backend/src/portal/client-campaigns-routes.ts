@@ -73,6 +73,25 @@ export function registerClientCampaignRoutes(
     res.json(detail(loadCampaign(req.portal!, req.params.id)));
   });
 
+  /**
+   * One piece as the client reviews it. When the client earlier asked for
+   * changes on another version, `previous` holds that version, their comment and
+   * when, so they can see whether it was handled. Only what the campaign page
+   * would show: nothing before the team has approved it.
+   */
+  router.get('/client/campaigns/:id/deliverables/:deliverableId', requireClientSession, (req: SessionRequest, res: Response) => {
+    const campaign = loadCampaign(req.portal!, req.params.id);
+    const view = detail(campaign).deliverables.find((d) => d.id === req.params.deliverableId);
+    if (!view || !view.contentUrl) throw new HttpError(404, 'Not found.');
+    const earlier = store.reviews.clientReviewsOf(req.params.deliverableId)
+      .find((r) => r.decision === 'changes_requested' && r.contentUrl !== view.contentUrl);
+    res.json({
+      ...view,
+      campaign: { id: campaign.id, name: campaign.name },
+      previous: earlier ? { contentUrl: earlier.contentUrl, comment: earlier.comment, at: earlier.createdAt } : null,
+    });
+  });
+
   router.post('/client/campaigns/:id/deliverables/:deliverableId/review', requireClientSession, (req: SessionRequest, res: Response) => {
     const session = req.portal!;
     const campaign = loadCampaign(session, req.params.id);

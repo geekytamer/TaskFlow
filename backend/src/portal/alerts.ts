@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { DataStore } from '../data/store';
 import { clientProposalStatus, CLIENT_VISIBLE_PROPOSALS } from './requests';
 import { paidContactOf } from './influencer';
+import { clientVisibleUrl } from './review-flow';
 import type { PortalUser } from './portal-store';
 
 /**
@@ -12,7 +13,7 @@ import type { PortalUser } from './portal-store';
  * never carry amounts, rates or anything else a lock screen should not show.
  */
 
-export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout';
+export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout' | 'review';
 export interface AlertPrefs { portalUserId: string; phone: string | null; whatsapp: boolean; lang: 'en' | 'ar'; updatedAt: string }
 export interface PendingAlert { event: AlertEvent; refId: string; path: string }
 
@@ -68,6 +69,16 @@ export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[
         out.push({ event: 'proposal', refId: p.id, path: `/proposals/${p.id}` });
       }
     }
+    // Content waiting for the client: one alert per version (keyed by its link), once the team has approved it.
+    for (const c of store.listCrmCampaigns(user.companyId)) {
+      if (c.contactId !== user.contactId || c.archivedAt) continue;
+      for (const d of store.listCampaignDeliverables(c.id)) {
+        if (d.status !== 'Submitted') continue;
+        const url = clientVisibleUrl(store, d);
+        if (!url || store.reviews.clientReviewOf(d.id, url)) continue;
+        out.push({ event: 'review', refId: `${d.id}:${url}`, path: `/campaigns/${c.id}/content/${d.id}` });
+      }
+    }
     return out;
   }
   for (const id of store.influencer.assignmentIdsOf(user.companyId, user.contactId)) {
@@ -92,6 +103,7 @@ const LINES: Record<AlertEvent, { en: (n: number) => string; ar: (n: number) => 
   proposal: { en: (n) => (n === 1 ? 'A proposal is ready for your review' : `${n} proposals are ready for your review`), ar: (n) => (n === 1 ? 'عرض جاهز لمراجعتك' : `${n} عروض جاهزة لمراجعتك`) },
   invitation: { en: (n) => (n === 1 ? 'You are invited to a campaign' : `You are invited to ${n} campaigns`), ar: (n) => (n === 1 ? 'لديك دعوة لحملة' : `لديك دعوات لـ ${n} حملات`) },
   changes: { en: (n) => (n === 1 ? 'Changes were requested on your draft' : `Changes were requested on ${n} drafts`), ar: (n) => (n === 1 ? 'طُلبت تعديلات على مسودتك' : `طُلبت تعديلات على ${n} مسودات`) },
+  review: { en: (n) => (n === 1 ? 'Content is ready for your review' : `${n} pieces of content are ready for your review`), ar: (n) => (n === 1 ? 'محتوى جاهز لمراجعتك' : `${n} محتويات جاهزة لمراجعتك`) },
   payout: { en: (n) => (n === 1 ? 'A payout was marked paid' : `${n} payouts were marked paid`), ar: (n) => (n === 1 ? 'تم دفع مستحقاتك' : `تم دفع ${n} مستحقات`) },
 };
 

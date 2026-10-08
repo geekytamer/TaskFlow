@@ -28,6 +28,13 @@ export class DeliverableReviewsStore {
       .get(deliverableId, contentUrl) as DeliverableReview | undefined;
   }
 
+  /** Every client review of this deliverable, newest first. */
+  clientReviewsOf(deliverableId: string): DeliverableReview[] {
+    return this.db
+      .prepare("SELECT * FROM deliverable_reviews WHERE deliverableId = ? AND reviewerKind = 'client' ORDER BY createdAt DESC, rowid DESC")
+      .all(deliverableId) as DeliverableReview[];
+  }
+
   /** Returns undefined if this version already has a client review. */
   addClientReview(input: Omit<DeliverableReview, 'id' | 'createdAt' | 'reviewerKind'>): DeliverableReview | undefined {
     const review: DeliverableReview = { ...input, id: uuid(), reviewerKind: 'client', createdAt: new Date().toISOString() };
