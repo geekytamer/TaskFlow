@@ -126,6 +126,8 @@ import { registerDeliveryRoutes } from './routes/deliveries';
 import { registerWhatsappRoutes } from './routes/whatsapp';
 import { registerHrRoutes } from './routes/hr';
 import { registerWorkspaceRoutes } from './routes/workspace';
+import { registerPushRoutes } from './routes/push';
+import { pushConfigFromEnv, type PushConfig } from './push/push';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
@@ -254,6 +256,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   academyEnforce?: boolean;
   /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
   tupleWriter?: Pick<TupleStore, 'write'>;
+  /** Phone notifications (Web Push). Defaults to PUSH_VAPID_* env; tests pass a fake sender. */
+  push?: PushConfig;
   /** Observes every record-rule decision. For tests. */
   onRuleDecision?: (decision: { rule: RecordRuleName; companyId: string; userId: string; allowed: boolean }) => void;
 }
@@ -663,6 +667,7 @@ function socialFromEnv(): SocialOptions | undefined {
 
 export function createServer(options: CreateServerOptions = {}) {
   const logger = options.logger ?? console;
+  const push = options.push ?? pushConfigFromEnv();
   const allowSeedReset =
     options.allowSeedReset ?? process.env.ALLOW_SEED_RESET === 'true';
   const store = options.store ?? new DataStore({
@@ -7677,6 +7682,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   registerHrRoutes(app, routeContext);
   registerWorkspaceRoutes(app, routeContext);
+  registerPushRoutes(app, routeContext, push);
 
   // ─── Graceful record deletion ──────────────────────────────────────────────
   // Each route loads the record (404 if missing), checks the caller's role, then
@@ -7884,6 +7890,7 @@ export function createServer(options: CreateServerOptions = {}) {
     app.use(
       '/portal-api',
       createPortalRouter({
+        push,
         portal: store.portal,
         companyId: portalCompanyId,
         getBranding: () => {

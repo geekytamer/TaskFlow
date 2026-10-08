@@ -64,6 +64,10 @@ const KNOWN_UNGATED = new Set([
     'DELETE /time-entries/:id',
     'POST /whatsapp/webhook/:webhookToken',
     'POST /seed',
+    // Phone notifications: the public key, and each signed-in person's own devices. No company data.
+    'GET /push/public-key',
+    'POST /push/subscribe',
+    'POST /push/unsubscribe',
 ]);
 
 test('no route is ungated by accident', () => {

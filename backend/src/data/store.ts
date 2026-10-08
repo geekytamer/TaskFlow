@@ -25,6 +25,7 @@ import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
 import { WorkspaceStore } from '../workspace/workspace-store';
 import { MediaKitStore } from '../workspace/media-kit';
+import { PushStore } from '../push/push-store';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -684,6 +685,7 @@ export class DataStore {
   readonly clientEmail: ClientEmailStore;
   readonly workspace: WorkspaceStore;
   readonly mediaKits: MediaKitStore;
+  readonly push: PushStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   private currentActor?: { userId?: string; name?: string };
@@ -728,6 +730,7 @@ export class DataStore {
     this.clientEmail = new ClientEmailStore(this.db);
     this.workspace = new WorkspaceStore(this.db);
     this.mediaKits = new MediaKitStore(this.db);
+    this.push = new PushStore(this.db);
     this.social = new SocialStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
@@ -4873,6 +4876,27 @@ export class DataStore {
               PRIMARY KEY (companyId, ownerContactId),
               UNIQUE (companyId, slug)
             );
+          `);
+        },
+      },
+      {
+        // Phone notifications: each device (push endpoint) and whose it is (push/push-store.ts).
+        id: '123_push',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+              id          TEXT PRIMARY KEY,
+              audience    TEXT NOT NULL CHECK (audience IN ('staff', 'client', 'influencer')),
+              principalId TEXT NOT NULL,
+              companyId   TEXT,
+              endpoint    TEXT NOT NULL UNIQUE,
+              p256dh      TEXT NOT NULL,
+              auth        TEXT NOT NULL,
+              userAgent   TEXT,
+              createdAt   TEXT NOT NULL,
+              lastSentAt  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS push_subscriptions_principal ON push_subscriptions (audience, principalId);
           `);
         },
       },

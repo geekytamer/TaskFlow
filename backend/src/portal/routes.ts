@@ -7,6 +7,8 @@ import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './clien
 import { registerClientCampaignRoutes } from './client-campaigns-routes';
 import { registerClientRequestRoutes } from './client-requests-routes';
 import { registerThreadRoutes } from './thread-routes';
+import { registerPortalPushRoutes } from './push-routes';
+import type { PushConfig } from '../push/push';
 import { registerReferralRoutes } from './referral-routes';
 import { registerInfluencerRoutes } from './influencer-routes';
 import { registerWorkspacePortalRoutes } from '../workspace/portal-routes';
@@ -40,6 +42,8 @@ export interface PortalRouterOptions {
   pdf?: PortalPdfRenderer;
   /** Instagram connections (Meta M1). Absent: those routes do not exist. */
   social?: SocialOptions;
+  /** Phone notifications. Absent: subscribing answers 409. */
+  push?: PushConfig;
   /** Where the staff app serves the public invoice page the invoice PDF is rendered from. */
   appPublicUrl?: string;
 }
@@ -151,6 +155,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerClientCampaignRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
+    registerPortalPushRoutes(router, options.requestsStore, companyId, requireSession, options.push);
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
     registerWorkspacePortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
