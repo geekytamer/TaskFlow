@@ -40,6 +40,8 @@ export function localizeNotification(
 export interface NotificationChannelPref {
   inApp: boolean;
   email: boolean;
+  /** Phone notifications on this person's devices. */
+  push: boolean;
 }
 
 export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
@@ -102,3 +104,9 @@ export async function updateNotificationPrefs(prefs: NotificationPrefs): Promise
     body: JSON.stringify(prefs),
   });
 }
+
+export const getPushKey = () => apiFetch<{ enabled: boolean; publicKey?: string }>('/push/public-key');
+export const subscribePush = (subscription: PushSubscriptionJSON) =>
+  apiFetch<{ subscribed: boolean }>('/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) });
+export const unsubscribePush = (endpoint: string) =>
+  apiFetch<void>('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });

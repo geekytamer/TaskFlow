@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
+import { PhoneNotificationsCard } from './phone-notifications-card';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import {
   getNotifications,
@@ -56,7 +57,7 @@ function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n: AppNot
 }
 
 function PreferencesCard() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const [prefs, setPrefs] = React.useState<NotificationPrefs | null>(null);
   const [saving, setSaving] = React.useState(false);
@@ -65,7 +66,7 @@ function PreferencesCard() {
     getNotificationPrefs().then(setPrefs).catch(() => undefined);
   }, []);
 
-  const update = (category: NotificationCategory, channel: 'inApp' | 'email', value: boolean) => {
+  const update = (category: NotificationCategory, channel: 'inApp' | 'email' | 'push', value: boolean) => {
     setPrefs((prev) => (prev ? { ...prev, [category]: { ...prev[category], [channel]: value } } : prev));
   };
 
@@ -97,20 +98,23 @@ function PreferencesCard() {
         </Button>
       </div>
       <div className="overflow-hidden rounded-lg border">
-        <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-6 border-b bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-6 border-b bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <span>{t('notifPage.category')}</span>
           <span>{t('notifPage.inApp')}</span>
           <span>{t('notifPage.email')}</span>
+          <span>{language === 'ar' ? 'الهاتف' : 'Phone'}</span>
         </div>
         {NOTIFICATION_CATEGORIES.map((category) => (
-          <div key={category} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-6 border-b px-4 py-3 last:border-b-0">
+          <div key={category} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-6 border-b px-4 py-3 last:border-b-0">
             <span className="text-sm font-medium">{t(`notifPage.cat.${category}`)}</span>
             <Switch checked={prefs[category].inApp} onCheckedChange={(v) => update(category, 'inApp', v)} />
             <Switch checked={prefs[category].email} onCheckedChange={(v) => update(category, 'email', v)} />
+            <Switch checked={prefs[category].push} onCheckedChange={(v) => update(category, 'push', v)} />
           </div>
         ))}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">{t('notifPage.prefsHint')}</p>
+      <PhoneNotificationsCard />
     </div>
   );
 }
