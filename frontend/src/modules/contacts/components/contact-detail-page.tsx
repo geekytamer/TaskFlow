@@ -21,6 +21,8 @@ import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import { WorkspaceSection } from './workspace-section';
+import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
+import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import {
   ArrowLeft,
   BadgeCheck,
@@ -75,6 +77,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
     currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
   );
   const canSeeWorkspace = usePermissionOr('contacts', 'contacts.workspace.read', currentRole === 'Admin' || currentRole === 'Manager');
+  const canManagePortal = useCanManagePortal();
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -281,6 +284,19 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </CardContent>
         </Card>
       )}
+
+      {/* Portal access: invite this contact to the influencer or client portal, where staff look for it first. */}
+      {canManagePortal && (['Influencer', 'Client'] as const).filter((r) => (c.roles || []).includes(r)).map((r) => (
+        <Card key={r}>
+          <CardContent className="pt-6">
+            <PortalAccessPanel
+              contact={c}
+              audience={r === 'Influencer' ? 'influencer' : 'client'}
+              onContactChanged={(updated) => setSummary((s) => (s ? { ...s, contact: updated } : s))}
+            />
+          </CardContent>
+        </Card>
+      ))}
 
       {/* Their own business, from the creator workspace: Admin and Manager only (the API enforces it too). */}
       {(c.roles || []).includes('Influencer') && canSeeWorkspace && (
