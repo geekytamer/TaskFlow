@@ -65,10 +65,10 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'financ
 /** Everything on by default — users opt out in preferences. */
 export function defaultNotificationPrefs(): NotificationPrefs {
   return {
-    tasks: { inApp: true, email: true },
-    finance: { inApp: true, email: true },
-    crm: { inApp: true, email: true },
-    inventory: { inApp: true, email: true },
+    tasks: { inApp: true, email: true, push: true },
+    finance: { inApp: true, email: true, push: true },
+    crm: { inApp: true, email: true, push: true },
+    inventory: { inApp: true, email: true, push: true },
   };
 }
 
@@ -84,6 +84,7 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
       base[category] = {
         inApp: e.inApp !== false,
         email: e.email !== false,
+        push: e.push !== false,
       };
     }
   }

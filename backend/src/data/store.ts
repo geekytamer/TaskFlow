@@ -19742,7 +19742,7 @@ export class DataStore {
 
     for (const userId of recipients) {
       const prefs = this.getNotificationPrefs(userId)[meta.category];
-      if (!prefs.inApp && !prefs.email) continue; // category fully muted
+      if (!prefs.inApp && !prefs.email && !prefs.push) continue; // category fully muted
 
       if (input.dedupeWithinMs && input.entityId) {
         const since = new Date(now.getTime() - input.dedupeWithinMs).toISOString();

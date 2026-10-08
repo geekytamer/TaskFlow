@@ -127,7 +127,7 @@ import { registerWhatsappRoutes } from './routes/whatsapp';
 import { registerHrRoutes } from './routes/hr';
 import { registerWorkspaceRoutes } from './routes/workspace';
 import { registerPushRoutes } from './routes/push';
-import { pushConfigFromEnv, type PushConfig } from './push/push';
+import { pushConfigFromEnv, sendToPrincipal, type PushConfig } from './push/push';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
@@ -705,8 +705,23 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
   // Fire-and-forget so notification creation never blocks on email I/O.
+  // Every notification also goes to the person's phones when that category's push is on.
+  // Only the title travels: it says what happened; the app shows the rest.
+  const dispatchPush = async (notifications: Notification[]) => {
+    if (!push) return;
+    for (const n of notifications) {
+      try {
+        if (!store.getNotificationPrefs(n.userId)[n.category].push) continue;
+        await sendToPrincipal(store, push.send, 'staff', n.userId, { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` });
+      } catch (error) {
+        logger.warn('[push] could not send a staff notification', error);
+      }
+    }
+  };
+
   store.setOnNotificationsCreated((notifications) => {
     void dispatchCriticalEmails(notifications);
+    void dispatchPush(notifications);
   });
 
   // Daily digest: roll each user's unsent normal-priority notifications into one

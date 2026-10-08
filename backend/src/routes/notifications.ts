@@ -57,12 +57,13 @@ export function registerNotificationRoutes(app: Express, ctx: RouteContext): voi
     authMiddleware,
     handler((req, res) => {
       const body = asRecord(req.body, 'body');
-      const next: Record<string, { inApp: boolean; email: boolean }> = {};
+      const next: Record<string, { inApp: boolean; email: boolean; push: boolean }> = {};
       for (const category of NOTIFICATION_CATEGORIES) {
         const entry = asRecord(body[category] ?? {}, category);
         next[category] = {
           inApp: entry.inApp !== false,
           email: entry.email !== false,
+          push: entry.push !== false,
         };
       }
       const prefs = store.updateNotificationPrefs(

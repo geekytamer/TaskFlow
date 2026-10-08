@@ -1788,6 +1788,8 @@ export interface Notification {
 export interface NotificationChannelPref {
   inApp: boolean;
   email: boolean;
+  /** Phone notifications on the person's devices (push/push.ts). */
+  push: boolean;
 }
 
 export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
