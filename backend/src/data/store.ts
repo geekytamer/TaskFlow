@@ -6811,9 +6811,11 @@ export class DataStore {
     return newProject;
   }
 
-  updateProject(id: string, updates: Partial<Omit<Project, 'id'>>) {
+  updateProject(id: string, changes: Partial<Omit<Project, 'id'>>) {
     const existing = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as any;
     if (!existing) return undefined;
+    // A field the caller did not send arrives as undefined; it must keep its value, not become NULL.
+    const updates = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined)) as typeof changes;
     const updatedMemberIds =
       updates.memberIds ?? (this.parseJson<string[]>(existing.memberIds) || []);
     const updated = {

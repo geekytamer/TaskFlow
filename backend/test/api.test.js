@@ -2761,6 +2761,23 @@ test('project update rejects changing company when existing relationships no lon
   assert.match(response.body.message, /client|memberIds/i);
 });
 
+test('project update with only some fields keeps the others', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const before = await request(app).get('/projects/proj-1').set('Authorization', `Bearer ${token}`);
+
+  const response = await request(app)
+    .put('/projects/proj-1')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ description: 'Only the description changes' });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.description, 'Only the description changes');
+  assert.equal(response.body.name, before.body.name);
+  assert.equal(response.body.companyId, before.body.companyId);
+  assert.equal(response.body.visibility, before.body.visibility);
+});
+
 test('task update rejects changing company when existing assignments no longer belong', async () => {
   const app = makeApp();
   const token = await login(app, 'admin@taskflow.com');
