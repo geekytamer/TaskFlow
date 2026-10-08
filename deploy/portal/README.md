@@ -49,7 +49,8 @@ startup.
 
 ```bash
 cd portal && npm ci && npm run build
-pm2 startOrReload deploy/portal/ecosystem.portal.config.cjs --update-env
+# PORTAL_API_URL is required: http://127.0.0.1:4105 (staging) or http://127.0.0.1:4005 (production)
+PORTAL_API_URL=http://127.0.0.1:4105 pm2 startOrReload deploy/portal/ecosystem.portal.config.cjs --update-env
 ```
 
 5. Render `nginx-portal.conf.template` once per host (see its header; the games host
