@@ -123,14 +123,14 @@ export function CreateProjectSheet() {
         <Button variant="outline"><PlusCircle className="me-2 h-4 w-4" />{tr('New Project', 'مشروع جديد')}</Button>
       </SheetTrigger>
       <SheetContent className="w-full max-w-lg sm:max-w-lg flex flex-col">
-        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <SheetHeader>
             <SheetTitle>{tr('Create New Project', 'إنشاء مشروع جديد')}</SheetTitle>
             <SheetDescription>
                 {tr('Fill in the details below to create a new project.', 'أدخل التفاصيل أدناه لإنشاء مشروع جديد.')}
             </SheetDescription>
             </SheetHeader>
-            <div className="flex-1 overflow-y-auto pe-6 -me-6">
+            <div className="-me-6 min-h-0 flex-1 overflow-y-auto pe-6">
             <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="name" className="text-end">
@@ -248,7 +248,7 @@ export function CreateProjectSheet() {
                 </div>
             </div>
             </div>
-            <SheetFooter>
+            <SheetFooter className="shrink-0 border-t pt-4">
             <SheetClose asChild>
                 <Button type="button" variant="outline">{tr('Cancel', 'إلغاء')}</Button>
             </SheetClose>

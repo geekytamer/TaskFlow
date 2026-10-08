@@ -231,12 +231,12 @@ export default function ProjectDetailsPage() {
                   <Pencil className="h-4 w-4 me-1" /> {tr('Edit', 'تعديل')}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="w-full max-w-xl">
+              <SheetContent className="flex w-full max-w-xl flex-col">
                 <SheetHeader>
                   <SheetTitle>{tr('Edit Project', 'تعديل المشروع')}</SheetTitle>
                   <SheetDescription>{tr('Update details, visibility, client, and members.', 'تحديث التفاصيل والظهور والعميل والأعضاء.')}</SheetDescription>
                 </SheetHeader>
-                <div className="flex flex-col gap-4 py-4">
+                <div className="-me-6 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-4 pe-6">
                   <div className="space-y-2">
                     <Label>{tr('Name', 'الاسم')}</Label>
                     <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder={tr('Name', 'الاسم')} />
@@ -300,7 +300,7 @@ export default function ProjectDetailsPage() {
                     </div>
                   </div>
                 </div>
-                <SheetFooter className="flex justify-between gap-2">
+                <SheetFooter className="flex shrink-0 justify-between gap-2 border-t pt-4">
                   <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
                     <Trash2 className="h-4 w-4 me-1" /> {tr('Delete Project', 'حذف المشروع')}
                   </Button>
