@@ -4900,6 +4900,22 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Which portal events went to a person's phone (portal/push-alerts.ts), so each goes once.
+        id: '124_portal_push_log',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_push_log (
+              portalUserId TEXT NOT NULL,
+              event        TEXT NOT NULL,
+              refId        TEXT NOT NULL,
+              status       TEXT NOT NULL CHECK (status IN ('sent', 'skipped')),
+              createdAt    TEXT NOT NULL,
+              PRIMARY KEY (portalUserId, event, refId)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

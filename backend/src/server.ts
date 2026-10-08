@@ -44,6 +44,7 @@ import { registerAcademyRoutes } from './academy/routes';
 import { likersFetcherFromEnv, type LikersFetcher } from './games/likers-fetcher';
 import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
+import { sweepPortalPush } from './portal/push-alerts';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -7897,6 +7898,18 @@ export function createServer(options: CreateServerOptions = {}) {
         .catch((error) => logger.error('[portal] alerts sweep failed', error))
         .finally(() => { alerting = false; });
     }, 5 * 60 * 1000).unref?.();
+    // Phone notifications for portal users: every minute, each new event once.
+    if (push) {
+      let pushing = false;
+      setInterval(() => {
+        if (pushing || !store.getCompanyById(portalCompanyId)) return;
+        pushing = true;
+        sweepPortalPush(store, push.send, portalCompanyId)
+          .then((n) => { if (n > 0) logger.info(`[portal] ${n} phone notification(s) sent`); })
+          .catch((error) => logger.error('[portal] push sweep failed', error))
+          .finally(() => { pushing = false; });
+      }, 60 * 1000).unref?.();
+    }
   }
   if (portalCompanyId) {
     if (!store.getCompanyById(portalCompanyId)) {

@@ -1325,6 +1325,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '121_workspace_money',
     '122_workspace_media_kit',
     '123_push',
+    '124_portal_push_log',
   ]);
 });
 

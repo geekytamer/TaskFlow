@@ -107,6 +107,9 @@ const LINES: Record<AlertEvent, { en: (n: number) => string; ar: (n: number) => 
   payout: { en: (n) => (n === 1 ? 'A payout was marked paid' : `${n} payouts were marked paid`), ar: (n) => (n === 1 ? 'تم دفع مستحقاتك' : `تم دفع ${n} مستحقات`) },
 };
 
+/** One line saying what happened, in the user's language. */
+export const alertLine = (event: AlertEvent, lang: 'en' | 'ar', n = 1) => LINES[event][lang](n);
+
 /** One short digest per sweep, in the user's language, with one link. */
 export function digest(items: PendingAlert[], lang: 'en' | 'ar', company: string, baseUrl: string): string {
   const counts = new Map<AlertEvent, number>();

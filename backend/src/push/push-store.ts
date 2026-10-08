@@ -45,4 +45,16 @@ export class PushStore {
   markSent(id: string): void {
     this.db.prepare('UPDATE push_subscriptions SET lastSentAt = ? WHERE id = ?').run(new Date().toISOString(), id);
   }
+
+  /** Portal events already pushed (or skipped) for this person, as `event:refId`. */
+  portalLogged(portalUserId: string): Set<string> {
+    return new Set((this.db.prepare('SELECT event, refId FROM portal_push_log WHERE portalUserId = ?').all(portalUserId) as Array<{ event: string; refId: string }>)
+      .map((r) => `${r.event}:${r.refId}`));
+  }
+
+  logPortal(portalUserId: string, items: Array<{ event: string; refId: string }>, status: 'sent' | 'skipped'): void {
+    const insert = this.db.prepare('INSERT OR IGNORE INTO portal_push_log (portalUserId, event, refId, status, createdAt) VALUES (?, ?, ?, ?, ?)');
+    const now = new Date().toISOString();
+    this.db.transaction(() => items.forEach((i) => insert.run(portalUserId, i.event, i.refId, status, now)))();
+  }
 }
