@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { DeliverableReview } from '@/components/deliverable-review';
 import { InvoiceList } from '@/components/invoice-list';
@@ -19,7 +20,11 @@ function DeliverableRow({ d, lang, campaignId }: { d: Deliverable; lang: Lang; c
     <li className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-semibold"><bdi>{d.title}</bdi></p>
+          <p className="font-semibold">
+            {d.contentUrl
+              ? <Link href={`/campaigns/${campaignId}/content/${d.id}`} className="underline-offset-4 hover:underline"><bdi>{d.title}</bdi></Link>
+              : <bdi>{d.title}</bdi>}
+          </p>
           <StatusBadge lang={lang} deliverable={deliverableView(d)} />
         </div>
         <p className="text-sm text-ink-soft">

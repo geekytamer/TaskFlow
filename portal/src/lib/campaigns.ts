@@ -46,3 +46,11 @@ export interface Campaign {
 
 export const getCampaigns = () => portalGet<CampaignSummary[]>('/campaigns');
 export const getCampaign = (id: string) => portalGetOrNull<Campaign>(`/campaigns/${encodeURIComponent(id)}`);
+
+/** One piece as the client reviews it, with the version they reviewed before when they asked for changes. */
+export interface CampaignContent extends Deliverable {
+  campaign: { id: string; name: string };
+  previous: { contentUrl: string; comment: string | null; at: string } | null;
+}
+export const getCampaignContent = (campaignId: string, deliverableId: string) =>
+  portalGetOrNull<CampaignContent>(`/campaigns/${encodeURIComponent(campaignId)}/deliverables/${encodeURIComponent(deliverableId)}`);

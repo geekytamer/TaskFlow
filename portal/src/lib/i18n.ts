@@ -837,6 +837,12 @@ const en = {
   'conn.nudgeBody': "Your followers and results then update by themselves and show as verified to brands.",
   'conn.nudgeAction': "Connect Instagram",
   'conn.dismiss': "Not now",
+  'rev.whatChanged': "What changed",
+  'rev.before': "What you reviewed",
+  'rev.yourComment': "Your comment",
+  'rev.now': "The new version",
+  'rev.openThis': "Open the content",
+  'rev.decideTitle': "Your decision",
 } as const;
 
 export type Key = keyof typeof en;
@@ -1675,6 +1681,12 @@ const ar: Record<Key, string> = {
   'conn.nudgeBody': "تتحدث بعدها أرقام متابعيك ونتائجك تلقائيًا وتظهر موثقة للعلامات التجارية.",
   'conn.nudgeAction': "اربط إنستغرام",
   'conn.dismiss': "ليس الآن",
+  'rev.whatChanged': "ما الذي تغيّر",
+  'rev.before': "النسخة التي راجعتها",
+  'rev.yourComment': "ملاحظتك",
+  'rev.now': "النسخة الجديدة",
+  'rev.openThis': "افتح المحتوى",
+  'rev.decideTitle': "قرارك",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, ar };
