@@ -483,7 +483,8 @@ export function CampaignsPage() {
   const canManagePortal = useCanManagePortal();
   const { amount, money } = useCompanyCurrency();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const campaignStatusLabel = (s: string) => t(`campaignsPage.status${s.replace(/\s/g, '')}`, s);
   const [campaigns, setCampaigns] = React.useState<CrmCampaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = React.useState<CrmCampaign | null>(null);
@@ -1144,17 +1145,25 @@ export function CampaignsPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
-              <Label>{t('campaignsPage.fieldName')} <span className="text-destructive">*</span></Label>
+              <Label>{tr('Deliverable', 'المُخرَج')} <span className="text-destructive">*</span></Label>
               <Input placeholder={t('campaignsPage.deliverableTitlePh')} value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
             </div>
-            <Select value={deliverableForm.platform || '__none__'} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, platform: v === '__none__' ? '' : v }))}>
-              <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverablePlatformPh')} /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">—</SelectItem>
-                {CAMPAIGN_PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Input type="date" value={deliverableForm.dueDate} onChange={(e) => setDeliverableForm((p) => ({ ...p, dueDate: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">{tr('Platform', 'المنصة')}</Label>
+                <Select value={deliverableForm.platform || '__none__'} onValueChange={(v) => setDeliverableForm((p) => ({ ...p, platform: v === '__none__' ? '' : v }))}>
+                  <SelectTrigger><SelectValue placeholder={t('campaignsPage.deliverablePlatformPh')} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    {CAMPAIGN_PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">{tr('Due date', 'تاريخ التسليم')}</Label>
+                <Input type="date" value={deliverableForm.dueDate} onChange={(e) => setDeliverableForm((p) => ({ ...p, dueDate: e.target.value }))} />
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{t('campaignsPage.deliverablePriceLabel')}</Label>

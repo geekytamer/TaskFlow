@@ -106,6 +106,21 @@ test('an awarded supplier quote becomes a purchase order linked to its RFQ, once
   assert.equal(after.purchaseOrderId, po.body.id);
 });
 
+test('an RFQ line named like a stock item orders that item, so receiving it adds stock', async () => {
+  const { app, as } = setup();
+  const sup = await supplier(app, as, 'Date Farm');
+  const item = (await as(request(app).post('/companies/1/inventory-items')).send({
+    name: 'Khalas dates 5 kg', category: 'Dates', unit: 'box', unitCost: 12, salePrice: 18,
+  })).body;
+  const rfq = (await as(request(app).post('/companies/1/rfqs')).send({
+    title: 'Restock', items: [{ description: '  khalas DATES 5 kg ', quantity: 50 }, { description: 'Delivery', quantity: 1 }],
+  })).body;
+  const quote = (await as(request(app).post(`/rfqs/${rfq.id}/quotes`)).send({ supplierId: sup.id, supplierName: sup.name, totalAmount: 600 })).body.quotes[0];
+  await as(request(app).post(`/rfqs/${rfq.id}/award`)).send({ quoteId: quote.id });
+  const po = (await as(request(app).post(`/rfqs/${rfq.id}/purchase-order`)).send({ unitCosts: [11, 50] })).body;
+  assert.deepEqual(po.items.map((i) => i.inventoryItemId ?? null), [item.id, null], 'only the matching line is linked');
+});
+
 test('without unit costs, a quote total is spread by quantity and a missing supplier is refused', async () => {
   const { app, as } = setup();
   const rfq = (await as(request(app).post('/companies/1/rfqs')).send({ title: 'Chairs', items: [{ description: 'Chair', quantity: 4 }] })).body;
@@ -130,6 +145,18 @@ test('invoice custom column values are saved on create and edit', async () => {
   const edited = await as(request(app).put(`/invoices/${created.body.id}`)).send({ lineItems: [{ ...line, custom: { colour: 'Red' } }] });
   assert.equal(edited.status, 200, JSON.stringify(edited.body));
   assert.deepEqual(edited.body.lineItems[0].custom, { colour: 'Red' });
+});
+
+test('an invoice can be raised in another currency with its rate', async () => {
+  const { app, as } = setup();
+  const line = { itemType: 'Manual', description: 'Dates', quantity: 2, unitPrice: 200, amount: 400 };
+  const res = await as(request(app).post('/invoices')).send({
+    companyId: '1', clientId: 'client-1', issueDate: new Date().toISOString(), dueDate: new Date().toISOString(),
+    lineItems: [line], total: 400, status: 'Draft', currency: 'AED', exchangeRate: 0.105,
+  });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.currency, 'AED');
+  assert.equal(res.body.exchangeRate, 0.105);
 });
 
 test('an approved purchase order goes back for approval when its lines change, even at the same total', async () => {
@@ -158,4 +185,18 @@ test('an archived item takes no stock and goes on no new purchase order', async 
     supplierId: sup.id, orderDate: new Date().toISOString(), items: [{ inventoryItemId: item.id, description: 'Old widget', quantity: 1, unitCost: 1 }],
   });
   assert.equal(po.status, 400);
+});
+
+test('a credit note on a foreign-currency invoice posts at the invoice rate', async () => {
+  const { app, store, as } = setup();
+  const line = { itemType: 'Manual', description: 'Dates', quantity: 2, unitPrice: 200, amount: 400 };
+  const inv = (await as(request(app).post('/invoices')).send({
+    companyId: '1', clientId: 'client-1', issueDate: new Date().toISOString(), dueDate: new Date().toISOString(),
+    lineItems: [line], total: 400, status: 'Draft', currency: 'AED', exchangeRate: 0.105,
+  })).body;
+  store.updateInvoiceStatus(inv.id, 'Sent');
+  const note = store.createCreditNote({ companyId: '1', invoiceId: inv.id, lineItems: [{ description: 'Damaged box', amount: 200 }] });
+  const entry = store.listJournalEntries('1', 500).find((e) => e.sourceType === 'credit_note' && e.sourceId === note.id);
+  const credited = entry.lines.reduce((sum, l) => sum + l.credit, 0);
+  assert.equal(credited, 21, 'AED 200 at 0.105');
 });

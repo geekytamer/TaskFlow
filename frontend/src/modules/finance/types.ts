@@ -90,6 +90,8 @@ export interface Invoice {
   status: InvoiceStatus;
   notes?: string;
   currency?: string;
+  /** How many company-currency units one unit of `currency` is worth; 1 for the company currency. */
+  exchangeRate?: number;
   taxRate?: number;
   sentAt?: Date;
   paidAt?: Date;

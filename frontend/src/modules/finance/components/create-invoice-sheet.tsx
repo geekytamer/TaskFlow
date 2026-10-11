@@ -73,6 +73,9 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [statusFilter, setStatusFilter] = React.useState<'Done' | 'In Progress' | 'To Do' | 'all'>('Done');
   const [sortBy, setSortBy] = React.useState<'date' | 'amount'>('date');
   const [taxRate, setTaxRate] = React.useState('');
+  // Blank means the company currency; another currency needs its rate to the company currency.
+  const [invoiceCurrency, setInvoiceCurrency] = React.useState('');
+  const [exchangeRate, setExchangeRate] = React.useState('');
   const [manualDescription, setManualDescription] = React.useState('');
   const [manualQuantity, setManualQuantity] = React.useState('1');
   const [manualUnitPrice, setManualUnitPrice] = React.useState('');
@@ -342,12 +345,24 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       });
   }, [billableTasks, statusFilter, search, minAmount, sortBy]);
 
+  const typedCurrency = invoiceCurrency.trim().toUpperCase();
+  const foreignCurrency = /^[A-Z]{3}$/.test(typedCurrency) && typedCurrency !== currencyCode ? typedCurrency : undefined;
+
   const handleCreateInvoice = async () => {
     if (!selectedCompany || !selectedClient || selectedLineItems.length === 0) {
       toast({
         variant: 'destructive',
         title: tr('Validation Error', 'خطأ في التحقق'),
         description: tr('Please select a client and at least one billable item.', 'يرجى اختيار عميل وبند واحد قابل للفوترة على الأقل.'),
+      });
+      return;
+    }
+
+    if (!invoiceToEdit && foreignCurrency && !(Number(exchangeRate) > 0)) {
+      toast({
+        variant: 'destructive',
+        title: tr('Validation Error', 'خطأ في التحقق'),
+        description: tr(`Enter how many ${currencyCode} one ${foreignCurrency} is worth.`, `أدخل قيمة 1 ${foreignCurrency} بعملة ${currencyCode}.`),
       });
       return;
     }
@@ -391,7 +406,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
         lineItems: selectedLineItems,
         total: invoiceTotal,
         taxRate: Number(taxRate) || 0,
-        currency: currencyCode,
+        currency: foreignCurrency ?? currencyCode,
+        exchangeRate: foreignCurrency ? Number(exchangeRate) : undefined,
         status: 'Draft',
       });
       toast({
@@ -414,6 +430,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     setSelectedClient(undefined);
     setSelectedSalesOrderId(undefined);
     setSelectedTemplateId(undefined);
+    setInvoiceCurrency('');
+    setExchangeRate('');
     setBillableTasks([]);
     setSelectedTaskIds([]);
     setManualLines([]);
@@ -500,6 +518,37 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                     </SelectContent>
                 </Select>
             </div>
+
+            {!invoiceToEdit && (
+              <div className="grid gap-3 pe-6 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="invoice-currency">{tr('Currency', 'العملة')}</Label>
+                  <Input
+                    id="invoice-currency"
+                    value={invoiceCurrency}
+                    onChange={(e) => setInvoiceCurrency(e.target.value.toUpperCase().slice(0, 3))}
+                    placeholder={currencyCode}
+                    maxLength={3}
+                    autoCapitalize="characters"
+                  />
+                </div>
+                {foreignCurrency && (
+                  <div className="space-y-1">
+                    <Label htmlFor="invoice-rate">{tr(`1 ${foreignCurrency} in ${currencyCode}`, `1 ${foreignCurrency} بعملة ${currencyCode}`)}</Label>
+                    <Input
+                      id="invoice-rate"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(e.target.value)}
+                      placeholder="0.105"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid gap-3 pe-6 md:grid-cols-4" data-tutorial="invoice-form-task-filter">
               <div className="md:col-span-2 space-y-1">

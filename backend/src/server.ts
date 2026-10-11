@@ -6617,6 +6617,7 @@ export function createServer(options: CreateServerOptions = {}) {
             status: payload.status || 'Draft',
             notes: payload.notes,
             currency: payload.currency,
+            exchangeRate: payload.exchangeRate,
             taxRate: payload.taxRate,
             sentAt: payload.sentAt ? new Date(payload.sentAt) : undefined,
             paidAt: payload.paidAt ? new Date(payload.paidAt) : undefined,

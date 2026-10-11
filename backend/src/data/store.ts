@@ -4916,6 +4916,23 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Items with no home location whose stock sits in a warehouse: make that warehouse their home,
+        // so deliveries and counts that take stock without naming a place find it.
+        id: '125_item_home_location',
+        run: () => {
+          this.db.exec(`
+            UPDATE inventory_items SET location = (
+              SELECT b.location FROM inventory_location_balances b
+              WHERE b.inventoryItemId = inventory_items.id AND b.location != 'Unassigned' AND b.quantity > 0
+              ORDER BY b.quantity DESC LIMIT 1
+            )
+            WHERE (location IS NULL OR TRIM(location) IN ('', 'Unassigned'))
+              AND NOT EXISTS (SELECT 1 FROM inventory_location_balances u WHERE u.inventoryItemId = inventory_items.id AND u.location = 'Unassigned' AND u.quantity > 0)
+              AND EXISTS (SELECT 1 FROM inventory_location_balances w WHERE w.inventoryItemId = inventory_items.id AND w.location != 'Unassigned' AND w.quantity > 0);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -8507,7 +8524,27 @@ export class DataStore {
         if (line.countedQty === null) continue;
         const delta = Number((line.countedQty - line.systemQty).toFixed(3));
         if (Math.abs(delta) < 0.0001) continue;
-        this.createInventoryAdjustment(count.companyId, line.inventoryItemId, delta, `Cycle count ${count.reference}`, count.location);
+        const note = `Cycle count ${count.reference}`;
+        if (delta > 0 || count.location) {
+          this.createInventoryAdjustment(count.companyId, line.inventoryItemId, delta, note, count.location);
+          continue;
+        }
+        // A count of the whole company takes a shortfall from where the stock actually is:
+        // the item's home location first, then the fullest of the others.
+        const item = this.getInventoryItemById(line.inventoryItemId)!;
+        const home = this.normalizeInventoryLocation(item.location);
+        const places = (this.db
+          .prepare('SELECT location, quantity FROM inventory_location_balances WHERE inventoryItemId = ? AND quantity > 0.0001')
+          .all(line.inventoryItemId) as Array<{ location: string; quantity: number }>)
+          .sort((a, b) => (a.location === home ? -1 : b.location === home ? 1 : b.quantity - a.quantity));
+        let short = -delta;
+        for (const place of places) {
+          if (short < 0.0001) break;
+          const take = Math.min(short, Number(place.quantity));
+          this.createInventoryAdjustment(count.companyId, line.inventoryItemId, -take, note, place.location);
+          short = Number((short - take).toFixed(3));
+        }
+        if (short > 0.0001) this.createInventoryAdjustment(count.companyId, line.inventoryItemId, -short, note, home);
       }
       this.db.prepare("UPDATE stock_counts SET status = 'posted', postedAt = ? WHERE id = ?").run(new Date().toISOString(), id);
     });
@@ -8671,6 +8708,9 @@ export class DataStore {
       const totalQty = rfq.items.reduce((sum, item) => sum + item.quantity, 0) || 1;
       unitCosts = rfq.items.map(() => Number((quote.totalAmount / totalQty).toFixed(4)));
     }
+    // A line named exactly like a stock item (ignoring case and spaces) orders that item, so receiving it adds stock.
+    const key = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+    const stock = new Map(this.listInventoryItems(rfq.companyId).filter((i) => i.tracksInventory).map((i) => [key(i.name), i]));
     const make = this.db.transaction(() => {
     const order = this.createPurchaseOrder({
       companyId: rfq.companyId,
@@ -8680,6 +8720,8 @@ export class DataStore {
       expectedDate: input.expectedDate ?? (quote.leadTimeDays ? new Date(Date.now() + quote.leadTimeDays * 86400000) : undefined),
       status: 'Draft',
       items: rfq.items.map((item, index) => ({
+        inventoryItemId: stock.get(key(item.description))?.id,
+        sku: stock.get(key(item.description))?.sku,
         description: item.description,
         quantity: item.quantity,
         unitCost: Number(unitCosts![index]) || 0,
@@ -11192,7 +11234,8 @@ export class DataStore {
 	        ...rule,
 	        userId: rule.userId ?? null,
 	        role: rule.role ?? null,
-	        serviceType: rule.serviceType ?? null,
+	        // Blank means any service. Stored as '' because the column predates optional service types and stays NOT NULL.
+	        serviceType: rule.serviceType ?? '',
 	        fixedAmount: rule.fixedAmount ?? null,
 	        isActive: rule.isActive ? 1 : 0,
 	        notes: rule.notes ?? null,
@@ -11230,7 +11273,7 @@ export class DataStore {
 	      .run(
 	        next.userId ?? null,
 	        next.role ?? null,
-	        next.serviceType ?? null,
+	        next.serviceType ?? '',
 	        next.basis,
 	        next.rateType,
 	        next.rate,
@@ -11948,7 +11991,11 @@ export class DataStore {
 	        .get(opportunity.companyId, opportunity.serviceType) as any) ||
 	      (this.db
 	        .prepare('SELECT * FROM commission_rules WHERE companyId = ? AND serviceType = ? AND isActive = 1 LIMIT 1')
-	        .get(opportunity.companyId, 'Default') as any);
+	        .get(opportunity.companyId, 'Default') as any) ||
+	      // A rule left blank applies to any service; the most important one wins.
+	      (this.db
+	        .prepare("SELECT * FROM commission_rules WHERE companyId = ? AND (serviceType IS NULL OR serviceType = '') AND isActive = 1 ORDER BY priority DESC LIMIT 1")
+	        .get(opportunity.companyId) as any);
 	    if (!ruleRow || !opportunity.ownerUserId) return [];
 	    const rule = this.decodeCommissionRule(ruleRow);
 	    const basisAmount = this.computeCommissionBasisAmount(opportunity, rule.basis);
@@ -13050,6 +13097,13 @@ export class DataStore {
       throw new Error(`Location ${normalizedLocation} does not have enough stock.`);
     }
     this.setLocationBalance(companyId, inventoryItemId, normalizedLocation, Math.max(0, nextQuantity));
+    // An item with no home yet makes the first real place its stock arrives in its home, so issues,
+    // deliveries and counts that do not name a place look where the stock is.
+    if (quantityChange > 0 && normalizedLocation !== 'Unassigned') {
+      this.db
+        .prepare("UPDATE inventory_items SET location = ? WHERE id = ? AND companyId = ? AND (location IS NULL OR TRIM(location) IN ('', 'Unassigned'))")
+        .run(normalizedLocation, inventoryItemId, companyId);
+    }
   }
 
   createInventoryItem(input: CreateInventoryItemInput): InventoryItem {
@@ -16996,8 +17050,10 @@ export class DataStore {
       // exempt lines carries less VAT than its rate applied to the whole.
       const sourceVat = sourceInvoice ? this.computeInvoiceTotals(sourceInvoice.lineItems || [], sourceInvoice.taxRate) : undefined;
       const netShare = sourceVat && sourceVat.gross > 0 ? sourceVat.net / sourceVat.gross : 1;
-      const netCredit = Number((total * netShare).toFixed(2));
-      const taxCredit = Number((total - netCredit).toFixed(2));
+      // The note is in the invoice's currency; the books are in the company's, at the invoice's rate.
+      const booked = Number((total * (Number(sourceInvoice?.exchangeRate) || 1)).toFixed(3));
+      const netCredit = Number((booked * netShare).toFixed(2));
+      const taxCredit = Number((booked - netCredit).toFixed(2));
 
       const creditLines = [
         { id: uuid(), accountId: revenueAccountId, description: 'Revenue reversal', debit: netCredit, credit: 0 },
@@ -17011,7 +17067,7 @@ export class DataStore {
           credit: 0,
         });
       }
-      creditLines.push({ id: uuid(), accountId: arAccountId, description: 'Accounts receivable', debit: 0, credit: total });
+      creditLines.push({ id: uuid(), accountId: arAccountId, description: 'Accounts receivable', debit: 0, credit: Number((netCredit + taxCredit).toFixed(2)) });
 
       this.createJournalEntry({
         companyId: input.companyId,

@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getUsersByCompany } from '@/services/userService';
 import { getClients, getInvoices } from '@/services/financeService';
 import { getTasks } from '@/services/projectService';
+import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import type { Client, Invoice, ProjectVisibility, Task } from '@/lib/types';
 import { format } from 'date-fns';
 import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modules/projects/lib/access';
@@ -105,6 +106,26 @@ export default function ProjectDetailsPage() {
 
     fetchData();
   }, [id, selectedCompany, router, currentUser, currentRole, seesAllProjects, canLoadUsers, canLoadClients, canLoadInvoices]);
+
+  // A task added, edited or logged anywhere on this page shows up without a reload.
+  React.useEffect(() => {
+    if (!id || !selectedCompany) return;
+    const companyId = selectedCompany.id;
+    let settle: number | undefined;
+    const refresh = () => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(async () => {
+        const [projectData, taskData] = await Promise.all([getProjectById(id), getTasks()]).catch(() => [null, null] as const);
+        if (projectData && projectData.companyId === companyId) setProject(projectData);
+        if (taskData) setTasks(taskData.filter((task) => task.companyId === companyId));
+      }, 300);
+    };
+    window.addEventListener(DATA_CHANGED_EVENT, refresh);
+    return () => {
+      window.clearTimeout(settle);
+      window.removeEventListener(DATA_CHANGED_EVENT, refresh);
+    };
+  }, [id, selectedCompany]);
 
   if (loading) {
     return (

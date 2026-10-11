@@ -125,11 +125,12 @@ export function JournalTable() {
   );
 
   const handleReverse = async (entry: JournalEntry) => {
+    const label = entry.memo?.trim() || tr('this entry', 'هذا القيد');
     const ok = await confirm({
-      title: tr('Reverse this entry?', 'عكس هذا القيد؟'),
+      title: tr(`Reverse "${label}"?`, `عكس "${label}"؟`),
       description: tr(
-        'A mirror entry dated today swaps every debit and credit, so the two cancel out. The original stays in the journal. This can be done once.',
-        'يُنشأ قيد معاكس بتاريخ اليوم يبدّل كل مدين ودائن فيلغي أحدهما الآخر. يبقى القيد الأصلي في اليومية. لا يمكن ذلك إلا مرة واحدة.',
+        `A mirror entry dated today swaps every debit and credit of "${label}" (${new Date(entry.entryDate).toLocaleDateString()}), so the two cancel out. The original stays in the journal. This can be done once.`,
+        `يُنشأ قيد معاكس بتاريخ اليوم يبدّل كل مدين ودائن في "${label}" (${new Date(entry.entryDate).toLocaleDateString()}) فيلغي أحدهما الآخر. يبقى القيد الأصلي في اليومية. لا يمكن ذلك إلا مرة واحدة.`,
       ),
       confirmText: tr('Reverse', 'عكس'),
       cancelText: tr('Cancel', 'إلغاء'),

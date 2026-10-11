@@ -1326,6 +1326,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '122_workspace_media_kit',
     '123_push',
     '124_portal_push_log',
+    '125_item_home_location',
   ]);
 });
 
@@ -1578,6 +1579,61 @@ test('cycle count posts on-hand adjustments from the physical count', async () =
   const empToken = await login(app, 'charlie.d@innovatecorp.com');
   const denied = await request(app).get('/companies/1/stock-counts').set('Authorization', `Bearer ${empToken}`);
   assert.equal(denied.status, 403);
+});
+
+test('a count takes a shortfall from where the stock is, not only from the item\'s home location', () => {
+  const store = new DataStore({ dbPath: path.join(makeTmpDir('taskflow-cc2-'), 'taskflow.db'), seedOnEmpty: true });
+  // Created with no warehouse; its stock was later received into the cold store.
+  const item = store.createInventoryItem({ companyId: '1', name: 'Dates', category: 'Dates', unit: 'box', tracksInventory: true, unitCost: 12 });
+  store.createInventoryAdjustment('1', item.id, 20, 'Received', 'Cold store');
+  const count = store.createStockCount('1');
+  const line = count.lines.find((l) => l.inventoryItemId === item.id);
+  store.updateStockCountLines(count.id, [{ lineId: line.id, countedQty: 19 }]);
+  assert.equal(store.postStockCount(count.id).status, 'posted');
+  assert.equal(store.getInventoryItemById(item.id).onHand, 19);
+  assert.equal(store.getLocationBalance('1', item.id, 'Cold store').quantity, 19);
+});
+
+test('an item with no home location takes the first warehouse its stock arrives in', () => {
+  const store = new DataStore({ dbPath: path.join(makeTmpDir('taskflow-home-'), 'taskflow.db'), seedOnEmpty: true });
+  const item = store.createInventoryItem({ companyId: '1', name: 'Figs', category: 'Fruit', unit: 'box', tracksInventory: true, unitCost: 5 });
+  store.createInventoryAdjustment('1', item.id, 20, 'Received', 'Cold store');
+  assert.equal(store.getInventoryItemById(item.id).location, 'Cold store');
+  // Taking stock out without naming a place now finds it.
+  store.createInventoryAdjustment('1', item.id, -5, 'Shipped');
+  assert.equal(store.getLocationBalance('1', item.id, 'Cold store').quantity, 15);
+  // A second warehouse does not move its home.
+  store.createInventoryAdjustment('1', item.id, 3, 'Received', 'Overflow');
+  assert.equal(store.getInventoryItemById(item.id).location, 'Cold store');
+});
+
+test('a commission rule for any service (service type left blank) can be saved and edited', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const created = await request(app).post('/companies/1/commission-rules').set('Authorization', `Bearer ${token}`)
+    .send({ basis: 'Revenue', rateType: 'Percent', rate: 5 });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.equal(created.body.serviceType ?? null, null);
+  const edited = await request(app).put(`/commission-rules/${created.body.id}`).set('Authorization', `Bearer ${token}`)
+    .send({ rate: 6 });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.equal(edited.body.rate, 6);
+});
+
+test('winning a deal earns commission from a rule that applies to any service', async () => {
+  const app = makeApp();
+  const token = await login(app, 'admin@taskflow.com');
+  const as = (r) => r.set('Authorization', `Bearer ${token}`);
+  assert.equal((await as(request(app).post('/companies/1/commission-rules')).send({ basis: 'Revenue', rateType: 'Percent', rate: 5 })).status, 201);
+  const contact = (await as(request(app).post('/companies/1/contacts')).send({ name: 'Any Service Hotel', roles: ['Client'] })).body;
+  const opp = (await as(request(app).post('/companies/1/opportunities')).send({
+    contactId: contact.id, title: 'Dates', serviceType: 'Dates supply', expectedRevenue: 1000, probability: 50,
+  })).body;
+  const won = await as(request(app).patch(`/opportunities/${opp.id}/stage`)).send({ stage: 'Won' });
+  assert.equal(won.status, 200, JSON.stringify(won.body));
+  const commissions = (await as(request(app).get('/companies/1/commissions'))).body.filter((c) => c.opportunityId === opp.id);
+  assert.equal(commissions.length, 1);
+  assert.equal(commissions[0].amount, 50);
 });
 
 test('RFQ collects supplier quotes and awards the winning one', async () => {

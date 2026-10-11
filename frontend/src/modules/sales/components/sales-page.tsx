@@ -93,7 +93,7 @@ export function SalesPage() {
   const confirm = useConfirm();
   const canManage = usePermissionOr('sales', 'write', currentRole !== 'Employee');
   const { t, language } = useI18n();
-  const { amount } = useCompanyCurrency();
+  const { amount, money } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
@@ -442,7 +442,9 @@ export function SalesPage() {
                 </div>
               </div>
 
-              <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={items} />
+              <div className="min-w-0 overflow-x-auto">
+                <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={items} />
+              </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
                 <Button onClick={handleCreate}>{editingOrder ? t('sales.saveChanges', 'Save changes') : t('sales.createOrder')}</Button>
@@ -602,7 +604,7 @@ export function SalesPage() {
             <DialogTitle>{t('sales.createInvoice')}</DialogTitle>
             <DialogDescription>
               {invoiceOrder
-                ? `${invoiceOrder.orderNumber} — ${amount(invoiceOrder.totalAmount)}`
+                ? `${invoiceOrder.orderNumber} — ${money(invoiceOrder.totalAmount)}`
                 : ''}
             </DialogDescription>
           </DialogHeader>

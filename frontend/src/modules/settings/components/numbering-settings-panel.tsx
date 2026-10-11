@@ -329,7 +329,7 @@ export function NumberingSettingsPanel() {
             {t('settingsPage.financeControlsDesc')}
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[220px_220px_220px_220px_auto]">
+        <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="space-y-1">
             <Label>{t('settingsPage.platformCurrency')}</Label>
             <Select
@@ -389,15 +389,15 @@ export function NumberingSettingsPanel() {
               {tr('Orders at or above this need approval. 0 disables.', 'الأوامر بهذا المبلغ أو أكثر تتطلب اعتماداً. 0 لتعطيله.')}
             </p>
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end justify-end sm:col-span-2 xl:col-span-4">
             <Button onClick={saveFinanceSettings} disabled={!canEdit || savingFinance}>
               {savingFinance ? t('settingsPage.saving') : t('settingsPage.saveFinanceControls')}
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground md:col-span-5">
+          <p className="text-sm text-muted-foreground sm:col-span-2 xl:col-span-4">
             {t('settingsPage.currencyLabel')}: {financeSettings?.currencyCode || 'USD'}. {t('settingsPage.omrNote')}
           </p>
-          <p className="text-sm text-muted-foreground md:col-span-5">
+          <p className="text-sm text-muted-foreground sm:col-span-2 xl:col-span-4">
             {t('settingsPage.currentLock')}:{' '}
             {financeSettings?.lockedThroughDate
               ? t('settingsPage.lockBlocked').replace('{date}', format(financeSettings.lockedThroughDate, 'MMM d, yyyy'))

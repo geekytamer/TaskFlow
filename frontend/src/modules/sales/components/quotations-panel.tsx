@@ -385,7 +385,10 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
               </Select>
             </div>
           </div>
-          <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} />
+          {/* The line table is wider than the dialog: it scrolls on its own instead of stretching the form. */}
+          <div className="min-w-0 overflow-x-auto">
+            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} />
+          </div>
           <dl className="ms-auto grid w-full max-w-xs grid-cols-2 gap-y-1 text-sm">
             <dt className="text-muted-foreground">{t('quotes.subtotal')}</dt><dd className="text-end tabular-nums">{money(subtotal)}</dd>
             <dt className="text-muted-foreground">{t('quotes.vatAmount')}</dt><dd className="text-end tabular-nums">{money(vat)}</dd>

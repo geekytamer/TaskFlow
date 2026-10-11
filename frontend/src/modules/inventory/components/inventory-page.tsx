@@ -747,7 +747,7 @@ export function InventoryPage() {
             </DialogHeader>
             <div className="grid gap-3 py-2 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>{tr('Name', 'الاسم')}</Label>
+                <Label>{tr('Name', 'الاسم')} <span className="text-destructive">*</span></Label>
                 <Input
                   value={form.name}
                   onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
@@ -773,7 +773,7 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>{tr('Category', 'الفئة')}</Label>
+                <Label>{tr('Category', 'الفئة')} <span className="text-destructive">*</span></Label>
                 <CreatableCombobox
                   options={categoryOptions}
                   value={form.category}
@@ -784,7 +784,7 @@ export function InventoryPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>{tr('Unit', 'الوحدة')}</Label>
+                <Label>{tr('Unit', 'الوحدة')} <span className="text-destructive">*</span></Label>
                 <Select value={form.unit} onValueChange={(value) => setForm((prev) => ({ ...prev, unit: value }))}>
                   <SelectTrigger>
                     <SelectValue />
