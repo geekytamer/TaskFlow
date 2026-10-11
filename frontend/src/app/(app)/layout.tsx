@@ -23,6 +23,7 @@ import { useI18n } from '@/context/i18n-context';
 import { TourProvider } from '@/components/tutorial/tour-context';
 import { TourOverlay } from '@/components/tutorial/tour-overlay';
 import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-launcher';
+import { TUTORIAL_ENABLED } from '@/lib/features';
 import { CommandPalette } from '@/modules/layout/components/command-palette';
 import { NotificationBell } from '@/modules/layout/components/notification-bell';
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
@@ -99,9 +100,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarNav />
         </SidebarContent>
         <SidebarFooter>
-          <div className="px-2 pb-1">
-            <TourHelpButton />
-          </div>
+          {TUTORIAL_ENABLED && (
+            <div className="px-2 pb-1">
+              <TourHelpButton />
+            </div>
+          )}
           <UserNav />
         </SidebarFooter>
       </Sidebar>
@@ -132,8 +135,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6"><ModuleGate>{children}</ModuleGate></main>
       </SidebarInset>
-      <TourOverlay />
-      <WelcomeTourModal />
+      {TUTORIAL_ENABLED && <TourOverlay />}
+      {TUTORIAL_ENABLED && <WelcomeTourModal />}
       <CommandPalette />
     </TourProvider>
     </SidebarProvider>
