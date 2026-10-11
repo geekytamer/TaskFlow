@@ -249,7 +249,7 @@ export function FollowupsPage() {
   return (
     <SectionPageShell title={tr('Follow-ups', 'المتابعات')} description={tr('Your relationship workqueue — never let a thread go cold.', 'قائمة عمل علاقاتك — لا تدع أي خيط يبرد.')}>
       {/* Toolbar */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div data-tutorial="followups-filters" className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-lg border p-0.5">
             {(canManage ? (['today', 'list', 'team'] as const) : (['today', 'list'] as const)).map((v) => (
@@ -339,6 +339,7 @@ export function FollowupsPage() {
         </div>
       )}
 
+      <div data-tutorial="followups-list">
       {view === 'team' && selectedCompany ? (
         <TeamView companyId={selectedCompany.id} tr={tr} members={members} meId={currentUser?.id} />
       ) : loading ? (
@@ -416,6 +417,7 @@ export function FollowupsPage() {
           </Table>
         </div>
       )}
+      </div>
 
       {createOpen && selectedCompany && (
         <NewFollowupDialog open={createOpen} onOpenChange={setCreateOpen} tr={tr}
