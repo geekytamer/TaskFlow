@@ -136,11 +136,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     ar: 'الفاتورة المرسلة لا تُحذف أبداً. الإشعار الدائن يعكس جزءاً منها أو كلها: ينخفض الإيراد والضريبة وما يدين به العميل، ويبقى السجل.',
   },
 
-  'credit-currency/limit': {
-    title: { en: 'Credit limits', ar: 'سقف الائتمان' },
-    en: 'The limit is the most a client may owe at once: unpaid invoices plus confirmed orders. Sending an invoice or confirming an order that goes past it is refused; Admins and Accountants can go ahead anyway, and are asked first.',
-    ar: 'السقف هو أقصى ما يجوز أن يدين به العميل في وقت واحد: الفواتير غير المدفوعة والطلبات المؤكدة. يُرفض إرسال فاتورة أو تأكيد طلب يتجاوزه؛ ويمكن للمدير العام والمحاسب المتابعة رغم ذلك بعد سؤالهم.',
-  },
   'credit-currency/fx': {
     title: { en: 'Other currencies', ar: 'العملات الأخرى' },
     en: 'The client sees the invoice in their currency. Your books record it in the company currency at the invoice’s exchange rate.',

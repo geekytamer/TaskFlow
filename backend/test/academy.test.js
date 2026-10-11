@@ -203,17 +203,16 @@ test('the new missions check real work in the practice company', async () => {
     .flatMap((m) => m.objectives.map((o) => [`${m.id}/${o.id}`, o.done])));
 
   const before = await done();
-  for (const k of ['stock-control/warehouse', 'credit-currency/limit', 'close-quarter/vat', 'documents/template', 'documents/document', 'documents/final']) assert.equal(before[k], false, k);
+  for (const k of ['stock-control/warehouse', 'close-quarter/vat', 'documents/template', 'documents/document', 'documents/final']) assert.equal(before[k], false, k);
 
   ctx.store.createWarehouse({ companyId: pc, name: 'Cold store' });
-  const hotel = ctx.store.createClient({ name: 'Dubai Hotel', email: 'd@x.example', address: 'Dubai', companyId: pc });
-  ctx.store.updateClient(hotel.id, { creditLimit: 2000 });
   ctx.store.fileVatReturn(pc, new Date(Date.now() - 90 * 86400000), new Date());
-  const template = ctx.store.createDocumentTemplate(pc, { name: 'Supply letter', type: 'letter', dataSource: 'none' });
+  // Letter templates are made on the Documents page, which stores them with the other templates.
+  const template = ctx.store.createInvoiceTemplate({ companyId: pc, name: 'Supply letter', layout: 'classic', docType: 'letter' });
   ctx.store.createDocument(pc, { templateId: template.id, title: 'Ramadan supply', status: 'draft' });
 
   const after = await done();
-  for (const k of ['stock-control/warehouse', 'credit-currency/limit', 'close-quarter/vat', 'documents/template', 'documents/document']) assert.equal(after[k], true, k);
+  for (const k of ['stock-control/warehouse', 'close-quarter/vat', 'documents/template', 'documents/document']) assert.equal(after[k], true, k);
   assert.equal(after['documents/final'], false, 'a draft is not final');
 });
 
@@ -230,4 +229,16 @@ test('every objective has a guide, and guides and explanations point only at rea
   assert.deepEqual(guides.filter((k) => !objectives.includes(k)), [], 'guides for objectives that do not exist');
   assert.deepEqual(explainers.filter((k) => !objectives.includes(k)), [], 'explanations for objectives that do not exist');
   assert.ok(explainers.includes('get-work-done/private') && explainers.includes('get-work-done/project'), 'visibility is explained');
+});
+
+test('month-end checks look at the books as they are, not at growth since the start', async () => {
+  const ctx = setup({ enforce: false });
+  const sara = ctx.newUser('Accountant', 'sara@x.example');
+  const progress = await start(ctx, sara);
+  const monthEnd = progress.missions.find((m) => m.id === 'month-end');
+  // The practice books balance from the opening entry, so this one is met at once.
+  assert.equal(monthEnd.objectives.find((o) => o.id === 'balanced').done, true);
+  // Nothing sold yet, so no profit and no paid invoice.
+  assert.equal(monthEnd.objectives.find((o) => o.id === 'profit').done, false);
+  assert.equal(monthEnd.objectives.find((o) => o.id === 'no-overdue').done, false);
 });

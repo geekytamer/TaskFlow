@@ -103,7 +103,7 @@ export function progressFor(store: DataStore, user: SanitizedUser) {
 
   for (const m of path) {
     if (completed.has(m.id) || (m.after ?? []).some((id) => !completed.has(id))) continue;
-    const allDone = m.objectives.every((o) => (o.measure ? practice !== null && (now[`${m.id}/${o.id}`] ?? 0) > (state.baseline[`${m.id}/${o.id}`] ?? 0) : reported.has(`${m.id}/${o.id}`)));
+    const allDone = m.objectives.every((o) => (o.measure ? practice !== null && (now[`${m.id}/${o.id}`] ?? 0) > (o.absolute ? 0 : state.baseline[`${m.id}/${o.id}`] ?? 0) : reported.has(`${m.id}/${o.id}`)));
     if (allDone) store.academy.complete(user.id, m.id, m.xp);
   }
   completed = store.academy.completed(user.id);
@@ -116,7 +116,7 @@ export function progressFor(store: DataStore, user: SanitizedUser) {
       status: done ? 'done' : waiting ? 'waiting' : 'open', completedAt: done?.completedAt ?? null,
       objectives: m.objectives.map((o) => {
         const key = `${m.id}/${o.id}`;
-        const met = Boolean(done) || (o.measure ? practice !== null && (now[key] ?? 0) > (state.baseline[key] ?? 0) : reported.has(key));
+        const met = Boolean(done) || (o.measure ? practice !== null && (now[key] ?? 0) > (o.absolute ? 0 : state.baseline[key] ?? 0) : reported.has(key));
         return { id: o.id, title: o.title, done: met, reported: !o.measure, visit: o.visit ?? null };
       }),
     };

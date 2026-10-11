@@ -27,6 +27,8 @@ export interface Objective {
   measure?: (ctx: ObjectiveContext) => number;
   /** Browser-reported when the trainee opens this page (screens that only show things). */
   visit?: string;
+  /** Met whenever the measure is above zero: a state of the books, not growth past the baseline. */
+  absolute?: boolean;
 }
 
 export interface Mission {
@@ -101,7 +103,7 @@ export const MISSIONS: Mission[] = [
       ar: 'تحتاج مخزوناً قبل أن تبيع. اشترِ تمور الخلاص من مزارع النخيل بالطريقة الصحيحة، وشاهد النقد يتحوّل إلى مخزون.',
     },
     objectives: [
-      { id: 'supplier', title: { en: 'Add the supplier', ar: 'أضف المورّد' }, measure: rows('suppliers') },
+      { id: 'supplier', title: { en: 'Add the supplier', ar: 'أضف المورّد' }, measure: rows('contact_roles', "role = 'Vendor'") },
       { id: 'item', title: { en: 'Create a stock item', ar: 'أنشئ صنف مخزون' }, measure: rows('inventory_items', 'tracksInventory = 1') },
       { id: 'requisition', title: { en: 'Get a purchase requisition approved', ar: 'احصل على اعتماد طلب شراء' }, measure: rows('purchase_requisitions', "status IN ('Approved', 'Converted')") },
       {
@@ -132,11 +134,11 @@ export const MISSIONS: Mission[] = [
         id: 'part-paid', title: { en: 'Record a part payment', ar: 'سجّل دفعة جزئية' },
         measure: (c) => c.count('SELECT COUNT(*) AS n FROM payments p JOIN invoices i ON i.id = p.invoiceId WHERE i.companyId = ?', c.companyId),
       },
+      { id: 'credit', title: { en: 'Credit a damaged box', ar: 'أصدر إشعار دائن لعلبة تالفة' }, measure: rows('credit_notes') },
       {
         id: 'fully-paid', title: { en: 'Collect the rest', ar: 'اقبض الباقي' },
         measure: (c) => c.count("SELECT COUNT(*) AS n FROM invoices i WHERE i.companyId = ? AND i.status = 'Paid' AND (SELECT COUNT(*) FROM payments p WHERE p.invoiceId = i.id) >= 2", c.companyId),
       },
-      { id: 'credit', title: { en: 'Credit a damaged box', ar: 'أصدر إشعار دائن لعلبة تالفة' }, measure: rows('credit_notes') },
     ],
   },
   {
@@ -212,9 +214,9 @@ export const MISSIONS: Mission[] = [
       ar: 'يسأل المالك ثلاثة أسئلة: هل الدفاتر متوازنة، وهل دفع كل العملاء في موعدهم، وهل حققنا ربحاً؟',
     },
     objectives: [
-      { id: 'balanced', title: { en: 'The trial balance balances', ar: 'ميزان المراجعة متوازن' }, measure: (c) => (c.balanced() ? 1 : 0) },
-      { id: 'no-overdue', title: { en: 'No overdue invoices', ar: 'لا فواتير متأخرة' }, measure: (c) => (c.count("SELECT COUNT(*) AS n FROM invoices WHERE companyId = ? AND status = 'Overdue'", c.companyId) === 0 && c.count("SELECT COUNT(*) AS n FROM invoices WHERE companyId = ? AND status = 'Paid'", c.companyId) > 0 ? 1 : 0) },
-      { id: 'profit', title: { en: 'The month made a profit', ar: 'حقق الشهر ربحاً' }, measure: (c) => (c.profit() > 0 ? 1 : 0) },
+      { id: 'balanced', title: { en: 'The trial balance balances', ar: 'ميزان المراجعة متوازن' }, measure: (c) => (c.balanced() ? 1 : 0), absolute: true },
+      { id: 'no-overdue', title: { en: 'No overdue invoices', ar: 'لا فواتير متأخرة' }, measure: (c) => (c.count("SELECT COUNT(*) AS n FROM invoices WHERE companyId = ? AND status = 'Overdue'", c.companyId) === 0 && c.count("SELECT COUNT(*) AS n FROM invoices WHERE companyId = ? AND status = 'Paid'", c.companyId) > 0 ? 1 : 0), absolute: true },
+      { id: 'profit', title: { en: 'The month made a profit', ar: 'حقق الشهر ربحاً' }, measure: (c) => (c.profit() > 0 ? 1 : 0), absolute: true },
     ],
   },
 
@@ -259,13 +261,12 @@ export const MISSIONS: Mission[] = [
 
   {
     id: 'credit-currency', order: 9, xp: 90, roles: ['Admin', 'Manager', 'Accountant'], modules: [],
-    title: { en: 'Credit and currency', ar: 'الائتمان والعملات' },
+    title: { en: 'Another currency', ar: 'عملة أخرى' },
     story: {
-      en: 'A Dubai hotel wants to buy on credit, in dirhams. Set how much they may owe, and invoice them in their currency.',
-      ar: 'فندق في دبي يريد الشراء بالآجل وبالدرهم. حدّد ما يمكنه أن يدين به، وأصدر فاتورته بعملته.',
+      en: 'A Dubai hotel wants to pay in dirhams. Invoice them in their currency; the books still record it in rials.',
+      ar: 'فندق في دبي يريد الدفع بالدرهم. أصدر فاتورته بعملته؛ وتبقى الدفاتر مسجّلة بالريال.',
     },
     objectives: [
-      { id: 'limit', title: { en: 'Give a client a credit limit', ar: 'حدّد سقف ائتمان لعميل' }, measure: rows('clients', 'creditLimit > 0') },
       { id: 'fx', title: { en: 'Send an invoice in another currency', ar: 'أرسل فاتورة بعملة أخرى' }, measure: rows('invoices', "currency IS NOT NULL AND currency != 'OMR' AND status != 'Draft'") },
     ],
   },
@@ -278,7 +279,7 @@ export const MISSIONS: Mission[] = [
       ar: 'يحتاج الفندق خطاباً يؤكد توريد رمضان. صمّم قالباً مرة واحدة، ثم أنتج الخطاب منه.',
     },
     objectives: [
-      { id: 'template', title: { en: 'Create a letter template', ar: 'أنشئ قالب خطاب' }, measure: rows('document_templates') },
+      { id: 'template', title: { en: 'Create a letter template', ar: 'أنشئ قالب خطاب' }, measure: rows('invoice_templates', "docType = 'letter'") },
       { id: 'document', title: { en: 'Produce a letter from it', ar: 'أنتج خطاباً منه' }, measure: rows('documents') },
       { id: 'final', title: { en: 'Finalize it', ar: 'اعتمده نهائياً' }, measure: rows('documents', "status = 'final'") },
     ],

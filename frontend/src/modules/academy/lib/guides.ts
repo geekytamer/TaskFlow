@@ -36,7 +36,7 @@ export const GUIDES: Record<string, GuideStep[]> = {
     { route: '/projects', target: nav('projects-tasks-table'), en: 'Add a personal task such as "Renew my visa" and tick Private.', ar: 'أضف مهمة شخصية مثل "تجديد تأشيرتي" وفعّل خيار خاص.' },
   ],
   'get-work-done/time': [
-    { route: '/projects', target: nav('projects-tasks-table'), en: 'In the task, log the time you spent (try 45 minutes).', ar: 'في المهمة، سجّل الوقت الذي قضيته (جرّب 45 دقيقة).' },
+    { route: '/projects', target: nav('projects-tasks-table'), en: 'In the task, under Time tracking, log the hours you spent (try 0.75 for 45 minutes).', ar: 'في المهمة، ضمن تتبّع الوقت، سجّل الساعات التي قضيتها (جرّب 0.75 أي 45 دقيقة).' },
   ],
   'get-work-done/done': [
     { route: '/projects', target: nav('projects-tasks-table'), en: 'Set the task to Done. Billable time can now be invoiced.', ar: 'اجعل المهمة منجزة. يمكن الآن فوترة الوقت.' },
@@ -47,14 +47,15 @@ export const GUIDES: Record<string, GuideStep[]> = {
     { route: '/contacts', target: nav('contacts-create'), en: 'Add "Al Noor Hotel" as a contact with the Client role.', ar: 'أضف "فندق النور" كجهة اتصال بدور عميل.' },
   ],
   'win-customer/opportunity': [
-    { target: nav('nav-pipeline'), en: 'Open the pipeline.', ar: 'افتح مسار المبيعات.' },
-    { route: '/crm/pipeline', target: nav('pipeline-create-opp'), en: 'Create an opportunity: "Iftar dates for Al Noor Hotel", expected OMR 1,200.', ar: 'أنشئ فرصة: "تمور الإفطار لفندق النور"، بقيمة متوقعة 1,200 ر.ع.' },
+    { target: nav('nav-opportunities'), en: 'Open Opportunities.', ar: 'افتح الفرص.' },
+    { route: '/crm/opportunities', target: nav('pipeline-create-opp'), en: 'Create an opportunity: "Iftar dates for Al Noor Hotel", expected OMR 1,200.', ar: 'أنشئ فرصة: "تمور الإفطار لفندق النور"، بقيمة متوقعة 1,200 ر.ع.' },
   ],
   'win-customer/follow-up': [
-    { route: '/crm/pipeline', target: nav('opportunities-kanban'), en: 'Open the opportunity and schedule a follow-up call for tomorrow.', ar: 'افتح الفرصة وجدول مكالمة متابعة غداً.' },
+    { target: nav('nav-followups'), en: 'Open Follow-ups.', ar: 'افتح المتابعات.' },
+    { route: '/crm/followups', en: 'Press New follow-up: call Al Noor Hotel tomorrow about the dates.', ar: 'اضغط "متابعة جديدة": اتصل بفندق النور غداً بخصوص التمور.' },
   ],
   'win-customer/advance': [
-    { route: '/crm/pipeline', target: nav('opportunities-kanban'), en: 'Move the opportunity to Qualified. The pipeline value updates.', ar: 'انقل الفرصة إلى "مؤهلة". تتحدث قيمة المسار.' },
+    { route: '/crm/opportunities', target: nav('opportunities-kanban'), en: 'Move the opportunity to Qualified. The pipeline value updates.', ar: 'انقل الفرصة إلى "مؤهلة". تتحدث قيمة المسار.' },
   ],
 
   'buy-restock/supplier': [
@@ -69,11 +70,11 @@ export const GUIDES: Record<string, GuideStep[]> = {
   ],
   'buy-restock/rfq': [
     { target: nav('nav-rfq'), en: 'Open RFQs.', ar: 'افتح طلبات عروض الأسعار.' },
-    { route: '/purchases/rfq', target: nav('rfq-create'), en: 'Ask for quotes, add two supplier quotes, and award the better one.', ar: 'اطلب عروضاً، أضف عرضَي مورّدين، ورسِّ الأفضل.' },
+    { route: '/purchases/rfq', target: nav('rfq-create'), en: 'Add a second supplier, then ask for quotes. Name the line exactly like your stock item (Khalas dates 5 kg), add both quotes, award the better one and create the purchase order.', ar: 'أضف مورّداً ثانياً، ثم اطلب عروض الأسعار. سمِّ البند باسم صنف المخزون نفسه (تمر خلاص 5 كغ)، وأضف العرضين، وامنح الأفضل، وأنشئ أمر الشراء.' },
   ],
   'buy-restock/receive': [
     { target: nav('nav-purchases'), en: 'Open Purchases.', ar: 'افتح المشتريات.' },
-    { route: '/purchases', target: nav('purchases-table'), en: 'Approve the purchase order and receive the goods. Watch stock value rise.', ar: 'اعتمد أمر الشراء واستلم البضاعة. لاحظ ارتفاع قيمة المخزون.' },
+    { route: '/purchases', target: nav('purchases-table'), en: 'Place the order, then Receive it. Watch stock value rise.', ar: 'اضغط "تقديم الطلب" ثم استلمه. راقب ارتفاع قيمة المخزون.' },
   ],
   'buy-restock/bill': [
     { route: '/finance?tab=payables', target: nav('finance-tab-payables'), en: 'In Payables, approve the supplier bill. You now owe the supplier.', ar: 'في المستحقات، اعتمد فاتورة المورّد. أصبحت مديناً للمورّد.' },
@@ -98,19 +99,20 @@ export const GUIDES: Record<string, GuideStep[]> = {
   'sell-get-paid/part-paid': [
     { route: '/finance?tab=invoices', target: nav('invoice-table'), en: 'The hotel pays half. Record a part payment.', ar: 'دفع الفندق النصف. سجّل دفعة جزئية.' },
   ],
-  'sell-get-paid/fully-paid': [
-    { route: '/finance?tab=invoices', target: nav('invoice-table'), en: 'Now record the rest. The invoice turns Paid.', ar: 'سجّل الباقي الآن. تصبح الفاتورة مدفوعة.' },
-  ],
   'sell-get-paid/credit': [
-    { route: '/finance?tab=invoices', target: nav('invoice-table'), en: 'One box arrived damaged: issue a credit note from the invoice’s actions.', ar: 'وصلت علبة تالفة: أصدر إشعار دائن من إجراءات الفاتورة.' },
+    { route: '/finance?tab=invoices', target: nav('invoice-table'), en: 'One box arrived damaged: preview the invoice and issue a credit note for one box (OMR 18).', ar: 'وصلت علبة تالفة: افتح معاينة الفاتورة وأصدر إشعار دائن لعلبة واحدة (18 ر.ع).' },
+  ],
+  'sell-get-paid/fully-paid': [
+    { route: '/finance?tab=invoices', target: nav('invoice-table'), en: 'Now record what is left after the credit. The invoice turns Paid.', ar: 'سجّل ما تبقّى بعد الإشعار الدائن. تصبح الفاتورة مدفوعة.' },
   ],
 
   'make/recipe': [
+    { route: '/inventory', target: nav('inventory-create-btn'), en: 'First add two stock items: "Empty gift box" with 30 on hand at OMR 1, and "Dates gift box" with a sale price of OMR 25.', ar: 'أضف أولاً صنفين: "علبة هدايا فارغة" برصيد 30 بسعر تكلفة 1 ر.ع، و"علبة تمر هدية" بسعر بيع 25 ر.ع.' },
     { target: nav('nav-manufacturing'), en: 'Open Manufacturing.', ar: 'افتح التصنيع.' },
-    { route: '/manufacturing', en: 'In Recipes, write "Gift box": 1 kg dates + 1 empty box makes 1 gift box.', ar: 'في الوصفات، اكتب "علبة هدية": 1 كغ تمر + علبة فارغة تصنع علبة هدية.' },
+    { route: '/manufacturing', en: 'In Recipes, write "Gift box": it produces 1 Dates gift box from 1 Khalas dates box + 1 Empty gift box.', ar: 'في الوصفات، اكتب "علبة هدية": تُنتج علبة تمر هدية واحدة من علبة تمر خلاص + علبة هدايا فارغة.' },
   ],
   'make/work-order': [
-    { route: '/manufacturing', target: nav('mfg-create-wo'), en: 'Create a work order for the recipe and complete it.', ar: 'أنشئ أمر عمل للوصفة وأكمله.' },
+    { route: '/manufacturing', target: nav('mfg-create-wo'), en: 'Create a work order for the recipe, then Complete it and enter how many you made.', ar: 'أنشئ أمر عمل للوصفة وأكمله.' },
   ],
 
   'run-books/expense': [
@@ -144,7 +146,7 @@ export const GUIDES: Record<string, GuideStep[]> = {
     { route: '/crm/commissions', en: 'Add a commission rule: 5% of revenue.', ar: 'أضف قاعدة عمولة: 5% من الإيراد.' },
   ],
   'campaigns/commission': [
-    { route: '/crm/pipeline', en: 'Win an opportunity with an owner; their commission is calculated.', ar: 'اكسب فرصة لها مسؤول؛ تُحتسب عمولته.' },
+    { route: '/crm/opportunities', en: 'Create a new opportunity and move it all the way to Won. The rule turns its value into your commission.', ar: 'أنشئ فرصة جديدة وانقلها حتى "مكسوبة". تحوّل القاعدة قيمتها إلى عمولتك.' },
   ],
 
   'run-company/details': [
@@ -168,7 +170,7 @@ export const GUIDES: Record<string, GuideStep[]> = {
   ],
   'stock-control/lot': [
     { target: nav('nav-purchases'), en: 'Open Purchases.', ar: 'افتح المشتريات.' },
-    { route: '/purchases', target: nav('purchases-table'), en: 'Order more dates and, when you receive them, enter a batch number and an expiry date.', ar: 'اطلب تموراً إضافية، وعند الاستلام أدخل رقم الدفعة وتاريخ الانتهاء.' },
+    { route: '/purchases', target: nav('purchases-table'), en: 'Order more dates and, when you receive them, enter a batch number and an expiry date.', ar: 'اطلب مزيداً من التمور، وعند استلامها أدخل رقم الدفعة وتاريخ الانتهاء.' },
   ],
   'stock-control/count': [
     { target: nav('nav-stock-counts'), en: 'Open Stock counts.', ar: 'افتح جرد المخزون.' },
@@ -182,17 +184,13 @@ export const GUIDES: Record<string, GuideStep[]> = {
     { target: nav('nav-matching'), en: 'Open Bill matching: ordered, received and billed side by side.', ar: 'افتح مطابقة الفواتير: المطلوب والمستلَم والمفوتَر جنباً إلى جنب.' },
   ],
 
-  'credit-currency/limit': [
-    { target: nav('nav-clients'), en: 'Open Clients.', ar: 'افتح العملاء.' },
-    { route: '/clients', en: 'Edit Al Noor Hotel (or add a Dubai hotel) and give it a credit limit of OMR 2,000.', ar: 'عدّل فندق النور (أو أضف فندقاً في دبي) وحدّد له سقف ائتمان 2,000 ر.ع.' },
-  ],
   'credit-currency/fx': [
-    { route: '/finance?tab=invoices', target: nav('invoice-create-btn'), en: 'Create an invoice in AED and send it. The books still record it in OMR.', ar: 'أنشئ فاتورة بالدرهم وأرسلها. تسجّلها الدفاتر بالريال رغم ذلك.' },
+    { route: '/finance?tab=invoices', target: nav('invoice-create-btn'), en: 'Create an invoice, type AED as its currency and the rate (1 AED = 0.105 OMR), then send it. The books still record it in OMR.', ar: 'أنشئ فاتورة، واكتب AED عملةً لها مع السعر (1 درهم = 0.105 ر.ع)، ثم أرسلها. تبقى الدفاتر مسجّلة بالريال.' },
   ],
 
   'documents/template': [
     { target: nav('nav-documents'), en: 'Open Documents.', ar: 'افتح المستندات.' },
-    { route: '/documents?tab=templates', en: 'Create a letter template with the client name as a field.', ar: 'أنشئ قالب خطاب يكون فيه اسم العميل حقلاً.' },
+    { route: '/documents?tab=templates', en: 'Under "What are you designing?" choose Business letter, press New Template, name it and save.', ar: 'من "ماذا تصمم؟" اختر رسالة عمل، ثم اضغط قالب جديد، وسمّه واحفظه.' },
   ],
   'documents/document': [
     { route: '/documents', en: 'Write a letter to Al Noor Hotel from the template.', ar: 'اكتب خطاباً لفندق النور من القالب.' },
@@ -205,12 +203,12 @@ export const GUIDES: Record<string, GuideStep[]> = {
     { route: '/finance?tab=vat', en: 'Review this quarter: output VAT on sales minus input VAT on purchases. Then file the return; what you owe the tax authority is now on the books.', ar: 'راجع الربع: ضريبة المبيعات ناقص ضريبة المشتريات. ثم قدّم الإقرار؛ صار المستحق للجهة الضريبية في الدفاتر.' },
   ],
   'close-quarter/lock': [
-    { route: '/settings', en: 'In finance settings, lock the closed period so nobody can change it.', ar: 'في إعدادات المالية، أقفل الفترة المنتهية كي لا يغيّرها أحد.' },
+    { route: '/settings', en: 'In Settings, Finance Controls: set Locked Through Date to the last day of the quarter that has ended (not today, or new work would be blocked), then Save Finance Controls.', ar: 'في الإعدادات، ضوابط المالية: اجعل "مقفل حتى تاريخ" آخر يوم في الربع المنتهي (لا اليوم، وإلا مُنع العمل الجديد)، ثم احفظ ضوابط المالية.' },
   ],
 
   'campaigns/influencer': [
     { target: nav('nav-contacts'), en: 'Open Contacts.', ar: 'افتح جهات الاتصال.' },
-    { route: '/contacts', en: 'Add an influencer: a contact with the Influencer role and their handle.', ar: 'أضف مؤثراً: جهة اتصال بدور مؤثر مع حسابه.' },
+    { route: '/contacts', en: 'Add an influencer: a new contact with the Influencer role.', ar: 'أضف مؤثراً: جهة اتصال جديدة بدور مؤثر.' },
   ],
 
   'month-end/balanced': [

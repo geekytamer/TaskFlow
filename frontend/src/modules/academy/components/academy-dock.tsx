@@ -136,7 +136,7 @@ function Spotlight({ step, tr, onAdvance, onClose }: { step: GuideStep; tr: Tr; 
         className="pointer-events-none fixed z-[60] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all duration-200 motion-safe:animate-pulse"
         style={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 }}
       />
-      <div role="status" className="fixed z-[61] w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg" style={{ top: cardTop, left: cardLeft }}>
+      <div role="status" data-academy-spotlight className="fixed z-[61] w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg" style={{ top: cardTop, left: cardLeft }}>
         <div className="flex items-start gap-2">
           <Compass className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <p className="flex-1 leading-snug" dir="auto">{tr(step.en, step.ar)}</p>
@@ -291,6 +291,18 @@ export function AcademyDock() {
   }, []);
   // A finished mission is worth seeing: unfold to show what it did to the books.
   React.useEffect(() => { if (justCompleted) setCollapsedState(false); }, [justCompleted]);
+  // Once the trainee starts working on the page, the panel folds out of the way so it never covers
+  // the buttons they need (the step's spotlight stays). Not remembered: the next completion unfolds it.
+  React.useEffect(() => {
+    if (collapsed) return;
+    const onPress = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest?.('[data-academy-dock], [data-academy-spotlight]')) return;
+      setCollapsedState(true);
+    };
+    document.addEventListener('pointerdown', onPress, true);
+    return () => document.removeEventListener('pointerdown', onPress, true);
+  }, [collapsed]);
   const setCollapsed = React.useCallback((next: boolean | ((c: boolean) => boolean)) => {
     setCollapsedState((current) => {
       const value = typeof next === 'function' ? next(current) : next;
@@ -328,7 +340,7 @@ export function AcademyDock() {
 
   return (
     <>
-      {guiding && !collapsed && steps[stepIndex] && (
+      {guiding && steps[stepIndex] && (
         <Spotlight step={steps[stepIndex]} tr={tr} onAdvance={advance} onClose={() => setGuiding(false)} />
       )}
       <aside
