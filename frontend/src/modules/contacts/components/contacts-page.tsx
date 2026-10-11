@@ -406,7 +406,7 @@ export function ContactsPage() {
       {loading ? (
         <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
       ) : filtered.length === 0 ? (
-        <SectionEmptyState title={t('contacts.emptyTitle')} description={t('contacts.emptyDescription')} />
+        <div data-tutorial="contacts-empty"><SectionEmptyState title={t('contacts.emptyTitle')} description={t('contacts.emptyDescription')} /></div>
       ) : (
         <Table data-tutorial="contacts-table">
           <TableHeader>
@@ -422,7 +422,7 @@ export function ContactsPage() {
           </TableHeader>
           <TableBody>
             {filtered.map(c => (
-              <TableRow key={c.id} className="cursor-pointer hover:bg-muted/40" onClick={() => openCrmPanel(c)}>
+              <TableRow key={c.id} data-tutorial="contact-row" className="cursor-pointer hover:bg-muted/40" onClick={() => openCrmPanel(c)}>
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     {c.kind === 'Organization' ? <Building2 className="h-4 w-4 text-muted-foreground shrink-0" /> : <User className="h-4 w-4 text-muted-foreground shrink-0" />}

@@ -17,6 +17,20 @@ interface TargetRect {
 const PAD = 8;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Press a control the way a person does. Tabs switch on mouse-down, not on
+ * click, so a bare .click() left tab-based steps pointing at a tab that never
+ * opened.
+ */
+function pressLikeAUser(el: HTMLElement) {
+  const init = { bubbles: true, cancelable: true, button: 0, view: window };
+  el.dispatchEvent(new PointerEvent('pointerdown', { ...init, pointerType: 'mouse', isPrimary: true }));
+  el.dispatchEvent(new MouseEvent('mousedown', init));
+  el.dispatchEvent(new PointerEvent('pointerup', { ...init, pointerType: 'mouse', isPrimary: true }));
+  el.dispatchEvent(new MouseEvent('mouseup', init));
+  el.click();
+}
+
 /** Any dialog/sheet currently on screen, or null. */
 const openOverlay = () =>
   document.querySelector<HTMLElement>(
@@ -126,7 +140,7 @@ export function TourOverlay() {
         // no clients, no suppliers. Clicking would be a no-op and the step would
         // then describe a dialog that never opened, so say so instead.
         if (unusable) blocked = true;
-        else trigger.click();
+        else pressLikeAUser(trigger);
       }
       setActionBlocked(blocked);
       // 3) Poll for the target element (page + data + dialog take time).

@@ -101,7 +101,7 @@ export const TOURS: Tour[] = [
         position: 'right',
       },
       {
-        target: '[data-tutorial="nav-pipeline"]',
+        target: '[data-tutorial="nav-opportunities"]',
         en: { title: 'CRM Pipeline', desc: 'Manage your entire sales funnel in one place. Track Opportunities through Kanban stages, approve Vendor and Influencer Requests, manage Campaigns, and view Commissions earned by your sales team.' },
         ar: { title: 'خط أنابيب المبيعات', desc: 'أدر قمع المبيعات بالكامل في مكان واحد. تتبع الفرص عبر مراحل كانبان، وافق على طلبات الموردين والمؤثرين، أدر الحملات، واعرض العمولات التي حققها فريق المبيعات.' },
         position: 'right',
@@ -270,31 +270,8 @@ export const TOURS: Tour[] = [
     route: '/finance',
     steps: [
       {
-        target: '[data-tutorial="finance-metric-receivables"]',
-        en: { title: 'Open Receivables', desc: 'This card shows the total amount owed to you by clients across all unpaid invoices. It updates automatically when invoices are created or payments are recorded. Watch this number — it represents your uncollected revenue.' },
-        ar: { title: 'الذمم المدينة المفتوحة', desc: 'تُظهر هذه البطاقة المبلغ الإجمالي المستحق لك من العملاء عبر جميع الفواتير غير المدفوعة. يتحدث تلقائياً عند إنشاء الفواتير أو تسجيل المدفوعات. راقب هذا الرقم — فهو يمثل إيراداتك غير المحصّلة.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="finance-metric-billed"]',
-        en: { title: 'Billed This Month', desc: 'Total value of invoices issued in the current calendar month. Comparing this to "Collected This Month" tells you your collection efficiency. A large gap means you\'re billing well but collecting slowly — follow up on outstanding invoices.' },
-        ar: { title: 'المُفوتَر هذا الشهر', desc: 'القيمة الإجمالية للفواتير الصادرة في الشهر الحالي. مقارنة هذا بـ "المحصَّل هذا الشهر" يخبرك بكفاءة التحصيل. الفجوة الكبيرة تعني أنك تُفوتر بشكل جيد لكن تجمع ببطء — تابع الفواتير المستحقة.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="finance-metric-collected"]',
-        en: { title: 'Collected This Month', desc: 'Actual cash collected from clients this month. This is cash flow, not revenue — it reflects payments recorded against invoices, including partial payments. Strong collection relative to billing is a sign of healthy accounts receivable management.' },
-        ar: { title: 'المحصَّل هذا الشهر', desc: 'النقد الفعلي المحصَّل من العملاء هذا الشهر. هذا تدفق نقدي وليس إيرادات — يعكس المدفوعات المسجلة مقابل الفواتير بما فيها المدفوعات الجزئية. التحصيل القوي نسبةً للفوترة علامة على إدارة ذمم مدينة صحية.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="invoice-search"]',
-        en: { title: 'Search Invoices', desc: 'Search by invoice number, client, or any line-item text. It filters as you type and stacks with the status filter, so "unpaid invoices for Acme" is two clicks and a few keystrokes.' },
-        ar: { title: 'البحث في الفواتير', desc: 'ابحث برقم الفاتورة أو العميل أو أي نص في البنود. يصفّي أثناء الكتابة ويتراكب مع فلتر الحالة، فتصبح "فواتير Acme غير المدفوعة" نقرتين وبضع ضغطات.' },
-        position: 'bottom',
-      },
-      {
         target: '[data-tutorial="invoice-status-filter"]',
+        action: { click: '[data-tutorial="finance-tab-invoices"]', delay: 600 },
         en: { title: 'Status Filter', desc: 'Narrow to Draft, Sent, Paid or Overdue. Status is not decorative: a Draft has not touched the ledger yet, Sent means the revenue and any VAT are recognised, and Overdue is derived from the due date against what is still outstanding.' },
         ar: { title: 'فلتر الحالة', desc: 'ضيّق النتائج إلى مسودة أو مُرسلة أو مدفوعة أو متأخرة. الحالة ليست شكلية: المسودة لم تمس دفتر الأستاذ بعد، و"مُرسلة" تعني الاعتراف بالإيراد وأي ضريبة، و"متأخرة" تُشتق من تاريخ الاستحقاق مقابل المبلغ المتبقي.' },
         position: 'bottom',
@@ -331,12 +308,6 @@ export const TOURS: Tour[] = [
         target: '[data-tutorial="invoice-form-template"]',
         en: { title: 'Invoice Template', desc: 'Choose how the printed or PDF version of this invoice looks. Templates control the layout, logo placement, colors, and footer text. The default template is selected automatically, but you can switch to any custom template you\'ve designed under Documents \u203a Templates.' },
         ar: { title: 'قالب الفاتورة', desc: 'اختر شكل النسخة المطبوعة أو PDF من هذه الفاتورة. تتحكم القوالب في التخطيط وموضع الشعار والألوان ونص التذييل. يتم تحديد القالب الافتراضي تلقائياً، لكن يمكنك التبديل إلى أي قالب مخصص صمّمته في المستندات › القوالب.' },
-        position: 'right',
-      },
-      {
-        target: '[data-tutorial="invoice-form-task-filter"]',
-        en: { title: 'Task Filter & Search', desc: 'Filter and search the list of billable tasks for this client. Filter by task status (Done, In Progress, To Do), search by title, vendor, or invoice number, set a minimum amount threshold, and sort by date or amount. This helps you find the exact tasks you want to include on this invoice.' },
-        ar: { title: 'تصفية وبحث المهام', desc: 'صفّ وابحث في قائمة المهام القابلة للفوترة لهذا العميل. صفّ حسب حالة المهمة (منجزة، قيد التنفيذ، للعمل)، ابحث حسب العنوان أو المورد أو رقم الفاتورة، حدد حداً أدنى للمبلغ، وفرز حسب التاريخ أو المبلغ. هذا يساعدك في إيجاد المهام التي تريد تضمينها في هذه الفاتورة.' },
         position: 'right',
       },
       {
@@ -379,6 +350,7 @@ export const TOURS: Tour[] = [
     steps: [
       {
         target: '[data-tutorial="coa-stats"]',
+        action: { click: '[data-tutorial="finance-tab-ledger"]', delay: 600 },
         en: { title: 'Account Type Statistics', desc: 'A summary of your chart of accounts broken down by type: Assets, Liabilities, Equity, Revenue, and Expenses. Each card shows the total number of accounts and how many are active. Click any stat to filter the table below to that account type.' },
         ar: { title: 'إحصائيات أنواع الحسابات', desc: 'ملخص لدليل حساباتك مقسم حسب النوع: الأصول والخصوم وحقوق الملكية والإيرادات والمصروفات. تُظهر كل بطاقة العدد الإجمالي للحسابات وعدد النشطة منها. انقر على أي إحصاء لتصفية الجدول أدناه حسب نوع الحساب ذلك.' },
         position: 'bottom',
@@ -393,12 +365,6 @@ export const TOURS: Tour[] = [
         target: '[data-tutorial="coa-journal-btn"]',
         en: { title: 'Manual Journal Button', desc: 'Post a manual double-entry journal entry. Specify a memo, entry date, amount, a debit account, and a credit account. Use this for period-end accruals, adjustments, error corrections, and opening balances. Every manual entry appears in the Journal Entries table below with a "Manual" source tag.' },
         ar: { title: 'زر اليومية اليدوية', desc: 'رحّل قيد يومية يدوي مزدوج. حدد مذكرة وتاريخ القيد والمبلغ وحساب المدين وحساب الدائن. استخدم هذا لاستحقاقات نهاية الفترة والتسويات وتصحيح الأخطاء والأرصدة الافتتاحية. يظهر كل قيد يدوي في جدول قيود اليومية أدناه بعلامة مصدر "يدوي".' },
-        position: 'left',
-      },
-      {
-        target: '[data-tutorial="coa-export-btn"]',
-        en: { title: 'Export Accounts', desc: 'Download your entire chart of accounts as a CSV file. The export includes the account code, name, type, detail type, description, active status, and whether it\'s a system or custom account. Useful for audit purposes, importing into external accounting tools, or sharing with your accountant.' },
-        ar: { title: 'تصدير الحسابات', desc: 'نزّل دليل حساباتك الكامل كملف CSV. يتضمن التصدير رمز الحساب والاسم والنوع ونوع التفصيل والوصف وحالة النشاط وما إذا كان حساب نظام أو مخصصاً. مفيد لأغراض التدقيق أو الاستيراد إلى أدوات المحاسبة الخارجية أو المشاركة مع محاسبك.' },
         position: 'left',
       },
       {
@@ -467,18 +433,6 @@ export const TOURS: Tour[] = [
         position: 'right',
       },
       {
-        target: '[data-tutorial="sales-search"]',
-        en: { title: 'Search Orders', desc: 'Search across all sales orders by order number, client name, item description, or notes. The search is real-time and filters the table as you type. Combine it with the status filter to narrow results further — for example, find all "Confirmed" orders for a specific client.' },
-        ar: { title: 'البحث في الأوامر', desc: 'ابحث في جميع أوامر البيع حسب رقم الأمر أو اسم العميل أو وصف الصنف أو الملاحظات. البحث في الوقت الفعلي ويصفّ الجدول أثناء الكتابة. اجمعه مع فلتر الحالة لتضييق النتائج أكثر — على سبيل المثال، اعثر على جميع الأوامر "المؤكدة" لعميل محدد.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="sales-status-filter"]',
-        en: { title: 'Status Filter', desc: 'Filter orders by status: Draft (pending confirmation), Confirmed (approved, awaiting invoicing), Invoiced (fully converted to an invoice), and Cancelled. Use this to focus on what needs action — typically you\'ll want to work through the "Confirmed" orders and convert them to invoices.' },
-        ar: { title: 'فلتر الحالة', desc: 'صفّ الأوامر حسب الحالة: مسودة (في انتظار التأكيد)، مؤكدة (موافق عليها، في انتظار الفوترة)، مُفوترة (محولة بالكامل إلى فاتورة)، وملغاة. استخدم هذا للتركيز على ما يحتاج إجراءً — عادةً ستريد العمل على الأوامر "المؤكدة" وتحويلها إلى فواتير.' },
-        position: 'bottom',
-      },
-      {
         target: '[data-tutorial="sales-table"]',
         en: { title: 'Sales Orders Table', desc: 'The full list of sales orders. Each row shows the order number, client, order and expected dates, a preview of the items, total amount, status, linked invoice (if invoiced), and action buttons. Use the status dropdown on each row to update the order status. Once an order is Invoiced, you cannot change its status — it\'s locked to the invoice.' },
         ar: { title: 'جدول أوامر البيع', desc: 'القائمة الكاملة لأوامر البيع. تُظهر كل صف رقم الأمر والعميل وتواريخ الأمر والتوقع ومعاينة الأصناف والمبلغ الإجمالي والحالة والفاتورة المرتبطة (إذا تمت فوترتها) وأزرار الإجراءات. استخدم منسدلة الحالة في كل صف لتحديث حالة الأمر. بمجرد أن يُفوتَر الأمر، لا يمكن تغيير حالته — فهو مقفل بالفاتورة.' },
@@ -532,18 +486,6 @@ export const TOURS: Tour[] = [
         position: 'right',
       },
       {
-        target: '[data-tutorial="purchases-search"]',
-        en: { title: 'Search Purchase Orders', desc: 'Search by order number, supplier name, item description, or notes. Use this to quickly find a specific order, especially useful when reconciling vendor invoices against your purchase orders. Combining with the status filter helps isolate orders that are partially received or still outstanding.' },
-        ar: { title: 'البحث في أوامر الشراء', desc: 'ابحث برقم الأمر أو اسم المورد أو وصف الصنف أو الملاحظات. استخدم هذا للعثور بسرعة على أمر محدد، مفيد بشكل خاص عند تسوية فواتير الموردين مقابل أوامر الشراء. الجمع مع فلتر الحالة يساعد على عزل الأوامر المستلمة جزئياً أو ما زالت معلقة.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="purchases-status-filter"]',
-        en: { title: 'PO Status Filter', desc: 'Filter purchase orders by their lifecycle status: Draft (not yet submitted to supplier), Ordered (submitted, awaiting shipment), Partially Received (some goods arrived), Received (fully received), and Cancelled. Orders at "Ordered" or "Partially Received" status are your active procurement queue.' },
-        ar: { title: 'فلتر حالة أوامر الشراء', desc: 'صفّ أوامر الشراء حسب حالة دورة حياتها: مسودة (لم تُقدَّم للمورد بعد)، مطلوبة (مُقدَّمة، في انتظار الشحنة)، مستلمة جزئياً (وصل بعض البضائع)، مستلمة (مستلمة بالكامل)، وملغاة. الأوامر في حالة "مطلوبة" أو "مستلمة جزئياً" هي طابور مشترياتك النشط.' },
-        position: 'bottom',
-      },
-      {
         target: '[data-tutorial="purchases-table"]',
         en: { title: 'Purchase Orders Table', desc: 'Full list of all POs. Each row shows the order number, supplier (with contact reference), dates, items ordered, total amount, billing status (how much has been billed vs remaining), current status, and action buttons. Use "Receive" to record a goods receipt — it adds a receipt record and updates on-hand inventory quantities.' },
         ar: { title: 'جدول أوامر الشراء', desc: 'القائمة الكاملة لجميع أوامر الشراء. تُظهر كل صف رقم الأمر والمورد (مع مرجع جهة الاتصال) والتواريخ والأصناف المطلوبة والمبلغ الإجمالي وحالة الفوترة (كم تم فوترته مقابل ما تبقى) والحالة الحالية وأزرار الإجراءات. استخدم "استلام" لتسجيل إيصال البضائع — يُضيف سجل إيصال ويُحدث كميات المخزون المتاحة.' },
@@ -573,18 +515,6 @@ export const TOURS: Tour[] = [
         target: '[data-tutorial="inventory-create-btn"]',
         en: { title: 'New Inventory Item', desc: 'Add a new SKU to your catalog. Set the name, barcode (optional), category, unit of measure, VAT applicability, and whether to track this item\'s stock quantity. Set the initial on-hand quantity, reorder point, unit cost, and sale price. Link a preferred supplier for easy reordering. The SKU code is auto-generated.' },
         ar: { title: 'عنصر مخزون جديد', desc: 'أضف رمز SKU جديداً إلى كتالوجك. حدد الاسم والباركود (اختياري) والفئة ووحدة القياس وقابلية تطبيق ضريبة القيمة المضافة وما إذا كنت تريد تتبع كمية مخزون هذا العنصر. حدد الكمية المتاحة الأولية ونقطة إعادة الطلب وتكلفة الوحدة وسعر البيع. اربط مورداً مفضلاً لإعادة الطلب بسهولة. يتم إنشاء رمز SKU تلقائياً.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="inventory-search"]',
-        en: { title: 'Search Inventory', desc: 'Search items by SKU code, item name, vendor reference, or storage location. Combine with the stock filter buttons (All, Needs Attention, Healthy) to focus on specific item groups. For example, search "Warehouse A" to see everything stored at that location, then filter to "Needs Attention" to find what needs reordering there.' },
-        ar: { title: 'البحث في المخزون', desc: 'ابحث عن العناصر حسب رمز SKU أو اسم الصنف أو مرجع المورد أو موقع التخزين. اجمع مع أزرار فلتر المخزون (الكل، تحتاج انتباهاً، جيد) للتركيز على مجموعات عناصر محددة. على سبيل المثال، ابحث عن "المستودع أ" لرؤية كل ما خُزّن في ذلك الموقع، ثم صفّ إلى "تحتاج انتباهاً" لمعرفة ما يحتاج إعادة طلب هناك.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="inventory-stock-filter"]',
-        en: { title: 'Stock Status Filters', desc: '"All" shows every item, "Needs Attention" shows items that are low stock or out of stock — these are the items that may disrupt your operations or sales. "Healthy" filters to items with comfortable stock levels above their reorder point. Check "Needs Attention" daily to stay on top of your procurement needs.' },
-        ar: { title: 'فلاتر حالة المخزون', desc: '"الكل" يُظهر كل عنصر، "تحتاج انتباهاً" يُظهر العناصر ذات المخزون المنخفض أو النافد — هذه هي العناصر التي قد تُعطل عملياتك أو مبيعاتك. "جيد" يُصفّ إلى العناصر ذات مستويات المخزون المريحة فوق نقطة إعادة الطلب. تحقق من "تحتاج انتباهاً" يومياً لمواكبة احتياجات المشتريات.' },
         position: 'bottom',
       },
       {
@@ -658,13 +588,7 @@ export const TOURS: Tour[] = [
         position: 'bottom',
       },
       {
-        target: '[data-tutorial="contacts-search"]',
-        en: { title: 'Search & Filter', desc: 'Search by name, email, or phone. Use the role filter tabs to see only Leads, Clients, Vendors, Influencers, or Partners. Combine search with role filters to quickly find "all vendors matching the name Ahmad" or "all leads from Instagram". The search is instant and works across all contact fields.' },
-        ar: { title: 'البحث والتصفية', desc: 'ابحث بالاسم أو البريد الإلكتروني أو الهاتف. استخدم علامات تبويب الأدوار لعرض العملاء المحتملين أو العملاء أو الموردين أو المؤثرين أو الشركاء فقط. اجمع البحث مع فلاتر الأدوار للعثور بسرعة على "جميع الموردين المطابقين لاسم أحمد" أو "جميع العملاء المحتملين من إنستغرام". البحث فوري ويعمل عبر جميع حقول جهة الاتصال.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="contacts-table"]',
+        target: '[data-tutorial="contacts-table"], [data-tutorial="contacts-empty"]',
         en: { title: 'Contact List', desc: 'All contacts in one view. Roles are shown as colored badges. The 🔒 icon marks private leads — only visible to their owner and managers. Click the ⋯ menu to edit, manage roles, or open the CRM panel for that contact. Private leads cannot be seen by other team members, protecting your sourced opportunities.' },
         ar: { title: 'قائمة جهات الاتصال', desc: 'جميع جهات الاتصال في عرض واحد. الأدوار تظهر كعلامات ملونة. رمز 🔒 يعني عميل محتمل خاص — مرئي للمالك والمديرين فقط. انقر على قائمة ⋯ للتعديل أو إدارة الأدوار أو فتح لوحة CRM لتلك الجهة. لا يمكن لأعضاء الفريق الآخرين رؤية العملاء المحتملين الخاصين، مما يحمي فرصك المكتسبة.' },
         position: 'top',
@@ -684,42 +608,10 @@ export const TOURS: Tour[] = [
     route: '/contacts',
     steps: [
       {
-        target: '[data-tutorial="proposals-create"]',
-        optional: true,
-        en: { title: 'Proposals', desc: 'Draft a priced proposal against an opportunity. It is the document you send before anything is committed — win it and the numbers carry into a sales order rather than being retyped.' },
-        ar: { title: 'العروض', desc: 'أنشئ عرضاً مسعّراً مقابل فرصة. هو المستند الذي ترسله قبل أي التزام — وعند الفوز تنتقل الأرقام إلى أمر بيع بدلاً من إعادة كتابتها.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="campaigns-create"]',
-        optional: true,
-        en: { title: 'Campaigns', desc: 'Group marketing spend and deliverables under one campaign. Deliverables can generate supplier bills, and campaign expenses post to the ledger when approved — so a campaign shows real cost, not just a plan.' },
-        ar: { title: 'الحملات', desc: 'اجمع الإنفاق التسويقي والمخرجات تحت حملة واحدة. يمكن للمخرجات إنشاء فواتير موردين، وتُقيَّد مصروفات الحملة في دفتر الأستاذ عند اعتمادها — فتظهر الحملة بتكلفة حقيقية لا مجرد خطة.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="vendor-requests-create"]',
-        optional: true,
-        en: { title: 'Vendor Requests', desc: 'Ask a vendor to quote or schedule work for a campaign deliverable. Accepted requests carry their cost forward, which is what lets a campaign be measured against what it actually spent.' },
-        ar: { title: 'طلبات الموردين', desc: 'اطلب من مورّد تسعيراً أو جدولة عمل لمخرج حملة. تحمل الطلبات المقبولة تكلفتها للأمام، وهو ما يتيح قياس الحملة مقابل ما أنفقته فعلاً.' },
-        position: 'bottom',
-      },
-      {
         target: '[data-tutorial="crm-lead-status"]',
+        action: { click: '[data-tutorial="contact-row"]', delay: 600 },
         en: { title: 'Lead Status', desc: 'Track where this contact is in your sales funnel: New → Qualified → Follow-up → Proposal → Won / Lost. The status automatically changes to Won when you create an invoice for this contact. Tracking status accurately is critical for pipeline reporting and commission calculations.' },
         ar: { title: 'حالة العميل المحتمل', desc: 'تتبع أين تقع جهة الاتصال في قمع مبيعاتك: جديد ← مؤهل ← متابعة ← مقترح ← فوز / خسارة. تتغير الحالة تلقائياً إلى "فوز" عند إنشاء فاتورة لهذه الجهة. تتبع الحالة بدقة أمر بالغ الأهمية لتقارير خط الأنابيب وحسابات العمولات.' },
-        position: 'left',
-      },
-      {
-        target: '[data-tutorial="crm-source"]',
-        en: { title: 'Lead Source', desc: 'Where did this lead come from? Instagram, TikTok, WhatsApp, referral, website, campaign, or a former client. This data feeds into the performance dashboard — you can analyze which channels produce the most won deals and highest revenue, letting you optimize your marketing spend.' },
-        ar: { title: 'مصدر العميل المحتمل', desc: 'من أين جاء هذا العميل المحتمل؟ إنستغرام، تيك توك، واتساب، إحالة، موقع، حملة، أو عميل سابق. تتغذى هذه البيانات في لوحة الأداء — يمكنك تحليل القنوات التي تُنتج أكثر الصفقات فوزاً وأعلى الإيرادات، مما يتيح لك تحسين إنفاقك التسويقي.' },
-        position: 'left',
-      },
-      {
-        target: '[data-tutorial="crm-owner"]',
-        en: { title: 'Owner Assignment', desc: 'Assign a sales rep as the owner of this lead. Owners can always see their private contacts, and their performance stats (leads owned, deals won, revenue generated) appear in the performance leaderboard. Reassigning ownership transfers the contact to another rep\'s pipeline.' },
-        ar: { title: 'تعيين المالك', desc: 'عيّن مندوب مبيعات كمالك لهذا العميل المحتمل. يمكن للمالكين دائماً رؤية جهات اتصالهم الخاصة، وتظهر إحصائياتهم (العملاء المحتملون المملوكون، الصفقات المُبرمة، الإيرادات المحققة) في لوحة صدارة الأداء. إعادة تعيين الملكية تنقل جهة الاتصال إلى خط أنابيب مندوب آخر.' },
         position: 'left',
       },
       {
@@ -762,28 +654,10 @@ export const TOURS: Tour[] = [
         position: 'bottom',
       },
       {
-        target: '[data-tutorial="pipeline-tabs"]',
-        en: { title: 'Pipeline Sections', desc: 'The Pipeline module is divided into four sections. Opportunities tracks your active deals through stages. Vendor Requests handles employee requests to add new vendors. Campaigns tracks marketing campaigns. Commissions shows what your sales team has earned based on won deals.' },
-        ar: { title: 'أقسام خط الأنابيب', desc: 'وحدة خط الأنابيب مقسمة إلى أربعة أقسام. الفرص تتتبع صفقاتك النشطة عبر المراحل. طلبات الموردين تتعامل مع طلبات الموظفين لإضافة موردين جدد. الحملات تتتبع الحملات التسويقية. العمولات تُظهر ما حققه فريق مبيعاتك بناءً على الصفقات المُبرمة.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="opportunities-view-toggle"]',
-        en: { title: 'Kanban or List View', desc: 'View opportunities as a Kanban board (drag cards between stages) or as a sortable table list. The Kanban view makes it easy to visualize pipeline flow — each column is a stage (New, Qualified, Proposal, Won, Lost). Drag a card to a new column to advance it through the funnel. The list view is better for sorting and filtering many deals.' },
-        ar: { title: 'عرض كانبان أو قائمة', desc: 'اعرض الفرص كلوحة كانبان (اسحب البطاقات بين المراحل) أو كجدول قائمة قابل للفرز. عرض كانبان يجعل من السهل تصور تدفق خط الأنابيب — كل عمود يمثل مرحلة (جديد، مؤهل، مقترح، فوز، خسارة). اسحب بطاقة إلى عمود جديد لتقدمها في القمع. عرض القائمة أفضل لفرز وتصفية الصفقات الكثيرة.' },
-        position: 'bottom',
-      },
-      {
         target: '[data-tutorial="pipeline-create-opp"]',
         en: { title: 'New Opportunity', desc: 'Create a deal linked to a contact. Set the expected revenue, close date, service type, and assign it to a sales rep. When the deal is marked Won, commissions are auto-calculated based on the commission rates configured for each rep. The opportunity also updates the contact\'s lead status to Won automatically.' },
         ar: { title: 'فرصة جديدة', desc: 'أنشئ صفقة مرتبطة بجهة اتصال. حدد الإيراد المتوقع وتاريخ الإغلاق ونوع الخدمة وعيّنها لمندوب مبيعات. عند تحديد الصفقة كـ "فوز"، تُحسب العمولات تلقائياً بناءً على معدلات العمولة المُهيأة لكل مندوب. تُحدّث الفرصة أيضاً حالة عميل جهة الاتصال المحتمل إلى "فوز" تلقائياً.' },
         position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="vendor-requests-table"]',
-        en: { title: 'Vendor & Influencer Requests', desc: 'When employees need to add a new vendor or influencer, they submit a request here instead of creating contacts directly. Managers review and approve (or reject with a written reason). An approved request automatically creates a Contact with the appropriate role. This workflow maintains data quality and prevents unauthorized additions to your supplier network.' },
-        ar: { title: 'طلبات الموردين والمؤثرين', desc: 'عندما يحتاج الموظفون إلى إضافة مورد أو مؤثر جديد، يُقدمون طلباً هنا بدلاً من إنشاء جهات اتصال مباشرةً. يراجع المديرون ويوافقون (أو يرفضون مع ذكر سبب مكتوب). الطلب الموافق عليه يُنشئ تلقائياً جهة اتصال بالدور المناسب. يحافظ هذا السير على جودة البيانات ويمنع الإضافات غير المصرح بها لشبكة المورّدين.' },
-        position: 'top',
       },
     ],
   },
@@ -836,12 +710,6 @@ export const TOURS: Tour[] = [
         target: '[data-tutorial="perf-stats"]',
         en: { title: 'Company-Wide Stats', desc: 'The header row shows aggregated numbers across the whole company: total leads in the system, active deals in the pipeline, total revenue in the pipeline, and deals won this period. These are the baseline numbers for the leaderboard below — context for individual rankings.' },
         ar: { title: 'إحصائيات على مستوى الشركة', desc: 'يُظهر صف الرأس أرقاماً مجمّعة عبر الشركة بأكملها: إجمالي العملاء المحتملين في النظام والصفقات النشطة في خط الأنابيب وإجمالي الإيرادات في خط الأنابيب والصفقات المُبرمة في هذه الفترة. هذه هي الأرقام الأساسية للوحة الصدارة أدناه — سياق للتصنيفات الفردية.' },
-        position: 'bottom',
-      },
-      {
-        target: '[data-tutorial="perf-sort"]',
-        en: { title: 'Sort Metric Selector', desc: 'Rank the team by different metrics: Leads (contacts owned), Deals Won (opportunities marked Won), Revenue (total won deal values), Follow-ups (completed follow-up actions), Tasks (completed tasks), or Commissions (earned commission amounts). Switching metrics gives a complete picture — someone might be top in follow-ups but not in revenue, which reveals coaching opportunities.' },
-        ar: { title: 'محدد مقياس الترتيب', desc: 'رتّب الفريق حسب مقاييس مختلفة: العملاء المحتملون (جهات الاتصال المملوكة)، الصفقات المُبرمة (الفرص المحددة كـ "فوز")، الإيرادات (إجمالي قيم الصفقات المُبرمة)، المتابعات (إجراءات المتابعة المكتملة)، المهام (المهام المكتملة)، أو العمولات (مبالغ العمولة المحققة). تبديل المقاييس يعطي صورة كاملة — شخص ما قد يكون الأول في المتابعات لكن ليس في الإيرادات، مما يكشف فرص التدريب.' },
         position: 'bottom',
       },
       {
@@ -1397,12 +1265,6 @@ export const TOURS: Tour[] = [
         target: '[data-tutorial="company-switcher"]',
         en: { title: 'One Company at a Time', desc: 'Each company keeps its own ledger, numbering, currency and data. Nothing crosses between them — a user must be assigned to a company to see anything in it at all.' },
         ar: { title: 'تعدد الشركات', desc: 'تحتفظ كل شركة بدفتر أستاذها وترقيمها وعملتها وبياناتها. ولا يعبر شيء بينها — فيجب إسناد المستخدم إلى شركة ليرى أي شيء فيها.' },
-      },
-      {
-        optional: true,
-        target: '[data-tutorial="company-switcher"]',
-        en: { title: 'Switching Company', desc: 'This control changes which company you are working in. Every figure on every page is scoped to it, so check it before reading anything that surprises you.' },
-        ar: { title: 'تبديل الشركة', desc: 'يغيّر المبدّل في الأعلى الشركة التي تعمل فيها. وكل رقم في كل صفحة محصور بها، فتحقق منه قبل قراءة أي شيء يفاجئك.' },
       },
     ],
   },
