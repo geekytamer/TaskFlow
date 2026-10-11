@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTour } from './tour-context';
 import { useI18n } from '@/context/i18n-context';
+import { useCompany } from '@/context/company-context';
+import { useAcademy } from '@/modules/academy/academy-context';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -19,6 +21,10 @@ export function WelcomeTourModal() {
   const { startTour } = useTour();
   const { language: locale } = useI18n();
   const [open, setOpen] = React.useState(false);
+  const { currentUser } = useCompany();
+  const { progress } = useAcademy();
+  // The Academy is the welcome for anyone still training; the tour offer waits until it is done.
+  const training = !currentUser?.isSuperAdmin && (progress === null || progress.missions.some((m) => m.status !== 'done'));
 
   React.useEffect(() => {
     try {
@@ -38,7 +44,7 @@ export function WelcomeTourModal() {
   };
 
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) dismiss(); }}>
+    <Dialog open={open && !training} onOpenChange={v => { if (!v) dismiss(); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">

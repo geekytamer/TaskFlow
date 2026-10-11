@@ -75,12 +75,4 @@ export class AcademyStore {
   markTraining(companyId: string, ownerUserId: string): void {
     this.db.prepare('UPDATE companies SET isTraining = 1, trainingOwnerUserId = ? WHERE id = ?').run(ownerUserId, companyId);
   }
-
-  /** Mission completion counts per user, for the team board. */
-  missionCounts(userIds: string[]): Map<string, number> {
-    if (userIds.length === 0) return new Map();
-    const rows = this.db.prepare(`SELECT userId, COUNT(*) AS n FROM academy_missions WHERE userId IN (SELECT value FROM json_each(?)) GROUP BY userId`)
-      .all(JSON.stringify(userIds)) as Array<{ userId: string; n: number }>;
-    return new Map(rows.map((r) => [r.userId, r.n]));
-  }
 }

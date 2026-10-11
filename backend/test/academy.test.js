@@ -102,15 +102,14 @@ test('first-day steps are reported by the browser; a mission completes once and 
   const report = (o) => ctx.as(sara)(request(ctx.app).post(`/academy/objectives/first-day/${o}`)).send({});
   assert.equal((await ctx.as(sara)(request(ctx.app).post('/academy/objectives/get-work-done/project')).send({})).status, 400, 'checked steps cannot be reported');
   await report('open-dashboard');
-  await report('open-notifications');
-  const done = (await report('switch-language')).body;
+  const done = (await report('open-notifications')).body;
   assert.equal(done.missions.find((m) => m.id === 'first-day').status, 'done');
   assert.equal(done.xp, 50);
-  const again = (await report('switch-language')).body;
+  const again = (await report('open-notifications')).body;
   assert.equal(again.xp, 50, 'once');
   // Screens that only show things are ticked when the trainee opens them.
-  const visit = await ctx.as(sara)(request(ctx.app).post('/academy/objectives/see-the-work/diagram')).send({});
-  assert.equal(visit.body.missions.find((m) => m.id === 'see-the-work').objectives.find((o) => o.id === 'diagram').done, true);
+  const visit = await ctx.as(sara)(request(ctx.app).post('/academy/objectives/match-bill/matching')).send({});
+  assert.equal(visit.body.missions.find((m) => m.id === 'match-bill').objectives.find((o) => o.id === 'matching').done, true);
 });
 
 test('everyone takes the whole course; their role only decides the order', async () => {

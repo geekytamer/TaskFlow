@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCompany } from '@/context/company-context';
-import { useI18n } from '@/context/i18n-context';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import {
   getAcademy, getImpact, reportObjective, resetAcademy, startAcademy,
@@ -43,7 +42,6 @@ const REDIRECTED_KEY = 'taskflow_academy_redirected';
 
 export function AcademyProvider({ children }: { children: React.ReactNode }) {
   const { selectedCompany, companies, setSelectedCompany, currentUser } = useCompany();
-  const { language } = useI18n();
   const pathname = usePathname();
   const router = useRouter();
   const [progress, setProgress] = React.useState<AcademyProgress | null>(null);
@@ -132,12 +130,6 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
     } catch { /* the next refresh will show the real state */ }
   }, [progress]);
 
-  // Only a deliberate visit counts: landing on '/' after sign-in (before the redirect) does not.
-  const lastPath = React.useRef<string | null>(null);
-  React.useEffect(() => {
-    if (pathname === '/' && lastPath.current !== null && lastPath.current !== '/') void report('open-dashboard');
-    lastPath.current = pathname;
-  }, [pathname, report]);
   // "Open this screen" objectives count in the practice company, where the screen shows the trainee's own work.
   React.useEffect(() => {
     if (!inPractice || !pathname) return;
@@ -150,10 +142,6 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener(NOTIFICATIONS_OPENED_EVENT, onOpen);
     return () => window.removeEventListener(NOTIFICATIONS_OPENED_EVENT, onOpen);
   }, [report]);
-  const firstLanguage = React.useRef(language);
-  React.useEffect(() => {
-    if (language !== firstLanguage.current) void report('switch-language');
-  }, [language, report]);
 
   // Mandatory: someone with locked modules and an unfinished path starts in the Academy (once a session).
   React.useEffect(() => {

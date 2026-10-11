@@ -59,9 +59,8 @@ export const MISSIONS: Mission[] = [
       ar: 'مرحباً بك في شركة الواحة للتجارة، شركتك التدريبية. لا شيء هنا حقيقي، فاستكشف بحرية. أولاً، تعرّف على المكان.',
     },
     objectives: [
-      { id: 'open-dashboard', title: { en: 'Open the dashboard', ar: 'افتح لوحة التحكم' } },
+      { id: 'open-dashboard', title: { en: 'Open the dashboard', ar: 'افتح لوحة التحكم' }, visit: '/' },
       { id: 'open-notifications', title: { en: 'Open your notifications', ar: 'افتح الإشعارات' } },
-      { id: 'switch-language', title: { en: 'Switch the language once', ar: 'غيّر اللغة مرة واحدة' } },
     ],
   },
   {
@@ -231,19 +230,6 @@ export const MISSIONS: Mission[] = [
       { id: 'snooze', title: { en: 'Snooze one to later', ar: 'أجّل متابعة إلى وقت لاحق' }, measure: rows('follow_ups', 'snoozedUntil IS NOT NULL') },
     ],
   },
-  {
-    id: 'see-the-work', order: 4, xp: 60, roles: ['Admin', 'Manager', 'Employee'], modules: [],
-    title: { en: 'See the work', ar: 'شاهد العمل' },
-    story: {
-      en: 'The same work, seen three ways: your own list, how tasks depend on each other, and how the team is doing.',
-      ar: 'العمل نفسه من ثلاث زوايا: قائمتك، وكيف تعتمد المهام على بعضها، وأداء الفريق.',
-    },
-    objectives: [
-      { id: 'my-tasks', title: { en: 'Open your task list', ar: 'افتح قائمة مهامك' }, visit: '/tasks' },
-      { id: 'diagram', title: { en: 'Open the task diagram', ar: 'افتح مخطط المهام' }, visit: '/diagram' },
-      { id: 'performance', title: { en: 'Open the performance dashboard', ar: 'افتح لوحة الأداء' }, visit: '/crm/performance' },
-    ],
-  },
 
   {
     id: 'stock-control', order: 6, xp: 120, roles: ['Admin', 'Manager', 'Accountant'], modules: [],
@@ -311,18 +297,6 @@ export const MISSIONS: Mission[] = [
     ],
   },
 
-  {
-    id: 'look-around', order: 17, xp: 50, roles: ['Admin', 'Manager', 'Accountant', 'Employee'], modules: ['whatsapp'],
-    title: { en: 'Look around', ar: 'جولة سريعة' },
-    story: {
-      en: 'Two more places you will use: the WhatsApp inbox (a practice company has no number, so just look), and the influencer roster.',
-      ar: 'مكانان آخران ستستخدمهما: صندوق واتساب (لا رقم للشركة التدريبية، فاكتفِ بالنظر)، وقائمة المؤثرين.',
-    },
-    objectives: [
-      { id: 'whatsapp', title: { en: 'Open the WhatsApp inbox', ar: 'افتح صندوق واتساب' }, visit: '/whatsapp' },
-      { id: 'influencers', title: { en: 'Open the influencer roster', ar: 'افتح قائمة المؤثرين' }, visit: '/influencers' },
-    ],
-  },
 ];
 
 export const missionById = (id: string) => MISSIONS.find((m) => m.id === id);

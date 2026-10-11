@@ -18,11 +18,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     en: 'Assignments, approvals, overdue invoices and follow-up reminders arrive here. Some are also emailed; in a practice company nothing is ever emailed.',
     ar: 'تصلك هنا الإسنادات والموافقات والفواتير المتأخرة وتذكيرات المتابعة. بعضها يُرسل بالبريد أيضاً؛ أما في الشركة التدريبية فلا يُرسل شيء أبداً.',
   },
-  'first-day/switch-language': {
-    title: { en: 'One system, two languages', ar: 'نظام واحد بلغتين' },
-    en: 'The language is yours alone; colleagues keep theirs. Records are not translated: a client named in English stays in English.',
-    ar: 'اللغة خاصة بك وحدك؛ ويحتفظ زملاؤك بلغتهم. السجلات لا تُترجم: العميل المسجّل بالإنجليزية يبقى بالإنجليزية.',
-  },
 
   'get-work-done/project': {
     title: { en: 'Who sees a project', ar: 'من يرى المشروع' },
@@ -217,12 +212,6 @@ export const EXPLAINERS: Record<string, Explainer> = {
     title: { en: 'Custom fields', ar: 'الحقول المخصصة' },
     en: 'A custom field appears on every record of that kind, for everyone in the company.',
     ar: 'يظهر الحقل المخصص في كل سجل من ذلك النوع، لكل من في الشركة.',
-  },
-
-  'look-around/whatsapp': {
-    title: { en: 'Who sees a chat', ar: 'من يرى المحادثة' },
-    en: 'Chats are shared by default. A private chat is seen by its owner, Admins and Managers only.',
-    ar: 'المحادثات مشتركة افتراضياً. المحادثة الخاصة يراها مالكها والمدير العام والمدير فقط.',
   },
 
   'month-end/balanced': {

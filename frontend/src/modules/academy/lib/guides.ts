@@ -21,9 +21,6 @@ export const GUIDES: Record<string, GuideStep[]> = {
   'first-day/open-notifications': [
     { target: '[data-academy="notifications"]', en: 'Open your notifications. Approvals and reminders land here.', ar: 'افتح الإشعارات. تصلك هنا الموافقات والتذكيرات.' },
   ],
-  'first-day/switch-language': [
-    { target: '[data-academy="language"]', en: 'Switch the language. Everything works in English and Arabic.', ar: 'غيّر اللغة. كل شيء يعمل بالعربية والإنجليزية.' },
-  ],
 
   'get-work-done/project': [
     { target: nav('nav-projects'), en: 'Open Projects.', ar: 'افتح المشاريع.' },
@@ -165,16 +162,6 @@ export const GUIDES: Record<string, GuideStep[]> = {
     { route: '/crm/followups', en: 'Plan another follow-up, then snooze it to next week.', ar: 'خطّط متابعة أخرى ثم أجّلها إلى الأسبوع القادم.' },
   ],
 
-  'see-the-work/my-tasks': [
-    { target: nav('nav-tasks'), en: 'Open Tasks: everything assigned to you, across projects.', ar: 'افتح المهام: كل ما أُسند إليك في كل المشاريع.' },
-  ],
-  'see-the-work/diagram': [
-    { target: nav('nav-diagram'), en: 'Open the Diagram: how tasks depend on each other.', ar: 'افتح المخطط: كيف تعتمد المهام على بعضها.' },
-  ],
-  'see-the-work/performance': [
-    { target: nav('nav-performance'), en: 'Open Performance: won deals, follow-ups done, revenue per person.', ar: 'افتح الأداء: الصفقات المكسوبة والمتابعات المنجزة والإيراد لكل شخص.' },
-  ],
-
   'stock-control/warehouse': [
     { target: nav('nav-inventory'), en: 'Open Inventory.', ar: 'افتح المخزون.' },
     { route: '/inventory', target: nav('inventory-warehouses'), en: 'Add a warehouse called "Cold store".', ar: 'أضف مستودعاً باسم "المخزن المبرّد".' },
@@ -224,13 +211,6 @@ export const GUIDES: Record<string, GuideStep[]> = {
   'campaigns/influencer': [
     { target: nav('nav-contacts'), en: 'Open Contacts.', ar: 'افتح جهات الاتصال.' },
     { route: '/contacts', en: 'Add an influencer: a contact with the Influencer role and their handle.', ar: 'أضف مؤثراً: جهة اتصال بدور مؤثر مع حسابه.' },
-  ],
-
-  'look-around/whatsapp': [
-    { target: nav('nav-whatsapp'), en: 'Open WhatsApp. Customer chats land here once the company connects a number.', ar: 'افتح واتساب. تصل هنا محادثات العملاء بعد ربط رقم الشركة.' },
-  ],
-  'look-around/influencers': [
-    { target: nav('nav-influencers'), en: 'Open Influencers: rates, audience and availability in one place.', ar: 'افتح المؤثرين: الأسعار والجمهور والتوفر في مكان واحد.' },
   ],
 
   'month-end/balanced': [

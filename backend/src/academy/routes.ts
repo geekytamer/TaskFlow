@@ -101,9 +101,13 @@ export function registerAcademyRoutes(app: Express, deps: AcademyDeps): void {
     deps.requireCompanyAccess(req, companyId);
     if (store.isTrainingCompany(companyId)) throw new HttpError(400, 'Choose a real company.');
     const users = store.listUsersByCompany(companyId).filter((u) => !u.isSuperAdmin);
-    const counts = store.academy.missionCounts(users.map((u) => u.id));
+    // Only missions still on the path count: a mission removed from the course stays in the history but not here.
     res.json(users
-      .map((u) => ({ userId: u.id, name: u.name, done: counts.get(u.id) ?? 0, required: pathFor(store, u).length }))
+      .map((u) => {
+        const path = pathFor(store, u);
+        const completed = store.academy.completed(u.id);
+        return { userId: u.id, name: u.name, done: path.filter((m) => completed.has(m.id)).length, required: path.length };
+      })
       .sort((a, b) => a.name.localeCompare(b.name)));
   }));
 
