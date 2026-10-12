@@ -200,3 +200,18 @@ test('a credit note on a foreign-currency invoice posts at the invoice rate', as
   const credited = entry.lines.reduce((sum, l) => sum + l.credit, 0);
   assert.equal(credited, 21, 'AED 200 at 0.105');
 });
+
+test('totals count a foreign-currency invoice at its rate', async () => {
+  const { app, store, as } = setup();
+  const before = store.getFinanceOverview('1').openReceivables;
+  const line = { itemType: 'Manual', description: 'Dates', quantity: 2, unitPrice: 200, amount: 400 };
+  const inv = (await as(request(app).post('/invoices')).send({
+    companyId: '1', clientId: 'client-1', issueDate: new Date().toISOString(), dueDate: new Date().toISOString(),
+    lineItems: [line], total: 400, status: 'Draft', currency: 'AED', exchangeRate: 0.105,
+  })).body;
+  store.updateInvoiceStatus(inv.id, 'Sent');
+  assert.equal(Number((store.getFinanceOverview('1').openReceivables - before).toFixed(2)), 42, 'AED 400 owed is OMR 42');
+  const client = store.getManagementReportSummary('1').topClients.find((c) => c.clientId === 'client-1');
+  assert.ok(client, 'client listed');
+  assert.ok(client.outstandingAmount < 400 + before, 'not counted as 400 rials');
+});

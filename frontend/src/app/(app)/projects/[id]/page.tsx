@@ -28,7 +28,7 @@ import { format } from 'date-fns';
 import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modules/projects/lib/access';
 import { usePermissionOr } from '@/context/permissions-context';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
-import { useCompanyCurrency } from '@/lib/currency';
+import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -62,7 +62,7 @@ export default function ProjectDetailsPage() {
   const [editOpen, setEditOpen] = React.useState(false);
   const [financeOpen, setFinanceOpen] = React.useState(false);
   const { toast } = useToast();
-  const { amount } = useCompanyCurrency();
+  const { amount, amountIn } = useCompanyCurrency();
 
   React.useEffect(() => {
     async function fetchData() {
@@ -211,10 +211,10 @@ export default function ProjectDetailsPage() {
   const projectInvoices = invoices.filter((invoice) =>
     invoice.lineItems.some((item) => item.taskId && projectTaskIds.has(item.taskId)),
   );
-  const billedAmount = projectInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
-  const collectedAmount = projectInvoices.reduce((sum, invoice) => sum + (invoice.paidAmount || 0), 0);
+  const billedAmount = projectInvoices.reduce((sum, invoice) => sum + inCompanyCurrency(invoice.total, invoice.exchangeRate), 0);
+  const collectedAmount = projectInvoices.reduce((sum, invoice) => sum + inCompanyCurrency(invoice.paidAmount, invoice.exchangeRate), 0);
   const outstandingAmount = projectInvoices.reduce(
-    (sum, invoice) => sum + (invoice.outstandingAmount || 0),
+    (sum, invoice) => sum + inCompanyCurrency(invoice.outstandingAmount, invoice.exchangeRate),
     0,
   );
   const readyToBillAmount = readyToBillTasks.reduce(
@@ -396,7 +396,7 @@ export default function ProjectDetailsPage() {
                     <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                     <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
                     <TableCell><Badge variant="outline">{invoice.status}</Badge></TableCell>
-                    <TableCell className="text-end">{amount(invoice.total)}</TableCell>
+                    <TableCell className="text-end">{amountIn(invoice.total, invoice.currency)}</TableCell>
                     <TableCell className="text-end">{amount(invoice.paidAmount || 0)}</TableCell>
                     <TableCell className="text-end">{amount(invoice.outstandingAmount || 0)}</TableCell>
                   </TableRow>

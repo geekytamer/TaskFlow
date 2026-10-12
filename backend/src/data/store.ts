@@ -18538,7 +18538,7 @@ export class DataStore {
 
     const openReceivablesAmount = this.listInvoices(companyId)
       .filter((invoice) => (invoice.outstandingAmount ?? invoice.total) > 0)
-      .reduce((sum, invoice) => sum + (invoice.outstandingAmount ?? invoice.total), 0);
+      .reduce((sum, invoice) => sum + (invoice.outstandingAmount ?? invoice.total) * (invoice.exchangeRate || 1), 0);
     const openPayablesAmount = this.listVendorBills(companyId)
       .filter(
         (bill) =>
@@ -18668,14 +18668,14 @@ export class DataStore {
           clientName: client.name,
           invoiceCount: clientInvoices.length,
           totalBilled: Number(
-            clientInvoices.reduce((sum, invoice) => sum + invoice.total, 0).toFixed(2),
+            clientInvoices.reduce((sum, invoice) => sum + invoice.total * (invoice.exchangeRate || 1), 0).toFixed(2),
           ),
           paidAmount: Number(
-            clientInvoices.reduce((sum, invoice) => sum + (invoice.paidAmount ?? 0), 0).toFixed(2),
+            clientInvoices.reduce((sum, invoice) => sum + (invoice.paidAmount ?? 0) * (invoice.exchangeRate || 1), 0).toFixed(2),
           ),
           outstandingAmount: Number(
             clientInvoices.reduce(
-              (sum, invoice) => sum + (invoice.outstandingAmount ?? 0),
+              (sum, invoice) => sum + (invoice.outstandingAmount ?? 0) * (invoice.exchangeRate || 1),
               0,
             ).toFixed(2),
           ),
@@ -18749,14 +18749,16 @@ export class DataStore {
     title: string,
     description: string,
   ): DashboardChart {
-    const payments = invoices.flatMap((invoice) => this.listPayments(invoice.id));
+    // Payments are in their invoice's currency; charts are in the company's.
+    const payments = invoices.flatMap((invoice) => this.listPayments(invoice.id)
+      .map((payment) => ({ ...payment, amount: payment.amount * (invoice.exchangeRate || 1) })));
     const data = buildMonthWindows().map((window) => ({
       label: window.label,
       values: {
         invoiced: Number(
           invoices
             .filter((invoice) => isBetween(invoice.issueDate, window.start, window.end))
-            .reduce((sum, invoice) => sum + invoice.total, 0)
+            .reduce((sum, invoice) => sum + invoice.total * (invoice.exchangeRate || 1), 0)
             .toFixed(2),
         ),
         collected: Number(

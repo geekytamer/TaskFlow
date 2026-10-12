@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { STANDARD_VAT_RATE } from '@/lib/vat';
 import { format } from 'date-fns';
 import { FileText, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -59,7 +60,7 @@ const blankForm = (): QuoteForm => ({
   contactId: '',
   issueDate: format(new Date(), 'yyyy-MM-dd'),
   validUntil: format(new Date(Date.now() + 30 * 86400000), 'yyyy-MM-dd'),
-  taxRate: '0',
+  taxRate: String(STANDARD_VAT_RATE),
   templateId: '',
   notes: '',
   items: [emptyItemRow()],

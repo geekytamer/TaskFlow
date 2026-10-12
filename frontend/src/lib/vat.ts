@@ -3,6 +3,9 @@
  * invoice's VAT rate. A line without a treatment is standard.
  */
 export type VatTreatment = 'standard' | 'zero' | 'exempt' | 'out_of_scope';
+/** Oman's standard VAT rate, the starting rate for new quotations and invoices. */
+export const STANDARD_VAT_RATE = 5;
+
 export const VAT_TREATMENTS: VatTreatment[] = ['standard', 'zero', 'exempt', 'out_of_scope'];
 
 const r2 = (n: number) => Number(n.toFixed(2));

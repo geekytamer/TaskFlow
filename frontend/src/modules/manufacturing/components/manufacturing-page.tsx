@@ -241,13 +241,29 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
     finally { setCreating(false); }
   };
 
-  const complete = async (wo: WorkOrder) => {
-    const input = window.prompt(tr('Actual quantity produced:', 'الكمية الفعلية المنتَجة:'), String(wo.expectedQuantity));
-    if (input === null) return;
-    const qty = Number(input);
-    if (!(qty > 0)) { toast({ variant: 'destructive', title: tr('Enter a valid quantity', 'أدخل كمية صحيحة') }); return; }
-    try { await completeWorkOrder(wo.id, qty); toast({ title: tr('Work order completed', 'تم إكمال أمر العمل') }); reload(); }
-    catch (e: any) { toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message }); }
+  // Completing asks how many were actually made (it can differ from the plan), in a dialog.
+  const [completingWo, setCompletingWo] = React.useState<WorkOrder | null>(null);
+  const [producedQty, setProducedQty] = React.useState('');
+  const [completingBusy, setCompletingBusy] = React.useState(false);
+  const complete = (wo: WorkOrder) => {
+    setProducedQty(String(wo.expectedQuantity));
+    setCompletingWo(wo);
+  };
+  const confirmComplete = async () => {
+    const wo = completingWo;
+    const qty = Number(producedQty);
+    if (!wo || !(qty > 0)) return;
+    setCompletingBusy(true);
+    try {
+      await completeWorkOrder(wo.id, qty);
+      toast({ title: tr('Work order completed', 'تم إكمال أمر العمل') });
+      setCompletingWo(null);
+      reload();
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: e?.message });
+    } finally {
+      setCompletingBusy(false);
+    }
   };
 
   const cancel = async (id: string) => {
@@ -336,6 +352,33 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
           </Table>
         </div>
       )}
+
+      <Dialog open={Boolean(completingWo)} onOpenChange={(v) => { if (!v) setCompletingWo(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{tr(`Complete ${completingWo?.reference ?? ''}`, `إكمال ${completingWo?.reference ?? ''}`)}</DialogTitle>
+            <DialogDescription>
+              {tr(
+                `Planned: ${completingWo?.expectedQuantity ?? 0}. Enter how many were actually made; the ingredients are used and the output is added to stock.`,
+                `المخطط: ${completingWo?.expectedQuantity ?? 0}. أدخل الكمية المنتَجة فعلاً؛ تُستهلك المكوّنات ويُضاف الناتج إلى المخزون.`,
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <form className="grid gap-3" onSubmit={(e) => { e.preventDefault(); void confirmComplete(); }}>
+            <div className="grid gap-1.5">
+              <Label htmlFor="wo-produced">{tr('Quantity produced', 'الكمية المنتَجة')}</Label>
+              <Input id="wo-produced" type="number" min={0} step="any" inputMode="decimal" autoFocus value={producedQty} onChange={(e) => setProducedQty(e.target.value)} />
+              {producedQty !== '' && !(Number(producedQty) > 0) && (
+                <p className="text-xs text-destructive">{tr('Enter a quantity above zero.', 'أدخل كمية أكبر من صفر.')}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCompletingWo(null)}>{tr('Cancel', 'إلغاء')}</Button>
+              <Button type="submit" disabled={completingBusy || !(Number(producedQty) > 0)}>{tr('Complete', 'إكمال')}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(editingWo)} onOpenChange={(v) => { if (!v) setEditingWo(null); }}>
         <DialogContent className="sm:max-w-md">

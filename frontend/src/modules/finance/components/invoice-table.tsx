@@ -52,7 +52,7 @@ import { SectionToolbar } from '@/modules/operations/components/section-toolbar'
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { InvoiceDocument } from './invoice-document';
 import { InvoiceCommissionsPanel } from './invoice-commissions-panel';
-import { useCompanyCurrency } from '@/lib/currency';
+import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { usePermissionOr } from '@/context/permissions-context';
@@ -87,7 +87,7 @@ export function InvoiceTable() {
   const confirm = useConfirm();
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const { money, amount } = useCompanyCurrency();
+  const { money, amountIn } = useCompanyCurrency();
   const { effectiveRole } = useAuthGuard();
   const canManageFinance = usePermissionOr('invoices', 'write', effectiveRole !== 'Employee');
 
@@ -234,7 +234,8 @@ export function InvoiceTable() {
   }, [invoices, search, statusFilter, tasks, clients, campaigns]);
 
   const filteredOutstanding = React.useMemo(
-    () => filteredInvoices.reduce((sum, invoice) => sum + (invoice.outstandingAmount || 0), 0),
+    // Summed in the company currency: a foreign invoice counts at its own rate.
+    () => filteredInvoices.reduce((sum, invoice) => sum + inCompanyCurrency(invoice.outstandingAmount, invoice.exchangeRate), 0),
     [filteredInvoices],
   );
 
@@ -466,9 +467,9 @@ export function InvoiceTable() {
                 <TableCell>{format(invoice.issueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{format(invoice.dueDate, 'MMM d, yyyy')}</TableCell>
                 <TableCell>{getTemplateName(invoice.templateId)}</TableCell>
-                <TableCell className="text-end">{amount(invoice.total)}</TableCell>
-                <TableCell className="text-end">{amount(invoice.paidAmount || 0)}</TableCell>
-                <TableCell className="text-end">{amount(invoice.outstandingAmount || 0)}</TableCell>
+                <TableCell className="text-end">{amountIn(invoice.total, invoice.currency)}</TableCell>
+                <TableCell className="text-end">{amountIn(invoice.paidAmount || 0, invoice.currency)}</TableCell>
+                <TableCell className="text-end">{amountIn(invoice.outstandingAmount || 0, invoice.currency)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     {canManageFinance ? (
@@ -598,15 +599,15 @@ export function InvoiceTable() {
                               <div className="grid gap-3 sm:grid-cols-3">
                                 <div className="rounded-md border p-3 text-sm">
                                   <div className="text-muted-foreground">{t('invoiceTable.invoiceTotalLabel')}</div>
-                                  <div className="text-lg font-semibold">{amount(invoice.total)}</div>
+                                  <div className="text-lg font-semibold">{amountIn(invoice.total, invoice.currency)}</div>
                                 </div>
                                 <div className="rounded-md border p-3 text-sm">
                                   <div className="text-muted-foreground">{t('invoiceTable.paidLabel')}</div>
-                                  <div className="text-lg font-semibold">{amount(invoice.paidAmount || 0)}</div>
+                                  <div className="text-lg font-semibold">{amountIn(invoice.paidAmount || 0, invoice.currency)}</div>
                                 </div>
                                 <div className="rounded-md border p-3 text-sm">
                                   <div className="text-muted-foreground">{t('invoiceTable.outstandingLabel')}</div>
-                                  <div className="text-lg font-semibold">{amount(invoice.outstandingAmount || 0)}</div>
+                                  <div className="text-lg font-semibold">{amountIn(invoice.outstandingAmount || 0, invoice.currency)}</div>
                                 </div>
                               </div>
                               <div className="grid gap-3 sm:grid-cols-3">
@@ -682,7 +683,7 @@ export function InvoiceTable() {
                                       <TableCell>{format(payment.paidAt, 'MMM d, yyyy')}</TableCell>
                                       <TableCell>{payment.method || '—'}</TableCell>
                                       <TableCell>{payment.note || '—'}</TableCell>
-                                      <TableCell className="text-end">{amount(payment.amount)}</TableCell>
+                                      <TableCell className="text-end">{amountIn(payment.amount, invoice.currency)}</TableCell>
                                       <TableCell className="text-end">
                                         <Button
                                           variant="ghost"

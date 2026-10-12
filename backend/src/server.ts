@@ -3554,11 +3554,12 @@ export function createServer(options: CreateServerOptions = {}) {
 
       const totals = {
         invoiceCount: invoices.length,
+        // In the company currency: a foreign invoice counts at its rate.
         invoiceOutstanding: invoices.reduce(
-          (sum, inv) => sum + (inv.outstandingAmount || 0),
+          (sum, inv) => sum + (inv.outstandingAmount || 0) * (inv.exchangeRate || 1),
           0,
         ),
-        invoiceTotal: invoices.reduce((sum, inv) => sum + (inv.total || 0), 0),
+        invoiceTotal: invoices.reduce((sum, inv) => sum + (inv.total || 0) * (inv.exchangeRate || 1), 0),
         salesOrderCount: salesOrders.length,
         salesOrderTotal: salesOrders.reduce(
           (sum, so) => sum + (so.totalAmount || 0),

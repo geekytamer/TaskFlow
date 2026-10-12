@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { invoiceVat, VAT_TREATMENTS, vatTreatmentLabel, type VatTreatment } from '@/lib/vat';
+import { invoiceVat, STANDARD_VAT_RATE, VAT_TREATMENTS, vatTreatmentLabel, type VatTreatment } from '@/lib/vat';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Button } from '@/components/ui/button';
 import {
@@ -40,7 +40,7 @@ import { useToast } from '@/hooks/use-toast';
 import { add, format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useCompanyCurrency } from '@/lib/currency';
+import { currencyLabel, supportedCurrencies, useCompanyCurrency } from '@/lib/currency';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
 
 interface CreateInvoiceSheetProps {
@@ -57,7 +57,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const { toast } = useToast();
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const { currencyCode, amount } = useCompanyCurrency();
+  const { currencyCode, amount, amountIn } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [salesOrders, setSalesOrders] = React.useState<SalesOrder[]>([]);
@@ -72,7 +72,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const [minAmount, setMinAmount] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'Done' | 'In Progress' | 'To Do' | 'all'>('Done');
   const [sortBy, setSortBy] = React.useState<'date' | 'amount'>('date');
-  const [taxRate, setTaxRate] = React.useState('');
+  const [taxRate, setTaxRate] = React.useState(String(STANDARD_VAT_RATE));
   // Blank means the company currency; another currency needs its rate to the company currency.
   const [invoiceCurrency, setInvoiceCurrency] = React.useState('');
   const [exchangeRate, setExchangeRate] = React.useState('');
@@ -432,6 +432,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
     setSelectedTemplateId(undefined);
     setInvoiceCurrency('');
     setExchangeRate('');
+    setTaxRate(String(STANDARD_VAT_RATE));
     setBillableTasks([]);
     setSelectedTaskIds([]);
     setManualLines([]);
@@ -523,14 +524,14 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
               <div className="grid gap-3 pe-6 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="invoice-currency">{tr('Currency', 'العملة')}</Label>
-                  <Input
-                    id="invoice-currency"
-                    value={invoiceCurrency}
-                    onChange={(e) => setInvoiceCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                    placeholder={currencyCode}
-                    maxLength={3}
-                    autoCapitalize="characters"
-                  />
+                  <Select value={typedCurrency || currencyCode} onValueChange={(value) => { setInvoiceCurrency(value === currencyCode ? '' : value); setExchangeRate(''); }}>
+                    <SelectTrigger id="invoice-currency"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {supportedCurrencies.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>{c.code} · {currencyLabel(c, language)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 {foreignCurrency && (
                   <div className="space-y-1">
@@ -744,8 +745,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                               </TableCell>
                             ))}
                             <TableCell className="text-end">{line.quantity}</TableCell>
-                            <TableCell className="text-end">{amount(line.unitPrice)}</TableCell>
-                            <TableCell className="text-end">{amount(line.amount)}</TableCell>
+                            <TableCell className="text-end">{amountIn(line.unitPrice, foreignCurrency)}</TableCell>
+                            <TableCell className="text-end">{amountIn(line.amount, foreignCurrency)}</TableCell>
                             <TableCell>
                               <Select value={line.vatTreatment ?? 'standard'} onValueChange={(v) => updateManualLineVat(index, v as VatTreatment)}>
                                 <SelectTrigger className="h-8 w-36" aria-label={tr(`VAT for ${line.description}`, `ضريبة ${line.description}`)}><SelectValue /></SelectTrigger>
@@ -773,7 +774,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                 <div className="space-y-2 p-4 bg-muted/50 rounded-lg" data-tutorial="invoice-form-total">
                     <div className="flex justify-end items-center gap-4">
                       <p className="text-sm text-muted-foreground">{tr('Subtotal', 'المجموع الفرعي')}</p>
-                      <p className="w-32 text-end text-sm tabular-nums">{amount(invoiceSubtotal)}</p>
+                      <p className="w-32 text-end text-sm tabular-nums">{amountIn(invoiceSubtotal, foreignCurrency)}</p>
                     </div>
                     <div className="flex justify-end items-center gap-4">
                       <Label htmlFor="invoice-tax-rate" className="text-sm text-muted-foreground">
@@ -790,11 +791,11 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                         placeholder="0"
                         className="h-8 w-20 text-end"
                       />
-                      <p className="w-32 text-end text-sm tabular-nums">{amount(invoiceTaxAmount)}</p>
+                      <p className="w-32 text-end text-sm tabular-nums">{amountIn(invoiceTaxAmount, foreignCurrency)}</p>
                     </div>
                     <div className="flex justify-end items-center gap-4 border-t pt-2">
                       <p className="font-semibold">{tr('Invoice Total:', 'إجمالي الفاتورة:')}</p>
-                      <p className="w-32 text-end text-2xl font-bold tabular-nums">{amount(invoiceTotal)}</p>
+                      <p className="w-32 text-end text-2xl font-bold tabular-nums">{amountIn(invoiceTotal, foreignCurrency)}</p>
                     </div>
                 </div>
             </div>

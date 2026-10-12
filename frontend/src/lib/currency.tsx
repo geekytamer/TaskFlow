@@ -136,5 +136,18 @@ export function useCompanyCurrency() {
     [currencyCode],
   );
 
-  return { currencyCode, money, amount };
+  /** An amount in a document's own currency (a foreign invoice keeps its AED); blank means the company's. */
+  const amountIn = React.useCallback(
+    (value: number, code?: string | null, className?: string) => (
+      <CurrencyAmount value={value} currencyCode={code || currencyCode} className={className} />
+    ),
+    [currencyCode],
+  );
+
+  return { currencyCode, money, amount, amountIn };
+}
+
+/** A document amount in the company currency, at the document's own rate. */
+export function inCompanyCurrency(value: number | undefined | null, rate?: number | null): number {
+  return (Number(value) || 0) * (Number(rate) || 1);
 }

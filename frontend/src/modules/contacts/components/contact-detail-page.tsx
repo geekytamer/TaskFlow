@@ -67,7 +67,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
-  const { money, amount } = useCompanyCurrency();
+  const { money, amount, amountIn } = useCompanyCurrency();
   const { currentRole } = useCompany();
   // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
   // tile is absent rather than empty. The role is the legacy fallback.
@@ -317,8 +317,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         rows={summary.invoices.slice(0, 15).map((inv) => [
           inv.invoiceNumber,
           inv.status,
-          amount(inv.total || 0),
-          amount(inv.outstandingAmount || 0),
+          amountIn(inv.total || 0, inv.currency),
+          amountIn(inv.outstandingAmount || 0, inv.currency),
           inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : empty,
         ])}
       />

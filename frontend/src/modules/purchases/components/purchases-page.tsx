@@ -455,10 +455,22 @@ export function PurchasesPage() {
     }
   };
 
-  const handleReject = async (orderId: string) => {
-    const reason = window.prompt(tr('Reason for rejecting this purchase order (optional):', 'سبب رفض أمر الشراء هذا (اختياري):')) ?? undefined;
+  // Rejecting asks for an optional reason in a dialog; Cancel leaves the order as it was.
+  const [rejectingOrder, setRejectingOrder] = React.useState<PurchaseOrder | null>(null);
+  const [rejectReason, setRejectReason] = React.useState('');
+  const [rejecting, setRejecting] = React.useState(false);
+  const handleReject = (orderId: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    setRejectReason('');
+    setRejectingOrder(order);
+  };
+  const confirmReject = async () => {
+    if (!rejectingOrder) return;
+    setRejecting(true);
     try {
-      await rejectPurchaseOrder(orderId, reason);
+      await rejectPurchaseOrder(rejectingOrder.id, rejectReason.trim() || undefined);
+      setRejectingOrder(null);
       await load();
       toast({ title: tr('Purchase order rejected', 'تم رفض أمر الشراء') });
     } catch (error: any) {
@@ -467,6 +479,8 @@ export function PurchasesPage() {
         title: tr('Rejection failed', 'فشل الرفض'),
         description: error?.message || tr('Could not reject purchase order.', 'تعذّر رفض أمر الشراء.'),
       });
+    } finally {
+      setRejecting(false);
     }
   };
 
@@ -1203,6 +1217,22 @@ export function PurchasesPage() {
               title={tr('Purchase Order Attachments & Timeline', 'مرفقات أمر الشراء والمخطط الزمني')}
             />
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(rejectingOrder)} onOpenChange={(v) => { if (!v) setRejectingOrder(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{tr(`Reject ${rejectingOrder?.orderNumber ?? ''}?`, `رفض ${rejectingOrder?.orderNumber ?? ''}؟`)}</DialogTitle>
+            <DialogDescription>{tr('The requester sees the reason. Leave it empty if there is nothing to add.', 'يرى مقدّم الطلب السبب. اتركه فارغاً إن لم يكن هناك ما يُضاف.')}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="po-reject-reason">{tr('Reason (optional)', 'السبب (اختياري)')}</Label>
+            <Textarea id="po-reject-reason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRejectingOrder(null)}>{tr('Cancel', 'إلغاء')}</Button>
+            <Button type="button" variant="destructive" onClick={() => void confirmReject()} disabled={rejecting}>{tr('Reject', 'رفض')}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </SectionPageShell>

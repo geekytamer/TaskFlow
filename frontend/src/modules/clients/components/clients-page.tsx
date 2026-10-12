@@ -18,7 +18,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
-import { useCompanyCurrency } from '@/lib/currency';
+import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
@@ -102,8 +102,8 @@ export function ClientsPage() {
     contacts.forEach((contact: Contact) => {
       const lookupId = contact.clientId || contact.id;
       const clientInvoices = invoices.filter((inv: Invoice) => inv.clientId === lookupId);
-      const total = clientInvoices.reduce((sum: number, inv: Invoice) => sum + inv.total, 0);
-      const outstanding = clientInvoices.reduce((sum: number, inv: Invoice) => sum + (inv.outstandingAmount || 0), 0);
+      const total = clientInvoices.reduce((sum: number, inv: Invoice) => sum + inCompanyCurrency(inv.total, inv.exchangeRate), 0);
+      const outstanding = clientInvoices.reduce((sum: number, inv: Invoice) => sum + inCompanyCurrency(inv.outstandingAmount, inv.exchangeRate), 0);
       map.set(contact.id, { invoiceCount: clientInvoices.length, outstanding, total });
     });
     return map;
@@ -112,7 +112,8 @@ export function ClientsPage() {
   const outstanding = React.useMemo(
     () => invoices
       .filter((inv: Invoice) => inv.status === 'Sent' || inv.status === 'Overdue')
-      .reduce((sum: number, inv: Invoice) => sum + inv.total, 0),
+      // What is still owed (after payments and credit notes), in the company currency.
+      .reduce((sum: number, inv: Invoice) => sum + inCompanyCurrency(inv.outstandingAmount ?? inv.total, inv.exchangeRate), 0),
     [invoices],
   );
 
