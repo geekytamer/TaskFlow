@@ -7,10 +7,10 @@ const hrefs = (items: Array<{ href: string }>) => items.map((i) => i.href);
 test('client navigation: four tabs on the phone bar, the rest behind More', () => {
   const nav = navFor('client');
   assert.deepEqual(hrefs(nav.bar), ['/', '/campaigns', '/influencers', '/messages']);
-  assert.deepEqual(hrefs(nav.primary), ['/', '/campaigns', '/influencers', '/requests', '/messages']);
+  assert.deepEqual(hrefs(nav.primary), ['/', '/campaigns', '/influencers', '/discover', '/requests', '/messages']);
   assert.deepEqual(hrefs(nav.secondary), ['/billing', '/analytics', '/games', '/referrals']);
   const more = hrefs([...nav.primary, ...nav.secondary]).filter((h) => !hrefs(nav.bar).includes(h));
-  assert.deepEqual(more, ['/requests', '/billing', '/analytics', '/games', '/referrals'], 'every page is reachable from More on a phone');
+  assert.deepEqual(more, ['/discover', '/requests', '/billing', '/analytics', '/games', '/referrals'], 'every page is reachable from More on a phone');
 });
 
 test('influencer navigation', () => {

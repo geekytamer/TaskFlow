@@ -4,6 +4,7 @@ import type { NavIcon as Name } from '@/lib/nav';
 const PATHS: Record<Name | 'more', string[]> = {
   home: ['M4 10.5 12 4l8 6.5', 'M6 9v10h4.5v-5h3v5H18V9'],
   campaigns: ['M4 6.5h16v11H4z', 'M4 10h16', 'M8.5 14h3'],
+  discover: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'm15.5 8.5-2 5-5 2 2-5 5-2Z'],
   creators: ['M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z', 'M3 20c.6-3.4 3-5.5 6-5.5s5.4 2.1 6 5.5', 'M16 4.6a3.4 3.4 0 0 1 0 6.3', 'M18.4 14.9c1.4.9 2.3 2.6 2.6 5.1'],
   requests: ['M7 3.5h7.5L19 8v12.5H7z', 'M14 3.5V8h5', 'M10 12.5h6', 'M10 16h4'],
   messages: ['M4.5 5.5h15v10h-8l-4.5 3.5v-3.5h-2.5z'],

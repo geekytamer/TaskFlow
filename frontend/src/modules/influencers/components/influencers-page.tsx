@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
+import { DiscoverLink } from '@/modules/discover/components/discover-link';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import {
   Dialog,
@@ -403,6 +404,7 @@ export function InfluencersPage() {
       actions={
         selectedCompany ? (
           <div className="flex items-center gap-2">
+          <DiscoverLink />
           <Button size="sm" onClick={() => setOpenCreate(true)}>
             <Plus className="h-4 w-4 me-1" />{t('influencers.addInfluencer', 'Add Influencer')}
           </Button>

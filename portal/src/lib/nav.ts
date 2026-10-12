@@ -4,7 +4,7 @@ import type { Key } from './i18n';
 /** Browser safe: the shell's client components read this. */
 export type NavIcon =
   | 'home' | 'campaigns' | 'creators' | 'requests' | 'messages' | 'billing' | 'analytics' | 'games' | 'referrals'
-  | 'assignments' | 'payouts' | 'profile' | 'deals' | 'contacts' | 'calendar' | 'money' | 'mediaKit' | 'connections';
+  | 'assignments' | 'payouts' | 'profile' | 'deals' | 'contacts' | 'calendar' | 'money' | 'mediaKit' | 'connections' | 'discover';
 
 export interface NavEntry { href: string; label: Key; icon: NavIcon }
 
@@ -12,6 +12,7 @@ const ITEMS: Record<string, NavEntry> = {
   home: { href: '/', label: 'nav.overview', icon: 'home' },
   campaigns: { href: '/campaigns', label: 'nav.campaigns', icon: 'campaigns' },
   creators: { href: '/influencers', label: 'nav.influencers', icon: 'creators' },
+  discover: { href: '/discover', label: 'nav.discover', icon: 'discover' },
   requests: { href: '/requests', label: 'nav.requests', icon: 'requests' },
   messages: { href: '/messages', label: 'nav.messages', icon: 'messages' },
   billing: { href: '/billing', label: 'nav.billing', icon: 'billing' },
@@ -36,7 +37,7 @@ export function navFor(audience: Audience): { primary: NavEntry[]; secondary: Na
   const i = ITEMS;
   return audience === 'client'
     ? {
-      primary: [i.home, i.campaigns, i.creators, i.requests, i.messages],
+      primary: [i.home, i.campaigns, i.creators, i.discover, i.requests, i.messages],
       secondary: [i.billing, i.analytics, i.games, i.referrals],
       bar: [i.home, i.campaigns, i.creators, i.messages],
     }
