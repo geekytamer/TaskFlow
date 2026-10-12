@@ -33,10 +33,14 @@ type Sort = 'followers' | 'growth' | 'engagement';
 const queryString = (value: unknown, max = 60): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : undefined;
 
-/** Listed profiles that have been fetched at least once: the only ones clients ever see. */
-const visible = (p: DiscoverProfile) => p.status === 'listed' && p.lastFetchedAt !== null && p.followers !== null;
-
 export function registerClientDiscoverRoutes(router: Router, store: DataStore, companyId: string, requireClientSession: RequestHandler): void {
+  /**
+   * What clients ever see: listed profiles fetched at least once. Peak's own
+   * influencers follow the catalogue: shown only while listed there.
+   */
+  const visible = (p: DiscoverProfile) => p.status === 'listed' && p.lastFetchedAt !== null && p.followers !== null
+    && (!p.isRoster || (p.contactId !== null && store.catalogue.isListed(companyId, p.contactId)));
+
   const toEntry = (p: DiscoverProfile, requested: Set<string>, now: Date): DiscoverEntry => ({
     id: p.id,
     platform: p.platform,

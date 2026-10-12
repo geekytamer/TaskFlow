@@ -1,7 +1,8 @@
 import type { DataStore } from '../data/store';
 import type { DiscoverScraper } from './apify';
 import type { DiscoverRun } from './discover-store';
-import { omaniSignal } from './discover';
+import { omaniSignal, parseHandleList } from './discover';
+import type { Contact } from '../types';
 
 /** The directory holds at most this many listed and candidate profiles. */
 export const DIRECTORY_LIMIT = 200;
@@ -29,10 +30,44 @@ function refuse(store: DataStore, companyId: string, kind: DiscoverRun['kind'], 
 const budgetMessage = (used: number, need: number, cap: number) =>
   `This would pass the monthly Apify budget: ${used} of ${cap} results used, ${need} needed. It runs again next month, or raise DISCOVER_MONTHLY_RESULTS.`;
 
+/** A roster influencer's Instagram handle: their Instagram account, else a single-platform Instagram record. */
+export function instagramHandleOf(contact: Contact): string | null {
+  const fromAccount = contact.influencerAccounts?.find((a) => a.platform === 'Instagram' && (a.handle || a.url));
+  const raw = fromAccount ? (fromAccount.handle || fromAccount.url) : contact.influencerPlatform === 'Instagram' ? contact.influencerHandle : null;
+  return raw ? parseHandleList(raw).handles[0] ?? null : null;
+}
+
+/**
+ * Keeps Peak's own influencers in the directory: every influencer of the
+ * company with an Instagram handle gets a linked entry, and an entry whose
+ * influencer left the roster or changed handle is unlinked. Database only.
+ */
+export function syncRoster(store: DataStore, companyId: string): { linked: number; unlinked: number } {
+  const handles = new Map<string, string>();
+  for (const contact of store.listContacts(companyId, 'Influencer')) {
+    const handle = instagramHandleOf(contact);
+    if (handle) handles.set(contact.id, handle);
+  }
+  let unlinked = 0;
+  for (const p of store.discover.rosterProfiles(companyId)) {
+    if (!p.contactId || handles.get(p.contactId) !== p.username) { store.discover.unlinkRoster(p.id); unlinked += 1; }
+  }
+  for (const [contactId, handle] of handles) {
+    store.discover.linkRoster(companyId, handle, contactId);
+    // Already fetched (e.g. it was in the directory before joining the roster): write back now, not next week.
+    const p = store.discover.byUsername(companyId, handle);
+    if (p?.followers != null && p.lastFetchedAt) {
+      store.syncInfluencerInstagram(contactId, handle, { followers: p.followers, engagementRate: p.engagementRate }, p.lastFetchedAt);
+    }
+  }
+  return { linked: handles.size, unlinked };
+}
+
 /** Fetches every listed or candidate profile not fetched for a week. Null when nothing is due. */
 export async function refreshDue(store: DataStore, scraper: DiscoverScraper, companyId: string, opts: JobOptions): Promise<DiscoverRun | null> {
   const now = opts.now ?? new Date();
   if (store.discover.running(companyId)) return null;
+  syncRoster(store, companyId);
   const due = store.discover.dueForRefresh(companyId, REFRESH_DAYS, DIRECTORY_LIMIT, now);
   if (due.length === 0) return null;
   const used = store.discover.resultsThisMonth(companyId, now);
@@ -46,7 +81,11 @@ export async function refreshDue(store: DataStore, scraper: DiscoverScraper, com
       const found = byName.get(profile.username);
       if (!found) { store.discover.markMissing(profile.id, 'Not found: the account may be renamed, private or deleted.', now); continue; }
       const photo = found.photoUrl ? await scraper.photo(found.photoUrl) : null;
-      store.discover.saveFetched(companyId, found, photo, { status: profile.status, source: profile.source }, now);
+      const saved = store.discover.saveFetched(companyId, found, photo, { status: profile.status, source: profile.source }, now);
+      // Peak's own influencers: the fresh figures go onto their record too.
+      if (saved.isRoster && saved.contactId) {
+        store.syncInfluencerInstagram(saved.contactId, saved.username, { followers: found.followers, engagementRate: saved.engagementRate }, now.toISOString());
+      }
     }
     store.discover.finishRun(run.id, 'done', fetched.length, `${fetched.length} of ${due.length} profiles updated.`);
   } catch (error) {

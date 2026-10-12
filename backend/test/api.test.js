@@ -1328,6 +1328,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '124_portal_push_log',
     '125_item_home_location',
     '126_influencer_discover',
+    '127_discover_roster',
   ]);
 });
 

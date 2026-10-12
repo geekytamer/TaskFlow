@@ -1347,6 +1347,8 @@ export interface InfluencerAccount {
   /** Manual estimate of average reach/impressions, set by the employee. */
   estimatedAvg?: number;
   notes?: string;
+  /** When followers and engagement were last updated from Instagram by the Discover directory. */
+  syncedAt?: string;
 }
 
 export interface ContactRole {

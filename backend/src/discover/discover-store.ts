@@ -30,6 +30,8 @@ export interface DiscoverProfile {
   status: ProfileStatus;
   source: 'discovery' | 'manual';
   contactId: string | null;
+  /** One of Peak's own influencers, synced from their record: outside the 200 and never suggested by discovery. */
+  isRoster: boolean;
   emails: string[];
   phones: string[];
   lastFetchedAt: string | null;
@@ -71,7 +73,7 @@ export interface ProfilePatch {
 }
 
 const COLUMNS = `id, companyId, platform, username, fullName, bio, externalUrl, followers, following, posts, verified, isBusiness,
-  isPrivate, category, engagementRate, photo IS NOT NULL AS hasPhoto, location, gender, niche, status, source, contactId, emails, phones,
+  isPrivate, category, engagementRate, photo IS NOT NULL AS hasPhoto, location, gender, niche, status, source, contactId, isRoster, emails, phones,
   lastFetchedAt, fetchError, createdAt, updatedAt`;
 
 const decode = (row: any): DiscoverProfile => ({
@@ -80,6 +82,7 @@ const decode = (row: any): DiscoverProfile => ({
   isBusiness: row.isBusiness === 1,
   isPrivate: row.isPrivate === 1,
   hasPhoto: row.hasPhoto === 1,
+  isRoster: row.isRoster === 1,
   emails: row.emails ? JSON.parse(row.emails) : [],
   phones: row.phones ? JSON.parse(row.phones) : [],
 });
@@ -195,8 +198,40 @@ export class DiscoverStore {
       AND (lastFetchedAt IS NULL OR lastFetchedAt < ?) ORDER BY lastFetchedAt IS NOT NULL, lastFetchedAt LIMIT ?`).all(companyId, before, limit) as any[]).map(decode);
   }
 
+  /** Profiles that use the directory's 200: listed and candidate ones, not Peak's own roster. */
   countActive(companyId: string): number {
-    return (this.db.prepare("SELECT COUNT(*) AS n FROM discover_profiles WHERE companyId = ? AND status IN ('listed', 'candidate')").get(companyId) as { n: number }).n;
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM discover_profiles WHERE companyId = ? AND status IN ('listed', 'candidate') AND isRoster = 0").get(companyId) as { n: number }).n;
+  }
+
+  rosterProfiles(companyId: string): DiscoverProfile[] {
+    return (this.db.prepare(`SELECT ${COLUMNS} FROM discover_profiles WHERE companyId = ? AND isRoster = 1`).all(companyId) as any[]).map(decode);
+  }
+
+  /**
+   * Makes `username` the directory entry of a roster influencer: created if new,
+   * otherwise linked, flagged and listed (being on Peak's roster wins over an
+   * earlier rejection by discovery).
+   */
+  linkRoster(companyId: string, username: string, contactId: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT OR IGNORE INTO discover_profiles (id, companyId, platform, username, status, source, createdAt, updatedAt)
+      VALUES (?, ?, 'instagram', ?, 'listed', 'manual', ?, ?)`).run(uuid(), companyId, username, now, now);
+    this.db.prepare(`UPDATE discover_profiles SET contactId = ?, isRoster = 1, status = 'listed', updatedAt = ?
+      WHERE companyId = ? AND platform = 'instagram' AND username = ? AND (contactId IS NOT ? OR isRoster = 0 OR status != 'listed')`)
+      .run(contactId, now, companyId, username, contactId);
+  }
+
+  /** A roster influencer's latest scraped Instagram figures, when there are any. */
+  rosterFigure(companyId: string, contactId: string): { username: string; followers: number; asOf: string } | null {
+    const row = this.db.prepare(`SELECT username, followers, lastFetchedAt FROM discover_profiles
+      WHERE companyId = ? AND contactId = ? AND isRoster = 1 AND followers IS NOT NULL AND lastFetchedAt IS NOT NULL
+      ORDER BY lastFetchedAt DESC LIMIT 1`).get(companyId, contactId) as { username: string; followers: number; lastFetchedAt: string } | undefined;
+    return row ? { username: row.username, followers: row.followers, asOf: row.lastFetchedAt.slice(0, 10) } : null;
+  }
+
+  /** No longer a roster influencer's account (left the roster or changed handle): an ordinary entry again. */
+  unlinkRoster(id: string): void {
+    this.db.prepare('UPDATE discover_profiles SET contactId = NULL, isRoster = 0, updatedAt = ? WHERE id = ?').run(new Date().toISOString(), id);
   }
 
   // ─── runs and budget ───────────────────────────────────────────────────────

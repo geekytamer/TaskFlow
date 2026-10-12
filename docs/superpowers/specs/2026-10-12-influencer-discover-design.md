@@ -41,3 +41,9 @@ Client portal: **Discover** page (client audience only) with filters (search, ti
 ## 4. Testing
 
 `node --test`: rules (tier, growth window, engagement, signals, contacts); store; jobs with a fake scraper (refresh writes snapshots and photos, discovery keeps only Omani accounts over the threshold and skips known/removed ones, budget refusal); staff routes (permission, approve/remove, add handles); client routes (only listed profiles, no contact details, filters, request raises a follow-up). Portal and staff app: tsc, unit tests for helpers, browser check with fixtures.
+
+## 5. Roster sync (added 2026-10-12)
+
+- Every Influencer contact with an Instagram handle gets a linked directory entry (`isRoster`, migration `127_discover_roster`). Roster entries do not count toward the 200, are never removable from Discover by staff, and show to clients only while the influencer is listed in the portal catalogue.
+- Each weekly refresh writes followers and engagement back onto the influencer's Instagram account on their record (`syncedAt`), or the single-platform fields. A handle already fetched writes back as soon as it joins the roster. Handle changes move the link.
+- **Scraping replaces the Meta connection as the way figures stay current.** Catalogue and media kit "Verified" figures use a connected account when one exists, else the latest scraped figure (`discover/figures.ts`). Connecting Instagram in the influencer portal is optional: the Home nudge and media-kit prompt are gone; it only adds post views, reach and audience, which public profiles do not expose. Game live metrics from comments still need a connected account.

@@ -59,7 +59,8 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
   });
 
   const summary = () => ({
-    counts: Object.fromEntries(PROFILE_STATUSES.map((s) => [s, store.discover.list(companyId, s).length])),
+    counts: Object.fromEntries(PROFILE_STATUSES.map((s) => [s, store.discover.list(companyId, s).filter((p) => !p.isRoster).length])),
+    rosterCount: store.discover.rosterProfiles(companyId).length,
     limit: DIRECTORY_LIMIT,
     resultsThisMonth: store.discover.resultsThisMonth(companyId),
     monthlyCap: deps.monthlyCap,
@@ -135,6 +136,9 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
     if (body.status !== undefined) {
       const status = PROFILE_STATUSES.find((s) => s === body.status);
       if (!status) throw new HttpError(400, 'Unknown status.');
+      if (profile.isRoster && status !== profile.status) {
+        throw new HttpError(409, "This is one of Peak's influencers: whether clients see it follows the portal catalogue.");
+      }
       // Listed and candidate profiles count towards the limit; bringing back a rejected or removed one needs room.
       const returning = (status === 'listed' || status === 'candidate') && (profile.status === 'rejected' || profile.status === 'removed');
       if (returning && store.discover.countActive(companyId) >= DIRECTORY_LIMIT) {

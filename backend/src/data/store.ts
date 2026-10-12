@@ -4951,6 +4951,14 @@ export class DataStore {
             });
         },
       },
+      {
+        // Peak's own influencers in the directory: synced from their records, outside the 200.
+        id: '127_discover_roster',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(discover_profiles)').all() as Array<{ name: string }>).map((c) => c.name);
+          if (!cols.includes('isRoster')) this.db.exec('ALTER TABLE discover_profiles ADD COLUMN isRoster INTEGER NOT NULL DEFAULT 0;');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7467,6 +7475,37 @@ export class DataStore {
     }
 
     return this.getContactById(id)!;
+  }
+
+  /**
+   * Writes Instagram figures fetched by the Discover directory onto an
+   * influencer's record: the Instagram account with that handle (or, on a
+   * single-platform record, its followers and engagement). Other platforms and
+   * fields are left alone; nothing else on the contact changes.
+   */
+  syncInfluencerInstagram(contactId: string, username: string, figures: { followers: number; engagementRate: number | null }, at: string): void {
+    const row = this.db.prepare('SELECT influencerAccounts, influencerPlatform, influencerHandle FROM contacts WHERE id = ?').get(contactId) as
+      | { influencerAccounts: string | null; influencerPlatform: string | null; influencerHandle: string | null } | undefined;
+    if (!row) return;
+    const handleOf = (value?: string | null) => {
+      const raw = String(value ?? '').trim();
+      return (raw.match(/instagram\.com\/([A-Za-z0-9._]+)/i)?.[1] ?? raw).replace(/^@+/, '').replace(/\/+$/, '').toLowerCase();
+    };
+    const accounts: InfluencerAccount[] = row.influencerAccounts ? JSON.parse(row.influencerAccounts) : [];
+    let touched = false;
+    let matched = false;
+    const next = accounts.map((a) => {
+      if (a.platform !== 'Instagram' || (handleOf(a.handle) !== username && handleOf(a.url) !== username)) return a;
+      if (a.syncedAt === at && a.followers === figures.followers) { matched = true; return a; }
+      touched = true;
+      return { ...a, followers: figures.followers, ...(figures.engagementRate !== null ? { engagementRate: figures.engagementRate } : {}), syncedAt: at };
+    });
+    if (touched) {
+      this.db.prepare('UPDATE contacts SET influencerAccounts = ?, updatedAt = ? WHERE id = ?').run(JSON.stringify(next), at, contactId);
+    } else if (!matched && row.influencerPlatform === 'Instagram' && handleOf(row.influencerHandle) === username) {
+      this.db.prepare('UPDATE contacts SET followerCount = ?, engagementRate = COALESCE(?, engagementRate), updatedAt = ? WHERE id = ? AND (followerCount IS NOT ? OR engagementRate IS NOT COALESCE(?, engagementRate))')
+        .run(figures.followers, figures.engagementRate, at, contactId, figures.followers, figures.engagementRate);
+    }
   }
 
   updateContact(id: string, updates: UpdateContactInput): Contact {

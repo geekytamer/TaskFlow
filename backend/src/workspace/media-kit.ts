@@ -3,6 +3,7 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
 import type { Owner } from './workspace-store';
+import { instagramFigures } from '../discover/figures';
 
 /**
  * The influencer's media kit: a public page brands can be sent to. It shows
@@ -121,7 +122,7 @@ export function applyKitChanges(store: DataStore, o: Owner, current: MediaKit, b
 
 /** The numbers a kit shows: verified Instagram first (it replaces a typed Instagram row), then typed ones. */
 export function kitStats(store: DataStore, o: Owner, kit: MediaKit) {
-  const verified = store.social.verifiedFor(o.companyId, o.ownerContactId).map((v) => ({
+  const verified = instagramFigures(store, o.companyId, o.ownerContactId).map((v) => ({
     platform: 'Instagram', handle: `@${v.username}`, followers: v.followers, engagementRate: null as number | null, verified: true, asOf: v.asOf,
   }));
   const covered = new Set(verified.map((v) => v.platform));

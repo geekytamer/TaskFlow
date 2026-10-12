@@ -25,7 +25,7 @@ import {
   saveDiscoverSettings, updateDiscoverProfile, type DiscoverProfile, type DiscoverSummary, type ProfileStatus,
 } from '@/services/discoverService';
 
-type View = 'candidate' | 'listed' | 'hidden';
+type View = 'candidate' | 'listed' | 'roster' | 'hidden';
 const compact = (n: number | null) => (n === null ? '—' : new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n));
 /** Apify free-plan price per result, for the usage line. */
 const PRICE_PER_RESULT = 0.0026;
@@ -85,7 +85,9 @@ export function DiscoverPage() {
 
   const fail = (error: unknown) => toast({ variant: 'destructive', title: tr('Could not complete', 'تعذّر الإتمام'), description: error instanceof Error ? error.message : undefined });
 
-  const shown = profiles.filter((p) => (view === 'hidden' ? p.status === 'rejected' || p.status === 'removed' : p.status === view));
+  const shown = profiles.filter((p) => (view === 'roster' ? p.isRoster
+    : p.isRoster ? false
+      : view === 'hidden' ? p.status === 'rejected' || p.status === 'removed' : p.status === view));
 
   const setStatus = async (p: DiscoverProfile, status: ProfileStatus) => {
     try { await updateDiscoverProfile(p.id, { status }); await load(); } catch (e) { fail(e); }
@@ -150,6 +152,7 @@ export function DiscoverPage() {
             <p className="text-muted-foreground">{tr('Directory', 'الدليل')}</p>
             <p className="mt-1 text-2xl font-semibold tabular-nums">{summary.counts.listed + summary.counts.candidate} <span className="text-base font-normal text-muted-foreground">/ {summary.limit}</span></p>
             <p className="text-xs text-muted-foreground">{tr(`${summary.counts.listed} listed for clients · ${summary.counts.candidate} waiting for review`, `${summary.counts.listed} مُدرج للعملاء · ${summary.counts.candidate} بانتظار المراجعة`)}</p>
+            <p className="text-xs text-muted-foreground">{tr(`+ ${summary.rosterCount} of Peak's influencers, synced from their records (not counted)`, `+ ${summary.rosterCount} من مؤثري بيك، تُزامن من سجلاتهم (لا تُحتسب)`)}</p>
           </div>
           <div className="rounded-xl border bg-card p-4 text-sm">
             <p className="text-muted-foreground">{tr('Apify this month', 'Apify هذا الشهر')}</p>
@@ -186,14 +189,15 @@ export function DiscoverPage() {
         <TabsList>
           <TabsTrigger value="candidate">{tr('To review', 'للمراجعة')} ({summary?.counts.candidate ?? 0})</TabsTrigger>
           <TabsTrigger value="listed">{tr('Listed', 'مُدرج')} ({summary?.counts.listed ?? 0})</TabsTrigger>
+          <TabsTrigger value="roster">{tr('Your roster', 'مؤثرو بيك')} ({summary?.rosterCount ?? 0})</TabsTrigger>
           <TabsTrigger value="hidden">{tr('Hidden', 'مخفي')} ({(summary?.counts.rejected ?? 0) + (summary?.counts.removed ?? 0)})</TabsTrigger>
         </TabsList>
       </Tabs>
 
       {shown.length === 0 ? (
         <SectionEmptyState
-          title={view === 'candidate' ? tr('Nothing to review', 'لا شيء للمراجعة') : view === 'listed' ? tr('No one listed yet', 'لا أحد مُدرج بعد') : tr('Nothing hidden', 'لا شيء مخفي')}
-          description={view === 'candidate' ? tr('"Find new accounts" looks through Omani hashtags and puts what it finds here for you to approve.', '"ابحث عن حسابات جديدة" يفحص الوسوم العمانية ويضع ما يجده هنا لتوافق عليه.') : ''}
+          title={view === 'candidate' ? tr('Nothing to review', 'لا شيء للمراجعة') : view === 'listed' ? tr('No one listed yet', 'لا أحد مُدرج بعد') : view === 'roster' ? tr('No roster influencer has an Instagram handle yet', 'لا يوجد مؤثر في القائمة لديه حساب إنستغرام بعد') : tr('Nothing hidden', 'لا شيء مخفي')}
+          description={view === 'candidate' ? tr('"Find new accounts" looks through Omani hashtags and puts what it finds here for you to approve.', '"ابحث عن حسابات جديدة" يفحص الوسوم العمانية ويضع ما يجده هنا لتوافق عليه.') : view === 'roster' ? tr("Add an Instagram account to an influencer's record and they appear here with the next refresh; their followers and engagement then update on their record every week.", 'أضف حساب إنستغرام إلى سجل المؤثر ليظهر هنا مع التحديث التالي، ثم تتحدث أرقام متابعيه وتفاعله في سجله أسبوعياً.') : ''}
         />
       ) : (
         <div className="overflow-x-auto rounded-xl border bg-card">
@@ -235,12 +239,13 @@ export function DiscoverPage() {
                   <TableCell className="text-end">
                     <div className="flex flex-wrap justify-end gap-1">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>{tr('Edit', 'تعديل')}</Button>
-                      {p.status === 'candidate' && <>
+                      {p.isRoster && <span className="self-center text-xs text-muted-foreground">{tr('Shown to clients while in the portal catalogue', 'يظهر للعملاء ما دام في كتالوج البوابة')}</span>}
+                      {!p.isRoster && p.status === 'candidate' && <>
                         <Button size="sm" onClick={() => setStatus(p, 'listed')}>{tr('Approve', 'موافقة')}</Button>
                         <Button size="sm" variant="outline" onClick={() => setStatus(p, 'rejected')}>{tr('Reject', 'رفض')}</Button>
                       </>}
-                      {p.status === 'listed' && <Button size="sm" variant="outline" onClick={() => setStatus(p, 'removed')}>{tr('Remove', 'إزالة')}</Button>}
-                      {(p.status === 'rejected' || p.status === 'removed') && <Button size="sm" variant="outline" onClick={() => setStatus(p, 'listed')}>{tr('List again', 'إدراج مجدداً')}</Button>}
+                      {!p.isRoster && p.status === 'listed' && <Button size="sm" variant="outline" onClick={() => setStatus(p, 'removed')}>{tr('Remove', 'إزالة')}</Button>}
+                      {!p.isRoster && (p.status === 'rejected' || p.status === 'removed') && <Button size="sm" variant="outline" onClick={() => setStatus(p, 'listed')}>{tr('List again', 'إدراج مجدداً')}</Button>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -279,7 +284,8 @@ function EditDialog({ profile, influencers, tr, onClose, onSaved, onError }: {
     try {
       await updateDiscoverProfile(profile.id, {
         niche: niche.trim() || null, location: location.trim() || null,
-        gender: gender === 'female' || gender === 'male' ? gender : null, contactId: contactId || null,
+        gender: gender === 'female' || gender === 'male' ? gender : null,
+        ...(profile.isRoster ? {} : { contactId: contactId || null }),
       });
       if (pastFollowers && pastDate) await addPastFollowers(profile.id, Number(pastFollowers), new Date(pastDate).toISOString());
       onSaved();
@@ -309,8 +315,12 @@ function EditDialog({ profile, influencers, tr, onClose, onSaved, onError }: {
           </div>
           <div className="space-y-1.5">
             <Label>{tr('Peak roster influencer', 'مؤثر ضمن قائمة بيك')}</Label>
-            <Combobox options={influencers.map((c) => ({ value: c.id, label: c.name }))} value={contactId} onValueChange={setContactId}
-              placeholder={tr('Not on the roster', 'ليس ضمن القائمة')} searchPlaceholder={tr('Search…', 'بحث…')} clearLabel={tr('Not on the roster', 'ليس ضمن القائمة')} />
+            {profile.isRoster ? (
+              <p className="flex h-10 items-center text-sm">{profile.contactName} <span className="ms-1 text-xs text-muted-foreground">({tr('from their record', 'من سجله')})</span></p>
+            ) : (
+              <Combobox options={influencers.map((c) => ({ value: c.id, label: c.name }))} value={contactId} onValueChange={setContactId}
+                placeholder={tr('Not on the roster', 'ليس ضمن القائمة')} searchPlaceholder={tr('Search…', 'بحث…')} clearLabel={tr('Not on the roster', 'ليس ضمن القائمة')} />
+            )}
           </div>
         </div>
         <div className="rounded-lg border p-3">

@@ -257,6 +257,11 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                           {acc.followers ? `${compact(acc.followers)} ${tr('followers', 'متابع')}` : tr('No follower count', 'لا يوجد عدد متابعين')}
                           {acc.engagementRate != null ? ` · ${acc.engagementRate}%` : ''}
                         </p>
+                        {acc.syncedAt && (
+                          <p className="text-[11px] text-muted-foreground">
+                            {tr('Updated from Instagram', 'حُدّث من إنستغرام')} {new Date(acc.syncedAt).toLocaleDateString()}
+                          </p>
+                        )}
                       </div>
                       {acc.url && (
                         <a

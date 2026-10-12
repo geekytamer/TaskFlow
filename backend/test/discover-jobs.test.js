@@ -64,3 +64,59 @@ test('the daily tick refreshes what is due and discovers once a month, never two
   const second = await discoverTick(store, scraper, companyId, { monthlyCap: 1800 });
   assert.deepEqual(second, [], 'discovery is monthly and the new candidates were just fetched');
 });
+
+const influencer = (store, name, accounts, extra = {}) => store.createContact({
+  companyId: '1', kind: 'Person', name, roles: ['Influencer'], influencerAccounts: accounts, ...extra,
+});
+
+test('roster influencers with an Instagram handle join the directory, outside the 200, and their figures flow back', async () => {
+  const { store, scraper, companyId } = setup();
+  const lina = influencer(store, 'Lina', [
+    { id: 'a1', platform: 'Instagram', handle: '@Salalah.Travels', followers: 50_000, engagementRate: 1 },
+    { id: 'a2', platform: 'TikTok', handle: '@lina', followers: 9_000 },
+  ]);
+  const legacy = influencer(store, 'Omar', [], { influencerPlatform: 'Instagram', influencerHandle: 'https://instagram.com/nizwa.cars', followerCount: 1 });
+  influencer(store, 'No Instagram', [{ id: 'b1', platform: 'TikTok', handle: '@x' }]);
+
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+
+  const p = store.discover.byUsername(companyId, 'salalah.travels');
+  assert.equal(p.contactId, lina.id);
+  assert.equal(p.isRoster, true);
+  assert.equal(p.status, 'listed');
+  assert.equal(store.discover.countActive(companyId), 0, 'roster profiles do not use the 200');
+
+  const after = store.getContactById(lina.id);
+  const ig = after.influencerAccounts.find((a) => a.platform === 'Instagram');
+  assert.equal(ig.followers, 96_500, 'followers written back');
+  assert.ok(ig.engagementRate > 1, 'engagement written back');
+  assert.ok(ig.syncedAt, 'marked as synced');
+  assert.equal(after.influencerAccounts.find((a) => a.platform === 'TikTok').followers, 9_000, 'other platforms untouched');
+  assert.equal(store.getContactById(legacy.id).followerCount, 54_300, 'single-platform records update too');
+});
+
+test('a changed handle on the record moves the link; a former influencer is unlinked', async () => {
+  const { store, scraper, companyId } = setup();
+  const lina = influencer(store, 'Lina', [{ id: 'a1', platform: 'Instagram', handle: 'salalah.travels' }]);
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+  store.updateContact(lina.id, { influencerAccounts: [{ id: 'a1', platform: 'Instagram', handle: 'muscat.eats' }] });
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+  assert.equal(store.discover.byUsername(companyId, 'muscat.eats').contactId, lina.id);
+  const old = store.discover.byUsername(companyId, 'salalah.travels');
+  assert.equal(old.contactId, null);
+  assert.equal(old.isRoster, false);
+});
+
+test('an account already in the directory writes its figures back as soon as it joins the roster', async () => {
+  const { store, scraper, companyId } = setup();
+  store.discover.addHandles(companyId, ['nizwa.cars']);
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+  const omar = influencer(store, 'Omar', [{ id: 'a1', platform: 'Instagram', handle: 'nizwa.cars', followers: 1 }]);
+  assert.equal(await refreshDue(store, scraper, companyId, { monthlyCap: 1800 }), null, 'nothing due to fetch');
+  const ig = store.getContactById(omar.id).influencerAccounts[0];
+  assert.equal(ig.followers, 54_300);
+  assert.ok(ig.syncedAt);
+  const stamp = String(store.getContactById(omar.id).updatedAt);
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+  assert.equal(String(store.getContactById(omar.id).updatedAt), stamp, 'no rewrite when nothing changed');
+});

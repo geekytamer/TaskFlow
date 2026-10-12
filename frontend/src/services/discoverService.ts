@@ -22,6 +22,7 @@ export interface DiscoverProfile {
   source: 'discovery' | 'manual';
   contactId: string | null;
   contactName: string | null;
+  isRoster: boolean;
   emails: string[];
   phones: string[];
   lastFetchedAt: string | null;
@@ -45,6 +46,7 @@ export interface DiscoverSettings { hashtags: string[]; minFollowers: number; pe
 
 export interface DiscoverSummary {
   counts: Record<ProfileStatus, number>;
+  rosterCount: number;
   limit: number;
   resultsThisMonth: number;
   monthlyCap: number;

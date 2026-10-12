@@ -38,6 +38,7 @@ import type { PortalPdfRenderer } from './portal/client-billing-routes';
 import { createSocialPublicRouter, type SocialOptions } from './social/routes';
 import { FixtureMetaClient, HttpMetaClient } from './social/meta-client';
 import { sweepSocial } from './social/sync';
+import { instagramFigures } from './discover/figures';
 import { sweepGames } from './games/collector';
 import { lockedModules as academyLockedModules, missionForModule } from './academy/academy';
 import { registerAcademyRoutes } from './academy/routes';
@@ -7961,7 +7962,7 @@ export function createServer(options: CreateServerOptions = {}) {
           isListed: (companyId, contactId) => store.catalogue.isListed(companyId, contactId),
           pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
           currency: (companyId) => companyCurrency(store, companyId),
-          verified: (contactId) => store.social.verifiedFor(portalCompanyId, contactId),
+          verified: (contactId) => instagramFigures(store, portalCompanyId, contactId),
         },
         requestsStore: store,
         pdf: options.portalPdf ?? {

@@ -124,3 +124,41 @@ test('runs refuse without Apify and while another run is going', async () => {
   ctx.store.discover.startRun(ctx.company.id, 'refresh');
   assert.equal((await request(ctx.server).post(`/companies/${ctx.company.id}/discover/find`).set(ctx.admin)).status, 409);
 });
+
+test('a roster influencer shows in Discover only while listed in the catalogue, and staff cannot remove the entry', async () => {
+  const ctx = build();
+  const lina = ctx.store.createContact({
+    companyId: ctx.company.id, kind: 'Person', name: 'Lina', roles: ['Influencer'],
+    influencerAccounts: [{ id: 'a1', platform: 'Instagram', handle: '@salalah.travels' }],
+  });
+  await refreshDue(ctx.store, ctx.scraper, ctx.company.id, { monthlyCap: 1800 });
+  const client = await ctx.clientSession();
+  const before = await request(ctx.server).get('/portal-api/client/discover').set(client);
+  assert.deepEqual(before.body.items.map((i) => i.username), [], 'not in the catalogue, not in Discover');
+
+  await request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
+  const after = await request(ctx.server).get('/portal-api/client/discover').set(client);
+  assert.equal(after.body.items[0].username, 'salalah.travels');
+  assert.equal(after.body.items[0].catalogueId, lina.id);
+
+  const staff = await request(ctx.server).get(`/companies/${ctx.company.id}/discover`).set(ctx.admin);
+  assert.equal(staff.body.summary.rosterCount, 1);
+  const id = after.body.items[0].id;
+  assert.equal((await request(ctx.server).patch(`/discover-profiles/${id}`).set(ctx.admin).send({ status: 'removed' })).status, 409);
+  assert.equal((await request(ctx.server).patch(`/discover-profiles/${id}`).set(ctx.admin).send({ niche: 'Travel' })).status, 200, 'details can still be set');
+});
+
+test('without a connected Instagram, the catalogue shows the scraped followers with their date', async () => {
+  const ctx = build();
+  const lina = ctx.store.createContact({
+    companyId: ctx.company.id, kind: 'Person', name: 'Lina', roles: ['Influencer'],
+    influencerAccounts: [{ id: 'a1', platform: 'Instagram', handle: '@salalah.travels', followers: 1 }],
+  });
+  await request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
+  await refreshDue(ctx.store, ctx.scraper, ctx.company.id, { monthlyCap: 1800 });
+  const client = await ctx.clientSession();
+  const res = await request(ctx.server).get(`/portal-api/client/catalogue/${lina.id}`).set(client);
+  const ig = res.body.platforms.find((p) => p.platform === 'Instagram');
+  assert.equal(ig.followers, 96500);
+  assert.match(ig.verified.asOf, /^\d{4}-\d{2}-\d{2}$/);
+});
