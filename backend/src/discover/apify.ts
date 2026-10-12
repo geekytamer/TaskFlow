@@ -131,11 +131,11 @@ const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
  * non-Omani one, so the whole flow runs without an Apify account.
  */
 export class FixtureScraper implements DiscoverScraper {
-  calls: Array<{ kind: 'profiles' | 'hashtags'; count: number }> = [];
+  calls: Array<{ kind: 'profiles' | 'hashtags'; count: number; usernames?: string[] }> = [];
   constructor(private readonly accounts: ScrapedProfile[] = FIXTURE_ACCOUNTS) {}
 
   async profiles(usernames: string[]) {
-    this.calls.push({ kind: 'profiles', count: usernames.length });
+    this.calls.push({ kind: 'profiles', count: usernames.length, usernames: [...usernames] });
     const wanted = new Set(usernames);
     return this.accounts.filter((a) => wanted.has(a.username));
   }

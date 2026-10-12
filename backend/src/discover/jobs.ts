@@ -37,12 +37,18 @@ export function instagramHandleOf(contact: Contact): string | null {
   return raw ? parseHandleList(raw).handles[0] ?? null : null;
 }
 
+/** Influencers whose Instagram connection works: Meta keeps their figures, so they are never scraped. */
+export function connectedContactIds(store: DataStore, companyId: string): Set<string> {
+  return new Set(store.social.activeAccounts(companyId).filter((a) => a.tokenSealed).map((a) => a.contactId));
+}
+
 /**
  * Keeps Peak's own influencers in the directory: every influencer of the
  * company with an Instagram handle gets a linked entry, and an entry whose
  * influencer left the roster or changed handle is unlinked. Database only.
  */
 export function syncRoster(store: DataStore, companyId: string): { linked: number; unlinked: number } {
+  const connected = connectedContactIds(store, companyId);
   const handles = new Map<string, string>();
   for (const contact of store.listContacts(companyId, 'Influencer')) {
     const handle = instagramHandleOf(contact);
@@ -55,8 +61,9 @@ export function syncRoster(store: DataStore, companyId: string): { linked: numbe
   for (const [contactId, handle] of handles) {
     store.discover.linkRoster(companyId, handle, contactId);
     // Already fetched (e.g. it was in the directory before joining the roster): write back now, not next week.
+    // A connected influencer's record follows the connection instead.
     const p = store.discover.byUsername(companyId, handle);
-    if (p?.followers != null && p.lastFetchedAt) {
+    if (p?.followers != null && p.lastFetchedAt && !connected.has(contactId)) {
       store.syncInfluencerInstagram(contactId, handle, { followers: p.followers, engagementRate: p.engagementRate }, p.lastFetchedAt);
     }
   }
@@ -68,7 +75,14 @@ export async function refreshDue(store: DataStore, scraper: DiscoverScraper, com
   const now = opts.now ?? new Date();
   if (store.discover.running(companyId)) return null;
   syncRoster(store, companyId);
-  const due = store.discover.dueForRefresh(companyId, REFRESH_DAYS, DIRECTORY_LIMIT, now);
+  const connected = connectedContactIds(store, companyId);
+  // Connected influencers: the directory takes the connection's latest followers instead of scraping.
+  for (const p of store.discover.rosterProfiles(companyId)) {
+    if (!p.contactId || !connected.has(p.contactId)) continue;
+    const figure = store.social.verifiedFor(companyId, p.contactId).find((v) => v.username.toLowerCase() === p.username);
+    if (figure && (!p.lastFetchedAt || p.lastFetchedAt.slice(0, 10) < figure.asOf)) store.discover.saveFromConnection(p.id, figure.followers, `${figure.asOf}T00:00:00.000Z`);
+  }
+  const due = store.discover.dueForRefresh(companyId, REFRESH_DAYS, DIRECTORY_LIMIT, now, [...connected]);
   if (due.length === 0) return null;
   const used = store.discover.resultsThisMonth(companyId, now);
   if (used + due.length > opts.monthlyCap) return refuse(store, companyId, 'refresh', budgetMessage(used, due.length, opts.monthlyCap));

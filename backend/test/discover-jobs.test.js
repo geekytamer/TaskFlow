@@ -120,3 +120,24 @@ test('an account already in the directory writes its figures back as soon as it 
   await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
   assert.equal(String(store.getContactById(omar.id).updatedAt), stamp, 'no rewrite when nothing changed');
 });
+
+test('an influencer with a working Instagram connection is never scraped; a broken connection falls back to scraping', async () => {
+  const { store, scraper, companyId } = setup();
+  const lina = influencer(store, 'Lina', [{ id: 'a1', platform: 'Instagram', handle: 'salalah.travels', followers: 1 }]);
+  const account = store.social.upsertAccount({ companyId, contactId: lina.id, externalId: 'ext-lina', username: 'salalah.travels', accountType: 'MEDIA_CREATOR', tokenSealed: 'v1:x', expiresAt: null });
+  // Older than a week, so only the exclusion keeps it from being scraped.
+  store.social.addSnapshot({ accountId: account.id, takenOn: new Date(Date.now() - 10 * 86400_000).toISOString().slice(0, 10), followers: 97_000, views: 0, reach: 0, engagedAccounts: 0, demographics: null });
+
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+  const asked = () => scraper.calls.flatMap((c) => c.usernames ?? []);
+  assert.equal(asked().includes('salalah.travels'), false, 'connected account not sent to Apify');
+  const p = store.discover.byUsername(companyId, 'salalah.travels');
+  assert.equal(p.isRoster, true, 'still in the directory');
+  assert.equal(p.followers, 97_000, 'directory figures come from the connection');
+  assert.equal(store.getContactById(lina.id).influencerAccounts[0].followers, 1, 'record not overwritten by scraping');
+
+  store.social.updateAccount(account.id, { status: 'needs_reconnect' });
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800, now: new Date(Date.now() + 8 * 86400_000) });
+  assert.ok(asked().includes('salalah.travels'), 'sent to Apify once the connection broke');
+  assert.equal(store.getContactById(lina.id).influencerAccounts[0].followers, 96_500, 'scraped figures reach the record');
+});

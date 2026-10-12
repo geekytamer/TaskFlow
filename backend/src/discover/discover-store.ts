@@ -192,10 +192,20 @@ export class DiscoverStore {
   }
 
   /** Listed and candidate profiles not fetched for `days`, oldest first. Removed and rejected ones are never fetched. */
-  dueForRefresh(companyId: string, days: number, limit: number, now = new Date()): DiscoverProfile[] {
+  /** Profiles to scrape again; those linked to `skipContactIds` (a working Instagram connection) are left out. */
+  dueForRefresh(companyId: string, days: number, limit: number, now = new Date(), skipContactIds: string[] = []): DiscoverProfile[] {
     const before = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
     return (this.db.prepare(`SELECT ${COLUMNS} FROM discover_profiles WHERE companyId = ? AND status IN ('listed', 'candidate')
-      AND (lastFetchedAt IS NULL OR lastFetchedAt < ?) ORDER BY lastFetchedAt IS NOT NULL, lastFetchedAt LIMIT ?`).all(companyId, before, limit) as any[]).map(decode);
+      AND (lastFetchedAt IS NULL OR lastFetchedAt < ?) AND (contactId IS NULL OR contactId NOT IN (SELECT value FROM json_each(?)))
+      ORDER BY lastFetchedAt IS NOT NULL, lastFetchedAt LIMIT ?`).all(companyId, before, JSON.stringify(skipContactIds), limit) as any[]).map(decode);
+  }
+
+  /** Followers from an influencer's Instagram connection, in place of scraping; also kept as a snapshot for growth. */
+  saveFromConnection(id: string, followers: number, at: string): void {
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE discover_profiles SET followers = ?, lastFetchedAt = ?, fetchError = NULL, updatedAt = ? WHERE id = ?').run(followers, at, at, id);
+      this.db.prepare('INSERT OR REPLACE INTO discover_snapshots (profileId, takenAt, followers, following, posts) VALUES (?, ?, ?, NULL, NULL)').run(id, at, followers);
+    })();
   }
 
   /** Profiles that use the directory's 200: listed and candidate ones, not Peak's own roster. */
