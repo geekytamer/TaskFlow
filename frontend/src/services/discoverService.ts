@@ -89,3 +89,21 @@ export async function discoverPhotoUrl(id: string): Promise<string | null> {
   if (!res.ok) return null;
   return URL.createObjectURL(await res.blob());
 }
+
+/** Influencers with a stored Instagram photo: contact id to when it was taken. Empty when none or not available. */
+export async function getInfluencerPhotos(companyId: string): Promise<Record<string, string>> {
+  try {
+    const res = await apiFetch<{ photos: Record<string, string> }>(`/companies/${encodeURIComponent(companyId)}/influencer-photos`);
+    return res.photos ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** An influencer's stored photo as an object URL, or null. */
+export async function influencerPhotoUrl(contactId: string): Promise<string | null> {
+  const token = getStoredToken();
+  const res = await fetch(`${API_BASE_URL}/contacts/${encodeURIComponent(contactId)}/influencer-photo`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) return null;
+  return URL.createObjectURL(await res.blob());
+}

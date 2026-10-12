@@ -177,6 +177,24 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
     res.json(view(store.discover.get(profile.id)!));
   }));
 
+  // Influencer photos for the Influencers pages: anyone who can open the company, not only directory managers.
+  router.get('/companies/:companyId/influencer-photos', authMiddleware, wrap((req, res) => {
+    const wanted = String(req.params.companyId);
+    deps.requireCompanyAccess(req, wanted);
+    res.json({ photos: wanted === companyId ? store.discover.rosterPhotos(companyId) : {} });
+  }));
+
+  router.get('/contacts/:contactId/influencer-photo', authMiddleware, wrap((req, res) => {
+    const contact = store.getContactById(String(req.params.contactId));
+    if (!contact || contact.companyId !== companyId) throw new HttpError(404, 'Not found.');
+    deps.requireCompanyAccess(req, contact.companyId);
+    const photo = store.discover.photoForContact(companyId, contact.id);
+    if (!photo) throw new HttpError(404, 'No photo.');
+    res.setHeader('Content-Type', photo.type);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(photo.bytes);
+  }));
+
   router.get('/discover-profiles/:id/photo', authMiddleware, wrap((req, res) => {
     const profile = loadProfile(req);
     const photo = store.discover.photo(profile.id);

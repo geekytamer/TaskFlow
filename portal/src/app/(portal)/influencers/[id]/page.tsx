@@ -1,3 +1,4 @@
+import { InfluencerPhoto } from '@/components/influencer-photo';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PriceTag } from '@/components/price-tag';
@@ -21,7 +22,7 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-8">
-      <PageHeader back={{ href: '/influencers', label: t(lang, 'cat.back') }} title={<span dir="auto">{influencer.name}</span>} subtitle={meta || undefined} />
+      <PageHeader back={{ href: '/influencers', label: t(lang, 'cat.back') }} title={<span className="flex items-center gap-4"><InfluencerPhoto id={influencer.id} name={influencer.name} photoAt={influencer.photoAt} size="lg" /><span dir="auto" className="min-w-0">{influencer.name}</span></span>} subtitle={meta || undefined} />
 
       <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_17rem] md:items-start">
         <div className="min-w-0">

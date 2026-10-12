@@ -50,8 +50,10 @@ export function connectedContactIds(store: DataStore, companyId: string): Set<st
 export function syncRoster(store: DataStore, companyId: string): { linked: number; unlinked: number } {
   const connected = connectedContactIds(store, companyId);
   const handles = new Map<string, string>();
+  const connectedNames = new Map(store.social.activeAccounts(companyId).map((a) => [a.contactId, a.username.toLowerCase()]));
   for (const contact of store.listContacts(companyId, 'Influencer')) {
-    const handle = instagramHandleOf(contact);
+    // No handle typed on the record: the connected account still identifies them.
+    const handle = instagramHandleOf(contact) ?? connectedNames.get(contact.id) ?? null;
     if (handle) handles.set(contact.id, handle);
   }
   let unlinked = 0;

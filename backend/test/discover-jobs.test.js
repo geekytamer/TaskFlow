@@ -141,3 +141,28 @@ test('an influencer with a working Instagram connection is never scraped; a brok
   assert.ok(asked().includes('salalah.travels'), 'sent to Apify once the connection broke');
   assert.equal(store.getContactById(lina.id).influencerAccounts[0].followers, 96_500, 'scraped figures reach the record');
 });
+
+test('a connected influencer gets their photo from the connection, at most weekly', async () => {
+  const { store, scraper, companyId } = setup();
+  const { FixtureMetaClient } = require('../dist/social/meta-client');
+  const { sealToken } = require('../dist/social/crypto');
+  const { syncAccount } = require('../dist/social/sync');
+  const fixture = new FixtureMetaClient(path.join(__dirname, 'fixtures', 'meta'));
+  const client = Object.assign(Object.create(fixture), { profile: async (t) => ({ ...(await fixture.profile(t)), pictureUrl: 'https://cdn.example/lina.jpg' }) });
+  // No Instagram handle typed on the record: the connection identifies them.
+  const lina = influencer(store, 'Lina', []);
+  const account = store.social.upsertAccount({ companyId, contactId: lina.id, externalId: 'ext-lina', username: 'lina.eats', accountType: 'MEDIA_CREATOR', tokenSealed: sealToken('t'), expiresAt: null });
+  await refreshDue(store, scraper, companyId, { monthlyCap: 1800 });
+  assert.equal(store.discover.byUsername(companyId, 'lina.eats').contactId, lina.id, 'joined the roster through the connection');
+
+  const downloads = [];
+  const download = async (url) => { downloads.push(url); return { bytes: Buffer.from('img'), type: 'image/jpeg' }; };
+  await syncAccount(store, client, account, new Date(), download);
+  assert.deepEqual(downloads, ['https://cdn.example/lina.jpg']);
+  assert.equal(store.discover.photoForContact(companyId, lina.id).type, 'image/jpeg');
+  await syncAccount(store, client, store.social.getAccount(account.id), new Date(Date.now() + 2 * 86400_000), download);
+  assert.equal(downloads.length, 1, 'not again within a week');
+  await syncAccount(store, client, store.social.getAccount(account.id), new Date(Date.now() + 8 * 86400_000), download);
+  assert.equal(downloads.length, 2, 'again after a week');
+  assert.ok(!scraper.calls.some((c) => (c.usernames ?? []).includes('lina.eats')), 'never scraped');
+});

@@ -4959,6 +4959,15 @@ export class DataStore {
           if (!cols.includes('isRoster')) this.db.exec('ALTER TABLE discover_profiles ADD COLUMN isRoster INTEGER NOT NULL DEFAULT 0;');
         },
       },
+      {
+        // When the stored photo was taken, so a connected account's picture is refreshed weekly.
+        id: '128_discover_photo_at',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(discover_profiles)').all() as Array<{ name: string }>).map((c) => c.name);
+          if (!cols.includes('photoAt')) this.db.exec('ALTER TABLE discover_profiles ADD COLUMN photoAt TEXT;');
+          this.db.exec('UPDATE discover_profiles SET photoAt = lastFetchedAt WHERE photo IS NOT NULL AND photoAt IS NULL;');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

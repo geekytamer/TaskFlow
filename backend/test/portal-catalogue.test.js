@@ -141,7 +141,7 @@ test('no response ever carries a rate, contact details or internal notes', async
   assertNoPoison(detail.body, 'detail');
 
   assert.deepEqual(Object.keys(detail.body).sort(),
-    ['availability', 'id', 'languages', 'location', 'name', 'niche', 'platforms', 'price']);
+    ['availability', 'id', 'languages', 'location', 'name', 'niche', 'photoAt', 'platforms', 'price']);
   assert.deepEqual(Object.keys(detail.body.platforms[0]).sort(),
     ['avgViews', 'engagementRate', 'followers', 'handle', 'platform', 'url', 'verified']);
 });

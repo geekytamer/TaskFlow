@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
+import { InfluencerAvatar, useInfluencerPhotos } from './influencer-avatar';
 import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
@@ -155,8 +156,11 @@ function InfluencerCard({
   money,
   onEdit,
   showPricing,
+  photoAt,
 }: {
   c: Contact;
+  /** When the stored Instagram photo was taken; absent for initials. */
+  photoAt?: string | null;
   money: (value: number) => string;
   onEdit: () => void;
   /** Rate cards are negotiated pricing — the API withholds them from staff too. */
@@ -170,15 +174,18 @@ function InfluencerCard({
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          {/* The name opens the full profile; editing stays on its own control,
-              so browsing an influencer no longer means opening an edit form. */}
-          <Link href={`/contacts/${c.id}`} className="text-start font-semibold hover:underline">
-            {c.name}
-          </Link>
-          {c.influencerNiche ? (
-            <p className="truncate text-sm text-muted-foreground">{c.influencerNiche}</p>
-          ) : null}
+        <div className="flex min-w-0 items-center gap-3">
+          <InfluencerAvatar contactId={c.id} name={c.name} photoAt={photoAt} />
+          <div className="min-w-0">
+            {/* The name opens the full profile; editing stays on its own control,
+                so browsing an influencer no longer means opening an edit form. */}
+            <Link href={`/contacts/${c.id}`} className="text-start font-semibold hover:underline">
+              {c.name}
+            </Link>
+            {c.influencerNiche ? (
+              <p className="truncate text-sm text-muted-foreground">{c.influencerNiche}</p>
+            ) : null}
+          </div>
         </div>
         {c.availabilityStatus ? (
           <span
@@ -253,6 +260,7 @@ function InfluencerCard({
 
 export function InfluencersPage() {
   const { selectedCompany, currentRole } = useCompany();
+  const photos = useInfluencerPhotos(selectedCompany?.id);
   // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
   // tile is absent rather than empty. The role is the legacy fallback.
   const showPricing = usePermissionOr(
@@ -546,7 +554,7 @@ export function InfluencersPage() {
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((c) => (
-              <InfluencerCard key={c.id} c={c} money={money} onEdit={() => setEditing(c)} showPricing={showPricing} />
+              <InfluencerCard key={c.id} c={c} money={money} onEdit={() => setEditing(c)} showPricing={showPricing} photoAt={photos?.[c.id] ?? null} />
             ))}
           </div>
         </>

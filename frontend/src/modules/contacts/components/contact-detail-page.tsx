@@ -21,6 +21,7 @@ import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import { WorkspaceSection } from './workspace-section';
+import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/components/influencer-avatar';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import {
@@ -68,7 +69,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const { money, amount, amountIn } = useCompanyCurrency();
-  const { currentRole } = useCompany();
+  const { currentRole, selectedCompany } = useCompany();
+  const photos = useInfluencerPhotos(selectedCompany?.id);
   // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
   // tile is absent rather than empty. The role is the legacy fallback.
   const canSeePricing = usePermissionOr(
@@ -120,7 +122,12 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             <ArrowLeft className="me-2 h-4 w-4" />
             {t('common.back')}
           </Button>
-          <h1 className="text-3xl font-bold tracking-tight">{c.name}</h1>
+          <div className="flex items-center gap-4">
+            {(c.roles || []).includes('Influencer') && (
+              <InfluencerAvatar contactId={c.id} name={c.name} photoAt={photos?.[c.id] ?? null} size="lg" />
+            )}
+            <h1 className="text-3xl font-bold tracking-tight">{c.name}</h1>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {(c.roles || []).map((r) => (
               <Badge key={r} variant="outline">

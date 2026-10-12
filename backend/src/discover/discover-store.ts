@@ -151,7 +151,7 @@ export class DiscoverStore {
           @isPrivate, @category, @engagementRate, @emails, @phones, @lastFetchedAt, @location, @status, @source, @createdAt, @updatedAt)`)
           .run({ ...values, id, companyId, username: p.username, location: locationFromBio(p.bio), status: ifNew.status, source: ifNew.source, createdAt: at });
       }
-      if (photo) this.db.prepare('UPDATE discover_profiles SET photo = ?, photoType = ? WHERE id = ?').run(photo.bytes, photo.type, id);
+      if (photo) this.db.prepare('UPDATE discover_profiles SET photo = ?, photoType = ?, photoAt = ? WHERE id = ?').run(photo.bytes, photo.type, at, id);
       this.db.prepare('INSERT OR REPLACE INTO discover_snapshots (profileId, takenAt, followers, following, posts) VALUES (?, ?, ?, ?, ?)')
         .run(id, at, p.followers, p.following, p.posts);
     })();
@@ -180,6 +180,25 @@ export class DiscoverStore {
   photo(id: string): { bytes: Buffer; type: string } | undefined {
     const row = this.db.prepare('SELECT photo, photoType FROM discover_profiles WHERE id = ?').get(id) as { photo: Buffer | null; photoType: string | null } | undefined;
     return row?.photo && row.photoType ? { bytes: row.photo, type: row.photoType } : undefined;
+  }
+
+  /** Peak's influencers that have a stored photo, with when it was taken (a cache key for the apps). */
+  rosterPhotos(companyId: string): Record<string, string> {
+    const rows = this.db.prepare(`SELECT contactId, MAX(COALESCE(photoAt, '')) AS at FROM discover_profiles
+      WHERE companyId = ? AND isRoster = 1 AND contactId IS NOT NULL AND photo IS NOT NULL GROUP BY contactId`).all(companyId) as Array<{ contactId: string; at: string }>;
+    return Object.fromEntries(rows.map((r) => [r.contactId, r.at]));
+  }
+
+  /** An influencer's photo, from their roster entry. */
+  photoForContact(companyId: string, contactId: string): { bytes: Buffer; type: string } | undefined {
+    const row = this.db.prepare(`SELECT photo, photoType FROM discover_profiles WHERE companyId = ? AND contactId = ? AND isRoster = 1
+      AND photo IS NOT NULL ORDER BY photoAt DESC LIMIT 1`).get(companyId, contactId) as { photo: Buffer; photoType: string } | undefined;
+    return row?.photoType ? { bytes: row.photo, type: row.photoType } : undefined;
+  }
+
+  /** A roster entry's photo taken from elsewhere (an Instagram connection). */
+  savePhoto(id: string, photo: { bytes: Buffer; type: string }, at: string): void {
+    this.db.prepare('UPDATE discover_profiles SET photo = ?, photoType = ?, photoAt = ?, updatedAt = ? WHERE id = ?').run(photo.bytes, photo.type, at, at, id);
   }
 
   update(id: string, patch: ProfilePatch): DiscoverProfile | undefined {

@@ -24,6 +24,8 @@ export interface CatalogueEntry {
   availability: string | null;
   platforms: CataloguePlatform[];
   price: PriceView;
+  /** When Peak's stored Instagram photo was taken; null shows initials. */
+  photoAt: string | null;
 }
 
 export interface CatalogueList {

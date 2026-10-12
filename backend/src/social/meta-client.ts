@@ -14,7 +14,7 @@ export interface MetaClient {
   authorizeUrl(state: string, redirectUri: string): string;
   exchangeCode(code: string, redirectUri: string): Promise<{ accessToken: string; expiresAt: Date; userId: string }>;
   refresh(token: string): Promise<{ accessToken: string; expiresAt: Date }>;
-  profile(token: string): Promise<{ id: string; username: string; accountType: AccountType; followers: number; mediaCount: number }>;
+  profile(token: string): Promise<{ id: string; username: string; accountType: AccountType; followers: number; mediaCount: number; pictureUrl: string | null }>;
   accountInsights(token: string, userId: string): Promise<{ views: number; reach: number; engagedAccounts: number; demographics: Demographics | null }>;
   mediaByPermalink(token: string, userId: string, permalink: string): Promise<{ id: string } | null>;
   mediaInsights(token: string, mediaId: string): Promise<MediaFigures>;
@@ -69,6 +69,7 @@ const breakdown = (rows: GraphRow[]): Record<string, number> =>
 const toProfile = (me: Record<string, unknown>) => ({
   id: String(me.user_id ?? me.id), username: String(me.username), accountType: String(me.account_type) as AccountType,
   followers: Number(me.followers_count ?? 0), mediaCount: Number(me.media_count ?? 0),
+  pictureUrl: typeof me.profile_picture_url === 'string' && me.profile_picture_url ? me.profile_picture_url : null,
 });
 const toFigures = (rows: GraphRow[]): MediaFigures => ({
   views: valueOf(rows, 'views'), likes: valueOf(rows, 'likes'), comments: valueOf(rows, 'comments'),
@@ -128,7 +129,7 @@ export class HttpMetaClient implements MetaClient {
   }
 
   async profile(token: string) {
-    return toProfile(await this.call(this.graph('me?fields=user_id,username,account_type,followers_count,media_count', token)));
+    return toProfile(await this.call(this.graph('me?fields=user_id,username,account_type,followers_count,media_count,profile_picture_url', token)));
   }
 
   async accountInsights(token: string, userId: string) {

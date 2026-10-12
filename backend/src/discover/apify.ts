@@ -40,6 +40,19 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null
 const handle = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/^@+/, '').toLowerCase() : '');
 const MAX_PHOTO_BYTES = 400_000;
 
+/** A profile picture's bytes, or null when it cannot be fetched or is not a reasonable image. */
+export async function downloadImage(url: string, http: Fetch = fetch): Promise<{ bytes: Buffer; type: string } | null> {
+  try {
+    const res = await http(url, { signal: AbortSignal.timeout(30_000) });
+    const type = res.headers.get('content-type') ?? '';
+    if (!res.ok || !type.startsWith('image/')) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return bytes.length > 0 && bytes.length <= MAX_PHOTO_BYTES ? { bytes, type } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** One profile scraper item in our shape; null when it is not a usable public profile. */
 export function toScrapedProfile(item: Record<string, unknown>): ScrapedProfile | null {
   const username = handle(item.username);
@@ -111,15 +124,7 @@ export class ApifyScraper implements DiscoverScraper {
   }
 
   async photo(url: string) {
-    try {
-      const res = await this.http(url, { signal: AbortSignal.timeout(30_000) });
-      const type = res.headers.get('content-type') ?? '';
-      if (!res.ok || !type.startsWith('image/')) return null;
-      const bytes = Buffer.from(await res.arrayBuffer());
-      return bytes.length > 0 && bytes.length <= MAX_PHOTO_BYTES ? { bytes, type } : null;
-    } catch {
-      return null;
-    }
+    return downloadImage(url, this.http);
   }
 }
 

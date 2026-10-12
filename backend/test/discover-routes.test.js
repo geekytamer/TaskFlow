@@ -162,3 +162,37 @@ test('without a connected Instagram, the catalogue shows the scraped followers w
   assert.equal(ig.followers, 96500);
   assert.match(ig.verified.asOf, /^\d{4}-\d{2}-\d{2}$/);
 });
+
+test('influencer photos: staff of the company see them, clients see them for listed influencers only', async () => {
+  const ctx = build();
+  const lina = ctx.store.createContact({
+    companyId: ctx.company.id, kind: 'Person', name: 'Lina', roles: ['Influencer'],
+    influencerAccounts: [{ id: 'a1', platform: 'Instagram', handle: '@salalah.travels' }],
+  });
+  const noHandle = ctx.store.createContact({ companyId: ctx.company.id, kind: 'Person', name: 'No handle', roles: ['Influencer'] });
+  await refreshDue(ctx.store, ctx.scraper, ctx.company.id, { monthlyCap: 1800 });
+
+  const list = await request(ctx.server).get(`/companies/${ctx.company.id}/influencer-photos`).set(ctx.employee);
+  assert.equal(list.status, 200, 'any staff member of the company, not only directory managers');
+  assert.deepEqual(Object.keys(list.body.photos), [lina.id]);
+  const photo = await request(ctx.server).get(`/contacts/${lina.id}/influencer-photo`).set(ctx.employee);
+  assert.equal(photo.status, 200);
+  assert.equal(photo.headers['content-type'], 'image/png');
+  assert.equal((await request(ctx.server).get(`/contacts/${noHandle.id}/influencer-photo`).set(ctx.employee)).status, 404);
+  assert.equal((await request(ctx.server).get(`/contacts/${lina.id}/influencer-photo`)).status, 401);
+
+  const other = ctx.store.createCompany({ name: 'Other Co', website: '', address: '' });
+  const outsider = ctx.store.createUser({ name: 'Out', email: 'out@other.test', password: 'x', role: 'Admin', companyIds: [other.id], companyRoles: [{ companyId: other.id, role: 'Admin' }] });
+  const outsiderAuth = { Authorization: `Bearer ${ctx.store.issueToken(outsider.id)}` };
+  assert.equal((await request(ctx.server).get(`/contacts/${lina.id}/influencer-photo`).set(outsiderAuth)).status, 403);
+  assert.equal((await request(ctx.server).get(`/companies/${ctx.company.id}/influencer-photos`).set(outsiderAuth)).status, 403);
+
+  const client = await ctx.clientSession();
+  assert.equal((await request(ctx.server).get(`/portal-api/client/catalogue/${lina.id}/photo`).set(client)).status, 404, 'not listed yet');
+  await request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
+  const catalogue = await request(ctx.server).get('/portal-api/client/catalogue').set(client);
+  assert.ok(catalogue.body.items.find((i) => i.id === lina.id).photoAt);
+  const clientPhoto = await request(ctx.server).get(`/portal-api/client/catalogue/${lina.id}/photo`).set(client);
+  assert.equal(clientPhoto.status, 200);
+  assert.equal(clientPhoto.headers['content-type'], 'image/png');
+});

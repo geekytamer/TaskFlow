@@ -6,6 +6,22 @@ import { sweepMediaResults } from './results';
 
 const DAY = 86400_000;
 const REFRESH_WITHIN = 7 * DAY;
+/** A connected influencer's profile picture is taken again once it is this old. */
+const PHOTO_EVERY = 7 * DAY;
+
+/** Downloads an image; absent in tests that do not care about photos. */
+export type ImageDownloader = (url: string) => Promise<{ bytes: Buffer; type: string } | null>;
+
+/** Connected influencers are not scraped, so their directory photo comes from the connection, weekly. */
+async function savePicture(store: DataStore, account: ConnectedAccount, pictureUrl: string | null, download: ImageDownloader | undefined, now: Date) {
+  if (!pictureUrl || !download) return;
+  const entry = store.discover.rosterProfiles(account.companyId).find((p) => p.contactId === account.contactId);
+  if (!entry) return;
+  const at = store.discover.rosterPhotos(account.companyId)[account.contactId];
+  if (at && now.getTime() - Date.parse(at) < PHOTO_EVERY) return;
+  const photo = await download(pictureUrl);
+  if (photo) store.discover.savePhoto(entry.id, photo, now.toISOString());
+}
 
 const dayOf = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -25,7 +41,7 @@ function needsReconnect(store: DataStore, account: ConnectedAccount, message: st
 }
 
 /** One account: refresh a token close to expiry, then take today's snapshot if there is none yet. */
-export async function syncAccount(store: DataStore, client: MetaClient, account: ConnectedAccount, now = new Date()): Promise<void> {
+export async function syncAccount(store: DataStore, client: MetaClient, account: ConnectedAccount, now = new Date(), download?: ImageDownloader): Promise<void> {
   if (account.status !== 'active' || !account.tokenSealed) return;
   const today = dayOf(now);
   let token: string;
@@ -48,6 +64,7 @@ export async function syncAccount(store: DataStore, client: MetaClient, account:
         views: insights.views, reach: insights.reach, engagedAccounts: insights.engagedAccounts,
         demographics: insights.demographics,
       });
+      await savePicture(store, account, profile.pictureUrl, download, now);
     }
     store.social.updateAccount(account.id, { lastSyncAt: now.toISOString(), lastError: null });
   } catch (error) {
@@ -58,9 +75,9 @@ export async function syncAccount(store: DataStore, client: MetaClient, account:
 }
 
 /** The hourly sweep: every active account at most once a day, plus post result checkpoints. */
-export async function sweepSocial(store: DataStore, client: MetaClient, companyId: string, now = new Date()): Promise<void> {
+export async function sweepSocial(store: DataStore, client: MetaClient, companyId: string, now = new Date(), download?: ImageDownloader): Promise<void> {
   for (const account of store.social.activeAccounts(companyId)) {
-    await syncAccount(store, client, account, now);
+    await syncAccount(store, client, account, now, download);
   }
   await sweepMediaResults(store, client, companyId, now);
 }

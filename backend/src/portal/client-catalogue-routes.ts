@@ -16,6 +16,9 @@ export interface ClientCatalogueDeps {
   currency(companyId: string): string;
   /** Synced figures from connected accounts; absent or empty means none. */
   verified?(contactId: string): VerifiedFigure[];
+  /** Influencers with a stored Instagram photo, contact id to when it was taken. */
+  photos?(companyId: string): Record<string, string>;
+  photo?(contactId: string): { bytes: Buffer; type: string } | undefined;
 }
 
 
@@ -53,9 +56,10 @@ export function registerClientCatalogueRoutes(
     const listed = new Set(deps.listedIds(companyId));
     const price = pricing(req);
     const filter = parseFilter(req.query);
+    const photos = deps.photos?.(companyId) ?? {};
     const all = deps.listInfluencers(companyId)
       .filter((contact) => listed.has(contact.id))
-      .map((contact) => toCatalogueEntry(contact, price(contact), deps.verified?.(contact.id)));
+      .map((contact) => ({ ...toCatalogueEntry(contact, price(contact), deps.verified?.(contact.id)), photoAt: photos[contact.id] ?? null }));
     const matches = all.filter((entry) => matchesFilter(entry, filter));
     res.json({
       items: matches.slice(0, CATALOGUE_LIMIT),
@@ -65,13 +69,28 @@ export function registerClientCatalogueRoutes(
     });
   });
 
-  router.get('/client/catalogue/:contactId', requireClientSession, (req: SessionRequest, res: Response) => {
-    const contact = deps.getContact(req.params.contactId);
+  const listedContact = (contactId: string) => {
+    const contact = deps.getContact(contactId);
     const listed = contact
       && contact.companyId === companyId
       && contact.roles?.includes('Influencer')
       && deps.isListed(companyId, contact.id);
     if (!contact || !listed) throw new HttpError(404, 'Not found.');
-    res.json(toCatalogueEntry(contact, pricing(req)(contact), deps.verified?.(contact.id)));
+    return contact;
+  };
+
+  router.get('/client/catalogue/:contactId', requireClientSession, (req: SessionRequest, res: Response) => {
+    const contact = listedContact(req.params.contactId);
+    res.json({ ...toCatalogueEntry(contact, pricing(req)(contact), deps.verified?.(contact.id)), photoAt: deps.photos?.(companyId)[contact.id] ?? null });
+  });
+
+  // The influencer's Instagram photo, stored by Peak; only for listed influencers.
+  router.get('/client/catalogue/:contactId/photo', requireClientSession, (req: SessionRequest, res: Response) => {
+    const contact = listedContact(req.params.contactId);
+    const photo = deps.photo?.(contact.id);
+    if (!photo) throw new HttpError(404, 'No photo.');
+    res.setHeader('Content-Type', photo.type);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(photo.bytes);
   });
 }

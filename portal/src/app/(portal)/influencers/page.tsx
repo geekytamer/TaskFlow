@@ -1,3 +1,4 @@
+import { InfluencerPhoto } from '@/components/influencer-photo';
 import Link from 'next/link';
 import { Disclosure } from '@/components/disclosure';
 import { PriceTag } from '@/components/price-tag';
@@ -54,10 +55,13 @@ function InfluencerRow({ entry, lang, chosen, toggleHref }: { entry: CatalogueEn
         </span>
       </Link>
       <Link href={`/influencers/${entry.id}`} className="group grid min-w-0 flex-1 gap-3 px-4 py-4 hover:bg-surface-2 sm:px-5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.4fr)_9rem] md:items-center md:gap-6">
-        <div className="min-w-0">
-          <p className="truncate font-semibold group-hover:underline"><bdi>{entry.name}</bdi></p>
-          {meta && <p className="mt-0.5 truncate text-sm text-ink-soft">{meta}</p>}
-          {entry.availability && <p className="mt-0.5 text-xs font-medium text-ink-soft">{availabilityLabel(entry.availability, lang)}</p>}
+        <div className="flex min-w-0 items-center gap-3">
+          <InfluencerPhoto id={entry.id} name={entry.name} photoAt={entry.photoAt} />
+          <div className="min-w-0">
+            <p className="truncate font-semibold group-hover:underline"><bdi>{entry.name}</bdi></p>
+            {meta && <p className="mt-0.5 truncate text-sm text-ink-soft">{meta}</p>}
+            {entry.availability && <p className="mt-0.5 text-xs font-medium text-ink-soft">{availabilityLabel(entry.availability, lang)}</p>}
+          </div>
         </div>
         {top ? (
           <dl className="grid grid-cols-3 gap-3 text-sm">

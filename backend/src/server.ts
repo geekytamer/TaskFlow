@@ -47,7 +47,7 @@ import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
 import { sweepPortalPush } from './portal/push-alerts';
 import { createDiscoverStaffRouter } from './discover/staff-routes';
-import { discoverScraperFromEnv, type DiscoverScraper } from './discover/apify';
+import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
 import { discoverTick } from './discover/jobs';
 import {
   influencerPlatforms,
@@ -803,7 +803,7 @@ export function createServer(options: CreateServerOptions = {}) {
         const portalDue = portalCompany && store.getCompanyById(portalCompany) ? sweepPortalDeliverableReminders(store, portalCompany) : 0;
         if (portalDue > 0) logger.info(`[portal] ${portalDue} deliverable due-soon reminder(s)`);
         if (portalCompany && social) {
-          void sweepSocial(store, social.client, portalCompany)
+          void sweepSocial(store, social.client, portalCompany, new Date(), (url) => downloadImage(url))
             .then(() => collectGamesNow())
             .catch((error) => logger.error('[social] sweep failed', error));
         }
@@ -7963,6 +7963,8 @@ export function createServer(options: CreateServerOptions = {}) {
           pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
           currency: (companyId) => companyCurrency(store, companyId),
           verified: (contactId) => instagramFigures(store, portalCompanyId, contactId),
+          photos: (companyId) => store.discover.rosterPhotos(companyId),
+          photo: (contactId) => store.discover.photoForContact(portalCompanyId, contactId),
         },
         requestsStore: store,
         pdf: options.portalPdf ?? {
