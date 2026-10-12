@@ -29,6 +29,19 @@ export interface CompanyMember {
   avatar?: string | null;
 }
 
+/** A person as the project pages show them: name and photo only. */
+export type PersonSummary = { id: string; name: string; avatar?: string };
+
+/**
+ * Everyone in the company as names and photos, for any member (Accountants and
+ * Employees included). Project pages use this instead of the full user list,
+ * which only Admins and Managers may read.
+ */
+export async function getCompanyPeople(companyId: string): Promise<PersonSummary[]> {
+  const members = await getCompanyMembers(companyId);
+  return members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar ?? undefined }));
+}
+
 /** Minimal member directory (id/name/avatar) readable by ANY company member —
  *  use for assignee pickers so employees can assign people too. */
 export async function getCompanyMembers(companyId: string): Promise<CompanyMember[]> {

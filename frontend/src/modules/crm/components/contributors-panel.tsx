@@ -32,7 +32,7 @@ import {
   type ContributionRole,
   type ContributionSourceType,
 } from '@/services/crmService';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyPeople, getUsersByCompany } from '@/services/userService';
 import type { User } from '@/modules/users/types';
 import { PlusCircle, Trash2, Users } from 'lucide-react';
 
@@ -62,7 +62,8 @@ export function ContributorsPanel({
   const { t } = useI18n();
   const { toast } = useToast();
   const [items, setItems] = React.useState<Contribution[]>([]);
-  const [users, setUsers] = React.useState<User[]>([]);
+  // Full records for Admins and Managers (shows commission eligibility); names only for everyone else.
+  const [users, setUsers] = React.useState<Array<Pick<User, 'id' | 'name'> & { commissionEligible?: boolean }>>([]);
   const [loading, setLoading] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Contribution | null>(null);
@@ -79,7 +80,7 @@ export function ContributorsPanel({
     try {
       const [rows, allUsers] = await Promise.all([
         getContributions(companyId, { sourceType, sourceId }),
-        getUsersByCompany(companyId),
+        getUsersByCompany(companyId).catch(() => getCompanyPeople(companyId)),
       ]);
       setItems(rows);
       setUsers(allUsers);
@@ -209,7 +210,7 @@ export function ContributorsPanel({
                     <SelectContent>
                       {users.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
-                          {u.name} {!u.commissionEligible && (
+                          {u.name} {u.commissionEligible === false && (
                             <span className="text-xs text-muted-foreground"> · {t('contributors.notEligible')}</span>
                           )}
                         </SelectItem>

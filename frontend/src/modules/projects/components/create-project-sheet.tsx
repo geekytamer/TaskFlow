@@ -25,7 +25,7 @@ import { projectVisibilities, type ProjectVisibility, type Client } from '@/lib/
 import { PlusCircle, User, Briefcase } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyPeople } from '@/services/userService';
 import { getClients } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
 import { createProject } from '@/services/projectService';
@@ -51,7 +51,7 @@ export function CreateProjectSheet() {
     async function loadData() {
       if (selectedCompany) {
         const [users, clientData] = await Promise.all([
-          getUsersByCompany(selectedCompany.id),
+          getCompanyPeople(selectedCompany.id),
           getClients(selectedCompany.id)
         ]);
 

@@ -2,9 +2,8 @@
 
 import * as React from 'react';
 import { getTasks } from '@/services/projectService';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import type { Task, Project, TaskStatus } from '@/modules/projects/types';
-import type { User } from '@/modules/users/types';
 import { taskStatuses } from '@/modules/projects/types';
 import {
   BarChart,
@@ -34,7 +33,6 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
-import { usePermissionOr } from '@/context/permissions-context';
 
 
 const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
@@ -43,7 +41,7 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       if (data.isLabel) return null;
-      const users = allUsers.filter((u: User) => data.assignedUserIds?.includes(u.id));
+      const users = allUsers.filter((u: PersonSummary) => data.assignedUserIds?.includes(u.id));
       const project = allProjects.find((p: Project) => p.id === data.projectId);
       return (
         <Card className="w-60">
@@ -73,13 +71,13 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
                 <div className="pt-2 mt-2 border-t">
                   <p className="text-muted-foreground mb-1">{tr('Assignees:', 'المكلّفون:')}</p>
                   <div className="flex items-center -space-x-2 rtl:space-x-reverse">
-                    {users.map((user: User) => (
+                    {users.map((user: PersonSummary) => (
                       <Avatar key={user.id} className="h-6 w-6 border">
                           <AvatarImage src={user.avatar} />
                           <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
                       </Avatar>
                     ))}
-                    <span className="ps-4 text-xs">{users.map((u:User) => u.name).join(', ')}</span>
+                    <span className="ps-4 text-xs">{users.map((u: PersonSummary) => u.name).join(', ')}</span>
                   </div>
                 </div>
             )}
@@ -118,13 +116,12 @@ type GanttRow = ProcessedTaskRow | LabelRow;
 
 export function GanttChart({ projectId }: GanttChartProps) {
   const [tasks, setTasks] = React.useState<Task[]>([]);
-  const [users, setUsers] = React.useState<User[]>([]);
+  const [users, setUsers] = React.useState<PersonSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
   const { selectedCompany, projects, currentUser, currentRole } = useCompany();
   const seesAllProjects = useSeesAllProjects(currentRole);
-  const canLoadCompanyUsers = usePermissionOr('settings', 'users.read', Boolean(currentRole && currentRole !== 'Employee'));
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const chartRef = React.useRef<HTMLDivElement>(null);
@@ -136,7 +133,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
         try {
           const [tasksData, usersData] = await Promise.all([
               getTasks(),
-              canLoadCompanyUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
+              getCompanyPeople(selectedCompany.id).catch(() => []),
           ]);
           setTasks(tasksData);
           setUsers(usersData);
@@ -149,7 +146,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
         }
     }
     loadData();
-  }, [currentRole, selectedCompany, canLoadCompanyUsers]);
+  }, [currentRole, selectedCompany]);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser) return [];
@@ -161,8 +158,9 @@ export function GanttChart({ projectId }: GanttChartProps) {
   }, [projects, currentUser, currentRole, selectedCompany, projectId, seesAllProjects]);
 
   const companyUsers = React.useMemo(() => {
+      // The member list is already this company's people.
       if (!selectedCompany) return [];
-      return users.filter((u) => u.companyIds?.includes(selectedCompany.id));
+      return users;
   }, [users, selectedCompany]);
 
   const processedTasks = React.useMemo<ProcessedTaskRow[]>(() => {

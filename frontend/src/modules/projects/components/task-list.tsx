@@ -17,14 +17,13 @@ import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask } from '@/services/projectService';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients } from '@/services/financeService';
 import {
   taskStatuses,
   type Task,
   type TaskStatus,
 } from '@/modules/projects/types';
-import type { User } from '@/modules/users/types';
 import type { Client } from '@/modules/finance/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -191,7 +190,7 @@ function TaskRow({
   projectName?: string;
   projectColor?: string;
   clientName?: string;
-  assignees: User[];
+  assignees: PersonSummary[];
   overdue: boolean;
   showProject: boolean;
   onOpen: () => void;
@@ -332,7 +331,6 @@ export function TaskList({ projectId }: { projectId?: string }) {
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
   const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
-  const canLoadUsers = usePermissionOr('settings', 'users.read', managementFallback);
   const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
   const currentUserId = currentUser?.id;
 
@@ -350,7 +348,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
   }, [toast, tr]);
 
   const [tasks, setTasks] = React.useState<Task[]>([]);
-  const [users, setUsers] = React.useState<User[]>([]);
+  const [users, setUsers] = React.useState<PersonSummary[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState<StatFilter>('all');
@@ -388,9 +386,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     try {
       const [tasksData, usersData, clientData] = await Promise.all([
         getTasks(),
-        canLoadUsers
-          ? getUsersByCompany(selectedCompanyId)
-          : Promise.resolve([]),
+        getCompanyPeople(selectedCompanyId).catch(() => []),
         canLoadClients
           ? getClients(selectedCompanyId)
           : Promise.resolve([]),
@@ -413,7 +409,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     } finally {
       setLoading(false);
     }
-  }, [currentRole, selectedCompanyId, canLoadUsers, canLoadClients]);
+  }, [currentRole, selectedCompanyId, canLoadClients]);
 
   React.useEffect(() => {
     loadData();

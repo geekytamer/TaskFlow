@@ -18,9 +18,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReportExport, getActivityEvents } from '@/services/financeService';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import type { ActivityEvent } from '@/modules/finance/types';
-import type { User } from '@/modules/users/types';
 import { Download } from 'lucide-react';
 import { useI18n } from '@/context/i18n-context';
 
@@ -41,7 +40,7 @@ export function ActivityLogPanel() {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [events, setEvents] = React.useState<ActivityEvent[]>([]);
-  const [users, setUsers] = React.useState<User[]>([]);
+  const [users, setUsers] = React.useState<PersonSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [entityType, setEntityType] = React.useState<'all' | ActivityEvent['entityType']>('all');
   const [actorUserId, setActorUserId] = React.useState<string>('all');
@@ -63,7 +62,7 @@ export function ActivityLogPanel() {
           entityId: entityId.trim() || undefined,
           limit: 100,
         }),
-        getUsersByCompany(selectedCompany.id),
+        getCompanyPeople(selectedCompany.id).catch(() => []),
       ]);
       setEvents(eventData);
       setUsers(userData);

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { addProjectMember, deleteProject, getProjectById, removeProjectMember, updateProject } from '@/services/projectService';
-import type { Project, User } from '@/lib/types';
+import type { Project } from '@/lib/types';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { ProjectTaskViews } from '@/modules/projects/components/project-task-views';
@@ -19,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Globe, Lock, Trash2, UserPlus, UserMinus, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { getUsersByCompany } from '@/services/userService';
+import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients, getInvoices } from '@/services/financeService';
 import { getTasks } from '@/services/projectService';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
@@ -41,7 +41,6 @@ export default function ProjectDetailsPage() {
   // What this page may load follows the permission each request needs; the
   // role rule it replaced is the fallback under the legacy engine.
   const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
-  const canLoadUsers = usePermissionOr('settings', 'users.read', managementFallback);
   const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
   const canLoadInvoices = usePermissionOr('invoices', 'read', managementFallback);
   const { language } = useI18n();
@@ -50,7 +49,7 @@ export default function ProjectDetailsPage() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [users, setUsers] = React.useState<User[]>([]);
+  const [users, setUsers] = React.useState<PersonSummary[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
@@ -92,10 +91,11 @@ export default function ProjectDetailsPage() {
       setEditClient(projectData.clientId);
 
       const [companyUsers, clientData, taskData, invoiceData] = await Promise.all([
-        canLoadUsers ? getUsersByCompany(selectedCompany.id) : Promise.resolve([]),
-        canLoadClients ? getClients(selectedCompany.id) : Promise.resolve([]),
+        // Optional extras fail soft: a refused list must not leave the project blank.
+        getCompanyPeople(selectedCompany.id).catch(() => []),
+        canLoadClients ? getClients(selectedCompany.id).catch(() => []) : Promise.resolve([]),
         getTasks(),
-        canLoadInvoices ? getInvoices(selectedCompany.id) : Promise.resolve([]),
+        canLoadInvoices ? getInvoices(selectedCompany.id).catch(() => []) : Promise.resolve([]),
       ]);
       setUsers(companyUsers);
       setClients(clientData);
@@ -105,7 +105,7 @@ export default function ProjectDetailsPage() {
     }
 
     fetchData();
-  }, [id, selectedCompany, router, currentUser, currentRole, seesAllProjects, canLoadUsers, canLoadClients, canLoadInvoices]);
+  }, [id, selectedCompany, router, currentUser, currentRole, seesAllProjects, canLoadClients, canLoadInvoices]);
 
   // A task added, edited or logged anywhere on this page shows up without a reload.
   React.useEffect(() => {
@@ -199,7 +199,7 @@ export default function ProjectDetailsPage() {
     }
   };
 
-  const projectMembers = (project?.memberIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean) as User[];
+  const projectMembers = (project?.memberIds || []).map((id) => users.find((u) => u.id === id)).filter(Boolean) as PersonSummary[];
   const availableMembers = users.filter((u) => !(project?.memberIds || []).includes(u.id));
   const clientName = clients.find((client) => client.id === project.clientId)?.name;
   const projectTasks = tasks.filter((task) => task.projectId === project.id);
