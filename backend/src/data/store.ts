@@ -29,6 +29,7 @@ import { PushStore } from '../push/push-store';
 import { AcademyStore } from '../academy/academy-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
+import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
 import { PortalStore } from '../portal/portal-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -688,6 +689,7 @@ export class DataStore {
   readonly push: PushStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
+  readonly discover: DiscoverStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -732,6 +734,7 @@ export class DataStore {
     this.mediaKits = new MediaKitStore(this.db);
     this.push = new PushStore(this.db);
     this.social = new SocialStore(this.db);
+    this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
     if (options.seedOnEmpty ?? true) {
       this.seedIfEmpty();
@@ -4931,6 +4934,21 @@ export class DataStore {
               AND NOT EXISTS (SELECT 1 FROM inventory_location_balances u WHERE u.inventoryItemId = inventory_items.id AND u.location = 'Unassigned' AND u.quantity > 0)
               AND EXISTS (SELECT 1 FROM inventory_location_balances w WHERE w.inventoryItemId = inventory_items.id AND w.location != 'Unassigned' AND w.quantity > 0);
           `);
+        },
+      },
+      {
+        // The influencer directory clients browse in the portal (discover/*), and who may run it.
+        id: '126_influencer_discover',
+        run: () => {
+          this.db.exec(DISCOVER_SCHEMA);
+          const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
+          const rule = RECORD_RULES.DISCOVER_MANAGE;
+          const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+          (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
+            .forEach((group) => {
+              const role = roleByKey[group.key];
+              if (role && (rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
+            });
         },
       },
     ];

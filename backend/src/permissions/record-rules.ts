@@ -59,6 +59,10 @@ export const RECORD_RULES = {
     module: 'campaigns', action: 'games.manage', roles: ['Admin'],
     description: 'Create and run engagement games: metrics, awards, exclusions, viewers, publishing and reopening.',
   },
+  DISCOVER_MANAGE: {
+    module: 'campaigns', action: 'discover.manage', roles: ['Admin', 'Manager'],
+    description: 'Run the influencer directory clients see in the portal: approve, edit and remove profiles, add handles, refresh and discover.',
+  },
   INVOICES_CREDIT_OVERRIDE: {
     module: 'invoices', action: 'credit.override', roles: ['Admin', 'Accountant'],
     description: "Issue an invoice or confirm an order that takes a client past their credit limit.",

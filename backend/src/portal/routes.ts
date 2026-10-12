@@ -6,6 +6,7 @@ import type { DataStore } from '../data/store';
 import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './client-catalogue-routes';
 import { registerClientCampaignRoutes } from './client-campaigns-routes';
 import { registerClientRequestRoutes } from './client-requests-routes';
+import { registerClientDiscoverRoutes } from '../discover/client-routes';
 import { registerThreadRoutes } from './thread-routes';
 import { registerPortalPushRoutes } from './push-routes';
 import type { PushConfig } from '../push/push';
@@ -153,6 +154,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
   }
   if (options.requestsStore) {
     registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
+    registerClientDiscoverRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerClientCampaignRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
     registerPortalPushRoutes(router, options.requestsStore, companyId, requireSession, options.push);

@@ -45,6 +45,9 @@ import { likersFetcherFromEnv, type LikersFetcher } from './games/likers-fetcher
 import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
 import { sweepPortalPush } from './portal/push-alerts';
+import { createDiscoverStaffRouter } from './discover/staff-routes';
+import { discoverScraperFromEnv, type DiscoverScraper } from './discover/apify';
+import { discoverTick } from './discover/jobs';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -249,6 +252,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   portalWhatsApp?: WhatsAppSender;
   /** Who liked a post (a self-hosted worker or an Apify actor); defaults to the environment. */
   likersFetcher?: LikersFetcher;
+  /** Where the influencer directory's figures come from; defaults to the environment (Apify, or fixtures). */
+  discoverScraper?: DiscoverScraper | null;
   /**
    * Whether unfinished Academy missions lock modules in real companies. On by
    * default; off under NODE_ENV=test unless a test turns it on; ACADEMY_ENFORCE=false
@@ -7888,6 +7893,23 @@ export function createServer(options: CreateServerOptions = {}) {
       type: 'text', body: text, status: 'sent', contextEntityType: 'portal_alert', actorName: 'Portal alerts', sentAt: new Date(),
     });
   });
+  // The influencer directory: figures from Apify, checked every hour (refresh after a week, discovery monthly).
+  const discoverScraper = options.discoverScraper === undefined ? discoverScraperFromEnv() : options.discoverScraper ?? undefined;
+  const discoverCap = Number(process.env.DISCOVER_MONTHLY_RESULTS) > 0 ? Number(process.env.DISCOVER_MONTHLY_RESULTS) : 1800;
+  if (portalCompanyId && discoverScraper && process.env.NODE_ENV !== 'test') {
+    if (store.getCompanyById(portalCompanyId)) store.discover.closeStaleRuns(portalCompanyId);
+    let discovering = false;
+    const tick = () => {
+      if (discovering || !store.getCompanyById(portalCompanyId)) return;
+      discovering = true;
+      discoverTick(store, discoverScraper, portalCompanyId, { monthlyCap: discoverCap })
+        .then((runs) => runs.forEach((r) => logger.info(`[discover] ${r.kind} ${r.status}: ${r.message ?? ''}`)))
+        .catch((error) => logger.error('[discover] run failed', error))
+        .finally(() => { discovering = false; });
+    };
+    setInterval(tick, 60 * 60 * 1000).unref?.();
+    setTimeout(tick, 2 * 60 * 1000).unref?.();
+  }
   if (portalCompanyId && process.env.NODE_ENV !== 'test') {
     const portalBase = (audience: 'client' | 'influencer') =>
       (audience === 'client' ? process.env.PORTAL_CLIENT_URL || 'http://localhost:9003' : process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/+$/, '');
@@ -7962,6 +7984,15 @@ export function createServer(options: CreateServerOptions = {}) {
       canManageGames: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'GAMES_MANAGE'),
       metaClient: social?.client,
       likersFetcher,
+    }));
+    app.use(createDiscoverStaffRouter({
+      store,
+      companyId: portalCompanyId,
+      authMiddleware: authMiddleware as unknown as RequestHandler,
+      requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+      canManage: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'DISCOVER_MANAGE'),
+      scraper: discoverScraper,
+      monthlyCap: discoverCap,
     }));
   }
 
