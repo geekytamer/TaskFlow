@@ -128,21 +128,48 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     return contact;
   };
 
+  // Shown influencers (everyone with the role unless hidden).
   router.get('/companies/:companyId/portal-catalogue', authMiddleware, wrap((req, res) => {
-    res.json(store.catalogue.listedIds(authorize(req)));
+    const companyId = authorize(req);
+    const hidden = store.catalogue.hiddenIds(companyId);
+    res.json(store.listContacts(companyId, 'Influencer').map((c) => c.id).filter((id) => !hidden.has(id)));
   }));
 
   router.put('/companies/:companyId/portal-catalogue/:contactId', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const contact = loadContact(companyId, req.params.contactId, 'Influencer');
-    store.catalogue.list(companyId, contact.id, req.user?.id);
+    store.catalogue.list(companyId, contact.id);
     res.json({ contactId: contact.id, listed: true });
   }));
 
   router.delete('/companies/:companyId/portal-catalogue/:contactId', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
-    store.catalogue.unlist(companyId, req.params.contactId);
+    store.catalogue.unlist(companyId, req.params.contactId, req.user?.id);
     res.json({ contactId: req.params.contactId, listed: false });
+  }));
+
+  // How far below and above the client's price an influencer's range goes.
+  router.get('/companies/:companyId/portal-price-range/:contactId', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = loadContact(companyId, req.params.contactId, 'Influencer');
+    res.json(store.catalogue.priceRange(contact.id));
+  }));
+
+  router.put('/companies/:companyId/portal-price-range/:contactId', authMiddleware, wrap((req, res) => {
+    const companyId = authorize(req);
+    const contact = loadContact(companyId, req.params.contactId, 'Influencer');
+    const body = asRecord(req.body, 'body');
+    const percent = (value: unknown, field: string, max: number) => {
+      const n = Number(value);
+      if (value === null || value === '' || !Number.isFinite(n) || n < 0 || n > max) throw new HttpError(400, `${field} must be between 0 and ${max}.`);
+      return n;
+    };
+    res.json(store.catalogue.setPriceRange({
+      companyId, contactId: contact.id,
+      belowPercent: percent(body.belowPercent, 'belowPercent', 90),
+      abovePercent: percent(body.abovePercent, 'abovePercent', 300),
+      updatedByUserId: req.user?.id,
+    }));
   }));
 
   router.get('/companies/:companyId/pricing-profiles/:contactId', authMiddleware, wrap((req, res) => {

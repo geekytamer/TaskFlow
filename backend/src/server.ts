@@ -7958,8 +7958,9 @@ export function createServer(options: CreateServerOptions = {}) {
         catalogue: {
           listInfluencers: (companyId) => store.listContacts(companyId, 'Influencer'),
           getContact: (contactId) => store.getContactById(contactId),
-          listedIds: (companyId) => store.catalogue.listedIds(companyId),
+          hiddenIds: (companyId) => store.catalogue.hiddenIds(companyId),
           isListed: (companyId, contactId) => store.catalogue.isListed(companyId, contactId),
+          priceRange: (contactId) => store.catalogue.priceRange(contactId),
           pricingProfile: (contactId) => store.catalogue.getPricingProfile(contactId),
           currency: (companyId) => companyCurrency(store, companyId),
           verified: (contactId) => instagramFigures(store, portalCompanyId, contactId),

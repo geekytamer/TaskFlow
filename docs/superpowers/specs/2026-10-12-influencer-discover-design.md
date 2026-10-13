@@ -49,3 +49,10 @@ Client portal: **Discover** page (client audience only) with filters (search, ti
 - **Scraping replaces the Meta connection as the way figures stay current.** Catalogue and media kit "Verified" figures use a connected account when one exists, else the latest scraped figure (`discover/figures.ts`). Connecting Instagram in the influencer portal is optional: the Home nudge and media-kit prompt are gone; it only adds post views, reach and audience, which public profiles do not expose. Game live metrics from comments still need a connected account.
 - **Connected influencers are never scraped** (owner, 2026-10-12). An influencer with a working Instagram connection (active, token present) is skipped by the refresh; their directory entry takes followers from the connection's latest snapshot, and their record follows the connection. When the connection breaks (needs reconnect, revoked) scraping takes over until they reconnect.
 - **Post results are not scraped** (owner decision): campaign post results stay API-only, from connected accounts.
+
+## 6. One client directory (owner, 2026-10-13)
+
+- Every Influencer contact is shown in the client portal unless Peak hides it (`portal_catalogue_hidden`, migration `129_catalogue_hidden_and_ranges`); the old opt-in listing is gone.
+- Influencers and Discover are one page, **Influencers** (`/portal-api/client/directory`): Peak's shown influencers plus approved Discover profiles, each once, in one shape with no roster marker. `/discover` redirects there. Requests can shortlist both; staff notes mark "[not on the roster yet]", the client never sees it.
+- Cards by default, list on demand (`view=list`); sort by followers, engagement, growth, price, name; filters for platform, niche, location, gender, size, availability, minimum followers, budget per post.
+- Price is a range around the client's price: `price × (1 − below%)` to `price × (1 + above%)`, set per influencer (default 30 / 30), editable by staff on the influencer's edit panel. No rate card → "Price on request".

@@ -248,3 +248,12 @@ export const reviewSubmission = (
   method: 'POST',
   body: JSON.stringify(body),
 });
+
+/** How far below and above the client's price an influencer's shown range goes, in percent (default 30 / 30). */
+export interface PortalPriceRange { belowPercent: number; abovePercent: number }
+
+export const getPortalPriceRange = (companyId: string, contactId: string) =>
+  apiFetch<PortalPriceRange>(`/companies/${companyId}/portal-price-range/${contactId}`);
+
+export const setPortalPriceRange = (companyId: string, contactId: string, range: PortalPriceRange) =>
+  apiFetch<PortalPriceRange>(`/companies/${companyId}/portal-price-range/${contactId}`, { method: 'PUT', body: JSON.stringify(range) });

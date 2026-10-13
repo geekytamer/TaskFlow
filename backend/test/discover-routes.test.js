@@ -125,16 +125,17 @@ test('runs refuse without Apify and while another run is going', async () => {
   assert.equal((await request(ctx.server).post(`/companies/${ctx.company.id}/discover/find`).set(ctx.admin)).status, 409);
 });
 
-test('a roster influencer shows in Discover only while listed in the catalogue, and staff cannot remove the entry', async () => {
+test('a roster influencer shows in Discover unless hidden, and staff cannot remove the entry', async () => {
   const ctx = build();
   const lina = ctx.store.createContact({
     companyId: ctx.company.id, kind: 'Person', name: 'Lina', roles: ['Influencer'],
     influencerAccounts: [{ id: 'a1', platform: 'Instagram', handle: '@salalah.travels' }],
   });
+  await request(ctx.server).delete(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
   await refreshDue(ctx.store, ctx.scraper, ctx.company.id, { monthlyCap: 1800 });
   const client = await ctx.clientSession();
   const before = await request(ctx.server).get('/portal-api/client/discover').set(client);
-  assert.deepEqual(before.body.items.map((i) => i.username), [], 'not in the catalogue, not in Discover');
+  assert.deepEqual(before.body.items.map((i) => i.username), [], 'hidden from clients, so not in Discover');
 
   await request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
   const after = await request(ctx.server).get('/portal-api/client/discover').set(client);
@@ -163,7 +164,7 @@ test('without a connected Instagram, the catalogue shows the scraped followers w
   assert.match(ig.verified.asOf, /^\d{4}-\d{2}-\d{2}$/);
 });
 
-test('influencer photos: staff of the company see them, clients see them for listed influencers only', async () => {
+test('influencer photos: staff of the company see them, clients see them unless the influencer is hidden', async () => {
   const ctx = build();
   const lina = ctx.store.createContact({
     companyId: ctx.company.id, kind: 'Person', name: 'Lina', roles: ['Influencer'],
@@ -188,7 +189,8 @@ test('influencer photos: staff of the company see them, clients see them for lis
   assert.equal((await request(ctx.server).get(`/companies/${ctx.company.id}/influencer-photos`).set(outsiderAuth)).status, 403);
 
   const client = await ctx.clientSession();
-  assert.equal((await request(ctx.server).get(`/portal-api/client/catalogue/${lina.id}/photo`).set(client)).status, 404, 'not listed yet');
+  await request(ctx.server).delete(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
+  assert.equal((await request(ctx.server).get(`/portal-api/client/catalogue/${lina.id}/photo`).set(client)).status, 404, 'hidden');
   await request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${lina.id}`).set(ctx.admin);
   const catalogue = await request(ctx.server).get('/portal-api/client/catalogue').set(client);
   assert.ok(catalogue.body.items.find((i) => i.id === lina.id).photoAt);

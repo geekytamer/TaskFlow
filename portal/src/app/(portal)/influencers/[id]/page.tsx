@@ -5,7 +5,8 @@ import { PriceTag } from '@/components/price-tag';
 import { getInfluencer } from '@/lib/catalogue';
 import { formatCompact, formatPercent, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t } from '@/lib/i18n';
+import { t, type Key } from '@/lib/i18n';
+import { growthLabel } from '@/lib/discover';
 import { availabilityLabel } from '@/lib/labels';
 import { currentLang } from '@/lib/session';
 import { PageHeader, button, panel } from '@/components/ui';
@@ -18,15 +19,21 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
   const influencer = await getInfluencer(id);
   if (!influencer) notFound();
 
-  const meta = [influencer.niche, influencer.location].filter(Boolean).join(listSep(lang));
+  const meta = [influencer.niche, influencer.location, t(lang, `disc.tier.${influencer.tier}` as Key)].filter(Boolean).join(listSep(lang));
+  const growth = growthLabel(influencer.growth3m);
 
   return (
     <div className="space-y-8">
       <PageHeader back={{ href: '/influencers', label: t(lang, 'cat.back') }} title={<span className="flex items-center gap-4"><InfluencerPhoto id={influencer.id} name={influencer.name} photoAt={influencer.photoAt} size="lg" /><span dir="auto" className="min-w-0">{influencer.name}</span></span>} subtitle={meta || undefined} />
 
       <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_17rem] md:items-start">
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-4">
+          {influencer.bio && <p dir="auto" className="max-w-[65ch] whitespace-pre-line leading-relaxed">{influencer.bio}</p>}
           <dl className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+            <div>
+              <dt className="text-ink-soft">{t(lang, 'disc.growth')}</dt>
+              <dd className={`font-medium ${influencer.growth3m === null ? '' : influencer.growth3m >= 0 ? 'text-success' : 'text-danger'}`}><bdi dir="ltr">{growth ?? t(lang, 'disc.new')}</bdi></dd>
+            </div>
             {influencer.availability && (
               <div>
                 <dt className="text-ink-soft">{t(lang, 'cat.availability')}</dt>

@@ -90,15 +90,19 @@ const build = () => {
 
 const list = (ctx) => (entries) => Promise.all(entries.map((id) =>
   request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${id}`).set(ctx.admin)));
+const hide = (ctx, id) => request(ctx.server).delete(`/companies/${ctx.company.id}/portal-catalogue/${id}`).set(ctx.admin);
 
 const assertNoPoison = (body, label) => {
   const json = JSON.stringify(body);
   for (const secret of POISON_STRINGS) assert.equal(json.includes(secret), false, `${label} leaked ${secret}`);
 };
 
-test('only listed influencers of this company appear, and only while they hold the role', async () => {
+test('every influencer of this company appears unless hidden, and only while they hold the role', async () => {
   const ctx = build();
-  await list(ctx)([ctx.lina.id, ctx.omar.id]);
+  const client0 = await ctx.portalSession('client', ctx.client, 'first@alnoor.test');
+  const names0 = (await request(ctx.server).get('/portal-api/client/catalogue').set(client0)).body.items.map((i) => i.name);
+  assert.ok(names0.includes('Unlisted Person'), 'visible by default, nobody listed them');
+  assert.equal((await hide(ctx, ctx.unlisted.id)).status, 200);
   const client = await ctx.portalSession('client', ctx.client, 'omar@alnoor.test');
 
   const res = await request(ctx.server).get('/portal-api/client/catalogue').set(client);
@@ -118,9 +122,9 @@ test('an influencer from another company cannot be listed here', async () => {
   assert.equal((await request(ctx.server).put(`/companies/${ctx.company.id}/portal-catalogue/${ctx.client.id}`).set(ctx.admin)).status, 400, 'a client is not an influencer');
 });
 
-test('unlisted and foreign influencers 404 on the detail route', async () => {
+test('hidden and foreign influencers 404 on the detail route', async () => {
   const ctx = build();
-  await list(ctx)([ctx.lina.id]);
+  await hide(ctx, ctx.unlisted.id);
   const client = await ctx.portalSession('client', ctx.client, 'omar@alnoor.test');
   for (const id of [ctx.unlisted.id, ctx.foreign.id, ctx.client.id, 'no-such-id']) {
     assert.equal((await request(ctx.server).get(`/portal-api/client/catalogue/${id}`).set(client)).status, 404, id);
@@ -148,7 +152,6 @@ test('no response ever carries a rate, contact details or internal notes', async
 
 test('the price follows the client’s own pricing profile and never reveals the rate', async () => {
   const ctx = build();
-  await list(ctx)([ctx.omar.id, ctx.unlisted.id]);
   const client = await ctx.portalSession('client', ctx.client, 'omar@alnoor.test');
   const other = await ctx.portalSession('client', ctx.otherClient, 'sara@sidr.test');
   const price = async (session) =>
@@ -162,7 +165,14 @@ test('the price follows the client’s own pricing profile and never reveals the
   assert.equal((await profile(ctx.otherClient, { mode: 'retainer' })).status, 200);
 
   const currency = ctx.store.getCompanyFinanceSettings(ctx.company.id).currencyCode;
-  assert.deepEqual(await price(client), { kind: 'indicative', amount: 1250, currency });
+  assert.deepEqual(await price(client), { kind: 'range', min: 875, max: 1625, currency }, '30% either side of 1250 by default');
+  const range = (body) => request(ctx.server).put(`/companies/${ctx.company.id}/portal-price-range/${ctx.omar.id}`).set(ctx.admin).send(body);
+  for (const bad of [{ belowPercent: -1, abovePercent: 10 }, { belowPercent: 91, abovePercent: 10 }, { belowPercent: 10 }, { belowPercent: 10, abovePercent: 301 }]) {
+    assert.equal((await range(bad)).status, 400, JSON.stringify(bad));
+  }
+  assert.equal((await range({ belowPercent: 10, abovePercent: 50 })).status, 200);
+  assert.deepEqual(await price(client), { kind: 'range', min: 1125, max: 1875, currency }, 'per-influencer range');
+  assert.equal((await request(ctx.server).put(`/companies/${ctx.company.id}/portal-price-range/${ctx.client.id}`).set(ctx.admin).send({ belowPercent: 1, abovePercent: 1 })).status, 400, 'only influencers have a range');
   assert.deepEqual(await price(other), { kind: 'retainer' }, 'each client sees only their own terms');
 
   ctx.store.updateContact(ctx.omar.id, { rateCardAmount: null });
@@ -215,9 +225,10 @@ test('influencers and staff tokens cannot reach the catalogue; staff controls ne
   assert.equal((await request(ctx.server).put(`/companies/${ctx.company.id}/pricing-profiles/${ctx.client.id}`).set(ctx.employee).send({ mode: 'retainer' })).status, 403);
 
   const ids = await request(ctx.server).get(`/companies/${ctx.company.id}/portal-catalogue`).set(ctx.admin);
-  assert.deepEqual(ids.body, [ctx.lina.id]);
+  assert.ok(ids.body.includes(ctx.lina.id) && ids.body.includes(ctx.unlisted.id), 'shown by default');
   assert.equal((await request(ctx.server).delete(`/companies/${ctx.company.id}/portal-catalogue/${ctx.lina.id}`).set(ctx.admin)).status, 200);
-  assert.deepEqual((await request(ctx.server).get(`/companies/${ctx.company.id}/portal-catalogue`).set(ctx.admin)).body, []);
+  assert.equal((await request(ctx.server).get(`/companies/${ctx.company.id}/portal-catalogue`).set(ctx.admin)).body.includes(ctx.lina.id), false);
+  assert.equal((await request(ctx.server).delete(`/companies/${ctx.company.id}/portal-catalogue/${ctx.omar.id}`).set(ctx.employee)).status, 403);
 });
 
 test('profile links are http or https only, so a staff-typed script URL never reaches a client', async () => {

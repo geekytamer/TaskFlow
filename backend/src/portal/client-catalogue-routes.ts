@@ -2,7 +2,7 @@ import type { Request, RequestHandler, Response, Router } from 'express';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
 import { type VerifiedFigure, CATALOGUE_LIMIT, facetsOf, matchesFilter, priceFor, toCatalogueEntry, type CatalogueFilter } from './catalogue';
-import type { PricingProfile } from './catalogue-store';
+import type { PriceRange, PricingProfile } from './catalogue-store';
 import type { PortalSession } from './portal-store';
 import type { SessionRequest } from './common';
 
@@ -10,8 +10,10 @@ export interface ClientCatalogueDeps {
   /** Contacts holding the Influencer role in this company, ordered by name. */
   listInfluencers(companyId: string): Contact[];
   getContact(contactId: string): Contact | undefined;
-  listedIds(companyId: string): string[];
+  /** Influencers hidden from clients; everyone else with the role is shown. */
+  hiddenIds(companyId: string): Set<string>;
   isListed(companyId: string, contactId: string): boolean;
+  priceRange(contactId: string): PriceRange;
   pricingProfile(contactId: string): PricingProfile | undefined;
   currency(companyId: string): string;
   /** Synced figures from connected accounts; absent or empty means none. */
@@ -49,16 +51,16 @@ export function registerClientCatalogueRoutes(
   const pricing = (req: SessionRequest) => {
     const profile = deps.pricingProfile(req.portal!.contactId);
     const currency = deps.currency(companyId);
-    return (contact: Contact) => priceFor(contact.rateCardAmount, profile, currency);
+    return (contact: Contact) => priceFor(contact.rateCardAmount, profile, currency, deps.priceRange(contact.id));
   };
 
   router.get('/client/catalogue', requireClientSession, (req: SessionRequest, res: Response) => {
-    const listed = new Set(deps.listedIds(companyId));
+    const hidden = deps.hiddenIds(companyId);
     const price = pricing(req);
     const filter = parseFilter(req.query);
     const photos = deps.photos?.(companyId) ?? {};
     const all = deps.listInfluencers(companyId)
-      .filter((contact) => listed.has(contact.id))
+      .filter((contact) => !hidden.has(contact.id))
       .map((contact) => ({ ...toCatalogueEntry(contact, price(contact), deps.verified?.(contact.id)), photoAt: photos[contact.id] ?? null }));
     const matches = all.filter((entry) => matchesFilter(entry, filter));
     res.json({

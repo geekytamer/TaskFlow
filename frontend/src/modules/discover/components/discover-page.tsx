@@ -239,7 +239,7 @@ export function DiscoverPage() {
                   <TableCell className="text-end">
                     <div className="flex flex-wrap justify-end gap-1">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>{tr('Edit', 'تعديل')}</Button>
-                      {p.isRoster && <span className="self-center text-xs text-muted-foreground">{tr('Shown to clients while in the portal catalogue', 'يظهر للعملاء ما دام في كتالوج البوابة')}</span>}
+                      {p.isRoster && <span className="self-center text-xs text-muted-foreground">{tr('Shown to clients unless hidden on their record', 'يظهر للعملاء ما لم يُخفَ من سجله')}</span>}
                       {!p.isRoster && p.status === 'candidate' && <>
                         <Button size="sm" onClick={() => setStatus(p, 'listed')}>{tr('Approve', 'موافقة')}</Button>
                         <Button size="sm" variant="outline" onClick={() => setStatus(p, 'rejected')}>{tr('Reject', 'رفض')}</Button>

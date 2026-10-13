@@ -1,5 +1,5 @@
 import type { Contact } from '../types';
-import type { PricingProfile } from './catalogue-store';
+import { DEFAULT_PRICE_RANGE, type PriceRange, type PricingProfile } from './catalogue-store';
 
 /**
  * What a client sees about a listed influencer. Built field by field from an
@@ -9,7 +9,7 @@ import type { PricingProfile } from './catalogue-store';
  * agency), as are rates, internal notes and staff estimates.
  */
 export type PriceView =
-  | { kind: 'indicative'; amount: number; currency: string }
+  | { kind: 'range'; min: number; max: number; currency: string }
   | { kind: 'retainer' }
   | { kind: 'on_request' };
 
@@ -58,13 +58,22 @@ const text = (value: unknown): string | null =>
  * function: `markup` returns a derived figure whose ratio the client does not
  * know, and every other case returns no figure at all.
  */
-export function priceFor(rate: number | undefined | null, profile: PricingProfile | undefined, currency: string): PriceView {
+export function priceFor(
+  rate: number | undefined | null, profile: PricingProfile | undefined, currency: string, range: PriceRange = DEFAULT_PRICE_RANGE,
+): PriceView {
   if (!profile) return { kind: 'on_request' };
   if (profile.mode === 'retainer') return { kind: 'retainer' };
   if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0 || profile.markupPercent === null) {
     return { kind: 'on_request' };
   }
-  return { kind: 'indicative', amount: Math.round(rate * (1 + profile.markupPercent / 100)), currency };
+  // Shown as a range around the client's price, so neither end is the price itself.
+  const price = rate * (1 + profile.markupPercent / 100);
+  return {
+    kind: 'range',
+    min: Math.round(price * (1 - range.belowPercent / 100)),
+    max: Math.round(price * (1 + range.abovePercent / 100)),
+    currency,
+  };
 }
 
 /** Per-platform accounts, or the older single-platform fields when no accounts exist. */

@@ -56,7 +56,7 @@ export function formatFileSize(bytes: number, lang: Lang): string {
   return `${new Intl.NumberFormat(locale(lang), { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value)} ${unit}`;
 }
 
-export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'availability', 'minFollowers'] as const;
+export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'location', 'gender', 'tier', 'availability', 'minFollowers', 'maxPrice', 'sort'] as const;
 export type CatalogueFilters = Partial<Record<(typeof CATALOGUE_FILTERS)[number], string>>;
 
 /** A query string of known, non-empty filters, safe to append to the backend path. */

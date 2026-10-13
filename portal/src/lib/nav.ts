@@ -37,7 +37,7 @@ export function navFor(audience: Audience): { primary: NavEntry[]; secondary: Na
   const i = ITEMS;
   return audience === 'client'
     ? {
-      primary: [i.home, i.campaigns, i.creators, i.discover, i.requests, i.messages],
+      primary: [i.home, i.campaigns, i.creators, i.requests, i.messages],
       secondary: [i.billing, i.analytics, i.games, i.referrals],
       bar: [i.home, i.campaigns, i.creators, i.messages],
     }

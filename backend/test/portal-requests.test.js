@@ -38,6 +38,7 @@ const build = ({ ownerless = false } = {}) => {
     influencerAccounts: [{ id: 'a', platform: 'Instagram', handle: '@lina.eats', followers: 184000 }],
   });
   const unlisted = store.createContact({ companyId: company.id, kind: 'Person', name: 'Unlisted One', roles: ['Influencer'] });
+  store.catalogue.unlist(company.id, unlisted.id); // hidden from clients
   const foreign = store.createContact({ companyId: other.id, kind: 'Person', name: 'Foreign One', roles: ['Influencer'] });
   store.catalogue.list(company.id, lina.id);
 
@@ -119,7 +120,7 @@ test('with no account owner, the staff member who invited the client is told', a
   assert.equal(ctx.store.listNotifications(ctx.inviter.id).filter((n) => n.type === 'followup_assigned').length, 1);
 });
 
-test('requests are validated, and the shortlist only takes listed influencers', async () => {
+test('requests are validated, and the shortlist never takes hidden influencers', async () => {
   const ctx = build();
   const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
   const bad = [

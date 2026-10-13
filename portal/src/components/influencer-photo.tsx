@@ -5,7 +5,7 @@ export function InfluencerPhoto({ id, name, photoAt, size = 'sm' }: { id: string
   if (photoAt) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- served by the portal's own route, sized here
-      <img src={`/api/catalogue/${encodeURIComponent(id)}/photo?v=${encodeURIComponent(photoAt)}`} alt="" width={px} height={px} loading="lazy"
+      <img src={`/api/directory/${encodeURIComponent(id)}/photo?v=${encodeURIComponent(photoAt)}`} alt="" width={px} height={px} loading="lazy"
         className={`${box} shrink-0 rounded-full border border-line object-cover`} />
     );
   }

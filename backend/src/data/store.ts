@@ -4968,6 +4968,30 @@ export class DataStore {
           this.db.exec('UPDATE discover_profiles SET photoAt = lastFetchedAt WHERE photo IS NOT NULL AND photoAt IS NULL;');
         },
       },
+      {
+        // Every influencer is in the client portal unless Peak hides them (was: shown only once listed);
+        // and each influencer's price shows as a range around the client's price.
+        id: '129_catalogue_hidden_and_ranges',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS portal_catalogue_hidden (
+              companyId      TEXT NOT NULL,
+              contactId      TEXT NOT NULL,
+              hiddenByUserId TEXT,
+              hiddenAt       TEXT NOT NULL,
+              PRIMARY KEY (companyId, contactId)
+            );
+            CREATE TABLE IF NOT EXISTS portal_price_ranges (
+              contactId       TEXT PRIMARY KEY,
+              companyId       TEXT NOT NULL,
+              belowPercent    REAL NOT NULL,
+              abovePercent    REAL NOT NULL,
+              updatedByUserId TEXT,
+              updatedAt       TEXT NOT NULL
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {

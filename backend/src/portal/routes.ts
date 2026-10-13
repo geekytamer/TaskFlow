@@ -7,6 +7,8 @@ import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './clien
 import { registerClientCampaignRoutes } from './client-campaigns-routes';
 import { registerClientRequestRoutes } from './client-requests-routes';
 import { registerClientDiscoverRoutes } from '../discover/client-routes';
+import { registerClientDirectoryRoutes } from './directory';
+import { companyCurrency } from './common';
 import { registerThreadRoutes } from './thread-routes';
 import { registerPortalPushRoutes } from './push-routes';
 import type { PushConfig } from '../push/push';
@@ -155,6 +157,8 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
   if (options.requestsStore) {
     registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerClientDiscoverRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
+    const directoryStore = options.requestsStore;
+    registerClientDirectoryRoutes(router, { store: directoryStore, companyId, currency: () => companyCurrency(directoryStore, companyId) }, requireSessionFor('client'));
     registerClientCampaignRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
     registerPortalPushRoutes(router, options.requestsStore, companyId, requireSession, options.push);

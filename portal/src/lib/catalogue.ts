@@ -11,7 +11,7 @@ export interface CataloguePlatform {
 }
 
 export type PriceView =
-  | { kind: 'indicative'; amount: number; currency: string }
+  | { kind: 'range'; min: number; max: number; currency: string }
   | { kind: 'retainer' }
   | { kind: 'on_request' };
 
@@ -26,16 +26,24 @@ export interface CatalogueEntry {
   price: PriceView;
   /** When Peak's stored Instagram photo was taken; null shows initials. */
   photoAt: string | null;
+  bio: string | null;
+  gender: 'female' | 'male' | null;
+  /** The largest audience across platforms. */
+  followers: number;
+  engagementRate: number | null;
+  growth3m: number | null;
+  tier: 'nano' | 'micro' | 'mid' | 'macro' | 'mega';
 }
 
 export interface CatalogueList {
   items: CatalogueEntry[];
   total: number;
-  facets: { platforms: string[]; niches: string[]; availability: string[] };
+  facets: { platforms: string[]; niches: string[]; locations: string[]; availability: string[]; tiers: CatalogueEntry['tier'][] };
   currency: string;
 }
 
-export const getCatalogue = (query: string) => portalGet<CatalogueList>(`/catalogue${query}`);
+/** Peak's one directory: every influencer Peak can reach for this client. */
+export const getCatalogue = (query: string) => portalGet<CatalogueList>(`/directory${query}`);
 
-/** Null when the influencer is not listed for this client: the page shows a 404. */
-export const getInfluencer = (id: string) => portalGetOrNull<CatalogueEntry>(`/catalogue/${encodeURIComponent(id)}`);
+/** Null when the influencer is hidden or unknown: the page shows a 404. */
+export const getInfluencer = (id: string) => portalGetOrNull<CatalogueEntry>(`/directory/${encodeURIComponent(id)}`);

@@ -1,6 +1,7 @@
 import type { Request, RequestHandler, Response, Router } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
+import { resolveDirectoryId } from './directory';
 import type { Contact, CrmProposal } from '../types';
 import { asRecord } from '../validation';
 import {
@@ -68,10 +69,15 @@ export function registerClientRequestRoutes(
 
   const requestDto = (session: PortalSession, record: CampaignRequestRecord) => {
     const proposals = proposalsOf(session, record.opportunityId);
+    // Shortlists hold Peak's influencers and approved Discover profiles alike.
     const influencers = record.influencerIds
-      .map((id) => store.getContactById(id))
-      .filter((c): c is Contact => Boolean(c))
-      .map((c) => ({ id: c.id, name: c.name }));
+      .map((id) => {
+        const c = store.getContactById(id);
+        if (c) return { id: c.id, name: c.name };
+        const p = store.discover.get(id);
+        return p && p.companyId === companyId ? { id: p.id, name: p.fullName || `@${p.username}` } : null;
+      })
+      .filter((x): x is { id: string; name: string } => Boolean(x));
     const dto = toRequestDto(record, {
       currency: currency(),
       influencers,
@@ -108,12 +114,14 @@ export function registerClientRequestRoutes(
     const fileNames = fileIds.map((id) => store.thread.getFile(id)?.fileName).filter((n): n is string => Boolean(n));
 
     const shortlist = brief.influencerIds.map((id) => {
-      const influencer = store.getContactById(id);
-      const requestable = influencer
-        && influencer.companyId === companyId
-        && influencer.roles?.includes('Influencer')
-        && store.catalogue.isListed(companyId, influencer.id);
-      if (!influencer || !requestable) throw new HttpError(400, 'One of the chosen influencers is not available.');
+      const found = resolveDirectoryId(store, companyId, id);
+      if (!found) throw new HttpError(400, 'One of the chosen influencers is not available.');
+      if (found.kind === 'profile') {
+        // Staff see who still needs to be approached; the client never does.
+        const p = found.profile;
+        return { id: p.id, name: `${p.fullName || p.username} [not on the roster yet]`, handle: `@${p.username}` };
+      }
+      const influencer = found.contact;
       const handle = influencer.influencerAccounts?.find((a) => a.handle)?.handle ?? influencer.influencerHandle ?? null;
       return { id: influencer.id, name: influencer.name, handle };
     });
