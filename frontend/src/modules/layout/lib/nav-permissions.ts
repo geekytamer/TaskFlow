@@ -32,6 +32,7 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/crm/opportunities': 'crm:read',
   '/crm/campaigns': 'campaigns:read',
   '/crm/followups': 'crm:read',
+  '/crm/client-requests': 'contacts:portal.manage',
   '/crm/vendor-requests': 'crm:read',
   '/crm/performance': 'crm:crm-performance.read',
   '/crm/pipeline': 'crm:read',

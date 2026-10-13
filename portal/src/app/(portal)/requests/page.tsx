@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { StatusBadge } from '@/components/status-badge';
 import { EmptyState, PageHeader, RowLink, SectionTitle, button, list } from '@/components/ui';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatMoney, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t } from '@/lib/i18n';
+import { t, type Key } from '@/lib/i18n';
 import { getProposals, getRequests } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
 
@@ -60,7 +60,15 @@ export default async function RequestsPage() {
                     <p className="min-w-0 truncate font-semibold"><bdi>{r.title}</bdi></p>
                     <StatusBadge lang={lang} request={r.status} />
                   </div>
-                  <p className="mt-0.5 text-sm text-ink-soft">{t(lang, 'req.created')} <bdi>{formatDate(r.createdAt, lang)}</bdi></p>
+                  <p className="mt-0.5 text-sm text-ink-soft">
+                    {[
+                      `${t(lang, 'req.created')} ${formatDate(r.createdAt, lang)}`,
+                      r.budget !== null ? formatMoney(r.budget, r.currency, lang) : null,
+                      r.startDate || r.endDate ? `${formatDate(r.startDate, lang)} – ${formatDate(r.endDate, lang)}` : t(lang, 'req.datesOpen'),
+                      r.influencers.length ? t(lang, 'req.influencerCount').replace('{n}', String(r.influencers.length)) : null,
+                    ].filter(Boolean).map((part, i) => <bdi key={i}>{i > 0 ? listSep(lang) : ''}{part}</bdi>)}
+                  </p>
+                  <p className={`mt-1 text-sm ${r.status === 'proposal_ready' ? 'font-medium text-accent' : 'text-ink-soft'}`}>{t(lang, `req.next.${r.status}` as Key)}</p>
                 </RowLink>
               </li>
             ))}

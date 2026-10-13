@@ -257,3 +257,44 @@ export const getPortalPriceRange = (companyId: string, contactId: string) =>
 
 export const setPortalPriceRange = (companyId: string, contactId: string, range: PortalPriceRange) =>
   apiFetch<PortalPriceRange>(`/companies/${companyId}/portal-price-range/${contactId}`, { method: 'PUT', body: JSON.stringify(range) });
+
+/** A client portal request as staff see it. */
+export type PortalRequestStatus = 'in_review' | 'proposal_ready' | 'accepted' | 'closed';
+
+export interface StaffPortalRequest {
+  id: string;
+  title: string;
+  client: { id: string; name: string } | null;
+  requester: { name: string; email: string } | null;
+  createdAt: string;
+  budget: number | null;
+  currency: string;
+  startDate: string | null;
+  endDate: string | null;
+  platforms: string[];
+  shortlist: Array<{ id: string; name: string; onRoster: boolean; handle: string | null }>;
+  status: PortalRequestStatus;
+  opportunity: { id: string; stage: string; ownerName: string | null } | null;
+  proposalCount: number;
+  fileCount: number;
+  closedReason: string | null;
+  closedAt: string | null;
+}
+
+export interface StaffPortalRequestDetail extends StaffPortalRequest {
+  objective: string;
+  files: PortalFile[];
+  proposals: Array<{ id: string; number: string; title: string; staffStatus: string; clientStatus: string | null }>;
+}
+
+export const listPortalRequests = (companyId: string) =>
+  apiFetch<StaffPortalRequest[]>(`/companies/${companyId}/portal-requests`);
+
+export const getPortalRequest = (companyId: string, id: string) =>
+  apiFetch<StaffPortalRequestDetail>(`/companies/${companyId}/portal-requests/${encodeURIComponent(id)}`);
+
+export const closePortalRequest = (companyId: string, id: string, reason: string) =>
+  apiFetch<StaffPortalRequestDetail>(`/companies/${companyId}/portal-requests/${encodeURIComponent(id)}/close`, { method: 'POST', body: JSON.stringify({ reason }) });
+
+export const reopenPortalRequest = (companyId: string, id: string) =>
+  apiFetch<StaffPortalRequestDetail>(`/companies/${companyId}/portal-requests/${encodeURIComponent(id)}/reopen`, { method: 'POST' });

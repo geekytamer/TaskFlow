@@ -111,8 +111,9 @@ export type ClientRequestStatus = 'in_review' | 'proposal_ready' | 'accepted' | 
  * A request's status, derived on read from its opportunity and its visible
  * proposals, so it always agrees with the CRM.
  */
-export function requestStatus(proposals: CrmProposal[], stage: OpportunityStage | undefined, now = new Date()): ClientRequestStatus {
+export function requestStatus(proposals: CrmProposal[], stage: OpportunityStage | undefined, now = new Date(), closedByStaff = false): ClientRequestStatus {
   const statuses = proposals.map((p) => clientProposalStatus(p, now));
+  if (closedByStaff) return 'closed';
   if (statuses.includes('accepted')) return 'accepted';
   if (statuses.includes('sent')) return 'proposal_ready';
   if (stage === 'Lost' || stage === 'Cancelled' || statuses.includes('declined')) return 'closed';
@@ -164,5 +165,7 @@ export function toRequestDto(
     status: input.status,
     proposals: input.proposals,
     createdAt: record.createdAt,
+    /** Why Peak closed it, when Peak did. */
+    closedReason: record.closedReason ?? null,
   };
 }

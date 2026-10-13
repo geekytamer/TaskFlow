@@ -15,6 +15,10 @@ export interface CampaignRequestRecord {
   influencerIds: string[];
   opportunityId: string;
   createdAt: string;
+  /** Set when staff closed the request; the reason is shown to the client. */
+  closedReason?: string | null;
+  closedAt?: string | null;
+  closedByUserId?: string | null;
 }
 
 export interface ProposalResponse {
@@ -57,6 +61,22 @@ export class PortalRequestsStore {
     return (this.db
       .prepare('SELECT * FROM portal_campaign_requests WHERE companyId = ? AND contactId = ? ORDER BY createdAt DESC, rowid DESC')
       .all(companyId, contactId) as RequestRow[]).map((row) => this.decode(row));
+  }
+
+  /** Every request of the company, newest first (staff view). */
+  listAll(companyId: string): CampaignRequestRecord[] {
+    return (this.db
+      .prepare('SELECT * FROM portal_campaign_requests WHERE companyId = ? ORDER BY createdAt DESC, rowid DESC')
+      .all(companyId) as RequestRow[]).map((row) => this.decode(row));
+  }
+
+  close(id: string, reason: string, userId: string | null): void {
+    this.db.prepare('UPDATE portal_campaign_requests SET closedReason = ?, closedAt = ?, closedByUserId = ? WHERE id = ?')
+      .run(reason, new Date().toISOString(), userId, id);
+  }
+
+  reopen(id: string): void {
+    this.db.prepare('UPDATE portal_campaign_requests SET closedReason = NULL, closedAt = NULL, closedByUserId = NULL WHERE id = ?').run(id);
   }
 
   recordResponse(response: Omit<ProposalResponse, 'createdAt'>): ProposalResponse {

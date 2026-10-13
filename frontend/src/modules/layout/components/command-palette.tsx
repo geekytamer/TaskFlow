@@ -40,6 +40,7 @@ import {
   Ship,
   Truck,
   UserRoundSearch,
+  Inbox,
   Users,
 } from 'lucide-react';
 
@@ -66,6 +67,7 @@ const navTargets: PaletteNavItem[] = [
   { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'] },
+  { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox, roles: ['Admin', 'Manager'] },
   { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
   { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'] },
   { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'] },

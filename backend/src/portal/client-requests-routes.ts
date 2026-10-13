@@ -81,7 +81,7 @@ export function registerClientRequestRoutes(
     const dto = toRequestDto(record, {
       currency: currency(),
       influencers,
-      status: requestStatus(proposals, store.getOpportunityById(record.opportunityId)?.stage),
+      status: requestStatus(proposals, store.getOpportunityById(record.opportunityId)?.stage, new Date(), Boolean(record.closedAt)),
       proposals: proposals.map((p) => ({ id: p.id, number: p.proposalNumber, title: p.title, status: clientProposalStatus(p) })),
     });
     return { ...dto, files: store.thread.filesOf('request', record.id).map(fileDto) };
@@ -164,7 +164,7 @@ export function registerClientRequestRoutes(
       });
       notifyManager(store, {
         companyId, managerId: manager?.userId, title: `New campaign request from ${contact.name}`,
-        name: `${contact.name}: ${brief.title}`, body: brief.title, link: '/crm/followups', entityType: 'follow_up', entityId: followup.id,
+        name: `${contact.name}: ${brief.title}`, body: brief.title, link: `/crm/client-requests?open=${created.id}`, entityType: 'follow_up', entityId: followup.id,
       });
       return created;
     }));

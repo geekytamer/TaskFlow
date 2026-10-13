@@ -4,7 +4,7 @@ import { FileList } from '@/components/file-list';
 import { StatusBadge } from '@/components/status-badge';
 import { formatDate, formatMoney, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t } from '@/lib/i18n';
+import { t, type Key } from '@/lib/i18n';
 import { getRequest } from '@/lib/requests';
 import { currentLang } from '@/lib/session';
 import { PageHeader, RowLink, SectionTitle, list, panel } from '@/components/ui';
@@ -27,6 +27,15 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
         title={<span className="inline-flex flex-wrap items-center gap-3"><bdi>{req.title}</bdi><StatusBadge lang={lang} request={req.status} /></span>}
         subtitle={<>{t(lang, 'req.created')} <bdi>{formatDate(req.createdAt, lang)}</bdi></>}
       />
+
+      <Progress status={req.status} lang={lang} />
+
+      {req.closedReason && (
+        <section aria-labelledby="note-title" className={`${panel} max-w-3xl p-5`}>
+          <h2 id="note-title" className="text-sm font-semibold">{t(lang, 'req.peakNote')}</h2>
+          <p dir="auto" className="mt-1 whitespace-pre-line leading-relaxed">{req.closedReason}</p>
+        </section>
+      )}
 
       <section aria-labelledby="proposals-title">
         <SectionTitle id="proposals-title">{t(lang, 'req.proposals')}</SectionTitle>
@@ -97,5 +106,27 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
         </dl>
       </section>
     </div>
+  );
+}
+
+/** Where the request stands: sent, proposal, the client's decision; and what happens next. */
+function Progress({ status, lang }: { status: 'in_review' | 'proposal_ready' | 'accepted' | 'closed'; lang: 'en' | 'ar' }) {
+  const reached = status === 'in_review' ? 1 : status === 'proposal_ready' ? 2 : 3;
+  const steps = ['req.step.sent', 'req.step.proposal', 'req.step.decision'] as const;
+  return (
+    <section aria-label={t(lang, `req.next.${status}` as Key)} className="max-w-3xl space-y-3">
+      <ol className="grid grid-cols-3 gap-2">
+        {steps.map((key, i) => {
+          const done = i < reached && status !== 'closed';
+          return (
+            <li key={key} className="space-y-1.5">
+              <span aria-hidden="true" className={`block h-1.5 rounded-full ${done ? 'bg-accent' : status === 'closed' && i < reached ? 'bg-ink/30' : 'bg-ink/10'}`} />
+              <span className={`block text-xs ${done ? 'font-medium text-ink' : 'text-ink-soft'}`}>{t(lang, key)}</span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className={`text-[15px] ${status === 'proposal_ready' ? 'font-medium text-accent' : 'text-ink-soft'}`}>{t(lang, `req.next.${status}` as Key)}</p>
+    </section>
   );
 }

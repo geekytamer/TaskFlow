@@ -25,6 +25,8 @@ export interface CampaignRequest {
   proposals: ProposalSummary[];
   files: PortalFile[];
   createdAt: string;
+  /** Peak's note when it closed the request. */
+  closedReason: string | null;
 }
 
 export interface Proposal extends ProposalSummary {

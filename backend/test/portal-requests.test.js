@@ -247,3 +247,57 @@ test('no request or proposal response carries internal CRM fields', async () => 
     for (const secret of POISON_STRINGS) assert.equal(json.includes(secret), false, `response ${i} leaked ${secret}`);
   });
 });
+
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+
+test('staff read each request as the client wrote it: brief, linked shortlist, files, proposals', async () => {
+  const ctx = build();
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test', 'Omar');
+  const file = await request(ctx.server).post('/portal-api/client/files').set(omar).send({ fileName: 'brief.pdf', contentBase64: PDF.toString('base64') });
+  assert.equal(file.status, 201);
+  const sent = await submit(ctx, omar, { ...BRIEF, influencerIds: [ctx.lina.id], fileIds: [file.body.id] });
+  assert.equal(sent.status, 201, JSON.stringify(sent.body));
+  const admin = { Authorization: `Bearer ${ctx.store.issueToken(ctx.inviter.id)}` };
+
+  const list = await request(ctx.server).get(`/companies/${ctx.company.id}/portal-requests`).set(admin);
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 1);
+  assert.equal(list.body[0].client.name, 'Al Noor Dates');
+  assert.equal(list.body[0].status, 'in_review');
+  assert.equal(list.body[0].fileCount, 1);
+
+  const detail = await request(ctx.server).get(`/companies/${ctx.company.id}/portal-requests/${sent.body.id}`).set(admin);
+  assert.equal(detail.body.objective, BRIEF.objective);
+  assert.deepEqual(detail.body.requester, { name: 'Omar', email: 'omar@alnoor.test' });
+  assert.deepEqual(detail.body.shortlist, [{ id: ctx.lina.id, name: 'Lina Haddad', onRoster: true, handle: '@lina.eats' }]);
+  assert.equal(detail.body.files[0].fileName, 'brief.pdf');
+  const content = await request(ctx.server).get(`/companies/${ctx.company.id}/portal-files/${detail.body.files[0].id}/content`).set(admin);
+  assert.equal(content.status, 200, 'staff can open the client\'s file');
+
+  const employee = ctx.store.createUser({ name: 'Emp', email: 'emp@peak.test', password: 'x', role: 'Employee', companyIds: [ctx.company.id], companyRoles: [{ companyId: ctx.company.id, role: 'Employee' }] });
+  assert.equal((await request(ctx.server).get(`/companies/${ctx.company.id}/portal-requests`).set({ Authorization: `Bearer ${ctx.store.issueToken(employee.id)}` })).status, 403);
+});
+
+test('staff can close a request with a reason the client reads, and reopen it', async () => {
+  const ctx = build();
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test', 'Omar');
+  const sent = await submit(ctx, omar, BRIEF);
+  const admin = { Authorization: `Bearer ${ctx.store.issueToken(ctx.inviter.id)}` };
+  const close = (body) => request(ctx.server).post(`/companies/${ctx.company.id}/portal-requests/${sent.body.id}/close`).set(admin).send(body);
+  assert.equal((await close({})).status, 400, 'a reason is required');
+  const closed = await close({ reason: 'Our creators are fully booked for those dates.' });
+  assert.equal(closed.status, 200);
+  assert.equal(closed.body.status, 'closed');
+  assert.equal(ctx.store.getOpportunityById(closed.body.opportunity.id).stage, 'Lost');
+
+  const seen = await request(ctx.server).get(`/portal-api/client/requests/${sent.body.id}`).set(omar);
+  assert.equal(seen.body.status, 'closed');
+  assert.equal(seen.body.closedReason, 'Our creators are fully booked for those dates.');
+  const { currentEvents } = require('../dist/portal/alerts');
+  const user = ctx.store.portal.listUsers(ctx.company.id, { audience: 'client' })[0];
+  assert.ok(currentEvents(ctx.store, user).some((e) => e.event === 'request'), 'the client is alerted');
+
+  const reopened = await request(ctx.server).post(`/companies/${ctx.company.id}/portal-requests/${sent.body.id}/reopen`).set(admin);
+  assert.equal(reopened.body.status, 'in_review');
+  assert.equal((await request(ctx.server).get(`/portal-api/client/requests/${sent.body.id}`).set(omar)).body.closedReason, null);
+});

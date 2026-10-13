@@ -13,7 +13,7 @@ import type { PortalUser } from './portal-store';
  * never carry amounts, rates or anything else a lock screen should not show.
  */
 
-export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout' | 'review';
+export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout' | 'review' | 'request';
 export interface AlertPrefs { portalUserId: string; phone: string | null; whatsapp: boolean; lang: 'en' | 'ar'; updatedAt: string }
 export interface PendingAlert { event: AlertEvent; refId: string; path: string }
 
@@ -69,6 +69,10 @@ export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[
         out.push({ event: 'proposal', refId: p.id, path: `/proposals/${p.id}` });
       }
     }
+    // A request Peak closed: once per closing (a reopened and closed-again request alerts again).
+    for (const r of store.requests.listFor(user.companyId, user.contactId)) {
+      if (r.closedAt) out.push({ event: 'request', refId: `${r.id}:${r.closedAt}`, path: `/requests/${r.id}` });
+    }
     // Content waiting for the client: one alert per version (keyed by its link), once the team has approved it.
     for (const c of store.listCrmCampaigns(user.companyId)) {
       if (c.contactId !== user.contactId || c.archivedAt) continue;
@@ -104,6 +108,7 @@ const LINES: Record<AlertEvent, { en: (n: number) => string; ar: (n: number) => 
   invitation: { en: (n) => (n === 1 ? 'You are invited to a campaign' : `You are invited to ${n} campaigns`), ar: (n) => (n === 1 ? 'لديك دعوة لحملة' : `لديك دعوات لـ ${n} حملات`) },
   changes: { en: (n) => (n === 1 ? 'Changes were requested on your draft' : `Changes were requested on ${n} drafts`), ar: (n) => (n === 1 ? 'طُلبت تعديلات على مسودتك' : `طُلبت تعديلات على ${n} مسودات`) },
   review: { en: (n) => (n === 1 ? 'Content is ready for your review' : `${n} pieces of content are ready for your review`), ar: (n) => (n === 1 ? 'محتوى جاهز لمراجعتك' : `${n} محتويات جاهزة لمراجعتك`) },
+  request: { en: (n) => (n === 1 ? 'There is an update on your request' : `There are updates on ${n} of your requests`), ar: (n) => (n === 1 ? 'يوجد تحديث على طلبك' : `توجد تحديثات على ${n} من طلباتك`) },
   payout: { en: (n) => (n === 1 ? 'A payout was marked paid' : `${n} payouts were marked paid`), ar: (n) => (n === 1 ? 'تم دفع مستحقاتك' : `تم دفع ${n} مستحقات`) },
 };
 

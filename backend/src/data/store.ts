@@ -4992,6 +4992,16 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Staff can close a client request they cannot take on, with a reason the client reads.
+        id: '130_request_close_reason',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(portal_campaign_requests)').all() as Array<{ name: string }>).map((c) => c.name);
+          if (!cols.includes('closedReason')) this.db.exec('ALTER TABLE portal_campaign_requests ADD COLUMN closedReason TEXT;');
+          if (!cols.includes('closedAt')) this.db.exec('ALTER TABLE portal_campaign_requests ADD COLUMN closedAt TEXT;');
+          if (!cols.includes('closedByUserId')) this.db.exec('ALTER TABLE portal_campaign_requests ADD COLUMN closedByUserId TEXT;');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
