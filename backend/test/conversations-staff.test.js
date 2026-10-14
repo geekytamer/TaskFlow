@@ -183,3 +183,36 @@ test('the old contact messages endpoint still returns the history through the Ge
   assert.deepEqual(old.body.messages.map((m) => [m.author.type, m.body]), [['portal', 'From client'], ['staff', 'From staff']]);
   assert.equal(ctx.store.conversations.getThread(general(ctx, ctx.client).id).state, 'waiting_them');
 });
+
+test('a mention or assignee must be able to see a private contact', async () => {
+  const ctx = build();
+  const t = general(ctx, ctx.secret);
+  const url = `/conversation-threads/${t.id}/messages`;
+  const bad = await request(ctx.server).post(url).set(ctx.carlaAuth).send({ kind: 'note', body: 'psst', mentionUserIds: [ctx.eve.id] });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.stringify(bad.body), /Eve cannot see this contact/);
+  assert.equal(ctx.store.conversations.messages(t.id).length, 0);
+  assert.equal(ctx.store.conversations.mentionsOf('x').length, 0);
+  assert.equal(ctx.store.listNotifications(ctx.eve.id).length, 0);
+  assert.equal(ctx.store.db.prepare('SELECT COUNT(*) n FROM conversation_mentions').get().n, 0);
+  // The owner (a Manager) may be mentioned; a public contact still allows an Employee.
+  const admin = ctx.store.createUser({ name: 'Ann', email: 'ann@peak.test', password: 'x', role: 'Admin', companyIds: [ctx.company.id], companyRoles: [{ companyId: ctx.company.id, role: 'Admin' }] });
+  assert.equal((await request(ctx.server).post(url).set(ctx.carlaAuth).send({ kind: 'note', body: 'psst', mentionUserIds: [admin.id] })).status, 201);
+  const pub = general(ctx, ctx.client);
+  assert.equal((await request(ctx.server).post(`/conversation-threads/${pub.id}/messages`).set(ctx.carlaAuth).send({ kind: 'note', body: 'hi', mentionUserIds: [ctx.eve.id] })).status, 201);
+
+  const patch = (id) => request(ctx.server).patch(`/conversation-threads/${t.id}`).set(ctx.carlaAuth).send({ assigneeUserId: id });
+  const refused = await patch(ctx.eve.id);
+  assert.equal(refused.status, 400);
+  assert.equal(ctx.store.conversations.getThread(t.id).assigneeUserId, ctx.carla.id);
+  assert.equal((await patch(admin.id)).status, 200);
+});
+
+test('mentions notify with the mention type', async () => {
+  const ctx = build();
+  const t = general(ctx, ctx.client);
+  await request(ctx.server).post(`/conversation-threads/${t.id}/messages`).set(ctx.carlaAuth).send({ kind: 'note', body: 'look', mentionUserIds: [ctx.eve.id] });
+  const [n] = ctx.store.listNotifications(ctx.eve.id);
+  assert.equal(n.type, 'mention');
+  assert.equal(n.data.tKey, 'notif.mention.t');
+});

@@ -18,6 +18,8 @@ export interface ConversationStaffDeps {
   viewerFor(req: StaffRequest, companyId: string): StaffViewer;
   /** The portal channel exists only for this company. */
   portalCompanyId: string | undefined;
+  /** Whether this user may read private contacts of others (CONTACTS_PRIVATE_READ). */
+  seesPrivateFor(userId: string, companyId: string): boolean | Promise<boolean>;
 }
 
 const NOTE_EDIT_MS = 15 * 60 * 1000;
@@ -25,7 +27,7 @@ const STATE_FILTERS = ['waiting_us', 'waiting_them', 'done', 'snoozed', 'open'] 
 
 const wrap = (fn: (req: StaffRequest, res: Response) => unknown) =>
   (req: Request, res: Response, next: NextFunction) => {
-    try { fn(req as StaffRequest, res); } catch (e) { next(e); }
+    try { Promise.resolve(fn(req as StaffRequest, res)).catch(next); } catch (e) { next(e); }
   };
 
 /** The staff side of conversations: inbox, a contact's threads, thread messages. */
@@ -57,6 +59,14 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     const thread = c.getThread(req.params.id);
     if (!thread) throw new HttpError(404, 'Not found.');
     return { thread, ...visibleContact(req, thread.companyId, thread.contactId) };
+  };
+
+  /** Throws 400 unless this user may see the contact: public, theirs, or private-read. */
+  const requireCanSee = async (userId: string, contact: Contact) => {
+    if (contact.visibility !== 'Private' || contact.ownerUserId === userId) return;
+    if (!(await deps.seesPrivateFor(userId, contact.companyId))) {
+      throw new HttpError(400, `${store.getUserById(userId)?.name ?? 'This person'} cannot see this contact`);
+    }
   };
 
   const visibleMessages = (thread: Thread, viewer: StaffViewer): ConvMessage[] =>
@@ -127,7 +137,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     });
   }));
 
-  router.post('/conversation-threads/:id/messages', authMiddleware, wrap((req, res) => {
+  router.post('/conversation-threads/:id/messages', authMiddleware, wrap(async (req, res) => {
     const { thread, contact, viewer } = loadThread(req);
     const body = asRecord(req.body, 'body');
     const kind = body.kind;
@@ -145,6 +155,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       mentionIds = [...new Set(body.mentionUserIds as string[])];
       if (mentionIds.length > 20) throw new HttpError(400, 'Mention at most 20 people.');
       if (mentionIds.some((id) => !isMember(id, thread.companyId))) throw new HttpError(400, 'You can only mention people in this company.');
+      for (const id of mentionIds) await requireCanSee(id, contact);
     }
 
     const message = store.transaction(() => {
@@ -168,10 +179,10 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       store.notify({
         companyId: thread.companyId,
         userIds: mentionIds,
-        type: 'followup_assigned',
+        type: 'mention',
         title: `${author} mentioned you about ${contact.name}`,
-        // A private contact's note text stays out of other people's notification lists.
-        body: contact.visibility === 'Private' ? undefined : text.slice(0, 200),
+        body: text.slice(0, 200),
+        data: { tKey: 'notif.mention.t', name: author, contact: contact.name },
         link: `/inbox?thread=${thread.id}&message=${message.id}`,
         entityType: 'conversation_message',
         entityId: message.id,
@@ -194,8 +205,8 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     res.json(staffMessageView(store, updated, thread, viewer.userId));
   }));
 
-  router.patch('/conversation-threads/:id', authMiddleware, wrap((req, res) => {
-    const { thread, viewer } = loadThread(req);
+  router.patch('/conversation-threads/:id', authMiddleware, wrap(async (req, res) => {
+    const { thread, contact, viewer } = loadThread(req);
     const body = asRecord(req.body, 'body');
     const now = new Date().toISOString();
 
@@ -204,6 +215,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       if (body.assigneeUserId === null) assignee = null;
       else if (typeof body.assigneeUserId === 'string' && isMember(body.assigneeUserId, thread.companyId)) assignee = body.assigneeUserId;
       else throw new HttpError(400, 'The assignee must be a member of this company.');
+      if (assignee) await requireCanSee(assignee, contact);
     }
     let state: { state: ThreadState; until?: string } | undefined;
     if (body.snoozedUntil !== undefined) {

@@ -8029,6 +8029,14 @@ export function createServer(options: CreateServerOptions = {}) {
         seesPrivate: allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
       }),
       portalCompanyId: options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID,
+      // Same rule as allowsRule(..., 'CONTACTS_PRIVATE_READ'), evaluated for another user.
+      seesPrivateFor: (userId, companyId) => {
+        const rule = RECORD_RULES.CONTACTS_PRIVATE_READ;
+        const user = store.getUserById(userId);
+        if (!user || !store.isModuleEnabled(companyId, rule.module)) return false;
+        if (authzEngine === 'openfga') return permissionService.has(userId, companyId, rule.module, rule.action);
+        return requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
+      },
     }),
   );
 

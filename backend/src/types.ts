@@ -1755,6 +1755,7 @@ export type NotificationType =
   | 'vendor_bill_approval'
   | 'followup_due'
   | 'followup_assigned'
+  | 'mention'
   | 'lead_assigned'
   | 'low_stock'
   | 'expiry_warning'
