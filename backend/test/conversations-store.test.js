@@ -117,3 +117,29 @@ test('migration 131 copies account_messages into the General thread with the sam
   assert.equal(general.waitingSince, '2026-01-01T13:00:00.000Z');
   assert.equal(general.assigneeUserId, owner);
 });
+
+test('listThreads treats a woken snoozed thread as waiting_us with a waitingSince', () => {
+  const { store, companyId, contactId } = setup();
+  const c = store.conversations;
+  const thread = c.generalThread(companyId, contactId);
+  c.setState(thread.id, 'snoozed', '2020-01-01T00:00:00.000Z');
+  assert.equal(c.listThreads(companyId, { states: ['waiting_us'] }).length, 1);
+  assert.equal(c.listThreads(companyId, { states: ['snoozed'] }).length, 0);
+  assert.equal(c.listThreads(companyId, { states: ['waiting_us'] })[0].waitingSince, '2020-01-01T00:00:00.000Z');
+  assert.equal(c.effectiveWaitingSince(c.getThread(thread.id), new Date().toISOString()), '2020-01-01T00:00:00.000Z');
+  // not yet due: still snoozed
+  assert.equal(c.listThreads(companyId, { states: ['snoozed'] }, '2019-01-01T00:00:00.000Z').length, 1);
+});
+
+test('deleting a company removes conversation reads and mentions', () => {
+  const { store, companyId, owner, contactId } = setup();
+  const c = store.conversations;
+  const thread = c.generalThread(companyId, contactId);
+  const m = c.addMessage(portalMsg(thread.id));
+  c.markRead(thread.id, { type: 'staff', id: owner }, 'a');
+  c.addMentions(m.id, [owner]);
+  store.deleteCompany(companyId, { cascade: true });
+  assert.equal(store.db.prepare('SELECT COUNT(*) n FROM conversation_reads').get().n, 0);
+  assert.equal(store.db.prepare('SELECT COUNT(*) n FROM conversation_mentions').get().n, 0);
+  assert.equal(store.db.prepare('SELECT COUNT(*) n FROM conversation_messages').get().n, 0);
+});

@@ -110,22 +110,25 @@ export class ConversationsStore {
       .all(conversationId) as Thread[];
   }
 
-  listThreads(companyId: string, filter: { contactIds?: Set<string>; assigneeUserId?: string | null; states?: ThreadState[] } = {}): Thread[] {
+  listThreads(
+    companyId: string,
+    filter: { contactIds?: Set<string>; assigneeUserId?: string | null; states?: ThreadState[] } = {},
+    now: string = new Date().toISOString(),
+  ): Thread[] {
     const where = ['t.companyId = ?'];
     const args: unknown[] = [companyId];
     if (filter.assigneeUserId !== undefined) {
       if (filter.assigneeUserId === null) where.push('t.assigneeUserId IS NULL');
       else { where.push('t.assigneeUserId = ?'); args.push(filter.assigneeUserId); }
     }
-    if (filter.states?.length) {
-      where.push(`t.state IN (${filter.states.map(() => '?').join(',')})`);
-      args.push(...filter.states);
-    }
-    let rows = this.db
+    const rows = (this.db
       .prepare(`${THREAD_SELECT} WHERE ${where.join(' AND ')} ORDER BY t.lastMessageAt DESC, t.createdAt DESC, t.rowid DESC`)
-      .all(...args) as Thread[];
-    if (filter.contactIds) rows = rows.filter((t) => filter.contactIds!.has(t.contactId));
-    return rows;
+      .all(...args) as Thread[])
+      // A woken snoozed thread reads as waiting_us, with a clock to show.
+      .map((t) => (this.effectiveState(t, now) !== t.state ? { ...t, state: 'waiting_us' as ThreadState, waitingSince: this.effectiveWaitingSince(t, now) } : t));
+    return rows.filter(
+      (t) => (!filter.states?.length || filter.states.includes(t.state)) && (!filter.contactIds || filter.contactIds.has(t.contactId)),
+    );
   }
 
   addMessage(input: NewMessage): ConvMessage {
@@ -220,5 +223,11 @@ export class ConversationsStore {
   effectiveState(thread: Pick<Thread, 'state' | 'snoozedUntil'>, now: string): ThreadState {
     if (thread.state === 'snoozed' && thread.snoozedUntil && thread.snoozedUntil <= now) return 'waiting_us';
     return thread.state;
+  }
+
+  /** When a woken snoozed thread started waiting on us: its own clock, else the moment it woke. */
+  effectiveWaitingSince(thread: Pick<Thread, 'state' | 'snoozedUntil' | 'waitingSince'>, now: string): string | null {
+    if (this.effectiveState(thread, now) === 'waiting_us' && thread.state === 'snoozed') return thread.waitingSince ?? thread.snoozedUntil;
+    return thread.waitingSince;
   }
 }

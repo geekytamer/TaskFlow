@@ -6011,6 +6011,9 @@ export class DataStore {
       this.db
         .prepare('DELETE FROM journal_lines WHERE entryId IN (SELECT id FROM journal_entries WHERE companyId = ?)')
         .run(id);
+      // Reads and mentions carry no companyId; clear them through their thread / message.
+      this.db.prepare('DELETE FROM conversation_reads WHERE threadId IN (SELECT id FROM conversation_threads WHERE companyId = ?)').run(id);
+      this.db.prepare('DELETE FROM conversation_mentions WHERE messageId IN (SELECT id FROM conversation_messages WHERE companyId = ?)').run(id);
 
       for (const { name } of tables) {
         if (name === 'companies' || name === 'schema_migrations' || name === 'journal_lines') continue;
