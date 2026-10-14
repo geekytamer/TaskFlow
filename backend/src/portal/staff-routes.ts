@@ -8,6 +8,7 @@ import { downloadHeaders, readUpload } from './files';
 import { registerStaffReferralRoutes } from './staff-referral-routes';
 import { registerStaffRequestRoutes } from './staff-request-routes';
 import { registerStaffInfluencerRoutes } from './staff-influencer-routes';
+import type { AccountMessage } from './thread-store';
 import { afterStaffMessage, fileDto, parseMessage, staffMessageDto } from './thread';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
@@ -208,7 +209,11 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const companyId = authorize(req);
     const contact = threadContact(companyId, req.params.contactId);
     res.json({
-      messages: store.thread.messagesFor(companyId, contact.id).map((m) => staffMessageDto(store, m)),
+      // The General thread is the contact's history; notes and other threads are not part of this legacy view.
+      messages: store.conversations
+        .messages(store.conversations.generalThread(companyId, contact.id).id)
+        .filter((m) => m.channel === 'portal' && m.visibility === 'external')
+        .map((m) => staffMessageDto(store, m as unknown as AccountMessage)),
       files: store.thread.filesForContact(companyId, contact.id).map(fileDto),
     });
   }));
@@ -223,6 +228,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
         companyId, contactId: contact.id, authorType: 'staff', authorUserId: userId, authorPortalUserId: null, body: text,
       });
       store.thread.attach(fileIds, { type: 'message', id: created.id }, { companyId, contactId: contact.id, uploader: { kind: 'staff', userId } });
+      store.conversations.mirrorLegacy(created);
       afterStaffMessage(store, { companyId, contactId: contact.id, userId });
       return created;
     });

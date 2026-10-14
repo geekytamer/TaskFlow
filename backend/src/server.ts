@@ -28,6 +28,7 @@ import { tuplesForStore } from './permissions/tuples';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
 import { createPortalStaffRouter } from './portal/staff-routes';
+import { createConversationStaffRouter } from './conversations/staff-routes';
 import { sweepPortalDeliverableReminders } from './portal/reminders';
 import { createGamesStaffRouter } from './games/staff-routes';
 import { createPublicGamesRouter } from './games/public-routes';
@@ -8014,6 +8015,20 @@ export function createServer(options: CreateServerOptions = {}) {
       canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
+    }),
+  );
+
+  app.use(
+    createConversationStaffRouter({
+      store,
+      authMiddleware: authMiddleware as unknown as RequestHandler,
+      requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+      viewerFor: (req, companyId) => ({
+        kind: 'staff',
+        userId: (req as AuthedRequest).user!.id,
+        seesPrivate: allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
+      }),
+      portalCompanyId: options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID,
     }),
   );
 

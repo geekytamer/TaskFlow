@@ -45,6 +45,7 @@ export function registerThreadRoutes(router: Router, store: DataStore, companyId
       store.thread.attach(fileIds, { type: 'message', id: created.id }, {
         companyId, contactId: contact.id, uploader: { kind: 'portal', portalUserId: session.portalUserId },
       });
+      store.conversations.mirrorLegacy(created);
       afterPortalMessage(store, { companyId, contact, managerId, message: created });
       return created;
     }));
