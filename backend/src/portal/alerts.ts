@@ -60,9 +60,15 @@ export class PortalAlertsStore {
 
 /** Everything this user could be alerted about right now; the log decides what is new. */
 export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[] {
-  const out: PendingAlert[] = store.conversations.messages(store.conversations.generalThread(user.companyId, user.contactId).id)
-    .filter((m) => m.authorType === 'staff' && m.channel === 'portal' && m.visibility === 'external')
-    .map((m) => ({ event: 'message' as const, refId: m.id, path: '/messages' }));
+  const out: PendingAlert[] = [];
+  const conversation = store.conversations.findConversation(user.companyId, user.contactId);
+  for (const thread of conversation ? store.conversations.threadsOf(conversation.id) : []) {
+    for (const m of store.conversations.messages(thread.id)) {
+      if (m.authorType === 'staff' && m.channel === 'portal' && m.visibility === 'external') {
+        out.push({ event: 'message', refId: m.id, path: `/messages/${thread.id}` });
+      }
+    }
+  }
   if (user.audience === 'client') {
     for (const p of store.listCrmProposals(user.companyId)) {
       if (p.contactId === user.contactId && CLIENT_VISIBLE_PROPOSALS.includes(p.status) && clientProposalStatus(p) === 'sent') {

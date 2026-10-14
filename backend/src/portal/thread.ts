@@ -3,9 +3,9 @@ import { HttpError } from '../http';
 import type { Contact } from '../types';
 import type { ConvMessage } from '../conversations/conversations-store';
 import type { PortalFileMeta } from './thread-store';
+import { notifyManager, raiseFollowup } from './common';
 
 type MessageLike = Pick<ConvMessage, 'id' | 'body' | 'authorType' | 'authorUserId' | 'authorPortalUserId' | 'createdAt'>;
-import { notifyManager, raiseFollowup } from './common';
 
 export const MAX_MESSAGE_CHARS = 4000;
 export const MAX_FILES_PER_ITEM = 10;
@@ -66,7 +66,7 @@ export function afterPortalMessage(store: DataStore, input: { companyId: string;
   const followup = raiseFollowup(store, {
     companyId: input.companyId, entityType: 'contact', entityId: input.contact.id, title, priority: 'normal',
     ownerUserId: input.managerId, dueDays: 1, notes: input.message.body.slice(0, 500),
-    sourceTrigger: REPLY_TRIGGER, sourceType: 'account_message', sourceId: input.message.id,
+    sourceTrigger: REPLY_TRIGGER, sourceType: 'conversation_message', sourceId: input.message.id,
   });
   notifyManager(store, {
     companyId: input.companyId, managerId: input.managerId, title: `New message from ${input.contact.name}`, name: title,

@@ -35,13 +35,15 @@ export function registerConversationPortalRoutes(router: Router, store: DataStor
       return [{
         id: thread.id,
         subject: thread.subject,
-        lastMessageAt: last?.createdAt ?? thread.lastMessageAt,
+        // Only portal-visible messages count; a note must not leak its timing here.
+        lastMessageAt: last?.createdAt ?? null,
+        sortAt: last?.createdAt ?? thread.createdAt,
         lastMessage: last ? { body: last.body, authorKind: last.authorType === 'staff' ? ('team' as const) : last.authorPortalUserId === session.portalUserId ? ('you' as const) : ('client' as const) } : null,
         unread: !!last && last.authorPortalUserId !== session.portalUserId && (!read || read.lastReadAt < last.createdAt),
       }];
     });
-    out.sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''));
-    res.json(out);
+    out.sort((a, b) => b.sortAt.localeCompare(a.sortAt));
+    res.json(out.map(({ sortAt, ...t }) => t));
   });
 
   router.get('/:audience/threads/:id', requireSession, (req: SessionRequest, res: Response) => {

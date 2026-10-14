@@ -83,6 +83,13 @@ export class ConversationsStore {
     return conversation;
   }
 
+  /** Read-only lookup: never creates a conversation. */
+  findConversation(companyId: string, contactId: string): Conversation | undefined {
+    return this.db
+      .prepare('SELECT id, companyId, contactId, ownerUserId, createdAt FROM conversations WHERE companyId = ? AND contactId = ?')
+      .get(companyId, contactId) as Conversation | undefined;
+  }
+
   generalThread(companyId: string, contactId: string): Thread {
     const conversation = this.db
       .prepare('SELECT id, ownerUserId FROM conversations WHERE companyId = ? AND contactId = ?')
@@ -201,7 +208,7 @@ export class ConversationsStore {
     this.db
       .prepare(
         `INSERT INTO conversation_reads (threadId, readerType, readerId, lastReadAt) VALUES (?, ?, ?, ?)
-         ON CONFLICT (threadId, readerType, readerId) DO UPDATE SET lastReadAt = excluded.lastReadAt`,
+         ON CONFLICT (threadId, readerType, readerId) DO UPDATE SET lastReadAt = MAX(lastReadAt, excluded.lastReadAt)`,
       )
       .run(threadId, reader.type, reader.id, at);
   }

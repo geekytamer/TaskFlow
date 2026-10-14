@@ -147,3 +147,42 @@ test('portal message alerts fire for staff external portal messages only', async
   ctx.note(g, 'internal');
   assert.deepEqual(currentEvents(ctx.store, user).filter((e) => e.event === 'message').map((e) => e.refId), [sent.id]);
 });
+
+test('alerts cover every thread of the contact, link to the portal thread page, and create nothing', async () => {
+  const ctx = build();
+  const me = await ctx.session(ctx.client, 'b@alnoor.test');
+  const user = ctx.store.portal.getUser(me.id);
+  const fresh = ctx.store.createContact({ companyId: ctx.company.id, kind: 'Organization', name: 'Fresh', roles: ['Client'] });
+  assert.deepEqual(currentEvents(ctx.store, { ...user, contactId: fresh.id }), []);
+  assert.equal(ctx.store.conversations.findConversation(ctx.company.id, fresh.id), undefined);
+  const topic = ctx.topic(ctx.client, 'Dates order');
+  const sent = ctx.staffSays(topic, 'In the topic');
+  const events = currentEvents(ctx.store, user).filter((e) => e.event === 'message');
+  assert.deepEqual(events, [{ event: 'message', refId: sent.id, path: `/messages/${topic.id}` }]);
+});
+
+test('a note never moves the portal list timing or order', async () => {
+  const ctx = build();
+  const me = await ctx.session(ctx.client, 'b@alnoor.test');
+  const g = ctx.general(ctx.client);
+  await new Promise((r) => setTimeout(r, 5));
+  const topic = ctx.topic(ctx.client, 'Dates order');
+  ctx.staffSays(topic, 'Quote');
+  await new Promise((r) => setTimeout(r, 5));
+  ctx.note(g, 'POISON-TIMING');
+  const res = await request(ctx.server).get('/portal-api/client/threads').set(me.headers);
+  assert.deepEqual(res.body.map((t) => t.subject), ['Dates order', 'General']);
+  assert.equal(res.body.find((t) => t.subject === 'General').lastMessageAt, null);
+  assert.equal(JSON.stringify(res.body).includes('sortAt'), false);
+});
+
+test('markRead never moves lastReadAt backwards', () => {
+  const ctx = build();
+  const g = ctx.general(ctx.client);
+  const c = ctx.store.conversations;
+  c.markRead(g.id, { type: 'portal', id: 'p' }, '2026-01-02T00:00:00.000Z');
+  c.markRead(g.id, { type: 'portal', id: 'p' }, '2026-01-01T00:00:00.000Z');
+  assert.equal(c.readsOf(g.id)[0].lastReadAt, '2026-01-02T00:00:00.000Z');
+  c.markRead(g.id, { type: 'portal', id: 'p' }, '2026-01-03T00:00:00.000Z');
+  assert.equal(c.readsOf(g.id)[0].lastReadAt, '2026-01-03T00:00:00.000Z');
+});

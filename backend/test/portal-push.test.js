@@ -32,7 +32,7 @@ const build = () => {
   };
   const staffMessage = (body) => store.conversations.addMessage({ threadId: store.conversations.generalThread(company.id, client.id).id, channel: 'portal', direction: 'out', visibility: 'external', authorType: 'staff', authorUserId: carla.id, authorPortalUserId: null, body });
   const sweep = () => sweepPortalPush(store, send, company.id);
-  return { store, server, company, sent, session, staffMessage, sweep };
+  return { store, server, company, client, sent, session, staffMessage, sweep };
 };
 
 test('each new event is pushed once, as the company name with what happened and where to look', async () => {
@@ -44,7 +44,7 @@ test('each new event is pushed once, as the company name with what happened and 
   assert.equal(ctx.sent.length, 1);
   assert.equal(ctx.sent[0].title, 'Peak Media');
   assert.equal(ctx.sent[0].body, 'A new message from the team');
-  assert.equal(ctx.sent[0].url, '/messages');
+  assert.equal(ctx.sent[0].url, `/messages/${ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id}`);
   assert.equal(await ctx.sweep(), 0, 'not twice');
   assert.equal(ctx.sent.length, 1);
 });
