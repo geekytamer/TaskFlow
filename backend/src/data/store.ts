@@ -9,6 +9,7 @@ import { PortalCatalogueStore } from '../portal/catalogue-store';
 import { PortalRequestsStore } from '../portal/requests-store';
 import { DeliverableReviewsStore } from '../portal/reviews-store';
 import { PortalThreadStore } from '../portal/thread-store';
+import { ConversationsStore } from '../conversations/conversations-store';
 import { PortalReferralsStore } from '../portal/referrals-store';
 import { InfluencerPortalStore } from '../portal/influencer-store';
 import { GamesStore } from '../games/games-store';
@@ -672,6 +673,8 @@ export class DataStore {
   readonly reviews: DeliverableReviewsStore;
   /** The shared message thread and files between staff and a portal contact. */
   readonly thread: PortalThreadStore;
+  /** Conversations, threads and messages for every channel. */
+  readonly conversations: ConversationsStore;
   readonly referrals: PortalReferralsStore;
   readonly influencer: InfluencerPortalStore;
   readonly games: GamesStore;
@@ -718,6 +721,7 @@ export class DataStore {
     this.requests = new PortalRequestsStore(this.db);
     this.reviews = new DeliverableReviewsStore(this.db);
     this.thread = new PortalThreadStore(this.db);
+    this.conversations = new ConversationsStore(this.db);
     this.referrals = new PortalReferralsStore(this.db);
     this.influencer = new InfluencerPortalStore(this.db);
     this.games = new GamesStore(this.db);
@@ -5002,6 +5006,126 @@ export class DataStore {
           if (!cols.includes('closedByUserId')) this.db.exec('ALTER TABLE portal_campaign_requests ADD COLUMN closedByUserId TEXT;');
         },
       },
+      {
+        // Conversations: one per contact, threads inside, messages in threads. The
+        // old portal thread is copied into each contact's General thread, keeping
+        // message ids so attached files stay attached.
+        id: '131_conversations',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS conversations (
+              id          TEXT PRIMARY KEY,
+              companyId   TEXT NOT NULL,
+              contactId   TEXT NOT NULL,
+              ownerUserId TEXT,
+              createdAt   TEXT NOT NULL,
+              UNIQUE (companyId, contactId)
+            );
+            CREATE TABLE IF NOT EXISTS conversation_threads (
+              id             TEXT PRIMARY KEY,
+              conversationId TEXT NOT NULL,
+              companyId      TEXT NOT NULL,
+              subject        TEXT NOT NULL,
+              contextType    TEXT,
+              contextId      TEXT,
+              assigneeUserId TEXT,
+              state          TEXT NOT NULL DEFAULT 'waiting_them',
+              waitingSince   TEXT,
+              snoozedUntil   TEXT,
+              slaDueAt       TEXT,
+              lastMessageAt  TEXT,
+              createdAt      TEXT NOT NULL,
+              CHECK (state IN ('waiting_us', 'waiting_them', 'done', 'snoozed'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_threads_context ON conversation_threads (conversationId, contextType, contextId) WHERE contextType IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_threads_general ON conversation_threads (conversationId) WHERE contextType IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_conversation_threads_company ON conversation_threads (companyId, state, lastMessageAt);
+            CREATE TABLE IF NOT EXISTS conversation_messages (
+              id                 TEXT PRIMARY KEY,
+              threadId           TEXT NOT NULL,
+              conversationId     TEXT NOT NULL,
+              companyId          TEXT NOT NULL,
+              channel            TEXT NOT NULL,
+              direction          TEXT NOT NULL,
+              visibility         TEXT NOT NULL,
+              authorType         TEXT NOT NULL,
+              authorUserId       TEXT,
+              authorPortalUserId TEXT,
+              externalFrom       TEXT,
+              externalTo         TEXT,
+              subject            TEXT,
+              body               TEXT NOT NULL,
+              bodyHtml           TEXT,
+              status             TEXT,
+              error              TEXT,
+              externalId         TEXT,
+              inReplyTo          TEXT,
+              mailboxId          TEXT,
+              seenAt             TEXT,
+              editedAt           TEXT,
+              createdAt          TEXT NOT NULL,
+              CHECK (visibility IN ('external', 'internal', 'owner_private')),
+              CHECK (direction IN ('in', 'out', 'none')),
+              CHECK (authorType IN ('staff', 'portal', 'system'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_conversation_messages_thread ON conversation_messages (threadId, createdAt);
+            CREATE INDEX IF NOT EXISTS idx_conversation_messages_external ON conversation_messages (companyId, externalId);
+            CREATE TABLE IF NOT EXISTS conversation_reads (
+              threadId   TEXT NOT NULL,
+              readerType TEXT NOT NULL,
+              readerId   TEXT NOT NULL,
+              lastReadAt TEXT NOT NULL,
+              PRIMARY KEY (threadId, readerType, readerId)
+            );
+            CREATE TABLE IF NOT EXISTS conversation_mentions (
+              messageId TEXT NOT NULL,
+              userId    TEXT NOT NULL,
+              PRIMARY KEY (messageId, userId)
+            );
+          `);
+
+          const pairs = this.db
+            .prepare('SELECT DISTINCT companyId, contactId FROM account_messages')
+            .all() as Array<{ companyId: string; contactId: string }>;
+          const owner = this.db.prepare('SELECT ownerUserId FROM contacts WHERE id = ? AND companyId = ?');
+          const findConversation = this.db.prepare('SELECT id FROM conversations WHERE companyId = ? AND contactId = ?');
+          const insertConversation = this.db.prepare('INSERT INTO conversations (id, companyId, contactId, ownerUserId, createdAt) VALUES (?, ?, ?, ?, ?)');
+          const findGeneral = this.db.prepare('SELECT id FROM conversation_threads WHERE conversationId = ? AND contextType IS NULL');
+          const insertThread = this.db.prepare(
+            `INSERT INTO conversation_threads (id, conversationId, companyId, subject, assigneeUserId, state, waitingSince, lastMessageAt, createdAt)
+             VALUES (?, ?, ?, 'General', ?, ?, ?, ?, ?)`,
+          );
+          const messagesOf = this.db.prepare('SELECT authorType, createdAt FROM account_messages WHERE companyId = ? AND contactId = ? ORDER BY createdAt ASC, rowid ASC');
+          const copy = this.db.prepare(
+            `INSERT OR IGNORE INTO conversation_messages (id, threadId, conversationId, companyId, channel, direction, visibility, authorType, authorUserId, authorPortalUserId, body, createdAt)
+             SELECT id, ?, ?, companyId, 'portal', CASE authorType WHEN 'portal' THEN 'in' ELSE 'out' END, 'external', authorType, authorUserId, authorPortalUserId, body, createdAt
+             FROM account_messages WHERE companyId = ? AND contactId = ?`,
+          );
+          const now = new Date().toISOString();
+          for (const { companyId, contactId } of pairs) {
+            const ownerUserId = (owner.get(contactId, companyId) as { ownerUserId: string | null } | undefined)?.ownerUserId ?? null;
+            const rows = messagesOf.all(companyId, contactId) as Array<{ authorType: string; createdAt: string }>;
+            let conversationId = (findConversation.get(companyId, contactId) as { id: string } | undefined)?.id;
+            if (!conversationId) {
+              conversationId = uuid();
+              insertConversation.run(conversationId, companyId, contactId, ownerUserId, rows[0]?.createdAt ?? now);
+            }
+            let threadId = (findGeneral.get(conversationId) as { id: string } | undefined)?.id;
+            if (!threadId) {
+              threadId = uuid();
+              const last = rows[rows.length - 1];
+              let waitingSince: string | null = null;
+              if (last.authorType === 'portal') {
+                // The earliest portal message after the last staff reply.
+                waitingSince = last.createdAt;
+                for (let i = rows.length - 1; i >= 0 && rows[i].authorType === 'portal'; i -= 1) waitingSince = rows[i].createdAt;
+              }
+              insertThread.run(threadId, conversationId, companyId, ownerUserId, waitingSince ? 'waiting_us' : 'waiting_them', waitingSince, last.createdAt, rows[0].createdAt);
+            }
+            copy.run(threadId, conversationId, companyId, contactId);
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5177,6 +5301,11 @@ export class DataStore {
         DELETE FROM referral_commissions;
         DELETE FROM portal_referrals;
         DELETE FROM account_messages;
+        DELETE FROM conversation_mentions;
+        DELETE FROM conversation_reads;
+        DELETE FROM conversation_messages;
+        DELETE FROM conversation_threads;
+        DELETE FROM conversations;
         DELETE FROM portal_files;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
