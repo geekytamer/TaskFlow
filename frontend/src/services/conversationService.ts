@@ -1,0 +1,99 @@
+import { apiFetch } from '@/lib/api-client';
+
+export type ThreadState = 'waiting_us' | 'waiting_them' | 'done' | 'snoozed';
+export type InboxView = 'mine' | 'unassigned' | 'all';
+export type InboxStateFilter = ThreadState | 'open';
+
+export interface ThreadSummary {
+  id: string;
+  contact: { id: string; name: string };
+  subject: string;
+  contextType: string | null;
+  contextId: string | null;
+  assignee: { id: string; name: string } | null;
+  state: ThreadState;
+  waitingSince: string | null;
+  snoozedUntil: string | null;
+  lastMessageAt: string | null;
+  lastMessage: { body: string; authorName: string | null; visibility: 'external' | 'internal' | 'owner_private' } | null;
+  unread: boolean;
+}
+
+export interface ConvFile { id: string; fileName: string; mimeType: string; sizeBytes: number; createdAt: string }
+
+export interface ConvMessageView {
+  id: string;
+  threadId: string;
+  channel: 'portal' | 'note' | 'system' | string;
+  direction: 'in' | 'out' | 'none' | string;
+  visibility: 'external' | 'internal' | 'owner_private';
+  author: { kind: 'staff' | 'portal' | 'system'; id: string | null; name: string | null; avatar: string | null };
+  body: string;
+  files: ConvFile[];
+  mentions: Array<{ id: string; name: string }>;
+  editedAt: string | null;
+  editableUntil: string | null;
+  seenAt: string | null;
+  createdAt: string;
+}
+
+export interface InboxResult {
+  threads: ThreadSummary[];
+  counts: { mine: number; unassigned: number; all: number };
+}
+
+export interface ContactConversation {
+  conversation: { id: string; owner: { id: string; name: string } | null };
+  threads: ThreadSummary[];
+  portalUsers: number;
+}
+
+export interface ThreadDetail {
+  thread: ThreadSummary;
+  messages: ConvMessageView[];
+  portalUsers: number;
+}
+
+export interface SendInput {
+  kind: 'portal' | 'note';
+  body: string;
+  fileIds?: string[];
+  mentionUserIds?: string[];
+}
+
+export interface ThreadPatch {
+  assigneeUserId?: string | null;
+  state?: 'done' | 'waiting_us';
+  snoozedUntil?: string;
+}
+
+export const getInbox = (companyId: string, view: InboxView, state?: InboxStateFilter, q?: string) => {
+  const params = new URLSearchParams({ view });
+  if (state) params.set('state', state);
+  if (q?.trim()) params.set('q', q.trim());
+  return apiFetch<InboxResult>(`/companies/${companyId}/inbox?${params}`);
+};
+
+export const getContactConversation = (companyId: string, contactId: string) =>
+  apiFetch<ContactConversation>(`/companies/${companyId}/contacts/${contactId}/conversation`);
+
+export const getThread = (id: string) =>
+  apiFetch<ThreadDetail>(`/conversation-threads/${encodeURIComponent(id)}`);
+
+export const sendThreadMessage = (id: string, input: SendInput) =>
+  apiFetch<ConvMessageView>(`/conversation-threads/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+export const editMessage = (id: string, body: string) =>
+  apiFetch<ConvMessageView>(`/conversation-messages/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ body }),
+  });
+
+export const updateThread = (id: string, patch: ThreadPatch) =>
+  apiFetch<ThreadSummary>(`/conversation-threads/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
