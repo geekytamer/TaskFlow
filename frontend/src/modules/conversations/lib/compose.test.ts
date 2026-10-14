@@ -23,3 +23,15 @@ test('groupByDay splits across midnight in the given time zone', () => {
   assert.deepEqual(utc.map((g) => g.items.map((m) => m.id)), [['a', 'b'], ['c']]);
   assert.ok(muscat[0].label.length > 0);
 });
+
+test('mention matching respects a boundary so @Ann does not keep @Anna', async () => {
+  const { mentionedIds, stripMentions } = await import('./compose');
+  const ann = { id: '1', name: 'Ann' };
+  const anna = { id: '2', name: 'Anna' };
+  assert.deepEqual(mentionedIds('hi @Anna, look', [ann, anna]), ['2']);
+  assert.deepEqual(mentionedIds('hi @Ann. and @Anna', [ann, anna]), ['1', '2']);
+  assert.deepEqual(mentionedIds('email a@Ann', [ann]), ['1'].slice(1));
+  assert.deepEqual(mentionedIds('@Ann', [ann]), ['1']);
+  assert.equal(stripMentions('hi @Ann, see @Anna now', [ann, anna]), 'hi , see now');
+  assert.equal(stripMentions('plain text', [ann]), 'plain text');
+});

@@ -2,7 +2,8 @@ import { Router, type NextFunction, type Request, type RequestHandler, type Resp
 import type { DataStore } from '../data/store';
 import { canAccessCompany, HttpError } from '../http';
 import type { Contact, SanitizedUser } from '../types';
-import { afterStaffMessage, parseFileIds, parseMessage } from '../portal/thread';
+import { downloadHeaders, readUpload } from '../portal/files';
+import { afterStaffMessage, fileDto, parseFileIds, parseMessage } from '../portal/thread';
 import { asRecord } from '../validation';
 import type { ConvMessage, Thread, ThreadState } from './conversations-store';
 import { staffMessageView, staffThreadView } from './views';
@@ -189,6 +190,36 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       });
     }
     res.status(201).json(staffMessageView(store, message, thread, viewer.userId));
+  }));
+
+  router.post('/conversation-threads/:id/files', authMiddleware, wrap((req, res) => {
+    const { thread, viewer } = loadThread(req);
+    const upload = readUpload(asRecord(req.body, 'body'));
+    const file = store.thread.addFile({
+      companyId: thread.companyId, contactId: thread.contactId, uploader: { kind: 'staff', userId: viewer.userId },
+      fileName: upload.fileName, mimeType: upload.type, content: upload.content,
+    });
+    res.status(201).json(fileDto(file));
+  }));
+
+  /** Attached to a message this viewer can see, or still unattached and theirs; anything else is a 404. */
+  router.get('/conversation-files/:id/content', authMiddleware, wrap((req, res) => {
+    const file = store.thread.getFile(req.params.id);
+    if (!file) throw new HttpError(404, 'File not found.');
+    deps.requireCompanyAccess(req, file.companyId);
+    const viewer = deps.viewerFor(req, file.companyId);
+    let allowed = false;
+    if (file.parentType === 'message' && file.parentId) {
+      const message = c.getMessage(file.parentId);
+      const thread = message ? c.getThread(message.threadId) : undefined;
+      const contact = thread ? store.getContactById(thread.contactId) : undefined;
+      allowed = !!message && !!thread && thread.companyId === file.companyId && !!contact
+        && canSeeContact(contact, viewer) && canSeeMessage(message, viewer);
+    } else if (!file.parentId) {
+      allowed = file.uploaderKind === 'staff' && file.userId === viewer.userId;
+    }
+    if (!allowed) throw new HttpError(404, 'File not found.');
+    res.set(downloadHeaders(file)).send(store.thread.fileContent(file.id));
   }));
 
   router.patch('/conversation-messages/:id', authMiddleware, wrap((req, res) => {

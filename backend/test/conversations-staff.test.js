@@ -216,3 +216,44 @@ test('mentions notify with the mention type', async () => {
   assert.equal(n.type, 'mention');
   assert.equal(n.data.tKey, 'notif.mention.t');
 });
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+const upload = (ctx, threadId, auth) => request(ctx.server).post(`/conversation-threads/${threadId}/files`).set(auth).send({ fileName: 'a.png', contentBase64: PNG.toString('base64') });
+
+test('an Employee without portal-manage can upload, attach to a note and download', async () => {
+  const ctx = build();
+  const t = general(ctx, ctx.client);
+  const up = await upload(ctx, t.id, ctx.eveAuth);
+  assert.equal(up.status, 201);
+  // Unattached: only the uploader may read it.
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.eveAuth)).status, 200);
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.carlaAuth)).status, 404);
+  const note = await request(ctx.server).post(`/conversation-threads/${t.id}/messages`).set(ctx.eveAuth).send({ kind: 'note', body: 'see', fileIds: [up.body.id] });
+  assert.equal(note.status, 201);
+  const dl = await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.carlaAuth);
+  assert.equal(dl.status, 200);
+  assert.match(dl.headers['content-disposition'], /attachment/);
+  assert.deepEqual(Buffer.from(dl.body), PNG);
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set({ Authorization: `Bearer ${ctx.store.issueToken(ctx.foreign.id)}` })).status, 403);
+});
+
+test('files of a contact the viewer cannot see are 404 for upload and download', async () => {
+  const ctx = build();
+  const t = general(ctx, ctx.secret);
+  assert.equal((await upload(ctx, t.id, ctx.eveAuth)).status, 404);
+  const up = await upload(ctx, t.id, ctx.carlaAuth);
+  assert.equal(up.status, 201);
+  await request(ctx.server).post(`/conversation-threads/${t.id}/messages`).set(ctx.carlaAuth).send({ kind: 'note', body: 'x', fileIds: [up.body.id] });
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.eveAuth)).status, 404);
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.carlaAuth)).status, 200);
+});
+
+test('an owner_private attachment is not downloadable by others', async () => {
+  const ctx = build();
+  const t = general(ctx, ctx.client);
+  const up = await upload(ctx, t.id, ctx.carlaAuth);
+  const m = ctx.store.conversations.addMessage({ threadId: t.id, channel: 'note', direction: 'none', visibility: 'owner_private', authorType: 'staff', authorUserId: ctx.carla.id, authorPortalUserId: null, body: 'mine' });
+  ctx.store.thread.attach([up.body.id], { type: 'message', id: m.id }, { companyId: ctx.company.id, contactId: ctx.client.id, uploader: { kind: 'staff', userId: ctx.carla.id } });
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.eveAuth)).status, 404);
+  assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.carlaAuth)).status, 200);
+});

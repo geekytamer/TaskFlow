@@ -8,9 +8,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import type { SendInput } from '@/services/conversationService';
-import { uploadPortalFile, type PortalFile } from '@/services/portalAccessService';
+import { uploadThreadFile, type ConvFile, type SendInput } from '@/services/conversationService';
 import type { PersonSummary } from '@/services/userService';
+import { mentionedIds, stripMentions } from '../lib/compose';
 import { sizeOf } from './message-bubble';
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -24,8 +24,7 @@ const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
 });
 
 interface Props {
-  companyId: string;
-  contactId: string;
+  threadId: string;
   /** Portal mode needs at least one active portal user. */
   portalUsers: number;
   people: PersonSummary[];
@@ -33,14 +32,14 @@ interface Props {
 }
 
 /** Portal reply or internal note, with attachments and (notes only) @mentions. */
-export function Composer({ companyId, contactId, portalUsers, people, onSend }: Props) {
+export function Composer({ threadId, portalUsers, people, onSend }: Props) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const canPortal = portalUsers > 0;
   const [kind, setKind] = React.useState<'portal' | 'note'>(canPortal ? 'portal' : 'note');
   const [body, setBody] = React.useState('');
-  const [files, setFiles] = React.useState<PortalFile[]>([]);
+  const [files, setFiles] = React.useState<ConvFile[]>([]);
   const [mentions, setMentions] = React.useState<PersonSummary[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -69,7 +68,7 @@ export function Composer({ companyId, contactId, portalUsers, people, onSend }: 
         continue;
       }
       try {
-        const uploaded = await uploadPortalFile(companyId, contactId, { fileName: file.name, contentBase64: await toBase64(file) });
+        const uploaded = await uploadThreadFile(threadId, { fileName: file.name, contentBase64: await toBase64(file) });
         setFiles((current) => [...current, uploaded]);
         count += 1;
       } catch (error) {
@@ -78,6 +77,15 @@ export function Composer({ companyId, contactId, portalUsers, people, onSend }: 
     }
     if (input.current) input.current.value = '';
     setBusy(false);
+  };
+
+  const chooseKind = (next: 'portal' | 'note') => {
+    // A stray "@Name" must never reach the client: leaving note mode removes the mentions.
+    if (next === 'portal' && mentions.length) {
+      setBody((current) => stripMentions(current, mentions));
+      setMentions([]);
+    }
+    setKind(next);
   };
 
   const addMention = (person: PersonSummary) => {
@@ -94,7 +102,7 @@ export function Composer({ companyId, contactId, portalUsers, people, onSend }: 
     setBusy(true);
     try {
       // Only mentions whose @name is still in the text are sent.
-      const ids = kind === 'note' ? mentions.filter((p) => text.includes(`@${p.name}`)).map((p) => p.id) : [];
+      const ids = kind === 'note' ? mentionedIds(text, mentions) : [];
       await onSend({ kind, body: text, fileIds: files.map((f) => f.id), ...(ids.length ? { mentionUserIds: ids } : {}) });
       setBody('');
       setFiles([]);
@@ -123,7 +131,7 @@ export function Composer({ companyId, contactId, portalUsers, people, onSend }: 
               type="button"
               role="radio"
               aria-checked={!isNote}
-              onClick={() => setKind('portal')}
+              onClick={() => chooseKind('portal')}
               className={cn('rounded px-3 py-1 font-medium', !isNote ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             >
               {tr('Portal', 'البوابة')}
@@ -133,7 +141,7 @@ export function Composer({ companyId, contactId, portalUsers, people, onSend }: 
             type="button"
             role="radio"
             aria-checked={isNote}
-            onClick={() => setKind('note')}
+            onClick={() => chooseKind('note')}
             className={cn('inline-flex items-center gap-1 rounded px-3 py-1 font-medium', isNote ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}
           >
             <Lock className="h-3 w-3" aria-hidden />

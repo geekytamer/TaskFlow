@@ -27,3 +27,20 @@ export function groupByDay<T extends { createdAt: string }>(
   }
   return groups;
 }
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** `@Name` at the start or after whitespace, followed by the end, whitespace or punctuation. */
+const mentionRe = (name: string, flags = '') =>
+  new RegExp(`(^|\\s)@${escapeRe(name)}(?=$|[\\s.,;:!?)\\]}"'،؛؟])`, flags);
+
+/** Ids of the people whose `@Name` is still in the text (Ann's id is not kept by @Anna). */
+export function mentionedIds(text: string, people: Array<{ id: string; name: string }>): string[] {
+  return people.filter((p) => mentionRe(p.name).test(text)).map((p) => p.id);
+}
+
+/** Removes the `@Name` tokens of the given people (used when a note turns into a client message). */
+export function stripMentions(text: string, people: Array<{ id: string; name: string }>): string {
+  let out = text;
+  for (const p of people) out = out.replace(mentionRe(p.name, 'g'), '$1');
+  return out.replace(/[ \t]{2,}/g, ' ').trim();
+}

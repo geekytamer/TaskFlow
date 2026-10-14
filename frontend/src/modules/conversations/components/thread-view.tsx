@@ -6,6 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import {
+  downloadThreadFile,
   editMessage,
   getThread,
   sendThreadMessage,
@@ -13,7 +14,6 @@ import {
   type SendInput,
   type ThreadDetail,
 } from '@/services/conversationService';
-import { downloadPortalFile } from '@/services/portalAccessService';
 import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { groupByDay } from '../lib/compose';
 import { Composer } from './composer';
@@ -38,12 +38,18 @@ export function ThreadView({ threadId, onChanged }: Props) {
   const [now, setNow] = React.useState(() => new Date());
   const end = React.useRef<HTMLDivElement>(null);
 
+  const latest = React.useRef(threadId);
+  latest.current = threadId;
+
   const load = React.useCallback(async () => {
     try {
-      setDetail(await getThread(threadId));
+      const next = await getThread(threadId);
+      if (latest.current !== threadId) return; // a newer thread was opened meanwhile
+      setDetail(next);
       setFailed(false);
       setNow(new Date());
     } catch (error) {
+      if (latest.current !== threadId) return;
       setFailed(true);
       toast({ title: error instanceof Error ? error.message : tr('Could not load the conversation', 'تعذّر تحميل المحادثة'), variant: 'destructive' });
     }
@@ -93,7 +99,7 @@ export function ThreadView({ threadId, onChanged }: Props) {
   };
 
   const download = (file: ConvFile) =>
-    downloadPortalFile(companyId, file).catch((error) =>
+    downloadThreadFile(file).catch((error) =>
       toast({ title: error instanceof Error ? error.message : tr('Download failed', 'فشل التنزيل'), variant: 'destructive' }));
 
   if (failed && !detail) {
@@ -126,8 +132,7 @@ export function ThreadView({ threadId, onChanged }: Props) {
       </div>
       <Composer
         key={threadId}
-        companyId={companyId}
-        contactId={detail.thread.contact.id}
+        threadId={threadId}
         portalUsers={detail.portalUsers}
         people={people}
         onSend={send}

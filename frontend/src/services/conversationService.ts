@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api-client';
+import { API_BASE_URL, apiFetch, getStoredToken } from '@/lib/api-client';
 
 export type ThreadState = 'waiting_us' | 'waiting_them' | 'done' | 'snoozed';
 export type InboxView = 'mine' | 'unassigned' | 'all';
@@ -97,3 +97,28 @@ export const updateThread = (id: string, patch: ThreadPatch) =>
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
+
+/** Staff upload for a thread; open to anyone who can see the contact. */
+export const uploadThreadFile = (threadId: string, body: { fileName: string; contentBase64: string }) =>
+  apiFetch<ConvFile>(`/conversation-threads/${encodeURIComponent(threadId)}/files`, { method: 'POST', body: JSON.stringify(body) });
+
+/** Saves a thread file to disk; never opened in a tab since the bytes may come from outside the company. */
+export async function downloadThreadFile(file: Pick<ConvFile, 'id' | 'fileName'>) {
+  const token = getStoredToken();
+  const response = await fetch(`${API_BASE_URL}/conversation-files/${encodeURIComponent(file.id)}/content`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  const url = URL.createObjectURL(await response.blob());
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.fileName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
