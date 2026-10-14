@@ -30,7 +30,7 @@ const build = () => {
     store.portal.acceptInvitation(token, 'correct horse battery');
     return { Authorization: `Bearer ${(await request(server).post('/portal-api/client/auth/login').send({ email, password: 'correct horse battery' })).body.token}` };
   };
-  const staffMessage = (body) => store.thread.addMessage({ companyId: company.id, contactId: client.id, authorType: 'staff', authorUserId: carla.id, authorPortalUserId: null, body });
+  const staffMessage = (body) => store.conversations.addMessage({ threadId: store.conversations.generalThread(company.id, client.id).id, channel: 'portal', direction: 'out', visibility: 'external', authorType: 'staff', authorUserId: carla.id, authorPortalUserId: null, body });
   const sweep = () => sweepPortalPush(store, send, company.id);
   return { store, server, company, sent, session, staffMessage, sweep };
 };

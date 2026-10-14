@@ -47,9 +47,6 @@ export interface ConvMessage {
 
 export type NewMessage = Omit<ConvMessage, 'id' | 'createdAt' | 'editedAt' | 'conversationId' | 'companyId'> & {
   threadId: string;
-  /** Only for mirroring a message that already exists in the legacy account thread. */
-  id?: string;
-  createdAt?: string;
 };
 
 const THREAD_SELECT = `SELECT t.id, t.conversationId, t.companyId, c.contactId, t.subject, t.contextType, t.contextId,
@@ -142,8 +139,8 @@ export class ConversationsStore {
     const thread = this.getThread(input.threadId);
     if (!thread) throw new HttpError(404, 'Thread not found.');
     const message: ConvMessage = {
-      ...input, body, id: input.id ?? uuid(), conversationId: thread.conversationId, companyId: thread.companyId, editedAt: null,
-      createdAt: input.createdAt ?? new Date().toISOString(),
+      ...input, body, id: uuid(), conversationId: thread.conversationId, companyId: thread.companyId, editedAt: null,
+      createdAt: new Date().toISOString(),
     };
     this.db.transaction(() => {
       this.db
@@ -168,18 +165,6 @@ export class ConversationsStore {
         .run(state, waitingSince, snoozedUntil, message.createdAt, thread.id);
     })();
     return message;
-  }
-
-  /**
-   * Bridge while the portal still writes to the legacy account thread: the same message
-   * (same id, same time) lands in the contact's General thread so state and inbox stay right.
-   */
-  mirrorLegacy(m: { id: string; companyId: string; contactId: string; authorType: 'staff' | 'portal'; authorUserId: string | null; authorPortalUserId: string | null; body: string; createdAt: string }): ConvMessage {
-    const thread = this.generalThread(m.companyId, m.contactId);
-    return this.addMessage({
-      id: m.id, createdAt: m.createdAt, threadId: thread.id, channel: 'portal', direction: m.authorType === 'portal' ? 'in' : 'out',
-      visibility: 'external', authorType: m.authorType, authorUserId: m.authorUserId, authorPortalUserId: m.authorPortalUserId, body: m.body,
-    });
   }
 
   messages(threadId: string): ConvMessage[] {

@@ -6,6 +6,8 @@ import { downloadHeaders, readUpload } from './files';
 import type { PortalSession } from './portal-store';
 import { afterPortalMessage, fileDto, parseMessage, portalMessageDto } from './thread';
 import type { SessionRequest } from './common';
+import { canSeeMessage } from '../conversations/visibility';
+import { portalViewer } from '../conversations/portal-routes';
 
 
 /** Messages and files for either portal audience, always scoped to the session's own contact. */
@@ -29,7 +31,10 @@ export function registerThreadRoutes(router: Router, store: DataStore, companyId
 
   router.get('/:audience/messages', requireSession, (req: SessionRequest, res: Response) => {
     const session = req.portal!;
-    res.json(store.thread.messagesFor(companyId, session.contactId).map((m) => portalMessageDto(store, m, session.portalUserId)));
+    const thread = store.conversations.generalThread(companyId, session.contactId);
+    res.json(store.conversations.messages(thread.id)
+      .filter((m) => canSeeMessage(m, portalViewer(session)))
+      .map((m) => portalMessageDto(store, m, session.portalUserId)));
   });
 
   router.post('/:audience/messages', requireSession, (req: SessionRequest, res: Response) => {
@@ -39,14 +44,15 @@ export function registerThreadRoutes(router: Router, store: DataStore, companyId
     if (!contact) throw new HttpError(404, 'Not found.');
     const managerId = contact.ownerUserId ?? store.portal.inviterOf(session.portalUserId);
     const message = store.transaction(() => store.runAsActor({ name: `Portal: ${session.name} (${contact.name})` }, () => {
-      const created = store.thread.addMessage({
-        companyId, contactId: contact.id, authorType: 'portal', authorUserId: null, authorPortalUserId: session.portalUserId, body: text,
+      const thread = store.conversations.generalThread(companyId, contact.id);
+      const created = store.conversations.addMessage({
+        threadId: thread.id, channel: 'portal', direction: 'in', visibility: 'external',
+        authorType: 'portal', authorUserId: null, authorPortalUserId: session.portalUserId, body: text,
       });
       store.thread.attach(fileIds, { type: 'message', id: created.id }, {
         companyId, contactId: contact.id, uploader: { kind: 'portal', portalUserId: session.portalUserId },
       });
-      store.conversations.mirrorLegacy(created);
-      afterPortalMessage(store, { companyId, contact, managerId, message: created });
+      afterPortalMessage(store, { companyId, contact, managerId, message: created, threadId: thread.id });
       return created;
     }));
     res.status(201).json(portalMessageDto(store, message, session.portalUserId));

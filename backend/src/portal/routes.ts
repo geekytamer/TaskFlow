@@ -10,6 +10,7 @@ import { registerClientDiscoverRoutes } from '../discover/client-routes';
 import { registerClientDirectoryRoutes } from './directory';
 import { companyCurrency } from './common';
 import { registerThreadRoutes } from './thread-routes';
+import { registerConversationPortalRoutes } from '../conversations/portal-routes';
 import { registerPortalPushRoutes } from './push-routes';
 import type { PushConfig } from '../push/push';
 import { registerReferralRoutes } from './referral-routes';
@@ -161,6 +162,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerClientDirectoryRoutes(router, { store: directoryStore, companyId, currency: () => companyCurrency(directoryStore, companyId) }, requireSessionFor('client'));
     registerClientCampaignRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerThreadRoutes(router, options.requestsStore, companyId, requireSession);
+    registerConversationPortalRoutes(router, options.requestsStore, companyId, requireSession);
     registerPortalPushRoutes(router, options.requestsStore, companyId, requireSession, options.push);
     registerReferralRoutes(router, options.requestsStore, companyId, requireSession);
     registerInfluencerRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));

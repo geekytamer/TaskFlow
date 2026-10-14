@@ -1,7 +1,10 @@
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
-import type { AccountMessage, PortalFileMeta } from './thread-store';
+import type { ConvMessage } from '../conversations/conversations-store';
+import type { PortalFileMeta } from './thread-store';
+
+type MessageLike = Pick<ConvMessage, 'id' | 'body' | 'authorType' | 'authorUserId' | 'authorPortalUserId' | 'createdAt'>;
 import { notifyManager, raiseFollowup } from './common';
 
 export const MAX_MESSAGE_CHARS = 4000;
@@ -30,7 +33,7 @@ export const fileDto = (file: PortalFileMeta) => ({
 });
 
 /** A message as a portal user sees it: their own, a colleague's, or the team's. */
-export function portalMessageDto(store: DataStore, message: AccountMessage, viewerPortalUserId: string) {
+export function portalMessageDto(store: DataStore, message: MessageLike, viewerPortalUserId: string) {
   const author = message.authorType === 'staff'
     ? { kind: 'team' as const, name: store.getUserById(message.authorUserId!)?.name ?? null }
     : {
@@ -40,7 +43,7 @@ export function portalMessageDto(store: DataStore, message: AccountMessage, view
   return { id: message.id, body: message.body, author, files: store.thread.filesOf('message', message.id).map(fileDto), createdAt: message.createdAt };
 }
 
-export function staffMessageDto(store: DataStore, message: AccountMessage) {
+export function staffMessageDto(store: DataStore, message: MessageLike) {
   const author = message.authorType === 'staff'
     ? { type: 'staff' as const, name: store.getUserById(message.authorUserId!)?.name ?? null }
     : { type: 'portal' as const, name: store.portal.getUser(message.authorPortalUserId!)?.name ?? null };
@@ -57,7 +60,7 @@ const openReplyFollowups = (store: DataStore, companyId: string, contactId: stri
  * A client or influencer message needs a reply: keep exactly one open "reply"
  * follow-up for the account manager while any message is unanswered.
  */
-export function afterPortalMessage(store: DataStore, input: { companyId: string; contact: Contact; managerId?: string; message: AccountMessage }) {
+export function afterPortalMessage(store: DataStore, input: { companyId: string; contact: Contact; managerId?: string; message: ConvMessage; threadId: string }) {
   if (openReplyFollowups(store, input.companyId, input.contact.id).length > 0) return;
   const title = `Reply to ${input.contact.name}`;
   const followup = raiseFollowup(store, {
@@ -67,7 +70,7 @@ export function afterPortalMessage(store: DataStore, input: { companyId: string;
   });
   notifyManager(store, {
     companyId: input.companyId, managerId: input.managerId, title: `New message from ${input.contact.name}`, name: title,
-    body: input.message.body.slice(0, 200), link: '/crm/followups', entityType: 'follow_up', entityId: followup.id,
+    body: input.message.body.slice(0, 200), link: `/inbox?thread=${input.threadId}`, entityType: 'follow_up', entityId: followup.id,
   });
 }
 

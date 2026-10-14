@@ -60,8 +60,8 @@ export class PortalAlertsStore {
 
 /** Everything this user could be alerted about right now; the log decides what is new. */
 export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[] {
-  const out: PendingAlert[] = store.thread.messagesFor(user.companyId, user.contactId)
-    .filter((m) => m.authorType === 'staff')
+  const out: PendingAlert[] = store.conversations.messages(store.conversations.generalThread(user.companyId, user.contactId).id)
+    .filter((m) => m.authorType === 'staff' && m.channel === 'portal' && m.visibility === 'external')
     .map((m) => ({ event: 'message' as const, refId: m.id, path: '/messages' }));
   if (user.audience === 'client') {
     for (const p of store.listCrmProposals(user.companyId)) {

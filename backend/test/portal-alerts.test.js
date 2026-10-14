@@ -46,7 +46,7 @@ const build = () => {
   return { server, store, company, owner, lina, client, campaign, sent, sender, session, sweep };
 };
 
-const staffMessage = (ctx, contact, body) => ctx.store.thread.addMessage({ companyId: ctx.company.id, contactId: contact.id, authorType: 'staff', authorUserId: ctx.owner.id, authorPortalUserId: null, body });
+const staffMessage = (ctx, contact, body) => ctx.store.conversations.addMessage({ threadId: ctx.store.conversations.generalThread(ctx.company.id, contact.id).id, channel: 'portal', direction: 'out', visibility: 'external', authorType: 'staff', authorUserId: ctx.owner.id, authorPortalUserId: null, body });
 
 test('alerts need a valid number and the company’s WhatsApp; turning them on skips what already happened', async () => {
   const ctx = build();

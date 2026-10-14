@@ -8,7 +8,6 @@ import { downloadHeaders, readUpload } from './files';
 import { registerStaffReferralRoutes } from './staff-referral-routes';
 import { registerStaffRequestRoutes } from './staff-request-routes';
 import { registerStaffInfluencerRoutes } from './staff-influencer-routes';
-import type { AccountMessage } from './thread-store';
 import { afterStaffMessage, fileDto, parseMessage, staffMessageDto } from './thread';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
@@ -213,7 +212,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
       messages: store.conversations
         .messages(store.conversations.generalThread(companyId, contact.id).id)
         .filter((m) => m.channel === 'portal' && m.visibility === 'external')
-        .map((m) => staffMessageDto(store, m as unknown as AccountMessage)),
+        .map((m) => staffMessageDto(store, m)),
       files: store.thread.filesForContact(companyId, contact.id).map(fileDto),
     });
   }));
@@ -224,11 +223,11 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const { text, fileIds } = parseMessage(asRecord(req.body, 'body'));
     const userId = req.user!.id;
     const message = store.transaction(() => {
-      const created = store.thread.addMessage({
-        companyId, contactId: contact.id, authorType: 'staff', authorUserId: userId, authorPortalUserId: null, body: text,
+      const created = store.conversations.addMessage({
+        threadId: store.conversations.generalThread(companyId, contact.id).id, channel: 'portal', direction: 'out', visibility: 'external',
+        authorType: 'staff', authorUserId: userId, authorPortalUserId: null, body: text,
       });
       store.thread.attach(fileIds, { type: 'message', id: created.id }, { companyId, contactId: contact.id, uploader: { kind: 'staff', userId } });
-      store.conversations.mirrorLegacy(created);
       afterStaffMessage(store, { companyId, contactId: contact.id, userId });
       return created;
     });
