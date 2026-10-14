@@ -63,10 +63,10 @@ test('seenAt is set once a portal user of that contact read after the staff mess
   const t = store.conversations.getThread(thread.id);
   const before = new Date(Date.parse(external.createdAt) - 1000).toISOString();
   store.conversations.markRead(thread.id, { type: 'portal', id: pu.id }, before);
-  assert.equal(staffMessageView(store, external, t, external.createdAt).seenAt, null);
+  assert.equal(staffMessageView(store, external, t).seenAt, null);
   const after = new Date(Date.parse(external.createdAt) + 5000).toISOString();
   store.conversations.markRead(thread.id, { type: 'portal', id: pu.id }, after);
-  const v = staffMessageView(store, external, t, after);
+  const v = staffMessageView(store, external, t);
   assert.equal(v.seenAt, after);
   assert.equal(v.author.name !== null, true);
   assert.equal(v.author.kind, 'staff');
@@ -76,10 +76,10 @@ test('editableUntil is 15 minutes for notes; mentions and unread work', () => {
   const { store, owner, thread, note } = setup();
   const t = store.conversations.getThread(thread.id);
   store.conversations.addMentions(note.id, [owner]);
-  const v = staffMessageView(store, note, t, note.createdAt, owner);
+  const v = staffMessageView(store, note, t, owner);
   assert.equal(v.editableUntil, new Date(Date.parse(note.createdAt) + 15 * 60000).toISOString());
   assert.deepEqual(v.mentions.map((m) => m.id), [owner]);
-  assert.equal(staffMessageView(store, note, t, note.createdAt, 'other').editableUntil, null);
+  assert.equal(staffMessageView(store, note, t, 'other').editableUntil, null);
   const tv = staffThreadView(store, t, owner, note.createdAt);
   assert.equal(tv.unread, true);
   store.conversations.markRead(thread.id, { type: 'staff', id: owner }, '9999-01-01T00:00:00.000Z');
@@ -95,11 +95,38 @@ test('staff view keeps a deleted author as name null; thread view reports effect
     threadId: thread.id, channel: 'note', direction: 'none', visibility: 'internal', authorType: 'staff',
     authorUserId: 'deleted-user', authorPortalUserId: null, body: 'from ghost',
   });
-  const v = staffMessageView(store, ghost, t, ghost.createdAt);
+  const v = staffMessageView(store, ghost, t);
   assert.equal(v.author.name, null);
   assert.equal(v.author.avatar, null);
   store.conversations.setState(thread.id, 'snoozed', '2020-01-01T00:00:00.000Z');
   const tv = staffThreadView(store, store.conversations.getThread(thread.id), 'x', '2030-01-01T00:00:00.000Z');
   assert.equal(tv.state, 'waiting_us');
   assert.equal(tv.waitingSince, store.conversations.getThread(thread.id).waitingSince);
+});
+
+test('portalMessageView throws for internal and owner-private messages', () => {
+  const { store, pu, note, priv } = setup();
+  assert.throws(() => portalMessageView(store, note, pu.id), /not visible/);
+  assert.throws(() => portalMessageView(store, priv, pu.id), /not visible/);
+});
+
+test("another viewer's preview and unread skip an owner_private message; ownerOf is honoured", () => {
+  const { store, owner, thread, note, priv } = setup();
+  const t = store.conversations.getThread(thread.id);
+  const tv = staffThreadView(store, t, 'someone-else', priv.createdAt);
+  assert.equal(tv.lastMessage.body, POISON_INTERNAL);
+  assert.ok(!JSON.stringify(tv).includes(POISON_PRIVATE));
+  // read after the visible note, before the hidden private one: not unread for them
+  store.conversations.markRead(thread.id, { type: 'staff', id: 'someone-else' }, note.createdAt);
+  assert.equal(staffThreadView(store, t, 'someone-else', priv.createdAt).unread, false);
+  assert.equal(staffThreadView(store, t, owner, priv.createdAt).lastMessage.body, POISON_PRIVATE);
+  const viewer = { kind: 'staff', userId: 'x', seesPrivate: false };
+  assert.equal(canSeeMessage(priv, viewer, () => 'x'), true);
+  assert.equal(canSeeMessage(priv, viewer, () => 'y'), false);
+});
+
+test('portal author company is their own contact; team keeps the tenant company', () => {
+  const { store, pu, external, inbound } = setup();
+  assert.equal(portalMessageView(store, inbound, pu.id).author.company, 'Vis Client');
+  assert.equal(portalMessageView(store, external, pu.id).author.company, store.getCompanyById('1').name);
 });

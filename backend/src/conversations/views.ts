@@ -1,6 +1,7 @@
 import type { DataStore } from '../data/store';
 import { fileDto } from '../portal/thread';
 import type { ConvMessage, Thread } from './conversations-store';
+import { canSeeMessage } from './visibility';
 
 const NOTE_EDIT_MS = 15 * 60 * 1000;
 
@@ -29,9 +30,8 @@ function seenAtOf(store: DataStore, m: ConvMessage, thread: Thread): string | nu
 }
 
 /** viewerUserId is optional; without it no note is shown as editable. */
-export function staffMessageView(store: DataStore, m: ConvMessage, thread: Thread, now: string, viewerUserId?: string) {
+export function staffMessageView(store: DataStore, m: ConvMessage, thread: Thread, viewerUserId?: string) {
   const editable = m.channel === 'note' && m.authorType === 'staff' && !!viewerUserId && m.authorUserId === viewerUserId;
-  void now;
   const names = new Map<string, string>();
   for (const id of store.conversations.mentionsOf(m.id)) names.set(id, store.getUserById(id)?.name ?? '');
   return {
@@ -53,13 +53,15 @@ export function staffMessageView(store: DataStore, m: ConvMessage, thread: Threa
 
 /** Callers must filter with canSeeMessage first; this view never carries internal bodies. */
 export function portalMessageView(store: DataStore, m: ConvMessage, viewerPortalUserId: string) {
+  const viewer = { kind: 'portal' as const, portalUserId: viewerPortalUserId, contactId: store.portal.getUser(viewerPortalUserId)?.contactId ?? '' };
+  if (!canSeeMessage(m, viewer)) throw new Error('not visible to portal');
   let author: { kind: 'you' | 'client' | 'team'; name: string | null; company: string | null };
   if (m.authorType === 'portal') {
     const u = m.authorPortalUserId ? store.portal.getUser(m.authorPortalUserId) : undefined;
     author = {
       kind: m.authorPortalUserId === viewerPortalUserId ? 'you' : 'client',
       name: u?.name ?? null,
-      company: u ? store.getCompanyById(u.companyId)?.name ?? null : null,
+      company: u ? store.getContactById(u.contactId)?.name ?? null : null,
     };
   } else {
     const u = m.authorUserId ? store.getUserById(m.authorUserId) : undefined;
@@ -86,7 +88,7 @@ export function staffThreadView(store: DataStore, thread: Thread, viewerUserId: 
     ? { id: thread.assigneeUserId, name: store.getUserById(thread.assigneeUserId)?.name ?? '' }
     : null;
   // Another person's owner_private message must not surface in the preview.
-  const last = [...c.messages(thread.id)].reverse().find((m) => m.visibility !== 'owner_private' || m.authorUserId === viewerUserId);
+  const last = [...c.messages(thread.id)].reverse().find((m) => canSeeMessage(m, { kind: 'staff', userId: viewerUserId, seesPrivate: false }));
   const read = c.readsOf(thread.id).find((r) => r.readerType === 'staff' && r.readerId === viewerUserId);
   return {
     id: thread.id,
@@ -102,6 +104,6 @@ export function staffThreadView(store: DataStore, thread: Thread, viewerUserId: 
     lastMessage: last
       ? { body: last.body, authorName: staffAuthor(store, last).name, visibility: last.visibility }
       : null,
-    unread: !!thread.lastMessageAt && (!read || read.lastReadAt < thread.lastMessageAt),
+    unread: !!last && (!read || read.lastReadAt < last.createdAt),
   };
 }
