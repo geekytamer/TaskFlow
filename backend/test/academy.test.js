@@ -242,3 +242,15 @@ test('month-end checks look at the books as they are, not at growth since the st
   assert.equal(monthEnd.objectives.find((o) => o.id === 'profit').done, false);
   assert.equal(monthEnd.objectives.find((o) => o.id === 'no-overdue').done, false);
 });
+
+test('with enforcement switched off, no page shows as locked either', async () => {
+  const on = setup();
+  const u1 = on.newUser('Employee', 'locked.on@x.example');
+  const me1 = await on.as(u1)(request(on.app).get('/academy/me'));
+  assert.ok(me1.body.lockedModules.length > 0, 'enforced: unfinished modules are locked');
+
+  const off = setup({ enforce: false });
+  const u2 = off.newUser('Employee', 'locked.off@x.example');
+  const me2 = await off.as(u2)(request(off.app).get('/academy/me'));
+  assert.deepEqual(me2.body.lockedModules, [], 'ACADEMY_ENFORCE=false opens pages as well as changes');
+});
