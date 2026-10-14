@@ -32,7 +32,9 @@ Root causes: no single home per relationship; external vs internal not segregate
 5. **Response time:** first-reply target 4 working hours by default (Muscat working week Sun–Thu 08:00–17:00), configurable per company; amber at half, red past it; feeds the Today queue.
 6. **One alert system** for staff and portal users: per-person preferences of *what* × *how* (in-app, push, WhatsApp, email); grouping within 2 minutes; quiet hours 22:00–08:00 for push; "Seen" on portal messages.
 7. **Email:** company shared mailboxes **and** per-user personal mailboxes over standard IMAP/SMTP (cPanel/Hostinger, Gmail app passwords, Zoho, …). Microsoft 365 (OAuth) is a later step.
-8. **Personal mailboxes import everything.** Emails matching a contact or thread join that conversation (visible to staff who can see the contact); everything else stays visible to the mailbox owner only, in their Unmatched list, where they can attach it to a contact. A message the owner marks private stays owner-only.
+8. **Every message shows which employee sent it** (owner, 2026-10-14), on every channel, including WhatsApp sent from the company number and email sent from a shared mailbox (see §3 Sender identity).
+9. **Proper phone push** for TaskFlow and both portals (owner, 2026-10-14): installable apps, grouped and deep-linked notifications, badge counts, device management (see §7a).
+10. **Personal mailboxes import everything.** Emails matching a contact or thread join that conversation (visible to staff who can see the contact); everything else stays visible to the mailbox owner only, in their Unmatched list, where they can attach it to a contact. A message the owner marks private stays owner-only.
 
 ## 3. Model
 
@@ -41,6 +43,12 @@ Root causes: no single home per relationship; external vs internal not segregate
 - **Message** — channel (`portal` | `whatsapp` | `email` | `call` | `meeting` | `system`), direction (`in` | `out` | `none`), visibility (`external` | `internal` | `owner_private`), author (staff user / portal user / external address or phone), body (text; email also keeps sanitized HTML), delivery status (`queued` | `sent` | `delivered` | `read` | `failed` + error), external ids (WhatsApp id, email Message-ID / In-Reply-To / References), seenAt (portal), attachments, mentions.
   - `internal` = staff only, shown shaded with a lock, can never be sent out.
   - `owner_private` = only the mailbox owner (unmatched or marked private personal email).
+- **Sender identity** — every message records its real author, whatever the channel:
+  - staff messages store the employee (`authorUserId`) even when the outside party sees only the company WhatsApp number or a shared mailbox; the staff timeline shows the employee's photo and name, the channel, and the route ("via company WhatsApp", "via sales@peak…", "from tamer@…");
+  - internal notes, logged calls/meetings and system lines show who wrote, logged or triggered them ("Proposal sent by Sara");
+  - inbound messages show the outside person: portal user name, the contact person matched to the phone number, or the email sender's name and address;
+  - messages are never re-attributed; an internal note can be edited by its author for 15 minutes and then shows "edited";
+  - the portal shows the staff member's name with the company name ("Sara · Peak"), as today.
 - **Attachment** — one file store for every channel (portal uploads, WhatsApp media, email attachments), listed per conversation in a Files tab.
 - **Channel accounts** — WhatsApp instance (exists), mailboxes (shared / personal), portal (exists).
 
@@ -92,6 +100,17 @@ Secrets: mailbox passwords sealed with the existing token-sealing approach (key 
 - Alerts carry only a pointer (thread + message) and are derived from data, never stored as the record.
 - Follow-ups are no longer created for incoming messages or portal events; they remain for planned actions (and a "Create follow-up" button on any message).
 
+## 7a. Phone push (TaskFlow and both portals)
+
+- **Installable apps** — TaskFlow, the client portal and the influencer portal each install to the home screen (web app manifest, icons, standalone). Android shows the install prompt; iPhone (iOS 16.4 and later) needs "Add to Home Screen" for push, so an in-app card walks iPhone users through it once, in English and Arabic.
+- **What a notification shows** — title: the sender and party ("Sara · Al Noor Dates"); body: a preview of the message, which each person can switch off (privacy on lock screens); internal-note content is never sent to portal users and never previewed outside the company's own staff.
+- **Grouping** — one notification per thread (`tag` = thread), replaced and re-alerted as new messages arrive, with a count ("3 new messages"); together with the 2-minute grouping and quiet hours of §7.
+- **Opening** — tapping focuses the open app window if there is one, else opens it, straight on the thread at that message, and marks it seen.
+- **Badge** — the app icon shows the number of threads waiting on the person (Badging API where the phone supports it; cleared as they are read).
+- **Actions** — on Android: "Open" and, for staff, "Mark done"; iPhone shows the notification without actions (platform limit). Inline reply from a notification is not possible for web apps.
+- **Devices** — My profile lists each device that receives push (name, last used), with "Send a test" and "Remove"; dead subscriptions are removed automatically when the push service rejects them.
+- **Later, only if needed** — a native wrapper (store apps) would add inline reply and push on iPhones without installing from the browser; it needs Apple ($99/year) and Google ($25 once) developer accounts. Not in this plan.
+
 ## 8. Screens
 
 1. **Inbox** (`/inbox`, top of sidebar, unread badge). Three columns: thread list (filters: Mine / Unassigned / All, Waiting on us, Channel, search) · timeline (internal notes shaded with a lock; composer with channel switch Portal / WhatsApp / Email / Internal note, templates, attachments, @mentions) · context panel (contact card, linked campaign/request, assign, snooze, done, create follow-up, files). Unmatched tab for WhatsApp numbers / shared-mailbox emails; personal Unmatched for the user's own mail.
@@ -99,7 +118,7 @@ Secrets: mailbox passwords sealed with the existing token-sealing approach (key 
 3. **Embedded threads** — campaign, request (client-requests sheet), deliverable review, using the same component.
 4. **Portal Messages** (client and influencer) — phone-first thread list (General + one per campaign/request) then the chat; portal channel only; Seen; files.
 5. **Settings → Channels** — WhatsApp, shared mailboxes, portal, response-time target and working hours, templates; list of users with personal mailboxes.
-6. **My profile → Email** — connect / test / disconnect personal mailbox; alert preferences.
+6. **My profile → Email, Alerts and Devices** — connect / test / disconnect personal mailbox; alert preferences (what × how, preview on/off); devices receiving push with test and remove; the iPhone install card.
 7. Redirects: `/whatsapp` → Inbox filtered to WhatsApp; Portal access panel keeps only access settings with a link to the conversation.
 
 ## 9. Migration of existing data
@@ -123,13 +142,13 @@ Secrets: mailbox passwords sealed with the existing token-sealing approach (key 
 1. **Foundation + portal channel** — tables, conversation/thread/message API, migration of portal messages, internal notes, Inbox (portal + internal), contact Conversation tab, portal Messages with threads and Seen, states and assignment.
 2. **WhatsApp into the Inbox** — inbound/outbound through conversations, Unmatched, history import, `/whatsapp` redirect.
 3. **Email** — shared mailboxes, then personal mailboxes (import everything, owner Unmatched), sending with threading and Sent copy, Settings/Profile screens.
-4. **One alert system + response times** — preferences, grouping, quiet hours, SLA colours and Today queue, follow-ups decoupled.
+4. **One alert system + response times + phone push** — preferences, grouping, quiet hours, deep-linked and grouped push with badges and devices, install guidance, SLA colours and Today queue, follow-ups decoupled.
 5. **Context threads** — campaign, request, proposal and content-review threads embedded; review comments and CRM activities migrated; system lines.
 6. Later: Microsoft 365 OAuth, IMAP IDLE, shared templates library growth.
 
 ## 12. Testing
 
-`node --test` per phase: visibility (poison internal/owner-private content never leaks to portal or other staff), matching (email headers, subject code, address; WhatsApp phone), state transitions and reopening, SLA in working hours (weekend and after-hours cases), alert grouping and quiet hours, migrations (counts and ownership preserved), mailbox sealing and connection-test errors (a fake IMAP/SMTP server in tests), HTML sanitization. Browser checks in English/Arabic, desktop and phone, light and dark, for Inbox, contact tab and portal Messages. Mutation checks on visibility guards.
+`node --test` per phase: visibility (poison internal/owner-private content never leaks to portal or other staff), matching (email headers, subject code, address; WhatsApp phone), state transitions and reopening, SLA in working hours (weekend and after-hours cases), alert grouping and quiet hours, migrations (counts and ownership preserved), mailbox sealing and connection-test errors (a fake IMAP/SMTP server in tests), HTML sanitization, sender identity (staff author stored and shown for WhatsApp/shared-mailbox sends; never lost on migration), push payloads (tag per thread, deep link, preview switch respected, no internal content to portal users, dead subscriptions removed). Browser checks in English/Arabic, desktop and phone, light and dark, for Inbox, contact tab and portal Messages; push checked on an installed Android app and an installed iPhone app (grouping, deep link, badge). Mutation checks on visibility guards.
 
 ## 13. Product brief for the screens (feeds Impeccable)
 
