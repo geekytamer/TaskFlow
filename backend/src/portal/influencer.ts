@@ -12,6 +12,7 @@ import {
   type InfluencerPlatform,
 } from '../types';
 import { safeUrl } from './catalogue';
+import { normalizeNiches } from '../niches';
 import type { ChangeRequest, ProfileChanges, Submission } from './influencer-store';
 import { waitingFor } from './review-flow';
 import { resultsDto } from '../social/results';
@@ -88,7 +89,11 @@ export function parseChanges(body: Record<string, unknown>, existing: Influencer
   const unknown = Object.keys(body).filter((k) => !allowed.has(k));
   if (unknown.length) throw new HttpError(400, `These fields cannot be changed here: ${unknown.join(', ')}.`);
   const changes: ProfileChanges = {};
-  if (body.niche !== undefined) changes.niche = str(body.niche, 'niche', 80);
+  if (body.niche !== undefined) {
+    const niche = normalizeNiches(str(body.niche, 'niche', 80));
+    if (!niche) throw new HttpError(400, 'niche must name at least one niche.');
+    changes.niche = niche;
+  }
   if (body.location !== undefined) changes.location = str(body.location, 'location', 80);
   if (body.languages !== undefined) {
     if (!Array.isArray(body.languages) || body.languages.length > 10) throw new HttpError(400, 'languages must be a list of up to 10.');

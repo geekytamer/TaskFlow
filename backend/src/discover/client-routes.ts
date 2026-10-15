@@ -1,6 +1,7 @@
 import type { Request, RequestHandler, Response, Router } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
+import { hasNiche, nicheFacets } from '../niches';
 import { notifyManager, raiseFollowup, type SessionRequest } from '../portal/common';
 import { growthOver3Months, maskContacts, TIERS, tierOf, type Tier } from './discover';
 import type { DiscoverProfile } from './discover-store';
@@ -83,7 +84,7 @@ export function registerClientDiscoverRoutes(router: Router, store: DataStore, c
     const items = all
       .filter((e) => !q || [e.username, e.fullName ?? '', e.bio ?? '', e.niche ?? '', e.category ?? ''].some((v) => v.toLowerCase().includes(q)))
       .filter((e) => !tier || e.tier === tier)
-      .filter((e) => !niche || e.niche === niche)
+      .filter((e) => !niche || hasNiche(e.niche, niche))
       .filter((e) => !location || e.location === location)
       .filter((e) => !gender || e.gender === gender)
       .filter((e) => !peakOnly || e.catalogueId !== null)
@@ -96,7 +97,7 @@ export function registerClientDiscoverRoutes(router: Router, store: DataStore, c
     res.json({
       items,
       total: items.length,
-      facets: { niches: distinct(all.map((e) => e.niche)), locations: distinct(all.map((e) => e.location)), tiers: TIERS },
+      facets: { niches: nicheFacets(all.map((e) => e.niche)), locations: distinct(all.map((e) => e.location)), tiers: TIERS },
     });
   });
 

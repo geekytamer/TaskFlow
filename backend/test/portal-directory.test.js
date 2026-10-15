@@ -74,6 +74,25 @@ test('sorting and filtering happen on the server', async () => {
   assert.deepEqual(await names('?niche=Travel'), ['Lina']);
 });
 
+test('comma-separated niches are separate niches for filters and facets', async () => {
+  const ctx = await build();
+  ctx.store.updateContact(ctx.lina.id, { influencerNiche: 'Food, Lifestyle' });
+  const get = (q) => request(ctx.server).get(`/portal-api/client/directory${q}`).set(ctx.session);
+  assert.deepEqual((await get('?niche=food')).body.items.map((i) => i.name), ['Lina']);
+  assert.deepEqual((await get('?niche=Lifestyle')).body.items.map((i) => i.name), ['Lina']);
+  assert.deepEqual((await get('?niche=Food%2C%20Lifestyle')).body.items.map((i) => i.name), [], 'the whole string is not a niche');
+  const niches = (await get('')).body.facets.niches;
+  assert.ok(niches.includes('Food') && niches.includes('Lifestyle'));
+  assert.equal(niches.includes('Food, Lifestyle'), false);
+});
+
+test('a niche is stored in one canonical form when staff save it', async () => {
+  const ctx = await build();
+  const res = await request(ctx.server).put(`/contacts/${ctx.lina.id}`).set(ctx.staff).send({ influencerNiche: ' food ,Food;  travel' });
+  assert.equal(res.status, 200);
+  assert.equal(ctx.store.getContactById(ctx.lina.id).influencerNiche, 'food, travel');
+});
+
 test('detail and photo work for both kinds; hidden ones 404', async () => {
   const ctx = await build();
   const list = (await request(ctx.server).get('/portal-api/client/directory').set(ctx.session)).body.items;

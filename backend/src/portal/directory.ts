@@ -7,6 +7,7 @@ import type { DiscoverProfile } from '../discover/discover-store';
 import { instagramFigures } from '../discover/figures';
 import { priceFor, toCatalogueEntry, type CataloguePlatform, type PriceView } from './catalogue';
 import type { SessionRequest } from './common';
+import { hasNiche, nicheFacets } from '../niches';
 
 /**
  * The client portal's one influencer directory: Peak's influencers (shown
@@ -77,7 +78,7 @@ export function parseDirectoryQuery(query: Request['query']): { filter: Director
 
 export function matchesDirectory(e: DirectoryEntry, f: DirectoryFilter): boolean {
   if (f.platform && !e.platforms.some((p) => lower(p.platform) === lower(f.platform))) return false;
-  if (f.niche && lower(e.niche) !== lower(f.niche)) return false;
+  if (f.niche && !hasNiche(e.niche, f.niche)) return false;
   if (f.location && lower(e.location) !== lower(f.location)) return false;
   if (f.gender && e.gender !== f.gender) return false;
   if (f.tier && e.tier !== f.tier) return false;
@@ -107,7 +108,7 @@ export function facetsOfDirectory(entries: DirectoryEntry[]) {
     [...new Set(values.filter((v): v is string => Boolean(v && v.trim())))].sort((a, b) => a.localeCompare(b));
   return {
     platforms: distinct(entries.flatMap((e) => e.platforms.map((p) => p.platform))),
-    niches: distinct(entries.map((e) => e.niche)),
+    niches: nicheFacets(entries.map((e) => e.niche)),
     locations: distinct(entries.map((e) => e.location)),
     availability: distinct(entries.map((e) => e.availability)),
     tiers: TIERS.filter((t) => entries.some((e) => e.tier === t)),

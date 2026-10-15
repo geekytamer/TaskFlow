@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PriceTag } from '@/components/price-tag';
 import { getInfluencer } from '@/lib/catalogue';
-import { formatCompact, formatPercent, listSep } from '@/lib/format';
+import { formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Key } from '@/lib/i18n';
 import { growthLabel } from '@/lib/discover';
@@ -19,7 +19,7 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
   const influencer = await getInfluencer(id);
   if (!influencer) notFound();
 
-  const meta = [influencer.niche, influencer.location, t(lang, `disc.tier.${influencer.tier}` as Key)].filter(Boolean).join(listSep(lang));
+  const meta = [nicheText(influencer.niche, lang), influencer.location, t(lang, `disc.tier.${influencer.tier}` as Key)].filter(Boolean).join(listSep(lang));
   const growth = growthLabel(influencer.growth3m);
 
   return (

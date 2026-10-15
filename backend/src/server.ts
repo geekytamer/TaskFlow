@@ -283,6 +283,7 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
 const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
 
 import { greenApi, toChatId } from './services/greenApi';
+import { normalizeNiches } from './niches';
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -3363,7 +3364,7 @@ export function createServer(options: CreateServerOptions = {}) {
               roles: ['Influencer'],
               influencerPlatform: optionalString(row.platform),
               influencerHandle: optionalString(row.handle),
-              influencerNiche: optionalString(row.niche),
+              influencerNiche: normalizeNiches(optionalString(row.niche)) ?? undefined,
               followerCount: optionalNumber(row.followers),
               engagementRate: optionalNumber(row.engagementRate),
               rateCardAmount: optionalNumber(row.rateCard),
@@ -3414,7 +3415,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        nextFollowupNote: optionalString(body.nextFollowupNote),
 		        influencerPlatform: optionalString(body.influencerPlatform),
 	        influencerHandle: optionalString(body.influencerHandle),
-	        influencerNiche: optionalString(body.influencerNiche),
+	        influencerNiche: normalizeNiches(optionalString(body.influencerNiche)) ?? undefined,
 	        followerCount: optionalNumber(body.followerCount),
 	        engagementRate: optionalNumber(body.engagementRate),
 	        rateCardAmount: optionalNumber(body.rateCardAmount),
@@ -3466,7 +3467,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        notes: optionalString(body.notes),
 	        influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : undefined,
 	        influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : undefined,
-	        influencerNiche: body.influencerNiche !== undefined ? optionalString(body.influencerNiche) : undefined,
+	        influencerNiche: body.influencerNiche !== undefined ? normalizeNiches(optionalString(body.influencerNiche)) ?? undefined : undefined,
 	        followerCount: body.followerCount !== undefined ? optionalNumber(body.followerCount) : undefined,
 	        engagementRate: body.engagementRate !== undefined ? optionalNumber(body.engagementRate) : undefined,
 	        rateCardAmount: body.rateCardAmount !== undefined ? optionalNumber(body.rateCardAmount) : undefined,

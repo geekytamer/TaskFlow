@@ -6,7 +6,7 @@ import { EmptyState, PageHeader, button, list, panel } from '@/components/ui';
 import { VerifiedMark } from '@/components/verified-mark';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
 import { growthLabel } from '@/lib/discover';
-import { CATALOGUE_FILTERS, catalogueQuery, formatCompact, formatPercent, listSep } from '@/lib/format';
+import { CATALOGUE_FILTERS, catalogueQuery, formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
@@ -95,7 +95,7 @@ function ChooseLink({ entry, lang, chosen, href }: { entry: CatalogueEntry; lang
 }
 
 const metaOf = (entry: CatalogueEntry, lang: Lang) =>
-  [entry.niche, entry.location, t(lang, `disc.tier.${entry.tier}` as Key)].filter(Boolean).join(listSep(lang));
+  [nicheText(entry.niche, lang), entry.location, t(lang, `disc.tier.${entry.tier}` as Key)].filter(Boolean).join(listSep(lang));
 
 function InfluencerCard({ entry, lang, chosen, toggleHref }: { entry: CatalogueEntry; lang: Lang; chosen: boolean; toggleHref: string }) {
   return (

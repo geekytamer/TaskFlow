@@ -48,6 +48,15 @@ test('lists are separated with the comma of the page language', async () => {
   assert.equal(['أ', 'ب'].join(listSep('ar')), 'أ، ب');
 });
 
+test('a niche field holding several niches reads as a list in the page language', async () => {
+  const { nicheText } = await import('./format');
+  assert.equal(nicheText('Food, Lifestyle', 'en'), 'Food, Lifestyle');
+  assert.equal(nicheText('طعام, سفر', 'ar'), 'طعام، سفر');
+  assert.equal(nicheText('Beauty / Fashion', 'en'), 'Beauty, Fashion');
+  assert.equal(nicheText(null, 'en'), null);
+  assert.equal(nicheText(' , ', 'en'), null);
+});
+
 test('times are shown in the business zone, and file sizes read naturally', () => {
   // 20:30 UTC is 00:30 the next day in Muscat.
   assert.match(formatDateTime('2026-09-30T20:30:00Z', 'en'), /Oct 1, 2026.*12:30/);

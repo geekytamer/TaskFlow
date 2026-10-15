@@ -8,6 +8,15 @@ const MISSING = '-';
 /** The list separator for the page's language: Arabic uses its own comma. */
 export const listSep = (lang: Lang) => (lang === 'ar' ? '، ' : ', ');
 
+/**
+ * An influencer's niche field can hold several ("Food, Lifestyle"); shown as a
+ * list in the page language. Same separators as the backend's splitNiches.
+ */
+export function nicheText(value: string | null | undefined, lang: Lang): string | null {
+  const niches = (value ?? '').split(/[,،;/|\r\n]+/).map((n) => n.trim()).filter(Boolean);
+  return niches.length ? niches.join(listSep(lang)) : null;
+}
+
 export function formatCompact(value: number | null, lang: Lang): string {
   if (value === null) return MISSING;
   return new Intl.NumberFormat(locale(lang), { notation: 'compact', maximumFractionDigits: 1 }).format(value);

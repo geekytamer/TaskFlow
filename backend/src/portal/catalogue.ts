@@ -1,4 +1,5 @@
 import type { Contact } from '../types';
+import { hasNiche, nicheFacets } from '../niches';
 import { DEFAULT_PRICE_RANGE, type PriceRange, type PricingProfile } from './catalogue-store';
 
 /**
@@ -164,14 +165,14 @@ const distinctSorted = (values: Array<string | null>) =>
 export function facetsOf(entries: CatalogueEntry[]): CatalogueFacets {
   return {
     platforms: distinctSorted(entries.flatMap((e) => e.platforms.map((p) => p.platform))),
-    niches: distinctSorted(entries.map((e) => e.niche)),
+    niches: nicheFacets(entries.map((e) => e.niche)),
     availability: distinctSorted(entries.map((e) => e.availability)),
   };
 }
 
 export function matchesFilter(entry: CatalogueEntry, filter: CatalogueFilter): boolean {
   if (filter.platform && !entry.platforms.some((p) => lower(p.platform) === lower(filter.platform))) return false;
-  if (filter.niche && lower(entry.niche) !== lower(filter.niche)) return false;
+  if (filter.niche && !hasNiche(entry.niche, filter.niche)) return false;
   if (filter.availability && lower(entry.availability) !== lower(filter.availability)) return false;
   if (filter.minFollowers !== undefined) {
     const most = Math.max(0, ...entry.platforms.map((p) => p.followers ?? 0));
