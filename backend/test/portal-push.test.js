@@ -108,7 +108,7 @@ test('after the first push, later messages wait for the window, then one push ca
   assert.equal(await ctx.sweep(T0 + 10 * MIN), 0);
   ctx.staffMessage('Much later');
   assert.equal(await ctx.sweep(T0 + 60 * MIN), 1);
-  assert.equal(ctx.sent[2].body, 'New message: Much later', 'a new burst starts from one');
+  assert.equal(ctx.sent[2].body, '4 new messages: Much later', 'the count is what is still unread');
 });
 
 test('the count is in Arabic for an Arabic reader', async () => {
@@ -132,7 +132,7 @@ test('with the messages switch off nothing is pushed, and turning it on later do
   assert.equal(await ctx.sweep(T0 + 10 * MIN), 0, 'the muted message stays muted');
   ctx.staffMessage('Audible');
   assert.equal(await ctx.sweep(T0 + 20 * MIN), 1);
-  assert.deepEqual(ctx.sent.map((m) => m.body), ['New message: Audible']);
+  assert.deepEqual(ctx.sent.map((m) => m.body), ['2 new messages: Audible']);
 });
 
 test('with preview off the push says a message came, not what it said', async () => {
@@ -166,5 +166,38 @@ test('other groups can be muted for push too', async () => {
   const ctx = build();
   const s = await ctx.session('buyer@alnoor.test');
   await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
-  assert.equal((await prefs(ctx, s, { groups: { messages: { push: false } } })).body.groups.proposals.push, true);
+  await prefs(ctx, s, { groups: { proposals: { push: false } } });
+  const req = await request(ctx.server).post('/portal-api/client/requests').set(s).send({
+    title: 'Ramadan dates launch', objective: 'Launch our premium Khalas box to young families in Muscat.', budget: 6000,
+    startDate: '2026-11-01', endDate: '2026-11-30', platforms: ['Instagram'],
+  });
+  assert.equal(req.status, 201, JSON.stringify(req.body));
+  const opp = ctx.store.listOpportunities(ctx.company.id).find((o) => o.contactId === ctx.client.id);
+  ctx.store.createCrmProposal({ companyId: ctx.company.id, opportunityId: opp.id, title: 'Three creators', status: 'Sent', issueDate: new Date(), validUntil: new Date(Date.now() + 14 * 86400000), items: [{ description: 'Reel', quantity: 1, unitPrice: 10 }] });
+  assert.equal(await ctx.sweep(T0), 0, 'proposal push is muted');
+  await prefs(ctx, s, { groups: { proposals: { push: true } } });
+  assert.equal(await ctx.sweep(T0 + MIN), 0, 'and stays muted after switching on');
+  assert.equal(ctx.sent.length, 0);
+});
+
+test('only unread messages count: reading resets the count and read threads are not pushed', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  const tid = ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id;
+  ctx.staffMessage('a'); ctx.staffMessage('b');
+  await ctx.sweep(T0);
+  assert.equal(ctx.sent[0].body, '2 new messages: b');
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await request(ctx.server).get(`/portal-api/client/threads/${tid}`).set(s)).status, 200);
+  await new Promise((r) => setTimeout(r, 5));
+  ctx.staffMessage('c');
+  await ctx.sweep(T0 + 5 * MIN);
+  assert.equal(ctx.sent[1].body, 'New message: c');
+  await new Promise((r) => setTimeout(r, 5));
+  await request(ctx.server).get(`/portal-api/client/threads/${tid}`).set(s);
+  await new Promise((r) => setTimeout(r, 5));
+  ctx.staffMessage('d');
+  await request(ctx.server).get(`/portal-api/client/threads/${tid}`).set(s);
+  assert.equal(await ctx.sweep(T0 + 10 * MIN), 0, 'read before the sweep: no push');
 });

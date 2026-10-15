@@ -26,8 +26,10 @@ export const defaultGroups = (): GroupPrefs => ({
   money: { push: true, whatsapp: false }, invites: { push: true, whatsapp: false },
 });
 
-function parseGroups(raw: string | null): GroupPrefs {
+function parseGroups(raw: string | null, legacyWhatsapp = false): GroupPrefs {
   const out = defaultGroups();
+  // Rows from before groups existed keep what they had: WhatsApp on for everything.
+  if (raw === null && legacyWhatsapp) ALERT_GROUPS.forEach((g) => { out[g].whatsapp = true; });
   try {
     const stored = raw ? (JSON.parse(raw) as Partial<Record<AlertGroup, Partial<{ push: boolean; whatsapp: boolean }>>>) : {};
     for (const g of ALERT_GROUPS) {
@@ -37,7 +39,7 @@ function parseGroups(raw: string | null): GroupPrefs {
   } catch { /* unreadable: defaults */ }
   return out;
 }
-export interface PendingAlert { event: AlertEvent; refId: string; path: string }
+export interface PendingAlert { event: AlertEvent; refId: string; path: string; threadId?: string }
 
 /** Sends one WhatsApp text from the company's connected number. */
 export type WhatsAppSender = (companyId: string, phone: string, text: string, contactId: string) => Promise<void>;
@@ -52,7 +54,7 @@ export class PortalAlertsStore {
   }
 
   private fromRow(row: { portalUserId: string; phone: string | null; whatsapp: number; lang: 'en' | 'ar'; groups: string | null; preview: number; updatedAt: string }): AlertPrefs {
-    return { ...row, whatsapp: row.whatsapp === 1, groups: parseGroups(row.groups), preview: row.preview !== 0 };
+    return { ...row, whatsapp: row.whatsapp === 1, groups: parseGroups(row.groups, row.whatsapp === 1), preview: row.preview !== 0 };
   }
 
   setPrefs(p: Omit<AlertPrefs, 'updatedAt'>): AlertPrefs {
@@ -91,7 +93,7 @@ export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[
   for (const thread of conversation ? store.conversations.threadsOf(conversation.id) : []) {
     for (const m of store.conversations.messages(thread.id)) {
       if (m.authorType === 'staff' && m.channel === 'portal' && m.visibility === 'external') {
-        out.push({ event: 'message', refId: m.id, path: `/messages/${thread.id}` });
+        out.push({ event: 'message', refId: m.id, path: `/messages/${thread.id}`, threadId: thread.id });
       }
     }
   }

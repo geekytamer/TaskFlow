@@ -19,8 +19,6 @@ export function baselinePortalPush(store: DataStore, user: PortalUser): void {
 
 /** One push per (person, thread) inside this window; what arrives meanwhile goes out as one push after it. */
 export const THREAD_PUSH_WINDOW_MS = 2 * 60 * 1000;
-/** A thread quiet this long starts counting from one again. */
-const BURST_RESET_MS = 10 * 60 * 1000;
 /** How much of a message the lock screen may show. */
 const PREVIEW_CHARS = 120;
 
@@ -57,27 +55,35 @@ export async function sweepPortalPush(store: DataStore, send: PushSender, compan
         // Delivered to at least one device: done. Otherwise it waits for the next sweep.
         if (n > 0) { store.push.logPortal(user.id, [e], 'sent'); delivered += 1; }
       }
-      // Staff messages: one push per thread carrying the running count; the tag makes a later one replace the earlier.
+      // Staff messages: one push per thread carrying how many are unread; the tag makes a later one replace the earlier.
       for (const [path, events] of messagesByThread) {
-        const threadId = path.replace('/messages/', '');
+        const threadId = events[0].threadId ?? path.replace('/messages/', '');
+        const readAt = store.conversations.readsOf(threadId).find((r) => r.readerType === 'portal' && r.readerId === user.id)?.lastReadAt ?? '';
+        const isUnread = (m: { createdAt: string }) => m.createdAt > readAt;
+        const msgs = events.map((e) => ({ e, m: store.conversations.getMessage(e.refId) }));
+        // Already read: nothing to tell them about.
+        const read = msgs.filter((x) => !x.m || !isUnread(x.m)).map((x) => x.e);
+        if (read.length > 0) store.push.logPortal(user.id, read, 'skipped');
+        const fresh = msgs.filter((x) => x.m && isUnread(x.m)) as Array<{ e: PendingAlert; m: NonNullable<typeof msgs[number]['m']> }>;
+        if (fresh.length === 0) continue;
+        const unread = store.conversations.messages(threadId).filter((m) => m.authorType === 'staff' && m.channel === 'portal' && m.visibility === 'external' && isUnread(m)).length;
         const last = store.push.portalThreadPush(user.id, threadId);
         const age = last ? nowMs - Date.parse(last.pushedAt) : Infinity;
         if (!quiet && age < THREAD_PUSH_WINDOW_MS) continue; // the window holds it; the next sweep after it sends the count
-        const count = (age < BURST_RESET_MS && last ? last.pushedCount : 0) + events.length;
-        // Only an external portal-channel message of the team can be shown (currentEvents already guarantees it).
-        const latest = prefs.preview ? store.conversations.getMessage(events[events.length - 1].refId) : undefined;
+        const count = Math.max(unread, fresh.length);
+        const latest = prefs.preview ? fresh[fresh.length - 1].m : undefined;
         const text = latest && latest.visibility === 'external' && latest.channel === 'portal' ? latest.body.slice(0, PREVIEW_CHARS).trim() : '';
         const line = countLine(count, lang);
         const payload = { title: company, body: text ? `${line}: ${text}` : line, url: path, tag: `thread:${threadId}` };
         if (quiet) {
           holdPush(store, audience, user.id, companyId, payload);
-          store.push.logPortal(user.id, events, 'skipped');
+          store.push.logPortal(user.id, fresh.map((x) => x.e), 'skipped');
           store.push.setPortalThreadPush(user.id, threadId, new Date(nowMs).toISOString(), count);
           continue;
         }
         const n = await sendToPrincipal(store, send, audience, user.id, payload);
         if (n > 0) {
-          store.push.logPortal(user.id, events, 'sent');
+          store.push.logPortal(user.id, fresh.map((x) => x.e), 'sent');
           store.push.setPortalThreadPush(user.id, threadId, new Date(nowMs).toISOString(), count);
           delivered += 1;
         }

@@ -196,3 +196,25 @@ test('an internal note or private message never reaches a digest', async () => {
   assert.equal(ctx.sent[0].text.includes(POISON), false);
   assert.match(ctx.sent[0].text, /A new message from the team/);
 });
+
+test('a row from before groups existed keeps WhatsApp on for every group', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  ctx.store.db.prepare('INSERT INTO portal_alert_prefs (portalUserId, phone, whatsapp, lang, updatedAt) VALUES (?, ?, 1, ?, ?)').run(lina.id, '971500000001', 'en', new Date().toISOString());
+  const got = (await request(ctx.server).get('/portal-api/influencer/alerts').set(lina.headers)).body;
+  assert.ok(Object.values(got.groups).every((g) => g.whatsapp === true));
+  staffMessage(ctx, ctx.lina, 'Legacy hello');
+  assert.equal(await ctx.sweep(), 1);
+  assert.match(ctx.sent[0].text, /A new message from the team/);
+});
+
+test('messages push off still sends the WhatsApp line when enabled', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  await request(ctx.server).put('/portal-api/client/alerts').set(omar.headers).send({ whatsapp: true, phone: '+96891234567', groups: { messages: { push: false, whatsapp: true } } });
+  staffMessage(ctx, ctx.client, 'Hello');
+  assert.equal(await ctx.sweep(), 1);
+  assert.match(ctx.sent[0].text, /A new message from the team/);
+});
