@@ -8051,6 +8051,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   registerAcademyRoutes(app, {
     store,
+    enforce: academyEnforce,
     authMiddleware: authMiddleware as unknown as RequestHandler,
     requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
     publishMembership: async (companyIds, change) => {

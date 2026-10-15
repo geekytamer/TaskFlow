@@ -16,6 +16,8 @@ export interface AcademyDeps {
   /** Publishes everything a just-created company has (it had nothing before). */
   publishNewCompany(companyId: string): Promise<void>;
   recordActivity(input: { companyId: string; actor: SanitizedUser; summary: string; metadata?: Record<string, unknown> }): void;
+  /** False when ACADEMY_ENFORCE=false: nothing is locked, pages included. */
+  enforce: boolean;
 }
 
 const wrap = (fn: (req: AuthedRequest, res: Response) => unknown) =>
@@ -61,7 +63,8 @@ export function registerAcademyRoutes(app: Express, deps: AcademyDeps): void {
   };
 
   app.get('/academy/me', authMiddleware, wrap((req, res) => {
-    res.json(progressFor(store, me(req)));
+    const progress = progressFor(store, me(req));
+    res.json(deps.enforce ? progress : { ...progress, lockedModules: [] });
   }));
 
   app.get('/academy/missions', authMiddleware, wrap((req, res) => {
