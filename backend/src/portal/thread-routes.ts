@@ -61,7 +61,6 @@ export function registerThreadRoutes(router: Router, store: DataStore, companyId
     const { text, fileIds } = parseMessage(asRecord(req.body, 'body'));
     const contact = store.getContactById(session.contactId);
     if (!contact) throw new HttpError(404, 'Not found.');
-    const managerId = contact.ownerUserId ?? store.portal.inviterOf(session.portalUserId);
     const message = store.transaction(() => store.runAsActor({ name: `Portal: ${session.name} (${contact.name})` }, () => {
       const thread = store.conversations.generalThread(companyId, contact.id);
       const created = store.conversations.addMessage({
@@ -71,7 +70,7 @@ export function registerThreadRoutes(router: Router, store: DataStore, companyId
       store.thread.attach(fileIds, { type: 'message', id: created.id }, {
         companyId, contactId: contact.id, uploader: { kind: 'portal', portalUserId: session.portalUserId },
       });
-      afterPortalMessage(store, { companyId, contact, managerId, message: created, threadId: thread.id });
+      afterPortalMessage(store, { message: created, threadId: thread.id });
       return created;
     }));
     res.status(201).json(portalMessageDto(store, message, session.portalUserId));

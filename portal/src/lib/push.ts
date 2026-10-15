@@ -27,6 +27,18 @@ export function pushSupport({ ua, standalone, hasPush, touchPoints }: { ua: stri
   return hasPush ? 'ok' : 'unsupported';
 }
 
+/**
+ * Whether to show the "add to your home screen" card: an iPhone or iPad (an
+ * iPad asking for desktop sites included) in the browser, not opened from the
+ * icon yet, and not dismissed.
+ */
+export function showInstallCard({ ua, touchPoints, standalone, dismissed }: { ua: string; touchPoints: number; standalone: boolean; dismissed: boolean }): boolean {
+  return iosVersion(ua, touchPoints) !== null && !standalone && !dismissed;
+}
+
+/** localStorage key that remembers the install card was dismissed on this device. */
+export const INSTALL_CARD_DISMISSED_KEY = 'installCardDismissed';
+
 /** The VAPID public key as the bytes PushManager.subscribe expects. */
 export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');

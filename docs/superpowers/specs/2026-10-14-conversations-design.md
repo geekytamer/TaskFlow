@@ -142,7 +142,7 @@ Secrets: mailbox passwords sealed with the existing token-sealing approach (key 
 1. ✅ **Done 2026-10-15 (branch feature/conversations, 4f9674a..HEAD)** — **Foundation + portal channel** — tables, conversation/thread/message API, migration of portal messages, internal notes, Inbox (portal + internal), contact Conversation tab, portal Messages with threads and Seen, states and assignment.
 2. **WhatsApp into the Inbox** — inbound/outbound through conversations, Unmatched, history import, `/whatsapp` redirect.
 3. **Email** — shared mailboxes, then personal mailboxes (import everything, owner Unmatched), sending with threading and Sent copy, Settings/Profile screens.
-4. **One alert system + response times + phone push** — preferences, grouping, quiet hours, deep-linked and grouped push with badges and devices, install guidance, SLA colours and Today queue, follow-ups decoupled.
+4. ✅ **Done 2026-10-15 (branch feature/conversations-step4, 424cfbb..HEAD)** — **One alert system + response times + phone push** — preferences, grouping, quiet hours, deep-linked and grouped push with badges and devices, install guidance, SLA colours and Today queue, follow-ups decoupled. Rulings: only conversation messages stopped raising follow-ups (other portal events move in step 5); no Today queue yet, so overdue threads use an Inbox Overdue filter plus a notification; storage-excursion alarms bypass quiet hours; existing WhatsApp opt-ins keep every group.
 5. **Context threads** — campaign, request, proposal and content-review threads embedded; review comments and CRM activities migrated; system lines.
 6. Later: Microsoft 365 OAuth, IMAP IDLE, shared templates library growth.
 

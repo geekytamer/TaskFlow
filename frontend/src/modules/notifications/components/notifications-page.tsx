@@ -4,7 +4,9 @@ import * as React from 'react';
 import Link from 'next/link';
 import { CheckCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { InstallAppCard } from '@/components/install-app-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
@@ -29,6 +31,7 @@ const CATEGORY_BORDER: Record<NotificationCategory, string> = {
   finance: 'border-l-emerald-500',
   crm: 'border-l-violet-500',
   inventory: 'border-l-amber-500',
+  messages: 'border-l-rose-500',
 };
 
 function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n: AppNotification) => void }) {
@@ -58,6 +61,7 @@ function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n: AppNot
 
 function PreferencesCard() {
   const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const [prefs, setPrefs] = React.useState<NotificationPrefs | null>(null);
   const [saving, setSaving] = React.useState(false);
@@ -85,6 +89,7 @@ function PreferencesCard() {
   };
 
   if (!prefs) return null;
+  const phoneLabel = language === 'ar' ? 'الهاتف' : 'Phone';
 
   return (
     <div className="rounded-xl border bg-card p-4">
@@ -102,18 +107,27 @@ function PreferencesCard() {
           <span>{t('notifPage.category')}</span>
           <span>{t('notifPage.inApp')}</span>
           <span>{t('notifPage.email')}</span>
-          <span>{language === 'ar' ? 'الهاتف' : 'Phone'}</span>
+          <span>{phoneLabel}</span>
         </div>
         {NOTIFICATION_CATEGORIES.map((category) => (
           <div key={category} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-6 border-b px-4 py-3 last:border-b-0">
             <span className="text-sm font-medium">{t(`notifPage.cat.${category}`)}</span>
-            <Switch checked={prefs[category].inApp} onCheckedChange={(v) => update(category, 'inApp', v)} />
-            <Switch checked={prefs[category].email} onCheckedChange={(v) => update(category, 'email', v)} />
-            <Switch checked={prefs[category].push} onCheckedChange={(v) => update(category, 'push', v)} />
+            <Switch aria-label={`${t(`notifPage.cat.${category}`)}: ${t('notifPage.inApp')}`} checked={prefs[category].inApp} onCheckedChange={(v) => update(category, 'inApp', v)} />
+            <Switch aria-label={`${t(`notifPage.cat.${category}`)}: ${t('notifPage.email')}`} checked={prefs[category].email} onCheckedChange={(v) => update(category, 'email', v)} />
+            <Switch aria-label={`${t(`notifPage.cat.${category}`)}: ${phoneLabel}`} checked={prefs[category].push} onCheckedChange={(v) => update(category, 'push', v)} />
           </div>
         ))}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">{t('notifPage.prefsHint')}</p>
+      <div className="mt-4 flex items-start justify-between gap-4 rounded-lg border p-4">
+        <div className="min-w-0">
+          <Label htmlFor="push-preview" className="text-sm font-semibold">{tr('Show message text in phone notifications', 'إظهار نص الرسالة في إشعارات الهاتف')}</Label>
+          <p id="push-preview-hint" className="mt-0.5 text-sm text-muted-foreground">
+            {tr('Off: the notification says only who wrote, so nothing private shows on a locked screen. Saved with the button above.', 'عند الإيقاف: يذكر الإشعار المرسل فقط، فلا يظهر شيء خاص على الشاشة المقفلة. يُحفظ بالزر أعلاه.')}
+          </p>
+        </div>
+        <Switch id="push-preview" aria-describedby="push-preview-hint" checked={prefs.pushPreview} onCheckedChange={(v) => setPrefs((prev) => (prev ? { ...prev, pushPreview: v } : prev))} />
+      </div>
       <PhoneNotificationsCard />
     </div>
   );
@@ -161,6 +175,7 @@ export function NotificationsPage() {
         </Button>
       }
     >
+      <InstallAppCard />
       <PreferencesCard />
 
       <div className="flex items-center gap-2">

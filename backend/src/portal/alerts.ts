@@ -14,8 +14,32 @@ import type { PortalUser } from './portal-store';
  */
 
 export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout' | 'review' | 'request';
-export interface AlertPrefs { portalUserId: string; phone: string | null; whatsapp: boolean; lang: 'en' | 'ar'; updatedAt: string }
-export interface PendingAlert { event: AlertEvent; refId: string; path: string }
+export type AlertGroup = 'messages' | 'proposals' | 'content' | 'money' | 'invites';
+export const ALERT_GROUPS: readonly AlertGroup[] = ['messages', 'proposals', 'content', 'money', 'invites'];
+export const GROUP_OF: Record<AlertEvent, AlertGroup> = { message: 'messages', proposal: 'proposals', request: 'proposals', review: 'content', changes: 'content', payout: 'money', invitation: 'invites' };
+export type GroupPrefs = Record<AlertGroup, { push: boolean; whatsapp: boolean }>;
+export interface AlertPrefs { portalUserId: string; phone: string | null; whatsapp: boolean; lang: 'en' | 'ar'; groups: GroupPrefs; preview: boolean; updatedAt: string }
+
+/** Everything on for push; WhatsApp only for what is waiting on the person (proposals, content). */
+export const defaultGroups = (): GroupPrefs => ({
+  messages: { push: true, whatsapp: false }, proposals: { push: true, whatsapp: true }, content: { push: true, whatsapp: true },
+  money: { push: true, whatsapp: false }, invites: { push: true, whatsapp: false },
+});
+
+function parseGroups(raw: string | null, legacyWhatsapp = false): GroupPrefs {
+  const out = defaultGroups();
+  // Rows from before groups existed keep what they had: WhatsApp on for everything.
+  if (raw === null && legacyWhatsapp) ALERT_GROUPS.forEach((g) => { out[g].whatsapp = true; });
+  try {
+    const stored = raw ? (JSON.parse(raw) as Partial<Record<AlertGroup, Partial<{ push: boolean; whatsapp: boolean }>>>) : {};
+    for (const g of ALERT_GROUPS) {
+      if (typeof stored[g]?.push === 'boolean') out[g].push = stored[g]!.push!;
+      if (typeof stored[g]?.whatsapp === 'boolean') out[g].whatsapp = stored[g]!.whatsapp!;
+    }
+  } catch { /* unreadable: defaults */ }
+  return out;
+}
+export interface PendingAlert { event: AlertEvent; refId: string; path: string; threadId?: string }
 
 /** Sends one WhatsApp text from the company's connected number. */
 export type WhatsAppSender = (companyId: string, phone: string, text: string, contactId: string) => Promise<void>;
@@ -25,21 +49,25 @@ export class PortalAlertsStore {
 
   prefs(portalUserId: string): AlertPrefs {
     const row = this.db.prepare('SELECT * FROM portal_alert_prefs WHERE portalUserId = ?').get(portalUserId) as
-      | { portalUserId: string; phone: string | null; whatsapp: number; lang: 'en' | 'ar'; updatedAt: string } | undefined;
-    return row ? { ...row, whatsapp: row.whatsapp === 1 } : { portalUserId, phone: null, whatsapp: false, lang: 'en', updatedAt: '' };
+      | { portalUserId: string; phone: string | null; whatsapp: number; lang: 'en' | 'ar'; groups: string | null; preview: number; updatedAt: string } | undefined;
+    return row ? this.fromRow(row) : { portalUserId, phone: null, whatsapp: false, lang: 'en', groups: defaultGroups(), preview: true, updatedAt: '' };
+  }
+
+  private fromRow(row: { portalUserId: string; phone: string | null; whatsapp: number; lang: 'en' | 'ar'; groups: string | null; preview: number; updatedAt: string }): AlertPrefs {
+    return { ...row, whatsapp: row.whatsapp === 1, groups: parseGroups(row.groups, row.whatsapp === 1), preview: row.preview !== 0 };
   }
 
   setPrefs(p: Omit<AlertPrefs, 'updatedAt'>): AlertPrefs {
     this.db.prepare(
-      `INSERT INTO portal_alert_prefs (portalUserId, phone, whatsapp, lang, updatedAt) VALUES (@portalUserId, @phone, @whatsapp, @lang, @updatedAt)
-       ON CONFLICT (portalUserId) DO UPDATE SET phone = excluded.phone, whatsapp = excluded.whatsapp, lang = excluded.lang, updatedAt = excluded.updatedAt`,
-    ).run({ ...p, whatsapp: p.whatsapp ? 1 : 0, updatedAt: new Date().toISOString() });
+      `INSERT INTO portal_alert_prefs (portalUserId, phone, whatsapp, lang, groups, preview, updatedAt) VALUES (@portalUserId, @phone, @whatsapp, @lang, @groups, @preview, @updatedAt)
+       ON CONFLICT (portalUserId) DO UPDATE SET phone = excluded.phone, whatsapp = excluded.whatsapp, lang = excluded.lang, groups = excluded.groups, preview = excluded.preview, updatedAt = excluded.updatedAt`,
+    ).run({ ...p, whatsapp: p.whatsapp ? 1 : 0, groups: JSON.stringify(p.groups), preview: p.preview ? 1 : 0, updatedAt: new Date().toISOString() });
     return this.prefs(p.portalUserId);
   }
 
   optedIn(): AlertPrefs[] {
-    return (this.db.prepare("SELECT * FROM portal_alert_prefs WHERE whatsapp = 1 AND phone IS NOT NULL AND phone != ''").all() as Array<Omit<AlertPrefs, 'whatsapp'> & { whatsapp: number }>)
-      .map((r) => ({ ...r, whatsapp: true }));
+    return (this.db.prepare("SELECT * FROM portal_alert_prefs WHERE whatsapp = 1 AND phone IS NOT NULL AND phone != ''").all() as Array<Parameters<PortalAlertsStore['fromRow']>[0]>)
+      .map((r) => this.fromRow(r));
   }
 
   /** `event:refId` → its last status and when. */
@@ -65,7 +93,7 @@ export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[
   for (const thread of conversation ? store.conversations.threadsOf(conversation.id) : []) {
     for (const m of store.conversations.messages(thread.id)) {
       if (m.authorType === 'staff' && m.channel === 'portal' && m.visibility === 'external') {
-        out.push({ event: 'message', refId: m.id, path: `/messages/${thread.id}` });
+        out.push({ event: 'message', refId: m.id, path: `/messages/${thread.id}`, threadId: thread.id });
       }
     }
   }
@@ -146,10 +174,15 @@ export async function sweepPortalAlerts(store: DataStore, send: WhatsAppSender, 
     const user = store.portal.getUser(prefs.portalUserId);
     if (!user || user.companyId !== companyId || user.status !== 'active') continue;
     const log = store.alerts.logged(user.id);
-    const due = currentEvents(store, user).filter((e) => {
+    const fresh = currentEvents(store, user).filter((e) => {
       const entry = log.get(`${e.event}:${e.refId}`);
       return !entry || (entry.status === 'failed' && now.getTime() - Date.parse(entry.at) >= RETRY_AFTER_MS);
     });
+    // A group switched off for WhatsApp is marked skipped, so switching it on later does not replay the past.
+    const wanted = (e: PendingAlert) => prefs.groups[GROUP_OF[e.event]].whatsapp;
+    const muted = fresh.filter((e) => !wanted(e) && !log.has(`${e.event}:${e.refId}`));
+    if (muted.length > 0) store.alerts.log(user.id, muted, 'skipped');
+    const due = fresh.filter(wanted);
     if (due.length === 0) continue;
     try {
       await send(companyId, prefs.phone!, digest(due, prefs.lang, company, baseUrlFor(user.audience)), user.contactId);

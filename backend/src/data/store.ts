@@ -251,6 +251,7 @@ import {
 import {
   NOTIFICATION_META, NOTIFICATION_MODULES,
   defaultNotificationPrefs,
+  NOTIFICATION_CATEGORIES,
   normalizeNotificationPrefs,
 } from '../notifications';
 import { hashPassword, isHashed } from '../password';
@@ -5141,6 +5142,60 @@ export class DataStore {
           }
         },
       },
+      {
+        // Per-company working hours and response target for conversations.
+        id: '132_conversation_settings',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS conversation_settings (
+              companyId           TEXT PRIMARY KEY,
+              responseTargetHours REAL NOT NULL,
+              workDays            TEXT NOT NULL,
+              dayStart            TEXT NOT NULL,
+              dayEnd              TEXT NOT NULL,
+              timeZone            TEXT NOT NULL,
+              updatedAt           TEXT NOT NULL
+            );
+          `);
+        },
+      },
+      {
+        // Pushes kept back during quiet hours; one summary replaces them in the morning.
+        id: '133_push_held',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS push_held (
+              audience    TEXT NOT NULL,
+              principalId TEXT NOT NULL,
+              companyId   TEXT NOT NULL,
+              tag         TEXT NOT NULL,
+              url         TEXT NOT NULL,
+              title       TEXT NOT NULL,
+              body        TEXT NOT NULL,
+              heldAt      TEXT NOT NULL,
+              PRIMARY KEY (audience, principalId, tag)
+            );
+          `);
+        },
+      },
+      {
+        // Portal alert preferences by group and channel, the message-preview switch,
+        // and the per-thread push window for grouped message pushes.
+        id: '134_portal_alert_groups',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE portal_alert_prefs ADD COLUMN groups TEXT;
+            ALTER TABLE portal_alert_prefs ADD COLUMN preview INTEGER NOT NULL DEFAULT 1;
+            CREATE TABLE IF NOT EXISTS portal_thread_push (
+              portalUserId TEXT NOT NULL,
+              threadId     TEXT NOT NULL,
+              pushedAt     TEXT NOT NULL,
+              pushedCount  INTEGER NOT NULL,
+              PRIMARY KEY (portalUserId, threadId)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5321,6 +5376,8 @@ export class DataStore {
         DELETE FROM conversation_messages;
         DELETE FROM conversation_threads;
         DELETE FROM conversations;
+        DELETE FROM conversation_settings;
+        DELETE FROM push_held;
         DELETE FROM portal_files;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
@@ -20175,6 +20232,115 @@ export class DataStore {
     return created;
   }
 
+  /**
+   * One unread alert per (user, thread): a further message updates that alert
+   * in place (count, latest message, title, moved to the top) instead of
+   * stacking another. New alerts go through notify(); updated ones are handed
+   * to the dispatch hook too, so the phone dispatcher can decide (it throttles).
+   */
+  upsertThreadNotification(input: {
+    companyId: string;
+    userIds: string[];
+    type: NotificationType;
+    threadId: string;
+    build: (count: number) => { title: string; body?: string; link: string; data: Record<string, string | number> };
+  }): Notification[] {
+    const meta = NOTIFICATION_META[input.type];
+    if (!meta || !this.notificationModuleOn(input.companyId, input.type)) return [];
+    const actorId = this.currentActor?.userId;
+    const recipients = Array.from(new Set(input.userIds.filter((id) => id && id !== actorId)));
+    const find = this.db.prepare(
+      `SELECT * FROM notifications WHERE userId = ? AND type = ? AND entityType = 'conversation_thread' AND entityId = ? AND readAt IS NULL
+        ORDER BY createdAt DESC LIMIT 1`,
+    );
+    const update = this.db.prepare('UPDATE notifications SET title = ?, body = ?, link = ?, data = ?, createdAt = ? WHERE id = ?');
+    const touched: Notification[] = [];
+    const updated: Notification[] = [];
+    for (const userId of recipients) {
+      const row = find.get(userId, input.type, input.threadId) as any;
+      if (!row) {
+        const built = input.build(1);
+        touched.push(...this.notify({
+          companyId: input.companyId, userIds: [userId], type: input.type, ...built,
+          entityType: 'conversation_thread', entityId: input.threadId,
+        }));
+        continue;
+      }
+      const existing = this.decodeNotification(row);
+      const built = input.build(Number(existing.data?.count ?? 1) + 1);
+      // The phone dispatcher's marks (when, and at what count) survive the rewrite.
+      const data: Record<string, string | number> = { ...built.data };
+      if (existing.data?.pushedAt !== undefined) data.pushedAt = existing.data.pushedAt;
+      if (existing.data?.pushedCount !== undefined) data.pushedCount = existing.data.pushedCount;
+      const now = new Date();
+      update.run(built.title, built.body ?? null, built.link, JSON.stringify(data), now.toISOString(), existing.id);
+      const next: Notification = { ...existing, title: built.title, body: built.body, link: built.link, data, createdAt: now };
+      touched.push(next);
+      updated.push(next);
+    }
+    if (updated.length > 0 && !this.isTrainingCompany(input.companyId) && this.onNotificationsCreated) {
+      try {
+        this.onNotificationsCreated(updated);
+      } catch (err) {
+        console.error('onNotificationsCreated hook failed:', err);
+      }
+    }
+    return touched;
+  }
+
+  /** When this person's phone last heard about a thread's messages (ISO), if ever. */
+  lastThreadPushAt(userId: string, threadId: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(json_extract(data, '$.pushedAt')) AS at FROM notifications
+          WHERE userId = ? AND type = 'message_received' AND entityType = 'conversation_thread' AND entityId = ?`,
+      )
+      .get(userId, threadId) as { at: string | null } | undefined;
+    return row?.at ?? null;
+  }
+
+  /** Records that the phone heard about this alert at `at`, showing `count` messages. */
+  markNotificationPushed(id: string, at: string, count: number): void {
+    this.db
+      .prepare("UPDATE notifications SET data = json_set(COALESCE(data, '{}'), '$.pushedAt', ?, '$.pushedCount', ?) WHERE id = ?")
+      .run(at, count, id);
+  }
+
+  /** Unread message alerts with messages the phone has not been told about yet. */
+  listUnpushedThreadNotifications(): Notification[] {
+    return (this.db
+      .prepare(
+        `SELECT * FROM notifications WHERE type = 'message_received' AND readAt IS NULL AND entityType = 'conversation_thread'
+          AND COALESCE(json_extract(data, '$.count'), 1) > COALESCE(json_extract(data, '$.pushedCount'), 0)`,
+      )
+      .all() as any[])
+      .filter((row) => this.notificationModuleOn(row.companyId, row.type) && !this.isTrainingCompany(row.companyId))
+      .map((row) => this.decodeNotification(row));
+  }
+
+  /** Someone handled the thread (opened it or wrote on it): their message and overdue alerts for it are read. */
+  markThreadNotificationsRead(userId: string, threadId: string): number {
+    // A push held for the morning about this thread is no longer needed either.
+    this.push.dropHeld(userId, `thread:${threadId}`);
+    this.push.dropHeld(userId, `response_overdue:${threadId}`);
+    return this.db
+      .prepare(
+        `UPDATE notifications SET readAt = ? WHERE userId = ? AND entityType = 'conversation_thread' AND entityId = ?
+          AND type IN ('message_received', 'response_overdue') AND readAt IS NULL`,
+      )
+      .run(new Date().toISOString(), userId, threadId).changes;
+  }
+
+  /** Whether a thread already has a notification of this type for one waiting episode. */
+  hasThreadEpisodeNotification(type: NotificationType, threadId: string, waitingSince: string): boolean {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM notifications WHERE type = ? AND entityType = 'conversation_thread' AND entityId = ?
+          AND json_extract(data, '$.waitingSince') = ? LIMIT 1`,
+      )
+      .get(type, threadId, waitingSince);
+  }
+
   /** List a user's notifications, filtered to categories they keep in-app. */
   /** False when the notification's module is switched off for its company. */
   private notificationModuleOn(companyId: string, type: string): boolean {
@@ -20184,7 +20350,7 @@ export class DataStore {
 
   listNotifications(userId: string, options: { limit?: number; unreadOnly?: boolean } = {}): Notification[] {
     const prefs = this.getNotificationPrefs(userId);
-    const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
+    const inAppCategories = NOTIFICATION_CATEGORIES.filter((c) => prefs[c].inApp);
     if (inAppCategories.length === 0) return [];
     const placeholders = inAppCategories.map(() => '?').join(',');
     const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
@@ -20205,7 +20371,7 @@ export class DataStore {
 
   unreadNotificationCount(userId: string): number {
     const prefs = this.getNotificationPrefs(userId);
-    const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
+    const inAppCategories = NOTIFICATION_CATEGORIES.filter((c) => prefs[c].inApp);
     if (inAppCategories.length === 0) return 0;
     const placeholders = inAppCategories.map(() => '?').join(',');
     const rows = this.db

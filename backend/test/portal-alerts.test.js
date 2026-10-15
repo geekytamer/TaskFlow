@@ -5,7 +5,7 @@ const request = require('supertest');
 
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
-const { sweepPortalAlerts, digest } = require('../dist/portal/alerts');
+const { sweepPortalAlerts, digest, defaultGroups } = require('../dist/portal/alerts');
 const { makeTmpDir } = require('./helpers/tmp');
 
 /**
@@ -54,13 +54,13 @@ test('alerts need a valid number and the company’s WhatsApp; turning them on s
   staffMessage(ctx, ctx.lina, 'Old news');
   const put = (body) => request(ctx.server).post('/portal-api/influencer/alerts').set(lina.headers).send(body);
 
-  assert.deepEqual((await request(ctx.server).get('/portal-api/influencer/alerts').set(lina.headers)).body, { available: false, whatsapp: false, phone: null, lang: 'en' });
+  assert.deepEqual((await request(ctx.server).get('/portal-api/influencer/alerts').set(lina.headers)).body, { available: false, whatsapp: false, phone: null, lang: 'en', groups: defaultGroups(), preview: true });
   assert.equal((await put({ whatsapp: true, phone: '+971 50 123 4567' })).status, 409, 'no WhatsApp connected yet');
   ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
   assert.equal((await put({ whatsapp: true })).status, 400, 'a number is needed');
   assert.equal((await put({ whatsapp: true, phone: '050' })).status, 400, 'with its country code');
   assert.equal((await put({ whatsapp: true, phone: '+971 50' })).status, 400, 'and the whole number');
-  const on = await put({ whatsapp: true, phone: '+971 50-123 4567', lang: 'ar' });
+  const on = await put({ whatsapp: true, phone: '+971 50-123 4567', lang: 'ar', groups: { messages: { whatsapp: true }, invites: { whatsapp: true } } });
   assert.equal(on.status, 200);
   assert.deepEqual([on.body.whatsapp, on.body.phone, on.body.lang], [true, '971501234567', 'ar']);
 
@@ -111,7 +111,7 @@ test('disabled portal users and users who turned alerts off get nothing; one use
   const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
   const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
   for (const [aud, s, phone] of [['influencer', lina, '+971500000001'], ['client', omar, '+971500000002']]) {
-    await request(ctx.server).post(`/portal-api/${aud}/alerts`).set(s.headers).send({ whatsapp: true, phone });
+    await request(ctx.server).post(`/portal-api/${aud}/alerts`).set(s.headers).send({ whatsapp: true, phone, groups: { messages: { whatsapp: true } } });
   }
   assert.equal((await request(ctx.server).post('/portal-api/influencer/messages').set(lina.headers).send({ body: 'My own note' })).status, 201);
   assert.equal(await ctx.sweep(), 0, 'nobody is alerted about their own message');
@@ -131,4 +131,90 @@ test('a digest groups events by kind in the chosen language', () => {
     { event: 'payout', refId: 'c', path: '/payouts' },
   ], 'en', 'Peak Media', 'https://creators.peak.test');
   assert.equal(text, 'Peak Media:\n• 2 new messages from the team\n• A payout was marked paid\nOpen your portal: https://creators.peak.test/');
+});
+
+const ALL_WA = { messages: { whatsapp: true }, proposals: { whatsapp: true }, content: { whatsapp: true }, money: { whatsapp: true }, invites: { whatsapp: true } };
+const POISON = 'POISON-internal-secret';
+
+test('preferences: defaults, partial updates keep current values, and bad matrices are refused', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  const post = (body) => request(ctx.server).post('/portal-api/client/alerts').set(omar.headers).send(body);
+  const put = (body) => request(ctx.server).put('/portal-api/client/alerts').set(omar.headers).send(body);
+  const got = (await request(ctx.server).get('/portal-api/client/alerts').set(omar.headers)).body;
+  assert.equal(got.preview, true);
+  assert.deepEqual(got.groups, {
+    messages: { push: true, whatsapp: false }, proposals: { push: true, whatsapp: true }, content: { push: true, whatsapp: true },
+    money: { push: true, whatsapp: false }, invites: { push: true, whatsapp: false },
+  });
+  assert.equal((await post({ whatsapp: true, phone: '+96891234567' })).status, 200);
+  const r = await put({ groups: { messages: { push: false } }, preview: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.groups.messages, { push: false, whatsapp: false }, 'only the named field changed');
+  assert.deepEqual(r.body.groups.proposals, { push: true, whatsapp: true });
+  assert.equal(r.body.preview, false);
+  assert.equal(r.body.whatsapp, true, 'master switch untouched');
+  assert.equal(r.body.phone, '96891234567', 'phone untouched');
+  assert.equal((await put({ lang: 'ar' })).body.preview, false, 'preview untouched by an unrelated update');
+  for (const bad of [{ groups: { gossip: { push: true } } }, { groups: { messages: { push: 'yes' } } }, { groups: { messages: { sms: true } } }, { groups: [] }, { groups: { messages: true } }, { preview: 'no' }]) {
+    assert.equal((await put(bad)).status, 400, JSON.stringify(bad));
+  }
+});
+
+test('a group switched off for WhatsApp is left out of the digest and does not come back when switched on', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  const put = (body) => request(ctx.server).put('/portal-api/influencer/alerts').set(lina.headers).send(body);
+  assert.equal((await put({ whatsapp: true, phone: '+971500000001', groups: { messages: { whatsapp: false }, invites: { whatsapp: true } } })).status, 200);
+  staffMessage(ctx, ctx.lina, 'Hello there');
+  ctx.store.createCampaignAssignment({ companyId: ctx.company.id, campaignId: ctx.campaign.id, contactId: ctx.lina.id, role: 'Influencer', agreedRate: 100, status: 'Contacted' });
+  assert.equal(await ctx.sweep(), 1);
+  assert.match(ctx.sent[0].text, /You are invited to a campaign/);
+  assert.equal(/message/i.test(ctx.sent[0].text), false, 'no message line while messages are off');
+  await put({ groups: { messages: { whatsapp: true } } });
+  assert.equal(await ctx.sweep(), 0, 'the earlier message is not announced late');
+  staffMessage(ctx, ctx.lina, 'Second');
+  assert.equal(await ctx.sweep(), 1);
+  assert.match(ctx.sent[1].text, /A new message from the team/);
+});
+
+test('an internal note or private message never reaches a digest', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  await request(ctx.server).put('/portal-api/client/alerts').set(omar.headers).send({ whatsapp: true, phone: '+96891234567', groups: ALL_WA });
+  const threadId = ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id;
+  const add = (extra) => ctx.store.conversations.addMessage({ threadId, authorType: 'staff', authorUserId: ctx.owner.id, authorPortalUserId: null, ...extra });
+  add({ channel: 'note', direction: 'out', visibility: 'internal', body: POISON });
+  add({ channel: 'portal', direction: 'out', visibility: 'owner_private', body: POISON });
+  add({ channel: 'whatsapp', direction: 'out', visibility: 'external', body: POISON });
+  assert.equal(await ctx.sweep(), 0);
+  staffMessage(ctx, ctx.client, 'Visible one');
+  assert.equal(await ctx.sweep(), 1);
+  assert.equal(ctx.sent[0].text.includes(POISON), false);
+  assert.match(ctx.sent[0].text, /A new message from the team/);
+});
+
+test('a row from before groups existed keeps WhatsApp on for every group', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  ctx.store.db.prepare('INSERT INTO portal_alert_prefs (portalUserId, phone, whatsapp, lang, updatedAt) VALUES (?, ?, 1, ?, ?)').run(lina.id, '971500000001', 'en', new Date().toISOString());
+  const got = (await request(ctx.server).get('/portal-api/influencer/alerts').set(lina.headers)).body;
+  assert.ok(Object.values(got.groups).every((g) => g.whatsapp === true));
+  staffMessage(ctx, ctx.lina, 'Legacy hello');
+  assert.equal(await ctx.sweep(), 1);
+  assert.match(ctx.sent[0].text, /A new message from the team/);
+});
+
+test('messages push off still sends the WhatsApp line when enabled', async () => {
+  const ctx = build();
+  ctx.store.upsertWhatsappInstance(ctx.company.id, { idInstance: '1101', apiToken: 'tok' });
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  await request(ctx.server).put('/portal-api/client/alerts').set(omar.headers).send({ whatsapp: true, phone: '+96891234567', groups: { messages: { push: false, whatsapp: true } } });
+  staffMessage(ctx, ctx.client, 'Hello');
+  assert.equal(await ctx.sweep(), 1);
+  assert.match(ctx.sent[0].text, /A new message from the team/);
 });

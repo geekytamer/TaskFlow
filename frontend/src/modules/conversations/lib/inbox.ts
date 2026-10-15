@@ -20,3 +20,15 @@ export function waitingCount(counts: { mine: number; unassigned: number; all: nu
   const n = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
   return n(counts.mine) + n(counts.unassigned);
 }
+
+/** Compact elapsed time: 12m, 5h, 3d. Under a minute (or a clock skew) reads as 1m. */
+export function elapsedShort(sinceIso: string | null, now: Date): { value: number; unit: 'm' | 'h' | 'd' } | null {
+  if (!sinceIso) return null;
+  const ms = now.getTime() - new Date(sinceIso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  const minutes = Math.max(1, Math.floor(ms / 60000));
+  if (minutes < 60) return { value: minutes, unit: 'm' };
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return { value: hours, unit: 'h' };
+  return { value: Math.floor(hours / 24), unit: 'd' };
+}

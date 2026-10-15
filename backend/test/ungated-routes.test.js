@@ -68,6 +68,9 @@ const KNOWN_UNGATED = new Set([
     'GET /push/public-key',
     'POST /push/subscribe',
     'POST /push/unsubscribe',
+    'GET /push/devices',
+    'POST /push/devices/:id/test',
+    'DELETE /push/devices/:id',
 ]);
 
 test('no route is ungated by accident', () => {

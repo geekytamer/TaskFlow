@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { HttpError } from '../http';
+import { DEFAULT_CONVERSATION_SETTINGS, type ConversationSettings } from './sla';
 
 export type ThreadState = 'waiting_us' | 'waiting_them' | 'done' | 'snoozed';
 export type Visibility = 'external' | 'internal' | 'owner_private';
@@ -228,6 +229,33 @@ export class ConversationsStore {
 
   mentionsOf(messageId: string): string[] {
     return (this.db.prepare('SELECT userId FROM conversation_mentions WHERE messageId = ? ORDER BY rowid').all(messageId) as Array<{ userId: string }>).map((r) => r.userId);
+  }
+
+  /** Working hours and response target for a company; defaults until it saves its own. */
+  settings(companyId: string): ConversationSettings {
+    const row = this.db
+      .prepare('SELECT responseTargetHours, workDays, dayStart, dayEnd, timeZone FROM conversation_settings WHERE companyId = ?')
+      .get(companyId) as (Omit<ConversationSettings, 'workDays'> & { workDays: string }) | undefined;
+    if (!row) return { ...DEFAULT_CONVERSATION_SETTINGS, workDays: [...DEFAULT_CONVERSATION_SETTINGS.workDays] };
+    return { ...row, workDays: JSON.parse(row.workDays) as number[] };
+  }
+
+  setSettings(companyId: string, s: ConversationSettings): void {
+    this.db
+      .prepare(
+        `INSERT INTO conversation_settings (companyId, responseTargetHours, workDays, dayStart, dayEnd, timeZone, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (companyId) DO UPDATE SET responseTargetHours = excluded.responseTargetHours, workDays = excluded.workDays,
+           dayStart = excluded.dayStart, dayEnd = excluded.dayEnd, timeZone = excluded.timeZone, updatedAt = excluded.updatedAt`,
+      )
+      .run(companyId, s.responseTargetHours, JSON.stringify(s.workDays), s.dayStart, s.dayEnd, s.timeZone, new Date().toISOString());
+  }
+
+  /** Companies with a thread that owes, or may owe after a snooze, a reply. */
+  companiesWaiting(): string[] {
+    return (this.db
+      .prepare("SELECT DISTINCT companyId FROM conversation_threads WHERE state IN ('waiting_us', 'snoozed')")
+      .all() as Array<{ companyId: string }>).map((r) => r.companyId);
   }
 
   /** A snoozed thread whose time has passed is waiting on us again. */

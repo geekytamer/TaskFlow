@@ -1,17 +1,20 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { AppBadge } from '@/components/app-badge';
 import { FileList } from '@/components/file-list';
 import { MessageComposer } from '@/components/message-composer';
 import { ScrollToLatest } from '@/components/scroll-to-latest';
 import { EmptyState, PageHeader, textLink } from '@/components/ui';
 import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
 import { PhoneNotifications } from '@/components/phone-notifications';
+import { AlertMatrix } from '@/components/alert-matrix';
+import { InstallAppCard } from '@/components/install-app-card';
 import { getAlertSettings } from '@/lib/alerts';
 import { getAudience } from '@/lib/audience';
 import { formatDate } from '@/lib/format';
 import { t, type Lang } from '@/lib/i18n';
 import { groupMessages, localDay } from '@/lib/message-groups';
-import { getThread } from '@/lib/messages';
+import { getThread, getThreads } from '@/lib/messages';
 import { currentLang } from '@/lib/session';
 import { authorLine, threadTitle } from '@/lib/thread-labels';
 
@@ -38,6 +41,8 @@ export default async function ThreadPage({ params, searchParams }: { params: Pro
   // Influencers manage WhatsApp alerts on their Profile; clients have no Profile page, so theirs stay here.
   const [detail, alerts] = await Promise.all([getThread(id), audience === 'client' ? getAlertSettings().catch(() => null) : Promise.resolve(null)]);
   if (!detail) notFound();
+  // Opening the thread read it; what is left unread elsewhere goes on the app icon.
+  const unreadThreads = await getThreads().then((ts) => ts.filter((th) => th.unread).length).catch(() => null);
   const { messages } = detail;
   const hidden = all ? 0 : Math.max(0, messages.length - RECENT);
   const days = groupMessages(messages.slice(hidden), ZONE);
@@ -45,6 +50,7 @@ export default async function ThreadPage({ params, searchParams }: { params: Pro
 
   return (
     <div className="max-w-3xl space-y-6">
+      {unreadThreads !== null && <AppBadge count={unreadThreads} />}
       <PageHeader back={{ href: '/messages', label: t(lang, 'msg.backToThreads') }} title={<bdi>{threadTitle(detail.thread.subject, lang)}</bdi>} />
 
       {messages.length === 0 ? (
@@ -91,7 +97,9 @@ export default async function ThreadPage({ params, searchParams }: { params: Pro
         <MessageComposer lang={lang} threadId={id} />
       </div>
 
+      {audience === 'client' && <InstallAppCard lang={lang} />}
       {audience === 'client' && <PhoneNotifications lang={lang} />}
+      {alerts && <AlertMatrix lang={lang} audience="client" initial={alerts} />}
       {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );

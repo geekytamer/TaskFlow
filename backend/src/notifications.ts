@@ -23,7 +23,7 @@ export const NOTIFICATION_META: Record<
   vendor_bill_approval: { category: 'finance', priority: 'critical' },
   followup_due: { category: 'crm', priority: 'critical' },
   followup_assigned: { category: 'crm', priority: 'normal' },
-  mention: { category: 'crm', priority: 'normal' },
+  mention: { category: 'messages', priority: 'normal' },
   lead_assigned: { category: 'crm', priority: 'normal' },
   low_stock: { category: 'inventory', priority: 'normal' },
   expiry_warning: { category: 'inventory', priority: 'normal' },
@@ -33,6 +33,9 @@ export const NOTIFICATION_META: Record<
   storage_excursion: { category: 'inventory', priority: 'critical' },
   storage_reading_due: { category: 'inventory', priority: 'normal' },
   shipment_due: { category: 'inventory', priority: 'normal' },
+  message_received: { category: 'messages', priority: 'normal' },
+  thread_assigned: { category: 'messages', priority: 'normal' },
+  response_overdue: { category: 'messages', priority: 'normal' },
 };
 
 /**
@@ -50,7 +53,7 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   vendor_bill_approval: 'vendor-bills',
   followup_due: 'crm',
   followup_assigned: 'crm',
-  mention: 'crm',
+  mention: 'contacts',
   lead_assigned: 'contacts',
   low_stock: 'inventory',
   expiry_warning: 'inventory',
@@ -60,17 +63,25 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   storage_excursion: 'inventory',
   storage_reading_due: 'inventory',
   shipment_due: 'inventory',
+  message_received: 'contacts',
+  thread_assigned: 'contacts',
+  response_overdue: 'contacts',
 };
 
-export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory', 'messages'];
 
-/** Everything on by default — users opt out in preferences. */
+/**
+ * Everything on by default — users opt out in preferences. Messages skip email:
+ * a chat is answered in the inbox, not from a mailbox.
+ */
 export function defaultNotificationPrefs(): NotificationPrefs {
   return {
     tasks: { inApp: true, email: true, push: true },
     finance: { inApp: true, email: true, push: true },
     crm: { inApp: true, email: true, push: true },
     inventory: { inApp: true, email: true, push: true },
+    messages: { inApp: true, email: false, push: true },
+    pushPreview: true,
   };
 }
 
@@ -83,12 +94,14 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
     const entry = input[category];
     if (entry && typeof entry === 'object') {
       const e = entry as Record<string, unknown>;
+      const fallback = base[category];
       base[category] = {
-        inApp: e.inApp !== false,
-        email: e.email !== false,
-        push: e.push !== false,
+        inApp: typeof e.inApp === 'boolean' ? e.inApp : fallback.inApp,
+        email: typeof e.email === 'boolean' ? e.email : fallback.email,
+        push: typeof e.push === 'boolean' ? e.push : fallback.push,
       };
     }
   }
+  base.pushPreview = input.pushPreview !== false;
   return base;
 }

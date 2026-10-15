@@ -15,14 +15,17 @@ export interface BackendResult<T> {
  * The only way the portal reaches the backend. Runs on the server, so the
  * session token never touches browser JavaScript. The visitor's address is
  * passed on so the backend's per-address sign-in limit sees the visitor, not
- * this process.
+ * this process, and so is the browser's User-Agent, which names a person's
+ * devices on the phone notifications list.
  */
 export async function backendFetch<T = Record<string, unknown>>(
   audience: Audience,
   path: string,
-  init: { method?: 'GET' | 'POST'; body?: unknown; token?: string } = {},
+  init: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; token?: string } = {},
 ): Promise<BackendResult<T>> {
-  const forwardedFor = (await headers()).get('x-forwarded-for');
+  const incoming = await headers();
+  const forwardedFor = incoming.get('x-forwarded-for');
+  const userAgent = incoming.get('user-agent');
   try {
     const response = await fetch(`${apiBase()}/portal-api/${audience}${path}`, {
       method: init.method ?? 'GET',
@@ -32,6 +35,7 @@ export async function backendFetch<T = Record<string, unknown>>(
         'Content-Type': 'application/json',
         ...(init.token ? { Authorization: `Bearer ${init.token}` } : {}),
         ...(forwardedFor ? { 'X-Forwarded-For': forwardedFor } : {}),
+        ...(userAgent ? { 'User-Agent': userAgent.slice(0, 300) } : {}),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });

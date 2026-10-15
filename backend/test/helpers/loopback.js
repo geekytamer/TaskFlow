@@ -12,3 +12,7 @@ Test.prototype.serverAddress = function (app, path) {
   const url = serverAddress.call(this, app, path);
   return app.address()?.address === '::' ? url.replace('://127.0.0.1:', '://[::1]:') : url;
 };
+
+// Quiet hours (22:00-08:00) would hold pushes whenever the suite happens to run at night.
+// push-quiet-hours.test.js turns them back on and passes explicit times.
+process.env.TASKFLOW_QUIET_HOURS ??= 'off';

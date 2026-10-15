@@ -1,3 +1,4 @@
+import { redactUrl } from './log-redact';
 import path from 'node:path';
 import express, { NextFunction, Request, RequestHandler, Response } from 'express';
 import cors from 'cors';
@@ -47,6 +48,7 @@ import { likersFetcherFromEnv, type LikersFetcher } from './games/likers-fetcher
 import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
 import { sweepPortalPush } from './portal/push-alerts';
+import { releaseHeldPush } from './push/quiet-hours';
 import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
 import { discoverTick } from './discover/jobs';
@@ -133,7 +135,9 @@ import { registerWhatsappRoutes } from './routes/whatsapp';
 import { registerHrRoutes } from './routes/hr';
 import { registerWorkspaceRoutes } from './routes/workspace';
 import { registerPushRoutes } from './routes/push';
-import { pushConfigFromEnv, sendToPrincipal, type PushConfig } from './push/push';
+import { registerPushActionRoutes } from './routes/push-actions';
+import { pushConfigFromEnv, type PushConfig } from './push/push';
+import { dispatchStaffPush, flushThreadPushes, sweepResponseOverdue } from './conversations/alerts';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
@@ -714,18 +718,11 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
   // Fire-and-forget so notification creation never blocks on email I/O.
-  // Every notification also goes to the person's phones when that category's push is on.
-  // Only the title travels: it says what happened; the app shows the rest.
+  // Every notification also goes to the person's phones when that category's push is on
+  // (conversations/alerts.ts: message alerts throttled per thread, preview only if allowed).
   const dispatchPush = async (notifications: Notification[]) => {
     if (!push) return;
-    for (const n of notifications) {
-      try {
-        if (!store.getNotificationPrefs(n.userId)[n.category].push) continue;
-        await sendToPrincipal(store, push.send, 'staff', n.userId, { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` });
-      } catch (error) {
-        logger.warn('[push] could not send a staff notification', error);
-      }
-    }
+    await dispatchStaffPush(store, push.send, notifications, Date.now(), (error) => logger.warn('[push] could not send a staff notification', error));
   };
 
   store.setOnNotificationsCreated((notifications) => {
@@ -781,6 +778,37 @@ export function createServer(options: CreateServerOptions = {}) {
     };
     setTimeout(runSweep, 30 * 1000).unref?.();
     setInterval(runSweep, sweepIntervalMs).unref?.();
+
+    // Every 5 minutes: warn whoever answers a thread that has passed its response target.
+    setInterval(() => {
+      const now = new Date().toISOString();
+      for (const companyId of store.conversations.companiesWaiting()) {
+        try {
+          sweepResponseOverdue(store, companyId, now);
+        } catch (error) {
+          logger.error('[conversations] response-overdue sweep failed', error);
+        }
+      }
+    }, 5 * 60 * 1000).unref?.();
+
+    // Every minute: message alerts held back by the push window go out with their current count.
+    if (push) {
+      setInterval(() => {
+        void flushThreadPushes(store, push.send, Date.now(), (error) => logger.warn('[push] could not send a staff notification', error))
+          .catch((error) => logger.error('[conversations] push flush failed', error));
+      }, 60 * 1000).unref?.();
+    }
+
+    // Every minute: once quiet hours end, each person with held pushes gets one summary.
+    if (push) {
+      setInterval(() => {
+        const now = new Date().toISOString();
+        for (const company of store.listCompanies()) {
+          releaseHeldPush(store, push.send, company.id, now)
+            .catch((error) => logger.error('[push] morning summary failed', error));
+        }
+      }, 60 * 1000).unref?.();
+    }
 
     // Hourly: generate due/overdue task + follow-up reminder notifications
     // (deduped to once per day per item by the store).
@@ -885,7 +913,7 @@ export function createServer(options: CreateServerOptions = {}) {
   app.use((req, res, next) => {
     const startedAt = Date.now();
     res.on('finish', () => {
-      logger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`);
+      logger.info(`${req.method} ${redactUrl(req.originalUrl)} ${res.statusCode} ${Date.now() - startedAt}ms`);
     });
     next();
   });
@@ -7725,6 +7753,12 @@ export function createServer(options: CreateServerOptions = {}) {
   registerHrRoutes(app, routeContext);
   registerWorkspaceRoutes(app, routeContext);
   registerPushRoutes(app, routeContext, push);
+  // A notification's "Mark done" button: no session, a signed token re-checked on use.
+  registerPushActionRoutes(app, {
+    store,
+    contactsLocked: (user, companyId) => academyEnforce && !user.isSuperAdmin && !store.isTrainingCompany(companyId)
+      && academyLockedModules(store, user).includes('contacts'),
+  });
 
   // ─── Graceful record deletion ──────────────────────────────────────────────
   // Each route loads the record (404 if missing), checks the caller's role, then
@@ -8041,6 +8075,7 @@ export function createServer(options: CreateServerOptions = {}) {
       store,
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+      requireManager: (req, companyId) => requireCompanyRoles(req as AuthedRequest, companyId, ['Admin', 'Manager']),
       viewerFor: (req, companyId) => ({
         kind: 'staff',
         userId: (req as AuthedRequest).user!.id,
@@ -8090,7 +8125,7 @@ export function createServer(options: CreateServerOptions = {}) {
   app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (process.env.AUTHZ_DEBUG_FAIL && error instanceof HttpError && error.status >= 400) {
       // eslint-disable-next-line no-console
-      console.error(`[fail] ${req.method} ${req.originalUrl} -> ${error.status} ${error.message}`);
+      console.error(`[fail] ${req.method} ${redactUrl(req.originalUrl)} -> ${error.status} ${error.message}`);
     }
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message, ...(error.details ?? {}) });
@@ -8124,7 +8159,7 @@ export function createServer(options: CreateServerOptions = {}) {
     if (isDataRuleError(error)) {
       return res.status(400).json({ message: error.message });
     }
-    logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);
+    logger.error(`Unhandled error for ${req.method} ${redactUrl(req.originalUrl)}`, error);
     res.status(500).json({ message: 'Internal server error.' });
   });
 

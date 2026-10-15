@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api-client';
 
-export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory';
+export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory' | 'messages';
 export type NotificationPriority = 'critical' | 'normal';
 
 export interface AppNotification {
@@ -44,9 +44,12 @@ export interface NotificationChannelPref {
   push: boolean;
 }
 
-export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
+export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref> & {
+  /** Show the start of a client's message on the lock screen. */
+  pushPreview: boolean;
+};
 
-export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory', 'messages'];
 
 const toDate = (v: any) => (v ? new Date(v) : undefined);
 
@@ -110,3 +113,12 @@ export const subscribePush = (subscription: PushSubscriptionJSON) =>
   apiFetch<{ subscribed: boolean }>('/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) });
 export const unsubscribePush = (endpoint: string) =>
   apiFetch<void>('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
+
+/** A device that gets this person's phone notifications; `current` is the one asking. */
+export interface PushDevice { id: string; label: string; lastSentAt: string | null; createdAt: string; current: boolean }
+export const listPushDevices = (currentEndpoint?: string) =>
+  apiFetch<PushDevice[]>(`/push/devices${currentEndpoint ? `?endpoint=${encodeURIComponent(currentEndpoint)}` : ''}`);
+export const testPushDevice = (id: string) =>
+  apiFetch<{ delivered: boolean; removed: boolean }>(`/push/devices/${encodeURIComponent(id)}/test`, { method: 'POST' });
+export const removePushDevice = (id: string) =>
+  apiFetch<void>(`/push/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });

@@ -6,6 +6,8 @@ import { downloadHeaders, readUpload } from '../portal/files';
 import { afterStaffMessage, fileDto, parseFileIds, parseMessage } from '../portal/thread';
 import { asRecord } from '../validation';
 import type { ConvMessage, Thread, ThreadState } from './conversations-store';
+import { notifyThreadAssigned } from './alerts';
+import { parseConversationSettings } from './sla';
 import { staffMessageView, staffThreadView } from './views';
 import { canSeeContact, canSeeMessage, type StaffViewer } from './visibility';
 
@@ -22,11 +24,13 @@ export interface ConversationStaffDeps {
   /** Whether this user may read private contacts of others (CONTACTS_PRIVATE_READ). */
   seesPrivateFor(userId: string, companyId: string): boolean | Promise<boolean>;
   /** Contacts module on for the company and the request user holds contacts:read (or contacts:write for 'write'). */
+  /** Admin or Manager of the company (throws otherwise). */
+  requireManager(req: StaffRequest, companyId: string): void;
   canUseContacts(req: StaffRequest, companyId: string, access: 'read' | 'write'): boolean | Promise<boolean>;
 }
 
 const NOTE_EDIT_MS = 15 * 60 * 1000;
-const STATE_FILTERS = ['waiting_us', 'waiting_them', 'done', 'snoozed', 'open'] as const;
+const STATE_FILTERS = ['waiting_us', 'waiting_them', 'done', 'snoozed', 'open', 'overdue'] as const;
 
 const wrap = (fn: (req: StaffRequest, res: Response) => unknown) =>
   (req: Request, res: Response, next: NextFunction) => {
@@ -113,13 +117,33 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     };
 
     const states: ThreadState[] | undefined = !stateParam ? undefined
-      : stateParam === 'open' ? ['waiting_us', 'waiting_them'] : [stateParam as ThreadState];
-    const threads = all
+      : stateParam === 'open' ? ['waiting_us', 'waiting_them']
+      : stateParam === 'overdue' ? ['waiting_us'] : [stateParam as ThreadState];
+    // Longest-waiting first where a reply is owed.
+    const oldestFirst = stateParam === 'waiting_us' || stateParam === 'overdue';
+    const ordered = oldestFirst
+      ? [...all].sort((a, b) => (a.waitingSince ?? '').localeCompare(b.waitingSince ?? ''))
+      : all;
+    const threads = ordered
       .filter((t) => view === 'all' || (view === 'mine' ? t.assigneeUserId === viewer.userId : !t.assigneeUserId))
       .filter((t) => !states || states.includes(t.state))
       .map((t) => threadView(t, viewer, now))
+      .filter((t) => stateParam !== 'overdue' || t.sla?.level === 'red')
       .filter((t) => !q || t.contact.name.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q));
     res.json({ threads, counts });
+  }));
+
+  router.get('/companies/:companyId/conversation-settings', authMiddleware, wrap(async (req, res) => {
+    await requireContacts(req, req.params.companyId);
+    res.json(c.settings(req.params.companyId));
+  }));
+
+  router.put('/companies/:companyId/conversation-settings', authMiddleware, wrap(async (req, res) => {
+    const { companyId } = req.params;
+    deps.requireManager(req, companyId);
+    const settings = parseConversationSettings(asRecord(req.body, 'body'));
+    c.setSettings(companyId, settings);
+    res.json(c.settings(companyId));
   }));
 
   router.get('/companies/:companyId/contacts/:contactId/conversation', authMiddleware, wrap(async (req, res) => {
@@ -141,6 +165,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     const { thread, viewer } = await loadThread(req);
     const now = new Date().toISOString();
     c.markRead(thread.id, { type: 'staff', id: viewer.userId }, now);
+    store.markThreadNotificationsRead(viewer.userId, thread.id);
     res.json({
       thread: threadView(thread, viewer, now),
       messages: visibleMessages(thread, viewer).map((m) => staffMessageView(store, m, thread, viewer.userId)),
@@ -182,6 +207,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       });
       if (mentionIds.length) c.addMentions(created.id, mentionIds);
       if (kind === 'portal') afterStaffMessage(store, { companyId: thread.companyId, contactId: thread.contactId, userId: viewer.userId });
+      store.markThreadNotificationsRead(viewer.userId, thread.id);
       return created;
     });
 
@@ -271,6 +297,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       if (assignee !== undefined) c.setAssignee(thread.id, assignee);
       if (state) c.setState(thread.id, state.state, state.until);
     });
+    if (assignee && assignee !== thread.assigneeUserId) notifyThreadAssigned(store, c.getThread(thread.id)!, assignee, viewer.userId);
     res.json(threadView(c.getThread(thread.id)!, viewer, now));
   }));
 
