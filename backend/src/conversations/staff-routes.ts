@@ -165,6 +165,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     const { thread, viewer } = await loadThread(req);
     const now = new Date().toISOString();
     c.markRead(thread.id, { type: 'staff', id: viewer.userId }, now);
+    store.markThreadNotificationsRead(viewer.userId, thread.id);
     res.json({
       thread: threadView(thread, viewer, now),
       messages: visibleMessages(thread, viewer).map((m) => staffMessageView(store, m, thread, viewer.userId)),
@@ -206,6 +207,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       });
       if (mentionIds.length) c.addMentions(created.id, mentionIds);
       if (kind === 'portal') afterStaffMessage(store, { companyId: thread.companyId, contactId: thread.contactId, userId: viewer.userId });
+      store.markThreadNotificationsRead(viewer.userId, thread.id);
       return created;
     });
 

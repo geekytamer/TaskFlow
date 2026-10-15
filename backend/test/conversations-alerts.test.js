@@ -4,7 +4,7 @@ const path = require('node:path');
 const request = require('supertest');
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
-const { notifyThreadMessage, sweepResponseOverdue, dispatchStaffPush } = require('../dist/conversations/alerts');
+const { notifyThreadMessage, sweepResponseOverdue, dispatchStaffPush, flushThreadPushes } = require('../dist/conversations/alerts');
 const { makeTmpDir } = require('./helpers/tmp');
 
 /** Staff alerts for conversation messages: grouped per thread, throttled on the phone, previewed only when allowed. */
@@ -70,6 +70,82 @@ test('five client messages in a minute are one unread alert with count 5 and one
   assert.equal(pushes.length, 1, 'one push inside the two-minute window');
   assert.equal(pushes[0].tag, `thread:${ctx.general.id}`);
   assert.equal(ctx.pushesTo('ada').length, 0, 'the owner gets it, not the admins');
+
+  // The trailing edge: once the window has passed, the held-back messages go out as one push with the count.
+  const flushed = [];
+  const send = async (s, payload) => { flushed.push({ endpoint: s.endpoint, ...JSON.parse(payload) }); return { statusCode: 201 }; };
+  assert.equal(await flushThreadPushes(ctx.store, send, Date.now() + 30_000), 0, 'not inside the window');
+  assert.equal(await flushThreadPushes(ctx.store, send, Date.now() + 3 * MIN), 1);
+  assert.equal(flushed.length, 1);
+  assert.equal(flushed[0].title, '5 new messages from Al Mouj Café');
+  assert.equal(flushed[0].tag, `thread:${ctx.general.id}`);
+  assert.equal(flushed[0].body, 'Question 5');
+  assert.equal(await flushThreadPushes(ctx.store, send, Date.now() + 10 * MIN), 0, 'nothing new since the last push');
+  assert.equal(flushed.length, 1);
+});
+
+test('handling a thread in the inbox reads its alerts, so the count starts over', async () => {
+  const ctx = await build();
+  for (let i = 1; i <= 3; i += 1) await ctx.clientSays(`Q${i}`);
+  assert.equal(ctx.alertsOf(ctx.carla)[0].data.count, 3);
+  ctx.store.conversations.setSettings(ctx.company.id, { responseTargetHours: 1, workDays: [0, 1, 2, 3, 4, 5, 6], dayStart: '00:00', dayEnd: '23:59', timeZone: 'UTC' });
+  assert.equal(sweepResponseOverdue(ctx.store, ctx.company.id, new Date(Date.now() + 2 * 3_600_000).toISOString()), 1);
+  // Dan has an alert too (an older one, still unread): opening it as Carla leaves his alone.
+  ctx.store.notify({ companyId: ctx.company.id, userIds: [ctx.dan.id], type: 'message_received', title: 'x', entityType: 'conversation_thread', entityId: ctx.general.id, data: { count: 1 } });
+
+  assert.equal((await request(ctx.server).get(`/conversation-threads/${ctx.general.id}`).set(ctx.staff(ctx.carla))).status, 200);
+  assert.equal(ctx.alertsOf(ctx.carla).every((a) => a.readAt), true, 'opening the thread reads the message alert');
+  assert.equal(ctx.alertsOf(ctx.carla, 'response_overdue').every((a) => a.readAt), true, 'and the overdue warning');
+  assert.equal(ctx.alertsOf(ctx.dan)[0].readAt, null, 'only the reader\'s own alerts');
+
+  await ctx.clientSays('Q4');
+  const fresh = ctx.alertsOf(ctx.carla).filter((a) => !a.readAt);
+  assert.equal(fresh.length, 1);
+  assert.equal(fresh[0].data.count, 1, 'starts over');
+
+  const reply = await request(ctx.server).post(`/conversation-threads/${ctx.general.id}/messages`).set(ctx.staff(ctx.carla)).send({ kind: 'portal', body: 'Answered' });
+  assert.equal(reply.status, 201);
+  assert.equal(ctx.alertsOf(ctx.carla).every((a) => a.readAt), true, 'replying reads it too');
+});
+
+test('alerts follow the contact\'s current owner and never reach someone who cannot see a private contact', async () => {
+  const ctx = await build();
+  const employee = (name) => ctx.store.createUser({ name, email: `${name.toLowerCase()}@peak.test`, password: 'x', role: 'Employee', companyIds: [ctx.company.id], companyRoles: [{ companyId: ctx.company.id, role: 'Employee' }] });
+  const eve = employee('Eve');
+  const fay = employee('Fay');
+  const secret = ctx.store.createContact({ companyId: ctx.company.id, kind: 'Organization', name: 'Quiet Client', roles: ['Client'], ownerUserId: eve.id });
+  ctx.store.updateContact(secret.id, { visibility: 'Private' });
+  const { token } = ctx.store.portal.inviteUser({ companyId: ctx.company.id, audience: 'client', contactId: secret.id, email: 'q@quiet.test', name: 'Q', role: 'client_admin' });
+  ctx.store.portal.acceptInvitation(token, PASSWORD);
+  const login = await request(ctx.server).post('/portal-api/client/auth/login').send({ email: 'q@quiet.test', password: PASSWORD });
+  const thread = ctx.store.conversations.generalThread(ctx.company.id, secret.id);
+  const say = async (body) => assert.equal((await request(ctx.server).post(`/portal-api/client/threads/${thread.id}/messages`).set({ Authorization: `Bearer ${login.body.token}` }).send({ body })).status, 201);
+
+  await say('For Eve');
+  assert.equal(ctx.alertsOf(eve).length, 1, 'the owner hears');
+
+  // Ownership moves to Fay; the conversation row still remembers Eve.
+  ctx.store.updateContact(secret.id, { ownerUserId: fay.id });
+  assert.equal(ctx.store.conversations.findConversation(ctx.company.id, secret.id).ownerUserId, eve.id);
+  ctx.store.conversations.setAssignee(thread.id, null);
+  await say('POISON-AFTER-MOVE');
+  assert.equal(ctx.alertsOf(fay).length, 1, 'the new owner hears');
+  assert.equal(ctx.alertsOf(eve)[0].data.count, 1, 'the former owner hears nothing more');
+  assert.equal(/POISON/.test(JSON.stringify(ctx.alertsOf(eve))), false);
+
+  // An assignee who cannot see the private contact is not told either.
+  ctx.store.conversations.setAssignee(thread.id, eve.id);
+  await say('POISON-ASSIGNEE');
+  assert.equal(/POISON-ASSIGNEE/.test(JSON.stringify(ctx.alertsOf(eve))), false);
+  assert.equal(ctx.alertsOf(eve).filter((a) => !a.readAt).every((a) => a.data.count === 1), true);
+});
+
+test('a partial preferences update keeps the channels it did not send', async () => {
+  const ctx = await build();
+  const res = await request(ctx.server).put('/notifications/preferences').set(ctx.staff(ctx.dan)).send({ messages: { inApp: true, push: false } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.messages, { inApp: true, email: false, push: false });
+  assert.deepEqual(res.body.tasks, { inApp: true, email: true, push: true });
 });
 
 test('a sixth message after two minutes pushes again with the current count', async () => {
@@ -112,7 +188,7 @@ test('a read alert starts a new one; recipients fall back from assignee to owner
   assert.equal(ctx.alertsOf(ctx.dan).length, 1);
 
   ctx.store.conversations.setAssignee(ctx.general.id, null);
-  ctx.store.db.prepare('UPDATE conversations SET ownerUserId = NULL WHERE id = ?').run(ctx.general.conversationId);
+  ctx.store.db.prepare('UPDATE contacts SET ownerUserId = NULL WHERE id = ?').run(ctx.client.id);
   await ctx.clientSays('Anyone?');
   assert.equal(ctx.alertsOf(ctx.ada).length, 1, 'no assignee and no owner: the admins');
 });

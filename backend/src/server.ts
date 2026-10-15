@@ -134,7 +134,7 @@ import { registerHrRoutes } from './routes/hr';
 import { registerWorkspaceRoutes } from './routes/workspace';
 import { registerPushRoutes } from './routes/push';
 import { pushConfigFromEnv, type PushConfig } from './push/push';
-import { dispatchStaffPush, sweepResponseOverdue } from './conversations/alerts';
+import { dispatchStaffPush, flushThreadPushes, sweepResponseOverdue } from './conversations/alerts';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
@@ -786,6 +786,14 @@ export function createServer(options: CreateServerOptions = {}) {
         }
       }
     }, 5 * 60 * 1000).unref?.();
+
+    // Every minute: message alerts held back by the push window go out with their current count.
+    if (push) {
+      setInterval(() => {
+        void flushThreadPushes(store, push.send, Date.now(), (error) => logger.warn('[push] could not send a staff notification', error))
+          .catch((error) => logger.error('[conversations] push flush failed', error));
+      }, 60 * 1000).unref?.();
+    }
 
     // Hourly: generate due/overdue task + follow-up reminder notifications
     // (deduped to once per day per item by the store).

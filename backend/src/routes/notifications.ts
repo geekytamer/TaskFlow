@@ -63,10 +63,12 @@ export function registerNotificationRoutes(app: Express, ctx: RouteContext): voi
         // A category the client did not send keeps what it had (a new one starts at its default).
         if (body[category] === undefined) { next[category] = current[category]; continue; }
         const entry = asRecord(body[category], category);
+        // A channel the client did not send keeps what it had.
+        const keep = current[category];
         next[category] = {
-          inApp: entry.inApp !== false,
-          email: entry.email !== false,
-          push: entry.push !== false,
+          inApp: typeof entry.inApp === 'boolean' ? entry.inApp : keep.inApp,
+          email: typeof entry.email === 'boolean' ? entry.email : keep.email,
+          push: typeof entry.push === 'boolean' ? entry.push : keep.push,
         };
       }
       next.pushPreview = body.pushPreview === undefined ? current.pushPreview : body.pushPreview !== false;

@@ -1,6 +1,8 @@
 import type { DataStore } from '../data/store';
 import { sendToPrincipal, type PushSender } from '../push/push';
-import type { Notification } from '../types';
+import { canAccessCompany } from '../http';
+import { RECORD_RULES } from '../permissions/record-rules';
+import type { Contact, Notification, NotificationPrefs, SanitizedUser } from '../types';
 import type { ConvMessage, Thread } from './conversations-store';
 import { slaOf } from './sla';
 
@@ -21,12 +23,33 @@ const threadLink = (threadId: string, messageId?: string) =>
 
 const contactName = (store: DataStore, thread: Thread) => store.getContactById(thread.contactId)?.name ?? 'a client';
 
-/** Who answers a thread: its assignee, else the conversation owner, else the company's Admins. */
+const PRIVATE_READ = RECORD_RULES.CONTACTS_PRIVATE_READ;
+
+/**
+ * Whether a person may hear about this contact's conversation: a member of the
+ * company who can see the contact (public, theirs, or private-read). The store
+ * evaluates private-read the same way the routes do, under either engine, and
+ * synchronously, because alerts are raised inside the message transaction.
+ */
+function canSeeContactOf(store: DataStore, contact: Contact | undefined, userId: string, privateReaders: () => Set<string>): boolean {
+  const user = store.getUserById(userId);
+  if (!contact || !user || !canAccessCompany(user as SanitizedUser, contact.companyId)) return false;
+  return contact.visibility !== 'Private' || contact.ownerUserId === userId || privateReaders().has(userId);
+}
+
+/**
+ * Who answers a thread: its assignee, else the contact's current owner, else the
+ * company's Admins — and only those of them who can see the contact.
+ */
 export function threadRecipients(store: DataStore, thread: Thread): string[] {
-  if (thread.assigneeUserId) return [thread.assigneeUserId];
-  const owner = store.conversations.findConversation(thread.companyId, thread.contactId)?.ownerUserId;
-  if (owner) return [owner];
-  return store.listUserIdsByCompanyRoles(thread.companyId, ['Admin']);
+  const contact = store.getContactById(thread.contactId);
+  let readers: Set<string> | undefined;
+  const privateReaders = () =>
+    (readers ??= new Set(store.listUserIdsWithPermission(thread.companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles])));
+  const visible = (ids: string[]) => ids.filter((id) => canSeeContactOf(store, contact, id, privateReaders));
+  if (thread.assigneeUserId) return visible([thread.assigneeUserId]);
+  if (contact?.ownerUserId) return visible([contact.ownerUserId]);
+  return visible(store.listUserIdsByCompanyRoles(thread.companyId, ['Admin']));
 }
 
 const isInboundExternal = (m: ConvMessage) => m.channel !== 'note' && m.direction === 'in' && m.visibility === 'external';
@@ -56,7 +79,7 @@ export function notifyThreadAssigned(store: DataStore, thread: Thread, assigneeU
   const name = contactName(store, thread);
   store.notify({
     companyId: thread.companyId,
-    userIds: [assigneeUserId],
+    userIds: threadRecipients(store, { ...thread, assigneeUserId }),
     type: 'thread_assigned',
     title: `You were assigned the conversation with ${name}`,
     body: thread.subject,
@@ -98,11 +121,25 @@ function previewOf(store: DataStore, n: Notification): string {
   return message && isInboundExternal(message) ? message.body.slice(0, PUSH_PREVIEW_CHARS) : '';
 }
 
+/** Pushes one message alert as it stands now: its count in the title, the latest preview if allowed. */
+async function pushThreadAlert(store: DataStore, send: PushSender, n: Notification, prefs: NotificationPrefs, nowMs: number): Promise<void> {
+  // Marked before sending, so a message arriving mid-send sees the window.
+  store.markNotificationPushed(n.id, new Date(nowMs).toISOString(), Number(n.data?.count ?? 1));
+  const body = prefs.pushPreview ? previewOf(store, n) : '';
+  await sendToPrincipal(store, send, 'staff', n.userId, { title: n.title, body, url: n.link ?? '/notifications', tag: `thread:${n.entityId}` });
+}
+
+const insideWindow = (store: DataStore, n: Notification, nowMs: number) => {
+  const last = store.lastThreadPushAt(n.userId, n.entityId!);
+  return !!last && nowMs - Date.parse(last) < MESSAGE_PUSH_WINDOW_MS;
+};
+
 /**
  * Sends staff notifications to their phones, per category preference. Message
  * alerts are throttled per (person, thread) and tagged by thread, so a later
- * push replaces the earlier one and carries the current count. Only the title
- * travels, plus a message preview when the person allows it.
+ * push replaces the earlier one and carries the current count; what the window
+ * held back goes out with flushThreadPushes. Only the title travels, plus a
+ * message preview when the person allows it.
  */
 export async function dispatchStaffPush(
   store: DataStore,
@@ -115,19 +152,38 @@ export async function dispatchStaffPush(
     try {
       const prefs = store.getNotificationPrefs(n.userId);
       if (!prefs[n.category].push) continue;
-      let tag = `${n.type}:${n.entityId ?? n.id}`;
-      let body = '';
       if (n.type === 'message_received' && n.entityId) {
-        const last = store.lastThreadPushAt(n.userId, n.entityId);
-        if (last && nowMs - Date.parse(last) < MESSAGE_PUSH_WINDOW_MS) continue;
-        // Marked before sending, so a message arriving mid-send sees the window.
-        store.markNotificationPushed(n.id, new Date(nowMs).toISOString());
-        tag = `thread:${n.entityId}`;
-        if (prefs.pushPreview) body = previewOf(store, n);
+        if (!insideWindow(store, n, nowMs)) await pushThreadAlert(store, send, n, prefs, nowMs);
+        continue;
       }
-      await sendToPrincipal(store, send, 'staff', n.userId, { title: n.title, body, url: n.link ?? '/notifications', tag });
+      await sendToPrincipal(store, send, 'staff', n.userId, { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` });
     } catch (error) {
       onError(error);
     }
   }
+}
+
+/**
+ * The trailing edge of the throttle: an unread message alert that gained
+ * messages since its last push, once the window has passed, is pushed once
+ * more with the current count. Returns how many alerts were pushed.
+ */
+export async function flushThreadPushes(
+  store: DataStore,
+  send: PushSender,
+  nowMs: number = Date.now(),
+  onError: (error: unknown) => void = () => undefined,
+): Promise<number> {
+  let pushed = 0;
+  for (const n of store.listUnpushedThreadNotifications()) {
+    try {
+      const prefs = store.getNotificationPrefs(n.userId);
+      if (!prefs[n.category].push || insideWindow(store, n, nowMs)) continue;
+      await pushThreadAlert(store, send, n, prefs, nowMs);
+      pushed += 1;
+    } catch (error) {
+      onError(error);
+    }
+  }
+  return pushed;
 }

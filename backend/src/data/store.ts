@@ -20171,8 +20171,10 @@ export class DataStore {
       }
       const existing = this.decodeNotification(row);
       const built = input.build(Number(existing.data?.count ?? 1) + 1);
-      // The phone dispatcher's last-push mark survives the rewrite.
-      const data = existing.data?.pushedAt ? { ...built.data, pushedAt: existing.data.pushedAt } : built.data;
+      // The phone dispatcher's marks (when, and at what count) survive the rewrite.
+      const data: Record<string, string | number> = { ...built.data };
+      if (existing.data?.pushedAt !== undefined) data.pushedAt = existing.data.pushedAt;
+      if (existing.data?.pushedCount !== undefined) data.pushedCount = existing.data.pushedCount;
       const now = new Date();
       update.run(built.title, built.body ?? null, built.link, JSON.stringify(data), now.toISOString(), existing.id);
       const next: Notification = { ...existing, title: built.title, body: built.body, link: built.link, data, createdAt: now };
@@ -20200,8 +20202,33 @@ export class DataStore {
     return row?.at ?? null;
   }
 
-  markNotificationPushed(id: string, at: string): void {
-    this.db.prepare("UPDATE notifications SET data = json_set(COALESCE(data, '{}'), '$.pushedAt', ?) WHERE id = ?").run(at, id);
+  /** Records that the phone heard about this alert at `at`, showing `count` messages. */
+  markNotificationPushed(id: string, at: string, count: number): void {
+    this.db
+      .prepare("UPDATE notifications SET data = json_set(COALESCE(data, '{}'), '$.pushedAt', ?, '$.pushedCount', ?) WHERE id = ?")
+      .run(at, count, id);
+  }
+
+  /** Unread message alerts with messages the phone has not been told about yet. */
+  listUnpushedThreadNotifications(): Notification[] {
+    return (this.db
+      .prepare(
+        `SELECT * FROM notifications WHERE type = 'message_received' AND readAt IS NULL AND entityType = 'conversation_thread'
+          AND COALESCE(json_extract(data, '$.count'), 1) > COALESCE(json_extract(data, '$.pushedCount'), 0)`,
+      )
+      .all() as any[])
+      .filter((row) => this.notificationModuleOn(row.companyId, row.type) && !this.isTrainingCompany(row.companyId))
+      .map((row) => this.decodeNotification(row));
+  }
+
+  /** Someone handled the thread (opened it or wrote on it): their message and overdue alerts for it are read. */
+  markThreadNotificationsRead(userId: string, threadId: string): number {
+    return this.db
+      .prepare(
+        `UPDATE notifications SET readAt = ? WHERE userId = ? AND entityType = 'conversation_thread' AND entityId = ?
+          AND type IN ('message_received', 'response_overdue') AND readAt IS NULL`,
+      )
+      .run(new Date().toISOString(), userId, threadId).changes;
   }
 
   /** Whether a thread already has a notification of this type for one waiting episode. */
