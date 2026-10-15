@@ -654,6 +654,21 @@ function taskLink(projectId?: string | null): string {
   return projectId ? `/projects/${projectId}` : '/tasks';
 }
 
+/** What still points at an opportunity, keyed so a client can word it in its own language. */
+export interface OpportunityDependent {
+  key: 'commissions' | 'campaigns' | 'quotations' | 'portalRequests' | 'portalReferrals' | 'acceptedProposals' | 'wonSalesOrder';
+  label: string;
+  count: number;
+}
+
+/** A permanent opportunity delete refused because other records depend on it. */
+export class OpportunityInUseError extends Error {
+  constructor(public readonly dependents: OpportunityDependent[]) {
+    const list = dependents.map((d) => `${d.count} ${d.label}${d.count === 1 ? '' : 's'}`).join(', ');
+    super(`This opportunity can't be deleted because it has ${list}. Cancel it instead, or remove those first.`);
+  }
+}
+
 /** A change would take a client past their credit limit. */
 export class CreditLimitError extends Error {
   constructor(public readonly clientName: string, public readonly limit: number, public readonly owed: number, public readonly adding: number) {
@@ -10574,6 +10589,50 @@ export class DataStore {
 		      });
 		    }
 		    return result;
+		  }
+
+		  /** Records that would lose meaning if the opportunity vanished; any of these blocks a permanent delete. */
+		  opportunityDependents(id: string): OpportunityDependent[] {
+		    const checks: Array<{ key: OpportunityDependent['key']; label: string; sql: string }> = [
+		      { key: 'commissions', label: 'commission', sql: 'SELECT COUNT(*) AS n FROM commissions WHERE opportunityId = ?' },
+		      { key: 'campaigns', label: 'campaign', sql: 'SELECT COUNT(*) AS n FROM crm_campaigns WHERE opportunityId = ?' },
+		      { key: 'quotations', label: 'quotation', sql: 'SELECT COUNT(*) AS n FROM quotations WHERE opportunityId = ?' },
+		      { key: 'portalRequests', label: 'portal campaign request', sql: 'SELECT COUNT(*) AS n FROM portal_campaign_requests WHERE opportunityId = ?' },
+		      { key: 'portalReferrals', label: 'portal referral', sql: 'SELECT COUNT(*) AS n FROM portal_referrals WHERE opportunityId = ?' },
+		      { key: 'acceptedProposals', label: 'accepted proposal', sql: "SELECT COUNT(*) AS n FROM crm_proposals WHERE opportunityId = ? AND status = 'Accepted'" },
+		      // A won deal's sales order credits its sales contributors through this link (gatherContributorsForInvoice).
+		      { key: 'wonSalesOrder', label: 'won sales order', sql: 'SELECT COUNT(*) AS n FROM opportunities WHERE id = ? AND wonSalesOrderId IS NOT NULL' },
+		    ];
+		    return checks
+		      .map(({ key, label, sql }) => ({ key, label, count: Number((this.db.prepare(sql).get(id) as { n: number }).n) }))
+		      .filter((d) => d.count > 0);
+		  }
+
+		  /**
+		   * Removes an opportunity for good, with what only it owns: its unaccepted
+		   * proposals, follow-ups, attachments and contributor splits. Documents made
+		   * from it keep their snapshot and lose the link. Throws OpportunityInUseError
+		   * while anything in opportunityDependents points at it.
+		   */
+		  deleteOpportunity(id: string): boolean {
+		    const existing = this.getOpportunityById(id);
+		    if (!existing) return false;
+		    const dependents = this.opportunityDependents(id);
+		    if (dependents.length) throw new OpportunityInUseError(dependents);
+		    const trx = this.db.transaction(() => {
+		      this.db.prepare("DELETE FROM crm_proposals WHERE opportunityId = ? AND status <> 'Accepted'").run(id);
+		      this.deleteFollowUpsFor('opportunity', id);
+		      this.deleteRecordAttachmentsFor('opportunity', id);
+		      this.db.prepare("DELETE FROM contributions WHERE sourceType = 'opportunity' AND sourceId = ?").run(id);
+		      this.db.prepare("UPDATE documents SET recordType = NULL, recordId = NULL WHERE recordType = 'opportunity' AND recordId = ?").run(id);
+		      this.db.prepare('DELETE FROM opportunities WHERE id = ?').run(id);
+		      this.createActivityEvent({
+		        companyId: existing.companyId, entityType: 'opportunity', entityId: id, action: 'deleted',
+		        summary: `Opportunity ${existing.title} deleted.`,
+		      });
+		    });
+		    trx();
+		    return true;
 		  }
 
 		  deleteCrmProposal(id: string): boolean {

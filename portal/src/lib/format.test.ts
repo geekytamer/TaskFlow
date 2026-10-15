@@ -23,6 +23,7 @@ test('money uses the currency, whole units, and survives an unknown code', () =>
 
 test('the catalogue query keeps only known, non-empty filters', () => {
   assert.equal(catalogueQuery({ q: ' lina ', platform: '', niche: 'Food', evil: 'x' }), '?q=lina&niche=Food');
+  assert.equal(catalogueQuery({ minPrice: '250', maxPrice: '1000' }), '?minPrice=250&maxPrice=1000', 'a price range passes both ends');
   assert.equal(catalogueQuery({}), '');
   assert.equal(catalogueQuery({ q: 'a&b=c' }), '?q=a%26b%3Dc');
 });
@@ -46,6 +47,23 @@ test('lists are separated with the comma of the page language', async () => {
   const { listSep } = await import('./format');
   assert.equal(['a', 'b'].join(listSep('en')), 'a, b');
   assert.equal(['أ', 'ب'].join(listSep('ar')), 'أ، ب');
+});
+
+test('a reversed price range reads min..max, like the backend', async () => {
+  const { priceBounds } = await import('./format');
+  assert.deepEqual(priceBounds('2500', '250'), ['250', '2500']);
+  assert.deepEqual(priceBounds('250', '2500'), ['250', '2500']);
+  assert.deepEqual(priceBounds('', '1000'), ['', '1000']);
+  assert.deepEqual(priceBounds('abc', '100'), ['abc', '100'], 'non-numbers are left alone');
+});
+
+test('a niche field holding several niches reads as a list in the page language', async () => {
+  const { nicheText } = await import('./format');
+  assert.equal(nicheText('Food, Lifestyle', 'en'), 'Food, Lifestyle');
+  assert.equal(nicheText('طعام, سفر', 'ar'), 'طعام، سفر');
+  assert.equal(nicheText('Beauty / Fashion', 'en'), 'Beauty, Fashion');
+  assert.equal(nicheText(null, 'en'), null);
+  assert.equal(nicheText(' , ', 'en'), null);
 });
 
 test('times are shown in the business zone, and file sizes read naturally', () => {

@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
-import { CreditLimitError, DataStore, type DataStoreOptions } from './data/store';
+import { CreditLimitError, DataStore, OpportunityInUseError, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
@@ -283,6 +283,7 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
 const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
 
 import { greenApi, toChatId } from './services/greenApi';
+import { normalizeNiches } from './niches';
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -3363,7 +3364,7 @@ export function createServer(options: CreateServerOptions = {}) {
               roles: ['Influencer'],
               influencerPlatform: optionalString(row.platform),
               influencerHandle: optionalString(row.handle),
-              influencerNiche: optionalString(row.niche),
+              influencerNiche: normalizeNiches(optionalString(row.niche)) ?? undefined,
               followerCount: optionalNumber(row.followers),
               engagementRate: optionalNumber(row.engagementRate),
               rateCardAmount: optionalNumber(row.rateCard),
@@ -3414,7 +3415,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        nextFollowupNote: optionalString(body.nextFollowupNote),
 		        influencerPlatform: optionalString(body.influencerPlatform),
 	        influencerHandle: optionalString(body.influencerHandle),
-	        influencerNiche: optionalString(body.influencerNiche),
+	        influencerNiche: normalizeNiches(optionalString(body.influencerNiche)) ?? undefined,
 	        followerCount: optionalNumber(body.followerCount),
 	        engagementRate: optionalNumber(body.engagementRate),
 	        rateCardAmount: optionalNumber(body.rateCardAmount),
@@ -3466,7 +3467,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        notes: optionalString(body.notes),
 	        influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : undefined,
 	        influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : undefined,
-	        influencerNiche: body.influencerNiche !== undefined ? optionalString(body.influencerNiche) : undefined,
+	        influencerNiche: body.influencerNiche !== undefined ? normalizeNiches(optionalString(body.influencerNiche)) ?? undefined : undefined,
 	        followerCount: body.followerCount !== undefined ? optionalNumber(body.followerCount) : undefined,
 	        engagementRate: body.engagementRate !== undefined ? optionalNumber(body.engagementRate) : undefined,
 	        rateCardAmount: body.rateCardAmount !== undefined ? optionalNumber(body.rateCardAmount) : undefined,
@@ -4171,8 +4172,24 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!existing) throw new HttpError(404, 'Opportunity not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
+		      // ?permanent=1 removes it for good (refused while other records depend on it); otherwise it is archived.
+		      const permanent = req.query.permanent === '1' || req.query.permanent === 'true';
 		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
-		        throw new HttpError(403, 'You can only archive your own opportunities.');
+		        throw new HttpError(403, permanent ? 'You can only delete your own opportunities.' : 'You can only archive your own opportunities.');
+		      }
+		      if (permanent) {
+		        try {
+		          withActor(req, () => store.deleteOpportunity(req.params.id));
+		        } catch (error) {
+		          if (error instanceof OpportunityInUseError) {
+		            throw new HttpError(409, error.message, {
+		              dependents: Object.fromEntries(error.dependents.map((d) => [d.key, d.count])),
+		            });
+		          }
+		          throw error;
+		        }
+		        res.status(204).end();
+		        return;
 		      }
 		      const updated = withActor(req, () => store.updateOpportunity(req.params.id, { stage: 'Cancelled' }));
 		      if (!updated) throw new HttpError(404, 'Opportunity not found.');

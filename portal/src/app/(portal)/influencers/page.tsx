@@ -6,18 +6,19 @@ import { EmptyState, PageHeader, button, list, panel } from '@/components/ui';
 import { VerifiedMark } from '@/components/verified-mark';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
 import { growthLabel } from '@/lib/discover';
-import { CATALOGUE_FILTERS, catalogueQuery, formatCompact, formatPercent, listSep } from '@/lib/format';
+import { CATALOGUE_FILTERS, catalogueQuery, priceBounds, formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
-import { parseShortlist, shortlistHref, toggleShortlist } from '@/lib/shortlist';
+import { parseShortlist } from '@/lib/shortlist';
+import { ChooseButton, ShortlistBar, ShortlistInputs, ShortlistItem, ShortlistLink, ShortlistProvider } from '@/components/shortlist';
 import { currentLang } from '@/lib/session';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type View = 'cards' | 'list';
 
 const FOLLOWER_STEPS = [10_000, 50_000, 100_000, 500_000, 1_000_000];
-const BUDGET_STEPS = [100, 250, 500, 1_000, 2_500, 5_000];
+const BUDGET_STEPS = [100, 250, 500, 1_000, 2_500, 5_000, 10_000];
 const SORTS = [
   { value: 'followers', key: 'disc.sortFollowers' },
   { value: 'engagement', key: 'disc.sortEngagement' },
@@ -45,12 +46,11 @@ function FilterSelect({ name, label, value, options, lang, any = true }: {
   );
 }
 
-/** The current page's URL with a different shortlist or view, so every click keeps the filters. */
-function hrefWith(params: Record<string, string | string[] | undefined>, ids: string[], view: View) {
+/** The current page's URL with a different view, so every click keeps the filters (the shortlist is added in the browser). */
+function hrefWith(params: Record<string, string | string[] | undefined>, view: View) {
   const q = new URLSearchParams();
   for (const key of CATALOGUE_FILTERS) { const v = first(params[key]); if (v) q.set(key, v); }
   if (view === 'list') q.set('view', 'list');
-  ids.forEach((id) => q.append('with', id));
   const text = q.toString();
   return text ? `/influencers?${text}` : '/influencers';
 }
@@ -81,25 +81,12 @@ function Stats({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
   );
 }
 
-function ChooseLink({ entry, lang, chosen, href }: { entry: CatalogueEntry; lang: Lang; chosen: boolean; href: string }) {
-  return (
-    <Link href={href} scroll={false} aria-pressed={chosen}
-      aria-label={`${t(lang, chosen ? 'cat.removeShortlist' : 'cat.addShortlist')}: ${entry.name}`}
-      className={`inline-flex min-h-11 items-center gap-2 rounded-control px-3 text-sm font-medium transition-colors ${chosen ? 'bg-accent text-accent-ink' : 'border border-field hover:bg-surface-2'}`}>
-      <span aria-hidden="true" className={`flex h-4 w-4 items-center justify-center rounded-[4px] border ${chosen ? 'border-accent-ink' : 'border-field bg-surface'}`}>
-        {chosen && <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg>}
-      </span>
-      {t(lang, chosen ? 'cat.chosen' : 'cat.choose')}
-    </Link>
-  );
-}
-
 const metaOf = (entry: CatalogueEntry, lang: Lang) =>
-  [entry.niche, entry.location, t(lang, `disc.tier.${entry.tier}` as Key)].filter(Boolean).join(listSep(lang));
+  [nicheText(entry.niche, lang), entry.location, t(lang, `disc.tier.${entry.tier}` as Key)].filter(Boolean).join(listSep(lang));
 
-function InfluencerCard({ entry, lang, chosen, toggleHref }: { entry: CatalogueEntry; lang: Lang; chosen: boolean; toggleHref: string }) {
+function InfluencerCard({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
   return (
-    <li className={`${panel} flex flex-col gap-4 p-4 ${chosen ? 'ring-2 ring-accent' : ''}`}>
+    <ShortlistItem id={entry.id} className={`${panel} flex flex-col gap-4 p-4`} chosenClassName="ring-2 ring-accent">
       <div className="flex items-start justify-between gap-3">
         <Link href={`/influencers/${entry.id}`} className="group flex min-w-0 items-center gap-3">
           <InfluencerPhoto id={entry.id} name={entry.name} photoAt={entry.photoAt} />
@@ -116,15 +103,15 @@ function InfluencerCard({ entry, lang, chosen, toggleHref }: { entry: CatalogueE
       <Stats entry={entry} lang={lang} />
       <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <PriceTag price={entry.price} lang={lang} />
-        <ChooseLink entry={entry} lang={lang} chosen={chosen} href={toggleHref} />
+        <ChooseButton id={entry.id} name={entry.name} lang={lang} />
       </div>
-    </li>
+    </ShortlistItem>
   );
 }
 
-function InfluencerRow({ entry, lang, chosen, toggleHref }: { entry: CatalogueEntry; lang: Lang; chosen: boolean; toggleHref: string }) {
+function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
   return (
-    <li className={`grid gap-3 px-4 py-4 sm:px-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_10rem_auto] md:items-center md:gap-6 ${chosen ? 'bg-accent/[0.04]' : ''}`}>
+    <ShortlistItem id={entry.id} className="grid gap-3 px-4 py-4 sm:px-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_10rem_auto] md:items-center md:gap-6" chosenClassName="bg-accent/[0.04]">
       <Link href={`/influencers/${entry.id}`} className="group flex min-w-0 items-center gap-3">
         <InfluencerPhoto id={entry.id} name={entry.name} photoAt={entry.photoAt} />
         <span className="min-w-0">
@@ -135,8 +122,8 @@ function InfluencerRow({ entry, lang, chosen, toggleHref }: { entry: CatalogueEn
       </Link>
       <Stats entry={entry} lang={lang} />
       <div className="md:text-end"><PriceTag price={entry.price} lang={lang} /></div>
-      <ChooseLink entry={entry} lang={lang} chosen={chosen} href={toggleHref} />
-    </li>
+      <ChooseButton id={entry.id} name={entry.name} lang={lang} />
+    </ShortlistItem>
   );
 }
 
@@ -152,6 +139,9 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
   const shortlist = parseShortlist(params.with);
   const active = CATALOGUE_FILTERS.filter((k) => k !== 'q' && k !== 'sort' && first(params[k])).length;
   const Item = view === 'list' ? InfluencerRow : InfluencerCard;
+  // The backend reads a reversed range as min..max; show it the same way.
+  const [minPrice, maxPrice] = priceBounds(first(params.minPrice), first(params.maxPrice));
+  const budgetOptions = BUDGET_STEPS.map((n) => ({ value: String(n), label: `${formatCompact(n, lang)} ${currency}` }));
 
   return (
     <div className="space-y-8">
@@ -160,9 +150,11 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
       {nothingListed ? (
         <EmptyState title={t(lang, 'cat.emptyTitle')} body={t(lang, 'cat.emptyBody')} />
       ) : (
-        <>
+        // Keyed on the URL's shortlist: a Back/Forward that restores another
+        // page starts from that page's `with`, not the one held in memory.
+        <ShortlistProvider key={shortlist.join(',')} initial={shortlist}>
           <form method="get" action="/influencers" className="space-y-3 lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,4fr)_auto] lg:items-end lg:gap-4 lg:space-y-0">
-            {shortlist.map((id) => <input key={id} type="hidden" name="with" value={id} />)}
+            <ShortlistInputs />
             {view === 'list' && <input type="hidden" name="view" value="list" />}
             <div className="space-y-1.5">
               <label htmlFor="f-q" className="block text-sm font-medium">{t(lang, 'cat.search')}</label>
@@ -181,13 +173,13 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
                   options={facets.tiers.map((v) => ({ value: v, label: t(lang, `disc.tier.${v}` as Key) }))} />
                 <FilterSelect name="availability" label={t(lang, 'cat.availability')} value={first(params.availability)} lang={lang} options={facets.availability.map((v) => ({ value: v, label: availabilityLabel(v, lang) }))} />
                 <FilterSelect name="minFollowers" label={t(lang, 'cat.minFollowers')} value={first(params.minFollowers)} lang={lang} options={FOLLOWER_STEPS.map((n) => ({ value: String(n), label: formatCompact(n, lang) }))} />
-                <FilterSelect name="maxPrice" label={t(lang, 'cat.maxPrice')} value={first(params.maxPrice)} lang={lang}
-                  options={BUDGET_STEPS.map((n) => ({ value: String(n), label: `${formatCompact(n, lang)} ${currency}` }))} />
+                <FilterSelect name="minPrice" label={t(lang, 'cat.minPrice')} value={minPrice} lang={lang} options={budgetOptions} />
+                <FilterSelect name="maxPrice" label={t(lang, 'cat.maxPrice')} value={maxPrice} lang={lang} options={budgetOptions} />
               </div>
             </Disclosure>
             <div className="flex items-center gap-2">
               <button type="submit" className={button.primary}>{t(lang, 'cat.apply')}</button>
-              {filtered && <Link href={hrefWith({}, shortlist, view)} className={button.ghost}>{t(lang, 'cat.clear')}</Link>}
+              {filtered && <ShortlistLink href={hrefWith({}, view)} className={button.ghost}>{t(lang, 'cat.clear')}</ShortlistLink>}
             </div>
           </form>
 
@@ -199,36 +191,26 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
               </h2>
               <div role="group" aria-label={t(lang, 'cat.view')} className="inline-flex rounded-control border border-field p-0.5">
                 {(['cards', 'list'] as const).map((v) => (
-                  <Link key={v} href={hrefWith(params, shortlist, v)} scroll={false} aria-current={view === v ? 'true' : undefined}
+                  <ShortlistLink key={v} href={hrefWith(params, v)} aria-current={view === v ? 'true' : undefined}
                     className={`inline-flex min-h-9 items-center rounded-[6px] px-3 text-sm font-medium ${view === v ? 'bg-ink text-surface' : 'text-ink-soft hover:text-ink'}`}>
                     {t(lang, v === 'cards' ? 'cat.viewCards' : 'cat.viewList')}
-                  </Link>
+                  </ShortlistLink>
                 ))}
               </div>
             </div>
             {items.length === 0 ? (
-              <EmptyState title={t(lang, 'cat.noMatchTitle')} action={<Link href={hrefWith({}, shortlist, view)} className={button.secondary}>{t(lang, 'cat.clear')}</Link>} />
+              <EmptyState title={t(lang, 'cat.noMatchTitle')} action={<ShortlistLink href={hrefWith({}, view)} className={button.secondary}>{t(lang, 'cat.clear')}</ShortlistLink>} />
             ) : (
               <ul className={view === 'list' ? list : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}>
                 {items.map((entry) => (
-                  <Item key={entry.id} entry={entry} lang={lang} chosen={shortlist.includes(entry.id)} toggleHref={hrefWith(params, toggleShortlist(shortlist, entry.id), view)} />
+                  <Item key={entry.id} entry={entry} lang={lang} />
                 ))}
               </ul>
             )}
           </section>
 
-          {shortlist.length > 0 && (
-            <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-20 lg:bottom-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-panel border border-line bg-surface p-3 shadow-float sm:px-5">
-                <p className="text-[15px] font-medium">{t(lang, shortlist.length === 1 ? 'cat.chosenOne' : 'cat.chosenMany').replace('{n}', String(shortlist.length))}</p>
-                <div className="flex items-center gap-2">
-                  <Link href={hrefWith(params, [], view)} scroll={false} className={button.ghost}>{t(lang, 'cat.clearShortlist')}</Link>
-                  <Link href={shortlistHref(shortlist)} className={button.primary}>{t(lang, 'cat.requestWith')}</Link>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
+          <ShortlistBar lang={lang} />
+        </ShortlistProvider>
       )}
     </div>
   );

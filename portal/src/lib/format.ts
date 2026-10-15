@@ -8,6 +8,15 @@ const MISSING = '-';
 /** The list separator for the page's language: Arabic uses its own comma. */
 export const listSep = (lang: Lang) => (lang === 'ar' ? '، ' : ', ');
 
+/**
+ * An influencer's niche field can hold several ("Food, Lifestyle"); shown as a
+ * list in the page language. Same separators as the backend's splitNiches.
+ */
+export function nicheText(value: string | null | undefined, lang: Lang): string | null {
+  const niches = (value ?? '').split(/[,،;/|\r\n]+/).map((n) => n.trim()).filter(Boolean);
+  return niches.length ? niches.join(listSep(lang)) : null;
+}
+
 export function formatCompact(value: number | null, lang: Lang): string {
   if (value === null) return MISSING;
   return new Intl.NumberFormat(locale(lang), { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -56,7 +65,14 @@ export function formatFileSize(bytes: number, lang: Lang): string {
   return `${new Intl.NumberFormat(locale(lang), { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value)} ${unit}`;
 }
 
-export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'location', 'gender', 'tier', 'availability', 'minFollowers', 'maxPrice', 'sort'] as const;
+/** The price filter's two ends as the backend reads them: a reversed pair is swapped. */
+export function priceBounds(min: string, max: string): [string, string] {
+  const a = Number.parseInt(min, 10);
+  const b = Number.parseInt(max, 10);
+  return Number.isFinite(a) && Number.isFinite(b) && a > b ? [max, min] : [min, max];
+}
+
+export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'location', 'gender', 'tier', 'availability', 'minFollowers', 'minPrice', 'maxPrice', 'sort'] as const;
 export type CatalogueFilters = Partial<Record<(typeof CATALOGUE_FILTERS)[number], string>>;
 
 /** A query string of known, non-empty filters, safe to append to the backend path. */

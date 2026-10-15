@@ -16,3 +16,13 @@ export function shortlistHref(ids: string[]): string {
   const text = q.toString();
   return text ? `/requests/new?${text}` : '/requests/new';
 }
+
+/** A link (path and query) carrying exactly this shortlist as `with`, whatever it carried before. */
+export function hrefWithShortlist(href: string, ids: string[]): string {
+  const [path, query = ''] = href.split('?', 2);
+  const q = new URLSearchParams(query);
+  q.delete('with');
+  ids.forEach((id) => q.append('with', id));
+  const text = q.toString();
+  return text ? `${path}?${text}` : path;
+}

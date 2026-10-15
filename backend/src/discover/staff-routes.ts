@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
+import { normalizeNiches } from '../niches';
 import type { SanitizedUser } from '../types';
 import { asRecord } from '../validation';
 import type { DiscoverScraper } from './apify';
@@ -153,7 +154,7 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
     const location = optionalText(body.location, 'Location', 60);
     if (location !== undefined) patch.location = location;
     const niche = optionalText(body.niche, 'Niche', 60);
-    if (niche !== undefined) patch.niche = niche;
+    if (niche !== undefined) patch.niche = normalizeNiches(niche);
     if (body.contactId !== undefined) {
       if (body.contactId === null || body.contactId === '') patch.contactId = null;
       else {

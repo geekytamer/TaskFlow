@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { hasNiche, nicheOptions, splitNiches } from '@/lib/niches';
 import { useCompany } from '@/context/company-context';
 import { InfluencerAvatar, useInfluencerPhotos } from './influencer-avatar';
 import { usePermissionOr } from '@/context/permissions-context';
@@ -182,8 +184,14 @@ function InfluencerCard({
             <Link href={`/contacts/${c.id}`} className="text-start font-semibold hover:underline">
               {c.name}
             </Link>
-            {c.influencerNiche ? (
-              <p className="truncate text-sm text-muted-foreground">{c.influencerNiche}</p>
+            {splitNiches(c.influencerNiche).length ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {splitNiches(c.influencerNiche).map((n) => (
+                  <Badge key={n} variant="secondary" className="max-w-full truncate px-1.5 py-0 text-[11px] font-normal">
+                    {n}
+                  </Badge>
+                ))}
+              </div>
             ) : null}
           </div>
         </div>
@@ -337,13 +345,7 @@ export function InfluencersPage() {
     }
   };
 
-  const niches = React.useMemo(() => {
-    const set = new Set<string>();
-    influencers.forEach((c) => {
-      if (c.influencerNiche) set.add(c.influencerNiche);
-    });
-    return Array.from(set).sort();
-  }, [influencers]);
+  const niches = React.useMemo(() => nicheOptions(influencers.map((c) => c.influencerNiche)), [influencers]);
 
   const matchesPlatform = React.useCallback(
     (c: Contact) => {
@@ -359,7 +361,7 @@ export function InfluencersPage() {
     const q = search.trim().toLowerCase();
     const result = influencers.filter((c) => {
       if (!matchesPlatform(c)) return false;
-      if (niche !== 'All' && c.influencerNiche !== niche) return false;
+      if (niche !== 'All' && !hasNiche(c.influencerNiche, niche)) return false;
       if (availability !== 'All' && c.availabilityStatus !== availability) return false;
       if (min && totalFollowers(c) < min) return false;
       if (q) {

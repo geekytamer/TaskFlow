@@ -745,8 +745,14 @@ export async function updateOpportunity(id: string, input: Partial<{
   return decodeOpportunity(data);
 }
 
-export async function deleteOpportunity(id: string): Promise<void> {
-  await apiFetch<void>(`/opportunities/${id}`, { method: 'DELETE' });
+/**
+ * Without `permanent` the opportunity is archived (moved to Cancelled).
+ * With it, it is removed for good; the server refuses (409, with the reason)
+ * while commissions, campaigns, quotations, portal records or an accepted
+ * proposal depend on it.
+ */
+export async function deleteOpportunity(id: string, options: { permanent?: boolean } = {}): Promise<void> {
+  await apiFetch<void>(`/opportunities/${id}${options.permanent ? '?permanent=1' : ''}`, { method: 'DELETE' });
 }
 
 export async function getProposals(companyId: string): Promise<CrmProposal[]> {
