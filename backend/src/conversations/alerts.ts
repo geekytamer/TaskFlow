@@ -5,6 +5,7 @@ import { RECORD_RULES } from '../permissions/record-rules';
 import type { Contact, Notification, NotificationPrefs, SanitizedUser } from '../types';
 import type { ConvMessage, Thread } from './conversations-store';
 import { slaOf } from './sla';
+import { companyInQuietHours, holdPush } from '../push/quiet-hours';
 
 /**
  * Staff alerts for conversations. A client's messages on one thread become one
@@ -126,7 +127,10 @@ async function pushThreadAlert(store: DataStore, send: PushSender, n: Notificati
   // Marked before sending, so a message arriving mid-send sees the window.
   store.markNotificationPushed(n.id, new Date(nowMs).toISOString(), Number(n.data?.count ?? 1));
   const body = prefs.pushPreview ? previewOf(store, n) : '';
-  await sendToPrincipal(store, send, 'staff', n.userId, { title: n.title, body, url: n.link ?? '/notifications', tag: `thread:${n.entityId}` });
+  const payload = { title: n.title, body, url: n.link ?? '/notifications', tag: `thread:${n.entityId}` };
+  // Quiet hours: kept for the morning summary (marked pushed above, so the flush does not retry every minute).
+  if (companyInQuietHours(store, n.companyId, nowMs)) { holdPush(store, 'staff', n.userId, n.companyId, payload); return; }
+  await sendToPrincipal(store, send, 'staff', n.userId, payload);
 }
 
 const insideWindow = (store: DataStore, n: Notification, nowMs: number) => {
@@ -156,7 +160,9 @@ export async function dispatchStaffPush(
         if (!insideWindow(store, n, nowMs)) await pushThreadAlert(store, send, n, prefs, nowMs);
         continue;
       }
-      await sendToPrincipal(store, send, 'staff', n.userId, { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` });
+      const payload = { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` };
+      if (companyInQuietHours(store, n.companyId, nowMs)) { holdPush(store, 'staff', n.userId, n.companyId, payload); continue; }
+      await sendToPrincipal(store, send, 'staff', n.userId, payload);
     } catch (error) {
       onError(error);
     }

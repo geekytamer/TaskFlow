@@ -47,6 +47,7 @@ import { likersFetcherFromEnv, type LikersFetcher } from './games/likers-fetcher
 import { trackGames } from './games/tracker';
 import { sweepPortalAlerts, type WhatsAppSender } from './portal/alerts';
 import { sweepPortalPush } from './portal/push-alerts';
+import { releaseHeldPush } from './push/quiet-hours';
 import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
 import { discoverTick } from './discover/jobs';
@@ -792,6 +793,17 @@ export function createServer(options: CreateServerOptions = {}) {
       setInterval(() => {
         void flushThreadPushes(store, push.send, Date.now(), (error) => logger.warn('[push] could not send a staff notification', error))
           .catch((error) => logger.error('[conversations] push flush failed', error));
+      }, 60 * 1000).unref?.();
+    }
+
+    // Every minute: once quiet hours end, each person with held pushes gets one summary.
+    if (push) {
+      setInterval(() => {
+        const now = new Date().toISOString();
+        for (const company of store.listCompanies()) {
+          releaseHeldPush(store, push.send, company.id, now)
+            .catch((error) => logger.error('[push] morning summary failed', error));
+        }
       }, 60 * 1000).unref?.();
     }
 

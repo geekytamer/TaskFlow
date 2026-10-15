@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import type { PushPayload } from './push';
 
 /** Devices that receive phone notifications. One device (endpoint) belongs to one person at a time. */
 
@@ -56,5 +57,25 @@ export class PushStore {
     const insert = this.db.prepare('INSERT OR IGNORE INTO portal_push_log (portalUserId, event, refId, status, createdAt) VALUES (?, ?, ?, ?, ?)');
     const now = new Date().toISOString();
     this.db.transaction(() => items.forEach((i) => insert.run(portalUserId, i.event, i.refId, status, now)))();
+  }
+
+  /** Keeps a push for after quiet hours; one per (person, tag), the latest wins. */
+  hold(audience: PushAudience, principalId: string, companyId: string, p: PushPayload): void {
+    this.db.prepare(
+      `INSERT INTO push_held (audience, principalId, companyId, tag, url, title, body, heldAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (audience, principalId, tag) DO UPDATE SET companyId = excluded.companyId, url = excluded.url, title = excluded.title, body = excluded.body, heldAt = excluded.heldAt`,
+    ).run(audience, principalId, companyId, p.tag, p.url, p.title, p.body, new Date().toISOString());
+  }
+
+  heldGroups(companyId: string): Array<{ audience: PushAudience; principalId: string; count: number }> {
+    return this.db.prepare('SELECT audience, principalId, COUNT(*) AS count FROM push_held WHERE companyId = ? GROUP BY audience, principalId').all(companyId) as Array<{ audience: PushAudience; principalId: string; count: number }>;
+  }
+
+  clearHeld(audience: PushAudience, principalId: string, companyId: string): void {
+    this.db.prepare('DELETE FROM push_held WHERE audience = ? AND principalId = ? AND companyId = ?').run(audience, principalId, companyId);
+  }
+
+  heldCount(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS c FROM push_held').get() as { c: number }).c;
   }
 }

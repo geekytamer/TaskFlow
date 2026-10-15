@@ -5144,6 +5144,25 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Pushes kept back during quiet hours; one summary replaces them in the morning.
+        id: '133_push_held',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS push_held (
+              audience    TEXT NOT NULL,
+              principalId TEXT NOT NULL,
+              companyId   TEXT NOT NULL,
+              tag         TEXT NOT NULL,
+              url         TEXT NOT NULL,
+              title       TEXT NOT NULL,
+              body        TEXT NOT NULL,
+              heldAt      TEXT NOT NULL,
+              PRIMARY KEY (audience, principalId, tag)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5325,6 +5344,7 @@ export class DataStore {
         DELETE FROM conversation_threads;
         DELETE FROM conversations;
         DELETE FROM conversation_settings;
+        DELETE FROM push_held;
         DELETE FROM portal_files;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;
