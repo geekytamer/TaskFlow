@@ -53,6 +53,7 @@ test('permanent delete is refused with 409 when a commission depends on it', asy
   const res = await ctx.as(ctx.admin)(request(ctx.app).delete(`/opportunities/${opp.id}?permanent=1`));
   assert.equal(res.status, 409);
   assert.match(res.body.message, /1 commission/);
+  assert.deepEqual(res.body.dependents, { commissions: 1 }, 'machine-readable, so the app can say it in Arabic');
   assert.ok(ctx.store.getOpportunityById(opp.id), 'still there');
 });
 
@@ -63,6 +64,31 @@ test('an accepted proposal also blocks permanent delete', async () => {
   const res = await ctx.as(ctx.admin)(request(ctx.app).delete(`/opportunities/${opp.id}?permanent=1`));
   assert.equal(res.status, 409);
   assert.match(res.body.message, /accepted proposal/);
+  assert.deepEqual(res.body.dependents, { acceptedProposals: 1 });
+});
+
+test('a won opportunity that became a sales order is refused: its sales contributions credit that order', async () => {
+  const ctx = await build();
+  const opp = await ctx.newOpp();
+  ctx.store.updateOpportunity(opp.id, { wonSalesOrderId: 'so-1' });
+  const res = await ctx.as(ctx.admin)(request(ctx.app).delete(`/opportunities/${opp.id}?permanent=1`));
+  assert.equal(res.status, 409);
+  assert.match(res.body.message, /sales order/);
+  assert.deepEqual(res.body.dependents, { wonSalesOrder: 1 });
+  assert.ok(ctx.store.getOpportunityById(opp.id));
+});
+
+test('other failures while deleting are server errors, not 409', async () => {
+  const ctx = await build();
+  const opp = await ctx.newOpp();
+  const original = ctx.store.deleteOpportunity;
+  ctx.store.deleteOpportunity = () => { throw new Error('disk on fire'); };
+  try {
+    const res = await ctx.as(ctx.admin)(request(ctx.app).delete(`/opportunities/${opp.id}?permanent=1`));
+    assert.equal(res.status, 500);
+  } finally {
+    ctx.store.deleteOpportunity = original;
+  }
 });
 
 test('an employee cannot delete someone else\'s opportunity', async () => {
@@ -70,6 +96,8 @@ test('an employee cannot delete someone else\'s opportunity', async () => {
   const opp = await ctx.newOpp();
   const res = await ctx.as(ctx.employee)(request(ctx.app).delete(`/opportunities/${opp.id}?permanent=1`));
   assert.equal(res.status, 403);
+  assert.equal(res.body.message, 'You can only delete your own opportunities.');
+  assert.equal((await ctx.as(ctx.employee)(request(ctx.app).delete(`/opportunities/${opp.id}`))).body.message, 'You can only archive your own opportunities.');
   assert.ok(ctx.store.getOpportunityById(opp.id));
 });
 

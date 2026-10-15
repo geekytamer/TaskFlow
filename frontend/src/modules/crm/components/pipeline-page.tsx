@@ -60,6 +60,8 @@ import {
   User,
 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { isApiError } from '@/lib/api-client';
+import { opportunityRefusal } from '../opportunity-refusal';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -277,7 +279,10 @@ export function PipelinePage() {
       }
       await load();
     } catch (error: any) {
-      toast({ variant: 'destructive', title: tr("Couldn't delete the opportunity", 'تعذّر حذف الفرصة'), description: error?.message });
+      const refusal = isApiError(error) && error.status === 409
+        ? opportunityRefusal((error.details as { dependents?: unknown } | undefined)?.dependents, language === 'ar' ? 'ar' : 'en')
+        : null;
+      toast({ variant: 'destructive', title: tr("Couldn't delete the opportunity", 'تعذّر حذف الفرصة'), description: refusal ?? error?.message });
     }
   };
 

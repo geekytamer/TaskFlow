@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
-import { CreditLimitError, DataStore, type DataStoreOptions } from './data/store';
+import { CreditLimitError, DataStore, OpportunityInUseError, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
@@ -4172,15 +4172,21 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!existing) throw new HttpError(404, 'Opportunity not found.');
 		      requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const managesAll = allowsRule(req, existing.companyId, 'CRM_ALL_WRITE');
-		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
-		        throw new HttpError(403, 'You can only archive your own opportunities.');
-		      }
 		      // ?permanent=1 removes it for good (refused while other records depend on it); otherwise it is archived.
-		      if (req.query.permanent === '1' || req.query.permanent === 'true') {
+		      const permanent = req.query.permanent === '1' || req.query.permanent === 'true';
+		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
+		        throw new HttpError(403, permanent ? 'You can only delete your own opportunities.' : 'You can only archive your own opportunities.');
+		      }
+		      if (permanent) {
 		        try {
 		          withActor(req, () => store.deleteOpportunity(req.params.id));
-		        } catch (error: any) {
-		          throw new HttpError(409, error?.message || 'This opportunity cannot be deleted.');
+		        } catch (error) {
+		          if (error instanceof OpportunityInUseError) {
+		            throw new HttpError(409, error.message, {
+		              dependents: Object.fromEntries(error.dependents.map((d) => [d.key, d.count])),
+		            });
+		          }
+		          throw error;
 		        }
 		        res.status(204).end();
 		        return;
