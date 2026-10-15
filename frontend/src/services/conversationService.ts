@@ -2,7 +2,7 @@ import { API_BASE_URL, apiFetch, getStoredToken } from '@/lib/api-client';
 
 export type ThreadState = 'waiting_us' | 'waiting_them' | 'done' | 'snoozed';
 export type InboxView = 'mine' | 'unassigned' | 'all';
-export type InboxStateFilter = ThreadState | 'open';
+export type InboxStateFilter = ThreadState | 'open' | 'overdue';
 
 export interface ThreadSummary {
   id: string;
@@ -13,6 +13,7 @@ export interface ThreadSummary {
   assignee: { id: string; name: string } | null;
   state: ThreadState;
   waitingSince: string | null;
+  sla: { dueAt: string; level: 'ok' | 'amber' | 'red' } | null;
   snoozedUntil: string | null;
   lastMessageAt: string | null;
   lastMessage: { body: string; authorName: string | null; visibility: 'external' | 'internal' | 'owner_private' } | null;
@@ -122,3 +123,21 @@ export async function downloadThreadFile(file: Pick<ConvFile, 'id' | 'fileName'>
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }
+
+export interface ConversationSettings {
+  responseTargetHours: number;
+  /** 0 = Sunday .. 6 = Saturday. */
+  workDays: number[];
+  dayStart: string;
+  dayEnd: string;
+  timeZone: string;
+}
+
+export const getConversationSettings = (companyId: string) =>
+  apiFetch<ConversationSettings>(`/companies/${companyId}/conversation-settings`);
+
+export const saveConversationSettings = (companyId: string, input: ConversationSettings) =>
+  apiFetch<ConversationSettings>(`/companies/${companyId}/conversation-settings`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });

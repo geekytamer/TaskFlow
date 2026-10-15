@@ -25,7 +25,7 @@ import { ThreadList } from './thread-list';
 import { ThreadView } from './thread-view';
 
 const VIEWS: InboxView[] = ['mine', 'unassigned', 'all'];
-const STATES: InboxStateFilter[] = ['waiting_us', 'waiting_them', 'done', 'snoozed'];
+const STATES: InboxStateFilter[] = ['waiting_us', 'overdue', 'waiting_them', 'done', 'snoozed'];
 
 /** True from the xl breakpoint up, where the context panel gets its own column. */
 function useWide() {
@@ -131,6 +131,7 @@ export function InboxPage() {
   };
   const stateLabels: Record<string, string> = {
     waiting_us: tr('Waiting on us', 'بانتظارنا'),
+    overdue: tr('Overdue', 'متأخرة'),
     waiting_them: tr('Waiting on them', 'بانتظارهم'),
     done: tr('Done', 'منتهية'),
     snoozed: tr('Snoozed', 'مؤجّلة'),

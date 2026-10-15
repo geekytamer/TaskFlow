@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { INBOX_PERMISSION, nextWeekAt8, tomorrowAt8, waitingCount } from './inbox';
+import { INBOX_PERMISSION, elapsedShort, nextWeekAt8, tomorrowAt8, waitingCount } from './inbox';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
@@ -34,4 +34,14 @@ test('the inbox needs contacts:read in the nav, the sidebar badge and the page g
   assert.equal(navPermission('/inbox'), INBOX_PERMISSION);
   // A company with contacts switched off hides the inbox too.
   assert.equal(moduleForPath('/inbox'), 'contacts');
+});
+
+test('elapsed waiting time is compact in minutes, hours and days', () => {
+  const now = new Date('2026-10-15T12:00:00Z');
+  assert.deepEqual(elapsedShort('2026-10-15T11:48:00Z', now), { value: 12, unit: 'm' });
+  assert.deepEqual(elapsedShort('2026-10-15T11:59:50Z', now), { value: 1, unit: 'm' });
+  assert.deepEqual(elapsedShort('2026-10-15T07:10:00Z', now), { value: 4, unit: 'h' });
+  assert.deepEqual(elapsedShort('2026-10-12T11:00:00Z', now), { value: 3, unit: 'd' });
+  assert.equal(elapsedShort(null, now), null);
+  assert.equal(elapsedShort('garbage', now), null);
 });

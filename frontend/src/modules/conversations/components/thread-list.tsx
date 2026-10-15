@@ -1,11 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { Lock } from 'lucide-react';
+import { AlertCircle, Clock, Lock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { cn } from '@/lib/utils';
+import { elapsedShort } from '../lib/inbox';
 import type { ThreadState, ThreadSummary } from '@/services/conversationService';
 
 interface Props {
@@ -22,6 +23,37 @@ export function stateLabel(state: ThreadState, tr: (en: string, ar: string) => s
     case 'snoozed': return tr('Snoozed', 'مؤجّلة');
     default: return tr('Done', 'منتهية');
   }
+}
+
+function WaitingChip({ thread, tr, language }: { thread: ThreadSummary; tr: (en: string, ar: string) => string; language: string }) {
+  const sla = thread.sla;
+  const el = sla ? elapsedShort(thread.waitingSince, new Date()) : null;
+  if (!sla || !el) return null;
+  const nf = new Intl.NumberFormat(language === 'ar' ? 'ar' : 'en');
+  const n = nf.format(el.value);
+  const unit = { m: tr('m', 'د'), h: tr('h', 'س'), d: tr('d', 'ي') }[el.unit];
+  const text = `${tr('Waiting', 'بانتظار الرد')} ${n}${language === 'ar' ? ' ' : ''}${unit}`;
+  const label = sla.level === 'red'
+    ? tr(`Overdue — waiting ${n}${unit}`, `متأخرة — بانتظار الرد ${n} ${unit}`)
+    : sla.level === 'amber'
+      ? tr(`Due soon — waiting ${n}${unit}`, `تقترب من الموعد — بانتظار الرد ${n} ${unit}`)
+      : tr(`Waiting ${n}${unit}`, `بانتظار الرد ${n} ${unit}`);
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-medium tabular-nums',
+        sla.level === 'red' && 'bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30',
+        sla.level === 'amber' && 'bg-amber-100 text-amber-900 ring-1 ring-inset ring-amber-300 dark:bg-amber-950/60 dark:text-amber-100 dark:ring-amber-700',
+        sla.level === 'ok' && 'bg-muted text-muted-foreground',
+      )}
+    >
+      {sla.level === 'red' && <AlertCircle className="h-2.5 w-2.5" aria-hidden />}
+      {sla.level === 'amber' && <Clock className="h-2.5 w-2.5" aria-hidden />}
+      <span aria-hidden>{text}</span>
+    </span>
+  );
 }
 
 const shortTime = (iso: string | null, locale: string) => {
@@ -96,6 +128,7 @@ export function ThreadList({ threads, selectedId, failed, onSelect }: Props) {
                 <Badge variant={t.state === 'waiting_us' ? 'default' : 'secondary'} className="px-1.5 py-0 text-[10px] font-medium">
                   {stateLabel(t.state, tr)}
                 </Badge>
+                <WaitingChip thread={t} tr={tr} language={language} />
                 <span className="truncate text-[11px] text-muted-foreground">
                   {t.assignee ? <bdi>{t.assignee.name}</bdi> : tr('Unassigned', 'غير مُسندة')}
                 </span>
