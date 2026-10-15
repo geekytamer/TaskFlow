@@ -9,7 +9,20 @@ import type { PushAudience } from './push-store';
  * and where to look; never amounts, rates or anything a lock screen should not show.
  */
 
-export interface PushPayload { title: string; body: string; url: string; tag: string }
+export interface PushPayload {
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+  /** The app icon's count (staff: inbox mine + unassigned waiting; portal: unread threads). */
+  badge?: number;
+  /** Alert again when this tag's notification is replaced. */
+  renotify?: boolean;
+  /** Notification buttons (staff only; Android shows them). */
+  actions?: Array<{ action: 'open' | 'done'; title: string }>;
+  /** Signed token for the 'done' button (push/action-token.ts). */
+  actionToken?: string;
+}
 export interface DeviceSubscription { endpoint: string; keys: { p256dh: string; auth: string } }
 /** Sends one payload to one device; resolves with the push service's status. Tests inject a fake. */
 export type PushSender = (subscription: DeviceSubscription, payload: string) => Promise<{ statusCode: number }>;

@@ -134,6 +134,7 @@ import { registerWhatsappRoutes } from './routes/whatsapp';
 import { registerHrRoutes } from './routes/hr';
 import { registerWorkspaceRoutes } from './routes/workspace';
 import { registerPushRoutes } from './routes/push';
+import { registerPushActionRoutes } from './routes/push-actions';
 import { pushConfigFromEnv, type PushConfig } from './push/push';
 import { dispatchStaffPush, flushThreadPushes, sweepResponseOverdue } from './conversations/alerts';
 import { registerRecurringRoutes } from './routes/recurring';
@@ -7734,6 +7735,12 @@ export function createServer(options: CreateServerOptions = {}) {
   registerHrRoutes(app, routeContext);
   registerWorkspaceRoutes(app, routeContext);
   registerPushRoutes(app, routeContext, push);
+  // A notification's "Mark done" button: no session, a signed token re-checked on use.
+  registerPushActionRoutes(app, {
+    store,
+    contactsLocked: (user, companyId) => academyEnforce && !user.isSuperAdmin && !store.isTrainingCompany(companyId)
+      && academyLockedModules(store, user).includes('contacts'),
+  });
 
   // ─── Graceful record deletion ──────────────────────────────────────────────
   // Each route loads the record (404 if missing), checks the caller's role, then

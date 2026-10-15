@@ -1,5 +1,6 @@
 import type { DataStore } from '../data/store';
-import { sendToPrincipal, type PushSender } from '../push/push';
+import { sendToPrincipal, type PushPayload, type PushSender } from '../push/push';
+import { canSignActionTokens, signActionToken } from '../push/action-token';
 import { canAccessCompany } from '../http';
 import { RECORD_RULES } from '../permissions/record-rules';
 import type { Contact, Notification, NotificationPrefs, SanitizedUser } from '../types';
@@ -38,6 +39,15 @@ function canSeeContactOf(store: DataStore, contact: Contact | undefined, userId:
   return contact.visibility !== 'Private' || contact.ownerUserId === userId || privateReaders().has(userId);
 }
 
+/** Whether this person may see the thread's contact right now (member, and public, theirs or private-read). */
+export function canSeeThreadContact(store: DataStore, thread: Thread, userId: string): boolean {
+  const contact = store.getContactById(thread.contactId);
+  if (!contact || contact.companyId !== thread.companyId) return false;
+  const privateReaders = () =>
+    new Set(store.listUserIdsWithPermission(thread.companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles]));
+  return canSeeContactOf(store, contact, userId, privateReaders);
+}
+
 /**
  * Who answers a thread: its assignee, else the contact's current owner, else the
  * company's Admins — and only those of them who can see the contact.
@@ -51,6 +61,31 @@ export function threadRecipients(store: DataStore, thread: Thread): string[] {
   if (thread.assigneeUserId) return visible([thread.assigneeUserId]);
   if (contact?.ownerUserId) return visible([contact.ownerUserId]);
   return visible(store.listUserIdsByCompanyRoles(thread.companyId, ['Admin']));
+}
+
+/**
+ * The app icon's number for a staff member: what the inbox counts as theirs to
+ * answer, i.e. waiting threads assigned to them plus unassigned ones, of
+ * contacts they can see, in a company where they may use contacts.
+ */
+export function staffInboxBadge(store: DataStore, userId: string, companyId: string, nowIso: string = new Date().toISOString()): number {
+  if (!store.listUserIdsWithPermission(companyId, 'contacts:read', ['Admin', 'Manager', 'Employee', 'Accountant']).includes(userId)) return 0;
+  let readers: Set<string> | undefined;
+  const privateReaders = () =>
+    (readers ??= new Set(store.listUserIdsWithPermission(companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles])));
+  const seen = new Map<string, boolean>();
+  const visible = (contactId: string) => {
+    if (!seen.has(contactId)) seen.set(contactId, canSeeContactOf(store, store.getContactById(contactId), userId, privateReaders));
+    return seen.get(contactId)!;
+  };
+  return store.conversations.listThreads(companyId, { withMessages: true, states: ['waiting_us'] }, nowIso)
+    .filter((t) => (!t.assigneeUserId || t.assigneeUserId === userId) && visible(t.contactId))
+    .length;
+}
+
+/** The badge for a payload; a failure to count never stops the push. */
+function badgeFor(store: DataStore, userId: string, companyId: string): number | undefined {
+  try { return staffInboxBadge(store, userId, companyId); } catch { return undefined; }
 }
 
 const isInboundExternal = (m: ConvMessage) => m.channel !== 'note' && m.direction === 'in' && m.visibility === 'external';
@@ -127,7 +162,17 @@ async function pushThreadAlert(store: DataStore, send: PushSender, n: Notificati
   // Marked before sending, so a message arriving mid-send sees the window.
   store.markNotificationPushed(n.id, new Date(nowMs).toISOString(), Number(n.data?.count ?? 1));
   const body = prefs.pushPreview ? previewOf(store, n) : '';
-  const payload = { title: n.title, body, url: n.link ?? '/notifications', tag: `thread:${n.entityId}` };
+  const payload: PushPayload = {
+    title: n.title, body, url: n.link ?? '/notifications', tag: `thread:${n.entityId}`,
+    badge: badgeFor(store, n.userId, n.companyId),
+    // The same tag replaces the earlier notification; renotify makes the phone sound again.
+    renotify: true,
+  };
+  // "Mark done" carries a signed token; the button only appears when one can be signed.
+  if (n.entityId && canSignActionTokens()) {
+    payload.actions = [{ action: 'open', title: 'Open' }, { action: 'done', title: 'Mark done' }];
+    payload.actionToken = signActionToken({ userId: n.userId, threadId: n.entityId, action: 'done' });
+  }
   // Quiet hours: kept for the morning summary (marked pushed above, so the flush does not retry every minute).
   if (companyInQuietHours(store, n.companyId, nowMs)) { holdPush(store, 'staff', n.userId, n.companyId, payload); return; }
   await sendToPrincipal(store, send, 'staff', n.userId, payload);
@@ -160,7 +205,7 @@ export async function dispatchStaffPush(
         if (!insideWindow(store, n, nowMs)) await pushThreadAlert(store, send, n, prefs, nowMs);
         continue;
       }
-      const payload = { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` };
+      const payload: PushPayload = { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}`, badge: badgeFor(store, n.userId, n.companyId) };
       if (companyInQuietHours(store, n.companyId, nowMs)) { holdPush(store, 'staff', n.userId, n.companyId, payload); continue; }
       await sendToPrincipal(store, send, 'staff', n.userId, payload);
     } catch (error) {

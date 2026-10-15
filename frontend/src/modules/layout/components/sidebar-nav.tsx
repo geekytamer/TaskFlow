@@ -147,6 +147,14 @@ const sections: NavSection[] = [
   },
 ];
 
+/** The installed app's icon shows the same number as the Inbox badge, where the browser supports it. */
+function showAppBadge(count: number) {
+  if (typeof navigator === 'undefined') return;
+  const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+  const done = count > 0 ? nav.setAppBadge?.(count) : nav.clearAppBadge?.();
+  done?.catch(() => undefined);
+}
+
 export function SidebarNav() {
   const pathname = usePathname();
   const { user, loading, effectiveRole } = useAuthGuard();
@@ -193,7 +201,12 @@ export function SidebarNav() {
     let live = true;
     const fetchWaiting = () => {
       getInbox(companyId, 'mine', 'waiting_us')
-        .then((r) => { if (live) setInboxWaiting(waitingCount(r.counts)); })
+        .then((r) => {
+          if (!live) return;
+          const count = waitingCount(r.counts);
+          setInboxWaiting(count);
+          showAppBadge(count);
+        })
         .catch(() => undefined);
     };
     fetchWaiting();
