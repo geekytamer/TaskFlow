@@ -5126,6 +5126,23 @@ export class DataStore {
           }
         },
       },
+      {
+        // Per-company working hours and response target for conversations.
+        id: '132_conversation_settings',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS conversation_settings (
+              companyId           TEXT PRIMARY KEY,
+              responseTargetHours REAL NOT NULL,
+              workDays            TEXT NOT NULL,
+              dayStart            TEXT NOT NULL,
+              dayEnd              TEXT NOT NULL,
+              timeZone            TEXT NOT NULL,
+              updatedAt           TEXT NOT NULL
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5306,6 +5323,7 @@ export class DataStore {
         DELETE FROM conversation_messages;
         DELETE FROM conversation_threads;
         DELETE FROM conversations;
+        DELETE FROM conversation_settings;
         DELETE FROM portal_files;
         DELETE FROM record_attachments;
         DELETE FROM company_numbering_settings;

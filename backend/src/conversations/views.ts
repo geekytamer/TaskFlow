@@ -1,6 +1,7 @@
 import type { DataStore } from '../data/store';
 import { fileDto } from '../portal/thread';
 import type { ConvMessage, Thread } from './conversations-store';
+import { slaOf } from './sla';
 import { canSeeMessage } from './visibility';
 
 const NOTE_EDIT_MS = 15 * 60 * 1000;
@@ -88,6 +89,8 @@ export function staffThreadView(store: DataStore, thread: Thread, viewerUserId: 
   // Another person's owner_private message must not surface in the preview.
   const last = [...c.messages(thread.id)].reverse().find((m) => canSeeMessage(m, { kind: 'staff', userId: viewerUserId, seesPrivate: false }));
   const read = c.readsOf(thread.id).find((r) => r.readerType === 'staff' && r.readerId === viewerUserId);
+  const state = c.effectiveState(thread, now);
+  const waitingSince = c.effectiveWaitingSince(thread, now);
   return {
     id: thread.id,
     contact: { id: thread.contactId, name: contact?.name ?? '' },
@@ -95,8 +98,9 @@ export function staffThreadView(store: DataStore, thread: Thread, viewerUserId: 
     contextType: thread.contextType,
     contextId: thread.contextId,
     assignee,
-    state: c.effectiveState(thread, now),
-    waitingSince: c.effectiveWaitingSince(thread, now),
+    state,
+    waitingSince,
+    sla: state === 'waiting_us' ? slaOf(waitingSince, now, c.settings(thread.companyId)) : null,
     snoozedUntil: thread.snoozedUntil,
     lastMessageAt: thread.lastMessageAt,
     lastMessage: last

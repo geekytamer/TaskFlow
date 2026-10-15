@@ -8024,6 +8024,7 @@ export function createServer(options: CreateServerOptions = {}) {
       store,
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
+      requireManager: (req, companyId) => requireCompanyRoles(req as AuthedRequest, companyId, ['Admin', 'Manager']),
       viewerFor: (req, companyId) => ({
         kind: 'staff',
         userId: (req as AuthedRequest).user!.id,
