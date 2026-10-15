@@ -113,3 +113,12 @@ export const subscribePush = (subscription: PushSubscriptionJSON) =>
   apiFetch<{ subscribed: boolean }>('/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) });
 export const unsubscribePush = (endpoint: string) =>
   apiFetch<void>('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
+
+/** A device that gets this person's phone notifications; `current` is the one asking. */
+export interface PushDevice { id: string; label: string; lastSentAt: string | null; createdAt: string; current: boolean }
+export const listPushDevices = (currentEndpoint?: string) =>
+  apiFetch<PushDevice[]>(`/push/devices${currentEndpoint ? `?endpoint=${encodeURIComponent(currentEndpoint)}` : ''}`);
+export const testPushDevice = (id: string) =>
+  apiFetch<{ delivered: boolean; removed: boolean }>(`/push/devices/${encodeURIComponent(id)}/test`, { method: 'POST' });
+export const removePushDevice = (id: string) =>
+  apiFetch<void>(`/push/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });

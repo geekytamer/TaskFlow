@@ -1,7 +1,8 @@
 import webpush from 'web-push';
 import { HttpError } from '../http';
 import type { DataStore } from '../data/store';
-import type { PushAudience } from './push-store';
+import { deviceLabel } from './device-label';
+import type { PushAudience, PushSubscriptionRow } from './push-store';
 
 /**
  * Phone notifications through Web Push (VAPID). Off unless PUSH_VAPID_PUBLIC_KEY,
@@ -78,4 +79,36 @@ export async function sendToPrincipal(store: DataStore, send: PushSender, audien
     }
   }
   return delivered;
+}
+
+/** What a person sees about one of their devices; `current` is the device asking. */
+export interface DeviceView { id: string; label: string; lastSentAt: string | null; createdAt: string; current: boolean }
+
+export function listDevices(store: DataStore, audience: PushAudience, principalId: string, currentEndpoint: unknown): DeviceView[] {
+  const endpoint = typeof currentEndpoint === 'string' && currentEndpoint ? currentEndpoint : null;
+  return store.push.forPrincipal(audience, principalId).map((s) => ({
+    id: s.id, label: deviceLabel(s.userAgent), lastSentAt: s.lastSentAt, createdAt: s.createdAt, current: endpoint !== null && s.endpoint === endpoint,
+  }));
+}
+
+/** This person's device, or 404 (also when it is someone else's, so ids reveal nothing). */
+export function ownDeviceOr404(store: DataStore, audience: PushAudience, principalId: string, id: string): PushSubscriptionRow {
+  const row = store.push.ownDevice(audience, principalId, id);
+  if (!row) throw new HttpError(404, 'Device not found.');
+  return row;
+}
+
+/**
+ * Sends one payload to one device. Gone (404/410) removes it. Resolves with
+ * whether the push service accepted it and whether the device was removed.
+ */
+export async function sendToDevice(store: DataStore, send: PushSender, device: PushSubscriptionRow, payload: PushPayload): Promise<{ delivered: boolean; removed: boolean }> {
+  try {
+    const { statusCode } = await send({ endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } }, JSON.stringify(payload));
+    if (statusCode === 404 || statusCode === 410) { store.push.remove(device.id); return { delivered: false, removed: true }; }
+    if (statusCode >= 200 && statusCode < 300) { store.push.markSent(device.id); return { delivered: true, removed: false }; }
+  } catch {
+    // Unreachable right now; the device stays.
+  }
+  return { delivered: false, removed: false };
 }

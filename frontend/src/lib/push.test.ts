@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pushSupport, urlBase64ToUint8Array } from './push';
+import { pushSupport, showInstallCard, urlBase64ToUint8Array } from './push';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 const OLD_IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Mobile/15E148 Safari/604.1';
@@ -27,4 +27,14 @@ test('Android and desktop browsers with push are ready; without push they are un
 
 test('the VAPID key decodes from URL-safe base64', () => {
   assert.deepEqual([...urlBase64ToUint8Array('AQID_-8')], [1, 2, 3, 255, 239]);
+});
+
+test('the install card shows on an iPhone or iPad in the browser until dismissed', () => {
+  assert.equal(showInstallCard({ ua: IPHONE, touchPoints: 5, standalone: false, dismissed: false }), true);
+  assert.equal(showInstallCard({ ua: IPAD_DESKTOP_UA, touchPoints: 5, standalone: false, dismissed: false }), true, 'iPadOS with a desktop agent');
+  assert.equal(showInstallCard({ ua: OLD_IPHONE, touchPoints: 5, standalone: false, dismissed: false }), true, 'adding to the home screen still helps');
+  assert.equal(showInstallCard({ ua: IPHONE, touchPoints: 5, standalone: true, dismissed: false }), false, 'already opened from the icon');
+  assert.equal(showInstallCard({ ua: IPHONE, touchPoints: 5, standalone: false, dismissed: true }), false, 'dismissed');
+  assert.equal(showInstallCard({ ua: ANDROID, touchPoints: 5, standalone: false, dismissed: false }), false);
+  assert.equal(showInstallCard({ ua: IPAD_DESKTOP_UA, touchPoints: 0, standalone: false, dismissed: false }), false, 'a real Mac');
 });

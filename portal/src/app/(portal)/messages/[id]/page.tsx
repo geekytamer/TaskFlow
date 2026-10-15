@@ -7,6 +7,8 @@ import { ScrollToLatest } from '@/components/scroll-to-latest';
 import { EmptyState, PageHeader, textLink } from '@/components/ui';
 import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
 import { PhoneNotifications } from '@/components/phone-notifications';
+import { AlertMatrix } from '@/components/alert-matrix';
+import { InstallAppCard } from '@/components/install-app-card';
 import { getAlertSettings } from '@/lib/alerts';
 import { getAudience } from '@/lib/audience';
 import { formatDate } from '@/lib/format';
@@ -95,7 +97,9 @@ export default async function ThreadPage({ params, searchParams }: { params: Pro
         <MessageComposer lang={lang} threadId={id} />
       </div>
 
+      {audience === 'client' && <InstallAppCard lang={lang} />}
       {audience === 'client' && <PhoneNotifications lang={lang} />}
+      {alerts && <AlertMatrix lang={lang} audience="client" initial={alerts} />}
       {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );

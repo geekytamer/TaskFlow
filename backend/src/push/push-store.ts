@@ -41,6 +41,11 @@ export class PushStore {
     return this.db.prepare('SELECT principalId, MIN(createdAt) AS since FROM push_subscriptions WHERE audience = ? GROUP BY principalId').all(audience) as Array<{ principalId: string; since: string }>;
   }
 
+  /** One device, only if it belongs to this person. */
+  ownDevice(audience: PushAudience, principalId: string, id: string): PushSubscriptionRow | undefined {
+    return this.db.prepare('SELECT * FROM push_subscriptions WHERE id = ? AND audience = ? AND principalId = ?').get(id, audience, principalId) as PushSubscriptionRow | undefined;
+  }
+
   remove(id: string): void {
     this.db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(id);
   }

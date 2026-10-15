@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { AppBadge } from '@/components/app-badge';
 import { EmptyState, PageHeader, RowLink, list } from '@/components/ui';
+import { AlertMatrix } from '@/components/alert-matrix';
+import { InstallAppCard } from '@/components/install-app-card';
 import { PhoneNotifications } from '@/components/phone-notifications';
 import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
 import { getAlertSettings } from '@/lib/alerts';
@@ -47,7 +49,9 @@ export default async function MessagesPage() {
         </ul>
       )}
 
+      {audience === 'client' && <InstallAppCard lang={lang} />}
       {audience === 'client' && <PhoneNotifications lang={lang} />}
+      {alerts && <AlertMatrix lang={lang} audience="client" initial={alerts} />}
       {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );

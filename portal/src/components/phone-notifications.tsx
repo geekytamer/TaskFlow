@@ -1,9 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { pushSupport, urlBase64ToUint8Array, type PushSupport } from '@/lib/push';
+import { showInstallSteps } from './install-app-card';
 import { button, panel } from './ui';
+
+/** A device that gets this person's phone notifications; `current` is the one asking. */
+interface PushDevice { id: string; label: string; lastSentAt: string | null; createdAt: string; current: boolean }
 
 type State = 'checking' | PushSupport | 'not-set-up' | 'blocked' | 'off' | 'on';
 
@@ -16,6 +20,21 @@ export function PhoneNotifications({ lang }: { lang: Lang }) {
   const [state, setState] = useState<State>('checking');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const [devices, setDevices] = useState<PushDevice[] | null>(null);
+
+  /** Lists this person's devices, marking this one by its own subscription endpoint. */
+  const loadDevices = useCallback(async () => {
+    let endpoint: string | undefined;
+    try {
+      if ('serviceWorker' in navigator && 'PushManager' in window) endpoint = (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription())?.endpoint;
+    } catch { /* no subscription to compare */ }
+    const res = await fetch(`/api/push/devices${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`).catch(() => null);
+    setDevices(res?.ok ? await res.json().catch(() => null) : null);
+  }, []);
+
+  useEffect(() => {
+    if (state !== 'checking') void loadDevices();
+  }, [state, loadDevices]);
 
   useEffect(() => {
     (async () => {
@@ -83,13 +102,9 @@ export function PhoneNotifications({ lang }: { lang: Lang }) {
       {state === 'not-set-up' && note('push.notSetUp')}
       {state === 'blocked' && note('push.blocked')}
       {state === 'ios-install' && (
-        <div className="space-y-2 text-sm">
-          <p className="text-ink-soft">{t(lang, 'push.iosInstall')}</p>
-          <ol className="list-decimal space-y-1 ps-5 leading-relaxed">
-            <li>{t(lang, 'push.iosStep1')} <ShareGlyph /></li>
-            <li>{t(lang, 'push.iosStep2')}</li>
-            <li>{t(lang, 'push.iosStep3')}</li>
-          </ol>
+        <div>
+          {note('push.iosFirst')}
+          <button type="button" onClick={showInstallSteps} className="inline-flex min-h-11 items-center text-sm font-semibold text-accent underline-offset-4 hover:underline">{t(lang, 'push.showSteps')}</button>
         </div>
       )}
       {state === 'off' && <button type="button" onClick={enable} disabled={busy} className={button.primary}>{busy ? t(lang, 'push.working') : t(lang, 'push.enable')}</button>}
@@ -100,16 +115,86 @@ export function PhoneNotifications({ lang }: { lang: Lang }) {
         </div>
       )}
       {error && <p role="alert" className="text-sm text-danger">{t(lang, 'push.failed')}</p>}
+      {devices && devices.length > 0 && (
+        <DeviceList lang={lang} devices={devices} onChanged={loadDevices} onRemovedCurrent={async () => {
+          try { await (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription())?.unsubscribe(); } catch { /* already gone upstream */ }
+          setState('off');
+        }} />
+      )}
     </section>
   );
 }
 
-/** Safari's share icon, so the step points at what they will see. */
-function ShareGlyph() {
+/** The devices that get this person's phone notifications: send a test to one, or remove it. */
+function DeviceList({ lang, devices, onChanged, onRemovedCurrent }: { lang: Lang; devices: PushDevice[]; onChanged: () => Promise<void>; onRemovedCurrent: () => Promise<void> }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [status, setStatus] = useState<{ id: string; key: Key; error?: boolean } | null>(null);
+  const date = (iso: string) => new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+
+  async function test(d: PushDevice) {
+    setBusyId(d.id);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/push/devices/${encodeURIComponent(d.id)}/test`, { method: 'POST' });
+      const r = res.ok ? await res.json() : null;
+      if (r?.removed) { setStatus({ id: d.id, key: 'push.testGone' }); await onChanged(); }
+      else if (r?.delivered) { setStatus({ id: d.id, key: 'push.testSent' }); await onChanged(); }
+      else setStatus({ id: d.id, key: 'push.testFailed', error: true });
+    } catch {
+      setStatus({ id: d.id, key: 'push.testFailed', error: true });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(d: PushDevice) {
+    setBusyId(d.id);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/push/devices/${encodeURIComponent(d.id)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) throw new Error(String(res.status));
+      if (d.current) await onRemovedCurrent();
+      await onChanged();
+    } catch {
+      setStatus({ id: d.id, key: 'push.failed', error: true });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className="inline h-4 w-4 align-[-3px]" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 10V1.5M5 4.5l3-3 3 3" />
-      <path d="M4.5 7H3.5v7.5h9V7h-1" />
-    </svg>
+    <div className="border-t border-line pt-3">
+      <h3 className="text-sm font-semibold">{t(lang, 'push.devices')}</h3>
+      <ul className="mt-1 divide-y divide-line">
+        {devices.map((d) => (
+          <li key={d.id} className="py-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">
+                  <bdi dir="ltr">{d.label}</bdi>
+                  {d.current && <span className="ms-2 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">{t(lang, 'push.thisDevice')}</span>}
+                </p>
+                <p className="text-xs text-ink-soft">
+                  {d.lastSentAt ? t(lang, 'push.lastSent').replace('{when}', date(d.lastSentAt)) : t(lang, 'push.added').replace('{when}', date(d.createdAt))}
+                </p>
+              </div>
+              <div className="flex items-center">
+                <button type="button" disabled={busyId !== null} onClick={() => void test(d)} aria-label={t(lang, 'push.testTo').replace('{device}', d.label)}
+                  className="inline-flex min-h-11 items-center px-3 text-sm font-semibold text-accent disabled:opacity-60">
+                  {busyId === d.id ? t(lang, 'push.working') : t(lang, 'push.sendTest')}
+                </button>
+                <button type="button" disabled={busyId !== null} onClick={() => void remove(d)} aria-label={t(lang, 'push.remove').replace('{device}', d.label)}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-control text-ink-soft transition-colors hover:bg-ink/5 hover:text-danger disabled:opacity-60">
+                  <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.7 9.5h6.6L12 4" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {status?.id === d.id && <p role={status.error ? 'alert' : 'status'} className={`text-xs ${status.error ? 'text-danger' : 'text-ink-soft'}`}>{t(lang, status.key)}</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

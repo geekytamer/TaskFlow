@@ -12,6 +12,8 @@ import { currentLang } from '@/lib/session';
 import { getAlertSettings } from '@/lib/alerts';
 import { WhatsAppAlerts } from '@/components/whatsapp-alerts';
 import { PhoneNotifications } from '@/components/phone-notifications';
+import { AlertMatrix } from '@/components/alert-matrix';
+import { InstallAppCard } from '@/components/install-app-card';
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireAudience('influencer');
@@ -90,7 +92,9 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </>
       )}
 
+      <InstallAppCard lang={lang} />
       <PhoneNotifications lang={lang} />
+      {alerts && <AlertMatrix lang={lang} audience="influencer" initial={alerts} />}
       {alerts && <WhatsAppAlerts lang={lang} initial={alerts} />}
     </div>
   );
