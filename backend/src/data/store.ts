@@ -20243,6 +20243,8 @@ export class DataStore {
 
   /** Someone handled the thread (opened it or wrote on it): their message and overdue alerts for it are read. */
   markThreadNotificationsRead(userId: string, threadId: string): number {
+    // A push held for the morning about this thread is no longer needed either.
+    this.db.prepare("DELETE FROM push_held WHERE audience = 'staff' AND principalId = ? AND tag = ?").run(userId, `thread:${threadId}`);
     return this.db
       .prepare(
         `UPDATE notifications SET readAt = ? WHERE userId = ? AND entityType = 'conversation_thread' AND entityId = ?

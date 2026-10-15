@@ -10,6 +10,8 @@ export interface PushSubscriptionRow {
   endpoint: string; p256dh: string; auth: string; userAgent: string | null; createdAt: string; lastSentAt: string | null;
 }
 
+export interface HeldRow { audience: PushAudience; principalId: string; companyId: string; tag: string; url: string; title: string; body: string; heldAt: string }
+
 export class PushStore {
   constructor(private readonly db: Database.Database) {}
 
@@ -67,8 +69,19 @@ export class PushStore {
     ).run(audience, principalId, companyId, p.tag, p.url, p.title, p.body, new Date().toISOString());
   }
 
-  heldGroups(companyId: string): Array<{ audience: PushAudience; principalId: string; count: number }> {
-    return this.db.prepare('SELECT audience, principalId, COUNT(*) AS count FROM push_held WHERE companyId = ? GROUP BY audience, principalId').all(companyId) as Array<{ audience: PushAudience; principalId: string; count: number }>;
+  /** Takes everything held for this company out of the table in one step and returns it, so overlapping runs cannot both send. */
+  claimHeld(companyId: string): HeldRow[] {
+    return this.db.transaction(() => {
+      const rows = this.db.prepare('SELECT * FROM push_held WHERE companyId = ?').all(companyId) as HeldRow[];
+      this.db.prepare('DELETE FROM push_held WHERE companyId = ?').run(companyId);
+      return rows;
+    })();
+  }
+
+  /** Puts claimed rows back after a failed delivery, without overwriting anything held since. */
+  restoreHeld(rows: HeldRow[]): void {
+    const insert = this.db.prepare('INSERT OR IGNORE INTO push_held (audience, principalId, companyId, tag, url, title, body, heldAt) VALUES (@audience, @principalId, @companyId, @tag, @url, @title, @body, @heldAt)');
+    this.db.transaction(() => rows.forEach((r) => insert.run(r)))();
   }
 
   clearHeld(audience: PushAudience, principalId: string, companyId: string): void {
