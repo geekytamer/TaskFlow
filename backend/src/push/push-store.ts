@@ -61,6 +61,19 @@ export class PushStore {
     this.db.transaction(() => items.forEach((i) => insert.run(portalUserId, i.event, i.refId, status, now)))();
   }
 
+  /** When a thread last pushed this person, and how many messages that push stood for. */
+  portalThreadPush(portalUserId: string, threadId: string): { pushedAt: string; pushedCount: number } | undefined {
+    return this.db.prepare('SELECT pushedAt, pushedCount FROM portal_thread_push WHERE portalUserId = ? AND threadId = ?').get(portalUserId, threadId) as
+      { pushedAt: string; pushedCount: number } | undefined;
+  }
+
+  setPortalThreadPush(portalUserId: string, threadId: string, pushedAt: string, pushedCount: number): void {
+    this.db.prepare(
+      `INSERT INTO portal_thread_push (portalUserId, threadId, pushedAt, pushedCount) VALUES (?, ?, ?, ?)
+       ON CONFLICT (portalUserId, threadId) DO UPDATE SET pushedAt = excluded.pushedAt, pushedCount = excluded.pushedCount`,
+    ).run(portalUserId, threadId, pushedAt, pushedCount);
+  }
+
   /** Keeps a push for after quiet hours; one per (person, tag), the latest wins. */
   hold(audience: PushAudience, principalId: string, companyId: string, p: PushPayload): void {
     this.db.prepare(

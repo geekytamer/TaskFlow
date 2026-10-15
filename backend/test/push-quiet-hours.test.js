@@ -93,8 +93,8 @@ test('portal pushes at night are held and summarised in the user language', asyn
   assert.equal(ctx.store.push.heldCount(), 1);
   assert.equal(await sweepPortalPush(ctx.store, ctx.send, ctx.company.id, Date.parse(MORNING)), 0, 'logged, not re-sent');
   assert.equal(await releaseHeldPush(ctx.store, ctx.send, ctx.company.id, MORNING), 1);
-  assert.equal(ctx.sent[0].url, '/');
-  assert.equal(ctx.sent[0].body, '1 update while you were away');
+  assert.equal(ctx.sent[0].url, '/messages', 'a held message push is a conversation, so the summary opens the messages');
+  assert.equal(ctx.sent[0].body, '1 conversation needs you');
 });
 
 const holdThread = (ctx, id) => ctx.store.push.hold('staff', ctx.carla.id, ctx.company.id, { title: 't', body: '', url: `/inbox?thread=${id}`, tag: `thread:${id}` });

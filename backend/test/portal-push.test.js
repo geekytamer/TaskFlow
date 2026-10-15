@@ -31,8 +31,8 @@ const build = () => {
     return { Authorization: `Bearer ${(await request(server).post('/portal-api/client/auth/login').send({ email, password: 'correct horse battery' })).body.token}` };
   };
   const staffMessage = (body) => store.conversations.addMessage({ threadId: store.conversations.generalThread(company.id, client.id).id, channel: 'portal', direction: 'out', visibility: 'external', authorType: 'staff', authorUserId: carla.id, authorPortalUserId: null, body });
-  const sweep = () => sweepPortalPush(store, send, company.id);
-  return { store, server, company, client, sent, session, staffMessage, sweep };
+  const sweep = (nowMs) => sweepPortalPush(store, send, company.id, nowMs);
+  return { store, server, company, client, carla, sent, session, staffMessage, sweep };
 };
 
 test('each new event is pushed once, as the company name with what happened and where to look', async () => {
@@ -43,7 +43,7 @@ test('each new event is pushed once, as the company name with what happened and 
   assert.equal(await ctx.sweep(), 1);
   assert.equal(ctx.sent.length, 1);
   assert.equal(ctx.sent[0].title, 'Peak Media');
-  assert.equal(ctx.sent[0].body, 'A new message from the team');
+  assert.equal(ctx.sent[0].body, 'New message: Your draft is ready');
   assert.equal(ctx.sent[0].url, `/messages/${ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id}`);
   assert.equal(await ctx.sweep(), 0, 'not twice');
   assert.equal(ctx.sent.length, 1);
@@ -69,4 +69,102 @@ test('someone with no device gets nothing, and a removed device stops them', asy
   ctx.staffMessage('Again');
   assert.equal(await ctx.sweep(), 0);
   assert.deepEqual(ctx.sent, []);
+});
+
+const MIN = 60_000;
+const T0 = Date.UTC(2026, 5, 1, 9, 0, 0);
+const prefs = (ctx, s, body) => request(ctx.server).put('/portal-api/client/alerts').set(s).send(body);
+
+test('three messages in a burst make one push on the thread tag, with the count and the latest text', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  const tid = ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id;
+  ['One', 'Two', 'Three is the latest'].forEach((t) => ctx.staffMessage(t));
+  assert.equal(await ctx.sweep(T0), 1);
+  assert.equal(ctx.sent.length, 1);
+  assert.equal(ctx.sent[0].tag, `thread:${tid}`);
+  assert.equal(ctx.sent[0].url, `/messages/${tid}`);
+  assert.equal(ctx.sent[0].body, '3 new messages: Three is the latest');
+  assert.equal(await ctx.sweep(T0 + 10 * MIN), 0, 'not again');
+});
+
+test('after the first push, later messages wait for the window, then one push carries the running count', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  const tid = ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id;
+  ctx.staffMessage('First');
+  assert.equal(await ctx.sweep(T0), 1);
+  assert.equal(ctx.sent[0].body, 'New message: First');
+  ctx.staffMessage('Second');
+  ctx.staffMessage('Third');
+  assert.equal(await ctx.sweep(T0 + 30_000), 0, 'inside the window');
+  assert.equal(await ctx.sweep(T0 + 90_000), 0);
+  assert.equal(await ctx.sweep(T0 + 2 * MIN + 1000), 1);
+  assert.equal(ctx.sent.length, 2);
+  assert.equal(ctx.sent[1].tag, `thread:${tid}`);
+  assert.equal(ctx.sent[1].body, '3 new messages: Third');
+  assert.equal(await ctx.sweep(T0 + 10 * MIN), 0);
+  ctx.staffMessage('Much later');
+  assert.equal(await ctx.sweep(T0 + 60 * MIN), 1);
+  assert.equal(ctx.sent[2].body, 'New message: Much later', 'a new burst starts from one');
+});
+
+test('the count is in Arabic for an Arabic reader', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  await prefs(ctx, s, { lang: 'ar', preview: false });
+  ctx.staffMessage('a'); ctx.staffMessage('b'); ctx.staffMessage('c');
+  await ctx.sweep(T0);
+  assert.equal(ctx.sent[0].body, '3 رسائل جديدة');
+});
+
+test('with the messages switch off nothing is pushed, and turning it on later does not replay', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  assert.equal((await prefs(ctx, s, { groups: { messages: { push: false } } })).status, 200);
+  ctx.staffMessage('Muted');
+  assert.equal(await ctx.sweep(T0), 0);
+  await prefs(ctx, s, { groups: { messages: { push: true } } });
+  assert.equal(await ctx.sweep(T0 + 10 * MIN), 0, 'the muted message stays muted');
+  ctx.staffMessage('Audible');
+  assert.equal(await ctx.sweep(T0 + 20 * MIN), 1);
+  assert.deepEqual(ctx.sent.map((m) => m.body), ['New message: Audible']);
+});
+
+test('with preview off the push says a message came, not what it said', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  await prefs(ctx, s, { preview: false });
+  ctx.staffMessage('Your price is 1200 OMR');
+  await ctx.sweep(T0);
+  assert.equal(ctx.sent[0].body, 'New message');
+  assert.equal(JSON.stringify(ctx.sent[0]).includes('1200'), false);
+});
+
+test('internal notes, private messages and non-portal channels never appear in a portal push', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  const threadId = ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id;
+  const add = (extra) => ctx.store.conversations.addMessage({ threadId, authorType: 'staff', authorUserId: ctx.carla.id, authorPortalUserId: null, ...extra });
+  add({ channel: 'note', direction: 'out', visibility: 'internal', body: 'POISON-internal' });
+  add({ channel: 'portal', direction: 'out', visibility: 'owner_private', body: 'POISON-private' });
+  assert.equal(await ctx.sweep(T0), 0);
+  ctx.staffMessage('Safe text');
+  add({ channel: 'note', direction: 'out', visibility: 'internal', body: 'POISON-after' });
+  assert.equal(await ctx.sweep(T0 + 5 * MIN), 1);
+  assert.equal(ctx.sent[0].body, 'New message: Safe text');
+  assert.equal(JSON.stringify(ctx.sent).includes('POISON'), false);
+});
+
+test('other groups can be muted for push too', async () => {
+  const ctx = build();
+  const s = await ctx.session('buyer@alnoor.test');
+  await request(ctx.server).post('/portal-api/client/push/subscribe').set(s).send(device(1));
+  assert.equal((await prefs(ctx, s, { groups: { messages: { push: false } } })).body.groups.proposals.push, true);
 });

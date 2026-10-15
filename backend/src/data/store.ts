@@ -5163,6 +5163,24 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Portal alert preferences by group and channel, the message-preview switch,
+        // and the per-thread push window for grouped message pushes.
+        id: '134_portal_alert_groups',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE portal_alert_prefs ADD COLUMN groups TEXT;
+            ALTER TABLE portal_alert_prefs ADD COLUMN preview INTEGER NOT NULL DEFAULT 1;
+            CREATE TABLE IF NOT EXISTS portal_thread_push (
+              portalUserId TEXT NOT NULL,
+              threadId     TEXT NOT NULL,
+              pushedAt     TEXT NOT NULL,
+              pushedCount  INTEGER NOT NULL,
+              PRIMARY KEY (portalUserId, threadId)
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
