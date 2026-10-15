@@ -72,13 +72,15 @@ export function ContextPanel({ thread, detail, onChanged }: Props) {
 
   React.useEffect(() => { setPickDate(false); setCustom(''); }, [thread.id]);
 
-  const run = async (fn: () => Promise<unknown>, fail: string) => {
+  const run = async (fn: () => Promise<unknown>, fail: string): Promise<boolean> => {
     setBusy(true);
     try {
       await fn();
       onChanged?.();
+      return true;
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : fail, variant: 'destructive' });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -90,7 +92,7 @@ export function ContextPanel({ thread, detail, onChanged }: Props) {
       return;
     }
     void run(() => updateThread(thread.id, { snoozedUntil: until.toISOString() }), tr('Could not snooze', 'تعذّر التأجيل'))
-      .then(() => setPickDate(false));
+      .then((ok) => { if (ok) setPickDate(false); });
   };
 
   const files = (detail?.messages ?? []).flatMap((m) => m.files);

@@ -76,17 +76,19 @@ export function ThreadView({ threadId, onChanged, focusMessageId }: Props) {
 
   const focused = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (focusMessageId && detail && focused.current !== `${threadId}:${focusMessageId}`) {
+    if (!detail) return;
+    const key = focusMessageId ? `${threadId}:${focusMessageId}` : null;
+    if (key && focused.current !== key) {
+      focused.current = key; // focus the target once, found or not
       const el = document.getElementById(`message-${focusMessageId}`);
       if (el) {
-        focused.current = `${threadId}:${focusMessageId}`;
         el.scrollIntoView({ block: 'center' });
         el.classList.add('animate-pulse');
         const t = setTimeout(() => el.classList.remove('animate-pulse'), 2000);
         return () => clearTimeout(t);
       }
     }
-    if (!focusMessageId) end.current?.scrollIntoView({ block: 'end' });
+    end.current?.scrollIntoView({ block: 'end' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.messages.length, threadId, focusMessageId, detail === null]);
 

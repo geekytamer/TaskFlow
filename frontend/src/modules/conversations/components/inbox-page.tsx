@@ -82,9 +82,10 @@ export function InboxPage() {
   }, [companyId, view, state, debounced]);
 
   React.useEffect(() => {
-    setResult(null);
     void load();
   }, [load]);
+
+  React.useEffect(() => { setResult(null); }, [companyId]);
 
   React.useEffect(() => {
     const on = () => void load();
@@ -160,7 +161,7 @@ export function InboxPage() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={tr('Search people, subjects, messages', 'ابحث في الأشخاص والمواضيع والرسائل')}
+              placeholder={tr('Search people or subjects', 'ابحث في الأشخاص أو المواضيع')}
               aria-label={tr('Search conversations', 'بحث في المحادثات')}
               className="h-8 ps-8 text-sm"
             />
