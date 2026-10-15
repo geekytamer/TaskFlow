@@ -185,6 +185,12 @@ export function InboxPage() {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {failed && result && (
+            <div role="alert" className="flex items-center justify-between gap-2 border-b bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-50">
+              <span>{tr("Couldn't refresh. Showing earlier results.", 'تعذّر التحديث. تُعرض النتائج السابقة.')}</span>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => void load()}>{tr('Retry', 'إعادة المحاولة')}</Button>
+            </div>
+          )}
           <ThreadList threads={result?.threads ?? null} failed={failed} selectedId={threadId} onSelect={select} />
         </div>
       </aside>
@@ -208,7 +214,7 @@ export function InboxPage() {
               )}
             </header>
             <div className="min-h-0 flex-1 p-3">
-              <ThreadView threadId={threadId} focusMessageId={messageId} onChanged={() => void load()} />
+              <ThreadView key={threadId} threadId={threadId} focusMessageId={messageId} onChanged={() => void load()} />
             </div>
           </>
         ) : (

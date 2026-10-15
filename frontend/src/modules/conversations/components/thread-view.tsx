@@ -76,7 +76,7 @@ export function ThreadView({ threadId, onChanged, focusMessageId }: Props) {
 
   const focused = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!detail) return;
+    if (!detail || detail.thread.id !== threadId) return;
     const key = focusMessageId ? `${threadId}:${focusMessageId}` : null;
     if (key && focused.current !== key) {
       focused.current = key; // focus the target once, found or not
