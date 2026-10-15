@@ -20,6 +20,7 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
+import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
 import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/components/influencer-avatar';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
@@ -296,6 +297,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </CardContent>
         </Card>
       )}
+
+      {selectedCompany?.id && <ContactConversation companyId={selectedCompany.id} contactId={c.id} />}
 
       {/* Portal access: invite this contact to the influencer or client portal, where staff look for it first. */}
       {canManagePortal && (['Influencer', 'Client'] as const).filter((r) => (c.roles || []).includes(r)).map((r) => (

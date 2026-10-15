@@ -22,7 +22,6 @@ import {
 } from '@/services/portalAccessService';
 import { Copy, RefreshCw, UserPlus } from 'lucide-react';
 import { PortalPricingSection } from './portal-pricing-section';
-import { PortalThreadSection } from './portal-thread-section';
 import { ChangeRequestsSection } from './change-requests-section';
 
 export function PortalAccessPanel({ contact, audience, onContactChanged }: {
@@ -228,7 +227,10 @@ export function PortalAccessPanel({ contact, audience, onContactChanged }: {
       )}
       {audience === 'client' && <PortalPricingSection contact={contact} />}
       {audience === 'influencer' && <ChangeRequestsSection contact={contact} onApplied={onContactChanged} />}
-      <PortalThreadSection contact={contact} audience={audience} />
+      <p className="text-sm text-muted-foreground">
+        {tr('Messages moved to', 'انتقلت الرسائل إلى')}{' '}
+        <Link href={`/contacts/${contact.id}#conversation`} className="font-medium text-foreground underline underline-offset-4">{tr('Conversation', 'المحادثة')}</Link>.
+      </p>
       <p className="border-t pt-4 text-xs text-muted-foreground">
         {tr('Businesses they refer through the portal are reviewed in', 'الأنشطة التي يحيلونها عبر البوابة تُراجع في')}{' '}
         <Link href="/portal-referrals" className="font-medium text-foreground underline underline-offset-4">{tr('Portal referrals', 'إحالات البوابة')}</Link>.
