@@ -1,5 +1,8 @@
 /** Pure helpers for the staff inbox. Dates are in the viewer's local time. */
 
+/** Conversations belong to contacts: the server gates every inbox route on contacts:read. */
+export const INBOX_PERMISSION = 'contacts:read';
+
 /** Tomorrow at 08:00. */
 export function tomorrowAt8(now: Date): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 8, 0, 0, 0);

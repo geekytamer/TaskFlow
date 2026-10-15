@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { nextWeekAt8, tomorrowAt8, waitingCount } from './inbox';
+import { INBOX_PERMISSION, nextWeekAt8, tomorrowAt8, waitingCount } from './inbox';
+import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
 const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi);
 
@@ -25,4 +27,11 @@ test('waiting count is mine plus unassigned and never negative or NaN', () => {
   assert.equal(waitingCount({ mine: 3, unassigned: 4, all: 20 }), 7);
   assert.equal(waitingCount(null), 0);
   assert.equal(waitingCount({ mine: -2, unassigned: 1, all: 1 }), 1);
+});
+
+test('the inbox needs contacts:read in the nav, the sidebar badge and the page guard', () => {
+  assert.equal(INBOX_PERMISSION, 'contacts:read');
+  assert.equal(navPermission('/inbox'), INBOX_PERMISSION);
+  // A company with contacts switched off hides the inbox too.
+  assert.equal(moduleForPath('/inbox'), 'contacts');
 });

@@ -126,10 +126,8 @@ export function MessageBubble({ message: m, now, onDownload, onSaveEdit }: Props
           {outbound && (m.seenAt ? (
             <span className="inline-flex items-center gap-1">
               <CheckCheck className="h-3.5 w-3.5 text-primary" aria-hidden />
-              {tr('Seen', 'تمت المشاهدة')}{' '}
-              <time dateTime={m.seenAt} dir="ltr" className="tabular-nums">
-                {new Date(m.seenAt).toLocaleString(locale, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
-              </time>
+              {/* Reads keep only the latest visit, so no time: it would not be when it was first seen. */}
+              {tr('Seen', 'تمت المشاهدة')}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1"><Check className="h-3.5 w-3.5" aria-hidden />{tr('Sent', 'أُرسلت')}</span>

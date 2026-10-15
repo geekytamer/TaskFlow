@@ -48,7 +48,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { useCompany } from '@/context/company-context';
 import { getInbox } from '@/services/conversationService';
-import { waitingCount } from '@/modules/conversations/lib/inbox';
+import { INBOX_PERMISSION, waitingCount } from '@/modules/conversations/lib/inbox';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions, usePermissionOr } from '@/context/permissions-context';
@@ -178,8 +178,14 @@ export function SidebarNav() {
   }, [selectedCompany?.id, canReadChats]);
 
   const [inboxWaiting, setInboxWaiting] = React.useState(0);
+  // Same permission as the Inbox nav item: no badge fetch for someone the server would refuse.
+  const canUseInbox = usePermissionOr(
+    INBOX_PERMISSION.slice(0, INBOX_PERMISSION.indexOf(':')),
+    INBOX_PERMISSION.slice(INBOX_PERMISSION.indexOf(':') + 1),
+    Boolean(effectiveRole),
+  );
   React.useEffect(() => {
-    if (!selectedCompany?.id || !effectiveRole) {
+    if (!selectedCompany?.id || !canUseInbox) {
       setInboxWaiting(0);
       return;
     }
@@ -198,7 +204,7 @@ export function SidebarNav() {
       window.clearInterval(id);
       window.removeEventListener(DATA_CHANGED_EVENT, fetchWaiting);
     };
-  }, [selectedCompany?.id, effectiveRole]);
+  }, [selectedCompany?.id, canUseInbox]);
 
   const badges: Record<string, number> = {
     '/inbox': inboxWaiting,

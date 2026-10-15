@@ -11,7 +11,8 @@
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/': 'dashboard:read',
-  '/inbox': 'crm:read',
+  // Conversations belong to contacts; the server gates them on contacts:read.
+  '/inbox': 'contacts:read',
   '/documents': 'documents:read',
   '/sales': 'sales:read',
   '/purchases': 'purchasing:read',
