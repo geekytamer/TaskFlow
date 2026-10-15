@@ -21,6 +21,8 @@ export interface ConversationStaffDeps {
   portalCompanyId: string | undefined;
   /** Whether this user may read private contacts of others (CONTACTS_PRIVATE_READ). */
   seesPrivateFor(userId: string, companyId: string): boolean | Promise<boolean>;
+  /** Contacts module on for the company and the request user holds contacts:read (or contacts:write for 'write'). */
+  canUseContacts(req: StaffRequest, companyId: string, access: 'read' | 'write'): boolean | Promise<boolean>;
 }
 
 const NOTE_EDIT_MS = 15 * 60 * 1000;
@@ -47,19 +49,27 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     return !!user && canAccessCompany(user as SanitizedUser, companyId);
   };
 
-  /** A visible contact of this company, else 404 (never reveals that a private one exists). */
-  const visibleContact = (req: StaffRequest, companyId: string, contactId: string): { contact: Contact; viewer: StaffViewer } => {
+  /** Company member, then the contacts permission: conversations belong to contacts. */
+  const requireContacts = async (req: StaffRequest, companyId: string, access: 'read' | 'write' = 'read') => {
     deps.requireCompanyAccess(req, companyId);
+    if (!(await deps.canUseContacts(req, companyId, access))) throw new HttpError(403, 'You do not have permission to perform this action.');
+  };
+
+  /** A visible contact of this company, else 404 (never reveals that a private one exists). */
+  const visibleContact = async (
+    req: StaffRequest, companyId: string, contactId: string, access: 'read' | 'write' = 'read',
+  ): Promise<{ contact: Contact; viewer: StaffViewer }> => {
+    await requireContacts(req, companyId, access);
     const viewer = deps.viewerFor(req, companyId);
     const contact = store.getContactById(contactId);
     if (!contact || contact.companyId !== companyId || !canSeeContact(contact, viewer)) throw new HttpError(404, 'Not found.');
     return { contact, viewer };
   };
 
-  const loadThread = (req: StaffRequest): { thread: Thread; contact: Contact; viewer: StaffViewer } => {
+  const loadThread = async (req: StaffRequest, access: 'read' | 'write' = 'read'): Promise<{ thread: Thread; contact: Contact; viewer: StaffViewer }> => {
     const thread = c.getThread(req.params.id);
     if (!thread) throw new HttpError(404, 'Not found.');
-    return { thread, ...visibleContact(req, thread.companyId, thread.contactId) };
+    return { thread, ...(await visibleContact(req, thread.companyId, thread.contactId, access)) };
   };
 
   /** Throws 400 unless this user may see the contact: public, theirs, or private-read. */
@@ -75,9 +85,9 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
 
   const threadView = (thread: Thread, viewer: StaffViewer, now: string) => staffThreadView(store, thread, viewer.userId, now);
 
-  router.get('/companies/:companyId/inbox', authMiddleware, wrap((req, res) => {
+  router.get('/companies/:companyId/inbox', authMiddleware, wrap(async (req, res) => {
     const { companyId } = req.params;
-    deps.requireCompanyAccess(req, companyId);
+    await requireContacts(req, companyId);
     const viewer = deps.viewerFor(req, companyId);
     const now = new Date().toISOString();
     const view = typeof req.query.view === 'string' ? req.query.view : 'mine';
@@ -94,7 +104,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       }
       return seen.get(contactId)!;
     };
-    const all = c.listThreads(companyId, {}, now).filter((t) => visible(t.contactId));
+    const all = c.listThreads(companyId, { withMessages: true }, now).filter((t) => visible(t.contactId));
     const waitingUs = all.filter((t) => t.state === 'waiting_us');
     const counts = {
       mine: waitingUs.filter((t) => t.assigneeUserId === viewer.userId).length,
@@ -112,9 +122,9 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     res.json({ threads, counts });
   }));
 
-  router.get('/companies/:companyId/contacts/:contactId/conversation', authMiddleware, wrap((req, res) => {
+  router.get('/companies/:companyId/contacts/:contactId/conversation', authMiddleware, wrap(async (req, res) => {
     const { companyId, contactId } = req.params;
-    const { viewer } = visibleContact(req, companyId, contactId);
+    const { viewer } = await visibleContact(req, companyId, contactId);
     const conversation = c.ensureConversation(companyId, contactId);
     const now = new Date().toISOString();
     const owner = conversation.ownerUserId
@@ -127,8 +137,8 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     });
   }));
 
-  router.get('/conversation-threads/:id', authMiddleware, wrap((req, res) => {
-    const { thread, viewer } = loadThread(req);
+  router.get('/conversation-threads/:id', authMiddleware, wrap(async (req, res) => {
+    const { thread, viewer } = await loadThread(req);
     const now = new Date().toISOString();
     c.markRead(thread.id, { type: 'staff', id: viewer.userId }, now);
     res.json({
@@ -139,7 +149,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
   }));
 
   router.post('/conversation-threads/:id/messages', authMiddleware, wrap(async (req, res) => {
-    const { thread, contact, viewer } = loadThread(req);
+    const { thread, contact, viewer } = await loadThread(req, 'write');
     const body = asRecord(req.body, 'body');
     const kind = body.kind;
     if (kind !== 'portal' && kind !== 'note') throw new HttpError(400, 'kind must be portal or note.');
@@ -192,8 +202,8 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     res.status(201).json(staffMessageView(store, message, thread, viewer.userId));
   }));
 
-  router.post('/conversation-threads/:id/files', authMiddleware, wrap((req, res) => {
-    const { thread, viewer } = loadThread(req);
+  router.post('/conversation-threads/:id/files', authMiddleware, wrap(async (req, res) => {
+    const { thread, viewer } = await loadThread(req, 'write');
     const upload = readUpload(asRecord(req.body, 'body'));
     const file = store.thread.addFile({
       companyId: thread.companyId, contactId: thread.contactId, uploader: { kind: 'staff', userId: viewer.userId },
@@ -203,10 +213,10 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
   }));
 
   /** Attached to a message this viewer can see, or still unattached and theirs; anything else is a 404. */
-  router.get('/conversation-files/:id/content', authMiddleware, wrap((req, res) => {
+  router.get('/conversation-files/:id/content', authMiddleware, wrap(async (req, res) => {
     const file = store.thread.getFile(req.params.id);
     if (!file) throw new HttpError(404, 'File not found.');
-    deps.requireCompanyAccess(req, file.companyId);
+    await requireContacts(req, file.companyId);
     const viewer = deps.viewerFor(req, file.companyId);
     let allowed = false;
     if (file.parentType === 'message' && file.parentId) {
@@ -222,11 +232,11 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     res.set(downloadHeaders(file)).send(store.thread.fileContent(file.id));
   }));
 
-  router.patch('/conversation-messages/:id', authMiddleware, wrap((req, res) => {
+  router.patch('/conversation-messages/:id', authMiddleware, wrap(async (req, res) => {
     const message = c.getMessage(req.params.id);
     const thread = message ? c.getThread(message.threadId) : undefined;
     if (!message || !thread) throw new HttpError(404, 'Not found.');
-    const { viewer } = visibleContact(req, thread.companyId, thread.contactId);
+    const { viewer } = await visibleContact(req, thread.companyId, thread.contactId, 'write');
     if (!canSeeMessage(message, viewer)) throw new HttpError(404, 'Not found.');
     if (message.channel !== 'note' || message.authorUserId !== viewer.userId) throw new HttpError(403, 'You can only edit your own notes.');
     const now = new Date();
@@ -237,7 +247,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
   }));
 
   router.patch('/conversation-threads/:id', authMiddleware, wrap(async (req, res) => {
-    const { thread, contact, viewer } = loadThread(req);
+    const { thread, contact, viewer } = await loadThread(req, 'write');
     const body = asRecord(req.body, 'body');
     const now = new Date().toISOString();
 

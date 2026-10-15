@@ -129,7 +129,7 @@ test('legacy /client/messages reads and writes the General thread, never account
   assert.deepEqual(ctx.store.conversations.messages(g.id).map((m) => m.body), ['Legacy hello']);
   assert.equal(ctx.store.db.prepare('SELECT COUNT(*) AS n FROM account_messages').get().n, 0);
   const staff = { Authorization: `Bearer ${ctx.store.issueToken(ctx.carla.id)}` };
-  const reply = await request(ctx.server).post(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(staff).send({ body: 'Staff legacy' });
+  const reply = await request(ctx.server).post(`/conversation-threads/${g.id}/messages`).set(staff).send({ kind: 'portal', body: 'Staff legacy' });
   assert.equal(reply.status, 201);
   assert.equal(ctx.store.conversations.getThread(g.id).state, 'waiting_them');
   assert.equal(ctx.store.db.prepare('SELECT COUNT(*) AS n FROM account_messages').get().n, 0);
@@ -185,4 +185,63 @@ test('markRead never moves lastReadAt backwards', () => {
   assert.equal(c.readsOf(g.id)[0].lastReadAt, '2026-01-02T00:00:00.000Z');
   c.markRead(g.id, { type: 'portal', id: 'p' }, '2026-01-03T00:00:00.000Z');
   assert.equal(c.readsOf(g.id)[0].lastReadAt, '2026-01-03T00:00:00.000Z');
+});
+
+test('portal file download follows message visibility: a note attachment or another uploader\'s loose file is 404', async () => {
+  const ctx = build();
+  const me = await ctx.session(ctx.client, 'b@alnoor.test');
+  const colleague = await ctx.session(ctx.client, 'c@alnoor.test');
+  const staff = { Authorization: `Bearer ${ctx.store.issueToken(ctx.carla.id)}` };
+  const g = ctx.general(ctx.client);
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+  const staffUpload = async () => (await request(ctx.server).post(`/conversation-threads/${g.id}/files`).set(staff).send({ fileName: 'a.png', contentBase64: PNG.toString('base64') })).body.id;
+  const portalUpload = async (who) => (await request(ctx.server).post('/portal-api/client/files').set(who.headers).send({ fileName: 'b.png', contentBase64: PNG.toString('base64') })).body.id;
+  const download = (id, who = me) => request(ctx.server).get(`/portal-api/client/files/${id}/content`).set(who.headers);
+
+  const noteFile = await staffUpload();
+  assert.equal((await request(ctx.server).post(`/conversation-threads/${g.id}/messages`).set(staff).send({ kind: 'note', body: 'internal', fileIds: [noteFile] })).status, 201);
+  assert.equal((await download(noteFile)).status, 404, 'a file on an internal note');
+
+  const abandoned = await staffUpload();
+  assert.equal((await download(abandoned)).status, 404, 'a staff upload never sent');
+
+  const sharedFile = await staffUpload();
+  assert.equal((await request(ctx.server).post(`/conversation-threads/${g.id}/messages`).set(staff).send({ kind: 'portal', body: 'for you', fileIds: [sharedFile] })).status, 201);
+  assert.equal((await download(sharedFile)).status, 200, 'a file on a portal-visible message');
+
+  const mine = await portalUpload(me);
+  assert.equal((await download(mine)).status, 200, 'my own unattached upload');
+  assert.equal((await download(mine, colleague)).status, 404, 'a colleague\'s unattached upload');
+
+  const briefFile = await portalUpload(colleague);
+  const req = await request(ctx.server).post('/portal-api/client/requests').set(colleague.headers).send({ title: 'Eid', objective: 'Teasers for Eid.', fileIds: [briefFile] });
+  assert.equal(req.status, 201);
+  assert.equal((await download(briefFile)).status, 200, 'a request file of my own contact');
+});
+
+test('the portal message view carries no seen field', async () => {
+  const ctx = build();
+  const me = await ctx.session(ctx.client, 'b@alnoor.test');
+  const g = ctx.general(ctx.client);
+  const post = await request(ctx.server).post(`/portal-api/client/threads/${g.id}/messages`).set(me.headers).send({ body: 'Hi' });
+  assert.deepEqual(Object.keys(post.body).sort(), ['author', 'body', 'createdAt', 'files', 'id']);
+});
+
+test('deleting a contact removes its conversation, threads, messages, reads and mentions', () => {
+  const ctx = build();
+  const c = ctx.store.conversations;
+  const g = ctx.general(ctx.rival);
+  const m = ctx.note(g, 'note');
+  c.addMentions(m.id, [ctx.carla.id]);
+  c.markRead(g.id, { type: 'staff', id: ctx.carla.id }, new Date().toISOString());
+  const keep = ctx.general(ctx.client);
+  ctx.note(keep, 'kept');
+  ctx.store.deleteContact(ctx.rival.id);
+  const count = (sql, ...args) => ctx.store.db.prepare(sql).get(...args).n;
+  assert.equal(count('SELECT COUNT(*) n FROM conversations WHERE contactId = ?', ctx.rival.id), 0);
+  assert.equal(count('SELECT COUNT(*) n FROM conversation_threads WHERE id = ?', g.id), 0);
+  assert.equal(count('SELECT COUNT(*) n FROM conversation_messages WHERE threadId = ?', g.id), 0);
+  assert.equal(count('SELECT COUNT(*) n FROM conversation_reads WHERE threadId = ?', g.id), 0);
+  assert.equal(count('SELECT COUNT(*) n FROM conversation_mentions WHERE messageId = ?', m.id), 0);
+  assert.deepEqual(c.messages(keep.id).map((x) => x.body), ['kept'], 'another contact is untouched');
 });

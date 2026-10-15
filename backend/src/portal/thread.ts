@@ -43,13 +43,6 @@ export function portalMessageDto(store: DataStore, message: MessageLike, viewerP
   return { id: message.id, body: message.body, author, files: store.thread.filesOf('message', message.id).map(fileDto), createdAt: message.createdAt };
 }
 
-export function staffMessageDto(store: DataStore, message: MessageLike) {
-  const author = message.authorType === 'staff'
-    ? { type: 'staff' as const, name: store.getUserById(message.authorUserId!)?.name ?? null }
-    : { type: 'portal' as const, name: store.portal.getUser(message.authorPortalUserId!)?.name ?? null };
-  return { id: message.id, body: message.body, author, files: store.thread.filesOf('message', message.id).map(fileDto), createdAt: message.createdAt };
-}
-
 const REPLY_TRIGGER = 'portal_message';
 
 const openReplyFollowups = (store: DataStore, companyId: string, contactId: string) =>

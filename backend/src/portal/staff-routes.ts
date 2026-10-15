@@ -8,7 +8,9 @@ import { downloadHeaders, readUpload } from './files';
 import { registerStaffReferralRoutes } from './staff-referral-routes';
 import { registerStaffRequestRoutes } from './staff-request-routes';
 import { registerStaffInfluencerRoutes } from './staff-influencer-routes';
-import { afterStaffMessage, fileDto, parseMessage, staffMessageDto } from './thread';
+import { fileDto } from './thread';
+import type { PortalFileMeta } from './thread-store';
+import { canSeeContact, canSeeMessage, type StaffViewer } from '../conversations/visibility';
 import type { PortalInviteSender } from './portal-email';
 import { portalAudiences, rolesForAudience, type PortalAudience, type PortalRole, type PortalUser } from './portal-store';
 
@@ -19,6 +21,8 @@ export interface PortalStaffDeps {
   authMiddleware: RequestHandler;
   requireCompanyAccess(req: StaffRequest, companyId: string): void;
   canManagePortal(req: StaffRequest, companyId: string): boolean;
+  /** Whether the request user may read private contacts of others (CONTACTS_PRIVATE_READ). */
+  seesPrivate(req: StaffRequest, companyId: string): boolean;
   inviteLink(audience: PortalAudience, token: string): string;
   sendInvite: PortalInviteSender;
 }
@@ -204,36 +208,6 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     return contact;
   };
 
-  router.get('/companies/:companyId/contacts/:contactId/messages', authMiddleware, wrap((req, res) => {
-    const companyId = authorize(req);
-    const contact = threadContact(companyId, req.params.contactId);
-    res.json({
-      // The General thread is the contact's history; notes and other threads are not part of this legacy view.
-      messages: store.conversations
-        .messages(store.conversations.generalThread(companyId, contact.id).id)
-        .filter((m) => m.channel === 'portal' && m.visibility === 'external')
-        .map((m) => staffMessageDto(store, m)),
-      files: store.thread.filesForContact(companyId, contact.id).map(fileDto),
-    });
-  }));
-
-  router.post('/companies/:companyId/contacts/:contactId/messages', authMiddleware, wrap((req, res) => {
-    const companyId = authorize(req);
-    const contact = threadContact(companyId, req.params.contactId);
-    const { text, fileIds } = parseMessage(asRecord(req.body, 'body'));
-    const userId = req.user!.id;
-    const message = store.transaction(() => {
-      const created = store.conversations.addMessage({
-        threadId: store.conversations.generalThread(companyId, contact.id).id, channel: 'portal', direction: 'out', visibility: 'external',
-        authorType: 'staff', authorUserId: userId, authorPortalUserId: null, body: text,
-      });
-      store.thread.attach(fileIds, { type: 'message', id: created.id }, { companyId, contactId: contact.id, uploader: { kind: 'staff', userId } });
-      afterStaffMessage(store, { companyId, contactId: contact.id, userId });
-      return created;
-    });
-    res.status(201).json(staffMessageDto(store, message));
-  }));
-
   router.post('/companies/:companyId/contacts/:contactId/files', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const contact = threadContact(companyId, req.params.contactId);
@@ -245,10 +219,23 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     res.status(201).json(fileDto(file));
   }));
 
+  /** A conversation message's file follows that message: its contact must be visible, and owner_private stays its author's. */
+  const messageFileVisible = (req: StaffRequest, file: PortalFileMeta): boolean => {
+    if (file.parentType !== 'message' || !file.parentId) return true;
+    const message = store.conversations.getMessage(file.parentId);
+    // Fails closed: a message that is gone can no longer prove who may see it.
+    if (!message) return false;
+    const thread = store.conversations.getThread(message.threadId);
+    const contact = thread ? store.getContactById(thread.contactId) : undefined;
+    if (!thread || !contact || thread.companyId !== file.companyId) return false;
+    const viewer: StaffViewer = { kind: 'staff', userId: req.user!.id, seesPrivate: deps.seesPrivate(req, file.companyId) };
+    return canSeeContact(contact, viewer) && canSeeMessage(message, viewer);
+  };
+
   router.get('/companies/:companyId/portal-files/:id/content', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const file = store.thread.getFile(req.params.id);
-    if (!file || file.companyId !== companyId) throw new HttpError(404, 'File not found.');
+    if (!file || file.companyId !== companyId || !messageFileVisible(req, file)) throw new HttpError(404, 'File not found.');
     res.set(downloadHeaders(file)).send(store.thread.fileContent(file.id));
   }));
 

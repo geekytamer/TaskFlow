@@ -7870,10 +7870,21 @@ export class DataStore {
       this.deleteRecordAttachmentsFor('contact', id);
       this.db.prepare('DELETE FROM client_pricing_profiles WHERE contactId = ?').run(id);
       this.db.prepare('DELETE FROM portal_catalogue WHERE contactId = ?').run(id);
+      this.deleteConversationOf(id);
       this.db.prepare('DELETE FROM contact_roles WHERE contactId = ?').run(id);
       this.db.prepare('DELETE FROM contacts WHERE id = ?').run(id);
     });
     trx();
+  }
+
+  /** A contact's conversation goes with it: threads, messages, reads and mentions. Portal files keep their own rules. */
+  private deleteConversationOf(contactId: string): void {
+    const threads = `SELECT t.id FROM conversation_threads t JOIN conversations c ON c.id = t.conversationId WHERE c.contactId = ?`;
+    this.db.prepare(`DELETE FROM conversation_mentions WHERE messageId IN (SELECT id FROM conversation_messages WHERE threadId IN (${threads}))`).run(contactId);
+    this.db.prepare(`DELETE FROM conversation_reads WHERE threadId IN (${threads})`).run(contactId);
+    this.db.prepare(`DELETE FROM conversation_messages WHERE threadId IN (${threads})`).run(contactId);
+    this.db.prepare('DELETE FROM conversation_threads WHERE conversationId IN (SELECT id FROM conversations WHERE contactId = ?)').run(contactId);
+    this.db.prepare('DELETE FROM conversations WHERE contactId = ?').run(contactId);
   }
 
   /** Delete an invoice. Blocks if it has payments or is referenced by a credit note. */

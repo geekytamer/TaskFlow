@@ -153,6 +153,8 @@ test('notes are editable by their author for 15 minutes only', async () => {
 test('assign, done, and snooze rules; a woken snooze counts as waiting_us', async () => {
   const ctx = build();
   const t = general(ctx, ctx.client);
+  // The inbox lists only threads with a message.
+  ctx.store.conversations.addMessage({ threadId: t.id, channel: 'note', direction: 'none', visibility: 'internal', authorType: 'staff', authorUserId: ctx.carla.id, authorPortalUserId: null, body: 'n' });
   const patch = (body) => request(ctx.server).patch(`/conversation-threads/${t.id}`).set(ctx.carlaAuth).send(body);
   assert.equal((await patch({ assigneeUserId: ctx.foreign.id })).status, 400);
   const assigned = await patch({ assigneeUserId: ctx.eve.id });
@@ -170,18 +172,6 @@ test('assign, done, and snooze rules; a woken snooze counts as waiting_us', asyn
   assert.equal(inbox.body.threads.length, 1);
   assert.equal(inbox.body.threads[0].state, 'waiting_us');
   assert.equal(inbox.body.counts.all, 1);
-});
-
-test('the old contact messages endpoint still returns the history through the General thread', async () => {
-  const ctx = build();
-  const session = await ctx.clientSession();
-  await request(ctx.server).post('/portal-api/client/messages').set(session).send({ body: 'From client' });
-  const sent = await request(ctx.server).post(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(ctx.carlaAuth).send({ body: 'From staff' });
-  assert.equal(sent.status, 201);
-  await request(ctx.server).post(`/conversation-threads/${general(ctx, ctx.client).id}/messages`).set(ctx.carlaAuth).send({ kind: 'note', body: 'INTERNAL' });
-  const old = await request(ctx.server).get(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(ctx.carlaAuth);
-  assert.deepEqual(old.body.messages.map((m) => [m.author.type, m.body]), [['portal', 'From client'], ['staff', 'From staff']]);
-  assert.equal(ctx.store.conversations.getThread(general(ctx, ctx.client).id).state, 'waiting_them');
 });
 
 test('a mention or assignee must be able to see a private contact', async () => {
@@ -256,4 +246,124 @@ test('an owner_private attachment is not downloadable by others', async () => {
   ctx.store.thread.attach([up.body.id], { type: 'message', id: m.id }, { companyId: ctx.company.id, contactId: ctx.client.id, uploader: { kind: 'staff', userId: ctx.carla.id } });
   assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.eveAuth)).status, 404);
   assert.equal((await request(ctx.server).get(`/conversation-files/${up.body.id}/content`).set(ctx.carlaAuth)).status, 200);
+});
+
+const routesFor = (ctx, t, fileId, messageId) => [
+  ['inbox', request(ctx.server).get(`/companies/${ctx.company.id}/inbox?view=all`)],
+  ['conversation', request(ctx.server).get(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/conversation`)],
+  ['thread', request(ctx.server).get(`/conversation-threads/${t.id}`)],
+  ['send', request(ctx.server).post(`/conversation-threads/${t.id}/messages`).send({ kind: 'note', body: 'x' })],
+  ['patch thread', request(ctx.server).patch(`/conversation-threads/${t.id}`).send({ state: 'done' })],
+  ['patch message', request(ctx.server).patch(`/conversation-messages/${messageId}`).send({ body: 'y' })],
+  ['upload', request(ctx.server).post(`/conversation-threads/${t.id}/files`).send({ fileName: 'a.png', contentBase64: PNG.toString('base64') })],
+  ['download', request(ctx.server).get(`/conversation-files/${fileId}/content`)],
+];
+
+const seedForGate = async (ctx) => {
+  const t = general(ctx, ctx.client);
+  const up = await upload(ctx, t.id, ctx.carlaAuth);
+  const note = await request(ctx.server).post(`/conversation-threads/${t.id}/messages`).set(ctx.carlaAuth).send({ kind: 'note', body: 'n', fileIds: [up.body.id] });
+  return { t, fileId: up.body.id, messageId: note.body.id };
+};
+
+test('with the contacts module switched off every conversation route is 403', async () => {
+  const ctx = build();
+  const { t, fileId, messageId } = await seedForGate(ctx);
+  ctx.store.updateCompany(ctx.company.id, { disabledModules: ['contacts'] });
+  for (const [name, req] of routesFor(ctx, t, fileId, messageId)) {
+    assert.equal((await req.set(ctx.carlaAuth)).status, 403, name);
+  }
+});
+
+/** Serves permissions from the SQL group tables, standing in for OpenFGA (as permission-enforcement.test.js does). */
+const sqlReader = (store) => ({
+  async listGrantedObjects(userId) {
+    const objects = [];
+    for (const company of store.listCompanies()) {
+      for (const perm of store.getEffectivePermissions(userId, company.id)) {
+        const [module, action] = perm.split(':');
+        objects.push(`permission:${company.id}/${module}/${action}`);
+      }
+    }
+    return objects;
+  },
+});
+
+test('openfga: no contacts:read is 403 everywhere; contacts:read without contacts:write cannot write', async () => {
+  const dbPath = path.join(makeTmpDir('taskflow-conv-fga-'), 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const company = store.createCompany({ name: 'Peak Media', website: '', address: '' });
+  const user = (role, name, email) => store.createUser({ name, email, password: 'x', role, companyIds: [company.id], companyRoles: [{ companyId: company.id, role }] });
+  const carla = user('Manager', 'Carla', 'carla@peak.test');
+  const nora = user('Employee', 'Nora', 'nora@peak.test');
+  const rita = user('Employee', 'Rita', 'rita@peak.test');
+  const client = store.createContact({ companyId: company.id, kind: 'Organization', name: 'Al Noor Dates', roles: ['Client'], ownerUserId: carla.id });
+  const group = (key, perms) => {
+    const g = store.createPermissionGroup({ companyId: company.id, key, name: key });
+    store.setGroupPermissions(g.id, perms.map((p) => { const [module, action] = p.split(':'); return { module, action }; }));
+    return g.id;
+  };
+  store.setUserGroups(nora.id, company.id, [group('no-contacts', ['tasks:read'])]);
+  store.setUserGroups(rita.id, company.id, [group('contacts-read', ['contacts:read'])]);
+  const server = createServer({
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'openfga',
+    permissionReader: sqlReader(store), portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
+  }).listen(0);
+  server.unref();
+  const ctx = { server, store, company, client, carlaAuth: { Authorization: `Bearer ${store.issueToken(carla.id)}` } };
+  const { t, fileId, messageId } = await seedForGate(ctx);
+  assert.equal((await request(server).get(`/conversation-threads/${t.id}`).set(ctx.carlaAuth)).status, 200, 'the Manager group has contacts');
+
+  const noraAuth = { Authorization: `Bearer ${store.issueToken(nora.id)}` };
+  for (const [name, req] of routesFor(ctx, t, fileId, messageId)) {
+    assert.equal((await req.set(noraAuth)).status, 403, `no contacts:read → ${name}`);
+  }
+  const ritaAuth = { Authorization: `Bearer ${store.issueToken(rita.id)}` };
+  const statuses = {};
+  for (const [name, req] of routesFor(ctx, t, fileId, messageId)) statuses[name] = (await req.set(ritaAuth)).status;
+  assert.deepEqual(statuses, {
+    inbox: 200, conversation: 200, thread: 200, download: 200,
+    send: 403, 'patch thread': 403, 'patch message': 403, upload: 403,
+  });
+});
+
+test('an empty General thread stays out of the inbox until it has a message', async () => {
+  const ctx = build();
+  const opened = await request(ctx.server).get(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/conversation`).set(ctx.carlaAuth);
+  assert.equal(opened.status, 200);
+  assert.equal(opened.body.threads.length, 1, 'the contact page still shows its General thread');
+  const inbox = async (q) => (await request(ctx.server).get(`/companies/${ctx.company.id}/inbox${q}`).set(ctx.carlaAuth)).body.threads;
+  assert.deepEqual(await inbox('?view=all'), []);
+  assert.deepEqual(await inbox('?view=all&state=waiting_them'), []);
+  const t = general(ctx, ctx.client);
+  await request(ctx.server).post(`/conversation-threads/${t.id}/messages`).set(ctx.carlaAuth).send({ kind: 'portal', body: 'Hello' });
+  assert.deepEqual((await inbox('?view=all&state=waiting_them')).map((x) => x.id), [t.id]);
+  assert.deepEqual((await inbox('?view=all')).map((x) => x.id), [t.id]);
+});
+
+test('the legacy staff contact messages endpoints are gone', async () => {
+  const ctx = build();
+  const url = `/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`;
+  assert.equal((await request(ctx.server).get(url).set(ctx.carlaAuth)).status, 404);
+  assert.equal((await request(ctx.server).post(url).set(ctx.carlaAuth).send({ body: 'x' })).status, 404);
+  assert.equal(ctx.store.conversations.messages(general(ctx, ctx.client).id).length, 0);
+});
+
+test('the legacy portal-files download follows contact and owner_private visibility for message files', async () => {
+  const ctx = build();
+  const admin = ctx.store.createUser({ name: 'Ann', email: 'ann2@peak.test', password: 'x', role: 'Manager', companyIds: [ctx.company.id], companyRoles: [{ companyId: ctx.company.id, role: 'Manager' }] });
+  const annAuth = { Authorization: `Bearer ${ctx.store.issueToken(admin.id)}` };
+  const legacy = (id, auth) => request(ctx.server).get(`/companies/${ctx.company.id}/portal-files/${id}/content`).set(auth);
+  // owner_private on a public contact: only its author.
+  const t = general(ctx, ctx.client);
+  const up = await upload(ctx, t.id, ctx.carlaAuth);
+  const m = ctx.store.conversations.addMessage({ threadId: t.id, channel: 'note', direction: 'none', visibility: 'owner_private', authorType: 'staff', authorUserId: ctx.carla.id, authorPortalUserId: null, body: 'mine' });
+  ctx.store.thread.attach([up.body.id], { type: 'message', id: m.id }, { companyId: ctx.company.id, contactId: ctx.client.id, uploader: { kind: 'staff', userId: ctx.carla.id } });
+  assert.equal((await legacy(up.body.id, ctx.carlaAuth)).status, 200);
+  assert.equal((await legacy(up.body.id, annAuth)).status, 404);
+  // Portal managers are Admin/Manager, who may read private contacts under legacy roles, so a private contact's note file stays readable.
+  const s = general(ctx, ctx.secret);
+  const up2 = await upload(ctx, s.id, ctx.carlaAuth);
+  await request(ctx.server).post(`/conversation-threads/${s.id}/messages`).set(ctx.carlaAuth).send({ kind: 'note', body: 'x', fileIds: [up2.body.id] });
+  assert.equal((await legacy(up2.body.id, annAuth)).status, 200, 'Managers read private contacts');
 });

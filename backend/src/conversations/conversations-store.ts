@@ -121,11 +121,13 @@ export class ConversationsStore {
 
   listThreads(
     companyId: string,
-    filter: { contactIds?: Set<string>; assigneeUserId?: string | null; states?: ThreadState[] } = {},
+    filter: { contactIds?: Set<string>; assigneeUserId?: string | null; states?: ThreadState[]; withMessages?: boolean } = {},
     now: string = new Date().toISOString(),
   ): Thread[] {
     const where = ['t.companyId = ?'];
     const args: unknown[] = [companyId];
+    // Opening a contact creates its empty General thread; the inbox lists only threads that have something in them.
+    if (filter.withMessages) where.push('t.lastMessageAt IS NOT NULL');
     if (filter.assigneeUserId !== undefined) {
       if (filter.assigneeUserId === null) where.push('t.assigneeUserId IS NULL');
       else { where.push('t.assigneeUserId = ?'); args.push(filter.assigneeUserId); }

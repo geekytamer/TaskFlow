@@ -8013,6 +8013,7 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
+      seesPrivate: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
     }),
@@ -8036,6 +8037,14 @@ export function createServer(options: CreateServerOptions = {}) {
         if (!user || !store.isModuleEnabled(companyId, rule.module)) return false;
         if (authzEngine === 'openfga') return permissionService.has(userId, companyId, rule.module, rule.action);
         return requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
+      },
+      // Conversations are part of contacts: the same gate as GET /companies/:companyId/contacts
+      // (contacts:read) and PATCH /contacts/:id (contacts:write; every company role under legacy).
+      canUseContacts: (req, companyId, access) => {
+        const authed = req as AuthedRequest;
+        if (!authed.user || !store.isModuleEnabled(companyId, 'contacts')) return false;
+        if (authzEngine === 'openfga') return PermissionService.allows(authed.permissions, companyId, 'contacts', access);
+        return requireCompanyRole(authed.user, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
       },
     }),
   );

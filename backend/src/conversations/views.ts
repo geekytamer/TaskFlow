@@ -17,7 +17,10 @@ function staffAuthor(store: DataStore, m: ConvMessage) {
   return { kind: 'system' as const, id: null, name: null, avatar: null };
 }
 
-/** The earliest moment a portal user of the thread's contact read the thread at or after this staff message. */
+/**
+ * When a portal user of the thread's contact last read the thread, if that was at or after this staff message.
+ * Reads keep only the latest visit, so this is not when it was first seen; the staff UI shows just "Seen".
+ */
 function seenAtOf(store: DataStore, m: ConvMessage, thread: Thread): string | null {
   if (m.authorType !== 'staff' || m.channel !== 'portal' || m.visibility !== 'external') return null;
   const portalIds = new Set(store.portal.listUsers(thread.companyId, { contactId: thread.contactId }).map((u) => u.id));
@@ -67,17 +70,12 @@ export function portalMessageView(store: DataStore, m: ConvMessage, viewerPortal
     const u = m.authorUserId ? store.getUserById(m.authorUserId) : undefined;
     author = { kind: 'team', name: u?.name ?? null, company: store.getCompanyById(m.companyId)?.name ?? null };
   }
-  // Seen is only meaningful on your own messages: has the team opened the thread since.
-  const seen = author.kind === 'you'
-    ? store.conversations.readsOf(m.threadId).some((r) => r.readerType === 'staff' && r.lastReadAt >= m.createdAt)
-    : null;
   return {
     id: m.id,
     body: m.body,
     author,
     files: store.thread.filesOf('message', m.id).map(fileDto),
     createdAt: m.createdAt,
-    seen,
   };
 }
 

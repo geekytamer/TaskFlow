@@ -60,6 +60,11 @@ const build = () => {
   return { server, store, company, owner, client, rival, lina, session, ownerAuth: auth(owner), employeeAuth: auth(employee) };
 };
 
+/** A staff reply on the client's General thread, the way the inbox sends it. */
+const staffReply = (ctx, body, fileIds) => request(ctx.server)
+  .post(`/conversation-threads/${ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id).id}/messages`)
+  .set(ctx.ownerAuth).send({ kind: 'portal', body, fileIds });
+
 const upload = (ctx, session, fileName, buffer, audience = 'client') =>
   request(ctx.server).post(`/portal-api/${audience}/files`).set(session).send({ fileName, contentBase64: b64(buffer) });
 
@@ -129,8 +134,7 @@ test('the thread is shared both ways, append-only, and never shows internal note
   assert.deepEqual(posted.body.files.map((f) => f.fileName), ['brief.pdf']);
   assert.equal(ctx.store.listNotifications(ctx.owner.id).filter((n) => /Al Noor Dates/.test(n.title)).length, 1, 'the owner is told');
 
-  const reply = await request(ctx.server).post(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(ctx.ownerAuth)
-    .send({ body: 'Thanks Omar, reviewing today.' });
+  const reply = await staffReply(ctx, 'Thanks Omar, reviewing today.');
   assert.equal(reply.status, 201);
 
   const thread = (await request(ctx.server).get('/portal-api/client/messages').set(omar)).body;
@@ -140,9 +144,10 @@ test('the thread is shared both ways, append-only, and never shows internal note
   ]);
   assert.equal(JSON.stringify(thread).includes('INTERNAL-CONTACT-NOTE'), false);
 
-  const staffView = (await request(ctx.server).get(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(ctx.ownerAuth)).body;
+  const general = ctx.store.conversations.generalThread(ctx.company.id, ctx.client.id);
+  const staffView = (await request(ctx.server).get(`/conversation-threads/${general.id}`).set(ctx.ownerAuth)).body;
   assert.equal(staffView.messages.length, 2);
-  assert.deepEqual(staffView.files.map((f) => f.fileName), ['brief.pdf'], 'staff see every file the client shared');
+  assert.deepEqual(staffView.messages.flatMap((m) => m.files.map((f) => f.fileName)), ['brief.pdf'], 'staff see every file the client shared');
 
   assert.equal((await request(ctx.server).put(`/portal-api/client/messages/${thread[0].id}`).set(omar).send({ body: 'edited' })).status, 404);
   assert.equal((await request(ctx.server).delete(`/portal-api/client/messages/${thread[0].id}`).set(omar)).status, 404);
@@ -166,13 +171,10 @@ test('messages are validated', async () => {
   }
 });
 
-test('staff need the portal permission, and staff downloads are sandboxed too', async () => {
+test('portal-files downloads need the portal permission and are sandboxed too', async () => {
   const ctx = build();
   const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
   const file = (await upload(ctx, omar, 'brief.pdf', PDF)).body;
-  const url = `/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`;
-  assert.equal((await request(ctx.server).get(url).set(ctx.employeeAuth)).status, 403);
-  assert.equal((await request(ctx.server).post(url).set(ctx.employeeAuth).send({ body: 'hi' })).status, 403);
 
   const staffFile = await request(ctx.server).get(`/companies/${ctx.company.id}/portal-files/${file.id}/content`).set(ctx.ownerAuth);
   assert.equal(staffFile.status, 200);
@@ -187,8 +189,7 @@ test('staff can share a file with the client in the thread', async () => {
   const shared = await request(ctx.server).post(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/files`).set(ctx.ownerAuth)
     .send({ fileName: 'moodboard.png', contentBase64: b64(PNG) });
   assert.equal(shared.status, 201);
-  const msg = await request(ctx.server).post(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(ctx.ownerAuth)
-    .send({ body: 'Moodboard for your review.', fileIds: [shared.body.id] });
+  const msg = await staffReply(ctx, 'Moodboard for your review.', [shared.body.id]);
   assert.equal(msg.status, 201);
   const thread = (await request(ctx.server).get('/portal-api/client/messages').set(omar)).body;
   const fileId = thread[0].files[0].id;
@@ -224,7 +225,7 @@ test('an unanswered client message is one open follow-up, closed when staff repl
   assert.equal(openReplies().length, 1, 'one reminder, not one per message');
   assert.equal(openReplies()[0].ownerUserId, ctx.owner.id);
 
-  await request(ctx.server).post(`/companies/${ctx.company.id}/contacts/${ctx.client.id}/messages`).set(ctx.ownerAuth).send({ body: 'Answered both.' });
+  await staffReply(ctx, 'Answered both.');
   assert.equal(openReplies().length, 0, 'a staff reply closes it');
 
   await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'One more thing.' });
