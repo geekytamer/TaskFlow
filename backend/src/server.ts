@@ -8142,7 +8142,7 @@ export function createServer(options: CreateServerOptions = {}) {
     if (isDataRuleError(error)) {
       return res.status(400).json({ message: error.message });
     }
-    logger.error(`Unhandled error for ${req.method} ${req.originalUrl}`, error);
+    logger.error(`Unhandled error for ${req.method} ${redactUrl(req.originalUrl)}`, error);
     res.status(500).json({ message: 'Internal server error.' });
   });
 
