@@ -56,7 +56,7 @@ export function MessageBubble({ message: m, now, onDownload, onSaveEdit }: Props
   };
 
   return (
-    <li className={cn('flex gap-2.5', outbound && 'flex-row-reverse')}>
+    <li id={`message-${m.id}`} className={cn('flex scroll-mt-10 gap-2.5', outbound && 'flex-row-reverse')}>
       <Avatar className="mt-0.5 h-8 w-8 shrink-0">
         {m.author.avatar && <AvatarImage src={m.author.avatar} alt="" />}
         <AvatarFallback className="text-[11px]">{initials(m.author.name)}</AvatarFallback>

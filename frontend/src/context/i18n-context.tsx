@@ -167,6 +167,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'cmdk.openFinance': 'Open Finance',
     'cmdk.openWhatsapp': 'Open WhatsApp inbox',
     'cmdk.openFollowups': 'Open follow-up center',
+    'cmdk.openInbox': 'Open inbox',
 
     'nav.section.workspace': 'Workspace',
     'nav.section.operations': 'Operations',
@@ -176,6 +177,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'nav.section.hr': 'Human Resources',
     'nav.section.admin': 'Admin',
     'nav.dashboard': 'Dashboard',
+    'nav.inbox': 'Inbox',
     'nav.projects': 'Projects',
     'nav.tasks': 'Tasks',
     'nav.diagram': 'Diagram',
@@ -3128,6 +3130,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'cmdk.openFinance': 'فتح المالية',
     'cmdk.openWhatsapp': 'فتح صندوق الواتساب',
     'cmdk.openFollowups': 'فتح مركز المتابعات',
+    'cmdk.openInbox': 'فتح صندوق الوارد',
 
     'nav.section.workspace': 'مساحة العمل',
     'nav.section.operations': 'العمليات',
@@ -3137,6 +3140,7 @@ const dictionaries: Record<AppLanguage, Dictionary> = {
     'nav.section.hr': 'الموارد البشرية',
     'nav.section.admin': 'الإدارة',
     'nav.dashboard': 'لوحة التحكم',
+    'nav.inbox': 'صندوق الوارد',
     'nav.projects': 'المشاريع',
     'nav.tasks': 'المهام',
     'nav.diagram': 'المخطط',

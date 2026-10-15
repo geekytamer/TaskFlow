@@ -41,6 +41,7 @@ import {
   Truck,
   UserRoundSearch,
   Inbox,
+  MessagesSquare,
   Users,
 } from 'lucide-react';
 
@@ -112,6 +113,7 @@ export function CommandPalette() {
   }, [can, moduleOn, permissionsLoaded]);
 
   const quickActions = React.useMemo(() => ([
+    { href: '/inbox', labelKey: 'cmdk.openInbox', icon: MessagesSquare },
     { href: '/finance', labelKey: 'cmdk.openFinance', icon: Banknote },
     { href: '/whatsapp', labelKey: 'cmdk.openWhatsapp', icon: MessageSquare },
     { href: '/crm/followups', labelKey: 'cmdk.openFollowups', icon: CalendarClock },

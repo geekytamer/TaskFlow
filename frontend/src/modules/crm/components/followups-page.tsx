@@ -898,14 +898,16 @@ function EmptyState({ tr, onNew }: { tr: (e: string, a: string) => string; onNew
 
 const TYPE_OPTIONS = ['Follow-up', 'Call', 'Email', 'Meeting', 'Task'];
 
-function NewFollowupDialog({
-  open, onOpenChange, tr, companyId, members, contacts, meId, onCreated,
+export function NewFollowupDialog({
+  open, onOpenChange, tr, companyId, members, contacts, meId, onCreated, defaultContactId,
 }: {
   open: boolean; onOpenChange: (o: boolean) => void; tr: (e: string, a: string) => string;
-  companyId: string; members: CompanyMember[]; contacts: Contact[]; meId?: string; onCreated: () => void;
+  companyId: string; members: CompanyMember[]; contacts: Array<Pick<Contact, 'id' | 'name'>>; meId?: string; onCreated: () => void;
+  /** Pre-selects the contact (e.g. from a conversation). */
+  defaultContactId?: string;
 }) {
   const { toast } = useToast();
-  const [contactId, setContactId] = React.useState('');
+  const [contactId, setContactId] = React.useState(defaultContactId ?? '');
   const [title, setTitle] = React.useState('');
   const [type, setType] = React.useState('Follow-up');
   const [channel, setChannel] = React.useState<FollowUpChannel | 'none'>('Call');

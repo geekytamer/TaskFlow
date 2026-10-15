@@ -42,11 +42,14 @@ import {
   Factory,
   Building2,
   FileText,
-  ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox } from 'lucide-react';
+  ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
 import { useCompany } from '@/context/company-context';
+import { getInbox } from '@/services/conversationService';
+import { waitingCount } from '@/modules/conversations/lib/inbox';
+import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions, usePermissionOr } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
@@ -71,6 +74,7 @@ const sections: NavSection[] = [
   {
     labelKey: 'nav.section.workspace',
     items: [
+      { href: '/inbox', labelKey: 'nav.inbox', icon: MessagesSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
       { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-dashboard' },
       { href: '/academy', labelKey: 'nav.academy', icon: GraduationCap, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-academy' },
       { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-projects' },
@@ -173,7 +177,31 @@ export function SidebarNav() {
     return () => window.clearInterval(id);
   }, [selectedCompany?.id, canReadChats]);
 
+  const [inboxWaiting, setInboxWaiting] = React.useState(0);
+  React.useEffect(() => {
+    if (!selectedCompany?.id || !effectiveRole) {
+      setInboxWaiting(0);
+      return;
+    }
+    const companyId = selectedCompany.id;
+    let live = true;
+    const fetchWaiting = () => {
+      getInbox(companyId, 'mine', 'waiting_us')
+        .then((r) => { if (live) setInboxWaiting(waitingCount(r.counts)); })
+        .catch(() => undefined);
+    };
+    fetchWaiting();
+    const id = window.setInterval(fetchWaiting, 30000);
+    window.addEventListener(DATA_CHANGED_EVENT, fetchWaiting);
+    return () => {
+      live = false;
+      window.clearInterval(id);
+      window.removeEventListener(DATA_CHANGED_EVENT, fetchWaiting);
+    };
+  }, [selectedCompany?.id, effectiveRole]);
+
   const badges: Record<string, number> = {
+    '/inbox': inboxWaiting,
     '/whatsapp': whatsappUnread,
   };
 

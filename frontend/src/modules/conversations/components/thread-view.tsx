@@ -23,10 +23,12 @@ interface Props {
   threadId: string;
   /** Called after any change (send, edit) so the surrounding list can refresh. */
   onChanged?: () => void;
+  /** Scroll to and flash this message when the thread has loaded (deep links). */
+  focusMessageId?: string | null;
 }
 
 /** The conversation timeline with its composer. */
-export function ThreadView({ threadId, onChanged }: Props) {
+export function ThreadView({ threadId, onChanged, focusMessageId }: Props) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
@@ -72,9 +74,21 @@ export function ThreadView({ threadId, onChanged }: Props) {
     return () => clearInterval(t);
   }, []);
 
+  const focused = React.useRef<string | null>(null);
   React.useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [detail?.messages.length, threadId]);
+    if (focusMessageId && detail && focused.current !== `${threadId}:${focusMessageId}`) {
+      const el = document.getElementById(`message-${focusMessageId}`);
+      if (el) {
+        focused.current = `${threadId}:${focusMessageId}`;
+        el.scrollIntoView({ block: 'center' });
+        el.classList.add('animate-pulse');
+        const t = setTimeout(() => el.classList.remove('animate-pulse'), 2000);
+        return () => clearTimeout(t);
+      }
+    }
+    if (!focusMessageId) end.current?.scrollIntoView({ block: 'end' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.messages.length, threadId, focusMessageId, detail === null]);
 
   const changed = () => {
     window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
