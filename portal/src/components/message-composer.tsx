@@ -6,7 +6,7 @@ import { t, type Lang } from '@/lib/i18n';
 import { button } from './ui';
 import { FilePicker, type UploadedFile } from './file-picker';
 
-export function MessageComposer({ lang }: { lang: Lang }) {
+export function MessageComposer({ lang, threadId }: { lang: Lang; threadId: string }) {
   const router = useRouter();
   const [body, setBody] = useState('');
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -22,7 +22,7 @@ export function MessageComposer({ lang }: { lang: Lang }) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch('/api/messages', {
+      const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: text, fileIds: files.map((f) => f.id) }),
