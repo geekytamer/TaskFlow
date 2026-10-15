@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseShortlist, shortlistHref, toggleShortlist } from './shortlist';
+import { hrefWithShortlist, parseShortlist, shortlistHref, toggleShortlist } from './shortlist';
 
 test('parses ids from the URL: dedupes, drops junk, caps at 20', () => {
   assert.deepEqual(parseShortlist(undefined), []);
@@ -17,4 +17,11 @@ test('toggles one creator in or out, keeping order', () => {
 test('builds the request link with every chosen creator', () => {
   assert.equal(shortlistHref([]), '/requests/new');
   assert.equal(shortlistHref(['a', 'b']), '/requests/new?with=a&with=b');
+});
+
+test('puts the shortlist into any catalogue link, replacing the one it carried', () => {
+  assert.equal(hrefWithShortlist('/influencers', []), '/influencers');
+  assert.equal(hrefWithShortlist('/influencers', ['a', 'b']), '/influencers?with=a&with=b');
+  assert.equal(hrefWithShortlist('/influencers?niche=Food&with=old&view=list', ['a']), '/influencers?niche=Food&view=list&with=a');
+  assert.equal(hrefWithShortlist('/influencers?with=old', []), '/influencers');
 });

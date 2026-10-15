@@ -47,7 +47,8 @@ export interface DirectoryFilter {
   tier?: Tier;
   availability?: string;
   minFollowers?: number;
-  /** Budget per post: keeps influencers whose range starts at or below it. */
+  /** Price per post range: keeps influencers whose own range overlaps [minPrice, maxPrice]. */
+  minPrice?: number;
   maxPrice?: number;
 }
 
@@ -60,6 +61,9 @@ export function parseDirectoryQuery(query: Request['query']): { filter: Director
     return Number.isFinite(n) && n > 0 ? n : undefined;
   };
   const sort = DIRECTORY_SORTS.find((s) => s === query.sort) ?? 'followers';
+  let minPrice = int(query.minPrice);
+  let maxPrice = int(query.maxPrice);
+  if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) [minPrice, maxPrice] = [maxPrice, minPrice];
   return {
     sort,
     filter: {
@@ -71,7 +75,8 @@ export function parseDirectoryQuery(query: Request['query']): { filter: Director
       tier: TIERS.find((t) => t === query.tier),
       availability: text(query.availability),
       minFollowers: int(query.minFollowers),
-      maxPrice: int(query.maxPrice),
+      minPrice,
+      maxPrice,
     },
   };
 }
@@ -84,7 +89,12 @@ export function matchesDirectory(e: DirectoryEntry, f: DirectoryFilter): boolean
   if (f.tier && e.tier !== f.tier) return false;
   if (f.availability && lower(e.availability) !== lower(f.availability)) return false;
   if (f.minFollowers !== undefined && e.followers < f.minFollowers) return false;
-  if (f.maxPrice !== undefined && (e.price.kind !== 'range' || e.price.min > f.maxPrice)) return false;
+  if (f.minPrice !== undefined || f.maxPrice !== undefined) {
+    // "Price on request" has no range to compare, so any price bound leaves it out.
+    if (e.price.kind !== 'range') return false;
+    if (f.minPrice !== undefined && e.price.max < f.minPrice) return false;
+    if (f.maxPrice !== undefined && e.price.min > f.maxPrice) return false;
+  }
   const q = lower(f.q);
   if (q) {
     const hay = [e.name, e.niche, e.location, e.bio, ...e.platforms.map((p) => p.handle)].map(lower).join(' ');

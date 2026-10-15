@@ -23,6 +23,7 @@ test('money uses the currency, whole units, and survives an unknown code', () =>
 
 test('the catalogue query keeps only known, non-empty filters', () => {
   assert.equal(catalogueQuery({ q: ' lina ', platform: '', niche: 'Food', evil: 'x' }), '?q=lina&niche=Food');
+  assert.equal(catalogueQuery({ minPrice: '250', maxPrice: '1000' }), '?minPrice=250&maxPrice=1000', 'a price range passes both ends');
   assert.equal(catalogueQuery({}), '');
   assert.equal(catalogueQuery({ q: 'a&b=c' }), '?q=a%26b%3Dc');
 });

@@ -74,6 +74,17 @@ test('sorting and filtering happen on the server', async () => {
   assert.deepEqual(await names('?niche=Travel'), ['Lina']);
 });
 
+test('a price range keeps influencers whose range overlaps it; price on request drops out', async () => {
+  const ctx = await build();
+  const names = async (q) => (await request(ctx.server).get(`/portal-api/client/directory${q}`).set(ctx.session)).body.items.map((i) => i.name);
+  // Lina charges 700-1300; Muscat Eats is price on request.
+  assert.deepEqual(await names('?minPrice=1000'), ['Lina'], 'her range reaches 1000');
+  assert.deepEqual(await names('?minPrice=1500'), [], 'her range tops out below');
+  assert.deepEqual(await names('?minPrice=500&maxPrice=800'), ['Lina']);
+  assert.deepEqual(await names('?minPrice=1400&maxPrice=2000'), []);
+  assert.deepEqual(await names('?minPrice=800&maxPrice=100'), ['Lina'], 'min above max is read as 100-800');
+});
+
 test('comma-separated niches are separate niches for filters and facets', async () => {
   const ctx = await build();
   ctx.store.updateContact(ctx.lina.id, { influencerNiche: 'Food, Lifestyle' });
