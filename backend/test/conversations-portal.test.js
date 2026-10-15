@@ -158,7 +158,7 @@ test('alerts cover every thread of the contact, link to the portal thread page, 
   const topic = ctx.topic(ctx.client, 'Dates order');
   const sent = ctx.staffSays(topic, 'In the topic');
   const events = currentEvents(ctx.store, user).filter((e) => e.event === 'message');
-  assert.deepEqual(events, [{ event: 'message', refId: sent.id, path: `/messages/${topic.id}` }]);
+  assert.deepEqual(events, [{ event: 'message', refId: sent.id, path: `/messages/${topic.id}`, threadId: topic.id }]);
 });
 
 test('a note never moves the portal list timing or order', async () => {
