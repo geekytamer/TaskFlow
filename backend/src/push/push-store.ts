@@ -102,6 +102,11 @@ export class PushStore {
     this.db.transaction(() => rows.forEach((r) => insert.run(r)))();
   }
 
+  /** Drops one person's held push with this tag (any audience; principal ids are unique). */
+  dropHeld(principalId: string, tag: string): void {
+    this.db.prepare('DELETE FROM push_held WHERE principalId = ? AND tag = ?').run(principalId, tag);
+  }
+
   clearHeld(audience: PushAudience, principalId: string, companyId: string): void {
     this.db.prepare('DELETE FROM push_held WHERE audience = ? AND principalId = ? AND companyId = ?').run(audience, principalId, companyId);
   }

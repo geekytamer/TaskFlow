@@ -186,3 +186,28 @@ test('a portal message push carries the number of unread threads, and no actions
   assert.equal(sent[0].actions, undefined);
   assert.equal(sent[0].actionToken, undefined);
 });
+
+test('Mark done reads the person\'s alerts and drops held pushes for the thread', async () => {
+  const ctx = await build();
+  await ctx.clientSays('Please call me');
+  ctx.store.push.hold('staff', ctx.carla.id, ctx.company.id, { title: 't', body: '', url: '/inbox', tag: `thread:${ctx.general.id}` });
+  ctx.store.push.hold('staff', ctx.carla.id, ctx.company.id, { title: 't', body: '', url: '/inbox', tag: `response_overdue:${ctx.general.id}` });
+  const unread = () => ctx.store.db.prepare("SELECT COUNT(*) c FROM notifications WHERE userId = ? AND entityId = ? AND readAt IS NULL").get(ctx.carla.id, ctx.general.id).c;
+  assert.ok(unread() > 0);
+  assert.equal((await ctx.markDone(ctx.carla.id)).status, 204);
+  assert.equal(unread(), 0, 'alerts read');
+  assert.equal(ctx.store.push.heldCount(), 0, 'held rows gone');
+});
+
+test('a portal user reading or answering a thread drops their held push for it', async () => {
+  const ctx = await build();
+  const pid = ctx.store.db.prepare("SELECT id FROM portal_users WHERE email = 'b@mouj.test'").get().id;
+  const hold = () => ctx.store.push.hold('client', pid, ctx.company.id, { title: 't', body: '', url: '/messages', tag: `thread:${ctx.general.id}` });
+  hold();
+  assert.equal(ctx.store.push.heldCount(), 1);
+  assert.equal((await request(ctx.server).get(`/portal-api/client/threads/${ctx.general.id}`).set(ctx.portal)).status, 200);
+  assert.equal(ctx.store.push.heldCount(), 0, 'opening drops it');
+  hold();
+  await ctx.clientSays('hello');
+  assert.equal(ctx.store.push.heldCount(), 0, 'sending drops it');
+});

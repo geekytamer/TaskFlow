@@ -50,6 +50,7 @@ export function registerConversationPortalRoutes(router: Router, store: DataStor
     const session = req.portal!;
     const thread = ownThread(session, req.params.id);
     c.markRead(thread.id, { type: 'portal', id: session.portalUserId }, new Date().toISOString());
+    store.push.dropHeld(session.portalUserId, `thread:${thread.id}`);
     res.json({
       thread: { id: thread.id, subject: thread.subject },
       messages: visibleMessages(session, thread).map((m) => portalMessageView(store, m, session.portalUserId)),
@@ -72,6 +73,7 @@ export function registerConversationPortalRoutes(router: Router, store: DataStor
       });
       // Writing is reading your own thread.
       c.markRead(thread.id, { type: 'portal', id: session.portalUserId }, created.createdAt);
+      store.push.dropHeld(session.portalUserId, `thread:${thread.id}`);
       afterPortalMessage(store, { message: created, threadId: thread.id });
       return created;
     }));

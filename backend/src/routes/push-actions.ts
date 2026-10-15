@@ -37,7 +37,11 @@ export function registerPushActionRoutes(app: Express, deps: PushActionDeps): vo
     if (!canSeeThreadContact(store, thread, user.id)) return notFound();
     if (thread.assigneeUserId && thread.assigneeUserId !== user.id) return notFound();
     // The same store path as PATCH /conversation-threads/:id, so the waiting clock clears the same way.
-    store.transaction(() => store.conversations.setState(thread.id, 'done'));
+    store.transaction(() => {
+      store.conversations.setState(thread.id, 'done');
+      // Handled: its alerts are read and nothing about it waits for the morning summary.
+      store.markThreadNotificationsRead(user.id, thread.id);
+    });
     res.status(204).end();
   }));
 }

@@ -159,3 +159,22 @@ test('a portal user who prefers Arabic gets the Arabic summary', async () => {
   await releaseHeldPush(ctx.store, ctx.send, ctx.company.id, MORNING);
   assert.equal(ctx.sent[1].body, 'تحديث واحد أثناء غيابك');
 });
+
+test('a storage excursion alarm is pushed at night; other pushes are still held', async () => {
+  const ctx = build();
+  const alarm = ctx.store.notify({ companyId: ctx.company.id, userIds: [ctx.carla.id], type: 'storage_excursion', title: 'Cold room 2 out of range', link: '/storage', entityType: 'storage_location', entityId: 'loc1' });
+  await dispatchStaffPush(ctx.store, ctx.send, alarm, Date.parse(LATE));
+  assert.equal(ctx.sent.length, 1, 'alarm goes out at 23:30');
+  assert.equal(ctx.store.push.heldCount(), 0);
+  await dispatchStaffPush(ctx.store, ctx.send, ctx.notify('t9'), Date.parse(LATE));
+  assert.equal(ctx.sent.length, 1, 'a task is held');
+  assert.equal(ctx.store.push.heldCount(), 1);
+});
+
+test('handling a thread also drops its held overdue push', async () => {
+  const ctx = build();
+  ctx.store.push.hold('staff', ctx.carla.id, ctx.company.id, { title: 't', body: '', url: '/inbox?thread=a', tag: 'response_overdue:a' });
+  ctx.store.push.hold('staff', ctx.carla.id, ctx.company.id, { title: 't', body: '', url: '/inbox?thread=b', tag: 'response_overdue:b' });
+  ctx.store.markThreadNotificationsRead(ctx.carla.id, 'a');
+  assert.equal(ctx.store.push.heldCount(), 1);
+});

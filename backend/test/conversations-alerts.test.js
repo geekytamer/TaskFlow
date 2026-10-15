@@ -140,6 +140,24 @@ test('alerts follow the contact\'s current owner and never reach someone who can
   assert.equal(ctx.alertsOf(eve).filter((a) => !a.readAt).every((a) => a.data.count === 1), true);
 });
 
+test('an assignee who lost sight of a private contact falls back to the owner', async () => {
+  const ctx = await build();
+  const employee = (name) => ctx.store.createUser({ name, email: `${name.toLowerCase()}@peak.test`, password: 'x', role: 'Employee', companyIds: [ctx.company.id], companyRoles: [{ companyId: ctx.company.id, role: 'Employee' }] });
+  const eve = employee('Eve');
+  const secret = ctx.store.createContact({ companyId: ctx.company.id, kind: 'Organization', name: 'Quiet Client', roles: ['Client'], ownerUserId: ctx.carla.id });
+  ctx.store.updateContact(secret.id, { visibility: 'Private' });
+  const { token } = ctx.store.portal.inviteUser({ companyId: ctx.company.id, audience: 'client', contactId: secret.id, email: 'q@quiet.test', name: 'Q', role: 'client_admin' });
+  ctx.store.portal.acceptInvitation(token, PASSWORD);
+  const login = await request(ctx.server).post('/portal-api/client/auth/login').send({ email: 'q@quiet.test', password: PASSWORD });
+  const thread = ctx.store.conversations.generalThread(ctx.company.id, secret.id);
+  ctx.store.conversations.setAssignee(thread.id, eve.id);
+  const res = await request(ctx.server).post(`/portal-api/client/threads/${thread.id}/messages`).set({ Authorization: `Bearer ${login.body.token}` }).send({ body: 'POISON-FALLBACK' });
+  assert.equal(res.status, 201);
+  assert.equal(ctx.alertsOf(ctx.carla).length, 1, 'the owner hears');
+  assert.equal(ctx.alertsOf(eve).length, 0, 'the assignee does not');
+  assert.equal(/POISON/.test(JSON.stringify(ctx.alertsOf(eve))), false);
+});
+
 test('a partial preferences update keeps the channels it did not send', async () => {
   const ctx = await build();
   const res = await request(ctx.server).put('/notifications/preferences').set(ctx.staff(ctx.dan)).send({ messages: { inApp: true, push: false } });

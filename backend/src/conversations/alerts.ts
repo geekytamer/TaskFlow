@@ -58,8 +58,15 @@ export function threadRecipients(store: DataStore, thread: Thread): string[] {
   const privateReaders = () =>
     (readers ??= new Set(store.listUserIdsWithPermission(thread.companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles])));
   const visible = (ids: string[]) => ids.filter((id) => canSeeContactOf(store, contact, id, privateReaders));
-  if (thread.assigneeUserId) return visible([thread.assigneeUserId]);
-  if (contact?.ownerUserId) return visible([contact.ownerUserId]);
+  if (thread.assigneeUserId) {
+    const mine = visible([thread.assigneeUserId]);
+    if (mine.length > 0) return mine;
+    // The assignee cannot see the contact (or left): fall through to the owner, then Admins.
+  }
+  if (contact?.ownerUserId) {
+    const owner = visible([contact.ownerUserId]);
+    if (owner.length > 0) return owner;
+  }
   return visible(store.listUserIdsByCompanyRoles(thread.companyId, ['Admin']));
 }
 
@@ -206,7 +213,8 @@ export async function dispatchStaffPush(
         continue;
       }
       const payload: PushPayload = { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}`, badge: badgeFor(store, n.userId, n.companyId) };
-      if (companyInQuietHours(store, n.companyId, nowMs)) { holdPush(store, 'staff', n.userId, n.companyId, payload); continue; }
+      // A cold-chain storage excursion is an alarm: it never waits for the morning.
+      if (n.type !== 'storage_excursion' && companyInQuietHours(store, n.companyId, nowMs)) { holdPush(store, 'staff', n.userId, n.companyId, payload); continue; }
       await sendToPrincipal(store, send, 'staff', n.userId, payload);
     } catch (error) {
       onError(error);
