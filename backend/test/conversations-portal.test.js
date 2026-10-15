@@ -114,9 +114,9 @@ test('opening a thread marks it read and shows Seen on the staff message; postin
   const m = ctx.store.conversations.getMessage(post.body.id);
   assert.deepEqual([m.channel, m.direction, m.visibility], ['portal', 'in', 'external']);
   assert.equal((await request(ctx.server).post(`/portal-api/client/threads/${g.id}/messages`).set(me.headers).send({ body: '  ' })).status, 400);
-  // The reply follow-up now links into the inbox thread.
+  // The message alert links into the inbox thread, at the latest message.
   const link = ctx.store.db.prepare('SELECT link FROM notifications WHERE companyId = ? ORDER BY createdAt DESC').all(ctx.company.id).map((r) => r.link);
-  assert.ok(link.includes(`/inbox?thread=${g.id}`), `links: ${link}`);
+  assert.ok(link.includes(`/inbox?thread=${g.id}&message=${post.body.id}`), `links: ${link}`);
 });
 
 test('legacy /client/messages reads and writes the General thread, never account_messages', async () => {

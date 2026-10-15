@@ -57,15 +57,19 @@ export function registerNotificationRoutes(app: Express, ctx: RouteContext): voi
     authMiddleware,
     handler((req, res) => {
       const body = asRecord(req.body, 'body');
-      const next: Record<string, { inApp: boolean; email: boolean; push: boolean }> = {};
+      const current = store.getNotificationPrefs(req.user!.id);
+      const next: Record<string, unknown> = {};
       for (const category of NOTIFICATION_CATEGORIES) {
-        const entry = asRecord(body[category] ?? {}, category);
+        // A category the client did not send keeps what it had (a new one starts at its default).
+        if (body[category] === undefined) { next[category] = current[category]; continue; }
+        const entry = asRecord(body[category], category);
         next[category] = {
           inApp: entry.inApp !== false,
           email: entry.email !== false,
           push: entry.push !== false,
         };
       }
+      next.pushPreview = body.pushPreview === undefined ? current.pushPreview : body.pushPreview !== false;
       const prefs = store.updateNotificationPrefs(
         req.user!.id,
         normalizeNotificationPrefs(next) as NotificationPrefs,

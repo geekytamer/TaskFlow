@@ -211,23 +211,23 @@ test('requests can carry files the client uploaded', async () => {
   assert.match(opportunity.notes, /guidelines\.pdf/, 'staff see the file named in the brief');
 });
 
-test('an unanswered client message is one open follow-up, closed when staff reply', async () => {
+test('a client message alerts the owner instead of opening a follow-up; a staff reply still closes an old one', async () => {
   const ctx = build();
   const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
   const openReplies = () => ctx.store.listFollowupEntities(ctx.company.id, { status: 'active', entityType: 'contact', entityId: ctx.client.id })
     .filter((f) => f.sourceTrigger === 'portal_message');
 
-  // Intermittent under full-suite load once (2026-10-04, not reproduced in 20 parallel and 6 full runs):
-  // the statuses below make the next failure say whether a POST failed or the follow-up was not opened.
   const first = await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'First question.' });
   const second = await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'And a second one.' });
   assert.deepEqual([first.status, second.status], [201, 201], JSON.stringify([first.body, second.body]));
-  assert.equal(openReplies().length, 1, 'one reminder, not one per message');
-  assert.equal(openReplies()[0].ownerUserId, ctx.owner.id);
+  assert.equal(openReplies().length, 0, 'messages no longer raise follow-ups');
+  const alerts = ctx.store.db.prepare("SELECT data FROM notifications WHERE userId = ? AND type = 'message_received'").all(ctx.owner.id);
+  assert.equal(alerts.length, 1, 'one grouped alert, not one per message');
+  assert.equal(JSON.parse(alerts[0].data).count, 2);
 
+  // A reply follow-up opened before alerts replaced them is closed by the next staff reply.
+  ctx.store.createFollowup({ companyId: ctx.company.id, entityType: 'contact', entityId: ctx.client.id, title: 'Reply to Al Noor', priority: 'normal', channel: 'Task', ownerUserId: ctx.owner.id, dueAt: new Date(), sourceTrigger: 'portal_message' });
+  assert.equal(openReplies().length, 1);
   await staffReply(ctx, 'Answered both.');
   assert.equal(openReplies().length, 0, 'a staff reply closes it');
-
-  await request(ctx.server).post('/portal-api/client/messages').set(omar).send({ body: 'One more thing.' });
-  assert.equal(openReplies().length, 1, 'a new message opens a new one');
 });

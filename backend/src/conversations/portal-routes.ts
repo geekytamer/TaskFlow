@@ -62,7 +62,6 @@ export function registerConversationPortalRoutes(router: Router, store: DataStor
     const { text, fileIds } = parseMessage(asRecord(req.body, 'body'));
     const contact = store.getContactById(session.contactId);
     if (!contact) throw new HttpError(404, 'Not found.');
-    const managerId = contact.ownerUserId ?? store.portal.inviterOf(session.portalUserId);
     const message = store.transaction(() => store.runAsActor({ name: `Portal: ${session.name} (${contact.name})` }, () => {
       const created = c.addMessage({
         threadId: thread.id, channel: 'portal', direction: 'in', visibility: 'external',
@@ -73,7 +72,7 @@ export function registerConversationPortalRoutes(router: Router, store: DataStor
       });
       // Writing is reading your own thread.
       c.markRead(thread.id, { type: 'portal', id: session.portalUserId }, created.createdAt);
-      afterPortalMessage(store, { companyId, contact, managerId, message: created, threadId: thread.id });
+      afterPortalMessage(store, { message: created, threadId: thread.id });
       return created;
     }));
     res.status(201).json(portalMessageView(store, message, session.portalUserId));

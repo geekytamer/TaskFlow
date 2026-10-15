@@ -251,6 +251,7 @@ import {
 import {
   NOTIFICATION_META, NOTIFICATION_MODULES,
   defaultNotificationPrefs,
+  NOTIFICATION_CATEGORIES,
   normalizeNotificationPrefs,
 } from '../notifications';
 import { hashPassword, isHashed } from '../password';
@@ -20134,6 +20135,85 @@ export class DataStore {
     return created;
   }
 
+  /**
+   * One unread alert per (user, thread): a further message updates that alert
+   * in place (count, latest message, title, moved to the top) instead of
+   * stacking another. New alerts go through notify(); updated ones are handed
+   * to the dispatch hook too, so the phone dispatcher can decide (it throttles).
+   */
+  upsertThreadNotification(input: {
+    companyId: string;
+    userIds: string[];
+    type: NotificationType;
+    threadId: string;
+    build: (count: number) => { title: string; body?: string; link: string; data: Record<string, string | number> };
+  }): Notification[] {
+    const meta = NOTIFICATION_META[input.type];
+    if (!meta || !this.notificationModuleOn(input.companyId, input.type)) return [];
+    const actorId = this.currentActor?.userId;
+    const recipients = Array.from(new Set(input.userIds.filter((id) => id && id !== actorId)));
+    const find = this.db.prepare(
+      `SELECT * FROM notifications WHERE userId = ? AND type = ? AND entityType = 'conversation_thread' AND entityId = ? AND readAt IS NULL
+        ORDER BY createdAt DESC LIMIT 1`,
+    );
+    const update = this.db.prepare('UPDATE notifications SET title = ?, body = ?, link = ?, data = ?, createdAt = ? WHERE id = ?');
+    const touched: Notification[] = [];
+    const updated: Notification[] = [];
+    for (const userId of recipients) {
+      const row = find.get(userId, input.type, input.threadId) as any;
+      if (!row) {
+        const built = input.build(1);
+        touched.push(...this.notify({
+          companyId: input.companyId, userIds: [userId], type: input.type, ...built,
+          entityType: 'conversation_thread', entityId: input.threadId,
+        }));
+        continue;
+      }
+      const existing = this.decodeNotification(row);
+      const built = input.build(Number(existing.data?.count ?? 1) + 1);
+      // The phone dispatcher's last-push mark survives the rewrite.
+      const data = existing.data?.pushedAt ? { ...built.data, pushedAt: existing.data.pushedAt } : built.data;
+      const now = new Date();
+      update.run(built.title, built.body ?? null, built.link, JSON.stringify(data), now.toISOString(), existing.id);
+      const next: Notification = { ...existing, title: built.title, body: built.body, link: built.link, data, createdAt: now };
+      touched.push(next);
+      updated.push(next);
+    }
+    if (updated.length > 0 && !this.isTrainingCompany(input.companyId) && this.onNotificationsCreated) {
+      try {
+        this.onNotificationsCreated(updated);
+      } catch (err) {
+        console.error('onNotificationsCreated hook failed:', err);
+      }
+    }
+    return touched;
+  }
+
+  /** When this person's phone last heard about a thread's messages (ISO), if ever. */
+  lastThreadPushAt(userId: string, threadId: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(json_extract(data, '$.pushedAt')) AS at FROM notifications
+          WHERE userId = ? AND type = 'message_received' AND entityType = 'conversation_thread' AND entityId = ?`,
+      )
+      .get(userId, threadId) as { at: string | null } | undefined;
+    return row?.at ?? null;
+  }
+
+  markNotificationPushed(id: string, at: string): void {
+    this.db.prepare("UPDATE notifications SET data = json_set(COALESCE(data, '{}'), '$.pushedAt', ?) WHERE id = ?").run(at, id);
+  }
+
+  /** Whether a thread already has a notification of this type for one waiting episode. */
+  hasThreadEpisodeNotification(type: NotificationType, threadId: string, waitingSince: string): boolean {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM notifications WHERE type = ? AND entityType = 'conversation_thread' AND entityId = ?
+          AND json_extract(data, '$.waitingSince') = ? LIMIT 1`,
+      )
+      .get(type, threadId, waitingSince);
+  }
+
   /** List a user's notifications, filtered to categories they keep in-app. */
   /** False when the notification's module is switched off for its company. */
   private notificationModuleOn(companyId: string, type: string): boolean {
@@ -20143,7 +20223,7 @@ export class DataStore {
 
   listNotifications(userId: string, options: { limit?: number; unreadOnly?: boolean } = {}): Notification[] {
     const prefs = this.getNotificationPrefs(userId);
-    const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
+    const inAppCategories = NOTIFICATION_CATEGORIES.filter((c) => prefs[c].inApp);
     if (inAppCategories.length === 0) return [];
     const placeholders = inAppCategories.map(() => '?').join(',');
     const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
@@ -20164,7 +20244,7 @@ export class DataStore {
 
   unreadNotificationCount(userId: string): number {
     const prefs = this.getNotificationPrefs(userId);
-    const inAppCategories = (Object.keys(prefs) as Array<keyof NotificationPrefs>).filter((c) => prefs[c].inApp);
+    const inAppCategories = NOTIFICATION_CATEGORIES.filter((c) => prefs[c].inApp);
     if (inAppCategories.length === 0) return 0;
     const placeholders = inAppCategories.map(() => '?').join(',');
     const rows = this.db

@@ -29,6 +29,7 @@ const CATEGORY_BORDER: Record<NotificationCategory, string> = {
   finance: 'border-l-emerald-500',
   crm: 'border-l-violet-500',
   inventory: 'border-l-amber-500',
+  messages: 'border-l-rose-500',
 };
 
 /** Short relative time, e.g. "5m", "3h", "2d". */

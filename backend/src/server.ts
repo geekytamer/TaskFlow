@@ -133,7 +133,8 @@ import { registerWhatsappRoutes } from './routes/whatsapp';
 import { registerHrRoutes } from './routes/hr';
 import { registerWorkspaceRoutes } from './routes/workspace';
 import { registerPushRoutes } from './routes/push';
-import { pushConfigFromEnv, sendToPrincipal, type PushConfig } from './push/push';
+import { pushConfigFromEnv, type PushConfig } from './push/push';
+import { dispatchStaffPush, sweepResponseOverdue } from './conversations/alerts';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
@@ -713,18 +714,11 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
   // Fire-and-forget so notification creation never blocks on email I/O.
-  // Every notification also goes to the person's phones when that category's push is on.
-  // Only the title travels: it says what happened; the app shows the rest.
+  // Every notification also goes to the person's phones when that category's push is on
+  // (conversations/alerts.ts: message alerts throttled per thread, preview only if allowed).
   const dispatchPush = async (notifications: Notification[]) => {
     if (!push) return;
-    for (const n of notifications) {
-      try {
-        if (!store.getNotificationPrefs(n.userId)[n.category].push) continue;
-        await sendToPrincipal(store, push.send, 'staff', n.userId, { title: n.title, body: '', url: n.link ?? '/notifications', tag: `${n.type}:${n.entityId ?? n.id}` });
-      } catch (error) {
-        logger.warn('[push] could not send a staff notification', error);
-      }
-    }
+    await dispatchStaffPush(store, push.send, notifications, Date.now(), (error) => logger.warn('[push] could not send a staff notification', error));
   };
 
   store.setOnNotificationsCreated((notifications) => {
@@ -780,6 +774,18 @@ export function createServer(options: CreateServerOptions = {}) {
     };
     setTimeout(runSweep, 30 * 1000).unref?.();
     setInterval(runSweep, sweepIntervalMs).unref?.();
+
+    // Every 5 minutes: warn whoever answers a thread that has passed its response target.
+    setInterval(() => {
+      const now = new Date().toISOString();
+      for (const companyId of store.conversations.companiesWaiting()) {
+        try {
+          sweepResponseOverdue(store, companyId, now);
+        } catch (error) {
+          logger.error('[conversations] response-overdue sweep failed', error);
+        }
+      }
+    }, 5 * 60 * 1000).unref?.();
 
     // Hourly: generate due/overdue task + follow-up reminder notifications
     // (deduped to once per day per item by the store).

@@ -1,9 +1,8 @@
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
-import type { Contact } from '../types';
 import type { ConvMessage } from '../conversations/conversations-store';
 import type { PortalFileMeta } from './thread-store';
-import { notifyManager, raiseFollowup } from './common';
+import { notifyThreadMessage } from '../conversations/alerts';
 
 type MessageLike = Pick<ConvMessage, 'id' | 'body' | 'authorType' | 'authorUserId' | 'authorPortalUserId' | 'createdAt'>;
 
@@ -50,24 +49,16 @@ const openReplyFollowups = (store: DataStore, companyId: string, contactId: stri
     .filter((f) => f.sourceTrigger === REPLY_TRIGGER);
 
 /**
- * A client or influencer message needs a reply: keep exactly one open "reply"
- * follow-up for the account manager while any message is unanswered.
+ * A client or influencer message: the people on the thread get one grouped
+ * alert (conversations/alerts.ts). It no longer opens a reply follow-up; the
+ * inbox's waiting state and response target track the reply instead.
  */
-export function afterPortalMessage(store: DataStore, input: { companyId: string; contact: Contact; managerId?: string; message: ConvMessage; threadId: string }) {
-  if (openReplyFollowups(store, input.companyId, input.contact.id).length > 0) return;
-  const title = `Reply to ${input.contact.name}`;
-  const followup = raiseFollowup(store, {
-    companyId: input.companyId, entityType: 'contact', entityId: input.contact.id, title, priority: 'normal',
-    ownerUserId: input.managerId, dueDays: 1, notes: input.message.body.slice(0, 500),
-    sourceTrigger: REPLY_TRIGGER, sourceType: 'conversation_message', sourceId: input.message.id,
-  });
-  notifyManager(store, {
-    companyId: input.companyId, managerId: input.managerId, title: `New message from ${input.contact.name}`, name: title,
-    body: input.message.body.slice(0, 200), link: `/inbox?thread=${input.threadId}`, entityType: 'follow_up', entityId: followup.id,
-  });
+export function afterPortalMessage(store: DataStore, input: { message: ConvMessage; threadId: string }) {
+  const thread = store.conversations.getThread(input.threadId);
+  if (thread) notifyThreadMessage(store, thread, input.message);
 }
 
-/** A staff reply answers whatever was waiting. */
+/** A staff reply answers whatever was waiting, including reply follow-ups opened before alerts replaced them. */
 export function afterStaffMessage(store: DataStore, input: { companyId: string; contactId: string; userId: string }) {
   for (const followup of openReplyFollowups(store, input.companyId, input.contactId)) {
     store.completeFollowup(followup.id, { outcome: 'replied', completedByUserId: input.userId });

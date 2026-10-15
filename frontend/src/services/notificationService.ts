@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api-client';
 
-export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory';
+export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory' | 'messages';
 export type NotificationPriority = 'critical' | 'normal';
 
 export interface AppNotification {
@@ -44,9 +44,12 @@ export interface NotificationChannelPref {
   push: boolean;
 }
 
-export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
+export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref> & {
+  /** Show the start of a client's message on the lock screen. */
+  pushPreview: boolean;
+};
 
-export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory'];
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory', 'messages'];
 
 const toDate = (v: any) => (v ? new Date(v) : undefined);
 

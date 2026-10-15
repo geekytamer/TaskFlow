@@ -1743,7 +1743,7 @@ export interface ActivityEvent {
 }
 
 // ── Notifications ──────────────────────────────────────────────────────────
-export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory';
+export type NotificationCategory = 'tasks' | 'finance' | 'crm' | 'inventory' | 'messages';
 export type NotificationPriority = 'critical' | 'normal';
 export type NotificationType =
   | 'task_assigned'
@@ -1764,7 +1764,10 @@ export type NotificationType =
   | 'recurring_document'
   | 'storage_excursion'
   | 'storage_reading_due'
-  | 'shipment_due';
+  | 'shipment_due'
+  | 'message_received'
+  | 'thread_assigned'
+  | 'response_overdue';
 
 export interface Notification {
   id: string;
@@ -1795,7 +1798,10 @@ export interface NotificationChannelPref {
   push: boolean;
 }
 
-export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref>;
+export type NotificationPrefs = Record<NotificationCategory, NotificationChannelPref> & {
+  /** Show the start of a client's message on the lock screen (never internal notes). */
+  pushPreview: boolean;
+};
 
 export type RecordEntityType =
   | ActivityEvent['entityType']

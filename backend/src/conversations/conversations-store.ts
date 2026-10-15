@@ -251,6 +251,13 @@ export class ConversationsStore {
       .run(companyId, s.responseTargetHours, JSON.stringify(s.workDays), s.dayStart, s.dayEnd, s.timeZone, new Date().toISOString());
   }
 
+  /** Companies with a thread that owes, or may owe after a snooze, a reply. */
+  companiesWaiting(): string[] {
+    return (this.db
+      .prepare("SELECT DISTINCT companyId FROM conversation_threads WHERE state IN ('waiting_us', 'snoozed')")
+      .all() as Array<{ companyId: string }>).map((r) => r.companyId);
+  }
+
   /** A snoozed thread whose time has passed is waiting on us again. */
   effectiveState(thread: Pick<Thread, 'state' | 'snoozedUntil'>, now: string): ThreadState {
     if (thread.state === 'snoozed' && thread.snoozedUntil && thread.snoozedUntil <= now) return 'waiting_us';

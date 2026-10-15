@@ -6,6 +6,7 @@ import { downloadHeaders, readUpload } from '../portal/files';
 import { afterStaffMessage, fileDto, parseFileIds, parseMessage } from '../portal/thread';
 import { asRecord } from '../validation';
 import type { ConvMessage, Thread, ThreadState } from './conversations-store';
+import { notifyThreadAssigned } from './alerts';
 import { parseConversationSettings } from './sla';
 import { staffMessageView, staffThreadView } from './views';
 import { canSeeContact, canSeeMessage, type StaffViewer } from './visibility';
@@ -294,6 +295,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
       if (assignee !== undefined) c.setAssignee(thread.id, assignee);
       if (state) c.setState(thread.id, state.state, state.until);
     });
+    if (assignee && assignee !== thread.assigneeUserId) notifyThreadAssigned(store, c.getThread(thread.id)!, assignee, viewer.userId);
     res.json(threadView(c.getThread(thread.id)!, viewer, now));
   }));
 
