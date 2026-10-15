@@ -151,7 +151,8 @@ export function PipelinePage() {
   const { toast } = useToast();
   const confirm = useConfirm();
   const { amount } = useCompanyCurrency();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const stageLabel = React.useCallback(
     (stage: string) => t(`pipelinePage.stage${stage.replace(/\s/g, '')}`, stage),
     [t],
@@ -250,6 +251,56 @@ export function PipelinePage() {
     }
     await updateOpportunityStage(item.id, to);
     await load();
+  };
+
+  // Delete removes the deal for good (the server refuses while other records depend on it);
+  // Cancel keeps it, moved out of the pipeline.
+  const removeOpp = async (item: Opportunity) => {
+    const ok = await confirm({
+      title: tr('Delete this opportunity?', 'حذف هذه الفرصة؟'),
+      description: tr(
+        `"${item.title}" will be removed with its draft proposals and follow-ups. This can't be undone.`,
+        `ستُحذف «${item.title}» مع مسودات العروض والمتابعات الخاصة بها. لا يمكن التراجع عن ذلك.`,
+      ),
+      confirmText: tr('Delete', 'حذف'),
+      cancelText: t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteOpportunity(item.id, { permanent: true });
+      toast({ title: tr('Opportunity deleted', 'تم حذف الفرصة') });
+      if (editingOpportunity?.id === item.id) {
+        setOppDialogOpen(false);
+        setEditingOpportunity(null);
+        setOppForm(emptyOpportunityForm());
+      }
+      await load();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr("Couldn't delete the opportunity", 'تعذّر حذف الفرصة'), description: error?.message });
+    }
+  };
+
+  const cancelOpp = async (item: Opportunity) => {
+    const ok = await confirm({
+      title: tr('Cancel this opportunity?', 'إلغاء هذه الفرصة؟'),
+      description: tr(
+        `"${item.title}" moves to Cancelled and leaves the pipeline. You can reopen it later.`,
+        `تنتقل «${item.title}» إلى الملغاة وتخرج من مسار المبيعات. يمكنك إعادة فتحها لاحقاً.`,
+      ),
+      confirmText: tr('Cancel opportunity', 'إلغاء الفرصة'),
+      cancelText: tr('Keep it', 'إبقاؤها'),
+    });
+    if (!ok) return;
+    try {
+      await deleteOpportunity(item.id);
+      setOppDialogOpen(false);
+      setEditingOpportunity(null);
+      setOppForm(emptyOpportunityForm());
+      await load();
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr("Couldn't cancel the opportunity", 'تعذّر إلغاء الفرصة'), description: error?.message });
+    }
   };
 
   const openNewOpp = () => {
@@ -495,13 +546,25 @@ export function PipelinePage() {
                         className="rounded-lg border bg-background p-3 hover:shadow-md transition-all cursor-default group"
                       >
                         <div className="flex items-start justify-between gap-1">
-                          <p className="text-sm font-semibold leading-snug">{item.title}</p>
-                          <button
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
-                            onClick={() => openEditOpp(item)}
-                          >
-                            <Pencil className="h-3 w-3 text-muted-foreground" />
-                          </button>
+                          <p className="min-w-0 text-sm font-semibold leading-snug [overflow-wrap:anywhere]">{item.title}</p>
+                          <div className="flex shrink-0 items-center gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+                            <button
+                              type="button"
+                              className="rounded p-1 hover:bg-muted"
+                              aria-label={tr(`Edit ${item.title}`, `تعديل ${item.title}`)}
+                              onClick={() => openEditOpp(item)}
+                            >
+                              <Pencil className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={tr(`Delete ${item.title}`, `حذف ${item.title}`)}
+                              onClick={() => removeOpp(item)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">{contactName(item.contactId)}</p>
                         <p className="text-xs text-muted-foreground">{item.serviceType}</p>
@@ -617,7 +680,7 @@ export function PipelinePage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEditOpp(item)}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label={tr(`Edit ${item.title}`, `تعديل ${item.title}`)} onClick={() => openEditOpp(item)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         {moveBack && (
@@ -639,12 +702,12 @@ export function PipelinePage() {
                             <CheckCircle2 className="h-3 w-3" /> {t('pipelinePage.markWon')}
                           </Button>
                         )}
-                        {!['Won', 'Lost', 'Cancelled'].includes(item.stage) && (
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                            onClick={async () => { await deleteOpportunity(item.id); await load(); }}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                          aria-label={tr(`Delete ${item.title}`, `حذف ${item.title}`)}
+                          title={tr('Delete', 'حذف')}
+                          onClick={() => removeOpp(item)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -732,11 +795,26 @@ export function PipelinePage() {
               </section>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:justify-between">
+            {editingOpportunity ? (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => removeOpp(editingOpportunity)}>
+                  <Trash2 className="me-1.5 h-3.5 w-3.5" /> {tr('Delete', 'حذف')}
+                </Button>
+                {!['Won', 'Lost', 'Cancelled'].includes(editingOpportunity.stage) && (
+                  <Button type="button" variant="ghost" className="text-muted-foreground" onClick={() => cancelOpp(editingOpportunity)}>
+                    {tr('Cancel opportunity', 'إلغاء الفرصة')}
+                  </Button>
+                )}
+              </div>
+            ) : <span />}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button variant="outline" onClick={() => setOppDialogOpen(false)}>{t('common.cancel')}</Button>
             <Button onClick={saveOpp} disabled={submitting || !oppForm.contactId || !oppForm.title.trim() || !oppForm.serviceType.trim()}>
               {submitting ? t('pipelinePage.saving') : editingOpportunity ? t('pipelinePage.saveChanges') : t('pipelinePage.createOpportunity')}
             </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -4175,6 +4175,16 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!managesAll && existing.ownerUserId !== req.user!.id) {
 		        throw new HttpError(403, 'You can only archive your own opportunities.');
 		      }
+		      // ?permanent=1 removes it for good (refused while other records depend on it); otherwise it is archived.
+		      if (req.query.permanent === '1' || req.query.permanent === 'true') {
+		        try {
+		          withActor(req, () => store.deleteOpportunity(req.params.id));
+		        } catch (error: any) {
+		          throw new HttpError(409, error?.message || 'This opportunity cannot be deleted.');
+		        }
+		        res.status(204).end();
+		        return;
+		      }
 		      const updated = withActor(req, () => store.updateOpportunity(req.params.id, { stage: 'Cancelled' }));
 		      if (!updated) throw new HttpError(404, 'Opportunity not found.');
 		      res.status(204).end();

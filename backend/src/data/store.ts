@@ -10576,6 +10576,51 @@ export class DataStore {
 		    return result;
 		  }
 
+		  /** Records that would lose meaning if the opportunity vanished; any of these blocks a permanent delete. */
+		  opportunityDependents(id: string): Array<{ kind: string; count: number }> {
+		    const checks: Array<{ kind: string; sql: string }> = [
+		      { kind: 'commission', sql: 'SELECT COUNT(*) AS n FROM commissions WHERE opportunityId = ?' },
+		      { kind: 'campaign', sql: 'SELECT COUNT(*) AS n FROM crm_campaigns WHERE opportunityId = ?' },
+		      { kind: 'quotation', sql: 'SELECT COUNT(*) AS n FROM quotations WHERE opportunityId = ?' },
+		      { kind: 'portal campaign request', sql: 'SELECT COUNT(*) AS n FROM portal_campaign_requests WHERE opportunityId = ?' },
+		      { kind: 'portal referral', sql: 'SELECT COUNT(*) AS n FROM portal_referrals WHERE opportunityId = ?' },
+		      { kind: 'accepted proposal', sql: "SELECT COUNT(*) AS n FROM crm_proposals WHERE opportunityId = ? AND status = 'Accepted'" },
+		    ];
+		    return checks
+		      .map(({ kind, sql }) => ({ kind, count: Number((this.db.prepare(sql).get(id) as { n: number }).n) }))
+		      .filter((d) => d.count > 0);
+		  }
+
+		  /**
+		   * Removes an opportunity for good, with what only it owns: its unaccepted
+		   * proposals, follow-ups, attachments and contributor splits. Documents made
+		   * from it keep their snapshot and lose the link. Refuses while anything in
+		   * opportunityDependents points at it.
+		   */
+		  deleteOpportunity(id: string): boolean {
+		    const existing = this.getOpportunityById(id);
+		    if (!existing) return false;
+		    const dependents = this.opportunityDependents(id);
+		    if (dependents.length) {
+		      const list = dependents.map((d) => `${d.count} ${d.kind}${d.count === 1 ? '' : 's'}`).join(', ');
+		      throw new Error(`This opportunity can't be deleted because it has ${list}. Cancel it instead, or remove those first.`);
+		    }
+		    const trx = this.db.transaction(() => {
+		      this.db.prepare("DELETE FROM crm_proposals WHERE opportunityId = ? AND status <> 'Accepted'").run(id);
+		      this.deleteFollowUpsFor('opportunity', id);
+		      this.deleteRecordAttachmentsFor('opportunity', id);
+		      this.db.prepare("DELETE FROM contributions WHERE sourceType = 'opportunity' AND sourceId = ?").run(id);
+		      this.db.prepare("UPDATE documents SET recordType = NULL, recordId = NULL WHERE recordType = 'opportunity' AND recordId = ?").run(id);
+		      this.db.prepare('DELETE FROM opportunities WHERE id = ?').run(id);
+		      this.createActivityEvent({
+		        companyId: existing.companyId, entityType: 'opportunity', entityId: id, action: 'deleted',
+		        summary: `Opportunity ${existing.title} deleted.`,
+		      });
+		    });
+		    trx();
+		    return true;
+		  }
+
 		  deleteCrmProposal(id: string): boolean {
 		    const existing = this.getCrmProposalById(id);
 		    if (!existing) return false;
