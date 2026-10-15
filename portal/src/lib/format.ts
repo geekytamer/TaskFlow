@@ -65,6 +65,13 @@ export function formatFileSize(bytes: number, lang: Lang): string {
   return `${new Intl.NumberFormat(locale(lang), { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value)} ${unit}`;
 }
 
+/** The price filter's two ends as the backend reads them: a reversed pair is swapped. */
+export function priceBounds(min: string, max: string): [string, string] {
+  const a = Number.parseInt(min, 10);
+  const b = Number.parseInt(max, 10);
+  return Number.isFinite(a) && Number.isFinite(b) && a > b ? [max, min] : [min, max];
+}
+
 export const CATALOGUE_FILTERS = ['q', 'platform', 'niche', 'location', 'gender', 'tier', 'availability', 'minFollowers', 'minPrice', 'maxPrice', 'sort'] as const;
 export type CatalogueFilters = Partial<Record<(typeof CATALOGUE_FILTERS)[number], string>>;
 

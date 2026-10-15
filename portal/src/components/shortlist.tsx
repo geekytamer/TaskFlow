@@ -39,6 +39,12 @@ export function ShortlistProvider({ initial, children }: { initial: string[]; ch
   const toggle = useCallback((id: string) => setIds((prev) => parseShortlist(toggleShortlist(prev, id))), []);
   const clear = useCallback(() => setIds([]), []);
   useEffect(() => { syncUrl(ids); }, [ids]);
+  // Back/Forward lands on a URL whose `with` may differ from what is held here: the URL wins.
+  useEffect(() => {
+    const fromUrl = () => setIds(parseShortlist(new URLSearchParams(window.location.search).getAll('with')));
+    window.addEventListener('popstate', fromUrl);
+    return () => window.removeEventListener('popstate', fromUrl);
+  }, []);
   const value = useMemo<ShortlistState>(() => ({ ids, toggle, clear }), [ids, toggle, clear]);
   return <ShortlistContext.Provider value={value}>{children}</ShortlistContext.Provider>;
 }

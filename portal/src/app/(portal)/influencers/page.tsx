@@ -6,7 +6,7 @@ import { EmptyState, PageHeader, button, list, panel } from '@/components/ui';
 import { VerifiedMark } from '@/components/verified-mark';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
 import { growthLabel } from '@/lib/discover';
-import { CATALOGUE_FILTERS, catalogueQuery, formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
+import { CATALOGUE_FILTERS, catalogueQuery, priceBounds, formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
@@ -139,6 +139,8 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
   const shortlist = parseShortlist(params.with);
   const active = CATALOGUE_FILTERS.filter((k) => k !== 'q' && k !== 'sort' && first(params[k])).length;
   const Item = view === 'list' ? InfluencerRow : InfluencerCard;
+  // The backend reads a reversed range as min..max; show it the same way.
+  const [minPrice, maxPrice] = priceBounds(first(params.minPrice), first(params.maxPrice));
   const budgetOptions = BUDGET_STEPS.map((n) => ({ value: String(n), label: `${formatCompact(n, lang)} ${currency}` }));
 
   return (
@@ -148,7 +150,9 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
       {nothingListed ? (
         <EmptyState title={t(lang, 'cat.emptyTitle')} body={t(lang, 'cat.emptyBody')} />
       ) : (
-        <ShortlistProvider initial={shortlist}>
+        // Keyed on the URL's shortlist: a Back/Forward that restores another
+        // page starts from that page's `with`, not the one held in memory.
+        <ShortlistProvider key={shortlist.join(',')} initial={shortlist}>
           <form method="get" action="/influencers" className="space-y-3 lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,4fr)_auto] lg:items-end lg:gap-4 lg:space-y-0">
             <ShortlistInputs />
             {view === 'list' && <input type="hidden" name="view" value="list" />}
@@ -169,8 +173,8 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
                   options={facets.tiers.map((v) => ({ value: v, label: t(lang, `disc.tier.${v}` as Key) }))} />
                 <FilterSelect name="availability" label={t(lang, 'cat.availability')} value={first(params.availability)} lang={lang} options={facets.availability.map((v) => ({ value: v, label: availabilityLabel(v, lang) }))} />
                 <FilterSelect name="minFollowers" label={t(lang, 'cat.minFollowers')} value={first(params.minFollowers)} lang={lang} options={FOLLOWER_STEPS.map((n) => ({ value: String(n), label: formatCompact(n, lang) }))} />
-                <FilterSelect name="minPrice" label={t(lang, 'cat.minPrice')} value={first(params.minPrice)} lang={lang} options={budgetOptions} />
-                <FilterSelect name="maxPrice" label={t(lang, 'cat.maxPrice')} value={first(params.maxPrice)} lang={lang} options={budgetOptions} />
+                <FilterSelect name="minPrice" label={t(lang, 'cat.minPrice')} value={minPrice} lang={lang} options={budgetOptions} />
+                <FilterSelect name="maxPrice" label={t(lang, 'cat.maxPrice')} value={maxPrice} lang={lang} options={budgetOptions} />
               </div>
             </Disclosure>
             <div className="flex items-center gap-2">

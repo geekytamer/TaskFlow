@@ -49,6 +49,14 @@ test('lists are separated with the comma of the page language', async () => {
   assert.equal(['أ', 'ب'].join(listSep('ar')), 'أ، ب');
 });
 
+test('a reversed price range reads min..max, like the backend', async () => {
+  const { priceBounds } = await import('./format');
+  assert.deepEqual(priceBounds('2500', '250'), ['250', '2500']);
+  assert.deepEqual(priceBounds('250', '2500'), ['250', '2500']);
+  assert.deepEqual(priceBounds('', '1000'), ['', '1000']);
+  assert.deepEqual(priceBounds('abc', '100'), ['abc', '100'], 'non-numbers are left alone');
+});
+
 test('a niche field holding several niches reads as a list in the page language', async () => {
   const { nicheText } = await import('./format');
   assert.equal(nicheText('Food, Lifestyle', 'en'), 'Food, Lifestyle');
