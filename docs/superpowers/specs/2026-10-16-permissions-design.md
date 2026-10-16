@@ -46,7 +46,15 @@ Audit 2026-10-16:
 - `team.ts` — manager line from HR (cached per company, invalidated on employee change).
 - `audit.ts` — every change to roles, assignments, shares, groups written to `permission_audit` (who, what, before/after).
 
-Data (migrations): `groups`, `companies.groupId`, `roles`, `role_permissions(roleId, action, scope, limit)`, `role_fields(roleId, field, canView, canEdit)`, `assignments`, `record_shares`, `permission_audit`, `authz_version` (existing).
+Data — evolve what exists instead of starting over (the tables already live in TaskFlow's database and `store.getEffectivePermissions` already evaluates them in-process; OpenFGA only mirrored them):
+- `permission_groups` stays the roles table (UI calls them **roles**; "group" is reserved for the holding group). Adds `templateKey`, `holdingGroupId` (non-null = a group-level role/template).
+- `group_permissions(groupId, module, action)` gains `scope` (own|team|company|group, null = not scoped) and `limitAmount` (null = no limit); module/action move to the new catalogue keys by migration.
+- `role_fields(groupId, field, canView, canEdit)` — new.
+- `user_group_assignments` gains `isMain`, `startsAt`, `endsAt`, `delegatedBy`, `reason`, `viaHoldingGroupId`.
+- `group_implications` kept (templates build on each other).
+- New: `holding_groups(id, name, nameAr, createdAt)`, `companies.holdingGroupId`, `holding_group_admins(holdingGroupId, userId)`, `holding_group_assignments(holdingGroupId, userId, roleKey, isMain, startsAt, endsAt)`, `record_shares(companyId, area, recordId, userId)`, `permission_audit`.
+- `authz_version` kept; `fga_outbox` and OpenFGA tuples dropped at the end; `authz_divergence` reused for shadow mode (column `openfgaAllowed` renamed in code to `newAllowed`).
+- `users.companyRoles[].role` remains the legacy answer during shadow; at switch-over the main-role assignment becomes the truth and `companyRoles` is derived from it for old readers.
 
 ## 5. UI (simple first, detail on demand)
 
