@@ -13,6 +13,13 @@ import type { AuthedRequest } from './shared';
  * What createServer hands to route modules: the store and the request guards
  * that close over it. A module takes only what it uses.
  */
+/**
+ * Options of a field check. `self`: the record is the person's own.
+ * `moduleLock`: a path the old field rules were asked on — a field whose
+ * module is off stays hidden there (authz/mask.ts).
+ */
+export interface FieldOpts { self?: boolean; moduleLock?: boolean }
+
 export interface RouteContext {
   store: DataStore;
   permissionsEngine: PermissionsEngine;
@@ -31,11 +38,15 @@ export interface RouteContext {
   /** The Effective that decides what the person sees (authz/visible.ts; Ruling D picks it per engine). */
   viewerOf: (req: AuthedRequest) => Effective;
   /** A row without the sensitive properties the person may not see (authz/mask.ts); `self` = the person's own record. */
-  maskFor: <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts?: { self?: boolean }) => T;
+  maskFor: <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts?: FieldOpts) => T;
+  /** An activity event without metadata the person may not see. */
+  maskEvent: <T extends { companyId: string; entityType: string; metadata?: Record<string, unknown> | null }>(req: AuthedRequest, event: T) => T;
   /** May the person see a sensitive field (CSV columns, files)? */
-  seesField: (req: AuthedRequest, companyId: string, field: SensitiveField, opts?: { self?: boolean }) => boolean;
-  /** 403 { permission: 'field:<key>' } when a write changes a sensitive field the person may not edit (v2; shadow records). */
-  requireFieldEdits: (req: AuthedRequest, companyId: string, entity: MaskEntity, body: Record<string, unknown> | null | undefined, existing?: object | null) => void;
+  seesField: (req: AuthedRequest, companyId: string, field: SensitiveField, opts?: FieldOpts) => boolean;
+  /** 403 { permission: 'field:<key>' } unless the person may edit the field (v2; shadow records). */
+  requireFieldEdit: (req: AuthedRequest, companyId: string, field: SensitiveField) => void;
+  /** requireFieldEdit for each sensitive field a body changes (`existing`: the record, or 'create'). */
+  requireFieldEdits: (req: AuthedRequest, companyId: string, entity: MaskEntity, body: Record<string, unknown> | null | undefined, existing?: object | 'create' | null) => void;
   /** One record of a scoped area, by the same rule as its list. */
   canSee: (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, options?: VisibleOptions) => boolean;
   canViewProject: (req: AuthedRequest, project: Pick<Project, 'id' | 'companyId'>) => boolean;

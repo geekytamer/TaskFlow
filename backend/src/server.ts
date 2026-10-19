@@ -26,7 +26,8 @@ import {
 import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
 import { visible, type VisibleArea, type VisibleOptions } from './authz/visible';
 import { can, scopeOf } from './authz/can';
-import { canEditField, canViewField, fieldsWritten, mask, type MaskEntity, type SensitiveField } from './authz/mask';
+import { canEditField, canViewField, fieldsWritten, mask, maskActivity, type MaskEntity, type MaskOptions, type SensitiveField } from './authz/mask';
+import type { FieldOpts } from './routes/context';
 import { routeDecl, type RouteDecl } from './authz/route-registry';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
@@ -1105,34 +1106,55 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   /**
+   * Mask options for one call. `moduleLock`: the path is one the old field
+   * rules (PAYROLL_PAY_READ, CONTACTS_PRICING_READ) were asked on, so a field
+   * whose module is off stays hidden there as before; elsewhere modules never
+   * hide a field. The company's switched-off modules are read once.
+   */
+  const maskOptions = (companyId: string, opts: FieldOpts): MaskOptions => {
+    if (!opts.moduleLock) return { self: opts.self };
+    const off = new Set(store.getDisabledModules(companyId));
+    return { self: opts.self, moduleOn: (m) => !off.has(m) };
+  };
+
+  /**
    * A row without the sensitive properties the person may not see
    * (authz/mask.ts), read with the same Effective as the read filter (Ruling
    * D). `self`: the row is the person's own (their employee record, payslip).
    */
-  const maskFor = <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts: { self?: boolean } = {}): T =>
-    mask(viewerOf(req), companyId, entity, row, { self: opts.self, moduleOn: (m) => store.isModuleEnabled(companyId, m) });
+  const maskFor = <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts: FieldOpts = {}): T =>
+    mask(viewerOf(req), companyId, entity, row, maskOptions(companyId, opts));
+
+  /** An activity event without metadata the person may not see (unit cost on item events...). */
+  const maskEvent = <T extends { companyId: string; entityType: string; metadata?: Record<string, unknown> | null }>(req: AuthedRequest, event: T): T =>
+    maskActivity(viewerOf(req), event.companyId, event, {});
 
   /** May the person see a sensitive field (CSV columns, files)? */
-  const seesField = (req: AuthedRequest, companyId: string, field: SensitiveField, opts: { self?: boolean } = {}): boolean =>
-    canViewField(viewerOf(req), companyId, field, { self: opts.self, moduleOn: (m) => store.isModuleEnabled(companyId, m) });
+  const seesField = (req: AuthedRequest, companyId: string, field: SensitiveField, opts: FieldOpts = {}): boolean =>
+    canViewField(viewerOf(req), companyId, field, maskOptions(companyId, opts));
 
   /**
-   * Refuses a write that changes a sensitive field the person may not edit:
-   * 403 { code: 'FORBIDDEN', permission: 'field:<key>' }. Under legacy the
-   * route gate already gave today's answer (no field check existed); shadow
-   * records where v2 would refuse.
+   * Refuses a write of a sensitive field the person may not edit: 403
+   * { code: 'FORBIDDEN', permission: 'field:<key>' }. Under legacy the route
+   * gate already gave today's answer (no field check existed); shadow records
+   * where v2 would refuse.
    */
+  const requireFieldEdit = (req: AuthedRequest, companyId: string, field: SensitiveField): void => {
+    const key = `field:${field}`;
+    const allowed = decideAccess(req, companyId, () => true, (eff) => canEditField(eff, companyId, field), () => key, `${key} @ `);
+    if (!allowed) throw forbidden(companyId, key);
+  };
+
+  /** requireFieldEdit for every sensitive field a body changes (`existing`: the record, or 'create'). */
   const requireFieldEdits = (
     req: AuthedRequest,
     companyId: string,
     entity: MaskEntity,
     body: Record<string, unknown> | null | undefined,
-    existing?: object | null,
+    existing?: object | 'create' | null,
   ): void => {
-    for (const field of fieldsWritten(entity, body, existing as Record<string, unknown> | null | undefined)) {
-      const key = `field:${field}`;
-      const allowed = decideAccess(req, companyId, () => true, (eff) => canEditField(eff, companyId, field), () => key, `${key} @ `);
-      if (!allowed) throw forbidden(companyId, key);
+    for (const field of fieldsWritten(entity, body, existing as Record<string, unknown> | 'create' | null | undefined)) {
+      requireFieldEdit(req, companyId, field);
     }
   };
 
@@ -1965,7 +1987,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
-    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, seesField, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
+    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, maskEvent, seesField, requireFieldEdit, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
 
@@ -3448,7 +3470,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const role = req.query.role as string | undefined;
 	      const contacts = store.listContacts(req.params.companyId, role as any, viewerOf(req));
 	      // Rate cards: the rate_cards field (authz/mask.ts).
-	      res.json(contacts.map((contact) => maskFor(req, req.params.companyId, 'contact', contact)));
+	      res.json(contacts.map((contact) => maskFor(req, req.params.companyId, 'contact', contact, { moduleLock: true })));
 	    }),
 	  );
 
@@ -3515,7 +3537,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-      const showPricing = seesField(req, req.params.companyId, 'rate_cards');
+      const showPricing = seesField(req, req.params.companyId, 'rate_cards', { moduleLock: true });
       // Exactly the influencers the contact list shows this person.
       const influencers = store.listContacts(req.params.companyId, 'Influencer' as any, viewerOf(req));
       const csv = toCsv(
@@ -3551,8 +3573,9 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
       // A rate card in any row is a write of the rate_cards field.
-      const rateCard = rows.find((r) => r && typeof r === 'object' && optionalNumber((r as Record<string, unknown>).rateCard) !== undefined) as Record<string, unknown> | undefined;
-      if (rateCard) requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: rateCard.rateCard }, {});
+      for (const r of rows) {
+        if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: (r as Record<string, unknown>).rateCard }, 'create');
+      }
       let created = 0;
       const errors: Array<{ row: number; error: string }> = [];
       rows.forEach((raw, index) => {
@@ -3597,7 +3620,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const { companyId } = req.params;
 	      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const body = asRecord(req.body, 'body');
-	      requireFieldEdits(req, companyId, 'contact', body, {});
+	      requireFieldEdits(req, companyId, 'contact', body, 'create');
 	      const managesAll = allowsRule(req, companyId, 'CONTACTS_ALL_WRITE');
 	      let contact;
 	      try {
@@ -3794,7 +3817,7 @@ export function createServer(options: CreateServerOptions = {}) {
       };
 
       res.json({
-        contact: maskFor(req, companyId, 'contact', contact),
+        contact: maskFor(req, companyId, 'contact', contact, { moduleLock: true }),
         totals,
         invoices: invoices.slice(0, 50),
         salesOrders: salesOrders.slice(0, 50),
@@ -3867,7 +3890,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
       requireVisible(req, 'contacts', contact.companyId, contact.id);
       const limit = req.query.limit ? Number(req.query.limit) : 50;
-      res.json(store.listActivityEvents(contact.companyId, { entityType: 'contact', entityId: req.params.id, limit }));
+      res.json(store.listActivityEvents(contact.companyId, { entityType: 'contact', entityId: req.params.id, limit }).map((event) => maskEvent(req, event)));
     }),
   );
 
@@ -5361,7 +5384,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const body = asRecord(req.body, 'body');
 	      const companyId = requiredString(body.companyId, 'companyId');
 	      requireCompanyRoles(req, companyId, companyManagementRoles);
-	      requireFieldEdits(req, companyId, 'client', body, {});
+	      requireFieldEdits(req, companyId, 'client', body, 'create');
 	      const client = withActor(req, () =>
 	        store.createClient({
 	          companyId,
@@ -5447,7 +5470,7 @@ export function createServer(options: CreateServerOptions = {}) {
           actorUserId,
           limit,
           viewer: viewerOf(req),
-        }),
+        }).map((event) => maskEvent(req, event)),
       );
     }),
   );
@@ -5700,8 +5723,9 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
       // A cost in any row is a write of the cost_prices field.
-      const costed = rows.find((r) => r && typeof r === 'object' && optionalNumber((r as Record<string, unknown>).unitCost) !== undefined) as Record<string, unknown> | undefined;
-      if (costed) requireFieldEdits(req, req.params.companyId, 'item', { unitCost: costed.unitCost }, {});
+      for (const r of rows) {
+        if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'item', { unitCost: (r as Record<string, unknown>).unitCost }, 'create');
+      }
       let created = 0;
       const errors: Array<{ row: number; error: string }> = [];
       rows.forEach((raw, index) => {
@@ -5748,7 +5772,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const unit = requiredString(body.unit, 'unit', { min: 1 });
       const preferredSupplierId = optionalString(body.preferredSupplierId);
       ensureSupplierBelongsToCompany(preferredSupplierId, req.params.companyId);
-      requireFieldEdits(req, req.params.companyId, 'item', body, {});
+      requireFieldEdits(req, req.params.companyId, 'item', body, 'create');
       const itemLocation = optionalString(body.location);
       const openingQty = requiredNumber(body.onHand ?? 0, 'onHand');
       const tracks = optionalBoolean(body.tracksInventory) ?? true;
@@ -5876,7 +5900,7 @@ export function createServer(options: CreateServerOptions = {}) {
       ensureActiveWarehouse(req.params.companyId, lotLocation, 'location');
       const supplierId = optionalString(body.supplierId);
       ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
-      requireFieldEdits(req, req.params.companyId, 'lot', body, {});
+      requireFieldEdits(req, req.params.companyId, 'lot', body, 'create');
       try {
         const lot = withActor(req, () =>
           store.createInventoryLot({
@@ -7689,7 +7713,13 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
-      res.json(store.getManagementReportSummary(req.params.companyId));
+      const summary = store.getManagementReportSummary(req.params.companyId);
+      // Item cost (cost_prices) and event metadata go through the mask.
+      res.json({
+        ...summary,
+        lowStockItems: summary.lowStockItems.map((item) => maskFor(req, req.params.companyId, 'item', item)),
+        recentActivity: summary.recentActivity.map((event) => maskEvent(req, event)),
+      });
     }),
   );
 
@@ -7754,15 +7784,16 @@ export function createServer(options: CreateServerOptions = {}) {
           ]),
         );
       } else if (dataset === 'inventory-alerts') {
+        const showCost = seesField(req, companyId, 'cost_prices');
         csv = toCsv(
-          ['sku', 'name', 'category', 'onHand', 'reorderPoint', 'unitCost', 'location'],
+          ['sku', 'name', 'category', 'onHand', 'reorderPoint', ...(showCost ? ['unitCost'] : []), 'location'],
           summary.lowStockItems.map((item) => [
             item.sku,
             item.name,
             item.category,
             item.onHand,
             item.reorderPoint,
-            item.unitCost,
+            ...(showCost ? [item.unitCost] : []),
             item.location || '',
           ]),
         );

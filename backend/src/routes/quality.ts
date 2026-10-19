@@ -7,7 +7,7 @@ import type { Express } from 'express';
 
 /** Quality control. */
 export function registerQualityRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyRoles, withActor } = ctx;
+  const { store, authMiddleware, requireCompanyRoles, withActor, maskFor } = ctx;
 
   const lotFor = (req: AuthedRequest) => {
     const lot = store.getInventoryLotById(req.params.id);
@@ -37,7 +37,7 @@ export function registerQualityRoutes(app: Express, ctx: RouteContext): void {
           summary: `Batch ${lot.lotNumber} ${record.result === 'pass' ? 'passed' : 'failed'} ${record.stage.replace('_', '-')} inspection.`,
           metadata: { lotId: lot.id, inspectionId: record.id },
         }));
-        res.status(201).json({ inspection: record, lot: store.getInventoryLotById(lot.id) });
+        res.status(201).json({ inspection: record, lot: maskFor(req, lot.companyId, 'lot', store.getInventoryLotById(lot.id)) });
       } catch (error) {
         throw new HttpError(409, error instanceof Error ? error.message : 'Could not record the inspection.');
       }
@@ -50,7 +50,9 @@ export function registerQualityRoutes(app: Express, ctx: RouteContext): void {
     handler((req, res) => {
       const lot = lotFor(req);
       requireCompanyRoles(req, lot.companyId, companyManagementRoles);
-      res.json(traceLot(store, lot.id));
+      const trace = traceLot(store, lot.id);
+      // The lot's cost is cost_prices.
+      res.json(trace ? { ...trace, lot: maskFor(req, lot.companyId, 'lot', trace.lot) } : trace);
     }),
   );
 }

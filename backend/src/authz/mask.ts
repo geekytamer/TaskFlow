@@ -19,9 +19,10 @@
  *     (their employee record, their payslip). Callers say when a row is the
  *     viewer's own (`self`); only SELF_FIELDS honour it.
  *   - module lock: the legacy rules were asked only while their module was on
- *     (PAYROLL_PAY_READ → payroll, CONTACTS_PRICING_READ → contacts). A field
- *     whose module the company switched off is hidden from everyone (self
- *     excepted), as before.
+ *     (PAYROLL_PAY_READ → payroll, CONTACTS_PRICING_READ → contacts), and
+ *     only on the paths that asked them. Those paths pass `moduleOn`; there a
+ *     field whose module the company switched off is hidden from everyone
+ *     (self excepted), as before. Other paths pass none and never lock.
  */
 import { SENSITIVE_FIELDS } from './catalogue';
 import type { Effective } from './evaluate';
@@ -57,6 +58,23 @@ export const FIELD_MAP = {
 } as const satisfies Record<string, Record<string, SensitiveField>>;
 
 export type MaskEntity = keyof typeof FIELD_MAP;
+
+/**
+ * Activity events (activity_events.metadata) echo record properties. By the
+ * event's entityType: which metadata keys are which sensitive field — the
+ * record's own FIELD_MAP properties plus keys only events carry. A test scans
+ * every createActivityEvent call for sensitive-looking metadata keys and
+ * fails when one is not listed here.
+ */
+export const ACTIVITY_METADATA: Readonly<Record<string, Readonly<Record<string, SensitiveField>>>> = {
+  inventory_item: { ...FIELD_MAP.item },
+  employee: { ...FIELD_MAP.employee },
+  payroll_run: { ...FIELD_MAP.payslip },
+  contact: { ...FIELD_MAP.contact },
+  client: { ...FIELD_MAP.client },
+  /** Cost of the goods put back in stock on a customer return. */
+  customer_return: { restockedCost: 'cost_prices' },
+};
 
 /** Fields a person always sees on their own records. */
 export const SELF_FIELDS: ReadonlySet<SensitiveField> = new Set(['salary', 'personal_ids', 'bank_details']);
@@ -110,6 +128,19 @@ export function hiddenFields(eff: Effective, companyId: string, entity: MaskEnti
   return hidden;
 }
 
+/** An activity event without the metadata the person may not see (a copy). */
+export function maskActivity<T extends { entityType: string; metadata?: Record<string, unknown> | null }>(
+  eff: Effective, companyId: string, event: T, options: MaskOptions = {},
+): T {
+  const keys = ACTIVITY_METADATA[event.entityType];
+  if (!keys || !event.metadata) return event;
+  const hidden = Object.entries(keys).filter(([prop, field]) => prop in event.metadata! && !canViewField(eff, companyId, field, options));
+  if (hidden.length === 0) return event;
+  const metadata = { ...event.metadata };
+  for (const [prop] of hidden) delete metadata[prop];
+  return { ...event, metadata };
+}
+
 /**
  * The row without the properties the person may not see (a copy; the row
  * itself is never changed). Null and undefined pass through.
@@ -132,6 +163,8 @@ export function propHidden(eff: Effective, companyId: string, entity: MaskEntity
 }
 
 const blank = (v: unknown) => v === undefined || v === null || v === '';
+/** On a create, a form's defaults (0, '', null) set nothing. */
+const unset = (v: unknown) => blank(v) || v === 0 || v === '0';
 /** Same stored value: both blank, equal numbers ("12" = 12), or equal strings. */
 const sameValue = (a: unknown, b: unknown): boolean => {
   if (blank(a) || blank(b)) return blank(a) && blank(b);
@@ -145,18 +178,19 @@ const sameValue = (a: unknown, b: unknown): boolean => {
  * The sensitive fields a write body changes: a mapped property present with a
  * value other than undefined (null and '' clear a field, which is a change).
  * Given the record as it stands, a property sent back unchanged is not a
- * change (an edit form re-sends what it showed).
+ * change (an edit form re-sends what it showed). `'create'`: a new record,
+ * where 0, '' and null (a form's defaults) set nothing.
  */
 export function fieldsWritten(
   entity: MaskEntity,
   body: Record<string, unknown> | null | undefined,
-  existing?: Record<string, unknown> | null,
+  existing?: Record<string, unknown> | 'create' | null,
 ): SensitiveField[] {
   if (!body || typeof body !== 'object') return [];
   const out = new Set<SensitiveField>();
   for (const [prop, field] of Object.entries(FIELD_MAP[entity]) as Array<[string, SensitiveField]>) {
     if (!Object.prototype.hasOwnProperty.call(body, prop) || body[prop] === undefined) continue;
-    if (existing && sameValue(body[prop], existing[prop])) continue;
+    if (existing === 'create' ? unset(body[prop]) : existing && sameValue(body[prop], existing[prop])) continue;
     out.add(field);
   }
   return [...out];

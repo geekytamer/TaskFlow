@@ -30,7 +30,7 @@ export interface PortalStaffDeps {
   /** A row without the sensitive properties the person may not see (authz/mask.ts). */
   maskFor<T>(req: StaffRequest, companyId: string, entity: MaskEntity, row: T): T;
   /** 403 { permission: 'field:<key>' } when a write changes a sensitive field the person may not edit. */
-  requireFieldEdits(req: StaffRequest, companyId: string, entity: MaskEntity, body: Record<string, unknown>, existing?: object | null): void;
+  requireFieldEdits(req: StaffRequest, companyId: string, entity: MaskEntity, body: Record<string, unknown>, existing?: object | 'create' | null): void;
 }
 
 const REQUIRED_CONTACT_ROLE: Record<PortalAudience, 'Client' | 'Influencer'> = {

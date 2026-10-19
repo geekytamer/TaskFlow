@@ -160,6 +160,7 @@ const CLERK_GRANTS = [
   { key: 'influencers.export' }, { key: 'influencers.review' },
   { key: 'inventory.view' }, { key: 'inventory.export' }, { key: 'inventory.create' }, { key: 'inventory.manage_items' },
   { key: 'portal.view' }, { key: 'portal.manage_catalogue' },
+  { key: 'finance.view' }, { key: 'finance.export' }, { key: 'settings.view_activity' }, { key: 'quality.view' }, { key: 'quality.create' },
 ];
 
 /** Every read path a sensitive property leaves through, with what marks it. */
@@ -189,6 +190,10 @@ const READS = (w) => ({
   cost_prices: [
     ['/companies/:c/inventory-items', [/unitCost/, /3\.21/]],
     ['/companies/:c/inventory-items/export', [/unitCost/, /3\.21/]],
+    // Side paths: the low-stock report and its CSV, and the item-created event's metadata.
+    ['/companies/:c/reports/management-summary', [/"unitCost"/]],
+    ['/companies/:c/reports/export/inventory-alerts', [/unitCost/, /3\.21/]],
+    ['/companies/:c/activity-events?limit=200', [/"unitCost"/]],
   ],
 });
 
@@ -267,6 +272,24 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     const list = text(await w.get(w.u.manager, '/companies/:c/employees'));
     assert.ok(!list.includes('4321'), `${engine}: payroll off hides others' salary`);
     assert.ok(text(await w.get(w.u.emp, `/employees/${w.e.emp.id}`)).includes('1234'), 'own still shown');
+    // Only the paths the old rule was asked on lock: the gratuity report and a
+    // write echo show pay as they did.
+    assert.equal((await w.get(w.u.manager, '/companies/:c/hr/gratuity')).body.lines.find((l) => l.employeeId === w.e.other.id).monthlyWage, 4321);
+    const echo = await w.put(w.u.manager, `/employees/${w.e.other.id}`, { jobTitle: 'Tech' });
+    ok(echo, 'PUT employee');
+    assert.equal(echo.body.basicSalary, 4321);
+  });
+
+  test(`${engine}: with contacts switched off, client terms outside the contact screens show as before`, async () => {
+    const w = build(engine);
+    w.store.db.prepare('UPDATE companies SET disabledModules = ? WHERE id = ?').run(JSON.stringify(['contacts']), w.c);
+    const body = {
+      companyId: w.c, clientId: w.client.id, issueDate: new Date().toISOString(), dueDate: new Date(Date.now() + 30 * 86400000).toISOString(),
+      status: 'Sent', taxRate: 0, lineItems: [{ itemType: 'Manual', description: 'Big', quantity: 1, unitPrice: CREDIT + 1, amount: CREDIT + 1 }],
+    };
+    const res = await w.post(w.u.admin, '/invoices', body);
+    assert.equal(res.status, 409, res.text);
+    assert.equal(res.body.limit, CREDIT, 'the credit-limit refusal still names the limit to an Admin');
   });
 }
 
@@ -298,11 +321,20 @@ test('v2: a custom role without any sensitive field gets no sensitive property o
   w.store.createInventoryLot({ companyId: w.c, inventoryItemId: w.item.id, lotNumber: 'LOT-1', quantity: 1, unitCost: COST, expiryDate: '2030-01-01' });
   // Not vacuous: an admin sees the cost on both.
   for (const url of ['/companies/:c/inventory-lots', '/companies/:c/stock-movements']) assert.ok(/unitCost/.test(text(await w.get(w.u.admin, url))), `admin ${url}`);
-  for (const url of ['/companies/:c/inventory-lots', '/companies/:c/stock-movements']) {
+  const lot = w.store.listInventoryLots(w.c)[0];
+  for (const url of ['/companies/:c/inventory-lots', '/companies/:c/stock-movements', `/inventory-lots/${lot.id}/trace`]) {
     const res = await w.get(w.u.clerk, url);
     ok(res, url);
     assert.ok(!/unitCost/.test(text(res)), `${url} hides unitCost`);
   }
+  assert.ok(/unitCost/.test(text(await w.get(w.u.admin, `/inventory-lots/${lot.id}/trace`))), 'admin trace shows the cost');
+  const inspected = await w.post(w.u.clerk, `/inventory-lots/${lot.id}/inspections`, { checks: [{ name: 'Seal', pass: true }] });
+  ok(inspected, 'inspection');
+  assert.ok(!/unitCost/.test(text(inspected)), 'inspection echo hides the lot cost');
+  // A customer return's restocked cost is cost_prices too (event metadata).
+  w.store.createActivityEvent({ companyId: w.c, entityType: 'customer_return', entityId: 'r1', action: 'received', summary: 'Return received.', metadata: { restockedCost: 6.42, creditNoteId: null } });
+  const events = await w.get(w.u.clerk, '/companies/:c/activity-events?limit=200');
+  assert.ok(!/restockedCost/.test(text(events)) && /Return received/.test(text(events)));
   // Write echoes: PUT employee (no salary in it), POST /contacts/:id/roles.
   const put = await w.put(w.u.clerk, `/employees/${w.e.other.id}`, { jobTitle: 'Tech' });
   ok(put, 'clerk PUT employee without sensitive fields');
@@ -434,4 +466,61 @@ test('v2: a credit-limit refusal does not name the limit to someone without clie
   const admin = await w.post(w.u.admin, '/invoices', body);
   assert.equal(admin.status, 409);
   assert.equal(admin.body.limit, CREDIT);
+});
+
+test('v2: linking an employee record to a login is a write of pay, IDs and bank details, and only to a member', async () => {
+  const w = build('v2');
+  const outsider = w.store.createUser({ name: 'Out', email: 'out@mask.test', role: 'Employee', companyIds: [], companyRoles: [], password: 'x' });
+  mainRole(w.store, w.c, w.u.clerk.id, 'HR clerk', [...CLERK_GRANTS, { key: 'hr.create' }], []);
+  // Pointing another person's record at myself would make their pay "mine".
+  const put = await w.put(w.u.clerk, `/employees/${w.e.other.id}`, { userId: w.u.clerk.id });
+  assert.equal(put.status, 403, put.text);
+  assert.match(put.body.permission, /^field:(salary|personal_ids|bank_details)$/);
+  assert.equal(w.store.getEmployeeById(w.e.other.id).userId ?? null, null);
+  const post = await w.post(w.u.clerk, '/companies/:c/employees', { name: 'Twin', userId: w.u.clerk.id, basicSalary: 0 });
+  assert.equal(post.status, 403, post.text);
+  // Others' figures stay hidden.
+  assert.ok(!text(await w.get(w.u.clerk, `/employees/${w.e.other.id}`)).includes('4321'));
+  // Re-sending the existing link, or none, is fine; defaults on create are not writes.
+  ok(await w.put(w.u.clerk, `/employees/${w.e.clerk.id}`, { userId: w.u.clerk.id, jobTitle: 'Clerk' }), 'same link');
+  ok(await w.post(w.u.clerk, '/companies/:c/employees', { name: 'Fresh', basicSalary: 0, allowances: '', iban: null }), 'create with blank defaults');
+  // With the fields, a link must still name a member of the company (any engine's admin too).
+  const admin = await w.put(w.u.admin, `/employees/${w.e.other.id}`, { userId: outsider.id });
+  assert.equal(admin.status, 400, admin.text);
+  ok(await w.put(w.u.admin, `/employees/${w.e.other.id}`, { userId: w.u.manager.id }), 'admin links a member');
+});
+
+test('legacy: a link to someone outside the company is refused; a member is fine', async () => {
+  const w = build('legacy');
+  const outsider = w.store.createUser({ name: 'Out', email: 'out@mask.test', role: 'Employee', companyIds: [], companyRoles: [], password: 'x' });
+  assert.equal((await w.post(w.u.manager, '/companies/:c/employees', { name: 'X', userId: outsider.id })).status, 400);
+  ok(await w.post(w.u.manager, '/companies/:c/employees', { name: 'Y', userId: w.u.accountant.id }), 'member link');
+});
+
+test('every activity event carrying a sensitive-looking metadata key is covered by ACTIVITY_METADATA', () => {
+  const fs = require('node:fs');
+  const { ACTIVITY_METADATA } = require('../dist/authz/mask');
+  const files = [];
+  const walk = (d) => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (p.endsWith('.ts')) files.push(p); } };
+  walk(path.join(__dirname, '..', 'src'));
+  const sensitiveProps = new Set(Object.values(FIELD_MAP).flatMap((props) => Object.keys(props)));
+  const looksSensitive = (k) => sensitiveProps.has(k) || /cost|salary|wage|iban|idNumber|creditLimit|rateCard|markup/i.test(k);
+  const missing = [];
+  let seen = 0;
+  for (const file of files) {
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/createActivityEvent\(\{([\s\S]*?)\}\)/g)) {
+      const block = m[1];
+      const type = block.match(/entityType:\s*'([a-z_]+)'/)?.[1];
+      const meta = block.match(/metadata:\s*\{([\s\S]*?)\}/)?.[1];
+      if (!meta) continue;
+      seen += 1;
+      const keys = [...meta.matchAll(/(?:^|[,{\s])([A-Za-z_]\w*)\s*(?::|,|$)/g)].map((x) => x[1]);
+      for (const k of keys.filter(looksSensitive)) {
+        if (!type || !ACTIVITY_METADATA[type]?.[k]) missing.push(`${path.relative(path.join(__dirname, '..'), file)} ${type ?? '?'}.${k}`);
+      }
+    }
+  }
+  assert.ok(seen > 20, `scanned ${seen} events`);
+  assert.deepEqual(missing, []);
 });
