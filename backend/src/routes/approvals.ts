@@ -11,6 +11,12 @@ export interface ApprovalDecisions {
   decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => object;
 }
 
+/** The permission that lets someone decide a step, per kind of document (route-registry HANDLER_CHECKED). */
+const DECISION_KEYS: Record<ApprovalDocType, string> = {
+  purchase_order: 'purchasing.approve_step',
+  expense: 'finance.approve_expenses',
+};
+
 /** Approval chains. */
 export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSummary, decideDocument }: ApprovalDecisions): void {
   const { store, authMiddleware, requireCompanyRoles, allowsRule } = ctx;
@@ -28,7 +34,8 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
     '/companies/:companyId/approvals/rules',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      // The management gate is the rules' read permission; ADMINISTRATION (settings.manage_approvals) decides the change.
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles, 'settings.view_approvals');
       // Who signs off what is the company's administration, not day-to-day finance.
       if (!allowsRule(req, req.params.companyId, 'ADMINISTRATION')) throw new HttpError(403, 'Only an administrator can change approval rules.');
       const body = asRecord(req.body, 'body');
@@ -83,7 +90,8 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
       const doc = docSummary(docType, req.params.docId);
       if (!doc) throw new HttpError(404, 'Document not found.');
-      requireCompanyRoles(req, doc.companyId, companyManagementRoles);
+      // v2: the step permission of this kind of document; the chain step's role is checked after.
+      requireCompanyRoles(req, doc.companyId, companyManagementRoles, DECISION_KEYS[docType]);
       const body = asRecord(req.body, 'body');
       const decision = enumValue(body.decision, 'decision', ['approve', 'reject'] as const) as 'approve' | 'reject';
       res.json(decideDocument(req, docType, req.params.docId, doc.companyId, decision, optionalString(body.note)));

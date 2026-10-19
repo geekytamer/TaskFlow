@@ -47,7 +47,7 @@ const build = () => {
   const staff = (role, name, email) => store.createUser({ name, email, password: 'x', role, companyIds: [company.id], companyRoles: [{ companyId: company.id, role }] });
   const carla = staff('Manager', 'Carla', 'carla@peak.test');
   const eve = staff('Employee', 'Eve', 'eve@peak.test');
-  const server = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy' }).listen(0);
+  const server = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet }).listen(0);
   server.unref();
   const auth = (u) => ({ Authorization: `Bearer ${store.issueToken(u.id)}` });
   return { store, company, server, carlaAuth: auth(carla), eveAuth: auth(eve) };

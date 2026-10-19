@@ -29,7 +29,10 @@ Commands:
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
-  AUTHZ_ENGINE, FGA_API_URL, FGA_API_TOKEN, FGA_STORE_ID, FGA_MODEL_ID
+  PERMISSIONS_ENGINE=legacy|shadow|v2 (default legacy): who decides access. legacy: company
+    roles; shadow: roles decide and every disagreement with v2 goes to authz_divergence;
+    v2: declared permissions and roles/add-ons (rollback = set it back to legacy)
+  FGA_API_URL, FGA_API_TOKEN, FGA_STORE_ID, FGA_MODEL_ID (fga:* commands only; OpenFGA decides nothing)
 `);
 }
 
@@ -167,7 +170,7 @@ async function fgaStatus() {
   const store = new DataStore({ dbPath, seedOnEmpty: false });
   const config = getFgaConfig();
   console.log(`Database: ${dbPath}`);
-  console.log(`Engine: ${config.engine}`);
+  console.log(`Engine: ${process.env.PERMISSIONS_ENGINE || 'legacy'} (PERMISSIONS_ENGINE)`);
   console.log(`API: ${config.apiUrl}`);
   console.log(`Store: ${config.storeId || '(unset)'}`);
   console.log(`Reachable: ${(await fgaHealthy()) ? 'yes' : 'no'}`);

@@ -28,7 +28,7 @@ const build = async () => {
   const hidden = store.createContact({ companyId: company.id, kind: 'Person', name: 'Hidden One', roles: ['Influencer'] });
   const scraper = new FixtureScraper();
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }), discoverScraper: scraper,
   }).listen(0);
   server.unref();

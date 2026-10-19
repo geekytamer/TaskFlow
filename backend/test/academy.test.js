@@ -19,7 +19,7 @@ const quiet = { info() {}, warn() {}, error() {} };
 function setup({ enforce = true } = {}) {
   const dbPath = path.join(makeTmpDir('taskflow-academy-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
-  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy', logger: quiet, academyEnforce: enforce }).listen(0);
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, academyEnforce: enforce }).listen(0);
   app.unref();
   const as = (user) => (req) => req.set('Authorization', `Bearer ${store.issueToken(user.id)}`);
   const newUser = (role, email) => store.createUser({ name: email.split('@')[0], email, password: 'Password1!', role, companyIds: ['1'], companyRoles: [{ companyId: '1', role }] });

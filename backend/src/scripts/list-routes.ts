@@ -82,7 +82,7 @@ export function buildRouteListingApp(dir = fs.mkdtempSync(path.join(os.tmpdir(),
   const store = new DataStore({ dbPath, seedOnEmpty: false });
   const company = store.createCompany({ name: 'Route listing', website: '', address: '' });
   return createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, permissionsEngine: 'legacy',
     logger: { info() {}, warn() {}, error() {} },
     portalCompanyId: company.id,
     sendPortalInvite: async () => ({ sent: true }),

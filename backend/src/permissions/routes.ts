@@ -16,8 +16,8 @@ export interface PermissionRoutesDeps {
   authMiddleware: unknown;
   handler: (fn: (req: any, res: Response) => unknown) => any;
   requireCompanyRoles: (req: any, companyId: string, roles: any[]) => void;
-  /** Which engine decides access; the permission feed passes it on to the UI. */
-  authzEngine: 'legacy' | 'shadow' | 'openfga';
+  /** Which engine decides access (PERMISSIONS_ENGINE); the permission feed passes it on to the UI. */
+  permissionsEngine: 'legacy' | 'shadow' | 'v2';
   /** Company access plus a record rule (permissions/record-rules.ts). */
   requireCompanyRule: (req: any, companyId: string, rule: RecordRuleName) => void;
   managementRoles: any[];
@@ -73,7 +73,7 @@ function assertGroupNameAvailable(
 }
 
 export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
-  const { app, store, authMiddleware, handler, authzEngine } = deps;
+  const { app, store, authMiddleware, handler, permissionsEngine } = deps;
   /**
    * The platform super admin manages any company's groups from the super
    * admin view without being a member of it; everyone else needs the rule.
@@ -148,10 +148,13 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     res.json({
       version: store.getAuthzVersion(),
       companyId,
-      // The UI may follow these permissions only when they are what decides.
-      // Under legacy and shadow the server still decides by role, so the UI
-      // must too, or a hand-edited group would change the UI but not the server.
-      engine: authzEngine,
+      // The UI follows `permissions` only when engine is 'openfga', which no
+      // longer exists, so it keeps its role fallback under every engine. Under
+      // v2 that is safe: the system templates answer exactly as the roles did,
+      // and only reviewed add-ons can differ (the server allows; the UI may
+      // hide an entry point). Task 9 adds /me/permissions and Task 10 moves the
+      // UI onto it.
+      engine: permissionsEngine,
       // Switched off for this company: off for everyone, whatever groups grant.
       // Listed separately too, because the UI hides these modules under every
       // engine, while it follows `permissions` only under openfga.

@@ -14,18 +14,18 @@ import { sweepShipments } from './logistics/shipments';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import type { Notification, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
-import {
-  PermissionService,
-  AuthzUnavailableError,
-  type FgaReader,
-} from './permissions/permission-service';
-import { recordShadowCheck, routeToPermission, recordDivergence } from './permissions/shadow';
+import { routeToPermission } from './permissions/shadow';
 import { RECORD_ENTITY_MODULES } from './permissions/company-modules';
-import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
-import { projectCompanyDelta, type TupleStore } from './permissions/sync';
 import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
-import { tuplesForStore } from './permissions/tuples';
+import type { TupleKey } from './permissions/tuples';
+import {
+  NOTIFY_KEYS, catalogueKey, configuredEngine, forbiddenBody, recordShadowDivergence, ruleAllowsV2, scopeAtLeast,
+  type PermissionsEngine,
+} from './authz/engine';
+import { effective, type Effective } from './authz/evaluate';
+import { can, scopeOf } from './authz/can';
+import { routeDecl, type RouteDecl } from './authz/route-registry';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
 import { createPortalStaffRouter } from './portal/staff-routes';
@@ -242,10 +242,10 @@ export interface CreateServerOptions extends DataStoreOptions {
    * on one database contend over locks and complicate write visibility.
    */
   store?: DataStore;
-  /** Overrides the authorization engine, bypassing AUTHZ_ENGINE. For tests. */
-  authzEngine?: AuthzEngine;
-  /** Supplies permissions instead of querying OpenFGA. For tests. */
-  permissionReader?: FgaReader;
+  /** Overrides the permissions engine, bypassing PERMISSIONS_ENGINE. For tests. */
+  permissionsEngine?: PermissionsEngine;
+  /** Overrides the route registry lookup (authz/route-registry.ts routeDecl). For tests. */
+  routeLookup?: (method: string, path: string) => RouteDecl | undefined;
   /** The company the public portals serve. Unset leaves the portal API off. */
   portalCompanyId?: string;
   /** Sends portal invitation emails. Overridden in tests. */
@@ -266,8 +266,6 @@ export interface CreateServerOptions extends DataStoreOptions {
    * switches it off in an emergency.
    */
   academyEnforce?: boolean;
-  /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
-  tupleWriter?: Pick<TupleStore, 'write'>;
   /** Phone notifications (Web Push). Defaults to PUSH_VAPID_* env; tests pass a fake sender. */
   push?: PushConfig;
   /** Observes every record-rule decision. For tests. */
@@ -688,14 +686,6 @@ export function createServer(options: CreateServerOptions = {}) {
     seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
   });
 
-  // Shadow mode only: queried in parallel with the legacy role check so
-  // disagreements can be logged. It does not decide anything yet.
-  const permissionService = new PermissionService({
-    store,
-    fga: options.permissionReader,
-    onWarning: (message) => logger.warn(message),
-  });
-
   // Critical notifications email immediately; normal ones wait for the digest.
   const dispatchCriticalEmails = async (notifications: Notification[]) => {
     for (const n of notifications) {
@@ -928,6 +918,114 @@ export function createServer(options: CreateServerOptions = {}) {
     if (!store.isModuleEnabled(companyId, module)) throw moduleOff(module);
   };
 
+  const engine: PermissionsEngine = options.permissionsEngine ?? configuredEngine();
+  const lookupRoute = options.routeLookup ?? routeDecl;
+  /** The matched route's full Express path (sub-routers are mounted at fixed paths or none). */
+  const routePathOf = (req: Request): string | undefined =>
+    req.route ? `${req.baseUrl ?? ''}${req.route.path as string}` : undefined;
+  /** The matched route's declaration in authz/route-registry.ts, if any. */
+  const declOf = (req: Request): RouteDecl | undefined => {
+    const fullPath = routePathOf(req);
+    return fullPath ? lookupRoute(req.method, fullPath) : undefined;
+  };
+  if (process.env.AUTHZ_ENGINE) {
+    logger.warn('AUTHZ_ENGINE is no longer read; PERMISSIONS_ENGINE (legacy | shadow | v2) decides. OpenFGA is not consulted.');
+  }
+  if (engine !== 'legacy') {
+    logger.info(`PERMISSIONS_ENGINE=${engine}: ${engine === 'shadow'
+      ? 'roles decide; disagreements with v2 are written to authz_divergence'
+      : 'declared permissions decide'}.`);
+  }
+
+  store.setPermissionHolders({
+    engine,
+    holds: (userId, companyId, permission) => {
+      const need = NOTIFY_KEYS[permission];
+      if (!need) {
+        logger.error(`[authz] notification permission ${permission} has no v2 key (authz/engine.ts NOTIFY_KEYS); nobody is notified under v2.`);
+        return false;
+      }
+      return scopeAtLeast(scopeOf(effective(store, userId), need.key, companyId), need.min);
+    },
+    diverged: (userId, companyId, permission, legacyAllowed, newAllowed) => recordShadowDivergence(store, {
+      userId, companyId, key: NOTIFY_KEYS[permission]?.key ?? permission, route: `notify ${permission}`, legacyAllowed, newAllowed,
+    }),
+  });
+
+  /**
+   * One decision under the configured engine.
+   *
+   * legacy: `legacy()` decides. v2: `v2(effective)` decides. shadow: legacy
+   * decides; v2 is computed beside it (in-process, synchronous) and a
+   * disagreement is written to authz_divergence. A failure computing the shadow
+   * answer never affects the response.
+   */
+  const decideAccess = (
+    req: AuthedRequest,
+    companyId: string,
+    legacy: () => boolean,
+    v2: (eff: Effective) => boolean,
+    keyOf: () => string | undefined,
+    routePrefix = '',
+  ): boolean => {
+    const user = req.user;
+    if (!user) return false;
+    if (engine === 'legacy') return legacy();
+    if (engine === 'v2') return v2(effective(store, user.id));
+    const legacyAllowed = legacy();
+    try {
+      const newAllowed = v2(effective(store, user.id));
+      const key = keyOf();
+      if (newAllowed !== legacyAllowed) {
+        recordShadowDivergence(store, {
+          userId: user.id, companyId, key: key ?? 'undeclared',
+          route: `${routePrefix}${req.method} ${routePathOf(req) ?? req.path}`, legacyAllowed, newAllowed,
+        });
+        if (process.env.AUTHZ_DEBUG_SHADOW) {
+          // eslint-disable-next-line no-console
+          console.error(`[shadow] ${routePrefix}${req.method} ${routePathOf(req) ?? req.path} ${key} user=${user.email} legacy=${legacyAllowed} v2=${newAllowed}`);
+        }
+      }
+    } catch (error) {
+      logger.warn(`[authz] shadow comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return legacyAllowed;
+  };
+
+  /** A refused permission: 403 { code: 'FORBIDDEN', permission, message }. */
+  const forbidden = (companyId: string, key: string | undefined) => {
+    const body = forbiddenBody(store, engine, companyId, key);
+    return new HttpError(403, body.message, body.details);
+  };
+
+  /**
+   * Whether the person holds a catalogue key in a company (HANDLER_CHECKED
+   * keys and other in-handler checks). Under legacy the role list decides; no
+   * role list means the route gate already gave today's answer (true).
+   */
+  const allowsKey = (
+    req: AuthedRequest,
+    companyId: string,
+    key: string,
+    legacyRoles?: readonly UserRole[],
+    ctx: { ownerUserId?: string | null; amount?: number } = {},
+  ): boolean => decideAccess(
+    req, companyId,
+    () => (legacyRoles ? requireCompanyRole(req.user!, companyId, [...legacyRoles]) : true),
+    (eff) => can(eff, key, { companyId, ...ctx }).allowed,
+    () => key,
+    `${key} @ `,
+  );
+
+  const requirePermission = (
+    req: AuthedRequest,
+    companyId: string,
+    key: string,
+    legacyRoles?: readonly UserRole[],
+  ): void => {
+    if (!allowsKey(req, companyId, key, legacyRoles)) throw forbidden(companyId, key);
+  };
+
   const authMiddleware = (req: AuthedRequest, _res: Response, next: NextFunction) => {
     const header = req.headers.authorization;
     if (!header) return next(new HttpError(401, 'Unauthorized'));
@@ -947,17 +1045,17 @@ export function createServer(options: CreateServerOptions = {}) {
       if (mapping && !store.isModuleEnabled(companyParam, mapping.module)) return next(moduleOff(mapping.module));
     }
 
-    if (authzEngine === 'legacy') return next();
-
-    // One ListObjects covers every company this user belongs to, so the 233
-    // synchronous gates downstream can read the result without awaiting.
-    return permissionService
-      .getAllPermissions(user.id)
-      .then((permissions) => {
-        req.permissions = permissions;
-        next();
-      })
-      .catch((error) => next(error));
+    // Every route the API answers is declared in authz/route-registry.ts (a
+    // test enforces it). One that is not never falls through to "allowed"
+    // under v2; shadow only says so.
+    if (engine !== 'legacy' && req.route) {
+      const fullPath = routePathOf(req);
+      if (!declOf(req)) {
+        logger.error(`[authz] undeclared route ${req.method} ${fullPath}: refused under PERMISSIONS_ENGINE=${engine}. Declare it in authz/route-registry.ts.`);
+        if (engine === 'v2') return next(new HttpError(403, 'You do not have permission to perform this action.', { code: 'FORBIDDEN', permission: null }));
+      }
+    }
+    return next();
   };
 
   const withActor = <T>(req: AuthedRequest, fn: () => T): T =>
@@ -1039,16 +1137,12 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  const authzEngine = options.authzEngine ?? getFgaConfig().engine;
-  const shadowMode = authzEngine === 'shadow';
-  store.setAuthzEngine(authzEngine);
-
   /**
    * Decides a record-level rule (permissions/record-rules.ts).
    *
-   * openfga: the request's group permissions decide. legacy and shadow: the
-   * role list the rule replaced decides, and shadow also logs where groups
-   * would have answered differently.
+   * legacy and shadow: the role list the rule replaced decides (shadow also
+   * records where v2 would answer differently). v2: the key the rule became, at
+   * its minimum scope, or its sensitive-field switch (authz/engine.ts).
    */
   const allowsRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): boolean => {
     const user = req.user;
@@ -1058,23 +1152,21 @@ export function createServer(options: CreateServerOptions = {}) {
       options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: false });
       return false;
     }
-    if (authzEngine === 'openfga') {
-      const allowed = PermissionService.allows(req.permissions, companyId, rule.module, rule.action);
-      options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
-      return allowed;
-    }
-    const legacyAllowed = requireCompanyRole(user, companyId, [...rule.roles]);
-    if (shadowMode) {
-      permissionService
-        .has(user.id, companyId, rule.module, rule.action)
-        .then((openfgaAllowed) => recordDivergence(store, {
-          userId: user.id, companyId, module: rule.module, action: rule.action,
-          route: `rule ${name}`, legacyAllowed, openfgaAllowed,
-        }))
-        .catch(() => undefined);
-    }
-    options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: legacyAllowed });
-    return legacyAllowed;
+    const routeKey = catalogueKey(declOf(req)?.permission);
+    let ruleKey: string = name;
+    const allowed = decideAccess(
+      req, companyId,
+      () => requireCompanyRole(user, companyId, [...rule.roles]),
+      (eff) => {
+        const answer = ruleAllowsV2(eff, name, companyId, routeKey);
+        ruleKey = answer.key;
+        return answer.allowed;
+      },
+      () => ruleKey,
+      `rule ${name} @ `,
+    );
+    options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
+    return allowed;
   };
 
   /**
@@ -1100,116 +1192,65 @@ export function createServer(options: CreateServerOptions = {}) {
   const requireCompanyRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): void => {
     requireCompanyAccess(req, companyId);
     if (!allowsRule(req, companyId, name)) {
-      throw new HttpError(403, 'You do not have permission to perform this action.');
+      const v2 = RECORD_RULES[name].v2;
+      const routeKey = catalogueKey(declOf(req)?.permission);
+      const key = 'keys' in v2 ? (routeKey && (v2.keys as readonly string[]).includes(routeKey) ? routeKey : v2.keys[0]) : undefined;
+      throw forbidden(companyId, key);
     }
   };
 
   /**
-   * Captures, per company, the tuples a change may alter. Take it before the
-   * change and hand it to publishAuthzChange afterwards.
+   * Kept for the callers that wrapped membership changes for the OpenFGA
+   * projection. OpenFGA no longer decides anything, and every such change
+   * already bumps authz_version in the store (which the evaluator's cache
+   * follows), so both are no-ops until Task 12 removes them.
    */
-  const snapshotAuthz = (companyIds: Iterable<string>) =>
-    new Map<string, ReturnType<typeof tuplesForStore>>(
-      [...new Set(companyIds)].map((id) => [id, tuplesForStore(store, id)]),
-    );
+  const snapshotAuthz = (_companyIds: Iterable<string>) => new Map<string, TupleKey[]>();
+  const publishAuthzChange = async (_before: Map<string, TupleKey[]>): Promise<void> => undefined;
 
   /**
-   * Publishes to OpenFGA whatever a change did to the snapshotted companies,
-   * then invalidates cached decisions.
-   *
-   * Every route that changes membership, roles, super-admin status or
-   * companies must come through here. Before it existed only the
-   * permission-group screens did, so under the openfga engine a newly added
-   * user was denied everything and a demoted one kept their old access until
-   * someone ran fga:sync by hand.
-   *
-   * The version bump comes after publishing on purpose. The store already
-   * bumps inside the change, and a request landing between that bump and
-   * publication re-caches OpenFGA's old answer under the new version, where
-   * nothing would ever evict it.
+   * The route gate. legacy: the role list decides (unchanged). v2: the route's
+   * declared permission (authz/route-registry.ts), or `key` where a handler
+   * decides between several (approval decisions), asked with can(). A route
+   * with no catalogue key is refused under v2 and logged. shadow: legacy
+   * decides, v2 is compared.
    */
-  const publishAuthzChange = async (before: Map<string, ReturnType<typeof tuplesForStore>>) => {
-    if (authzEngine === 'legacy' || before.size === 0) return;
-    let changed = 0;
-    try {
-      for (const [companyId, tuples] of before) {
-        const result = await projectCompanyDelta(store, companyId, tuples, options.tupleWriter);
-        changed += result.written + result.deleted;
-      }
-    } catch (error) {
-      store.bumpAuthzVersion(); // the state is unknown; drop anything cached meanwhile
-      logger.error(
-        `Failed to project permission changes to OpenFGA: ${
-          error instanceof Error ? error.message : String(error)
-        }. Run: npm run ops -- fga:sync`,
-      );
-      throw new HttpError(
-        503,
-        'The change was saved but could not be published to the authorization service. Retry, or run fga:sync.',
-      );
-    }
-    if (changed > 0) store.bumpAuthzVersion();
-  };
-  if (authzEngine !== 'legacy') {
-    logger.info(`AUTHZ_ENGINE=${authzEngine}: OpenFGA is ${
-      shadowMode ? 'being compared against role checks' : 'deciding permissions'
-    }.`);
-  }
-
   const requireCompanyRoles = (
     req: AuthedRequest,
     companyId: string,
     roles: UserRole[],
+    key?: string,
   ) => {
     requireCompanyAccess(req, companyId);
-    const legacyAllowed = requireCompanyRole(req.user!, companyId, roles);
     const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
     if (mapping) requireModuleOn(companyId, mapping.module);
-
-    // Shadow mode observes; the legacy answer still decides. Living inside the
-    // gate rather than at the call sites means all 233 of them are compared
-    // against real traffic without any of them being touched.
-    if (shadowMode && req.user) {
-      recordShadowCheck({
-        store,
-        service: permissionService,
-        userId: req.user.id,
-        companyId,
-        method: req.method,
-        routePath: req.route?.path ?? req.path,
-        legacyAllowed,
-      });
-    }
-
-    let allowed = legacyAllowed;
-    if (authzEngine === 'openfga' && req.user) {
-      if (mapping) {
-        allowed = PermissionService.allows(
-          req.permissions,
-          companyId,
-          mapping.module,
-          mapping.action,
-        );
-      } else {
-        // A gated route missing from the generated map would otherwise be
-        // silently denied. Fall back to the role check and say so loudly —
-        // it means the map needs regenerating.
-        logger.warn(
-          `No permission mapping for ${req.method} ${req.route?.path ?? req.path}; `
-            + 'falling back to the legacy role check. Run: npm run authz:extract',
-        );
-      }
-    }
-
-    if (!allowed) {
-      throw new HttpError(403, 'You do not have permission to perform this action.');
-    }
+    const declared = key ?? catalogueKey(declOf(req)?.permission);
+    const allowed = decideAccess(
+      req, companyId,
+      () => requireCompanyRole(req.user!, companyId, roles),
+      (eff) => {
+        if (declared) return can(eff, declared, { companyId }).allowed;
+        logger.error(`[authz] ${req.method} ${routePathOf(req) ?? req.path} has no declared permission for its role gate; refused under PERMISSIONS_ENGINE=${engine}.`);
+        return false;
+      },
+      () => declared,
+    );
+    if (!allowed) throw forbidden(companyId, declared);
   };
 
   const canViewProject = (req: AuthedRequest, project: Project): boolean => {
     const user = req.user!;
     if (!store.isModuleEnabled(project.companyId, 'projects')) return false;
-    if (!getEffectiveRole(user, project.companyId)) return false;
+    // projects.view at any scope lets a person see public projects and those
+    // they belong to; PROJECTS_ALL_READ (projects.view at company scope) every one.
+    const holdsView = decideAccess(
+      req, project.companyId,
+      () => Boolean(getEffectiveRole(user, project.companyId)),
+      (eff) => scopeOf(eff, 'projects.view', project.companyId) !== null,
+      () => 'projects.view',
+      'projects.view @ ',
+    );
+    if (!holdsView) return false;
     if (allowsRule(req, project.companyId, 'PROJECTS_ALL_READ')) return true;
     return project.visibility === 'Public' || Boolean(project.memberIds?.includes(user.id));
   };
@@ -1248,7 +1289,14 @@ export function createServer(options: CreateServerOptions = {}) {
       if (user.isSuperAdmin) return true;
       return task.ownerId === user.id || isAssignee;
     }
-    if (getEffectiveRole(user, task.companyId) && allowsRule(req, task.companyId, 'TASKS_ALL_READ')) return true;
+    const holdsView = decideAccess(
+      req, task.companyId,
+      () => Boolean(getEffectiveRole(user, task.companyId)),
+      (eff) => scopeOf(eff, 'tasks.view', task.companyId) !== null,
+      () => 'tasks.view',
+      'tasks.view @ ',
+    );
+    if (holdsView && allowsRule(req, task.companyId, 'TASKS_ALL_READ')) return true;
     if (isAssignee) return true;
     if (task.projectId) {
       const project = store.getProjectById(task.projectId);
@@ -1789,7 +1837,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
-    store, authzEngine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
+    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
 
@@ -4063,8 +4111,9 @@ export function createServer(options: CreateServerOptions = {}) {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const ownerParam = optionalString(req.query.ownerUserId);
 		      const ownerUserId = ownerParam === 'me' ? req.user!.id : ownerParam;
+		      // Someone else's figures: CRM_ALL_READ (crm.view at company scope; management today).
 		      if (ownerUserId && ownerUserId !== req.user!.id) {
-		        requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+		        requireCompanyRule(req, req.params.companyId, 'CRM_ALL_READ');
 		      }
 		      res.json(store.getCrmDashboardSummary(req.params.companyId, ownerUserId));
 		    }),
@@ -6496,13 +6545,12 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!existing) throw new HttpError(404, 'Sales order not found.');
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
+      const status = enumValue(body.status, 'status', salesOrderStatuses);
+      if (status === 'Cancelled') requirePermission(req, existing.companyId, 'sales.cancel');
       let order;
       try {
         order = creditGuard(req, existing.companyId, existing.clientId, () => withActor(req, () =>
-          store.updateSalesOrderStatus(
-            req.params.id,
-            enumValue(body.status, 'status', salesOrderStatuses),
-          ),
+          store.updateSalesOrderStatus(req.params.id, status),
         ));
       } catch (error) {
         if (error instanceof HttpError) throw error;
@@ -7900,7 +7948,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler,
     requireCompanyRoles,
     requireCompanyRule,
-    authzEngine,
+    permissionsEngine: engine,
     managementRoles: companyManagementRoles,
     logger,
     // After an admin edits groups, OpenFGA must reflect it before the next
@@ -8087,16 +8135,22 @@ export function createServer(options: CreateServerOptions = {}) {
         const rule = RECORD_RULES.CONTACTS_PRIVATE_READ;
         const user = store.getUserById(userId);
         if (!user || !store.isModuleEnabled(companyId, rule.module)) return false;
-        if (authzEngine === 'openfga') return permissionService.has(userId, companyId, rule.module, rule.action);
-        return requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
+        const legacy = requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
+        if (engine === 'legacy') return legacy;
+        const v2 = ruleAllowsV2(effective(store, userId), 'CONTACTS_PRIVATE_READ', companyId).allowed;
+        if (engine === 'v2') return v2;
+        recordShadowDivergence(store, {
+          userId, companyId, key: 'contacts.view', route: 'rule CONTACTS_PRIVATE_READ (other user)', legacyAllowed: legacy, newAllowed: v2,
+        });
+        return legacy;
       },
       // Conversations are part of contacts: the same gate as GET /companies/:companyId/contacts
       // (contacts:read) and PATCH /contacts/:id (contacts:write; every company role under legacy).
+      // v2: inbox.view to read, inbox.send to write.
       canUseContacts: (req, companyId, access) => {
         const authed = req as AuthedRequest;
         if (!authed.user || !store.isModuleEnabled(companyId, 'contacts')) return false;
-        if (authzEngine === 'openfga') return PermissionService.allows(authed.permissions, companyId, 'contacts', access);
-        return requireCompanyRole(authed.user, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+        return allowsKey(authed, companyId, access === 'read' ? 'inbox.view' : 'inbox.send', ['Admin', 'Manager', 'Employee', 'Accountant']);
       },
     }),
   );
@@ -8129,11 +8183,6 @@ export function createServer(options: CreateServerOptions = {}) {
     }
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message, ...(error.details ?? {}) });
-    }
-    if (error instanceof AuthzUnavailableError) {
-      // Never a 403: the user may well hold the permission, we just cannot
-      // confirm it while the authorization service is unreachable.
-      return res.status(error.status).json({ message: error.message });
     }
     if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.parse.failed') {
       return res.status(400).json({ message: 'The request body is not valid JSON.' });

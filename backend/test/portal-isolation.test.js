@@ -24,7 +24,7 @@ const build = ({ portalCompanyId } = {}) => {
     companyIds: [company.id], companyRoles: [{ companyId: company.id, role: 'Admin' }],
   });
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: portalCompanyId === undefined ? company.id : portalCompanyId || undefined,
   }).listen(0);
   server.unref();

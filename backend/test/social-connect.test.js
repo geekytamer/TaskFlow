@@ -35,7 +35,7 @@ const build = (client = new FixtureMetaClient(FIXTURES)) => {
   store.catalogue.list(company.id, lina.id);
   store.catalogue.setPricingProfile({ companyId: company.id, contactId: client_.id, mode: 'markup', markupPercent: 20 });
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
     social: { client, appSecret: APP_SECRET, redirectUri: 'https://api.peak.test/social/instagram/callback', portalReturnUrl: 'https://creators.peak.test/profile' },
   }).listen(0);

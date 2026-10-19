@@ -19,7 +19,6 @@ const build = () => {
     // visibility question needlessly delicate.
     store,
     dbPath, seedOnEmpty: false, allowSeedReset: false,
-    authzEngine: 'legacy',
     logger: { info() {}, warn() {}, error() {} },
   });
   const server = app.listen(0);
@@ -505,6 +504,6 @@ test('the permission feed says which engine decides, so the UI can match the ser
   const { app, adminAuth, companyId } = build();
   const res = await request(app).get(`/auth/permissions?companyId=${companyId}`).set('Authorization', adminAuth);
   assert.equal(res.status, 200);
-  assert.equal(res.body.engine, 'legacy');
+  assert.equal(res.body.engine, process.env.PERMISSIONS_ENGINE || 'legacy');
   assert.ok(res.body.permissions.includes('settings:administration.write'));
 });

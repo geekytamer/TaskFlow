@@ -166,7 +166,8 @@ function parseRoleConstants(source: string): Record<string, string[]> {
 const ROUTE_RE = /app\.(get|post|put|patch|delete)\(/g;
 const PATH_RE = /['"`](\/[^'"`]*)['"`]/;
 // [\s\S] rather than . so a call split across lines is still matched.
-const ROLES_RE = /requireCompanyRoles\(\s*[\s\S]*?,\s*[\s\S]*?,\s*(\[[\s\S]*?\]|\w+)\s*,?\s*\)/;
+// An optional fourth argument names the v2 permission where a handler picks it (approvals).
+const ROLES_RE = /requireCompanyRoles\(\s*[\s\S]*?,\s*[\s\S]*?,\s*(\[[\s\S]*?\]|\w+)\s*(?:,\s*[\w.'[\]]+\s*)?,?\s*\)/;
 const ACCESS_RE = /requireCompanyAccess\(/;
 const ALL_ROLES = ['Accountant', 'Admin', 'Employee', 'Manager'];
 

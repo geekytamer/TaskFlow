@@ -111,7 +111,7 @@ its own PostgreSQL datastore. Both run under Docker Compose.
 Add to `backend/.env`:
 
 ```env
-AUTHZ_ENGINE=legacy          # legacy | shadow | openfga — see below
+PERMISSIONS_ENGINE=legacy    # legacy | shadow | v2 — see below
 FGA_API_URL=http://127.0.0.1:8080
 FGA_API_TOKEN=<long random string>
 FGA_DB_PASSWORD=<long random string>
@@ -143,13 +143,17 @@ OpenFGA binds to `127.0.0.1` only. **Never add it to the nginx config.** It has
 no user-facing surface, and exposing it would let anyone holding the preshared
 key rewrite every permission in the system.
 
-### AUTHZ_ENGINE
+### PERMISSIONS_ENGINE
 
 | Value | Meaning |
 | --- | --- |
 | `legacy` | The original role checks decide. This is the rollback target and the safe default. |
-| `shadow` | Role checks still decide; OpenFGA is queried in parallel and disagreements are logged to `authz_divergence`. |
-| `openfga` | OpenFGA decides. |
+| `shadow` | Role checks still decide; the v2 answer is computed in-process and disagreements are logged to `authz_divergence`. |
+| `v2` | Each route's declared permission, asked of the person's roles and reviewed add-ons, decides. |
+
+OpenFGA no longer decides anything (`AUTHZ_ENGINE` is ignored, with a warning at
+startup); the `FGA_*` settings only serve the `fga:*` ops commands until it is
+removed.
 
 Changing this value and restarting is the entire rollback procedure. There is no
 data migration to reverse.

@@ -11,7 +11,7 @@ test('updating some company details leaves the others as they were', async () =>
   const dbPath = path.join(makeTmpDir('taskflow-company-update-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   }).listen(0);
   app.unref();

@@ -33,9 +33,8 @@ RESEND_API_KEY=...                                       # without it, staff sha
 The backend must bind loopback (`HOST=127.0.0.1`) and sit behind nginx with
 `TRUST_PROXY` at its default, so the sign-in limit keys on the real visitor.
 
-With `AUTHZ_ENGINE=openfga`, run `npm run ops -- fga:sync` after deploying so the new
-`contacts:portal.manage` permission reaches OpenFGA. Migrations 083 and 084 apply on
-startup.
+Migrations 083 and 084 apply on startup. (OpenFGA no longer decides anything;
+`PERMISSIONS_ENGINE` does, so no `fga:sync` is needed.)
 
 ## One-time setup
 

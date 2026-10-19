@@ -6,44 +6,28 @@ const request = require('supertest');
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
 const { RECORD_RULES } = require('../dist/permissions/record-rules');
-const { allPermissions } = require('../dist/permissions/catalogue');
 const { makeTmpDir } = require('./helpers/tmp');
 
 /**
  * Before-and-after proof for the record rules.
  *
  * For every rule, a probe exercises the route that enforces it as each of the
- * four roles, on the legacy engine (roles decide) and on the openfga engine
- * (built-in groups decide, emulated from the database's grants exactly as the
- * tuple projection publishes them). Every outcome must match who held the rule
- * before it became a permission, on both engines.
+ * four roles, on the legacy engine (roles decide), the shadow engine (roles
+ * decide, v2 compared) and the v2 engine (the rule's catalogue key and minimum
+ * scope, asked of the templates). Every outcome must match who held the rule
+ * before it became a permission, on every engine.
  */
 
 const ROLES = ['Admin', 'Manager', 'Accountant', 'Employee'];
 const COMPANY = '1';
 const quiet = { info() {}, warn() {}, error() {} };
 
-const sqlReader = (store) => ({
-  async listGrantedObjects(userId) {
-    const user = store.getUserById(userId);
-    const objects = [];
-    for (const company of store.listCompanies()) {
-      const superAdminHere = Boolean(user?.isSuperAdmin) && (user.companyIds || []).includes(company.id);
-      for (const perm of superAdminHere ? allPermissions() : store.getEffectivePermissions(userId, company.id)) {
-        const cut = perm.indexOf(':');
-        objects.push(`permission:${company.id}/${perm.slice(0, cut)}/${perm.slice(cut + 1)}`);
-      }
-    }
-    return objects;
-  },
-});
-
 const build = (engine) => {
   const dbPath = path.join(makeTmpDir(`taskflow-parity-${engine}-`), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const server = createServer({
     store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
-    authzEngine: engine, permissionReader: sqlReader(store), tupleWriter: { async write() {} },
+    permissionsEngine: engine,
   }).listen(0);
   server.unref();
 
@@ -142,7 +126,7 @@ const PROBES = [
 
 const outcomes = {};
 
-for (const engine of ['legacy', 'openfga']) {
+for (const engine of ['legacy', 'shadow', 'v2']) {
   test(`every record rule answers as the roles did — ${engine} engine`, async () => {
     const world = build(engine);
     const x = await fixtures(world);
@@ -156,16 +140,18 @@ for (const engine of ['legacy', 'openfga']) {
       }
     }
     assert.deepEqual(mismatches, [], `\n${mismatches.join('\n')}`);
+    if (engine === 'shadow') assert.deepEqual(world.store.listAuthzDivergences(), [], 'templates never diverge from roles');
   });
 }
 
-test('both engines reached identical outcomes for every probe', () => {
-  assert.ok(outcomes.legacy && outcomes.openfga, 'both engine runs must complete first');
+test('every engine reached identical outcomes for every probe', () => {
+  assert.ok(outcomes.legacy && outcomes.shadow && outcomes.v2, 'every engine run must complete first');
   assert.equal(Object.keys(outcomes.legacy).length, PROBES.length * ROLES.length);
-  assert.deepEqual(outcomes.openfga, outcomes.legacy);
+  assert.deepEqual(outcomes.shadow, outcomes.legacy);
+  assert.deepEqual(outcomes.v2, outcomes.legacy);
 });
 
-test('notification recipients are the same people under both engines', () => {
+test('notification recipients are the same people under every engine', () => {
   const recipients = (engine, permission, roles) => {
     const { store } = build(engine);
     const emails = (ids) => ids.map((id) => store.getUserById(id).email).sort();
@@ -179,6 +165,7 @@ test('notification recipients are the same people under both engines', () => {
   ]) {
     const legacy = recipients('legacy', permission, roles);
     assert.ok(legacy.length > 0, `${permission}: fixture has recipients`);
-    assert.deepEqual(recipients('openfga', permission, roles), legacy, permission);
+    assert.deepEqual(recipients('shadow', permission, roles), legacy, permission);
+    assert.deepEqual(recipients('v2', permission, roles), legacy, permission);
   }
 });

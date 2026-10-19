@@ -6912,6 +6912,7 @@ export class DataStore {
     return trx();
   }
 
+  /** One shadow-mode disagreement; the v2 answer lives in the openfgaAllowed column. */
   recordAuthzDivergence(entry: {
     userId: string;
     companyId: string;
@@ -6919,7 +6920,7 @@ export class DataStore {
     action: string;
     route: string;
     legacyAllowed: boolean;
-    openfgaAllowed: boolean;
+    newAllowed: boolean;
   }): void {
     this.db
       .prepare(
@@ -6934,7 +6935,7 @@ export class DataStore {
         entry.action,
         entry.route,
         entry.legacyAllowed ? 1 : 0,
-        entry.openfgaAllowed ? 1 : 0,
+        entry.newAllowed ? 1 : 0,
         new Date().toISOString(),
       );
   }
@@ -20265,32 +20266,41 @@ export class DataStore {
     };
   }
 
-  /** Which authorization engine decides; set by the server. Legacy unless told otherwise. */
-  private authzEngine: 'legacy' | 'shadow' | 'openfga' = 'legacy';
+  /**
+   * Who holds a permission under PERMISSIONS_ENGINE=v2 (or, under shadow, the
+   * v2 answer to compare). Set by the server; unset means legacy roles decide.
+   */
+  private permissionHolders?: {
+    engine: 'legacy' | 'shadow' | 'v2';
+    holds: (userId: string, companyId: string, permission: string) => boolean;
+    diverged: (userId: string, companyId: string, permission: string, legacyAllowed: boolean, newAllowed: boolean) => void;
+  };
 
-  setAuthzEngine(engine: 'legacy' | 'shadow' | 'openfga'): void {
-    this.authzEngine = engine;
+  setPermissionHolders(holders: NonNullable<DataStore['permissionHolders']>): void {
+    this.permissionHolders = holders;
   }
 
   /**
    * User ids in a company who should receive a notification gated by a
-   * permission. Under the openfga engine that is whoever holds the permission
-   * through their groups; otherwise the role list it replaced decides, so the
-   * legacy engine behaves exactly as before.
+   * permission (an old `module:action` string, mapped in authz/engine.ts
+   * NOTIFY_KEYS). Legacy and shadow: the role list it replaced decides (shadow
+   * also records where v2 would differ). v2: the members' effective permissions.
    */
   listUserIdsWithPermission(companyId: string, permission: string, legacyRoles: string[]): string[] {
     // Nobody is notified about a module the company has switched off.
     if (!this.isModuleEnabled(companyId, permission.slice(0, permission.indexOf(':')))) return [];
-    if (this.authzEngine !== 'openfga') return this.listUserIdsByCompanyRoles(companyId, legacyRoles);
-    const rows = this.db.prepare('SELECT * FROM users').all() as any[];
-    const ids: string[] = [];
-    for (const row of rows) {
-      const user = this.sanitizeUser(row);
-      const member = Boolean(user.companyRoles?.some((a) => a.companyId === companyId))
-        || Boolean(user.companyIds?.includes(companyId));
-      if (member && this.getEffectivePermissions(user.id, companyId).includes(permission)) ids.push(user.id);
+    const holders = this.permissionHolders;
+    const legacy = this.listUserIdsByCompanyRoles(companyId, legacyRoles);
+    if (!holders || holders.engine === 'legacy') return legacy;
+    const members = this.listUsersByCompany(companyId).map((u) => u.id);
+    const v2 = members.filter((id) => holders.holds(id, companyId, permission));
+    if (holders.engine === 'v2') return v2;
+    const legacySet = new Set(legacy);
+    const v2Set = new Set(v2);
+    for (const id of new Set([...legacy, ...v2])) {
+      if (legacySet.has(id) !== v2Set.has(id)) holders.diverged(id, companyId, permission, legacySet.has(id), v2Set.has(id));
     }
-    return ids;
+    return legacy;
   }
 
   /** User ids in a company holding any of the given company roles. */

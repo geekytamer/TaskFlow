@@ -61,7 +61,7 @@ const build = () => {
   store.createCampaignAssignment({ companyId: company.id, campaignId: planned.id, contactId: lina.id, role: 'Influencer', agreedRate: 66666.83, status: 'Planned' });
 
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();

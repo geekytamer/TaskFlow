@@ -5,7 +5,6 @@ const request = require('supertest');
 
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
-const { allPermissions } = require('../dist/permissions/catalogue');
 const { makeTmpDir } = require('./helpers/tmp');
 
 /**
@@ -17,28 +16,12 @@ const { makeTmpDir } = require('./helpers/tmp');
 const COMPANY = '1';
 const quiet = { info() {}, warn() {}, error() {} };
 
-// OpenFGA emulated from the database's grants, as in record-rules-parity.test.js.
-const sqlReader = (store) => ({
-  async listGrantedObjects(userId) {
-    const user = store.getUserById(userId);
-    const objects = [];
-    for (const company of store.listCompanies()) {
-      const superAdminHere = Boolean(user?.isSuperAdmin) && (user.companyIds || []).includes(company.id);
-      for (const perm of superAdminHere ? allPermissions() : store.getEffectivePermissions(userId, company.id)) {
-        const cut = perm.indexOf(':');
-        objects.push(`permission:${company.id}/${perm.slice(0, cut)}/${perm.slice(cut + 1)}`);
-      }
-    }
-    return objects;
-  },
-});
-
 const build = (engine = 'legacy') => {
   const dbPath = path.join(makeTmpDir(`taskflow-modules-${engine}-`), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const server = createServer({
     store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
-    authzEngine: engine, permissionReader: sqlReader(store), tupleWriter: { async write() {} },
+    permissionsEngine: engine,
   }).listen(0);
   server.unref();
   // The demo seed has no platform super admin (bootstrap creates one), so add one.
@@ -97,7 +80,7 @@ test('only the platform administrator switches modules, and only switchable ones
   assert.deepEqual([...catalogue.body.alwaysOnModules].sort(), ['dashboard', 'settings']);
 });
 
-for (const engine of ['legacy', 'openfga']) {
+for (const engine of ['legacy', 'shadow', 'v2']) {
   test(`a switched-off module is refused for everyone, admins included (${engine})`, async () => {
     const ctx = build(engine);
     const { app, store, adminAuth } = ctx;
@@ -135,7 +118,7 @@ for (const engine of ['legacy', 'openfga']) {
 }
 
 test('the feed leaves out a switched-off module, and the groups keep their grants', async () => {
-  const ctx = build('openfga');
+  const ctx = build('v2');
   const { app, store, admin, adminAuth } = ctx;
   const feed = async () =>
     (await request(app).get(`/auth/permissions?companyId=${COMPANY}`).set('Authorization', adminAuth)).body;

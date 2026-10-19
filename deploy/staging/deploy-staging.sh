@@ -164,7 +164,10 @@ staging_wa=$(env_value WHATSAPP_ENCRYPTION_KEY "$ENV_FILE")
 [ -n "$staging_wa" ] || die "WHATSAPP_ENCRYPTION_KEY is empty on staging"
 [ "$staging_wa" != "$(env_value WHATSAPP_ENCRYPTION_KEY "$PROD_APP_DIR/backend/.env")" ] \
   || die "staging's WHATSAPP_ENCRYPTION_KEY equals production's; staging could decrypt real tokens"
-[ "$(env_value AUTHZ_ENGINE "$ENV_FILE")" = openfga ] || die "staging must run AUTHZ_ENGINE=openfga"
+case "$(env_value PERMISSIONS_ENGINE "$ENV_FILE")" in
+  legacy|shadow|v2) ;;
+  *) die "set PERMISSIONS_ENGINE=legacy|shadow|v2 in $ENV_FILE (AUTHZ_ENGINE/OpenFGA no longer decide; staging default: shadow)" ;;
+esac
 FGA_TOKEN=$(env_value FGA_API_TOKEN "$ENV_FILE")
 
 # ─────────────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ function buildWorkspace() {
   const lina = store.createContact({ companyId: company.id, kind: 'Person', name: 'Lina Haddad', roles: ['Influencer', 'Vendor'], ownerUserId: users.manager.id });
   const noel = store.createContact({ companyId: company.id, kind: 'Person', name: 'Noel Saad', roles: ['Influencer'] });
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} },
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();

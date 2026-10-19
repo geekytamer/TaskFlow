@@ -64,7 +64,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/quotations', permission: 'sales.create', legacyRoles: MGMT },
   { method: 'GET', path: '/quotations/:id', permission: 'sales.view', legacyRoles: MGMT },
   { method: 'PUT', path: '/quotations/:id', permission: 'sales.edit', legacyRoles: MGMT },
-  { method: 'PATCH', path: '/quotations/:id/status', permission: 'sales.edit', legacyRoles: MGMT, note: 'setting the status to Cancelled also needs sales.cancel (checked on the body)' },
+  { method: 'PATCH', path: '/quotations/:id/status', permission: 'sales.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/quotations/:id/sales-order', permission: 'sales.create', legacyRoles: MGMT },
   { method: 'POST', path: '/quotations/:id/invoice', permission: 'sales.create', legacyRoles: MGMT },
   { method: 'DELETE', path: '/quotations/:id', permission: 'sales.delete', legacyRoles: MGMT },
@@ -748,7 +748,7 @@ export const ROUTES: readonly RouteDecl[] = [
 export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
   'dashboard.view_operations': 'GET /companies/:companyId/dashboard: which figures are included',
   'dashboard.view_finance': 'GET /companies/:companyId/dashboard: which figures are included',
-  'sales.cancel': 'PATCH /sales-orders/:id/status and /quotations/:id/status when the new status is Cancelled',
+  'sales.cancel': 'PATCH /sales-orders/:id/status when the new status is Cancelled (quotation statuses have no Cancelled)',
   'purchasing.approve_step': 'POST /approvals/:docType/:docId/decision for a purchase order',
   'finance.approve_expenses': 'POST /approvals/:docType/:docId/decision for an expense',
   'invoices.override_credit': "issuing an invoice or confirming an order past the client's credit limit",
@@ -786,7 +786,7 @@ export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string
   // Also read directly as RECORD_RULES.CONTACTS_PRIVATE_READ in server.ts (seesPrivateFor, for conversation alerts to other users).
   CONTACTS_PRIVATE_READ: { becomes: 'contacts.view / inbox.view scope', sites: { 'src/server.ts': 5, 'src/routes/search.ts': 1 } },
   CONTACTS_ALL_WRITE: { becomes: 'contacts.edit scope', sites: { 'src/server.ts': 2 } },
-  CRM_ALL_READ: { becomes: 'crm.view scope', sites: { 'src/server.ts': 4 } },
+  CRM_ALL_READ: { becomes: 'crm.view scope', sites: { 'src/server.ts': 5 } },
   CRM_ALL_WRITE: { becomes: 'crm.edit / crm.delete scope', sites: { 'src/server.ts': 10 } },
   CAMPAIGNS_ALL_READ: { becomes: 'campaigns.view scope', sites: { 'src/server.ts': 1 } },
   CAMPAIGNS_ALL_WRITE: { becomes: 'campaigns.edit scope', sites: { 'src/server.ts': 3 } },

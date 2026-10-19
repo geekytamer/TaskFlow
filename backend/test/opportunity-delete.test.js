@@ -11,7 +11,7 @@ const { makeTmpDir } = require('./helpers/tmp');
 const build = async () => {
   const dbPath = path.join(makeTmpDir('taskflow-opp-delete-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
-  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy', logger: { info() {}, warn() {}, error() {} } }).listen(0);
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } }).listen(0);
   app.unref();
   const admin = store.listUsers().find((u) => u.email === 'admin@taskflow.com');
   const employee = store.createUser({

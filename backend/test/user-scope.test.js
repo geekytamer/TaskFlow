@@ -11,7 +11,7 @@ function setup() {
   const dbPath = path.join(makeTmpDir('taskflow-userscope-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: true, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: true,
     logger: { info() {}, warn() {}, error() {} },
   }).listen(0);
   app.unref();
