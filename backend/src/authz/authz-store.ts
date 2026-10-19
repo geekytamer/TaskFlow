@@ -729,6 +729,106 @@ export class AuthzStore {
     });
   }
 
+  // ── Evaluator reads (evaluate.ts, team.ts) ─────────────────────────
+
+  /**
+   * A person's direct assignments that can count (Ruling G): the assignment is
+   * active and its role does not need review. The time window is checked by
+   * the caller. Group-derived rows (viaHoldingGroupId) are skipped: group
+   * assignments are resolved from holding_group_assignments instead.
+   */
+  directAssignmentsFor(userId: string): Array<{
+    companyId: string; roleId: string; roleName: string; isMain: boolean; startsAt: string | null; endsAt: string | null;
+  }> {
+    if (!this.ready()) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT uga.companyId, uga.groupId, uga.isMain, uga.startsAt, uga.endsAt, pg.name
+           FROM user_group_assignments uga JOIN permission_groups pg ON pg.id = uga.groupId
+          WHERE uga.userId = ? AND uga.isActive = 1 AND pg.needsReview = 0 AND uga.viaHoldingGroupId IS NULL`,
+      )
+      .all(userId) as Array<{ companyId: string; groupId: string; isMain: number; startsAt: string | null; endsAt: string | null; name: string }>;
+    return rows.map((r) => ({
+      companyId: r.companyId, roleId: r.groupId, roleName: r.name, isMain: Boolean(r.isMain), startsAt: r.startsAt, endsAt: r.endsAt,
+    }));
+  }
+
+  /** A person's group-wide assignments, with the companies currently in each group. */
+  holdingAssignmentsFor(userId: string): Array<HoldingAssignmentRow & { companyIds: string[] }> {
+    if (!this.ready()) return [];
+    const rows = this.db
+      .prepare('SELECT * FROM holding_group_assignments WHERE userId = ?')
+      .all(userId) as Array<Record<string, any>>;
+    const companies = this.db.prepare('SELECT id FROM companies WHERE holdingGroupId = ? ORDER BY id');
+    return rows.map((r) => ({
+      holdingGroupId: r.holdingGroupId, userId: r.userId, roleKey: r.roleKey, isMain: Boolean(r.isMain),
+      startsAt: r.startsAt ?? null, endsAt: r.endsAt ?? null,
+      companyIds: (companies.all(r.holdingGroupId) as Array<{ id: string }>).map((c) => c.id),
+    }));
+  }
+
+  /**
+   * The role a group assignment's key stands for in one company (Ruling H):
+   * the company's own role with that key, else the group-level role row. Null
+   * when neither exists or the role found needs review.
+   */
+  holdingRoleFor(companyId: string, holdingGroupId: string, roleKey: string): { id: string; name: string } | null {
+    const row = (this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId = ? AND key = ?').get(companyId, roleKey)
+      ?? this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId IS NULL AND holdingGroupId = ? AND key = ?').get(holdingGroupId, roleKey)) as
+      | { id: string; name: string; needsReview: number } | undefined;
+    if (!row || row.needsReview) return null;
+    return { id: row.id, name: row.name };
+  }
+
+  /** A role's v2 grants and sensitive-field switches. */
+  roleContent(roleId: string): { grants: TemplateGrant[]; fields: TemplateField[] } {
+    return { grants: this.grantsOf(roleId), fields: this.fieldsOf(roleId) };
+  }
+
+  /** The system role row a legacy role maps to in a company, if it exists. */
+  systemRole(companyId: string, key: string): { id: string; name: string } | undefined {
+    if (!this.ready()) return undefined;
+    return this.db.prepare('SELECT id, name FROM permission_groups WHERE companyId = ? AND key = ? AND isSystem = 1').get(companyId, key) as
+      | { id: string; name: string } | undefined;
+  }
+
+  /** Each company's legacy role key (admin/manager/accountant/employee) from users.companyRoles. */
+  legacyRolesFor(userId: string): Array<{ companyId: string; key: TemplateKey }> {
+    const row = this.db.prepare('SELECT companyIds, companyRoles FROM users WHERE id = ?').get(userId) as
+      | { companyIds: string | null; companyRoles: string | null } | undefined;
+    if (!row) return [];
+    const parse = <T>(s: string | null): T | undefined => { try { return s ? JSON.parse(s) as T : undefined; } catch { return undefined; } };
+    const ids = new Set([
+      ...(parse<Array<{ companyId: string }>>(row.companyRoles) ?? []).map((r) => r.companyId),
+      ...(parse<string[]>(row.companyIds) ?? []),
+    ]);
+    const out: Array<{ companyId: string; key: TemplateKey }> = [];
+    for (const companyId of ids) {
+      const key = this.legacyRoleKey(userId, companyId);
+      if (key) out.push({ companyId, key: key as TemplateKey });
+    }
+    return out;
+  }
+
+  /** The users.companyRoles signature, so a cached legacy answer notices a role change. */
+  legacySignature(userId: string): string {
+    const row = this.db.prepare('SELECT role, companyIds, companyRoles FROM users WHERE id = ?').get(userId) as
+      | { role: string; companyIds: string | null; companyRoles: string | null } | undefined;
+    return row ? `${row.role}|${row.companyIds}|${row.companyRoles}` : '';
+  }
+
+  /** Employee manager edges in a company, for the team line. */
+  employeeLines(companyId: string): Array<{ id: string; userId: string | null; managerId: string | null }> {
+    return this.db.prepare('SELECT id, userId, managerId FROM employees WHERE companyId = ?').all(companyId) as
+      Array<{ id: string; userId: string | null; managerId: string | null }>;
+  }
+
+  /** Moves whenever an employee row in the company changes line (triggers, migration 136). */
+  teamVersion(companyId: string): number {
+    const row = this.db.prepare('SELECT version FROM team_versions WHERE companyId = ?').get(companyId) as { version: number } | undefined;
+    return row?.version ?? 0;
+  }
+
   // ── Audit ──────────────────────────────────────────────────────────
 
   audit(filter: { companyId?: string; holdingGroupId?: string; entity?: string; entityId?: string; limit?: number } = {}): AuditRow[] {

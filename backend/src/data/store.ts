@@ -5323,6 +5323,35 @@ export class DataStore {
           this.authz.migrateAll();
         },
       },
+      {
+        // The manager line (authz/team.ts) is cached per company. Triggers keep
+        // a per-company counter that moves whenever an employee row changes who
+        // they are, who manages them or which company they are in, so every
+        // writer is covered (raw SQL included) and every process sees it.
+        id: '136_team_version',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS team_versions (
+              companyId TEXT PRIMARY KEY,
+              version   INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_insert AFTER INSERT ON employees BEGIN
+              INSERT INTO team_versions (companyId, version) VALUES (NEW.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_update AFTER UPDATE OF managerId, userId, companyId ON employees BEGIN
+              INSERT INTO team_versions (companyId, version) VALUES (NEW.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+              INSERT INTO team_versions (companyId, version) VALUES (OLD.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_delete AFTER DELETE ON employees BEGIN
+              INSERT INTO team_versions (companyId, version) VALUES (OLD.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+            END;
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
