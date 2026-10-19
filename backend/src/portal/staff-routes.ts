@@ -45,7 +45,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const { companyId } = req.params;
     deps.requireCompanyAccess(req, companyId);
     if (!deps.canManagePortal(req, companyId)) {
-      throw new HttpError(403, 'You do not have permission to manage portal access.');
+      throw new HttpError(403, 'You do not have permission to manage portal access.', { code: 'FORBIDDEN', permission: 'portal.manage_access' });
     }
     return companyId;
   };

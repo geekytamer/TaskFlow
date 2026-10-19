@@ -19,7 +19,7 @@ const DECISION_KEYS: Record<ApprovalDocType, string> = {
 
 /** Approval chains. */
 export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSummary, decideDocument }: ApprovalDecisions): void {
-  const { store, authMiddleware, requireCompanyRoles, allowsRule } = ctx;
+  const { store, authMiddleware, requireCompanyRoles, allowsRule, requirePermission, forbidden } = ctx;
 
   app.get(
     '/companies/:companyId/approvals/rules',
@@ -37,7 +37,10 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       // The management gate is the rules' read permission; ADMINISTRATION (settings.manage_approvals) decides the change.
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles, 'settings.view_approvals');
       // Who signs off what is the company's administration, not day-to-day finance.
-      if (!allowsRule(req, req.params.companyId, 'ADMINISTRATION')) throw new HttpError(403, 'Only an administrator can change approval rules.');
+      if (!allowsRule(req, req.params.companyId, 'ADMINISTRATION')) {
+        if (ctx.permissionsEngine === 'v2') throw forbidden(req.params.companyId, 'settings.manage_approvals');
+        throw new HttpError(403, 'Only an administrator can change approval rules.', { code: 'FORBIDDEN', permission: 'settings.manage_approvals' });
+      }
       const body = asRecord(req.body, 'body');
       const docType = enumValue(body.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
       if (!Array.isArray(body.rules) || body.rules.length > 10) throw new HttpError(400, 'rules must be a list of up to 10 levels.');
@@ -92,6 +95,8 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       if (!doc) throw new HttpError(404, 'Document not found.');
       // v2: the step permission of this kind of document; the chain step's role is checked after.
       requireCompanyRoles(req, doc.companyId, companyManagementRoles, DECISION_KEYS[docType]);
+      // v2: a limited step permission covers documents up to its limit.
+      requirePermission(req, doc.companyId, DECISION_KEYS[docType], undefined, { amount: doc.amount });
       const body = asRecord(req.body, 'body');
       const decision = enumValue(body.decision, 'decision', ['approve', 'reject'] as const) as 'approve' | 'reject';
       res.json(decideDocument(req, docType, req.params.docId, doc.companyId, decision, optionalString(body.note)));

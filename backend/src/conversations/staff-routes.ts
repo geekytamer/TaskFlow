@@ -56,7 +56,9 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
   /** Company member, then the contacts permission: conversations belong to contacts. */
   const requireContacts = async (req: StaffRequest, companyId: string, access: 'read' | 'write' = 'read') => {
     deps.requireCompanyAccess(req, companyId);
-    if (!(await deps.canUseContacts(req, companyId, access))) throw new HttpError(403, 'You do not have permission to perform this action.');
+    if (!(await deps.canUseContacts(req, companyId, access))) {
+      throw new HttpError(403, 'You do not have permission to perform this action.', { code: 'FORBIDDEN', permission: access === 'read' ? 'inbox.view' : 'inbox.send' });
+    }
   };
 
   /** A visible contact of this company, else 404 (never reveals that a private one exists). */

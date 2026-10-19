@@ -41,7 +41,7 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
   const authorize = (req: StaffRequest, wanted: string) => {
     if (wanted !== companyId) throw new HttpError(404, 'Not found.');
     deps.requireCompanyAccess(req, wanted);
-    if (!deps.canManage(req, wanted)) throw new HttpError(403, 'You do not have permission to manage the influencer directory.');
+    if (!deps.canManage(req, wanted)) throw new HttpError(403, 'You do not have permission to manage the influencer directory.', { code: 'FORBIDDEN', permission: 'discover.manage' });
   };
 
   const loadProfile = (req: StaffRequest) => {

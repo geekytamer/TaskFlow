@@ -17,11 +17,13 @@ export interface RouteContext {
   requireCompanyAccess: (req: AuthedRequest, companyId: string) => void;
   /** The route gate; `key` names the permission where the handler decides between several. */
   requireCompanyRoles: (req: AuthedRequest, companyId: string, roles: UserRole[], key?: string) => void;
-  allowsRule: (req: AuthedRequest, companyId: string, name: RecordRuleName) => boolean;
+  allowsRule: (req: AuthedRequest, companyId: string, name: RecordRuleName, ctx?: { amount?: number }) => boolean;
   /** Holds a catalogue key (v2), or one of `legacyRoles` (legacy; none = true). */
   allowsKey: (req: AuthedRequest, companyId: string, key: string, legacyRoles?: readonly UserRole[], ctx?: { ownerUserId?: string | null; amount?: number }) => boolean;
   /** allowsKey or 403 { code: 'FORBIDDEN', permission, message }. */
-  requirePermission: (req: AuthedRequest, companyId: string, key: string, legacyRoles?: readonly UserRole[]) => void;
+  requirePermission: (req: AuthedRequest, companyId: string, key: string, legacyRoles?: readonly UserRole[], ctx?: { ownerUserId?: string | null; amount?: number }) => void;
+  /** The 403 for a refused permission: { code: 'FORBIDDEN', permission, message }. */
+  forbidden: (companyId: string, key: string | undefined) => Error;
   withActor: <T>(req: AuthedRequest, fn: () => T) => T;
   canViewProject: (req: AuthedRequest, project: Project) => boolean;
   canViewTask: (req: AuthedRequest, task: { companyId: string; projectId?: string | null; assignedUserIds?: string[]; ownerId?: string | null; isPrivate?: boolean }) => boolean;

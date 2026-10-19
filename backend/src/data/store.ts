@@ -5355,6 +5355,13 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Shadow-mode disagreements are pruned by age (store.pruneAuthzDivergences).
+        id: '137_authz_divergence_observed',
+        run: () => {
+          this.db.exec('CREATE INDEX IF NOT EXISTS idx_authz_divergence_observed ON authz_divergence (observedAt)');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6938,6 +6945,12 @@ export class DataStore {
         entry.newAllowed ? 1 : 0,
         new Date().toISOString(),
       );
+  }
+
+  /** Drops shadow disagreements older than `days` (kept for the shadow week and a little after). */
+  pruneAuthzDivergences(days = 14): number {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    return this.db.prepare('DELETE FROM authz_divergence WHERE observedAt < ?').run(cutoff).changes;
   }
 
   listAuthzDivergences(limit = 200) {
@@ -20292,13 +20305,19 @@ export class DataStore {
     const holders = this.permissionHolders;
     const legacy = this.listUserIdsByCompanyRoles(companyId, legacyRoles);
     if (!holders || holders.engine === 'legacy') return legacy;
-    const members = this.listUsersByCompany(companyId).map((u) => u.id);
-    const v2 = members.filter((id) => holders.holds(id, companyId, permission));
-    if (holders.engine === 'v2') return v2;
-    const legacySet = new Set(legacy);
-    const v2Set = new Set(v2);
-    for (const id of new Set([...legacy, ...v2])) {
-      if (legacySet.has(id) !== v2Set.has(id)) holders.diverged(id, companyId, permission, legacySet.has(id), v2Set.has(id));
+    const v2Holders = () => this.listUsersByCompany(companyId)
+      .map((u) => u.id)
+      .filter((id) => holders.holds(id, companyId, permission));
+    if (holders.engine === 'v2') return v2Holders();
+    // Shadow observes only: a failure computing v2 never changes who is notified.
+    try {
+      const legacySet = new Set(legacy);
+      const v2Set = new Set(v2Holders());
+      for (const id of new Set([...legacy, ...v2Set])) {
+        if (legacySet.has(id) !== v2Set.has(id)) holders.diverged(id, companyId, permission, legacySet.has(id), v2Set.has(id));
+      }
+    } catch (error) {
+      console.warn(`[authz] shadow recipients comparison failed for ${permission}: ${error instanceof Error ? error.message : String(error)}`);
     }
     return legacy;
   }

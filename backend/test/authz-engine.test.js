@@ -130,12 +130,16 @@ test('v2 record rules: an add-on with company scope widens what the rule allows'
 
 test('every record rule answers under v2 exactly as its role list does, for each template', () => {
   const { store, company, users } = build('legacy');
+  const { effective } = require('../dist/authz/evaluate');
   for (const [name, rule] of Object.entries(RECORD_RULES)) {
     for (const role of ROLES) {
-      const eff = effectiveLegacy(store, users[role].id);
-      const keys = 'keys' in rule.v2 ? rule.v2.keys : [undefined];
-      for (const routeKey of keys) {
-        assert.equal(ruleAllowsV2(eff, name, company.id, routeKey).allowed, rule.roles.includes(role), `${name} ${role} ${routeKey ?? ''}`);
+      // effectiveLegacy (shadow/legacy read paths) and effective (v2: the
+      // system role assignments written for each user) must both agree.
+      for (const [label, eff] of [['legacy', effectiveLegacy(store, users[role].id)], ['v2', effective(store, users[role].id)]]) {
+        const keys = 'keys' in rule.v2 ? rule.v2.keys : [undefined];
+        for (const routeKey of keys) {
+          assert.equal(ruleAllowsV2(eff, name, company.id, routeKey).allowed, rule.roles.includes(role), `${label} ${name} ${role} ${routeKey ?? ''}`);
+        }
       }
     }
   }
@@ -235,4 +239,131 @@ test('v2 record rules at the gate: an add-on with crm.view at company scope open
     addOn(store, company.id, users.Employee.id, 'All CRM', [{ key: 'crm.view', scope: 'company' }]);
     assert.equal((await get()).status, engine === 'v2' ? 200 : 403, `${engine}: the add-on counts only under v2`);
   }
+});
+
+/**
+ * Every route declared with a catalogue key is decided by that key under v2.
+ *
+ * A person whose only role grants nothing any route declares (a custom main
+ * role holding dashboard.view_finance, a handler-checked key) calls every such
+ * route against the seeded demo data, with real record ids where the path's
+ * resource has a table, and 'missing' otherwise. Two independent guarantees
+ * are asserted:
+ *   1. Routes whose company is in the path are refused with 403 before the
+ *      handler runs (the auth middleware asks can(declaredKey)).
+ *   2. No route answers 2xx, and none trips the fail-closed guard ("answered
+ *      without deciding"), which would mean the handler never asked the key
+ *      (a 404/400 before the company is known is fine: nothing was served).
+ */
+test('v2: every catalogue-key route refuses a role that lacks its key', async () => {
+  const errors = [];
+  const dbPath = path.join(makeTmpDir('taskflow-engine-all-'), 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const company = '1';
+  const user = store.createUser({
+    name: 'Nobody', email: 'nobody@engine.test', role: 'Employee', password: 'x',
+    companyIds: [company], companyRoles: [{ companyId: company, role: 'Employee' }],
+  });
+  const role = store.authz.saveRole(company, { name: 'Nothing routed', grants: [{ key: 'dashboard.view_finance' }], fields: [] }, null);
+  store.authz.setAssignments(user.id, company, { mainRoleId: role.id, addOnRoleIds: [] }, null);
+  const app = createServer({
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, permissionsEngine: 'v2', portalCompanyId: company,
+    logger: { info() {}, warn() {}, error: (m) => errors.push(String(m)) },
+  });
+  const server = app.listen(0);
+  server.unref();
+  const agent = request.agent(server);
+  const auth = `Bearer ${store.issueToken(user.id)}`;
+
+  const tables = new Set(store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name));
+  const idFor = (segment) => {
+    const table = segment.replace(/-/g, '_');
+    if (!tables.has(table)) return 'missing';
+    for (const sql of [`SELECT id FROM ${table} WHERE companyId = ? LIMIT 1`, `SELECT id FROM ${table} LIMIT 1`]) {
+      try {
+        const row = sql.includes('?') ? store.db.prepare(sql).get(company) : store.db.prepare(sql).get();
+        if (row) return String(row.id);
+      } catch { /* no companyId column */ }
+    }
+    return 'missing';
+  };
+  const urlFor = (p) => {
+    const parts = p.split('/');
+    return parts.map((part, i) => {
+      if (part === ':companyId') return company;
+      if (part.startsWith(':')) return idFor(parts[i - 1] ?? '');
+      return part;
+    }).join('/');
+  };
+
+  const routes = ROUTES.filter((r) => isPermissionKey(r.permission));
+  const served = [];
+  const notRefused = [];
+  let refused = 0;
+  for (const r of routes) {
+    const res = await agent[r.method.toLowerCase()](urlFor(r.path)).set('Authorization', auth).send({ companyId: company });
+    if (res.status >= 200 && res.status < 300) served.push(`${r.method} ${r.path} → ${res.status}`);
+    if (res.status === 403) refused += 1;
+    else if (![400, 404].includes(res.status)) notRefused.push(`${r.method} ${r.path} → ${res.status} (only 403, or 400/404 before the company is known)`);
+    const companyInPath = /^\/companies\/:companyId(\/[a-z0-9-]+)*$/.test(r.path) || r.path === '/companies/:companyId';
+    if (companyInPath && res.status !== 403) notRefused.push(`${r.method} ${r.path} → ${res.status}`);
+  }
+  assert.deepEqual(served, [], 'served to a role without the key');
+  assert.deepEqual(notRefused, [], 'company in the path but not refused up front');
+  assert.deepEqual(errors.filter((e) => e.includes('without deciding')), [], 'a route answered without asking its key');
+  assert.ok(routes.length > 400, `${routes.length} catalogue-key routes`);
+  // Most record routes 404 here (the demo seed has no such record); the
+  // fail-closed guard below covers what such a route would serve.
+  assert.ok(refused > 250, `${refused}/${routes.length} refused outright`);
+});
+
+test('v2 fail-closed: a declared route that answers without deciding its key is refused and logged', async () => {
+  const errors = [];
+  // GET /auth/me never asks a company permission; pretend it were declared sales.view.
+  const { company, users, token, agent } = build('v2', {
+    routeLookup: (method, p) => (`${method} ${p}` === 'GET /auth/me' ? { method: 'GET', path: '/auth/me', permission: 'sales.view' } : routeDecl(method, p)),
+    logger: { info() {}, warn() {}, error: (m) => errors.push(String(m)) },
+  });
+  void company;
+  const res = await agent.get('/auth/me').set('Authorization', `Bearer ${token(users.Admin)}`);
+  assert.equal(res.status, 403);
+  assert.deepEqual({ code: res.body.code, permission: res.body.permission }, { code: 'FORBIDDEN', permission: 'sales.view' });
+  assert.equal(errors.filter((e) => e.includes('without deciding')).length, 1);
+  await agent.get('/auth/me').set('Authorization', `Bearer ${token(users.Admin)}`);
+  assert.equal(errors.filter((e) => e.includes('without deciding')).length, 1, 'logged once per route');
+});
+
+test('v2: a credit override is limited by the add-on\'s amount (the overage it allows)', async () => {
+  const { store, company, users, token, agent } = build('v2');
+  const client = store.createClient({ name: 'Al Noor Hotel', email: 'h@x.example', address: 'Muscat', companyId: company.id });
+  store.updateClient(client.id, { creditLimit: 100 });
+  const item = store.createInventoryItem({ companyId: company.id, name: 'Dates', category: 'Dates', sku: 'D1', unit: 'kg', unitPrice: 10, unitCost: 6, quantityOnHand: 500 });
+  addOn(store, company.id, users.Manager.id, 'Small overrides', [{ key: 'invoices.override_credit', limit: 50 }]);
+  const order = (qty) => agent.post(`/companies/${company.id}/sales-orders`).set('Authorization', `Bearer ${token(users.Manager)}`).send({
+    clientId: client.id, orderDate: new Date().toISOString(), status: 'Confirmed', overrideCreditLimit: true,
+    items: [{ inventoryItemId: item.id, description: 'Dates', quantity: qty, unitPrice: 10 }],
+  });
+  const within = await order(14); // owes 140: 40 over the limit, within 50
+  assert.equal(within.status, 201, JSON.stringify(within.body));
+  const beyond = await order(2); // owes 160: 60 over
+  assert.equal(beyond.status, 409);
+  assert.equal(beyond.body.canOverride, false);
+  const { ruleAllowsV2: rule } = require('../dist/authz/engine');
+  const { effective } = require('../dist/authz/evaluate');
+  const eff = effective(store, users.Manager.id);
+  assert.equal(rule(eff, 'INVOICES_CREDIT_OVERRIDE', company.id, undefined, { amount: 50 }).allowed, true);
+  assert.equal(rule(eff, 'INVOICES_CREDIT_OVERRIDE', company.id, undefined, { amount: 51 }).allowed, false);
+});
+
+test('shadow never changes an answer: a failing v2 computation leaves the legacy result', async () => {
+  const errors = [];
+  const { store, company, users, token, agent } = build('shadow', { logger: { info() {}, error() {}, warn: (m) => errors.push(String(m)) } });
+  const { clearEffectiveCache } = require('../dist/authz/evaluate');
+  clearEffectiveCache();
+  store.authz.directAssignmentsFor = () => { throw new Error('evaluator down'); };
+  const res = await agent.get(`/companies/${company.id}/sales-orders`).set('Authorization', `Bearer ${token(users.Admin)}`);
+  assert.equal(res.status, 200);
+  const recipients = store.listUserIdsWithPermission(company.id, 'invoices:read', ['Admin', 'Manager', 'Accountant']);
+  assert.equal(recipients.length, 3);
+  assert.ok(errors.some((e) => e.includes('evaluator down')), errors.join('\n'));
 });

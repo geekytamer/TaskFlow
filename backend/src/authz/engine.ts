@@ -15,7 +15,7 @@
  */
 import type { DataStore } from '../data/store';
 import { SCOPES, areaOf, isPermissionKey, type Scope } from './catalogue';
-import { scopeOf } from './can';
+import { can, scopeOf } from './can';
 import { TEMPLATE_KEYS } from './templates';
 import type { Effective } from './evaluate';
 import { RECORD_RULES, type RecordRuleName } from '../permissions/record-rules';
@@ -64,6 +64,7 @@ export function ruleAllowsV2(
   name: RecordRuleName,
   companyId: string,
   routeKey?: string,
+  ctx: { amount?: number } = {},
 ): { allowed: boolean; key: string } {
   const v2 = RECORD_RULES[name].v2;
   if ('fields' in v2) {
@@ -71,7 +72,9 @@ export function ruleAllowsV2(
     return { allowed: v2.fields.every((f) => fields?.get(f)?.view === true), key: `field:${v2.fields[0]}` };
   }
   const key = routeKey && (v2.keys as readonly string[]).includes(routeKey) ? routeKey : v2.keys[0];
-  return { allowed: scopeAtLeast(scopeOf(eff, key, companyId), v2.min), key };
+  // A limited key (invoices.override_credit) also checks the amount at stake.
+  const withinLimit = ctx.amount === undefined || can(eff, key, { companyId, amount: ctx.amount }).allowed;
+  return { allowed: scopeAtLeast(scopeOf(eff, key, companyId), v2.min) && withinLimit, key };
 }
 
 /**
@@ -168,7 +171,9 @@ export function recordShadowDivergence(
   const id = `${entry.userId}|${entry.companyId}|${entry.route}|${entry.key}|${entry.legacyAllowed}`;
   const at = recent.get(id);
   if (at !== undefined && now - at < DEDUPE_MS) return;
-  if (recent.size >= DEDUPE_LIMIT) recent.clear();
+  // Oldest first (Map keeps insertion order; a refreshed entry moves to the end).
+  recent.delete(id);
+  while (recent.size >= DEDUPE_LIMIT) recent.delete(recent.keys().next().value as string);
   recent.set(id, now);
   store.recordAuthzDivergence({
     userId: entry.userId,

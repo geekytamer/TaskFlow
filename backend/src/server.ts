@@ -232,6 +232,9 @@ function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
     }));
 }
 
+/** A request whose declared permission was decided by can() under v2 (see guardUndecided). */
+type DecidedRequest = AuthedRequest & { authzDecided?: boolean };
+
 export interface CreateServerOptions extends DataStoreOptions {
   allowSeedReset?: boolean;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
@@ -926,7 +929,16 @@ export function createServer(options: CreateServerOptions = {}) {
   /** The matched route's declaration in authz/route-registry.ts, if any. */
   const declOf = (req: Request): RouteDecl | undefined => {
     const fullPath = routePathOf(req);
-    return fullPath ? lookupRoute(req.method, fullPath) : undefined;
+    // Express answers HEAD with the GET handler; it is decided as that GET.
+    const method = req.method === 'HEAD' ? 'GET' : req.method;
+    return fullPath ? lookupRoute(method, fullPath) : undefined;
+  };
+  /** Configuration errors (undeclared routes, gates without a key) are logged once per route per process. */
+  const loggedOnce = new Set<string>();
+  const errorOnce = (id: string, message: string) => {
+    if (loggedOnce.has(id)) return;
+    loggedOnce.add(id);
+    logger.error(message);
   };
   if (process.env.AUTHZ_ENGINE) {
     logger.warn('AUTHZ_ENGINE is no longer read; PERMISSIONS_ENGINE (legacy | shadow | v2) decides. OpenFGA is not consulted.');
@@ -952,6 +964,78 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   });
 
+  // Shadow disagreements are kept 14 days (the shadow week and a little after).
+  if (process.env.NODE_ENV !== 'test') {
+    const prune = () => {
+      try {
+        const removed = store.pruneAuthzDivergences(14);
+        if (removed > 0) logger.info(`[authz] pruned ${removed} shadow disagreement(s) older than 14 days`);
+      } catch (error) {
+        logger.warn(`[authz] pruning shadow disagreements failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    prune();
+    setInterval(prune, 24 * 60 * 60 * 1000).unref?.();
+  }
+
+  /**
+   * The person's effective permissions, read once per request: a list that
+   * checks every row (canViewTask) must not re-read authz_version per row.
+   */
+  const effectiveFor = (req: AuthedRequest): Effective => {
+    const r = req as AuthedRequest & { authzEffective?: Effective };
+    r.authzEffective ??= effective(store, req.user!.id);
+    return r.authzEffective;
+  };
+
+  /**
+   * Runs a shadow-only v2 computation that must never change the outcome: an
+   * error is logged and the legacy answer stands.
+   */
+  const shadowSafe = (label: string, fn: () => void) => {
+    try {
+      fn();
+    } catch (error) {
+      logger.warn(`[authz] shadow comparison failed (${label}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  /** Under v2, asking the route's own declared key counts as deciding the request. */
+  const markDecided = (req: AuthedRequest, key: string | undefined) => {
+    if (engine === 'v2' && key && key === catalogueKey(declOf(req)?.permission)) (req as DecidedRequest).authzDecided = true;
+  };
+
+  /**
+   * v2 decides every route declared with a catalogue key: `can(declaredKey)` in
+   * the request's company. Called from the auth middleware (company in the
+   * path) and from requireCompanyAccess (company found from a record or the
+   * body), so a handler that gates only on company access is still decided by
+   * its declared permission. Under shadow it only compares (the declared
+   * legacyRoles are today's answer). A platform super admin outside the company
+   * keeps the legacy super-admin handling (Ruling I).
+   */
+  const requireDeclaredKey = (req: AuthedRequest, companyId: string) => {
+    if (engine === 'legacy' || !req.user) return;
+    const decl = declOf(req);
+    const key = catalogueKey(decl?.permission);
+    if (!decl || !key) return;
+    const user = req.user;
+    if (!canAccessCompany(user, companyId)) return; // the access check answers non-members
+    // Today's answer: the declared role list, with the route's module on (the
+    // evaluator's module lock is part of the v2 answer).
+    const mapping = routeToPermission(req.method === 'HEAD' ? 'GET' : req.method, req.route?.path ?? req.path);
+    const allowed = decideAccess(
+      req, companyId,
+      () => (decl.legacyRoles ? requireCompanyRole(user, companyId, [...decl.legacyRoles]) : true)
+        && (!mapping || store.isModuleEnabled(companyId, mapping.module)),
+      (eff) => can(eff, key, { companyId }).allowed,
+      () => key,
+    );
+    if (engine !== 'v2') return;
+    if (!allowed) throw forbidden(companyId, key);
+    (req as DecidedRequest).authzDecided = true;
+  };
+
   /**
    * One decision under the configured engine.
    *
@@ -971,10 +1055,10 @@ export function createServer(options: CreateServerOptions = {}) {
     const user = req.user;
     if (!user) return false;
     if (engine === 'legacy') return legacy();
-    if (engine === 'v2') return v2(effective(store, user.id));
+    if (engine === 'v2') return v2(effectiveFor(req));
     const legacyAllowed = legacy();
     try {
-      const newAllowed = v2(effective(store, user.id));
+      const newAllowed = v2(effectiveFor(req));
       const key = keyOf();
       if (newAllowed !== legacyAllowed) {
         recordShadowDivergence(store, {
@@ -1009,21 +1093,52 @@ export function createServer(options: CreateServerOptions = {}) {
     key: string,
     legacyRoles?: readonly UserRole[],
     ctx: { ownerUserId?: string | null; amount?: number } = {},
-  ): boolean => decideAccess(
-    req, companyId,
-    () => (legacyRoles ? requireCompanyRole(req.user!, companyId, [...legacyRoles]) : true),
-    (eff) => can(eff, key, { companyId, ...ctx }).allowed,
-    () => key,
-    `${key} @ `,
-  );
+  ): boolean => {
+    markDecided(req, key);
+    return decideAccess(
+      req, companyId,
+      () => (legacyRoles ? requireCompanyRole(req.user!, companyId, [...legacyRoles]) : true),
+      (eff) => can(eff, key, { companyId, ...ctx }).allowed,
+      () => key,
+      `${key} @ `,
+    );
+  };
 
   const requirePermission = (
     req: AuthedRequest,
     companyId: string,
     key: string,
     legacyRoles?: readonly UserRole[],
+    ctx: { ownerUserId?: string | null; amount?: number } = {},
   ): void => {
-    if (!allowsKey(req, companyId, key, legacyRoles)) throw forbidden(companyId, key);
+    if (!allowsKey(req, companyId, key, legacyRoles, ctx)) throw forbidden(companyId, key);
+  };
+
+  /**
+   * Wraps the response so that, under v2, a success answer from a route whose
+   * declared permission was never decided by can() becomes a 403 (logged once
+   * per route). Error answers pass untouched.
+   */
+  const guardUndecided = (req: DecidedRequest, res: Response, key: string) => {
+    const write = res.write.bind(res) as (...args: unknown[]) => boolean;
+    const end = res.end.bind(res) as (...args: unknown[]) => Response;
+    let checked = false;
+    let refused = false;
+    const check = (): boolean => {
+      if (checked) return refused;
+      checked = true;
+      if (req.authzDecided || res.statusCode >= 400 || res.headersSent) return false;
+      refused = true;
+      errorOnce(`undecided ${req.method} ${routePathOf(req)}`, `[authz] ${req.method} ${routePathOf(req)} answered without deciding ${key}; refused under PERMISSIONS_ENGINE=v2. Gate it with requireCompanyAccess or requireCompanyRoles.`);
+      res.statusCode = 403;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.removeHeader('Content-Length');
+      res.removeHeader('Content-Disposition');
+      end(JSON.stringify({ message: 'You do not have permission to perform this action.', code: 'FORBIDDEN', permission: key }));
+      return true;
+    };
+    (res as unknown as { write: unknown }).write = (...args: unknown[]) => (check() ? false : write(...args));
+    (res as unknown as { end: unknown }).end = (...args: unknown[]) => (check() ? res : end(...args));
   };
 
   const authMiddleware = (req: AuthedRequest, _res: Response, next: NextFunction) => {
@@ -1050,9 +1165,23 @@ export function createServer(options: CreateServerOptions = {}) {
     // under v2; shadow only says so.
     if (engine !== 'legacy' && req.route) {
       const fullPath = routePathOf(req);
-      if (!declOf(req)) {
-        logger.error(`[authz] undeclared route ${req.method} ${fullPath}: refused under PERMISSIONS_ENGINE=${engine}. Declare it in authz/route-registry.ts.`);
+      const decl = declOf(req);
+      if (!decl) {
+        errorOnce(`undeclared ${req.method} ${fullPath}`, `[authz] undeclared route ${req.method} ${fullPath}: refused under PERMISSIONS_ENGINE=${engine}. Declare it in authz/route-registry.ts.`);
         if (engine === 'v2') return next(new HttpError(403, 'You do not have permission to perform this action.', { code: 'FORBIDDEN', permission: null }));
+      } else if (catalogueKey(decl.permission)) {
+        // The company is in the path: decide before the handler runs.
+        if (companyParam) {
+          try {
+            requireDeclaredKey(req, companyParam);
+          } catch (error) {
+            return next(error);
+          }
+        }
+        // Fail closed: under v2 a declared route that answers without its
+        // permission having been decided (company found too late, or a gate
+        // nobody wrote) is refused instead of served.
+        if (engine === 'v2' && !user.isSuperAdmin) guardUndecided(req as DecidedRequest, _res, decl.permission);
       }
     }
     return next();
@@ -1097,6 +1226,7 @@ export function createServer(options: CreateServerOptions = {}) {
       throw new HttpError(403, 'You do not have access to this company.');
     }
     requireAcademyUnlocked(req, companyId);
+    requireDeclaredKey(req, companyId);
   };
 
   /**
@@ -1144,7 +1274,7 @@ export function createServer(options: CreateServerOptions = {}) {
    * records where v2 would answer differently). v2: the key the rule became, at
    * its minimum scope, or its sensitive-field switch (authz/engine.ts).
    */
-  const allowsRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): boolean => {
+  const allowsRule = (req: AuthedRequest, companyId: string, name: RecordRuleName, ctx: { amount?: number } = {}): boolean => {
     const user = req.user;
     if (!user) return false;
     const rule = RECORD_RULES[name];
@@ -1158,13 +1288,14 @@ export function createServer(options: CreateServerOptions = {}) {
       req, companyId,
       () => requireCompanyRole(user, companyId, [...rule.roles]),
       (eff) => {
-        const answer = ruleAllowsV2(eff, name, companyId, routeKey);
+        const answer = ruleAllowsV2(eff, name, companyId, routeKey, ctx);
         ruleKey = answer.key;
         return answer.allowed;
       },
       () => ruleKey,
       `rule ${name} @ `,
     );
+    if (engine === 'v2') markDecided(req, ruleKey);
     options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
     return allowed;
   };
@@ -1175,14 +1306,21 @@ export function createServer(options: CreateServerOptions = {}) {
    * allowed to override sends `overrideCreditLimit: true` to go ahead.
    */
   const creditGuard = <T>(req: AuthedRequest, companyId: string, clientId: string | undefined | null, change: () => T): T => {
-    const canOverride = () => allowsRule(req, companyId, 'INVOICES_CREDIT_OVERRIDE');
+    // invoices.override_credit may carry a limit: the most it lets a client go
+    // past their credit limit (v2). The change runs in a transaction that
+    // rolls back when refused, so it is retried with the override only once
+    // the overage is known and allowed.
+    const canOverride = (overage: number) => allowsRule(req, companyId, 'INVOICES_CREDIT_OVERRIDE', { amount: overage });
     const asked = Boolean(req.body && typeof req.body === 'object' && (req.body as Record<string, unknown>).overrideCreditLimit === true);
     try {
-      return store.withinCreditLimit(clientId, change, { override: asked && canOverride() });
+      return store.withinCreditLimit(clientId, change);
     } catch (error) {
       if (!(error instanceof CreditLimitError)) throw error;
+      const overage = Math.max(0, error.owed + error.adding - error.limit);
+      const allowed = canOverride(overage);
+      if (asked && allowed) return store.withinCreditLimit(clientId, change, { override: true });
       throw new HttpError(409, error.message, {
-        code: 'CREDIT_LIMIT_EXCEEDED', limit: error.limit, owed: error.owed, adding: error.adding, canOverride: canOverride(),
+        code: 'CREDIT_LIMIT_EXCEEDED', limit: error.limit, owed: error.owed, adding: error.adding, canOverride: allowed,
       });
     }
   };
@@ -1230,12 +1368,13 @@ export function createServer(options: CreateServerOptions = {}) {
       () => requireCompanyRole(req.user!, companyId, roles),
       (eff) => {
         if (declared) return can(eff, declared, { companyId }).allowed;
-        logger.error(`[authz] ${req.method} ${routePathOf(req) ?? req.path} has no declared permission for its role gate; refused under PERMISSIONS_ENGINE=${engine}.`);
+        errorOnce(`nokey ${req.method} ${routePathOf(req) ?? req.path}`, `[authz] ${req.method} ${routePathOf(req) ?? req.path} has no declared permission for its role gate; refused under PERMISSIONS_ENGINE=${engine}.`);
         return false;
       },
       () => declared,
     );
     if (!allowed) throw forbidden(companyId, declared);
+    if (engine === 'v2' && declared) (req as DecidedRequest).authzDecided = true;
   };
 
   const canViewProject = (req: AuthedRequest, project: Project): boolean => {
@@ -1837,7 +1976,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
-    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
+    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
 
@@ -8137,11 +8276,11 @@ export function createServer(options: CreateServerOptions = {}) {
         if (!user || !store.isModuleEnabled(companyId, rule.module)) return false;
         const legacy = requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
         if (engine === 'legacy') return legacy;
-        const v2 = ruleAllowsV2(effective(store, userId), 'CONTACTS_PRIVATE_READ', companyId).allowed;
-        if (engine === 'v2') return v2;
-        recordShadowDivergence(store, {
-          userId, companyId, key: 'contacts.view', route: 'rule CONTACTS_PRIVATE_READ (other user)', legacyAllowed: legacy, newAllowed: v2,
-        });
+        if (engine === 'v2') return ruleAllowsV2(effective(store, userId), 'CONTACTS_PRIVATE_READ', companyId).allowed;
+        shadowSafe('CONTACTS_PRIVATE_READ for another user', () => recordShadowDivergence(store, {
+          userId, companyId, key: 'contacts.view', route: 'rule CONTACTS_PRIVATE_READ (other user)', legacyAllowed: legacy,
+          newAllowed: ruleAllowsV2(effective(store, userId), 'CONTACTS_PRIVATE_READ', companyId).allowed,
+        }));
         return legacy;
       },
       // Conversations are part of contacts: the same gate as GET /companies/:companyId/contacts
