@@ -35,6 +35,12 @@ export interface RouteDecl {
   permission: string;
   /** Today's allow-list of company roles; absent when the route is not role-gated. */
   legacyRoles?: readonly UserRole[];
+  /**
+   * `legacyRoles` deliberately differs from the gate matrix's roles column (or
+   * the matrix has no gate): the handler checks more than the extracted gate.
+   * `note` says what. The test allows a difference only with this marker.
+   */
+  legacyOverride?: true;
   note?: string;
 }
 
@@ -134,7 +140,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PUT', path: '/work-orders/:id', permission: 'manufacturing.edit', legacyRoles: MGMT },
   { method: 'GET', path: '/work-orders/:id', permission: 'manufacturing.view', legacyRoles: MGMT },
   { method: 'GET', path: '/work-orders/:id/material-availability', permission: 'manufacturing.view', legacyRoles: MGMT },
-  { method: 'POST', path: '/work-orders/:id/complete', permission: 'manufacturing.edit', legacyRoles: MGMT },
+  { method: 'POST', path: '/work-orders/:id/complete', permission: 'manufacturing.create', legacyRoles: MGMT },
   { method: 'POST', path: '/work-orders/:id/cancel', permission: 'manufacturing.cancel', legacyRoles: MGMT },
   { method: 'DELETE', path: '/work-orders/:id', permission: 'manufacturing.delete', legacyRoles: MGMT },
 
@@ -217,7 +223,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/invoices/:id', permission: 'invoices.view', legacyRoles: MGMT },
   { method: 'PATCH', path: '/invoices/:id/status', permission: 'invoices.edit', legacyRoles: MGMT },
   { method: 'PUT', path: '/invoices/:id', permission: 'invoices.edit', legacyRoles: MGMT },
-  { method: 'GET', path: '/invoices/:id/payments', permission: 'invoices.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/invoices/:id/payments', permission: 'invoices.pay', legacyRoles: MGMT },
   { method: 'POST', path: '/invoices/:id/payments', permission: 'invoices.pay', legacyRoles: MGMT },
   { method: 'DELETE', path: '/invoices/:id/payments/:paymentId', permission: 'invoices.delete', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/invoices/bulk-status', permission: 'invoices.edit', legacyRoles: MGMT },
@@ -234,7 +240,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/finance/vendor-bills', permission: 'vendor-bills.create', legacyRoles: MGMT },
   { method: 'PATCH', path: '/vendor-bills/:id/status', permission: 'vendor-bills.edit', legacyRoles: MGMT },
   { method: 'PUT', path: '/vendor-bills/:id', permission: 'vendor-bills.edit', legacyRoles: MGMT },
-  { method: 'GET', path: '/vendor-bills/:id/payments', permission: 'vendor-bills.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/vendor-bills/:id/payments', permission: 'vendor-bills.pay', legacyRoles: MGMT },
   { method: 'POST', path: '/vendor-bills/:id/payments', permission: 'vendor-bills.pay', legacyRoles: MGMT },
   { method: 'DELETE', path: '/vendor-bills/:id/payments/:paymentId', permission: 'vendor-bills.delete', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/finance/vendor-bills/bulk-status', permission: 'vendor-bills.edit', legacyRoles: MGMT },
@@ -266,13 +272,13 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/fixed-assets', permission: 'finance.create', legacyRoles: MGMT },
   { method: 'PUT', path: '/fixed-assets/:id', permission: 'finance.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/fixed-assets/depreciation', permission: 'finance.post', legacyRoles: MGMT },
-  { method: 'POST', path: '/fixed-assets/:id/disposal', permission: 'finance.edit', legacyRoles: MGMT },
+  { method: 'POST', path: '/fixed-assets/:id/disposal', permission: 'finance.post', legacyRoles: MGMT },
   { method: 'DELETE', path: '/fixed-assets/:id', permission: 'finance.delete', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/bank-statements', permission: 'finance.view', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/bank-statements', permission: 'finance.post', legacyRoles: MGMT },
   { method: 'GET', path: '/bank-statements/:id', permission: 'finance.view', legacyRoles: MGMT },
   { method: 'POST', path: '/bank-statements/:id/lines/:lineId/match', permission: 'finance.post', legacyRoles: MGMT },
-  { method: 'DELETE', path: '/bank-statements/:id/lines/:lineId/match', permission: 'finance.post', legacyRoles: MGMT },
+  { method: 'DELETE', path: '/bank-statements/:id/lines/:lineId/match', permission: 'finance.delete', legacyRoles: MGMT },
   { method: 'POST', path: '/bank-statements/:id/lines/:lineId/ignore', permission: 'finance.post', legacyRoles: MGMT },
   { method: 'POST', path: '/bank-statements/:id/lines/:lineId/entry', permission: 'finance.post', legacyRoles: MGMT },
   { method: 'POST', path: '/bank-statements/:id/reconcile', permission: 'finance.post', legacyRoles: MGMT },
@@ -351,7 +357,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/followups/:id/snooze', permission: 'crm.edit', legacyRoles: ALL },
   { method: 'POST', path: '/followups/:id/reassign', permission: 'crm.edit', legacyRoles: ALL },
   { method: 'POST', path: '/followups/:id/assignees', permission: 'crm.edit', legacyRoles: ALL },
-  { method: 'DELETE', path: '/followups/:id/assignees/:userId', permission: 'crm.edit', legacyRoles: ALL },
+  { method: 'DELETE', path: '/followups/:id/assignees/:userId', permission: 'crm.delete', legacyRoles: ALL },
   { method: 'POST', path: '/followups/:id/complete', permission: 'crm.edit', legacyRoles: ALL },
   { method: 'POST', path: '/companies/:companyId/followups/sweep-overdue', permission: 'crm.manage_pipeline', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/followups', permission: 'crm.view', legacyRoles: ALL },
@@ -390,7 +396,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PUT', path: '/contacts/:id', permission: 'contacts.manage', legacyRoles: MGMT },
   { method: 'POST', path: '/contacts/:id/roles', permission: 'contacts.manage', legacyRoles: MGMT },
   { method: 'GET', path: '/contacts/:id/summary', permission: 'contacts.view', legacyRoles: ALL },
-  { method: 'DELETE', path: '/contacts/:id/roles/:role', permission: 'contacts.manage', legacyRoles: MGMT },
+  { method: 'DELETE', path: '/contacts/:id/roles/:role', permission: 'contacts.delete', legacyRoles: MGMT },
   { method: 'DELETE', path: '/contacts/:id', permission: 'contacts.delete', legacyRoles: MGMT },
   { method: 'POST', path: '/contacts/:id/activities', permission: 'contacts.manage', legacyRoles: MGMT },
   { method: 'GET', path: '/contacts/:id/activities', permission: 'contacts.view_details', legacyRoles: MGMT },
@@ -611,11 +617,11 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PATCH', path: '/conversation-threads/:id', permission: 'per_record', legacyRoles: ALL, note: 'inbox.send: canUseContacts(write), then the contact must be visible' },
 
   // ─── whatsapp ──────────────────────────────────────────────────────────────
-  { method: 'GET', path: '/companies/:companyId/whatsapp/instance', permission: 'whatsapp.manage', legacyRoles: A },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/instance', permission: 'whatsapp.view_connection', legacyRoles: A },
   { method: 'PUT', path: '/companies/:companyId/whatsapp/instance', permission: 'whatsapp.manage', legacyRoles: A },
   { method: 'DELETE', path: '/companies/:companyId/whatsapp/instance', permission: 'whatsapp.manage', legacyRoles: A },
-  { method: 'GET', path: '/companies/:companyId/whatsapp/state', permission: 'whatsapp.manage', legacyRoles: A },
-  { method: 'GET', path: '/companies/:companyId/whatsapp/qr', permission: 'whatsapp.manage', legacyRoles: A },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/state', permission: 'whatsapp.view_connection', legacyRoles: A },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/qr', permission: 'whatsapp.view_connection', legacyRoles: A },
   { method: 'POST', path: '/companies/:companyId/whatsapp/configure-webhook', permission: 'whatsapp.manage', legacyRoles: A },
   { method: 'POST', path: '/companies/:companyId/whatsapp/logout', permission: 'whatsapp.manage', legacyRoles: A },
   { method: 'POST', path: '/companies/:companyId/whatsapp/send', permission: 'whatsapp.send', legacyRoles: MGMT },
@@ -638,20 +644,20 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'DELETE', path: '/custom-fields/:id', permission: 'settings.edit', legacyRoles: AM },
   { method: 'GET', path: '/companies/:companyId/activity-events', permission: 'settings.view_activity', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/approvals/rules', permission: 'settings.view_approvals', legacyRoles: MGMT },
-  { method: 'PUT', path: '/companies/:companyId/approvals/rules', permission: 'settings.manage_approvals', legacyRoles: A, note: 'matrix says finance:write (management), but the handler also requires ADMINISTRATION (routes/approvals.ts), so only Admin' },
+  { method: 'PUT', path: '/companies/:companyId/approvals/rules', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'matrix says finance:write (management), but the handler also requires ADMINISTRATION (routes/approvals.ts), so only Admin' },
   { method: 'GET', path: '/companies/:companyId/approvals', permission: 'settings.view_approvals', legacyRoles: MGMT },
   { method: 'GET', path: '/approvals/:docType/:docId', permission: 'settings.view_approvals', legacyRoles: MGMT },
 
   // ─── people ────────────────────────────────────────────────────────────────
-  { method: 'GET', path: '/positions', permission: 'people.manage_roles', legacyRoles: A, note: 'requireAdmin: the global user.role, not a company role (positions are platform-wide)' },
-  { method: 'GET', path: '/positions/:id', permission: 'people.manage_roles', legacyRoles: A, note: 'requireAdmin: the global user.role, not a company role (positions are platform-wide)' },
-  { method: 'GET', path: '/users', permission: 'people.manage', legacyRoles: AM, note: 'USERS_WRITE in each company shown, scoped to those companies; super admin sees all; GET /users/:id also answers for yourself' },
-  { method: 'GET', path: '/users/:id', permission: 'people.manage', legacyRoles: AM, note: 'USERS_WRITE in each company shown, scoped to those companies; super admin sees all; GET /users/:id also answers for yourself' },
+  { method: 'GET', path: '/positions', permission: 'per_record', note: 'global user.role Admin (legacy quirk: requireAdmin ignores company roles; positions are platform-wide)' },
+  { method: 'GET', path: '/positions/:id', permission: 'per_record', note: 'global user.role Admin (legacy quirk: requireAdmin ignores company roles; positions are platform-wide)' },
+  { method: 'GET', path: '/users', permission: 'per_record', note: 'the union of the companies where the caller has USERS_WRITE (people.manage), each user shown only with those companies; super admin sees all' },
+  { method: 'GET', path: '/users/:id', permission: 'per_record', note: 'self, or USERS_WRITE (people.manage) in a company of the target; shown only with those companies' },
   { method: 'GET', path: '/companies/:companyId/users', permission: 'people.manage', legacyRoles: AM },
   { method: 'GET', path: '/companies/:companyId/members', permission: 'people.view', legacyRoles: ALL },
-  { method: 'POST', path: '/users', permission: 'people.manage', legacyRoles: AM, note: 'USERS_WRITE in every company of the assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles); PUT also lets you edit yourself' },
-  { method: 'PUT', path: '/users/:id', permission: 'people.manage', legacyRoles: AM, note: 'USERS_WRITE in every company of the assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles); PUT also lets you edit yourself' },
-  { method: 'DELETE', path: '/users/:id', permission: 'people.manage', legacyRoles: AM, note: 'USERS_WRITE in every company of the assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles); PUT also lets you edit yourself' },
+  { method: 'POST', path: '/users', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'ungated in the matrix; handler: USERS_WRITE in every company of the assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles)' },
+  { method: 'PUT', path: '/users/:id', permission: 'per_record', note: 'self (own profile), or USERS_WRITE (people.manage) in every company of the target and of the new assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles)' },
+  { method: 'DELETE', path: '/users/:id', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'ungated in the matrix; handler: USERS_WRITE in every company of the target (a super admin target needs the super admin)' },
   { method: 'GET', path: '/companies/:companyId/permission-groups', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
   { method: 'POST', path: '/companies/:companyId/permission-groups', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
   { method: 'PATCH', path: '/permission-groups/:id', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
@@ -698,7 +704,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/public/documents/:id', permission: 'public', note: 'unguessable share link' },
   { method: 'POST', path: '/whatsapp/webhook/:webhookToken', permission: 'public', note: 'Green API webhook: the secret token in the path identifies the company' },
   { method: 'GET', path: '/push/public-key', permission: 'public' },
-  { method: 'POST', path: '/push-actions/:token', permission: 'public', note: 'no session: a signed, single-purpose token, re-checked against the user on use' },
+  { method: 'POST', path: '/push-actions/:token', permission: 'public', note: 'no session: a signed single-purpose token; on use the user must still pass contacts:write (store.listUserIdsWithPermission, i.e. inbox.send), see the contact, and the Academy contacts lock' },
   { method: 'GET', path: '/portal-api/:audience/branding', permission: 'public' },
   { method: 'GET', path: '/portal-api/:audience/invitations/:token', permission: 'public' },
   { method: 'POST', path: '/portal-api/:audience/auth/accept-invite', permission: 'public' },
@@ -750,6 +756,45 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
   'tasks.view': 'GET /tasks, /tasks/:id, comments and time entries (requireTaskViewAccess)',
   'tasks.delete_time': "DELETE /time-entries/:id on someone else's entry",
   'inbox.send': 'conversation thread writes, after the contact is found visible',
+};
+
+/**
+ * In-handler record-rule checks that Task 5 must convert to `can()` / `visible()`
+ * / `mask()` calls, beside the route declarations above. `sites` counts the
+ * `allowsRule(…, 'RULE')` and `requireCompanyRule(…, 'RULE')` calls per file;
+ * the test recounts them, so a new call site fails until it is listed here.
+ * Action rules decide an action inside a route already declared with another
+ * key (e.g. ADMINISTRATION inside POST/PUT /users decides whether Admin,
+ * Manager or Accountant may be given: people.manage_roles). Scope rules decide
+ * own vs company. Field rules decide masking.
+ */
+export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
+  // Action rules
+  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users, permission-group routes); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/permissions/routes.ts': 6, 'src/routes/approvals.ts': 1 } },
+  USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5 } },
+  GROUPS_READ: { becomes: 'people.view_roles', sites: { 'src/permissions/routes.ts': 2 } },
+  GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
+  DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },
+  PORTAL_ACCESS_MANAGE: { becomes: 'portal.* / influencers.review (portal staff router gate)', sites: { 'src/server.ts': 1 } },
+  INVOICES_CREDIT_OVERRIDE: { becomes: 'invoices.override_credit', sites: { 'src/server.ts': 1 } },
+  TIME_ENTRIES_DELETE_OTHERS: { becomes: 'tasks.delete_time', sites: { 'src/server.ts': 1 } },
+  DASHBOARD_OPERATIONS_READ: { becomes: 'dashboard.view_operations', sites: { 'src/server.ts': 1 } },
+  DASHBOARD_FINANCE_READ: { becomes: 'dashboard.view_finance', sites: { 'src/server.ts': 1 } },
+  // Scope rules (own vs company)
+  PROJECTS_ALL_READ: { becomes: 'projects.view scope', sites: { 'src/server.ts': 1 } },
+  TASKS_ALL_READ: { becomes: 'tasks.view / edit / delete scope', sites: { 'src/server.ts': 1 } },
+  // Also read directly as RECORD_RULES.CONTACTS_PRIVATE_READ in server.ts (seesPrivateFor, for conversation alerts to other users).
+  CONTACTS_PRIVATE_READ: { becomes: 'contacts.view / inbox.view scope', sites: { 'src/server.ts': 5, 'src/routes/search.ts': 1 } },
+  CONTACTS_ALL_WRITE: { becomes: 'contacts.edit scope', sites: { 'src/server.ts': 2 } },
+  CRM_ALL_READ: { becomes: 'crm.view scope', sites: { 'src/server.ts': 4 } },
+  CRM_ALL_WRITE: { becomes: 'crm.edit / crm.delete scope', sites: { 'src/server.ts': 10 } },
+  CAMPAIGNS_ALL_READ: { becomes: 'campaigns.view scope', sites: { 'src/server.ts': 1 } },
+  CAMPAIGNS_ALL_WRITE: { becomes: 'campaigns.edit scope', sites: { 'src/server.ts': 3 } },
+  COMMISSIONS_ALL_READ: { becomes: 'commissions.view scope', sites: { 'src/server.ts': 1 } },
+  WHATSAPP_PRIVATE_READ: { becomes: 'whatsapp.view scope', sites: { 'src/routes/whatsapp.ts': 3 } },
+  // Field rules (mask)
+  CONTACTS_PRICING_READ: { becomes: 'rate_cards, client_terms fields', sites: { 'src/server.ts': 4 } },
+  PAYROLL_PAY_READ: { becomes: 'salary, personal_ids, bank_details fields', sites: { 'src/routes/hr.ts': 1 } },
 };
 
 const INDEX = new Map(ROUTES.map((r) => [`${r.method} ${r.path}`, r]));

@@ -194,7 +194,8 @@ export const LEGACY_HOLDERS: Readonly<Record<string, Row>> = {
   'whatsapp.view': ['company', 'company', 'own', false], // WHATSAPP_PRIVATE_READ; Employees have no WhatsApp
   'whatsapp.send': MGMT,
   'whatsapp.edit': MGMT,
-  'whatsapp.manage': A, // instance, QR, state, logout, webhook
+  'whatsapp.view_connection': A, // GET instance, state, QR
+  'whatsapp.manage': A, // PUT/DELETE instance, logout, webhook
 
   'settings.view': ALL, // GET company, custom fields: company access
   'settings.view_numbering': AM, // GET numbering-settings

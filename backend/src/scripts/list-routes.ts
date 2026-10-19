@@ -19,7 +19,7 @@ export interface ListedRoute { method: string; path: string }
 interface Layer {
   route?: { path: string | string[]; methods: Record<string, boolean> };
   name?: string;
-  handle?: { stack?: Layer[] };
+  handle?: { stack?: Layer[]; _router?: unknown };
   regexp?: RegExp & { fast_slash?: boolean };
 }
 
@@ -35,34 +35,42 @@ function mountPath(layer: Layer): string {
   return match[1].replace(/\\\//g, '/');
 }
 
+/**
+ * Walks a router stack. Anything that could route requests in a shape this
+ * walker does not understand (a mounted sub-app, a router under another name,
+ * `app.all`, a method outside METHODS) throws, so no route slips past the
+ * completeness test unseen.
+ */
 function walk(stack: Layer[], prefix: string, out: ListedRoute[]): void {
   for (const layer of stack) {
     if (layer.route) {
       const paths = Array.isArray(layer.route.path) ? layer.route.path : [layer.route.path];
+      const methods = Object.keys(layer.route.methods).filter((m) => layer.route!.methods[m]);
+      const unknown = methods.filter((m) => !METHODS.includes(m));
+      if (unknown.length) throw new Error(`list-routes: ${paths.join(', ')} uses ${unknown.join(', ')}`);
       for (const p of paths) {
-        for (const method of METHODS) {
-          if (layer.route.methods[method]) out.push({ method: method.toUpperCase(), path: prefix + p });
-        }
+        if (typeof p !== 'string') throw new Error(`list-routes: non-string route path under ${prefix}`);
+        for (const method of methods) out.push({ method: method.toUpperCase(), path: prefix + p });
       }
-    } else if (layer.name === 'router' && layer.handle?.stack) {
+    } else if (layer.handle?._router) {
+      throw new Error(`list-routes: a sub-app is mounted under ${prefix || '/'}; walk it explicitly`);
+    } else if (layer.handle?.stack) {
+      if (layer.name !== 'router') throw new Error(`list-routes: unknown layer ${layer.name} with a stack under ${prefix || '/'}`);
       walk(layer.handle.stack, prefix + mountPath(layer), out);
     }
   }
 }
 
-/** Every method + path the app routes, de-duplicated, in registration order. */
+/**
+ * Every method + path the app routes, in registration order. Duplicates are
+ * kept (Express answers with the first; the test asserts there are none).
+ */
 export function listRoutes(app: Express): ListedRoute[] {
   const router = (app as unknown as { _router?: { stack: Layer[] } })._router;
   if (!router) return [];
   const out: ListedRoute[] = [];
   walk(router.stack, '', out);
-  const seen = new Set<string>();
-  return out.filter((r) => {
-    const key = `${r.method} ${r.path}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return out;
 }
 
 /**

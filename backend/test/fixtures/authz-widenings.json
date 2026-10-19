@@ -1,0 +1,314 @@
+{
+  "campaigns:campaigns.generate-invoice.create": [
+    "POST /companies/:companyId/campaigns/:campaignId/sync-invoice"
+  ],
+  "campaigns:campaigns.sync-invoice.create": [
+    "POST /companies/:companyId/campaigns/:campaignId/generate-invoice"
+  ],
+  "campaigns:delete": [
+    "PUT /campaign-assignments/:id",
+    "PUT /campaign-deliverables/:id",
+    "PUT /campaign-expenses/:id",
+    "PUT /campaigns/:id"
+  ],
+  "campaigns:write": [
+    "DELETE /campaign-assignments/:id",
+    "DELETE /campaign-deliverables/:id",
+    "DELETE /campaign-expenses/:id"
+  ],
+  "contacts:clients.read": [
+    "GET /companies/:companyId/suppliers",
+    "GET /contacts/:id",
+    "GET /contacts/:id/activities"
+  ],
+  "contacts:contacts.activities.read": [
+    "GET /companies/:companyId/clients",
+    "GET /companies/:companyId/suppliers",
+    "GET /contacts/:id"
+  ],
+  "contacts:contacts.read": [
+    "GET /companies/:companyId/clients",
+    "GET /companies/:companyId/suppliers",
+    "GET /contacts/:id/activities"
+  ],
+  "contacts:contacts.workspace.contacts.peak-contact.create": [
+    "GET /contacts/:id/workspace"
+  ],
+  "contacts:contacts.workspace.read": [
+    "POST /contacts/:id/workspace/contacts/:wsContactId/peak-contact"
+  ],
+  "contacts:create": [
+    "PUT /clients/:id",
+    "PUT /contacts/:id"
+  ],
+  "contacts:suppliers.read": [
+    "GET /companies/:companyId/clients",
+    "GET /contacts/:id",
+    "GET /contacts/:id/activities"
+  ],
+  "contacts:write": [
+    "POST /clients",
+    "POST /companies/:companyId/contacts/import",
+    "POST /companies/:companyId/suppliers",
+    "POST /contacts/:id/activities",
+    "POST /contacts/:id/roles"
+  ],
+  "crm:contributions.create": [
+    "DELETE /contributions/:id",
+    "POST /companies/:companyId/followups/sweep-overdue",
+    "POST /opportunities/:id/commissions/recalculate"
+  ],
+  "crm:contributions.delete": [
+    "POST /companies/:companyId/contributions",
+    "POST /companies/:companyId/followups/sweep-overdue",
+    "POST /opportunities/:id/commissions/recalculate"
+  ],
+  "crm:create": [
+    "PATCH /followups/:id",
+    "PATCH /opportunities/:id/stage",
+    "PATCH /proposals/:id/status",
+    "PUT /opportunities/:id",
+    "PUT /proposals/:id",
+    "PUT /vendor-requests/:id"
+  ],
+  "crm:followups.bulk-reassign.create": [
+    "GET /companies/:companyId/followups/coverage-gaps",
+    "GET /companies/:companyId/followups/workload"
+  ],
+  "crm:followups.coverage-gaps.read": [
+    "GET /companies/:companyId/followups/workload",
+    "POST /companies/:companyId/followups/bulk-reassign"
+  ],
+  "crm:followups.sweep-overdue.create": [
+    "DELETE /contributions/:id",
+    "POST /companies/:companyId/contributions",
+    "POST /opportunities/:id/commissions/recalculate"
+  ],
+  "crm:followups.workload.read": [
+    "GET /companies/:companyId/followups/coverage-gaps",
+    "POST /companies/:companyId/followups/bulk-reassign"
+  ],
+  "crm:opportunities.commissions.recalculate.create": [
+    "DELETE /contributions/:id",
+    "POST /companies/:companyId/contributions",
+    "POST /companies/:companyId/followups/sweep-overdue"
+  ],
+  "crm:write": [
+    "POST /followups/:id/assignees",
+    "POST /followups/:id/complete",
+    "POST /followups/:id/done",
+    "POST /followups/:id/reassign",
+    "POST /followups/:id/reschedule",
+    "POST /followups/:id/snooze"
+  ],
+  "finance:create": [
+    "PATCH /vendor-bills/:id/status",
+    "PATCH /vendor-bills/:id/template",
+    "POST /companies/:companyId/payables/pending/bill",
+    "PUT /vendor-bills/:id"
+  ],
+  "finance:delete": [
+    "DELETE /expenses/:id"
+  ],
+  "finance:read": [
+    "GET /companies/:companyId/payables/pending",
+    "GET /vendor-bills/:id/document",
+    "GET /vendor-bills/:id/match",
+    "GET /vendor-bills/:id/pdf"
+  ],
+  "hr:attendance.read": [
+    "GET /companies/:companyId/hr/gratuity"
+  ],
+  "hr:delete": [
+    "DELETE /departments/:id",
+    "DELETE /employees/:id",
+    "DELETE /leave-requests/:id",
+    "DELETE /leave-types/:id"
+  ],
+  "hr:hr.gratuity.read": [
+    "GET /companies/:companyId/attendance"
+  ],
+  "inventory:create": [
+    "PATCH /deliveries/:id/status",
+    "POST /companies/:companyId/customer-returns",
+    "POST /customer-returns/:id/receipt",
+    "POST /sales-orders/:id/deliveries",
+    "PUT /shipments/:id"
+  ],
+  "inventory:inventory-items.restore.create": [
+    "DELETE /warehouses/:id",
+    "POST /companies/:companyId/warehouses",
+    "PUT /inventory-items/:id",
+    "PUT /warehouses/:id",
+    "PUT /warehouses/:id/storage"
+  ],
+  "inventory:read": [
+    "GET /companies/:companyId/customer-returns",
+    "GET /companies/:companyId/deliveries",
+    "GET /sales-orders/:id/deliveries"
+  ],
+  "inventory:shipments.write": [
+    "PATCH /deliveries/:id/status",
+    "POST /shipments/:id/status"
+  ],
+  "inventory:warehouses.create": [
+    "DELETE /warehouses/:id",
+    "POST /inventory-items/:id/restore",
+    "PUT /inventory-items/:id",
+    "PUT /warehouses/:id",
+    "PUT /warehouses/:id/storage"
+  ],
+  "inventory:warehouses.delete": [
+    "POST /companies/:companyId/warehouses",
+    "POST /inventory-items/:id/restore",
+    "PUT /inventory-items/:id",
+    "PUT /warehouses/:id",
+    "PUT /warehouses/:id/storage"
+  ],
+  "inventory:write": [
+    "DELETE /warehouses/:id",
+    "POST /companies/:companyId/warehouses",
+    "POST /inventory-items/:id/restore"
+  ],
+  "invoices:create": [
+    "PATCH /invoices/:id/status",
+    "PUT /companies/:companyId/client-reminders",
+    "PUT /invoice-templates/:id",
+    "PUT /invoices/:id"
+  ],
+  "invoices:delete": [
+    "DELETE /credit-notes/:id"
+  ],
+  "invoices:write": [
+    "POST /companies/:companyId/invoice-templates",
+    "POST /companies/:companyId/invoices/bulk-status"
+  ],
+  "projects:create": [
+    "DELETE /projects/:id/members/:userId",
+    "PUT /projects/:id"
+  ],
+  "projects:delete": [
+    "POST /projects/:id/members",
+    "PUT /projects/:id"
+  ],
+  "projects:write": [
+    "DELETE /projects/:id/members/:userId",
+    "POST /projects/:id/members"
+  ],
+  "purchasing:approve": [
+    "POST /purchase-orders/:id/reject",
+    "POST /purchase-requisitions/:id/reject"
+  ],
+  "purchasing:delete": [
+    "DELETE /purchase-orders/:id",
+    "DELETE /purchase-requisitions/:id"
+  ],
+  "purchasing:purchase-orders.reject.create": [
+    "POST /purchase-orders/:id/approve",
+    "POST /purchase-requisitions/:id/approve",
+    "POST /purchase-requisitions/:id/reject"
+  ],
+  "purchasing:purchase-requisitions.reject.create": [
+    "POST /purchase-orders/:id/approve",
+    "POST /purchase-orders/:id/reject",
+    "POST /purchase-requisitions/:id/approve"
+  ],
+  "sales:create": [
+    "POST /companies/:companyId/shipments"
+  ],
+  "sales:delete": [
+    "DELETE /sales-orders/:id"
+  ],
+  "sales:read": [
+    "GET /companies/:companyId/shipments"
+  ],
+  "sales:write": [
+    "POST /shipments/:id/status",
+    "PUT /shipments/:id"
+  ],
+  "settings:companies.read": [
+    "GET /companies/:companyId/custom-fields"
+  ],
+  "settings:custom-fields.create": [
+    "DELETE /custom-fields/:id",
+    "PUT /companies/:companyId/numbering-settings/:entityType",
+    "PUT /companies/:id",
+    "PUT /custom-fields/:id"
+  ],
+  "settings:custom-fields.delete": [
+    "POST /companies/:companyId/custom-fields",
+    "PUT /companies/:companyId/numbering-settings/:entityType",
+    "PUT /companies/:id",
+    "PUT /custom-fields/:id"
+  ],
+  "settings:custom-fields.read": [
+    "GET /companies/:id"
+  ],
+  "settings:users.read": [
+    "DELETE /users/:id",
+    "POST /users"
+  ],
+  "settings:users.write": [
+    "GET /companies/:companyId/users"
+  ],
+  "settings:write": [
+    "DELETE /custom-fields/:id",
+    "POST /companies/:companyId/custom-fields"
+  ],
+  "vendor-bills:create": [
+    "POST /companies/:companyId/finance/vendor-bills"
+  ],
+  "vendor-bills:delete": [
+    "DELETE /vendor-bills/:id"
+  ],
+  "vendor-bills:read": [
+    "GET /companies/:companyId/finance/supplier-payables",
+    "GET /companies/:companyId/finance/vendor-bills"
+  ],
+  "vendor-bills:write": [
+    "POST /companies/:companyId/finance/vendor-bills/bulk-status"
+  ],
+  "whatsapp:create": [
+    "PATCH /companies/:companyId/whatsapp/chats/:chatId/settings",
+    "POST /companies/:companyId/whatsapp/send"
+  ],
+  "whatsapp:delete": [
+    "POST /companies/:companyId/whatsapp/configure-webhook",
+    "POST /companies/:companyId/whatsapp/logout",
+    "PUT /companies/:companyId/whatsapp/instance"
+  ],
+  "whatsapp:send": [
+    "POST /companies/:companyId/whatsapp/open-chat"
+  ],
+  "whatsapp:whatsapp.chats.read": [
+    "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
+    "GET /companies/:companyId/whatsapp/messages"
+  ],
+  "whatsapp:whatsapp.chats.settings.read": [
+    "GET /companies/:companyId/whatsapp/chats",
+    "GET /companies/:companyId/whatsapp/messages"
+  ],
+  "whatsapp:whatsapp.chats.settings.write": [
+    "POST /companies/:companyId/whatsapp/chats/:chatId/read",
+    "POST /companies/:companyId/whatsapp/chats/:chatId/sync-history"
+  ],
+  "whatsapp:whatsapp.configure-webhook.create": [
+    "DELETE /companies/:companyId/whatsapp/instance",
+    "POST /companies/:companyId/whatsapp/logout",
+    "PUT /companies/:companyId/whatsapp/instance"
+  ],
+  "whatsapp:whatsapp.logout.create": [
+    "DELETE /companies/:companyId/whatsapp/instance",
+    "POST /companies/:companyId/whatsapp/configure-webhook",
+    "PUT /companies/:companyId/whatsapp/instance"
+  ],
+  "whatsapp:whatsapp.messages.read": [
+    "GET /companies/:companyId/whatsapp/chats",
+    "GET /companies/:companyId/whatsapp/chats/:chatId/settings"
+  ],
+  "whatsapp:write": [
+    "DELETE /companies/:companyId/whatsapp/instance",
+    "POST /companies/:companyId/whatsapp/configure-webhook",
+    "POST /companies/:companyId/whatsapp/logout"
+  ]
+}
