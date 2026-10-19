@@ -23,7 +23,8 @@ import {
   NOTIFY_KEYS, catalogueKey, configuredEngine, forbiddenBody, recordShadowDivergence, ruleAllowsV2, scopeAtLeast,
   type PermissionsEngine,
 } from './authz/engine';
-import { effective, type Effective } from './authz/evaluate';
+import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
+import { type VisibleArea, type VisibleOptions } from './authz/visible';
 import { can, scopeOf } from './authz/can';
 import { routeDecl, type RouteDecl } from './authz/route-registry';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
@@ -989,15 +990,24 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   /**
-   * Runs a shadow-only v2 computation that must never change the outcome: an
-   * error is logged and the legacy answer stands.
+   * The Effective that decides what this person SEES (authz/visible.ts), read
+   * once per request. Ruling D: legacy and shadow use the role's template
+   * (effectiveLegacy), so lists answer exactly as the roles did; v2 the real one.
    */
-  const shadowSafe = (label: string, fn: () => void) => {
-    try {
-      fn();
-    } catch (error) {
-      logger.warn(`[authz] shadow comparison failed (${label}): ${error instanceof Error ? error.message : String(error)}`);
-    }
+  const viewerOf = (req: AuthedRequest): Effective => {
+    if (engine === 'v2') return effectiveFor(req);
+    const r = req as AuthedRequest & { authzLegacyEffective?: Effective };
+    r.authzLegacyEffective ??= effectiveLegacy(store, req.user!.id);
+    return r.authzLegacyEffective;
+  };
+
+  /** One record of a scoped area, by the same rule as its list. */
+  const canSee = (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, options: VisibleOptions = {}): boolean =>
+    store.isVisibleTo(viewerOf(req), area, companyId, id, options);
+
+  /** A record the person may not see is a 404: never reveal that it exists. */
+  const requireVisible = (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, what = 'Not found.') => {
+    if (!canSee(req, area, companyId, id)) throw new HttpError(404, what);
   };
 
   /** Under v2, asking the route's own declared key counts as deciding the request. */
@@ -1377,21 +1387,13 @@ export function createServer(options: CreateServerOptions = {}) {
     if (engine === 'v2' && declared) (req as DecidedRequest).authzDecided = true;
   };
 
-  const canViewProject = (req: AuthedRequest, project: Project): boolean => {
-    const user = req.user!;
+  /**
+   * One project, by the projects rule of authz/visible.ts (Public or a member
+   * of my reach, every one at company scope; nothing without projects.view).
+   */
+  const canViewProject = (req: AuthedRequest, project: Pick<Project, 'id' | 'companyId'>): boolean => {
     if (!store.isModuleEnabled(project.companyId, 'projects')) return false;
-    // projects.view at any scope lets a person see public projects and those
-    // they belong to; PROJECTS_ALL_READ (projects.view at company scope) every one.
-    const holdsView = decideAccess(
-      req, project.companyId,
-      () => Boolean(getEffectiveRole(user, project.companyId)),
-      (eff) => scopeOf(eff, 'projects.view', project.companyId) !== null,
-      () => 'projects.view',
-      'projects.view @ ',
-    );
-    if (!holdsView) return false;
-    if (allowsRule(req, project.companyId, 'PROJECTS_ALL_READ')) return true;
-    return project.visibility === 'Public' || Boolean(project.memberIds?.includes(user.id));
+    return canSee(req, 'projects', project.companyId, project.id);
   };
 
   const requireProjectViewAccess = (req: AuthedRequest, project: Project) => {
@@ -1402,51 +1404,20 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  // Task visibility: holders of tasks:all.read (Admins, Managers and Accountants
-  // by default) see every task in the company.
-  // For Employees, project access cascades to its tasks — anyone who can see a
-  // project (Public, or one they're a member of) sees every task under it. A
-  // project-less task, or one in a project they cannot see, is visible only if
-  // it is directly assigned to them. Company scoping is enforced by the callers.
-  const canViewTask = (
-    req: AuthedRequest,
-    task: {
-      companyId: string;
-      projectId?: string | null;
-      assignedUserIds?: string[];
-      ownerId?: string | null;
-      isPrivate?: boolean;
-    },
-  ): boolean => {
-    const user = req.user!;
+  /**
+   * One task, by the tasks rule of authz/visible.ts: company scope every task;
+   * below it, assigned within my reach or in a project I can see. A private
+   * task is only its owner's and assignees' (the platform super admin keeps
+   * access for support). Company scoping is enforced by the callers.
+   */
+  const canViewTask = (req: AuthedRequest, task: { id: string; companyId: string }): boolean => {
     if (!store.isModuleEnabled(task.companyId, 'tasks')) return false;
-    const isAssignee = (task.assignedUserIds ?? []).includes(user.id);
-    // A private task is visible ONLY to its owner and assignees — it overrides
-    // the role-based default and the project cascade. The platform super-admin
-    // retains access for support/audit; company Admins/Managers do not.
-    if (task.isPrivate) {
-      if (user.isSuperAdmin) return true;
-      return task.ownerId === user.id || isAssignee;
-    }
-    const holdsView = decideAccess(
-      req, task.companyId,
-      () => Boolean(getEffectiveRole(user, task.companyId)),
-      (eff) => scopeOf(eff, 'tasks.view', task.companyId) !== null,
-      () => 'tasks.view',
-      'tasks.view @ ',
-    );
-    if (holdsView && allowsRule(req, task.companyId, 'TASKS_ALL_READ')) return true;
-    if (isAssignee) return true;
-    if (task.projectId) {
-      const project = store.getProjectById(task.projectId);
-      if (project && canViewProject(req, project)) return true;
-    }
-    return false;
+    return canSee(req, 'tasks', task.companyId, task.id, { platformSupport: Boolean(req.user!.isSuperAdmin) });
   };
 
   const requireTaskViewAccess = (
     req: AuthedRequest,
-    task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
+    task: { id: string; companyId: string },
   ) => {
     requireCompanyAccess(req, task.companyId);
     requireModuleOn(task.companyId, 'tasks');
@@ -1976,7 +1947,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
-    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
+    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
 
@@ -3106,15 +3077,12 @@ export function createServer(options: CreateServerOptions = {}) {
     '/projects',
     authMiddleware,
     handler((req, res) => {
-      const accessible = new Set(getAccessibleCompanyIds(req.user!));
-      res.json(
-        store
-          .listProjects()
-          .filter(
-            (project) =>
-              accessible.has(project.companyId) && canViewProject(req, project),
-          ),
-      );
+      // Every company the person belongs to, each by its own visibility (in SQL).
+      const viewer = viewerOf(req);
+      const parts = getAccessibleCompanyIds(req.user!)
+        .filter((companyId) => store.isModuleEnabled(companyId, 'projects'))
+        .map((companyId) => ({ companyId, viewer }));
+      res.json(store.listVisibleProjects(parts));
     }),
   );
 
@@ -3220,13 +3188,12 @@ export function createServer(options: CreateServerOptions = {}) {
     '/tasks',
     authMiddleware,
     handler((req, res) => {
-      const accessible = new Set(getAccessibleCompanyIds(req.user!));
-      res.json(
-        store
-          .listTasks()
-          .filter((task) => accessible.has(task.companyId))
-          .filter((task) => canViewTask(req, task)),
-      );
+      const viewer = viewerOf(req);
+      const platformSupport = Boolean(req.user!.isSuperAdmin);
+      const parts = getAccessibleCompanyIds(req.user!)
+        .filter((companyId) => store.isModuleEnabled(companyId, 'tasks'))
+        .map((companyId) => ({ companyId, viewer, platformSupport }));
+      res.json(store.listVisibleTasks(parts));
     }),
   );
 
@@ -3246,14 +3213,13 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
-      res.json(
-        store
-          .getTasksByClient(req.params.companyId, req.params.clientId)
-          .filter((task) => {
-            const project = store.getProjectById(task.projectId);
-            return Boolean(project && canViewProject(req, project));
-          }),
+      // Tasks of the client's projects, in the projects this person can see.
+      const companyId = req.params.companyId;
+      if (!store.isModuleEnabled(companyId, 'projects')) { res.json([]); return; }
+      const projectIds = new Set(
+        store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }], { sql: 'p.clientId = ?', params: [req.params.clientId] }).map((p) => p.id),
       );
+      res.json(store.getTasksByClient(companyId, req.params.clientId).filter((task) => projectIds.has(task.projectId)));
     }),
   );
 
@@ -3456,8 +3422,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const role = req.query.role as string | undefined;
-	      const viewer = { userId: req.user!.id, seesPrivate: allowsRule(req, req.params.companyId, 'CONTACTS_PRIVATE_READ') };
-	      const contacts = store.listContacts(req.params.companyId, role as any, viewer);
+	      const contacts = store.listContacts(req.params.companyId, role as any, viewerOf(req));
 	      res.json(redactContacts(contacts, allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ')));
 	    }),
 	  );
@@ -3468,8 +3433,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
       // The export shows exactly what the list shows: others' private contacts only to those allowed.
-      const viewer = { userId: req.user!.id, seesPrivate: allowsRule(req, req.params.companyId, 'CONTACTS_PRIVATE_READ') };
-      const contacts = store.listContacts(req.params.companyId, undefined, viewer);
+      const contacts = store.listContacts(req.params.companyId, undefined, viewerOf(req));
       const csv = toCsv(
         ['name', 'kind', 'email', 'phone', 'address', 'taxNumber', 'roles', 'leadStatus', 'ownerName', 'tags'],
         contacts.map((c) => [
@@ -3527,7 +3491,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
       const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
-      const influencers = store.listContacts(req.params.companyId, 'Influencer' as any);
+      // Exactly the influencers the contact list shows this person.
+      const influencers = store.listContacts(req.params.companyId, 'Influencer' as any, viewerOf(req));
       const csv = toCsv(
         showPricing
           ? INFLUENCER_CSV_COLUMNS
@@ -3655,6 +3620,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', contact.companyId, contact.id);
       res.json(contact);
     }),
   );
@@ -3733,6 +3699,8 @@ export function createServer(options: CreateServerOptions = {}) {
         'Employee',
       ]);
       const companyId = contact.companyId;
+      // A private contact the person may not see does not exist for them.
+      requireVisible(req, 'contacts', companyId, contact.id, 'Contact not found.');
       // Sections from a module the company switched off stay empty.
       const on = (module: string) => store.isModuleEnabled(companyId, module);
 
@@ -3765,14 +3733,11 @@ export function createServer(options: CreateServerOptions = {}) {
         ? (on('vendor-bills') ? store.listVendorBills(companyId) : ([] as ReturnType<typeof store.listVendorBills>))
             .filter((bill) => bill.supplierId === linkedSupplierId)
         : [];
-      const opportunities = (on('crm') ? store.listOpportunities(companyId) : ([] as ReturnType<typeof store.listOpportunities>))
+      // Opportunities and projects: only those the person may see (authz/visible.ts).
+      const opportunities = (on('crm') ? store.listOpportunities(companyId, viewerOf(req)) : ([] as ReturnType<typeof store.listOpportunities>))
         .filter((opp) => opp.contactId === contact.id);
-      const projects = linkedClientId
-        ? (on('projects') ? store.listProjects() : ([] as ReturnType<typeof store.listProjects>))
-            .filter(
-              (project) =>
-                project.companyId === companyId && project.clientId === linkedClientId,
-            )
+      const projects = linkedClientId && on('projects')
+        ? store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }], { sql: 'p.clientId = ?', params: [linkedClientId] })
         : [];
 
       const totals = {
@@ -3870,6 +3835,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', contact.companyId, contact.id);
       const limit = req.query.limit ? Number(req.query.limit) : 50;
       res.json(store.listActivityEvents(contact.companyId, { entityType: 'contact', entityId: req.params.id, limit }));
     }),
@@ -4152,13 +4118,17 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const contactId = optionalString(req.query.contactId);
-	      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
+	      // What the person may see (authz/visible.ts: own = theirs or invited,
+	      // team = their line's, company = all). Below team scope the list is
+	      // always their own, whatever owner was asked for (as before).
+	      const viewer = viewerOf(req);
+	      const scope = scopeOf(viewer, 'crm.view', req.params.companyId);
 	      const requestedOwnerUserId = optionalString(req.query.ownerUserId);
-	      const ownerUserId = !seesAll ? req.user!.id : requestedOwnerUserId;
+	      const ownerUserId = scope === null || scope === 'own' ? req.user!.id : requestedOwnerUserId;
 	      const overdueParam = req.query.overdue;
       const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
-      const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit });
+      const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit, viewer });
       // Enrich with the contact behind the follow-up, and a label for what it is
       // actually about. A collections queue that cannot name the invoice, or that
       // reports every row as a deleted contact because invoices have none, is not
@@ -4171,7 +4141,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
         if (f.entityType === 'opportunity') {
           const opp = store.getOpportunityById(f.entityId);
-          if (opp) {
+          if (opp && canSee(req, 'opportunities', opp.companyId, opp.id)) {
             entityLabel = opp.title;
             if (!contact && opp.contactId) contact = store.getContactById(opp.contactId);
           }
@@ -4184,6 +4154,8 @@ export function createServer(options: CreateServerOptions = {}) {
           }
         }
 
+        // A contact the person may not see is not named (a private one stays private).
+        if (contact && !canSee(req, 'contacts', contact.companyId, contact.id)) contact = undefined;
         return {
           ...f,
           contact: contact
@@ -4250,11 +4222,16 @@ export function createServer(options: CreateServerOptions = {}) {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const ownerParam = optionalString(req.query.ownerUserId);
 		      const ownerUserId = ownerParam === 'me' ? req.user!.id : ownerParam;
-		      // Someone else's figures: CRM_ALL_READ (crm.view at company scope; management today).
+		      // Someone else's figures: CRM_ALL_READ (crm.view at company scope;
+		      // management today), or a team scope that reaches them.
+		      const viewer = viewerOf(req);
 		      if (ownerUserId && ownerUserId !== req.user!.id) {
-		        requireCompanyRule(req, req.params.companyId, 'CRM_ALL_READ');
+		        const inTeam = scopeOf(viewer, 'crm.view', req.params.companyId) === 'team'
+		          && viewer.team(req.params.companyId).has(ownerUserId);
+		        if (!inTeam) requireCompanyRule(req, req.params.companyId, 'CRM_ALL_READ');
 		      }
-		      res.json(store.getCrmDashboardSummary(req.params.companyId, ownerUserId));
+		      // Every figure counts only what the person may see (authz/visible.ts).
+		      res.json(store.getCrmDashboardSummary(req.params.companyId, ownerUserId, viewer));
 		    }),
 		  );
 
@@ -4279,9 +4256,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const opportunities = store.listOpportunities(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-		      res.json(!seesAll ? opportunities.filter((item) => item.ownerUserId === req.user!.id) : opportunities);
+		      res.json(store.listOpportunities(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -4420,18 +4395,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const proposals = store.listCrmProposals(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-		      if (seesAll) {
-		        res.json(proposals);
-		        return;
-		      }
-		      const ownedOpportunityIds = new Set(
-		        store.listOpportunities(req.params.companyId)
-		          .filter((opportunity) => opportunity.ownerUserId === req.user!.id)
-		          .map((opportunity) => opportunity.id),
-		      );
-		      res.json(proposals.filter((proposal) => ownedOpportunityIds.has(proposal.opportunityId)));
+		      // A proposal is seen with its opportunity (authz/visible.ts).
+		      res.json(store.listCrmProposals(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -4554,9 +4519,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const includeArchived = req.query.includeArchived === 'true';
-		      const campaigns = store.listCrmCampaigns(req.params.companyId, includeArchived);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CAMPAIGNS_ALL_READ');
-		      res.json(!seesAll ? campaigns.filter((campaign) => campaign.ownerUserId === req.user!.id) : campaigns);
+		      res.json(store.listCrmCampaigns(req.params.companyId, includeArchived, viewerOf(req)));
 		    }),
 		  );
 
@@ -4709,8 +4672,12 @@ export function createServer(options: CreateServerOptions = {}) {
 		    const campaign = store.getCrmCampaignById(campaignId);
 		    if (!campaign) throw new HttpError(404, 'Campaign not found.');
 		    requireCompanyRoles(req, campaign.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		    const managesAll = allowsRule(req, campaign.companyId, 'CAMPAIGNS_ALL_WRITE');
-		    if (!managesAll && campaign.ownerUserId !== req.user!.id) {
+		    // Reading a campaign's parts follows the list (authz/visible.ts);
+		    // changing them needs CAMPAIGNS_ALL_WRITE for someone else's.
+		    const allowed = action === 'view'
+		      ? canSee(req, 'campaigns', campaign.companyId, campaign.id)
+		      : allowsRule(req, campaign.companyId, 'CAMPAIGNS_ALL_WRITE') || campaign.ownerUserId === req.user!.id;
+		    if (!allowed) {
 		      throw new HttpError(403, `You can only ${action} your own campaigns.`);
 		    }
 		    return campaign;
@@ -4956,9 +4923,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const requests = store.listVendorRequests(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-		      res.json(!seesAll ? requests.filter((request) => request.requestedByUserId === req.user!.id) : requests);
+		      res.json(store.listVendorRequests(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -5254,9 +5219,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const commissions = store.listCommissions(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'COMMISSIONS_ALL_READ');
-		      res.json(!seesAll ? commissions.filter((commission) => commission.userId === req.user!.id) : commissions);
+		      res.json(store.listCommissions(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -7666,7 +7629,10 @@ export function createServer(options: CreateServerOptions = {}) {
       const variant: UserRole = operations && finance
         ? 'Admin'
         : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
-      res.json(store.getDashboardPayload(req.params.companyId, { userId: req.user!.id, role: variant, companyRole: getEffectiveRole(req.user!, req.params.companyId) ?? undefined }));
+      res.json(store.getDashboardPayload(req.params.companyId, {
+        userId: req.user!.id, role: variant, companyRole: getEffectiveRole(req.user!, req.params.companyId) ?? undefined,
+        visibleTo: viewerOf(req),
+      }));
     }),
   );
 
@@ -8251,7 +8217,7 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
-      seesPrivate: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
+      seesContact: (req, contact) => canSee(req as AuthedRequest, 'inbox', contact.companyId, contact.id),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
     }),
@@ -8263,26 +8229,16 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       requireManager: (req, companyId) => requireCompanyRoles(req as AuthedRequest, companyId, ['Admin', 'Manager']),
-      viewerFor: (req, companyId) => ({
+      // A contact is visible by the inbox rule of authz/visible.ts (inbox.view's
+      // scope; public contacts to anyone with the inbox).
+      viewerFor: (req) => ({
         kind: 'staff',
         userId: (req as AuthedRequest).user!.id,
-        seesPrivate: allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
+        sees: (contact) => canSee(req as AuthedRequest, 'inbox', contact.companyId, contact.id),
       }),
       portalCompanyId: options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID,
-      // Same rule as allowsRule(..., 'CONTACTS_PRIVATE_READ'), evaluated for another user.
-      seesPrivateFor: (userId, companyId) => {
-        const rule = RECORD_RULES.CONTACTS_PRIVATE_READ;
-        const user = store.getUserById(userId);
-        if (!user || !store.isModuleEnabled(companyId, rule.module)) return false;
-        const legacy = requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
-        if (engine === 'legacy') return legacy;
-        if (engine === 'v2') return ruleAllowsV2(effective(store, userId), 'CONTACTS_PRIVATE_READ', companyId).allowed;
-        shadowSafe('CONTACTS_PRIVATE_READ for another user', () => recordShadowDivergence(store, {
-          userId, companyId, key: 'contacts.view', route: 'rule CONTACTS_PRIVATE_READ (other user)', legacyAllowed: legacy,
-          newAllowed: ruleAllowsV2(effective(store, userId), 'CONTACTS_PRIVATE_READ', companyId).allowed,
-        }));
-        return legacy;
-      },
+      // The same rule evaluated for another user (assignees, mentions).
+      contactVisibleTo: (userId, contact) => store.isVisibleTo(store.visibilityEffective(userId), 'inbox', contact.companyId, contact.id),
       // Conversations are part of contacts: the same gate as GET /companies/:companyId/contacts
       // (contacts:read) and PATCH /contacts/:id (contacts:write; every company role under legacy).
       // v2: inbox.view to read, inbox.send to write.

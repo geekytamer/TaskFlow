@@ -1,13 +1,17 @@
 import type { Contact } from '../types';
 import type { ConvMessage } from './conversations-store';
 
-export type StaffViewer = { kind: 'staff'; userId: string; seesPrivate: boolean };
+/**
+ * A staff member reading conversations. `sees` answers whether a contact is
+ * visible to them — the inbox rule of authz/visible.ts, decided by the server.
+ */
+export type StaffViewer = { kind: 'staff'; userId: string; sees(contact: Pick<Contact, 'id' | 'companyId'>): boolean };
 export type PortalViewer = { kind: 'portal'; portalUserId: string; contactId: string };
 export type Viewer = StaffViewer | PortalViewer;
 
-/** Same rule as the contact list: public, or the viewer owns it, or may read private contacts. */
-export function canSeeContact(contact: Pick<Contact, 'visibility' | 'ownerUserId'>, viewer: StaffViewer): boolean {
-  return contact.visibility !== 'Private' || contact.ownerUserId === viewer.userId || viewer.seesPrivate;
+/** Same rule as the contact list (authz/visible.ts): public, or within the viewer's reach, or shared with them. */
+export function canSeeContact(contact: Pick<Contact, 'id' | 'companyId'>, viewer: StaffViewer): boolean {
+  return viewer.sees(contact);
 }
 
 /** Portal: only external portal-channel messages. Staff: everything but another person's owner_private. */

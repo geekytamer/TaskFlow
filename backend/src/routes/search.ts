@@ -5,7 +5,7 @@ import type { Express } from 'express';
 
 /** Global search. */
 export function registerSearchRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyAccess, allowsRule, allowsKey, canViewProject, canViewTask } = ctx;
+  const { store, authMiddleware, requireCompanyAccess, allowsKey, viewerOf } = ctx;
 
   /**
    * Whether the user may see a kind of result: the module on, and the catalogue
@@ -31,9 +31,10 @@ export function registerSearchRoutes(app: Express, ctx: RouteContext): void {
       const management: UserRole[] = ['Admin', 'Manager', 'Accountant'];
       const everyone: UserRole[] = ['Admin', 'Manager', 'Accountant', 'Employee'];
 
+      // Scoped areas (contacts, projects, tasks) list only what the person may
+      // see, by authz/visible.ts — the same rule as their own lists.
       if (holds(req, companyId, 'contacts', 'contacts.view', everyone)) {
-        const viewer = { userId: req.user!.id, seesPrivate: allowsRule(req, companyId, 'CONTACTS_PRIVATE_READ') };
-        add('contacts', store.listContacts(companyId, undefined, viewer).filter((c) => hit(c.name, c.email, c.phone, c.taxNumber))
+        add('contacts', store.listContacts(companyId, undefined, viewerOf(req)).filter((c) => hit(c.name, c.email, c.phone, c.taxNumber))
           .map((c) => ({ id: c.id, title: c.name, subtitle: c.email || c.phone || (c.roles ?? []).join(', '), route: `/contacts/${c.id}` })));
       }
       if (holds(req, companyId, 'invoices', 'invoices.view', management)) {
@@ -59,11 +60,11 @@ export function registerSearchRoutes(app: Express, ctx: RouteContext): void {
           .map((s) => ({ id: s.id, title: s.reference, subtitle: [s.origin, s.destination].filter(Boolean).join(' → ') || s.status, route: '/shipments' })));
       }
       if (store.isModuleEnabled(companyId, 'projects')) {
-        add('projects', store.listProjects().filter((p) => p.companyId === companyId && hit(p.name) && canViewProject(req, p))
+        add('projects', store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }]).filter((p) => hit(p.name))
           .map((p) => ({ id: p.id, title: p.name, route: `/projects/${p.id}` })));
       }
       if (store.isModuleEnabled(companyId, 'tasks')) {
-        add('tasks', store.listTasks().filter((t) => t.companyId === companyId && hit(t.title) && canViewTask(req, t))
+        add('tasks', store.listVisibleTasks([{ companyId, viewer: viewerOf(req), platformSupport: Boolean(req.user!.isSuperAdmin) }]).filter((t) => hit(t.title))
           .map((t) => ({ id: t.id, title: t.title, subtitle: t.status, route: t.projectId ? `/projects/${t.projectId}` : '/tasks' })));
       }
       if (store.isModuleEnabled(companyId, 'hr')) {

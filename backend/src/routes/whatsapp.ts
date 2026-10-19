@@ -7,7 +7,7 @@ import type { Express } from 'express';
 
 /** WhatsApp (Green API) integration. */
 export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyRoles, allowsRule, logger } = ctx;
+  const { store, authMiddleware, requireCompanyRoles, viewerOf, canSee, logger } = ctx;
 
   const requireWhatsapp = (companyId: string) => {
     const instance = store.getWhatsappInstanceForCompany(companyId);
@@ -186,19 +186,17 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const { chatId, contactId, phone, limit } = req.query as Record<string, string | undefined>;
-      // Privacy enforcement when filtering by chat
-      if (chatId) {
-        const settings = store.getWhatsappChatSettings(req.params.companyId, chatId);
-        const viewer = req.user ? { userId: req.user.id, seesPrivate: allowsRule(req, req.params.companyId, 'WHATSAPP_PRIVATE_READ') } : undefined;
-        if (!store.canViewWhatsappChat(settings, viewer)) {
-          throw new HttpError(403, 'You do not have access to this private chat.');
-        }
+      // Privacy: a private chat is its owner's (authz/visible.ts); asking for
+      // one by id is refused, and every other filter leaves its messages out.
+      if (chatId && !canSee(req, 'whatsapp_chats', req.params.companyId, chatId)) {
+        throw new HttpError(403, 'You do not have access to this private chat.');
       }
       const messages = store.listWhatsappMessages(req.params.companyId, {
         chatId: chatId || undefined,
         contactId: contactId || undefined,
         phone: phone || undefined,
         limit: limit ? Number(limit) : undefined,
+        viewer: viewerOf(req),
       });
       res.json(messages);
     }),
@@ -209,8 +207,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const viewer = req.user ? { userId: req.user.id, seesPrivate: allowsRule(req, req.params.companyId, 'WHATSAPP_PRIVATE_READ') } : undefined;
-      res.json(store.listWhatsappChats(req.params.companyId, viewer));
+      res.json(store.listWhatsappChats(req.params.companyId, viewerOf(req)));
     }),
   );
 
@@ -230,9 +227,8 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       const current = store.getWhatsappChatSettings(req.params.companyId, req.params.chatId);
-      const viewer = req.user ? { userId: req.user.id, seesPrivate: allowsRule(req, req.params.companyId, 'WHATSAPP_PRIVATE_READ') } : undefined;
-      // Only owner or Admin/Manager can change a private chat's settings.
-      if (current.visibility === 'private' && !store.canViewWhatsappChat(current, viewer)) {
+      // Only someone who can see a private chat (its owner, or company scope) can change its settings.
+      if (current.visibility === 'private' && !canSee(req, 'whatsapp_chats', req.params.companyId, req.params.chatId)) {
         throw new HttpError(403, 'Only the chat owner or a manager can change these settings.');
       }
       const visibilityRaw = optionalString(body.visibility);

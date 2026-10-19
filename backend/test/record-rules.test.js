@@ -75,7 +75,12 @@ test('every rule declared is enforced somewhere', () => {
   const fs = require('node:fs');
   const routeModules = fs.readdirSync(path.join(__dirname, '..', 'src', 'routes')).map((file) => read('routes', file)).join('\n');
   const enforcing = read('server.ts') + read('permissions', 'routes.ts') + routeModules;
-  for (const name of Object.keys(RECORD_RULES)) {
-    assert.ok(enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
+  // Read-scope rules are realised by authz/visible.ts: its area table carries
+  // the rule's key, and company scope there sees every record.
+  const { AREAS } = require('../dist/authz/visible');
+  const visibleKeys = new Set(Object.values(AREAS).map((a) => a.key));
+  for (const [name, rule] of Object.entries(RECORD_RULES)) {
+    const byVisible = 'keys' in rule.v2 && rule.v2.min === 'company' && rule.action.endsWith('.read') && visibleKeys.has(rule.v2.keys[0]);
+    assert.ok(byVisible || enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
   }
 });

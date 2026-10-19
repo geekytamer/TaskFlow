@@ -2,7 +2,6 @@ import type { DataStore } from '../data/store';
 import { sendToPrincipal, type PushPayload, type PushSender } from '../push/push';
 import { canSignActionTokens, signActionToken } from '../push/action-token';
 import { canAccessCompany } from '../http';
-import { RECORD_RULES } from '../permissions/record-rules';
 import type { Contact, Notification, NotificationPrefs, SanitizedUser } from '../types';
 import type { ConvMessage, Thread } from './conversations-store';
 import { slaOf } from './sla';
@@ -25,27 +24,24 @@ const threadLink = (threadId: string, messageId?: string) =>
 
 const contactName = (store: DataStore, thread: Thread) => store.getContactById(thread.contactId)?.name ?? 'a client';
 
-const PRIVATE_READ = RECORD_RULES.CONTACTS_PRIVATE_READ;
-
 /**
  * Whether a person may hear about this contact's conversation: a member of the
- * company who can see the contact (public, theirs, or private-read). The store
- * evaluates private-read the same way the routes do, under either engine, and
- * synchronously, because alerts are raised inside the message transaction.
+ * company who can see the contact by the inbox rule of authz/visible.ts — the
+ * same rule their inbox list applies, evaluated for them under the configured
+ * engine (store.visibilityEffective), synchronously, because alerts are raised
+ * inside the message transaction.
  */
-function canSeeContactOf(store: DataStore, contact: Contact | undefined, userId: string, privateReaders: () => Set<string>): boolean {
+function canSeeContactOf(store: DataStore, contact: Contact | undefined, userId: string): boolean {
   const user = store.getUserById(userId);
   if (!contact || !user || !canAccessCompany(user as SanitizedUser, contact.companyId)) return false;
-  return contact.visibility !== 'Private' || contact.ownerUserId === userId || privateReaders().has(userId);
+  return store.isVisibleTo(store.visibilityEffective(userId), 'inbox', contact.companyId, contact.id);
 }
 
-/** Whether this person may see the thread's contact right now (member, and public, theirs or private-read). */
+/** Whether this person may see the thread's contact right now (member, and the inbox rule). */
 export function canSeeThreadContact(store: DataStore, thread: Thread, userId: string): boolean {
   const contact = store.getContactById(thread.contactId);
   if (!contact || contact.companyId !== thread.companyId) return false;
-  const privateReaders = () =>
-    new Set(store.listUserIdsWithPermission(thread.companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles]));
-  return canSeeContactOf(store, contact, userId, privateReaders);
+  return canSeeContactOf(store, contact, userId);
 }
 
 /**
@@ -54,10 +50,7 @@ export function canSeeThreadContact(store: DataStore, thread: Thread, userId: st
  */
 export function threadRecipients(store: DataStore, thread: Thread): string[] {
   const contact = store.getContactById(thread.contactId);
-  let readers: Set<string> | undefined;
-  const privateReaders = () =>
-    (readers ??= new Set(store.listUserIdsWithPermission(thread.companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles])));
-  const visible = (ids: string[]) => ids.filter((id) => canSeeContactOf(store, contact, id, privateReaders));
+  const visible = (ids: string[]) => ids.filter((id) => canSeeContactOf(store, contact, id));
   if (thread.assigneeUserId) {
     const mine = visible([thread.assigneeUserId]);
     if (mine.length > 0) return mine;
@@ -77,12 +70,9 @@ export function threadRecipients(store: DataStore, thread: Thread): string[] {
  */
 export function staffInboxBadge(store: DataStore, userId: string, companyId: string, nowIso: string = new Date().toISOString()): number {
   if (!store.listUserIdsWithPermission(companyId, 'contacts:read', ['Admin', 'Manager', 'Employee', 'Accountant']).includes(userId)) return 0;
-  let readers: Set<string> | undefined;
-  const privateReaders = () =>
-    (readers ??= new Set(store.listUserIdsWithPermission(companyId, `${PRIVATE_READ.module}:${PRIVATE_READ.action}`, [...PRIVATE_READ.roles])));
   const seen = new Map<string, boolean>();
   const visible = (contactId: string) => {
-    if (!seen.has(contactId)) seen.set(contactId, canSeeContactOf(store, store.getContactById(contactId), userId, privateReaders));
+    if (!seen.has(contactId)) seen.set(contactId, canSeeContactOf(store, store.getContactById(contactId), userId));
     return seen.get(contactId)!;
   };
   return store.conversations.listThreads(companyId, { withMessages: true, states: ['waiting_us'] }, nowIso)

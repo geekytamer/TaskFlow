@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
-import type { SanitizedUser } from '../types';
+import type { Contact, SanitizedUser } from '../types';
 import { asRecord, enumValue, requiredString } from '../validation';
 import { pricingModes } from './catalogue-store';
 import { downloadHeaders, readUpload } from './files';
@@ -22,7 +22,8 @@ export interface PortalStaffDeps {
   requireCompanyAccess(req: StaffRequest, companyId: string): void;
   canManagePortal(req: StaffRequest, companyId: string): boolean;
   /** Whether the request user may read private contacts of others (CONTACTS_PRIVATE_READ). */
-  seesPrivate(req: StaffRequest, companyId: string): boolean;
+  /** Whether this staff member may see a contact (authz/visible.ts, inbox rule). */
+  seesContact(req: StaffRequest, contact: Pick<Contact, 'id' | 'companyId'>): boolean;
   inviteLink(audience: PortalAudience, token: string): string;
   sendInvite: PortalInviteSender;
 }
@@ -228,7 +229,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const thread = store.conversations.getThread(message.threadId);
     const contact = thread ? store.getContactById(thread.contactId) : undefined;
     if (!thread || !contact || thread.companyId !== file.companyId) return false;
-    const viewer: StaffViewer = { kind: 'staff', userId: req.user!.id, seesPrivate: deps.seesPrivate(req, file.companyId) };
+    const viewer: StaffViewer = { kind: 'staff', userId: req.user!.id, sees: (c) => deps.seesContact(req, c) };
     return canSeeContact(contact, viewer) && canSeeMessage(message, viewer);
   };
 

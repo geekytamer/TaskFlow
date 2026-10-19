@@ -780,18 +780,16 @@ export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string
   TIME_ENTRIES_DELETE_OTHERS: { becomes: 'tasks.delete_time', sites: { 'src/server.ts': 1 } },
   DASHBOARD_OPERATIONS_READ: { becomes: 'dashboard.view_operations', sites: { 'src/server.ts': 1 } },
   DASHBOARD_FINANCE_READ: { becomes: 'dashboard.view_finance', sites: { 'src/server.ts': 1 } },
-  // Scope rules (own vs company)
-  PROJECTS_ALL_READ: { becomes: 'projects.view scope', sites: { 'src/server.ts': 1 } },
-  TASKS_ALL_READ: { becomes: 'tasks.view / edit / delete scope', sites: { 'src/server.ts': 1 } },
-  // Also read directly as RECORD_RULES.CONTACTS_PRIVATE_READ in server.ts (seesPrivateFor, for conversation alerts to other users).
-  CONTACTS_PRIVATE_READ: { becomes: 'contacts.view / inbox.view scope', sites: { 'src/server.ts': 5, 'src/routes/search.ts': 1 } },
+  // Scope rules (own vs company). The read-scope rules (PROJECTS_ALL_READ,
+  // TASKS_ALL_READ, CONTACTS_PRIVATE_READ, CAMPAIGNS_ALL_READ,
+  // COMMISSIONS_ALL_READ, WHATSAPP_PRIVATE_READ, and CRM_ALL_READ for lists)
+  // are no longer asked by name: every read path goes through
+  // authz/visible.ts, whose area table holds the same keys at their scopes.
   CONTACTS_ALL_WRITE: { becomes: 'contacts.edit scope', sites: { 'src/server.ts': 2 } },
-  CRM_ALL_READ: { becomes: 'crm.view scope', sites: { 'src/server.ts': 5 } },
+  // Only another owner's CRM figures (crm-dashboard) still ask it by name.
+  CRM_ALL_READ: { becomes: 'crm.view scope', sites: { 'src/server.ts': 1 } },
   CRM_ALL_WRITE: { becomes: 'crm.edit / crm.delete scope', sites: { 'src/server.ts': 10 } },
-  CAMPAIGNS_ALL_READ: { becomes: 'campaigns.view scope', sites: { 'src/server.ts': 1 } },
   CAMPAIGNS_ALL_WRITE: { becomes: 'campaigns.edit scope', sites: { 'src/server.ts': 3 } },
-  COMMISSIONS_ALL_READ: { becomes: 'commissions.view scope', sites: { 'src/server.ts': 1 } },
-  WHATSAPP_PRIVATE_READ: { becomes: 'whatsapp.view scope', sites: { 'src/routes/whatsapp.ts': 3 } },
   // Field rules (mask)
   CONTACTS_PRICING_READ: { becomes: 'rate_cards, client_terms fields', sites: { 'src/server.ts': 4 } },
   PAYROLL_PAY_READ: { becomes: 'salary, personal_ids, bank_details fields', sites: { 'src/routes/hr.ts': 1 } },

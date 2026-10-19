@@ -33,6 +33,8 @@ import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
 import { PortalStore } from '../portal/portal-store';
 import { AuthzStore } from '../authz/authz-store';
+import { effective as effectiveV2, effectiveLegacy, type Effective } from '../authz/evaluate';
+import { AREAS, visible, visibleRecord, type VisibleArea, type VisibleOptions } from '../authz/visible';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
 const DASHBOARD_METRIC_MODULES: Readonly<Record<string, string>> = {
@@ -677,6 +679,18 @@ export class CreditLimitError extends Error {
     super(`${clientName} would owe ${(owed + adding).toFixed(3)}, over their credit limit of ${limit.toFixed(3)} (owed now ${owed.toFixed(3)}).`);
   }
 }
+
+/** Activity entity types that are records of a scoped area (authz/visible.ts). */
+const ACTIVITY_AREAS: Partial<Record<ActivityEvent['entityType'], VisibleArea>> = {
+  contact: 'contacts',
+  opportunity: 'opportunities',
+  proposal: 'proposals',
+  campaign: 'campaigns',
+  vendor_request: 'vendor_requests',
+  commission: 'commissions',
+  project: 'projects',
+  task: 'tasks',
+};
 
 export class DataStore {
   private db: Database.Database;
@@ -7391,6 +7405,39 @@ export class DataStore {
     return rows.map((r) => this.decodeTask(r));
   }
 
+  /**
+   * Projects visible to a person across several companies, in table order:
+   * each entry is a company and the Effective that decides there
+   * (authz/visible.ts, in SQL). `where` narrows further (bound, never pasted).
+   */
+  listVisibleProjects(parts: Array<{ companyId: string; viewer: Effective }>, where?: { sql: string; params: unknown[] }): Project[] {
+    if (parts.length === 0) return [];
+    const clauses = parts.map(({ companyId, viewer }) => {
+      const f = visible(viewer, 'projects', companyId, { alias: 'p' });
+      return { sql: `(p.companyId = ? AND ${f.sql})`, params: [companyId, ...f.params] };
+    });
+    const rows = this.db
+      .prepare(`SELECT p.* FROM projects p WHERE (${clauses.map((c) => c.sql).join(' OR ')})${where ? ` AND (${where.sql})` : ''}`)
+      .all(...clauses.flatMap((c) => c.params), ...(where?.params ?? [])) as any[];
+    return rows.map((r) => ({ ...r, memberIds: this.parseJson<string[]>(r.memberIds) || [], clientId: r.clientId || undefined }));
+  }
+
+  /** Tasks visible to a person across several companies (see listVisibleProjects). */
+  listVisibleTasks(
+    parts: Array<{ companyId: string; viewer: Effective; platformSupport?: boolean }>,
+    where?: { sql: string; params: unknown[] },
+  ): Task[] {
+    if (parts.length === 0) return [];
+    const clauses = parts.map(({ companyId, viewer, platformSupport }) => {
+      const f = visible(viewer, 'tasks', companyId, { alias: 't', platformSupport });
+      return { sql: `(t.companyId = ? AND ${f.sql})`, params: [companyId, ...f.params] };
+    });
+    const rows = this.db
+      .prepare(`SELECT t.* FROM tasks t WHERE (${clauses.map((c) => c.sql).join(' OR ')})${where ? ` AND (${where.sql})` : ''}`)
+      .all(...clauses.flatMap((c) => c.params), ...(where?.params ?? [])) as any[];
+    return rows.map((r) => this.decodeTask(r));
+  }
+
   getTaskById(id: string): Task | undefined {
     const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as any;
     if (!row) return undefined;
@@ -7747,18 +7794,18 @@ export class DataStore {
 
   // ─── Contacts ────────────────────────────────────────────────────────────
 
+  /**
+   * A company's contacts. With `viewer`, only those that person may see
+   * (authz/visible.ts, applied in SQL); without, every one (internal use).
+   */
   listContacts(
     companyId: string,
     roleFilter?: ContactRoleType,
-    viewer?: { userId: string; seesPrivate: boolean },
+    viewer?: Effective,
   ): Contact[] {
-    // Private contacts are visible to their owner, or to holders of contacts:private.read
-    const visibilityClause =
-      viewer && !viewer.seesPrivate
-        ? `AND (c.visibility = 'Public' OR c.ownerUserId = ?)`
-        : '';
-    // Bound, never pasted into the SQL: user ids can come from API callers.
-    const visibilityParams = viewer && !viewer.seesPrivate ? [viewer.userId] : [];
+    const filter = viewer ? visible(viewer, 'contacts', companyId, { alias: 'c' }) : undefined;
+    const visibilityClause = filter ? `AND ${filter.sql}` : '';
+    const visibilityParams = filter ? filter.params : [];
 
     let rows: any[];
     if (roleFilter) {
@@ -10214,24 +10261,31 @@ export class DataStore {
 
 	  // ─── CRM Pipeline / Vendor Requests / Commissions ───────────────────────
 
-		  listOpportunities(companyId: string): Opportunity[] {
+		  /** With `viewer`, only the opportunities that person may see (authz/visible.ts). */
+		  listOpportunities(companyId: string, viewer?: Effective): Opportunity[] {
+		    const f = this.visibleWhere(viewer, 'opportunities', companyId, 'o');
 		    const rows = this.db
-		      .prepare('SELECT * FROM opportunities WHERE companyId = ? ORDER BY updatedAt DESC')
-		      .all(companyId) as any[];
+		      .prepare(`SELECT o.* FROM opportunities o WHERE o.companyId = ?${f.sql} ORDER BY o.updatedAt DESC`)
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeOpportunity(row));
 		  }
 
-		  getCrmDashboardSummary(companyId: string, ownerUserId?: string): CrmDashboardSummary {
-		    const contacts = this.listContacts(companyId).filter((contact) => !ownerUserId || contact.ownerUserId === ownerUserId);
-		    const opportunities = this.listOpportunities(companyId).filter((opportunity) => !ownerUserId || opportunity.ownerUserId === ownerUserId);
-		    const tasks = this.listTasks().filter((task) => {
+		  /**
+		   * CRM figures for a company, or one owner's. With `viewer`, every figure
+		   * counts only what that person may see (authz/visible.ts), so a total
+		   * never includes a record they could not open.
+		   */
+		  getCrmDashboardSummary(companyId: string, ownerUserId?: string, viewer?: Effective): CrmDashboardSummary {
+		    const contacts = this.listContacts(companyId, undefined, viewer).filter((contact) => !ownerUserId || contact.ownerUserId === ownerUserId);
+		    const opportunities = this.listOpportunities(companyId, viewer).filter((opportunity) => !ownerUserId || opportunity.ownerUserId === ownerUserId);
+		    const tasks = (viewer ? this.listVisibleTasks([{ companyId, viewer }]) : this.listTasks()).filter((task) => {
 		      if (task.companyId !== companyId) return false;
 		      if (!ownerUserId) return true;
 		      return (task.assignedUserIds || []).includes(ownerUserId);
 		    });
-		    const followups = this.listFollowups(companyId, { ownerUserId, limit: 500 });
-		    const vendorRequests = this.listVendorRequests(companyId).filter((request) => !ownerUserId || request.requestedByUserId === ownerUserId);
-		    const commissions = this.listCommissions(companyId).filter((commission) => !ownerUserId || commission.userId === ownerUserId);
+		    const followups = this.listFollowups(companyId, { ownerUserId, limit: 500, viewer });
+		    const vendorRequests = this.listVendorRequests(companyId, viewer).filter((request) => !ownerUserId || request.requestedByUserId === ownerUserId);
+		    const commissions = this.listCommissions(companyId, viewer).filter((commission) => !ownerUserId || commission.userId === ownerUserId);
 		    const now = new Date();
 
 		    const openStages: OpportunityStage[] = ['New', 'Qualified', 'Proposal', 'Negotiation'];
@@ -10642,10 +10696,12 @@ export class DataStore {
 		    return `PROP-${String(Number(countRow?.count || 0) + 1).padStart(5, '0')}`;
 		  }
 
-		  listCrmProposals(companyId: string): CrmProposal[] {
+		  /** With `viewer`, only the proposals that person may see (authz/visible.ts). */
+		  listCrmProposals(companyId: string, viewer?: Effective): CrmProposal[] {
+		    const f = this.visibleWhere(viewer, 'proposals', companyId, 'p');
 		    const rows = this.db
-		      .prepare('SELECT * FROM crm_proposals WHERE companyId = ? ORDER BY updatedAt DESC')
-		      .all(companyId) as any[];
+		      .prepare(`SELECT p.* FROM crm_proposals p WHERE p.companyId = ?${f.sql} ORDER BY p.updatedAt DESC`)
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeCrmProposal(row));
 		  }
 
@@ -10895,14 +10951,14 @@ export class DataStore {
 		    return true;
 		  }
 
-		  listCrmCampaigns(companyId: string, includeArchived = false): CrmCampaign[] {
+		  /** With `viewer`, only the campaigns that person may see (authz/visible.ts). */
+		  listCrmCampaigns(companyId: string, includeArchived = false, viewer?: Effective): CrmCampaign[] {
+		    const f = this.visibleWhere(viewer, 'campaigns', companyId, 'k');
 		    const rows = this.db
 		      .prepare(
-		        includeArchived
-		          ? 'SELECT * FROM crm_campaigns WHERE companyId = ? ORDER BY updatedAt DESC'
-		          : 'SELECT * FROM crm_campaigns WHERE companyId = ? AND archivedAt IS NULL ORDER BY updatedAt DESC',
+		        `SELECT k.* FROM crm_campaigns k WHERE k.companyId = ?${includeArchived ? '' : ' AND k.archivedAt IS NULL'}${f.sql} ORDER BY k.updatedAt DESC`,
 		      )
-		      .all(companyId) as any[];
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeCrmCampaign(row));
 		  }
 
@@ -11332,10 +11388,12 @@ export class DataStore {
 		    return this.db.prepare('DELETE FROM campaign_expenses WHERE id = ?').run(id).changes > 0;
 		  }
 
-			  listVendorRequests(companyId: string): VendorRequest[] {
+			  /** With `viewer`, only the vendor requests that person may see (authz/visible.ts). */
+			  listVendorRequests(companyId: string, viewer?: Effective): VendorRequest[] {
+	    const f = this.visibleWhere(viewer, 'vendor_requests', companyId, 'v');
 	    const rows = this.db
-	      .prepare('SELECT * FROM vendor_requests WHERE companyId = ? ORDER BY createdAt DESC')
-	      .all(companyId) as any[];
+	      .prepare(`SELECT v.* FROM vendor_requests v WHERE v.companyId = ?${f.sql} ORDER BY v.createdAt DESC`)
+	      .all(companyId, ...f.params) as any[];
 	    return rows.map((row) => this.decodeVendorRequest(row));
 	  }
 
@@ -12136,10 +12194,12 @@ export class DataStore {
 	    return decoded[0];
 	  }
 
-		  listCommissions(companyId: string): Commission[] {
+		  /** With `viewer`, only the commissions that person may see (authz/visible.ts). */
+		  listCommissions(companyId: string, viewer?: Effective): Commission[] {
+		    const f = this.visibleWhere(viewer, 'commissions', companyId, 'm');
 		    const rows = this.db
-		      .prepare('SELECT * FROM commissions WHERE companyId = ? ORDER BY calculatedAt DESC')
-		      .all(companyId) as any[];
+		      .prepare(`SELECT m.* FROM commissions m WHERE m.companyId = ?${f.sql} ORDER BY m.calculatedAt DESC`)
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeCommission(row));
 		  }
 
@@ -15087,11 +15147,17 @@ export class DataStore {
 
   listWhatsappMessages(
     companyId: string,
-    options: { chatId?: string; contactId?: string; phone?: string; limit?: number } = {},
+    options: { chatId?: string; contactId?: string; phone?: string; limit?: number; viewer?: Effective } = {},
   ): WhatsAppMessage[] {
     const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
     const conditions: string[] = ['companyId = ?'];
     const params: any[] = [companyId];
+    // Only messages of chats the viewer may see (a private chat is its owner's).
+    if (options.viewer) {
+      const f = visible(options.viewer, 'whatsapp_chats', companyId, { alias: 'whatsapp_messages' });
+      conditions.push(f.sql);
+      params.push(...f.params);
+    }
     if (options.chatId) {
       conditions.push('chatId = ?');
       params.push(options.chatId);
@@ -15180,21 +15246,6 @@ export class DataStore {
       });
     });
     return map;
-  }
-
-  /**
-   * True if the viewer is allowed to see this chat under its current
-   * privacy setting. Admin and Manager always see all; Employee sees only
-   * shared chats and private chats they own.
-   */
-  canViewWhatsappChat(
-    settings: WhatsAppChatSettings,
-    viewer: { userId: string; seesPrivate: boolean } | undefined,
-  ): boolean {
-    if (!viewer) return false;
-    if (settings.visibility !== 'private') return true;
-    if (viewer.seesPrivate) return true;
-    return settings.ownerUserId === viewer.userId;
   }
 
   /** Best-effort lookup of a contact id for a given phone number. */
@@ -15301,7 +15352,7 @@ export class DataStore {
 
   listWhatsappChats(
     companyId: string,
-    viewer?: { userId: string; seesPrivate: boolean },
+    viewer?: Effective,
   ): Array<{
     chatId: string;
     phone: string;
@@ -15315,6 +15366,11 @@ export class DataStore {
     visibility: WhatsAppChatVisibility;
     ownerUserId?: string;
   }> {
+    // With a viewer, only the chats that person may see (authz/visible.ts).
+    const chatFilter = viewer ? (() => {
+      const f = visible(viewer, 'whatsapp_chats', companyId, { alias: 'm' });
+      return { sql: ` AND ${f.sql}`, params: f.params };
+    })() : { sql: '', params: [] as unknown[] };
     const rows = this.db
       .prepare(
         `SELECT
@@ -15324,11 +15380,11 @@ export class DataStore {
            COUNT(*) as messageCount,
            SUM(CASE WHEN m.direction = 'inbound' AND m.readAt IS NULL THEN 1 ELSE 0 END) as unreadCount
          FROM whatsapp_messages m
-         WHERE m.companyId = ?
+         WHERE m.companyId = ?${chatFilter.sql}
          GROUP BY m.chatId
          ORDER BY lastAt DESC`,
       )
-      .all(companyId) as any[];
+      .all(companyId, ...chatFilter.params) as any[];
 
     const lastMessageStmt = this.db.prepare(
       `SELECT body, direction, contactId
@@ -15361,7 +15417,6 @@ export class DataStore {
         ownerUserId: undefined,
         updatedAt: new Date(0),
       };
-      if (viewer && !this.canViewWhatsappChat(settings, viewer)) return;
       const last = lastMessageStmt.get(companyId, row.chatId) as any;
       const contactId = last?.contactId || undefined;
       const contactName = contactId
@@ -19369,8 +19424,21 @@ export class DataStore {
     );
   }
 
-  private mapActivityItems(events: ActivityEvent[]): DashboardActivityItem[] {
-    return events.slice(0, 8).map((event) => ({
+  /**
+   * Dashboard activity: with `visibleTo`, an event about a record of a scoped
+   * area the person may not see (a colleague's private task or contact) is
+   * left out — its summary names the record.
+   */
+  private mapActivityItems(visibleTo: Effective | undefined, companyId: string, events: ActivityEvent[]): DashboardActivityItem[] {
+    const seen = visibleTo
+      ? events.filter((event) => {
+        const area = ACTIVITY_AREAS[event.entityType];
+        if (!area || this.isVisibleTo(visibleTo, area, companyId, event.entityId)) return true;
+        // A record since deleted cannot be judged: its event stays, as before.
+        return !this.db.prepare(`SELECT 1 FROM ${AREAS[area].table} WHERE ${AREAS[area].idColumn} = ?`).get(event.entityId);
+      })
+      : events;
+    return seen.slice(0, 8).map((event) => ({
       id: event.id,
       title: event.summary,
       detail: event.actorName || event.entityType,
@@ -19387,7 +19455,7 @@ export class DataStore {
    */
   getDashboardPayload(
     companyId: string,
-    viewer: { userId: string; role: UserRole; companyRole?: string },
+    viewer: { userId: string; role: UserRole; companyRole?: string; visibleTo?: Effective },
   ): DashboardPayload {
     const built = this.buildDashboardPayload(companyId, viewer);
     // What needs attention today comes first.
@@ -19409,11 +19477,17 @@ export class DataStore {
 
   private buildDashboardPayload(
     companyId: string,
-    viewer: { userId: string; role: UserRole },
+    viewer: { userId: string; role: UserRole; visibleTo?: Effective },
   ): DashboardPayload {
     const now = new Date();
-    const tasks = this.listTasks().filter((task) => task.companyId === companyId);
-    const projects = this.listProjects().filter((project) => project.companyId === companyId);
+    // Task and project figures count only what the person may see
+    // (authz/visible.ts): a colleague's private task is never in a total.
+    const tasks = viewer.visibleTo
+      ? this.listVisibleTasks([{ companyId, viewer: viewer.visibleTo }])
+      : this.listTasks().filter((task) => task.companyId === companyId);
+    const projects = viewer.visibleTo
+      ? this.listVisibleProjects([{ companyId, viewer: viewer.visibleTo }])
+      : this.listProjects().filter((project) => project.companyId === companyId);
     const invoices = this.listInvoices(companyId);
     const vendorBills = this.listVendorBills(companyId);
     const purchaseOrders = this.listPurchaseOrders(companyId);
@@ -19586,7 +19660,7 @@ export class DataStore {
           })),
       ];
 
-      const activity = this.mapActivityItems(
+      const activity = this.mapActivityItems(viewer.visibleTo, companyId, 
         companyActivity.filter(
           (event) => event.entityType === 'task' && assignedTaskIds.has(event.entityId),
         ),
@@ -19749,7 +19823,7 @@ export class DataStore {
         metrics,
         charts,
         alerts,
-        activity: this.mapActivityItems(summary.recentActivity),
+        activity: this.mapActivityItems(viewer.visibleTo, companyId, summary.recentActivity),
         quickActions,
       };
     }
@@ -19862,7 +19936,7 @@ export class DataStore {
         metrics,
         charts,
         alerts,
-        activity: this.mapActivityItems(
+        activity: this.mapActivityItems(viewer.visibleTo, companyId, 
           companyActivity.filter((event) =>
             ['invoice', 'vendor_bill', 'client'].includes(event.entityType),
           ),
@@ -20010,7 +20084,7 @@ export class DataStore {
       metrics,
       charts,
       alerts,
-      activity: this.mapActivityItems(summary.recentActivity),
+      activity: this.mapActivityItems(viewer.visibleTo, companyId, summary.recentActivity),
       quickActions,
     };
   }
@@ -20291,6 +20365,29 @@ export class DataStore {
 
   setPermissionHolders(holders: NonNullable<DataStore['permissionHolders']>): void {
     this.permissionHolders = holders;
+  }
+
+  /**
+   * The Effective that decides what a person may SEE (authz/visible.ts) when
+   * the store itself picks recipients or figures for someone (alerts, badges):
+   * under legacy and shadow the role's template (Ruling D), under v2 the real
+   * one. Routes pass the request's own Effective instead.
+   */
+  visibilityEffective(userId: string): Effective {
+    return this.permissionHolders?.engine === 'v2' ? effectiveV2(this, userId) : effectiveLegacy(this, userId);
+  }
+
+  /** ` AND <visible fragment>` for a list query, or nothing without a viewer. */
+  private visibleWhere(viewer: Effective | undefined, area: VisibleArea, companyId: string, alias: string, options: VisibleOptions = {}): { sql: string; params: unknown[] } {
+    if (!viewer) return { sql: '', params: [] };
+    const f = visible(viewer, area, companyId, { ...options, alias });
+    return { sql: ` AND ${f.sql}`, params: f.params };
+  }
+
+  /** Whether the record `id` of a scoped area is visible to `viewer` (same rule as the lists). */
+  isVisibleTo(viewer: Effective, area: VisibleArea, companyId: string, id: string, options: VisibleOptions = {}): boolean {
+    const q = visibleRecord(viewer, area, companyId, id, options);
+    return this.db.prepare(q.sql).get(...q.params) !== undefined;
   }
 
   /**
@@ -20975,6 +21072,8 @@ export class DataStore {
       entityId?: string;
       overdue?: boolean;
       limit?: number;
+      /** Only the follow-ups this person may see (authz/visible.ts). */
+      viewer?: Effective;
     },
   ): FollowUp[] {
     const status = options?.status ?? 'active';
@@ -20991,6 +21090,11 @@ export class DataStore {
       // "Mine" = I own it OR I was invited to collaborate on it.
       sql += ' AND (ownerUserId = ? OR id IN (SELECT followUpId FROM follow_up_assignees WHERE userId = ?))';
       params.push(options.ownerUserId, options.ownerUserId);
+    }
+    if (options?.viewer) {
+      const f = visible(options.viewer, 'followups', companyId, { alias: 'follow_ups' });
+      sql += ` AND ${f.sql}`;
+      params.push(...f.params);
     }
     if (options?.entityType) { sql += ' AND entityType = ?'; params.push(options.entityType); }
     if (options?.entityId) { sql += ' AND entityId = ?'; params.push(options.entityId); }
@@ -21192,6 +21296,7 @@ export class DataStore {
     ownerUserId?: string;
     overdue?: boolean;
     limit?: number;
+    viewer?: Effective;
   }): Array<FollowUp & {
     summary: string;
     category: import('../types').ActivityCategory;
@@ -21217,6 +21322,7 @@ export class DataStore {
       entityId: options?.contactId,
       overdue: options?.overdue,
       limit: options?.limit ?? 100,
+      viewer: options?.viewer,
     });
     return rows.map((f) => ({
       ...f,

@@ -1,6 +1,8 @@
 import type { NextFunction, Response } from 'express';
 import type { DataStore } from '../data/store';
 import type { PermissionsEngine } from '../authz/engine';
+import type { Effective } from '../authz/evaluate';
+import type { VisibleArea, VisibleOptions } from '../authz/visible';
 import type { RecordRuleName } from '../permissions/record-rules';
 import type { InvoiceLineItem, Project, SalesOrderLineItem, UserRole } from '../types';
 import type { TupleKey } from '../permissions/tuples';
@@ -25,8 +27,12 @@ export interface RouteContext {
   /** The 403 for a refused permission: { code: 'FORBIDDEN', permission, message }. */
   forbidden: (companyId: string, key: string | undefined) => Error;
   withActor: <T>(req: AuthedRequest, fn: () => T) => T;
-  canViewProject: (req: AuthedRequest, project: Project) => boolean;
-  canViewTask: (req: AuthedRequest, task: { companyId: string; projectId?: string | null; assignedUserIds?: string[]; ownerId?: string | null; isPrivate?: boolean }) => boolean;
+  /** The Effective that decides what the person sees (authz/visible.ts; Ruling D picks it per engine). */
+  viewerOf: (req: AuthedRequest) => Effective;
+  /** One record of a scoped area, by the same rule as its list. */
+  canSee: (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, options?: VisibleOptions) => boolean;
+  canViewProject: (req: AuthedRequest, project: Pick<Project, 'id' | 'companyId'>) => boolean;
+  canViewTask: (req: AuthedRequest, task: { id: string; companyId: string }) => boolean;
   ensureClientBelongsToCompany: (clientId: string | undefined, companyId: string) => void;
   parseInvoiceLineItems: (value: unknown) => InvoiceLineItem[];
   parseSalesOrderItems: (value: unknown) => SalesOrderLineItem[];

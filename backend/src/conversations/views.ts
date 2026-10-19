@@ -87,7 +87,7 @@ export function staffThreadView(store: DataStore, thread: Thread, viewerUserId: 
     ? { id: thread.assigneeUserId, name: store.getUserById(thread.assigneeUserId)?.name ?? '' }
     : null;
   // Another person's owner_private message must not surface in the preview.
-  const last = [...c.messages(thread.id)].reverse().find((m) => canSeeMessage(m, { kind: 'staff', userId: viewerUserId, seesPrivate: false }));
+  const last = [...c.messages(thread.id)].reverse().find((m) => canSeeMessage(m, { kind: 'staff', userId: viewerUserId, sees: () => false }));
   const read = c.readsOf(thread.id).find((r) => r.readerType === 'staff' && r.readerId === viewerUserId);
   const state = c.effectiveState(thread, now);
   const waitingSince = c.effectiveWaitingSince(thread, now);
