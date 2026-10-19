@@ -10,7 +10,9 @@ const {
   findAction,
   allPermissionKeys,
 } = require('../dist/authz/catalogue');
-const { TEMPLATES, TEMPLATE_KEYS, templateGrants, templateFields } = require('../dist/authz/templates');
+const {
+  TEMPLATES, TEMPLATE_KEYS, templateGrants, templateFields, checkTables, LEGACY_HOLDERS, FIELD_HOLDERS,
+} = require('../dist/authz/templates');
 const { RECORD_RULES } = require('../dist/permissions/record-rules');
 
 const KEY_SHAPE = /^[a-z][a-z-]*\.[a-z][a-z_]*$/;
@@ -143,28 +145,30 @@ test('owner holds everything admin holds, at group scope where scoped', () => {
 });
 
 // Record rules from the legacy engine, re-expressed as catalogue grants.
-// [rule, permission key, scope a holder gets (non-holders get `own` or nothing)]
+// [rule, every permission key the rule feeds, scope a holder gets (non-holders get `own` or nothing)]
 const RULE_MAP = [
-  ['PROJECTS_ALL_READ', 'projects.view', 'company'],
-  ['TASKS_ALL_READ', 'tasks.view', 'company'],
-  ['TIME_ENTRIES_DELETE_OTHERS', 'tasks.delete_time'],
-  ['CONTACTS_PRIVATE_READ', 'contacts.view', 'company'],
-  ['CONTACTS_ALL_WRITE', 'contacts.edit', 'company'],
-  ['PORTAL_ACCESS_MANAGE', 'portal.manage_access'],
-  ['GAMES_MANAGE', 'games.manage'],
-  ['DISCOVER_MANAGE', 'discover.manage'],
-  ['INVOICES_CREDIT_OVERRIDE', 'invoices.override_credit'],
-  ['CRM_ALL_READ', 'crm.view', 'company'],
-  ['CRM_ALL_WRITE', 'crm.edit', 'company'],
-  ['CAMPAIGNS_ALL_READ', 'campaigns.view', 'company'],
-  ['CAMPAIGNS_ALL_WRITE', 'campaigns.edit', 'company'],
-  ['COMMISSIONS_ALL_READ', 'commissions.view', 'company'],
-  ['WHATSAPP_PRIVATE_READ', 'whatsapp.view', 'company'],
-  ['DASHBOARD_OPERATIONS_READ', 'dashboard.view_operations'],
-  ['DASHBOARD_FINANCE_READ', 'dashboard.view_finance'],
-  ['USERS_WRITE', 'people.manage'],
-  ['ADMINISTRATION', 'people.manage_roles'],
-  ['GROUPS_READ', 'people.view_roles'],
+  ['PROJECTS_ALL_READ', ['projects.view'], 'company'],
+  // requireTaskViewAccess also gates editing and deleting a task.
+  ['TASKS_ALL_READ', ['tasks.view', 'tasks.edit', 'tasks.delete'], 'company'],
+  ['TIME_ENTRIES_DELETE_OTHERS', ['tasks.delete_time']],
+  // Conversations follow contact visibility.
+  ['CONTACTS_PRIVATE_READ', ['contacts.view', 'inbox.view'], 'company'],
+  ['CONTACTS_ALL_WRITE', ['contacts.edit'], 'company'],
+  ['PORTAL_ACCESS_MANAGE', ['portal.view', 'portal.manage_access', 'portal.handle_requests', 'portal.manage_catalogue', 'portal.approve', 'influencers.review']],
+  ['GAMES_MANAGE', ['games.view', 'games.manage']],
+  ['DISCOVER_MANAGE', ['discover.view', 'discover.manage']],
+  ['INVOICES_CREDIT_OVERRIDE', ['invoices.override_credit']],
+  ['CRM_ALL_READ', ['crm.view'], 'company'],
+  ['CRM_ALL_WRITE', ['crm.edit', 'crm.delete'], 'company'],
+  ['CAMPAIGNS_ALL_READ', ['campaigns.view'], 'company'],
+  ['CAMPAIGNS_ALL_WRITE', ['campaigns.edit'], 'company'],
+  ['COMMISSIONS_ALL_READ', ['commissions.view'], 'company'],
+  ['WHATSAPP_PRIVATE_READ', ['whatsapp.view'], 'company'],
+  ['DASHBOARD_OPERATIONS_READ', ['dashboard.view_operations']],
+  ['DASHBOARD_FINANCE_READ', ['dashboard.view_finance']],
+  ['USERS_WRITE', ['people.manage']],
+  ['ADMINISTRATION', ['people.manage_roles', 'settings.manage_approvals']],
+  ['GROUPS_READ', ['people.view_roles']],
 ];
 const FIELD_RULE_MAP = [
   ['PAYROLL_PAY_READ', ['salary', 'personal_ids', 'bank_details']],
@@ -178,16 +182,19 @@ test('every legacy record rule is mapped', () => {
 });
 
 test('templates reproduce the legacy record rules exactly', () => {
-  for (const [rule, key, scope] of RULE_MAP) {
-    for (const [tpl, role] of Object.entries(ROLE_OF)) {
-      const holds = RECORD_RULES[rule].roles.includes(role);
-      const grant = templateGrants(tpl, key);
-      if (scope) {
-        // A scoped rule: holders see the company, everyone else only their own (or nothing).
-        if (holds) assert.equal(grant?.scope, scope, `${tpl} ${key} (${rule})`);
-        else assert.notEqual(grant?.scope, scope, `${tpl} ${key} (${rule}) must not be ${scope}`);
-      } else {
-        assert.equal(Boolean(grant), holds, `${tpl} ${key} (${rule})`);
+  for (const [rule, keys, scope] of RULE_MAP) {
+    for (const key of keys) {
+      assert.ok(findAction(key), `${rule} feeds unknown ${key}`);
+      for (const [tpl, role] of Object.entries(ROLE_OF)) {
+        const holds = RECORD_RULES[rule].roles.includes(role);
+        const grant = templateGrants(tpl, key);
+        if (scope) {
+          // A scoped rule: holders see the company, everyone else only their own or nothing.
+          if (holds) assert.equal(grant?.scope, scope, `${tpl} ${key} (${rule})`);
+          else assert.ok(grant === undefined || grant.scope === 'own', `${tpl} ${key} (${rule}) must be own or nothing, got ${grant?.scope}`);
+        } else {
+          assert.equal(Boolean(grant), holds, `${tpl} ${key} (${rule})`);
+        }
       }
     }
   }
@@ -216,4 +223,37 @@ test('cost prices are visible to every template (unrestricted today)', () => {
     const f = templateFields(key).find((x) => x.key === 'cost_prices');
     assert.ok(f.view && f.edit, key);
   }
+});
+
+test('the holders table is checked when it loads: scopes the area accepts, no editable hidden field', () => {
+  assert.doesNotThrow(() => checkTables(LEGACY_HOLDERS, FIELD_HOLDERS));
+  // A scope the area does not offer.
+  const narrowArea = CATALOGUE.find((a) => a.scopes && a.scopes.length < 4);
+  if (narrowArea) {
+    const key = permissionKey(narrowArea.key, narrowArea.actions.find((x) => x.scoped).key);
+    const bad = SCOPES.find((s) => !narrowArea.scopes.includes(s));
+    assert.throws(() => checkTables({ ...LEGACY_HOLDERS, [key]: [bad, bad, bad, bad] }, FIELD_HOLDERS), /scope/);
+  }
+  assert.throws(() => checkTables({ ...LEGACY_HOLDERS, 'projects.view': ['company', 'company', 'company', 'department'] }, FIELD_HOLDERS), /scope/);
+  // Editable but not visible.
+  const yes = [true, true, true, true];
+  const no = [false, false, false, false];
+  assert.throws(() => checkTables(LEGACY_HOLDERS, { ...FIELD_HOLDERS, salary: [no, yes] }), /edit.*view|view.*edit/);
+  // Unknown and missing keys.
+  assert.throws(() => checkTables({ ...LEGACY_HOLDERS, 'sales.fly': yes }, FIELD_HOLDERS), /unknown/);
+  const { 'sales.view': _dropped, ...withoutSalesView } = LEGACY_HOLDERS;
+  assert.throws(() => checkTables(withoutSalesView, FIELD_HOLDERS), /missing/);
+});
+
+test('review renames and additions are in place', () => {
+  for (const key of ['finance.edit_settings', 'inbox.edit_settings', 'influencers.use_workspace', 'sales.cancel', 'settings.view_numbering']) {
+    assert.ok(findAction(key), `missing ${key}`);
+  }
+  for (const key of ['finance.settings', 'inbox.settings', 'influencers.workspace']) assert.equal(findAction(key), undefined, key);
+  assert.equal(findAction('purchasing.approve_step').action.limit, 'amount');
+  const hr = CATALOGUE.find((a) => a.key === 'hr');
+  assert.deepEqual(hr.label, { en: 'Employees and HR', ar: 'الموظفون والموارد البشرية' });
+  const ar = JSON.stringify(CATALOGUE.map((a) => a.actions.map((x) => x.label.ar)));
+  assert.ok(!ar.includes('الوصفات') && ar.includes('قوائم المواد'), 'recipes are قوائم المواد');
+  assert.ok(!ar.includes('الدفعات') && ar.includes('التشغيلات'), 'lots are التشغيلات');
 });

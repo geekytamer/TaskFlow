@@ -8,7 +8,7 @@
  *
  * Where routes in one area allowed different roles for what is the same
  * verb, the area has a separate, human-named action for the narrower one
- * (e.g. `finance.settings` beside `finance.view`). That keeps today's role
+ * (e.g. `finance.edit_settings` beside `finance.view`). That keeps today's role
  * behaviour expressible exactly; see templates.ts.
  *
  * Scopes apply only to actions marked `scoped`, and only on areas whose
@@ -69,9 +69,10 @@ export const CATALOGUE: readonly AreaDef[] = [
     key: 'sales', group: 'operations', label: l('Sales', 'المبيعات'),
     actions: [
       { key: 'view', label: l('See quotations and sales orders', 'عرض عروض الأسعار وأوامر البيع') },
-      { key: 'create', label: l('Create quotations and sales orders', 'إنشاء عروض الأسعار وأوامر البيع') },
-      { key: 'edit', label: l('Edit quotations and sales orders', 'تعديل عروض الأسعار وأوامر البيع') },
-      { key: 'delete', label: l('Delete quotations', 'حذف عروض الأسعار') },
+      { key: 'create', label: l('Create quotations and sales orders, and invoice them', 'إنشاء عروض الأسعار وأوامر البيع وإصدار فواتيرها') },
+      { key: 'edit', label: l('Edit quotations and sales orders and change their status', 'تعديل عروض الأسعار وأوامر البيع وتغيير حالتها') },
+      { key: 'cancel', label: l('Cancel quotations and sales orders', 'إلغاء عروض الأسعار وأوامر البيع') },
+      { key: 'delete', label: l('Delete quotations and sales orders', 'حذف عروض الأسعار وأوامر البيع') },
     ],
   },
   {
@@ -80,16 +81,16 @@ export const CATALOGUE: readonly AreaDef[] = [
       { key: 'view', label: l('See purchase orders, requisitions and RFQs', 'عرض أوامر الشراء وطلبات الشراء وطلبات عروض الأسعار') },
       { key: 'create', label: l('Create purchase orders, requisitions and RFQs', 'إنشاء أوامر الشراء وطلبات الشراء وطلبات عروض الأسعار') },
       { key: 'edit', label: l('Edit purchase orders, requisitions and RFQs', 'تعديل أوامر الشراء وطلبات الشراء وطلبات عروض الأسعار') },
-      { key: 'delete', label: l('Delete RFQs and supplier quotes', 'حذف طلبات عروض الأسعار وعروض الموردين') },
+      { key: 'delete', label: l('Delete purchase orders, requisitions, RFQs and supplier quotes', 'حذف أوامر الشراء وطلبات الشراء وطلبات عروض الأسعار وعروض الموردين') },
       { key: 'approve', label: l('Approve or reject purchase orders and requisitions', 'اعتماد أوامر الشراء وطلبات الشراء أو رفضها'), limit: 'amount' },
-      { key: 'approve_step', label: l('Approve a step in a purchase order approval chain', 'اعتماد خطوة في سلسلة اعتماد أمر الشراء') },
+      { key: 'approve_step', label: l('Approve a step in a purchase order approval chain', 'اعتماد خطوة في سلسلة اعتماد أمر الشراء'), limit: 'amount' },
     ],
   },
   {
     key: 'inventory', group: 'operations', label: l('Inventory', 'المخزون'),
     actions: [
-      { key: 'view', label: l('See items, stock, lots and warehouses', 'عرض الأصناف والمخزون والدفعات والمستودعات') },
-      { key: 'create', label: l('Add items, lots, stock counts and stock movements', 'إضافة الأصناف والدفعات والجرد وحركات المخزون') },
+      { key: 'view', label: l('See items, stock, lots and warehouses', 'عرض الأصناف والمخزون والتشغيلات والمستودعات') },
+      { key: 'create', label: l('Add items, lots, stock counts and stock movements', 'إضافة الأصناف والتشغيلات والجرد وحركات المخزون') },
       { key: 'edit', label: l('Edit stock counts', 'تعديل الجرد') },
       { key: 'delete', label: l('Delete items and stock counts', 'حذف الأصناف والجرد') },
       { key: 'post', label: l('Post stock counts', 'ترحيل الجرد') },
@@ -100,10 +101,10 @@ export const CATALOGUE: readonly AreaDef[] = [
   {
     key: 'manufacturing', group: 'operations', label: l('Manufacturing', 'التصنيع'),
     actions: [
-      { key: 'view', label: l('See recipes and work orders', 'عرض الوصفات وأوامر العمل') },
-      { key: 'create', label: l('Create recipes and work orders', 'إنشاء الوصفات وأوامر العمل') },
-      { key: 'edit', label: l('Edit and complete work orders and recipes', 'تعديل أوامر العمل والوصفات وإكمالها') },
-      { key: 'delete', label: l('Delete recipes and work orders', 'حذف الوصفات وأوامر العمل') },
+      { key: 'view', label: l('See recipes and work orders', 'عرض قوائم المواد وأوامر العمل') },
+      { key: 'create', label: l('Create recipes and work orders', 'إنشاء قوائم المواد وأوامر العمل') },
+      { key: 'edit', label: l('Edit recipes and work orders, and complete work orders', 'تعديل أوامر العمل وقوائم المواد وإكمال أوامر العمل') },
+      { key: 'delete', label: l('Delete recipes and work orders', 'حذف قوائم المواد وأوامر العمل') },
       { key: 'cancel', label: l('Cancel work orders', 'إلغاء أوامر العمل') },
     ],
   },
@@ -121,7 +122,7 @@ export const CATALOGUE: readonly AreaDef[] = [
   {
     key: 'quality', group: 'operations', label: l('Quality', 'الجودة'),
     actions: [
-      { key: 'view', label: l('See inspections, lot traces and storage readings', 'عرض الفحوصات وتتبع الدفعات وقراءات التخزين') },
+      { key: 'view', label: l('See inspections, lot traces and storage readings', 'عرض الفحوصات وتتبع التشغيلات وقراءات التخزين') },
       { key: 'create', label: l('Record inspections and storage readings', 'تسجيل الفحوصات وقراءات التخزين') },
     ],
   },
@@ -171,7 +172,7 @@ export const CATALOGUE: readonly AreaDef[] = [
       { key: 'view', label: l('See invoices and credit notes', 'عرض الفواتير وإشعارات الدائن') },
       { key: 'create', label: l('Create invoices and credit notes', 'إنشاء الفواتير وإشعارات الدائن') },
       { key: 'edit', label: l('Edit invoices, templates and reminders', 'تعديل الفواتير والقوالب والتذكيرات') },
-      { key: 'delete', label: l('Delete invoices, templates and payments', 'حذف الفواتير والقوالب والمدفوعات') },
+      { key: 'delete', label: l('Delete invoices, credit notes, templates and payments', 'حذف الفواتير وإشعارات الدائن والقوالب والمدفوعات') },
       { key: 'send', label: l('Email invoices to clients', 'إرسال الفواتير للعملاء بالبريد') },
       { key: 'pay', label: l('Record invoice payments', 'تسجيل مدفوعات الفواتير') },
       { key: 'print', label: l('Download invoice PDFs', 'تنزيل الفواتير بصيغة PDF') },
@@ -194,12 +195,12 @@ export const CATALOGUE: readonly AreaDef[] = [
       { key: 'view', label: l('See accounts, journals, bank, budgets, assets and reports', 'عرض الحسابات والقيود والبنك والميزانيات والأصول والتقارير') },
       { key: 'create', label: l('Add accounts, budgets, assets, expenses and VAT returns', 'إضافة الحسابات والميزانيات والأصول والمصروفات وإقرارات الضريبة') },
       { key: 'edit', label: l('Edit accounts, budgets, assets and expenses', 'تعديل الحسابات والميزانيات والأصول والمصروفات') },
-      { key: 'delete', label: l('Delete accounts, budgets, assets and VAT returns', 'حذف الحسابات والميزانيات والأصول وإقرارات الضريبة') },
-      { key: 'post', label: l('Post and reverse journal entries, reconcile the bank, run depreciation', 'ترحيل القيود وعكسها وتسوية البنك واحتساب الإهلاك') },
+      { key: 'delete', label: l('Delete accounts, budgets, assets, expenses, bank statements and VAT returns', 'حذف الحسابات والميزانيات والأصول والمصروفات وكشوف البنك وإقرارات الضريبة') },
+      { key: 'post', label: l('Post and reverse journal entries, import and reconcile bank statements, run depreciation and revaluation', 'ترحيل القيود وعكسها واستيراد كشوف البنك وتسويتها واحتساب الإهلاك وإعادة التقييم') },
       { key: 'export', label: l('Export finance data and reports', 'تصدير البيانات والتقارير المالية') },
       { key: 'approve_expenses', label: l('Approve expenses', 'اعتماد المصروفات'), limit: 'amount' },
       { key: 'view_settings', label: l('See finance settings (currency, tax)', 'عرض الإعدادات المالية (العملة والضريبة)') },
-      { key: 'settings', label: l('Change finance settings', 'تغيير الإعدادات المالية') },
+      { key: 'edit_settings', label: l('Change finance settings', 'تغيير الإعدادات المالية') },
     ],
   },
   {
@@ -219,12 +220,12 @@ export const CATALOGUE: readonly AreaDef[] = [
 
   // ─── HR ───────────────────────────────────────────────────────────────
   {
-    key: 'hr', group: 'hr', label: l('People and HR', 'الموارد البشرية'),
+    key: 'hr', group: 'hr', label: l('Employees and HR', 'الموظفون والموارد البشرية'),
     actions: [
       { key: 'view', label: l('See employees, departments and leave', 'عرض الموظفين والأقسام والإجازات') },
       { key: 'create', label: l('Add employees, departments, leave and attendance', 'إضافة الموظفين والأقسام والإجازات والحضور') },
       { key: 'edit', label: l('Edit employees, departments and leave types', 'تعديل الموظفين والأقسام وأنواع الإجازات') },
-      { key: 'delete', label: l('Delete attendance records', 'حذف سجلات الحضور') },
+      { key: 'delete', label: l('Delete employees, departments, leave and attendance records', 'حذف الموظفين والأقسام والإجازات وسجلات الحضور') },
       { key: 'approve', label: l('Approve or reject leave requests', 'اعتماد طلبات الإجازة أو رفضها') },
       { key: 'view_attendance', label: l('See attendance and end-of-service gratuity', 'عرض الحضور ومكافأة نهاية الخدمة') },
     ],
@@ -288,7 +289,7 @@ export const CATALOGUE: readonly AreaDef[] = [
       { key: 'view', label: l('See influencers and their photos', 'عرض المؤثرين وصورهم') },
       { key: 'create', label: l('Import influencers', 'استيراد المؤثرين') },
       { key: 'export', label: l('Export influencers', 'تصدير المؤثرين') },
-      { key: 'workspace', label: l("Open an influencer's creator workspace", 'فتح مساحة عمل المؤثر') },
+      { key: 'use_workspace', label: l("Open an influencer's creator workspace", 'فتح مساحة عمل المؤثر') },
       { key: 'review', label: l('Review briefs, content submissions and profile changes', 'مراجعة الملخصات والمحتوى المقدّم وتعديلات الملف') },
     ],
   },
@@ -307,9 +308,9 @@ export const CATALOGUE: readonly AreaDef[] = [
   {
     key: 'portal', group: 'crm', label: l('Client and influencer portals', 'بوابات العملاء والمؤثرين'),
     actions: [
-      { key: 'view', label: l('See portal requests, referrals and files', 'عرض طلبات البوابة والإحالات والملفات') },
+      { key: 'view', label: l('See portal users, the client catalogue, requests, referrals and files', 'عرض مستخدمي البوابة وكتالوج العملاء والطلبات والإحالات والملفات') },
       { key: 'manage_access', label: l('Invite, disable and enable portal users', 'دعوة مستخدمي البوابة وتعطيلهم وتفعيلهم') },
-      { key: 'handle_requests', label: l('Handle client requests and referrals', 'معالجة طلبات العملاء والإحالات') },
+      { key: 'handle_requests', label: l('Handle client requests and referrals, and send files', 'معالجة طلبات العملاء والإحالات وإرسال الملفات') },
       { key: 'manage_catalogue', label: l('Manage the client catalogue, price ranges and pricing profiles', 'إدارة كتالوج العملاء ونطاقات الأسعار وملفات التسعير') },
       { key: 'approve', label: l('Approve, void or credit referral commissions', 'اعتماد عمولات الإحالة أو إلغاؤها أو قيدها دائنًا') },
     ],
@@ -317,7 +318,7 @@ export const CATALOGUE: readonly AreaDef[] = [
   {
     key: 'discover', group: 'crm', label: l('Influencer directory', 'دليل المؤثرين'),
     actions: [
-      { key: 'view', label: l('See the influencer directory photos', 'عرض صور دليل المؤثرين') },
+      { key: 'view', label: l('See the influencer directory with its contacts and sources', 'عرض دليل المؤثرين مع جهات الاتصال والمصادر') },
       { key: 'manage', label: l('Run the influencer directory clients see', 'إدارة دليل المؤثرين الذي يراه العملاء') },
     ],
   },
@@ -338,7 +339,7 @@ export const CATALOGUE: readonly AreaDef[] = [
     actions: [
       { key: 'view', label: l('See conversations', 'عرض المحادثات'), scoped: true },
       { key: 'send', label: l('Reply, attach files and assign conversations', 'الرد وإرفاق الملفات وإسناد المحادثات') },
-      { key: 'settings', label: l('Change conversation settings', 'تغيير إعدادات المحادثات') },
+      { key: 'edit_settings', label: l('Change conversation settings', 'تغيير إعدادات المحادثات') },
     ],
   },
   {
@@ -358,6 +359,7 @@ export const CATALOGUE: readonly AreaDef[] = [
     key: 'settings', group: 'core', label: l('Company settings', 'إعدادات الشركة'),
     actions: [
       { key: 'view', label: l('See company details and custom fields', 'عرض بيانات الشركة والحقول المخصصة') },
+      { key: 'view_numbering', label: l('See document numbering', 'عرض ترقيم المستندات') },
       { key: 'edit', label: l('Change company details, numbering and custom fields', 'تغيير بيانات الشركة والترقيم والحقول المخصصة') },
       { key: 'view_activity', label: l('See the company activity log', 'عرض سجل نشاط الشركة') },
       { key: 'view_approvals', label: l('See approval rules and pending approvals', 'عرض قواعد الاعتماد والاعتمادات المعلقة') },

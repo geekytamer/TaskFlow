@@ -23,8 +23,8 @@ export interface Template { label: Label; grants: TemplateGrant[]; fields: Templ
 
 type LegacyRole = 'admin' | 'manager' | 'accountant' | 'employee';
 /** false = not granted; true = granted (unscoped action); a scope = granted at that scope. */
-type Cell = boolean | Scope;
-type Row = readonly [admin: Cell, manager: Cell, accountant: Cell, employee: Cell];
+export type Cell = boolean | Scope;
+export type Row = readonly [admin: Cell, manager: Cell, accountant: Cell, employee: Cell];
 
 const ALL: Row = [true, true, true, true];
 const MGMT: Row = [true, true, true, false]; // Admin, Manager, Accountant (companyManagementRoles)
@@ -40,7 +40,7 @@ const AM_OR_OWN: Row = ['company', 'company', 'own', 'own'];
  * Who holds each permission today, by legacy role. Every catalogue key appears
  * exactly once (checked at load). Comments name the legacy gate reproduced.
  */
-const LEGACY: Record<string, Row> = {
+export const LEGACY_HOLDERS: Readonly<Record<string, Row>> = {
   'dashboard.view': ALL, // dashboard, search: company access
   'dashboard.view_operations': AM, // DASHBOARD_OPERATIONS_READ
   'dashboard.view_finance': AC, // DASHBOARD_FINANCE_READ
@@ -48,6 +48,7 @@ const LEGACY: Record<string, Row> = {
   'sales.view': MGMT,
   'sales.create': MGMT,
   'sales.edit': MGMT,
+  'sales.cancel': MGMT, // status Cancelled on PATCH /sales-orders|quotations/:id/status (management today)
   'sales.delete': MGMT,
 
   'purchasing.view': MGMT,
@@ -120,7 +121,7 @@ const LEGACY: Record<string, Row> = {
   'finance.export': MGMT,
   'finance.approve_expenses': MGMT, // POST /approvals/:docType/:docId/decision (expense)
   'finance.view_settings': ALL, // GET finance settings: company access
-  'finance.settings': AM, // PUT finance settings
+  'finance.edit_settings': AM, // PUT finance settings
 
   'commissions.view': MGMT_OR_OWN, // COMMISSIONS_ALL_READ (route open to all roles)
   'commissions.create': MGMT,
@@ -165,7 +166,7 @@ const LEGACY: Record<string, Row> = {
   'influencers.view': ALL, // influencer photos: company access
   'influencers.create': MGMT, // import
   'influencers.export': ALL,
-  'influencers.workspace': AM, // creator workspace
+  'influencers.use_workspace': AM, // creator workspace
   'influencers.review': AM, // portal staff influencer routes (PORTAL_ACCESS_MANAGE)
 
   'campaigns.view': MGMT_OR_OWN, // CAMPAIGNS_ALL_READ
@@ -180,7 +181,7 @@ const LEGACY: Record<string, Row> = {
   'portal.manage_catalogue': AM,
   'portal.approve': AM,
 
-  'discover.view': ALL, // photos: company access
+  'discover.view': AM, // GET directory, profile photo: DISCOVER_MANAGE
   'discover.manage': AM, // DISCOVER_MANAGE
 
   'games.view': A, // every games staff route: GAMES_MANAGE
@@ -188,7 +189,7 @@ const LEGACY: Record<string, Row> = {
 
   'inbox.view': AM_OR_OWN, // contacts gate + CONTACTS_PRIVATE_READ
   'inbox.send': ALL,
-  'inbox.settings': AM, // PUT conversation-settings
+  'inbox.edit_settings': AM, // PUT conversation-settings
 
   'whatsapp.view': ['company', 'company', 'own', false], // WHATSAPP_PRIVATE_READ; Employees have no WhatsApp
   'whatsapp.send': MGMT,
@@ -196,6 +197,7 @@ const LEGACY: Record<string, Row> = {
   'whatsapp.manage': A, // instance, QR, state, logout, webhook
 
   'settings.view': ALL, // GET company, custom fields: company access
+  'settings.view_numbering': AM, // GET numbering-settings
   'settings.edit': AM, // PUT company, numbering, custom fields
   'settings.view_activity': MGMT,
   'settings.view_approvals': MGMT,
@@ -208,7 +210,7 @@ const LEGACY: Record<string, Row> = {
 };
 
 /** Sensitive fields per legacy role: [view, edit]. */
-const FIELDS: Record<string, readonly [Row, Row]> = {
+export const FIELD_HOLDERS: Readonly<Record<string, readonly [view: Row, edit: Row]>> = {
   salary: [MGMT, MGMT], // PAYROLL_PAY_READ; edited through PUT /employees/:id (management)
   personal_ids: [MGMT, MGMT],
   bank_details: [MGMT, MGMT],
@@ -219,27 +221,46 @@ const FIELDS: Record<string, readonly [Row, Row]> = {
 
 const ROLE_INDEX: Record<LegacyRole, number> = { admin: 0, manager: 1, accountant: 2, employee: 3 };
 
-function checkTables(): void {
+/**
+ * Throws if the holders tables and the catalogue fall out of step: a missing or
+ * unknown key, a scope on an unscoped action (or none on a scoped one), a scope
+ * the area does not offer, or a sensitive field someone may edit but not see.
+ * Runs when this module loads; exported so the test can feed it broken tables.
+ */
+export function checkTables(
+  legacy: Readonly<Record<string, Row>>,
+  fields: Readonly<Record<string, readonly [Row, Row]>>,
+): void {
   const keys = allPermissionKeys();
-  const missing = keys.filter((k) => !(k in LEGACY));
-  const unknown = Object.keys(LEGACY).filter((k) => !findAction(k));
+  const missing = keys.filter((k) => !(k in legacy));
+  const unknown = Object.keys(legacy).filter((k) => !findAction(k));
   if (missing.length || unknown.length) {
     throw new Error(`authz templates out of step with the catalogue: missing ${missing.join(', ') || '-'}; unknown ${unknown.join(', ') || '-'}`);
   }
-  for (const [key, row] of Object.entries(LEGACY)) {
-    const scoped = Boolean(findAction(key)!.action.scoped);
+  for (const [key, row] of Object.entries(legacy)) {
+    const { area, action } = findAction(key)!;
+    const scoped = Boolean(action.scoped);
     for (const cell of row) {
-      if (cell !== false && (typeof cell === 'string') !== scoped) {
+      if (cell === false) continue;
+      if ((typeof cell === 'string') !== scoped) {
         throw new Error(`authz templates: ${key} ${scoped ? 'needs a scope' : 'takes no scope'}`);
+      }
+      if (typeof cell === 'string' && !(area.scopes ?? []).includes(cell)) {
+        throw new Error(`authz templates: ${key} scope ${cell} is not one ${area.key} offers`);
       }
     }
   }
   const fieldKeys = SENSITIVE_FIELDS.map((f) => f.key);
-  if (fieldKeys.length !== Object.keys(FIELDS).length || fieldKeys.some((k) => !(k in FIELDS))) {
+  if (fieldKeys.length !== Object.keys(fields).length || fieldKeys.some((k) => !(k in fields))) {
     throw new Error('authz templates: sensitive fields out of step with the catalogue');
   }
+  for (const [key, [view, edit]] of Object.entries(fields)) {
+    edit.forEach((canEdit, i) => {
+      if (canEdit && !view[i]) throw new Error(`authz templates: field ${key} can edit without view`);
+    });
+  }
 }
-checkTables();
+checkTables(LEGACY_HOLDERS, FIELD_HOLDERS);
 
 function legacyTemplate(role: LegacyRole): Pick<Template, 'grants' | 'fields'> {
   const i = ROLE_INDEX[role];
@@ -247,13 +268,13 @@ function legacyTemplate(role: LegacyRole): Pick<Template, 'grants' | 'fields'> {
   for (const area of CATALOGUE) {
     for (const action of area.actions) {
       const key = permissionKey(area.key, action.key);
-      const cell = LEGACY[key][i];
+      const cell = LEGACY_HOLDERS[key][i];
       if (cell === false) continue;
       grants.push(typeof cell === 'string' ? { key, scope: cell } : { key });
     }
   }
   const fields = SENSITIVE_FIELDS.map(({ key }) => ({
-    key, view: Boolean(FIELDS[key][0][i]), edit: Boolean(FIELDS[key][1][i]),
+    key, view: Boolean(FIELD_HOLDERS[key][0][i]), edit: Boolean(FIELD_HOLDERS[key][1][i]),
   }));
   return { grants, fields };
 }
