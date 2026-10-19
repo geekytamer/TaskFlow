@@ -32,6 +32,7 @@ import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
 import { PortalStore } from '../portal/portal-store';
+import { AuthzStore } from '../authz/authz-store';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
 const DASHBOARD_METRIC_MODULES: Readonly<Record<string, string>> = {
@@ -709,6 +710,7 @@ export class DataStore {
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
+  readonly authz: AuthzStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -731,6 +733,9 @@ export class DataStore {
     this.db.pragma('synchronous = NORMAL');
 
     this.onNotificationsCreated = options.onNotificationsCreated;
+    // Built before the migrations: 135 and the legacy group seeding call into
+    // it (it does nothing until 135 has created its tables).
+    this.authz = new AuthzStore(this.db);
     this.applyMigrations();
     this.portal = new PortalStore(this.db);
     this.catalogue = new PortalCatalogueStore(this.db);
@@ -5196,6 +5201,128 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Permissions v2 (spec 2026-10-16 §4 "Data"): roles with catalogue
+        // grants, scopes and sensitive fields; main + add-on assignments;
+        // holding groups; record shares; the permission audit. Legacy
+        // group_permissions rows stay untouched for today's readers. The data
+        // migration itself is store.authz.migrateAll() (idempotent).
+        id: '135_authz_v2',
+        run: () => {
+          const columns = (table: string) =>
+            new Set((this.db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name));
+          const addColumn = (table: string, column: string, type: string) => {
+            if (!columns(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+          };
+          // Group-level roles have no company: relax permission_groups.companyId.
+          const companyCol = (this.db.prepare(`PRAGMA table_info('permission_groups')`).all() as Array<{ name: string; notnull: number }>)
+            .find((c) => c.name === 'companyId');
+          if (companyCol?.notnull) {
+            this.db.exec(`
+              CREATE TABLE permission_groups_v2 (
+                id             TEXT PRIMARY KEY,
+                companyId      TEXT,
+                key            TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                nameAr         TEXT,
+                description    TEXT,
+                isSystem       INTEGER NOT NULL DEFAULT 0,
+                isActive       INTEGER NOT NULL DEFAULT 1,
+                createdAt      TEXT NOT NULL,
+                templateKey    TEXT,
+                holdingGroupId TEXT,
+                needsReview    INTEGER NOT NULL DEFAULT 0,
+                convertedAt    TEXT,
+                UNIQUE (companyId, key)
+              );
+              INSERT INTO permission_groups_v2
+                (id, companyId, key, name, nameAr, description, isSystem, isActive, createdAt)
+                SELECT id, companyId, key, name, nameAr, description, isSystem, isActive, createdAt FROM permission_groups;
+              DROP TABLE permission_groups;
+              ALTER TABLE permission_groups_v2 RENAME TO permission_groups;
+              CREATE INDEX IF NOT EXISTS idx_permission_groups_company ON permission_groups (companyId);
+            `);
+          }
+          addColumn('permission_groups', 'templateKey', 'TEXT');
+          addColumn('permission_groups', 'holdingGroupId', 'TEXT');
+          addColumn('permission_groups', 'needsReview', 'INTEGER NOT NULL DEFAULT 0');
+          addColumn('permission_groups', 'convertedAt', 'TEXT');
+          addColumn('user_group_assignments', 'isMain', 'INTEGER NOT NULL DEFAULT 0');
+          addColumn('user_group_assignments', 'isActive', 'INTEGER NOT NULL DEFAULT 1');
+          addColumn('user_group_assignments', 'startsAt', 'TEXT');
+          addColumn('user_group_assignments', 'endsAt', 'TEXT');
+          addColumn('user_group_assignments', 'delegatedBy', 'TEXT');
+          addColumn('user_group_assignments', 'reason', 'TEXT');
+          addColumn('user_group_assignments', 'viaHoldingGroupId', 'TEXT');
+          addColumn('companies', 'holdingGroupId', 'TEXT');
+          this.db.exec(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_permission_groups_holding_key
+              ON permission_groups (holdingGroupId, key) WHERE companyId IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_user_group_assignments_main
+              ON user_group_assignments (userId, companyId) WHERE isMain = 1;
+            CREATE TABLE IF NOT EXISTS role_permissions (
+              groupId     TEXT NOT NULL,
+              key         TEXT NOT NULL,
+              scope       TEXT,
+              limitAmount REAL,
+              PRIMARY KEY (groupId, key)
+            );
+            CREATE TABLE IF NOT EXISTS role_fields (
+              groupId TEXT NOT NULL,
+              field   TEXT NOT NULL,
+              canView INTEGER NOT NULL DEFAULT 0,
+              canEdit INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY (groupId, field)
+            );
+            CREATE TABLE IF NOT EXISTS holding_groups (
+              id        TEXT PRIMARY KEY,
+              name      TEXT NOT NULL,
+              nameAr    TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS holding_group_admins (
+              holdingGroupId TEXT NOT NULL,
+              userId         TEXT NOT NULL,
+              PRIMARY KEY (holdingGroupId, userId)
+            );
+            CREATE TABLE IF NOT EXISTS holding_group_assignments (
+              holdingGroupId TEXT NOT NULL,
+              userId         TEXT NOT NULL,
+              roleKey        TEXT NOT NULL,
+              isMain         INTEGER NOT NULL DEFAULT 0,
+              startsAt       TEXT,
+              endsAt         TEXT,
+              PRIMARY KEY (holdingGroupId, userId, roleKey)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_group_assignments_main
+              ON holding_group_assignments (holdingGroupId, userId) WHERE isMain = 1;
+            CREATE TABLE IF NOT EXISTS record_shares (
+              companyId TEXT NOT NULL,
+              area      TEXT NOT NULL,
+              recordId  TEXT NOT NULL,
+              userId    TEXT NOT NULL,
+              sharedBy  TEXT,
+              createdAt TEXT NOT NULL,
+              PRIMARY KEY (companyId, area, recordId, userId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_record_shares_user ON record_shares (userId, companyId, area);
+            CREATE TABLE IF NOT EXISTS permission_audit (
+              id             INTEGER PRIMARY KEY AUTOINCREMENT,
+              companyId      TEXT,
+              holdingGroupId TEXT,
+              actorUserId    TEXT,
+              entity         TEXT NOT NULL,
+              entityId       TEXT NOT NULL,
+              before         TEXT,
+              after          TEXT,
+              at             TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_company ON permission_audit (companyId, id);
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_entity ON permission_audit (entity, entityId);
+          `);
+          this.authz.migrateAll();
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5620,6 +5747,7 @@ export class DataStore {
       companies.forEach(({ id }) => this.seedPermissionGroupsForCompanyInTrx(id));
       const users = this.db.prepare('SELECT id FROM users').all() as Array<{ id: string }>;
       users.forEach(({ id }) => this.syncUserGroupAssignmentsInTrx(id));
+      this.authz.migrateAll();
     });
     trx();
   }
@@ -6052,6 +6180,11 @@ export class DataStore {
            (SELECT id FROM permission_groups WHERE companyId = ?)`,
       )
       .run(companyId);
+    for (const table of ['role_permissions', 'role_fields']) {
+      this.db
+        .prepare(`DELETE FROM ${table} WHERE groupId IN (SELECT id FROM permission_groups WHERE companyId = ?)`)
+        .run(companyId);
+    }
     this.db.prepare('DELETE FROM user_group_assignments WHERE companyId = ?').run(companyId);
     this.db.prepare('DELETE FROM permission_groups WHERE companyId = ?').run(companyId);
     this.bumpAuthzVersionInTrx();
@@ -6223,6 +6356,7 @@ export class DataStore {
           insertPerm.run(group.id, module, action);
         });
       });
+      this.authz.migrateCompanyRoles(companyId, { custom: false });
       this.bumpAuthzVersionInTrx();
     });
     trx();
@@ -6281,6 +6415,7 @@ export class DataStore {
             'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
           )
           .run(userId, companyId, target.id);
+        this.authz.syncMainAssignment(userId, companyId);
       });
       this.bumpAuthzVersionInTrx();
     }
@@ -6318,6 +6453,7 @@ export class DataStore {
         insertPerm.run(group.id, module, action);
       });
     });
+    this.authz.migrateCompanyRoles(companyId, { custom: false });
   }
 
   createPermissionGroup(input: {
@@ -6353,9 +6489,15 @@ export class DataStore {
     return row;
   }
 
+  /**
+   * Legacy listing. Leaves out the v2-only Owner role (migration 135): it has
+   * no legacy grants and no legacy role maps to it, so the old screens never
+   * offer it. store.authz.listRoles is the v2 listing.
+   */
   listPermissionGroups(companyId: string) {
     return this.db
-      .prepare('SELECT * FROM permission_groups WHERE companyId = ? ORDER BY name ASC')
+      .prepare(`SELECT * FROM permission_groups WHERE companyId = ?
+                  AND NOT (isSystem = 1 AND key = 'owner') ORDER BY name ASC`)
       .all(companyId) as Array<{
       id: string;
       companyId: string;
@@ -6408,6 +6550,7 @@ export class DataStore {
           'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
         )
         .run(userId, companyId, groupId);
+      this.authz.syncMainAssignment(userId, companyId);
       this.bumpAuthzVersionInTrx();
     });
     trx();
@@ -6643,6 +6786,8 @@ export class DataStore {
         .prepare('DELETE FROM group_implications WHERE parentGroupId = ? OR childGroupId = ?')
         .run(id, id);
       this.db.prepare('DELETE FROM group_permissions WHERE groupId = ?').run(id);
+      this.db.prepare('DELETE FROM role_permissions WHERE groupId = ?').run(id);
+      this.db.prepare('DELETE FROM role_fields WHERE groupId = ?').run(id);
       this.db.prepare('DELETE FROM user_group_assignments WHERE groupId = ?').run(id);
       this.db.prepare('DELETE FROM permission_groups WHERE id = ?').run(id);
       if (group && Number(group.isSystem) === 1) {
@@ -6708,6 +6853,7 @@ export class DataStore {
         'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
       );
       groupIds.forEach((groupId) => insert.run(userId, companyId, groupId));
+      this.authz.syncMainAssignment(userId, companyId);
       this.bumpAuthzVersionInTrx();
     });
     trx();
@@ -7022,6 +7168,9 @@ export class DataStore {
     }
     const trx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM holding_group_admins WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM holding_group_assignments WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM record_shares WHERE userId = ?').run(userId);
       this.scrubIdFromJsonArray('tasks', 'assignedUserIds', userId);
       this.scrubIdFromJsonArray('projects', 'memberIds', userId);
       this.db.prepare('DELETE FROM tokens WHERE userId = ?').run(userId);
