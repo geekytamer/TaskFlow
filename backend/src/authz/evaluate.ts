@@ -8,8 +8,10 @@
  *   - group assignments (holding_group_assignments), expanded at read time to
  *     every company whose holdingGroupId matches — so a company attached later
  *     is covered with no write (Ruling H). In each company the key resolves to
- *     that company's role with the same key; failing that, the group-level role
- *     row (companyId NULL); failing that, the system template of that key. A
+ *     the company's read-only copy of the group role (key 'group:<key>',
+ *     Task 8); failing that, the group-level role row (companyId NULL);
+ *     failing that, the system template of that key. The company's own roles
+ *     never decide group-wide people. A
  *     role found but needing review grants nothing in that company (no
  *     fallback to the group-level role or template). An unparseable startsAt
  *     or endsAt makes any assignment inactive.

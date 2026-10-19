@@ -739,6 +739,19 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/academy/exemptions', permission: 'super_admin' },
   { method: 'DELETE', path: '/academy/exemptions/:userId/:module', permission: 'super_admin' },
 
+  // ─── Holding groups (authz/holding-routes.ts) ──────────────────────────────
+  { method: 'POST', path: '/holding-groups', permission: 'super_admin' },
+  { method: 'PUT', path: '/holding-groups/:id', permission: 'super_admin' },
+  { method: 'POST', path: '/holding-groups/:id/companies', permission: 'super_admin' },
+  { method: 'DELETE', path: '/holding-groups/:id/companies/:companyId', permission: 'super_admin' },
+  { method: 'GET', path: '/holding-groups', permission: 'per_record', note: 'the groups the person administers; super admin sees all' },
+  { method: 'GET', path: '/holding-groups/:id', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
+  { method: 'PUT', path: '/holding-groups/:id/admins', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
+  { method: 'PUT', path: '/holding-groups/:id/assignments/:userId', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
+  { method: 'GET', path: '/holding-groups/:id/templates/:key', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
+  { method: 'PUT', path: '/holding-groups/:id/templates/:key', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
+  { method: 'POST', path: '/holding-groups/:id/templates/:key/push', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
+
 ];
 
 /**

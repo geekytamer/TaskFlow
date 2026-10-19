@@ -157,7 +157,7 @@ test('a holding assignment reaches every company of the group, including one att
   assert.deepEqual(can(eff, 'tasks.view', { companyId: beta.id, ownerUserId: 'someone-else' }), { allowed: true });
 });
 
-test('a holding role key missing in a company falls back to the group-level role', () => {
+test('a holding role key without a company copy falls back to the group-level role', () => {
   const store = freshStore();
   const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
   const user = makeUser(store, [acme.id], 'Employee');
@@ -169,7 +169,14 @@ test('a holding role key missing in a company falls back to the group-level role
     .run(new Date().toISOString(), group.id);
   store.db.prepare(`INSERT INTO role_permissions (groupId, key, scope, limitAmount) VALUES ('grp-auditor', 'finance.view', NULL, NULL)`).run();
   store.authz.setHoldingAssignment(group.id, user.id, { mainRoleKey: null, addOnRoleKeys: ['auditor'] }, null);
-  const grant = effective(store, user.id).byCompany.get(acme.id).grants.get('finance.view');
+  // Task 8: the company's read-only copy decides first.
+  const copy = store.authz.listRoles(acme.id).find((r) => r.key === 'group:auditor');
+  let grant = effective(store, user.id).byCompany.get(acme.id).grants.get('finance.view');
+  assert.deepEqual(grant.sources, [{ kind: 'holding', roleId: copy.id, roleName: 'Group auditor' }]);
+  // Without the copy, the group-level role.
+  store.db.prepare('DELETE FROM permission_groups WHERE id = ?').run(copy.id);
+  store.bumpAuthzVersion();
+  grant = effective(store, user.id).byCompany.get(acme.id).grants.get('finance.view');
   assert.deepEqual(grant.sources, [{ kind: 'holding', roleId: 'grp-auditor', roleName: 'Group auditor' }]);
 });
 
@@ -312,14 +319,14 @@ test('a holding role that needs review in a company grants nothing there (no tem
   store.authz.attachCompany(group.id, acme.id, null);
   store.authz.attachCompany(group.id, beta.id, null);
   store.authz.setHoldingAssignment(group.id, ceo.id, { mainRoleKey: 'owner', addOnRoleKeys: [] }, null);
-  store.db.prepare(`UPDATE permission_groups SET needsReview = 1 WHERE companyId = ? AND key = 'owner'`).run(acme.id);
+  store.db.prepare(`UPDATE permission_groups SET needsReview = 1 WHERE companyId = ? AND key = 'group:owner'`).run(acme.id);
   store.bumpAuthzVersion();
   const eff = effective(store, ceo.id);
   assert.equal(eff.byCompany.get(acme.id).grants.has('finance.view'), false, 'needs review: closed, not template:owner');
   assert.ok(eff.byCompany.get(acme.id).grants.has('tasks.create'), 'own main role still counts');
   assert.ok(eff.byCompany.get(beta.id).grants.has('finance.view'), 'other companies unaffected');
-  // A company without the role at all still falls back to the template.
-  store.db.prepare(`DELETE FROM permission_groups WHERE companyId = ? AND key = 'owner'`).run(beta.id);
+  // A company without the copy at all still falls back to the template.
+  store.db.prepare(`DELETE FROM permission_groups WHERE companyId = ? AND key = 'group:owner'`).run(beta.id);
   store.bumpAuthzVersion();
   const sources = effective(store, ceo.id).byCompany.get(beta.id).grants.get('finance.view').sources;
   assert.deepEqual(sources.map((s) => s.roleId), ['template:owner']);

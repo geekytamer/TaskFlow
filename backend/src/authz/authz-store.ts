@@ -33,6 +33,7 @@ import { v4 as uuid } from 'uuid';
 import { CATALOGUE, SCOPES, SENSITIVE_FIELDS, findAction, type Scope } from './catalogue';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant, type TemplateKey } from './templates';
 import { OLD_RULE_SCOPES, OLD_TO_FIELDS, OLD_TO_NEW } from './legacy-map';
+import { HttpError } from '../http';
 
 export interface RoleView {
   id: string;
@@ -194,6 +195,36 @@ const normFields = (fields: readonly TemplateField[]): TemplateField[] =>
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** A role's content (grants and fields, normalised) as one comparable string. */
+const contentSig = (grants: readonly TemplateGrant[], fields: readonly TemplateField[]) =>
+  JSON.stringify([normGrants(grants), normFields(fields)]);
+
+/**
+ * A role the holding group manages: a group-level template (companyId NULL) or
+ * a company's read-only copy of one. Company role screens may not change it.
+ */
+const groupManaged = () =>
+  new HttpError(403, 'This role is managed by the group. Ask a group administrator to change it.', { code: 'GROUP_ROLE' });
+
+/** The key of a company's read-only copy of a group role. */
+export const copyKey = (roleKey: string) => `group:${roleKey}`;
+
+const TEMPLATE_KEY_RE = /^[a-z][a-z0-9_]{1,39}$/;
+
+export interface HoldingTemplateView {
+  key: string;
+  /** 'system': a system template the group has not edited; 'group': the group's own row. */
+  source: 'system' | 'group';
+  roleId: string | null;
+  name: string;
+  nameAr: string | null;
+  description: string | null;
+  grants: TemplateGrant[];
+  fields: TemplateField[];
+}
+
+export interface PushReportRow { companyId: string; roleId: string; roleKey: string; roleName: string; message?: string }
+
 export class AuthzStore {
   private isReady = false;
 
@@ -321,6 +352,7 @@ export class AuthzStore {
       let id = input.id;
       const existing = id ? this.roleRow(id) : undefined;
       if (id && !existing) throw new Error('Role not found.');
+      if (existing?.holdingGroupId) throw groupManaged();
       if (existing && existing.companyId !== companyId) throw new Error('That role belongs to another company.');
       const before = existing ? this.view(existing) : undefined;
       if (!existing) {
@@ -360,6 +392,7 @@ export class AuthzStore {
     this.tx(() => {
       const row = this.roleRow(id);
       if (!row) throw new Error('Role not found.');
+      if (row.holdingGroupId) throw groupManaged();
       const members = (this.db.prepare('SELECT COUNT(*) n FROM user_group_assignments WHERE groupId = ?').get(id) as { n: number }).n;
       if (members > 0) throw new Error(`This role is assigned to ${members} person(s); move them first.`);
       const before = this.view(row);
@@ -620,7 +653,35 @@ export class AuthzStore {
     });
   }
 
-  /** A company belongs to at most one group. */
+  /** The group, or undefined. */
+  holdingGroup(id: string): HoldingGroupView | undefined {
+    const row = this.db.prepare('SELECT * FROM holding_groups WHERE id = ?').get(id) as
+      | { id: string; name: string; nameAr: string | null; createdAt: string } | undefined;
+    return row ? this.holdingView(row) : undefined;
+  }
+
+  isHoldingAdmin(holdingGroupId: string, userId: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM holding_group_admins WHERE holdingGroupId = ? AND userId = ?').get(holdingGroupId, userId));
+  }
+
+  updateHoldingGroup(id: string, input: { name?: string; nameAr?: string | null }, actorId: string | null): HoldingGroupView {
+    return this.tx(() => {
+      const before = this.holdingRow(id);
+      const name = input.name === undefined ? before.name : String(input.name).trim();
+      if (!name) throw new Error('A group needs a name.');
+      const nameAr = input.nameAr === undefined ? before.nameAr : input.nameAr;
+      this.db.prepare('UPDATE holding_groups SET name = ?, nameAr = ? WHERE id = ?').run(name, nameAr, id);
+      const after = this.holdingRow(id);
+      this.changed({ holdingGroupId: id, actorUserId: actorId, entity: 'holding_group', entityId: id, before, after });
+      return this.holdingView(after);
+    });
+  }
+
+  /**
+   * A company belongs to at most one group. Attaching gives the company the
+   * read-only copies of the group roles in use; the group-wide people reach it
+   * at once (the version bump invalidates every cached answer).
+   */
   attachCompany(holdingGroupId: string, companyId: string, actorId: string | null): void {
     this.tx(() => {
       this.holdingRow(holdingGroupId);
@@ -628,16 +689,18 @@ export class AuthzStore {
         | { id: string; holdingGroupId: string | null } | undefined;
       if (!company) throw new Error('Company not found.');
       if (company.holdingGroupId && company.holdingGroupId !== holdingGroupId) {
-        throw new Error('That company already belongs to another group.');
+        throw new HttpError(409, 'That company already belongs to another group.');
       }
       this.db.prepare('UPDATE companies SET holdingGroupId = ? WHERE id = ?').run(holdingGroupId, companyId);
       this.changed({
         companyId, holdingGroupId, actorUserId: actorId, entity: 'holding_company', entityId: companyId,
         before: { holdingGroupId: company.holdingGroupId }, after: { holdingGroupId },
       });
+      this.materialise(holdingGroupId);
     });
   }
 
+  /** Takes the company out of its group: group-wide access there ends at once and the copies go. */
   detachCompany(companyId: string, actorId: string | null): void {
     this.tx(() => {
       const company = this.db.prepare('SELECT id, holdingGroupId FROM companies WHERE id = ?').get(companyId) as
@@ -648,6 +711,10 @@ export class AuthzStore {
         companyId, holdingGroupId: company.holdingGroupId, actorUserId: actorId, entity: 'holding_company', entityId: companyId,
         before: { holdingGroupId: company.holdingGroupId }, after: { holdingGroupId: null },
       });
+      const copies = this.db
+        .prepare('SELECT id FROM permission_groups WHERE companyId = ? AND holdingGroupId IS NOT NULL')
+        .all(companyId) as Array<{ id: string }>;
+      copies.forEach(({ id }) => this.dropCopy(id, actorId));
     });
   }
 
@@ -674,31 +741,229 @@ export class AuthzStore {
   }
 
   /**
-   * Replaces a person's group-wide roles: a template key or a group-level role
-   * key, applying in every company of the group.
+   * Replaces a person's group-wide roles (all of them, one time window): keys
+   * from the group's template library (system template keys and the group's
+   * own templates), applying in every company of the group. Empty = removed.
+   * Then brings the companies' read-only copies in line.
    */
   setHoldingAssignment(
     holdingGroupId: string, userId: string,
-    input: { mainRoleKey: string | null; addOnRoleKeys: string[] },
+    input: { mainRoleKey: string | null; addOnRoleKeys: string[]; startsAt?: string | null; endsAt?: string | null },
     actorId: string | null,
   ): void {
+    const startsAt = input.startsAt || null;
+    const endsAt = input.endsAt || null;
+    for (const [label, value] of [['start', startsAt], ['end', endsAt]] as const) {
+      if (value !== null && Number.isNaN(Date.parse(value))) throw new Error(`The ${label} date is not a date.`);
+    }
+    if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) throw new Error('The end date must be after the start date.');
     this.tx(() => {
       this.holdingRow(holdingGroupId);
       const keys = [...new Set([input.mainRoleKey, ...input.addOnRoleKeys].filter((x): x is string => Boolean(x)))];
       for (const key of keys) {
-        const known = (TEMPLATE_KEYS as readonly string[]).includes(key)
-          || Boolean(this.db.prepare('SELECT 1 FROM permission_groups WHERE holdingGroupId = ? AND companyId IS NULL AND key = ?').get(holdingGroupId, key));
-        if (!known) throw new Error(`Unknown group role: ${key}`);
+        if (!this.holdingTemplate(holdingGroupId, key)) throw new Error(`Unknown group role: ${key}`);
       }
       const shape = () => this.holdingAssignments(holdingGroupId).filter((r) => r.userId === userId);
       const before = shape();
-      this.db.prepare('DELETE FROM holding_group_assignments WHERE holdingGroupId = ? AND userId = ? AND endsAt IS NULL').run(holdingGroupId, userId);
+      this.db.prepare('DELETE FROM holding_group_assignments WHERE holdingGroupId = ? AND userId = ?').run(holdingGroupId, userId);
       const insert = this.db.prepare(
-        'INSERT OR REPLACE INTO holding_group_assignments (holdingGroupId, userId, roleKey, isMain) VALUES (?, ?, ?, ?)',
+        'INSERT INTO holding_group_assignments (holdingGroupId, userId, roleKey, isMain, startsAt, endsAt) VALUES (?, ?, ?, ?, ?, ?)',
       );
-      keys.forEach((key) => insert.run(holdingGroupId, userId, key, key === input.mainRoleKey ? 1 : 0));
+      keys.forEach((key) => insert.run(holdingGroupId, userId, key, key === input.mainRoleKey ? 1 : 0, startsAt, endsAt));
       this.changed({ holdingGroupId, actorUserId: actorId, entity: 'holding_assignments', entityId: userId, before, after: shape() });
+      this.materialise(holdingGroupId);
     });
+  }
+
+  // ── Group templates and their company copies ───────────────────────
+
+  private groupRoleRow(holdingGroupId: string, key: string): RoleRow | undefined {
+    return this.db.prepare('SELECT * FROM permission_groups WHERE companyId IS NULL AND holdingGroupId = ? AND key = ?')
+      .get(holdingGroupId, key) as RoleRow | undefined;
+  }
+
+  /** One template of the group's library: its own row, else the system template of that key. */
+  holdingTemplate(holdingGroupId: string, key: string): HoldingTemplateView | undefined {
+    const row = this.groupRoleRow(holdingGroupId, key);
+    if (row) {
+      const view = this.view(row);
+      return { key, source: 'group', roleId: row.id, name: view.name, nameAr: view.nameAr, description: view.description, grants: view.grants, fields: view.fields };
+    }
+    if (!(TEMPLATE_KEYS as readonly string[]).includes(key)) return undefined;
+    const t = TEMPLATES[key as TemplateKey];
+    return { key, source: 'system', roleId: null, name: t.label.en, nameAr: t.label.ar, description: null, grants: normGrants(t.grants), fields: normFields(t.fields) };
+  }
+
+  /** The library: the system templates (as the group has them), then the group's own, by key. */
+  holdingTemplates(holdingGroupId: string): HoldingTemplateView[] {
+    this.holdingRow(holdingGroupId);
+    const own = (this.db
+      .prepare('SELECT key FROM permission_groups WHERE companyId IS NULL AND holdingGroupId = ? ORDER BY key')
+      .all(holdingGroupId) as Array<{ key: string }>).map((r) => r.key).filter((k) => !(TEMPLATE_KEYS as readonly string[]).includes(k));
+    return [...TEMPLATE_KEYS, ...own].map((k) => this.holdingTemplate(holdingGroupId, k)!);
+  }
+
+  /**
+   * Creates or edits a group template (a group-level role row). Editing a
+   * system key gives the group its own version of that template. Company
+   * copies and roles change only on push.
+   */
+  saveHoldingTemplate(
+    holdingGroupId: string, key: string,
+    input: { name: string; nameAr?: string | null; description?: string | null; grants: TemplateGrant[]; fields: TemplateField[] },
+    actorId: string | null,
+  ): HoldingTemplateView {
+    if (!TEMPLATE_KEY_RE.test(key)) throw new Error('A template key is 2-40 lowercase letters, digits or _, starting with a letter.');
+    validateRole(input.grants, input.fields);
+    const name = String(input.name ?? '').trim();
+    if (!name) throw new Error('A template needs a name.');
+    return this.tx(() => {
+      this.holdingRow(holdingGroupId);
+      const before = this.holdingTemplate(holdingGroupId, key);
+      let row = this.groupRoleRow(holdingGroupId, key);
+      const now = new Date().toISOString();
+      if (!row) {
+        const id = uuid();
+        this.db
+          .prepare(
+            `INSERT INTO permission_groups
+               (id, companyId, holdingGroupId, key, name, nameAr, description, isSystem, isActive, createdAt, templateKey, needsReview, convertedAt)
+             VALUES (?, NULL, ?, ?, ?, ?, ?, 0, 1, ?, ?, 0, ?)`,
+          )
+          .run(id, holdingGroupId, key, name, input.nameAr ?? null, input.description ?? null, now,
+            (TEMPLATE_KEYS as readonly string[]).includes(key) ? key : null, now);
+        row = this.roleRow(id)!;
+      } else {
+        this.db.prepare('UPDATE permission_groups SET name = ?, nameAr = ?, description = ? WHERE id = ?')
+          .run(name, input.nameAr ?? null, input.description ?? null, row.id);
+      }
+      this.writeGrants(row.id, input.grants, input.fields);
+      const after = this.holdingTemplate(holdingGroupId, key)!;
+      const content = (t: HoldingTemplateView | undefined) => t && ({ name: t.name, nameAr: t.nameAr, description: t.description, grants: t.grants, fields: t.fields });
+      this.changed({ holdingGroupId, actorUserId: actorId, entity: 'holding_template', entityId: `${holdingGroupId}:${key}`, before: content(before) ?? null, after: content(after) });
+      return after;
+    });
+  }
+
+  /**
+   * Every version of a template the group has supplied: the system template
+   * (for a system key) and each version recorded in the audit. A company copy
+   * or role equal to one of them is "unchanged".
+   */
+  private suppliedVersions(holdingGroupId: string, key: string): Set<string> {
+    const out = new Set<string>();
+    const add = (c: { grants: TemplateGrant[]; fields: TemplateField[] } | null | undefined) => {
+      if (c?.grants && c.fields) out.add(contentSig(c.grants, c.fields));
+    };
+    if ((TEMPLATE_KEYS as readonly string[]).includes(key)) add(TEMPLATES[key as TemplateKey]);
+    const rows = this.db
+      .prepare(`SELECT before, after FROM permission_audit WHERE entity = 'holding_template' AND entityId = ?`)
+      .all(`${holdingGroupId}:${key}`) as Array<{ before: string | null; after: string | null }>;
+    for (const r of rows) {
+      if (r.before) add(JSON.parse(r.before));
+      if (r.after) add(JSON.parse(r.after));
+    }
+    return out;
+  }
+
+  /**
+   * Pushes a group template to the group's companies: their read-only copy of
+   * it, and their own roles started from it (templateKey = key), are updated
+   * when still equal to a version the group supplied; the rest are reported as
+   * customised and left alone.
+   */
+  pushHoldingTemplate(holdingGroupId: string, key: string, actorId: string | null): { updated: PushReportRow[]; customised: PushReportRow[] } {
+    return this.tx(() => {
+      this.holdingRow(holdingGroupId);
+      const template = this.holdingTemplate(holdingGroupId, key);
+      if (!template) throw new HttpError(404, 'Template not found.');
+      const target = contentSig(template.grants, template.fields);
+      const supplied = this.suppliedVersions(holdingGroupId, key);
+      const updated: PushReportRow[] = [];
+      const customised: PushReportRow[] = [];
+      const candidates = this.db
+        .prepare(
+          `SELECT pg.* FROM permission_groups pg JOIN companies c ON c.id = pg.companyId
+            WHERE c.holdingGroupId = ?
+              AND ((pg.holdingGroupId = ? AND pg.key = ?) OR (pg.holdingGroupId IS NULL AND pg.templateKey = ? AND pg.needsReview = 0))
+            ORDER BY pg.companyId, pg.key`,
+        )
+        .all(holdingGroupId, holdingGroupId, copyKey(key), key) as RoleRow[];
+      for (const row of candidates) {
+        const before = this.view(row);
+        const report = { companyId: row.companyId!, roleId: row.id, roleKey: row.key, roleName: row.name };
+        const sig = contentSig(before.grants, before.fields);
+        if (sig !== target && !supplied.has(sig)) {
+          customised.push({ ...report, message: 'customised — not updated' });
+          continue;
+        }
+        if (sig !== target) {
+          this.writeGrants(row.id, template.grants, template.fields);
+          if (row.holdingGroupId) {
+            this.db.prepare('UPDATE permission_groups SET name = ?, nameAr = ? WHERE id = ?').run(template.name, template.nameAr, row.id);
+          }
+          this.changed({
+            companyId: row.companyId, holdingGroupId, actorUserId: actorId, entity: 'role', entityId: row.id,
+            before: this.auditShape(before), after: this.auditShape(this.getRole(row.id)),
+          });
+        }
+        updated.push(report);
+      }
+      this.writeAudit({
+        holdingGroupId, actorUserId: actorId, entity: 'holding_template_push', entityId: `${holdingGroupId}:${key}`,
+        before: null, after: { updated: updated.map((r) => r.roleId), customised: customised.map((r) => r.roleId) },
+      });
+      return { updated, customised };
+    });
+  }
+
+  /**
+   * Gives every company of the group a read-only copy of each group role a
+   * group assignment uses, and removes copies nobody uses. A new copy holds
+   * the template as it is now; later edits reach copies by push.
+   */
+  private materialise(holdingGroupId: string): void {
+    const used = new Set((this.db
+      .prepare('SELECT DISTINCT roleKey FROM holding_group_assignments WHERE holdingGroupId = ?')
+      .all(holdingGroupId) as Array<{ roleKey: string }>).map((r) => r.roleKey));
+    const companies = (this.db.prepare('SELECT id FROM companies WHERE holdingGroupId = ? ORDER BY id').all(holdingGroupId) as Array<{ id: string }>)
+      .map((c) => c.id);
+    for (const companyId of companies) {
+      const copies = this.db
+        .prepare('SELECT id, key FROM permission_groups WHERE companyId = ? AND holdingGroupId = ?')
+        .all(companyId, holdingGroupId) as Array<{ id: string; key: string }>;
+      for (const copy of copies) {
+        if (!used.has(copy.key.slice('group:'.length))) this.dropCopy(copy.id, null);
+      }
+      for (const key of used) {
+        if (copies.some((c) => c.key === copyKey(key))) continue;
+        const template = this.holdingTemplate(holdingGroupId, key);
+        if (!template) continue;
+        const id = uuid();
+        const now = new Date().toISOString();
+        this.db
+          .prepare(
+            `INSERT INTO permission_groups
+               (id, companyId, holdingGroupId, key, name, nameAr, description, isSystem, isActive, createdAt, templateKey, needsReview, convertedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, NULL, 0, ?)`,
+          )
+          .run(id, companyId, holdingGroupId, copyKey(key), template.name, template.nameAr, template.description, now, now);
+        this.writeGrants(id, template.grants, template.fields);
+        this.changed({ companyId, holdingGroupId, actorUserId: null, entity: 'role', entityId: id, before: null, after: this.auditShape(this.getRole(id)) });
+      }
+    }
+  }
+
+  /** Removes a company's copy of a group role (copies are never assigned directly: Ruling H). */
+  private dropCopy(id: string, actorId: string | null): void {
+    const row = this.roleRow(id);
+    if (!row) return;
+    const before = this.view(row);
+    this.db.prepare('DELETE FROM role_permissions WHERE groupId = ?').run(id);
+    this.db.prepare('DELETE FROM role_fields WHERE groupId = ?').run(id);
+    this.db.prepare('DELETE FROM user_group_assignments WHERE groupId = ?').run(id);
+    this.db.prepare('DELETE FROM permission_groups WHERE id = ?').run(id);
+    this.changed({ companyId: row.companyId, holdingGroupId: row.holdingGroupId, actorUserId: actorId, entity: 'role', entityId: id, before: this.auditShape(before), after: null });
   }
 
   // ── Record shares ──────────────────────────────────────────────────
@@ -775,12 +1040,14 @@ export class AuthzStore {
 
   /**
    * The role a group assignment's key stands for in one company (Ruling H):
-   * the company's own role with that key, else the group-level role row.
-   * Null when neither exists; 'needs_review' when the role found needs review
-   * (the caller must grant nothing, not fall back).
+   * the company's read-only copy of the group role (key 'group:<key>'), else
+   * the group-level role row. The company's own roles never decide group-wide
+   * people. Null when neither exists (the caller falls back to the system
+   * template); 'needs_review' when the role found needs review (the caller
+   * must grant nothing, not fall back).
    */
   holdingRoleFor(companyId: string, holdingGroupId: string, roleKey: string): { id: string; name: string } | 'needs_review' | null {
-    const row = (this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId = ? AND key = ?').get(companyId, roleKey)
+    const row = (this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId = ? AND holdingGroupId = ? AND key = ?').get(companyId, holdingGroupId, copyKey(roleKey))
       ?? this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId IS NULL AND holdingGroupId = ? AND key = ?').get(holdingGroupId, roleKey)) as
       | { id: string; name: string; needsReview: number } | undefined;
     if (!row) return null;

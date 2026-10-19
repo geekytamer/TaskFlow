@@ -132,6 +132,10 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   const loadGroup = (id: string) => {
     const group = store.getPermissionGroupById(id);
     if (!group) throw new HttpError(404, 'Permission group not found.');
+    // A holding group's role (Task 8) is read-only to the company.
+    if ((group as { holdingGroupId?: string | null }).holdingGroupId) {
+      throw new HttpError(403, 'This role is managed by the group. Ask a group administrator to change it.', { code: 'GROUP_ROLE' });
+    }
     return group;
   };
 
@@ -314,6 +318,9 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
       const group = store.getPermissionGroupById(groupId);
       if (!group || group.companyId !== companyId) {
         throw new HttpError(400, `Group ${groupId} does not belong to this company.`);
+      }
+      if ((group as { holdingGroupId?: string | null }).holdingGroupId) {
+        throw new HttpError(403, 'This role is managed by the group. Ask a group administrator to change it.', { code: 'GROUP_ROLE' });
       }
     });
 

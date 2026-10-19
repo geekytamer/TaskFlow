@@ -128,6 +128,7 @@ import type { RouteContext } from './routes/context';
 import { type AuthedRequest, companyManagementRoles, handler } from './routes/shared';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerAdminRoutes } from './routes/admin';
+import { registerHoldingRoutes } from './authz/holding-routes';
 import { registerCustomFieldRoutes } from './routes/custom-fields';
 import { registerWarehouseRoutes } from './routes/warehouses';
 import { registerManufacturingRoutes } from './routes/manufacturing';
@@ -2420,6 +2421,8 @@ export function createServer(options: CreateServerOptions = {}) {
   registerNotificationRoutes(app, routeContext);
 
   registerAdminRoutes(app, routeContext);
+
+  registerHoldingRoutes(app, routeContext);
 
   registerCustomFieldRoutes(app, routeContext);
 

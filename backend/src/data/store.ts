@@ -6546,12 +6546,13 @@ export class DataStore {
   /**
    * Legacy listing. Leaves out the v2-only Owner role (migration 135): it has
    * no legacy grants and no legacy role maps to it, so the old screens never
-   * offer it. store.authz.listRoles is the v2 listing.
+   * offer it. Nor the read-only copies of holding-group roles (Task 8): the
+   * group manages them. store.authz.listRoles is the v2 listing.
    */
   listPermissionGroups(companyId: string) {
     return this.db
       .prepare(`SELECT * FROM permission_groups WHERE companyId = ?
-                  AND NOT (isSystem = 1 AND key = 'owner') ORDER BY name ASC`)
+                  AND NOT (isSystem = 1 AND key = 'owner') AND holdingGroupId IS NULL ORDER BY name ASC`)
       .all(companyId) as Array<{
       id: string;
       companyId: string;
