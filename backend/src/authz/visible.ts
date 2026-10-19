@@ -100,6 +100,10 @@ const NOTHING: VisibleSql = { sql: '0', params: [] };
 const ownerOrShared = (a: string, owner: string, shared: VisibleSql, reach: Reach): VisibleSql =>
   reach.all ? EVERYTHING : anyOf(ownedBy(`${a}.${owner}`, reach.people), shared);
 
+/** Contacts (and inbox conversations): non-private ones to anyone with the area; private by reach or share. */
+const contactRule = (a: string, owner: string, shared: VisibleSql, reach: Reach): VisibleSql =>
+  reach.all ? EVERYTHING : anyOf({ sql: `${a}.visibility <> 'Private'`, params: [] }, ownedBy(`${a}.${owner}`, reach.people), shared);
+
 /** The reach a person has with `key` in a company, or null for none. */
 function reachOf(eff: Effective, key: string, companyId: string, noGrant: 'own' | 'none'): Reach | null {
   const scope: Scope | null = scopeOf(eff, key, companyId);
@@ -125,14 +129,12 @@ export const AREAS = {
   /** Contacts: non-private ones to anyone with the area; private ones by scope, owner or share. */
   contacts: {
     key: 'contacts.view', table: 'contacts', idColumn: 'id', ownerColumn: 'ownerUserId', sharesArea: 'contacts', noGrant: 'own',
-    build: (a, owner, shared, reach) =>
-      reach.all ? EVERYTHING : anyOf({ sql: `${a}.visibility <> 'Private'`, params: [] }, ownedBy(`${a}.${owner}`, reach.people), shared),
+    build: contactRule,
   },
   /** Inbox conversations follow their contact, at the inbox.view scope. */
   inbox: {
     key: 'inbox.view', table: 'contacts', idColumn: 'id', ownerColumn: 'ownerUserId', sharesArea: 'contacts', noGrant: 'own',
-    build: (a, owner, shared, reach) =>
-      reach.all ? EVERYTHING : anyOf({ sql: `${a}.visibility <> 'Private'`, params: [] }, ownedBy(`${a}.${owner}`, reach.people), shared),
+    build: contactRule,
   },
   opportunities: {
     key: 'crm.view', table: 'opportunities', idColumn: 'id', ownerColumn: 'ownerUserId', sharesArea: 'crm', noGrant: 'own',
@@ -218,7 +220,8 @@ export const AREAS = {
       const own = ownedBy(`ws.${owner}`, reach.people);
       return {
         sql: `NOT EXISTS (SELECT 1 FROM whatsapp_chat_settings ws WHERE ws.companyId = ? AND ws.chatId = ${a}.chatId AND ws.visibility = 'private'`
-          + ` AND NOT (${own.sql}) AND ws.chatId NOT IN (SELECT recordId FROM record_shares WHERE companyId = ? AND area = 'whatsapp' AND userId = ?))`,
+          // An owner-less private chat is nobody's: COALESCE keeps NULL from opening it.
+          + ` AND NOT COALESCE(${own.sql}, 0) AND ws.chatId NOT IN (SELECT recordId FROM record_shares WHERE companyId = ? AND area = 'whatsapp' AND userId = ?))`,
         params: [reach.companyId, ...own.params, reach.companyId, reach.me],
       };
     },

@@ -34,6 +34,7 @@ import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
 import { PortalStore } from '../portal/portal-store';
 import { AuthzStore } from '../authz/authz-store';
 import { effective as effectiveV2, effectiveLegacy, type Effective } from '../authz/evaluate';
+import { scopeOf } from '../authz/can';
 import { AREAS, visible, visibleRecord, type VisibleArea, type VisibleOptions } from '../authz/visible';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
@@ -19430,14 +19431,7 @@ export class DataStore {
    * left out — its summary names the record.
    */
   private mapActivityItems(visibleTo: Effective | undefined, companyId: string, events: ActivityEvent[]): DashboardActivityItem[] {
-    const seen = visibleTo
-      ? events.filter((event) => {
-        const area = ACTIVITY_AREAS[event.entityType];
-        if (!area || this.isVisibleTo(visibleTo, area, companyId, event.entityId)) return true;
-        // A record since deleted cannot be judged: its event stays, as before.
-        return !this.db.prepare(`SELECT 1 FROM ${AREAS[area].table} WHERE ${AREAS[area].idColumn} = ?`).get(event.entityId);
-      })
-      : events;
+    const seen = visibleTo ? events.filter((event) => this.activityVisibleTo(visibleTo, companyId, event)) : events;
     return seen.slice(0, 8).map((event) => ({
       id: event.id,
       title: event.summary,
@@ -20250,6 +20244,11 @@ export class DataStore {
       .slice(0, safeLimit);
   }
 
+  /**
+   * A company's activity, newest first. With `viewer`, events about a record
+   * of a scoped area that person may not see are left out in SQL (before the
+   * limit), by the same ACTIVITY_AREAS rule the dashboard feed uses.
+   */
   listActivityEvents(
     companyId: string,
     options?: {
@@ -20257,56 +20256,62 @@ export class DataStore {
       entityId?: string;
       actorUserId?: string;
       limit?: number;
+      viewer?: Effective;
     },
   ): ActivityEvent[] {
     const limit = options?.limit ?? 50;
-    const rows =
-      options?.entityType && options?.entityId && options?.actorUserId
-        ? (this.db
-            .prepare(
-              'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? AND entityId = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-            )
-            .all(companyId, options.entityType, options.entityId, options.actorUserId, limit) as any[])
-      : options?.entityType && options?.entityId
-      ? (this.db
-          .prepare(
-            'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? AND entityId = ? ORDER BY createdAt DESC LIMIT ?',
-          )
-          .all(companyId, options.entityType, options.entityId, limit) as any[])
-      : options?.entityType && options?.actorUserId
-        ? (this.db
-            .prepare(
-              'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-            )
-            .all(companyId, options.entityType, options.actorUserId, limit) as any[])
-      : options?.entityType
-        ? (this.db
-            .prepare(
-              'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? ORDER BY createdAt DESC LIMIT ?',
-            )
-            .all(companyId, options.entityType, limit) as any[])
-        : options?.actorUserId && options?.entityId
-          ? (this.db
-              .prepare(
-                'SELECT * FROM activity_events WHERE companyId = ? AND entityId = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-              )
-              .all(companyId, options.entityId, options.actorUserId, limit) as any[])
-          : options?.actorUserId
-            ? (this.db
-                .prepare(
-                  'SELECT * FROM activity_events WHERE companyId = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-                )
-                .all(companyId, options.actorUserId, limit) as any[])
-        : options?.entityId
-          ? (this.db
-              .prepare(
-                'SELECT * FROM activity_events WHERE companyId = ? AND entityId = ? ORDER BY createdAt DESC LIMIT ?',
-              )
-              .all(companyId, options.entityId, limit) as any[])
-          : (this.db
-              .prepare('SELECT * FROM activity_events WHERE companyId = ? ORDER BY createdAt DESC LIMIT ?')
-              .all(companyId, limit) as any[]);
+    const where: string[] = ['e.companyId = ?'];
+    const params: unknown[] = [companyId];
+    if (options?.entityType) { where.push('e.entityType = ?'); params.push(options.entityType); }
+    if (options?.entityId) { where.push('e.entityId = ?'); params.push(options.entityId); }
+    if (options?.actorUserId) { where.push('e.actorUserId = ?'); params.push(options.actorUserId); }
+    if (options?.viewer) {
+      const f = this.activityVisibleSql(options.viewer, companyId, 'e');
+      where.push(f.sql);
+      params.push(...f.params);
+    }
+    const rows = this.db
+      .prepare(`SELECT e.* FROM activity_events e WHERE ${where.join(' AND ')} ORDER BY e.createdAt DESC LIMIT ?`)
+      .all(...params, limit) as any[];
     return rows.map((row) => this.decodeActivityEvent(row));
+  }
+
+  /**
+   * Activity events `viewer` may see: an event about an existing record of a
+   * scoped area (ACTIVITY_AREAS) only when that record is visible; a record
+   * since deleted cannot be judged, so its event stays.
+   */
+  private activityVisibleSql(viewer: Effective, companyId: string, alias: string): { sql: string; params: unknown[] } {
+    const parts: string[] = [];
+    const params: unknown[] = [];
+    for (const [entityType, area] of Object.entries(ACTIVITY_AREAS) as Array<[string, VisibleArea]>) {
+      const { table, idColumn } = AREAS[area];
+      const f = visible(viewer, area, companyId, { alias: 'va' });
+      parts.push(`NOT (${alias}.entityType = ? AND ${alias}.entityId IN (SELECT ${idColumn} FROM ${table})`
+        + ` AND ${alias}.entityId NOT IN (SELECT va.${idColumn} FROM ${table} va WHERE va.companyId = ? AND ${f.sql}))`);
+      params.push(entityType, companyId, ...f.params);
+    }
+    return { sql: parts.join(' AND '), params };
+  }
+
+  /** Whether `viewer` may see one activity event (same rule as activityVisibleSql). */
+  activityVisibleTo(viewer: Effective, companyId: string, event: Pick<ActivityEvent, 'entityType' | 'entityId'>): boolean {
+    const area = ACTIVITY_AREAS[event.entityType];
+    if (!area || this.isVisibleTo(viewer, area, companyId, event.entityId)) return true;
+    const { table, idColumn } = AREAS[area];
+    return !this.stmt(`SELECT 1 FROM ${table} WHERE ${idColumn} = ?`).get(event.entityId);
+  }
+
+  /** Prepared statements for the per-record visibility checks, by SQL text. */
+  private readonly statements = new Map<string, Database.Statement>();
+  private stmt(sql: string): Database.Statement {
+    let st = this.statements.get(sql);
+    if (!st) {
+      st = this.db.prepare(sql);
+      if (this.statements.size > 500) this.statements.clear();
+      this.statements.set(sql, st);
+    }
+    return st;
   }
 
   createActivityEvent(input: CreateActivityEventInput): ActivityEvent {
@@ -20387,7 +20392,7 @@ export class DataStore {
   /** Whether the record `id` of a scoped area is visible to `viewer` (same rule as the lists). */
   isVisibleTo(viewer: Effective, area: VisibleArea, companyId: string, id: string, options: VisibleOptions = {}): boolean {
     const q = visibleRecord(viewer, area, companyId, id, options);
-    return this.db.prepare(q.sql).get(...q.params) !== undefined;
+    return this.stmt(q.sql).get(...q.params) !== undefined;
   }
 
   /**
@@ -21345,7 +21350,7 @@ export class DataStore {
    * Includes an "Unassigned" bucket (ownerUserId NULL) and every active member
    * even at zero, so the heatmap shows idle reps too.
    */
-  followupWorkload(companyId: string): {
+  followupWorkload(companyId: string, viewer?: Effective): {
     byUser: Array<{
       userId: string | null;
       name: string;
@@ -21363,12 +21368,13 @@ export class DataStore {
     const startIso = todayStart.toISOString();
     const endIso = todayEnd.toISOString();
 
+    const workFilter = this.visibleWhere(viewer, 'followups', companyId, 'follow_ups');
     const rows = this.db
       .prepare(
         `SELECT ownerUserId, ownerName, status, dueAt FROM follow_ups
-          WHERE companyId = ? AND status IN ('open','snoozed')`,
+          WHERE companyId = ? AND status IN ('open','snoozed')${workFilter.sql}`,
       )
-      .all(companyId) as any[];
+      .all(companyId, ...workFilter.params) as any[];
 
     type Bucket = { userId: string | null; name: string; open: number; overdue: number; dueToday: number; snoozed: number; oldestOverdueAt?: Date };
     const buckets = new Map<string, Bucket>();
@@ -21380,9 +21386,12 @@ export class DataStore {
       return b;
     };
 
-    // Seed every active member at zero.
-    for (const u of this.getUsersByCompany(companyId)) ensure(u.id, u.name);
-    ensure(null, 'Unassigned');
+    // Seed every active member at zero — within the viewer's reach below company scope.
+    const scope = viewer ? scopeOf(viewer, 'crm.view', companyId) : 'company';
+    const reach = scope === 'company' || scope === 'group' ? undefined
+      : scope === 'team' ? viewer!.team(companyId) : new Set([viewer!.userId]);
+    for (const u of this.getUsersByCompany(companyId)) if (!reach || reach.has(u.id)) ensure(u.id, u.name);
+    if (!reach) ensure(null, 'Unassigned');
 
     const totals = { active: 0, overdue: 0, dueToday: 0, snoozed: 0, unassigned: 0 };
     for (const r of rows) {
@@ -21413,7 +21422,8 @@ export class DataStore {
    * Open opportunities (stage not Won/Lost/Cancelled) with NO active follow-up
    * attached — deals with no scheduled next step, sorted most-stale first.
    */
-  followupCoverageGaps(companyId: string, limit = 50): Array<{
+  /** With `viewer`, only opportunities (and contact names) that person may see (authz/visible.ts). */
+  followupCoverageGaps(companyId: string, limit = 50, viewer?: Effective): Array<{
     opportunityId: string;
     title: string;
     stage: string;
@@ -21424,6 +21434,7 @@ export class DataStore {
     expectedRevenue: number;
     updatedAt: Date;
   }> {
+    const gapFilter = this.visibleWhere(viewer, 'opportunities', companyId, 'o');
     const rows = this.db
       .prepare(
         `SELECT o.* FROM opportunities o
@@ -21435,14 +21446,15 @@ export class DataStore {
                  AND f.entityType = 'opportunity'
                  AND f.entityId = o.id
                  AND f.status IN ('open','snoozed')
-            )
+            )${gapFilter.sql}
           ORDER BY o.updatedAt ASC
           LIMIT ?`,
       )
-      .all(companyId, limit) as any[];
+      .all(companyId, ...gapFilter.params, limit) as any[];
     return rows.map((row) => {
       const o = this.decodeOpportunity(row);
-      const contact = o.contactId ? this.getContactById(o.contactId) : undefined;
+      let contact = o.contactId ? this.getContactById(o.contactId) : undefined;
+      if (contact && viewer && !this.isVisibleTo(viewer, 'contacts', companyId, contact.id)) contact = undefined;
       return {
         opportunityId: o.id,
         title: o.title,

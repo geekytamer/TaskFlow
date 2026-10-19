@@ -69,6 +69,18 @@ Everywhere: hidden actions are absent; a refused action explains in one sentence
 - Today's four roles become templates with today's rights; record rules become scopes; existing permission groups become add-ons; OpenFGA removed.
 - Equivalence test: for every declared route and every system template, the new answer equals the legacy role list answer (the extracted gate matrix) — failures listed by route.
 - `PERMISSIONS_ENGINE=legacy|shadow|v2`: shadow week in production logs every disagreement while legacy decides; then v2; rollback = the setting.
+- The legacy gate extractor (`npm run authz:extract`) is retired from CI: the declared route registry and the equivalence tests are the proof now (Ruling K).
+- **Reads go through one filter** (`authz/visible.ts`). Under legacy and shadow it is computed from each role's template, so every list and count answers as the roles did (Ruling D) — except these **intended differences under legacy (leak closures)** (Ruling J):
+  1. Influencers CSV export no longer includes colleagues' private contacts.
+  2. A contact's summary (`/contacts/:id/summary`) is 404 for a private contact the person cannot see; its opportunities and projects are filtered.
+  3. Contact detail, its activities, and the PATCH /contacts/:id echo are 404 for a private contact outside the person's scope (Accountants included).
+  4. WhatsApp messages filtered by phone or contact no longer include others' private chats; an owner-less private chat is visible only at company scope.
+  5. The CRM dashboard without an owner counts only what the person can see (it used to give an Employee company totals).
+  6. Main-dashboard task figures and activity leave out colleagues' private tasks.
+  7. Follow-up enrichment does not name a contact or opportunity the person cannot see; follow-up workload and coverage gaps follow the viewer's reach.
+  8. Activity events (Ruling L): `/activity-events`, the activity-log CSV export and the dashboard feeds leave out events about scoped records the person cannot see (events of deleted records stay).
+  9. Client tasks (`/companies/:id/clients/:clientId/tasks`) no longer include colleagues' private tasks.
+- **Left outside the read filter, on purpose:** client and supplier lists (finance and sales need every client and supplier, whatever the contact's privacy); the portal staff routes that list influencer contacts (behind portal management, Admin/Manager); portal client-facing catalogue lists (clients, not staff).
 
 ## 7. Phases (each shippable)
 

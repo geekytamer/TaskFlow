@@ -70,7 +70,7 @@ const build = (engine) => {
   server.unref();
   const agent = request.agent(server);
   const get = (user, url) => agent.get(url.replaceAll(':c', c)).set('Authorization', `Bearer ${store.issueToken(user.id)}`);
-  return { engine, store, company, c, u, records, get };
+  return { engine, store, company, c, u, records, get, agent };
 };
 
 const leaks = (text, outsiders = OUTSIDERS) => outsiders.filter((tag) => text.includes(`${tag}-`));
@@ -254,6 +254,71 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
   });
 }
 
+for (const engine of ['legacy', 'shadow', 'v2']) {
+  test(`${engine}: side paths — client tasks, activity events, PATCH echo, shared follow-ups`, async () => {
+    const w = build(engine);
+    const col = w.records.COLLEAGUE;
+    // Client tasks: a colleague's private task in a public client project stays theirs.
+    w.store.db.prepare("UPDATE projects SET clientId = 'client-x', visibility = 'Public' WHERE id = ?").run(col.project.id);
+    w.store.db.prepare("UPDATE projects SET clientId = 'client-x' WHERE id = ?").run(w.records.EMP.project.id);
+    for (const who of ['emp', 'admin']) {
+      const text = body(await w.get(w.u[who], '/companies/:c/clients/client-x/tasks'));
+      assert.ok(text.includes('COLLEAGUE-TASK'), `${who} sees the public project's task`);
+      assert.ok(!text.includes('COLLEAGUE-PTASK'), `${who} does not see a colleague's private task`);
+    }
+    assert.ok(body(await w.get(w.u.emp, '/companies/:c/clients/client-x/tasks')).includes('EMP-PTASK'));
+
+    // Activity events: never about a record the person cannot see; the limit applies after the filter.
+    const events = await w.get(w.u.accountant, '/companies/:c/activity-events?limit=200');
+    assert.equal(events.status, 200);
+    assert.ok(!body(events).includes('COLLEAGUE-PTASK'));
+    assert.ok(body(events).includes('COLLEAGUE-TASK'), 'visible records still have their events');
+    const one = await w.get(w.u.accountant, `/companies/:c/activity-events?entityType=task&entityId=${col.privateTask.id}`);
+    assert.deepEqual(one.body, []);
+    const page = await w.get(w.u.accountant, '/companies/:c/activity-events?limit=3');
+    assert.equal(page.body.length, 3);
+    const csv = await w.get(w.u.accountant, '/companies/:c/reports/export/activity-log');
+    assert.equal(csv.status, 200);
+    assert.ok(!csv.text.includes('COLLEAGUE-PTASK'));
+    assert.ok(body(await w.get(w.u.colleague, '/companies/:c/dashboard')).length > 0);
+
+    // PATCH /contacts/:id does not echo a contact the person cannot see.
+    for (const who of ['emp', 'accountant']) {
+      const res = await w.agent.patch(`/contacts/${col.contact.id}`).set('Authorization', `Bearer ${w.store.issueToken(w.u[who].id)}`).send({ priority: 'High' });
+      assert.equal(res.status, 404, who);
+      assert.deepEqual(leaks(body(res)), []);
+    }
+
+    // A follow-up shared with the Employee is in their list.
+    assert.ok(!body(await w.get(w.u.emp, '/companies/:c/followups')).includes('COLLEAGUE-FU'));
+    w.store.authz.share(w.c, 'crm', col.followup.id, w.u.emp.id, w.u.colleague.id);
+    assert.ok(body(await w.get(w.u.emp, '/companies/:c/followups')).includes('COLLEAGUE-FU'));
+  });
+
+  test(`${engine}: owner-less private WhatsApp chats stay hidden; a share never lets anyone change a private chat`, async () => {
+    const w = build(engine);
+    const msg = (chatId, phone, text) => w.store.createWhatsappMessage({
+      companyId: w.c, instanceId: 'i1', direction: 'inbound', chatId, phone, type: 'text', body: text, status: 'received',
+    });
+    msg('chat-nobody', '96890000003', 'COLLEAGUE-ORPHAN secret');
+    w.store.setWhatsappChatSettings(w.c, 'chat-nobody', { visibility: 'private', ownerUserId: null });
+    assert.ok(!body(await w.get(w.u.accountant, '/companies/:c/whatsapp/chats')).includes('COLLEAGUE-ORPHAN'));
+    assert.ok(!body(await w.get(w.u.accountant, '/companies/:c/whatsapp/messages')).includes('COLLEAGUE-ORPHAN'));
+    assert.ok(body(await w.get(w.u.manager, '/companies/:c/whatsapp/chats')).includes('COLLEAGUE-ORPHAN'));
+
+    msg('chat-admin', '96890000004', 'COLLEAGUE-ADMINCHAT');
+    w.store.setWhatsappChatSettings(w.c, 'chat-admin', { visibility: 'private', ownerUserId: w.u.admin.id });
+    w.store.authz.share(w.c, 'whatsapp', 'chat-admin', w.u.accountant.id, w.u.admin.id);
+    const patch = (user, payload) => w.agent.patch(`/companies/${w.c}/whatsapp/chats/chat-admin/settings`)
+      .set('Authorization', `Bearer ${w.store.issueToken(user.id)}`).send(payload);
+    assert.equal((await patch(w.u.accountant, { visibility: 'shared' })).status, 403, 'a read share cannot make it public');
+    assert.equal((await patch(w.u.accountant, { ownerUserId: w.u.accountant.id })).status, 403, 'nor take it over');
+    assert.equal(w.store.getWhatsappChatSettings(w.c, 'chat-admin').visibility, 'private');
+    assert.equal((await patch(w.u.manager, { visibility: 'private' })).status, 200, 'company scope may');
+    assert.equal((await patch(w.u.admin, { visibility: 'shared' })).status, 200, 'the owner may');
+  });
+}
+
 test('legacy, shadow and v2 (system templates) answer every read path identically', async () => {
   const snaps = {};
   for (const engine of ['legacy', 'shadow', 'v2']) {
@@ -306,6 +371,18 @@ test('v2: a Manager with team scope (custom role) sees reports two levels down, 
   // Detail: a report's private contact opens, a peer's does not exist.
   assert.equal((await w.get(w.u.lead, `/contacts/${w.records.R2.contact.id}/summary`)).status, 200);
   assert.equal((await w.get(w.u.lead, `/contacts/${w.records.PEER.contact.id}/summary`)).status, 404);
+  // Follow-up workload and coverage gaps follow the reach (a team lead who manages the team).
+  mainRole(w.store, w.c, w.u.lead.id, 'Team lead plus', [
+    { key: 'contacts.view', scope: 'team' }, { key: 'inbox.view', scope: 'team' }, { key: 'crm.view', scope: 'team' },
+    { key: 'crm.manage_team' }, { key: 'projects.view', scope: 'team' }, { key: 'tasks.view', scope: 'team' }, { key: 'dashboard.view' },
+  ]);
+  const workload = await w.get(w.u.lead, '/companies/:c/followups/workload');
+  assert.equal(workload.status, 200, workload.text);
+  assert.deepEqual(workload.body.byUser.map((b) => b.name).sort(), ['Lead', 'R1', 'R2']);
+  const gaps = await w.get(w.u.lead, '/companies/:c/followups/coverage-gaps');
+  assert.equal(gaps.status, 200);
+  assert.deepEqual(gaps.body.map((g) => g.title).sort(), ['LEAD-OPP', 'R1-OPP', 'R2-OPP']);
+  assert.deepEqual(leaks(body(gaps), outside), []);
   // Inbox alerts use the same team reach.
   const thread = w.store.conversations.generalThread(w.c, w.records.R2.contact.id);
   w.store.conversations.setAssignee(thread.id, w.u.lead.id);

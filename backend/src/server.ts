@@ -24,7 +24,7 @@ import {
   type PermissionsEngine,
 } from './authz/engine';
 import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
-import { type VisibleArea, type VisibleOptions } from './authz/visible';
+import { visible, type VisibleArea, type VisibleOptions } from './authz/visible';
 import { can, scopeOf } from './authz/can';
 import { routeDecl, type RouteDecl } from './authz/route-registry';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
@@ -3213,13 +3213,19 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
-      // Tasks of the client's projects, in the projects this person can see.
+      // Tasks the person can see (private ones stay their owner's), in the
+      // client's projects that the person can see.
       const companyId = req.params.companyId;
       if (!store.isModuleEnabled(companyId, 'projects')) { res.json([]); return; }
-      const projectIds = new Set(
-        store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }], { sql: 'p.clientId = ?', params: [req.params.clientId] }).map((p) => p.id),
-      );
-      res.json(store.getTasksByClient(companyId, req.params.clientId).filter((task) => projectIds.has(task.projectId)));
+      const viewer = viewerOf(req);
+      const projects = visible(viewer, 'projects', companyId, { alias: 'cp' });
+      res.json(store.listVisibleTasks(
+        [{ companyId, viewer, platformSupport: Boolean(req.user!.isSuperAdmin) }],
+        {
+          sql: `t.projectId IN (SELECT cp.id FROM projects cp WHERE cp.companyId = ? AND cp.clientId = ? AND ${projects.sql})`,
+          params: [companyId, req.params.clientId, ...projects.params],
+        },
+      ));
     }),
   );
 
@@ -3849,6 +3855,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      // A contact the person may not see does not exist for them (the response echoes it).
+      requireVisible(req, 'contacts', contact.companyId, contact.id);
       const managesAll = allowsRule(req, contact.companyId, 'CONTACTS_ALL_WRITE');
       // Employees can only patch contacts they own
       if (!managesAll && contact.ownerUserId && contact.ownerUserId !== req.user!.id) {
@@ -4118,13 +4126,11 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const contactId = optionalString(req.query.contactId);
-	      // What the person may see (authz/visible.ts: own = theirs or invited,
-	      // team = their line's, company = all). Below team scope the list is
-	      // always their own, whatever owner was asked for (as before).
+	      // What the person may see is decided by authz/visible.ts (own = theirs,
+	      // invited or shared with them; team = their line's; company = all). An
+	      // owner asked for only narrows that set.
 	      const viewer = viewerOf(req);
-	      const scope = scopeOf(viewer, 'crm.view', req.params.companyId);
-	      const requestedOwnerUserId = optionalString(req.query.ownerUserId);
-	      const ownerUserId = scope === null || scope === 'own' ? req.user!.id : requestedOwnerUserId;
+	      const ownerUserId = optionalString(req.query.ownerUserId);
 	      const overdueParam = req.query.overdue;
       const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
@@ -4178,7 +4184,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
-      res.json(store.followupWorkload(req.params.companyId));
+      res.json(store.followupWorkload(req.params.companyId, viewerOf(req)));
     }),
   );
 
@@ -4188,7 +4194,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
       const limit = req.query.limit ? Number(req.query.limit) : 50;
-      res.json(store.followupCoverageGaps(req.params.companyId, limit));
+      res.json(store.followupCoverageGaps(req.params.companyId, limit, viewerOf(req)));
     }),
   );
 
@@ -5410,11 +5416,13 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'limit must be a positive number.');
       }
       res.json(
+        // Events about records of scoped areas the person may not see are left out (in SQL, before the limit).
         store.listActivityEvents(req.params.companyId, {
           entityType,
           entityId,
           actorUserId,
           limit,
+          viewer: viewerOf(req),
         }),
       );
     }),
@@ -7719,7 +7727,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ]),
         );
       } else if (dataset === 'activity-log') {
-        const events = store.listActivityEvents(companyId, { limit: 500 });
+        const events = store.listActivityEvents(companyId, { limit: 500, viewer: viewerOf(req) });
         csv = toCsv(
           ['createdAt', 'actorName', 'entityType', 'entityId', 'action', 'summary'],
           events.map((event) => [

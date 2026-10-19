@@ -30,13 +30,6 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: backend/package-lock.json }
       - run: npm ci
       - run: npm test
-      # The permission catalogue is generated from the routes; a route change
-      # that was not followed by `npm run authz:extract` fails here.
-      - name: Permission catalogue is up to date
-        if: matrix.engine == 'legacy'
-        run: |
-          npm run authz:extract
-          git diff --exit-code -- ../docs/superpowers/plans/gate-matrix.csv src/permissions/route-permissions.ts src/permissions/catalogue.ts src/permissions/seed-matrix.ts
 
   frontend:
     runs-on: ubuntu-latest

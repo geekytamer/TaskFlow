@@ -2,6 +2,7 @@ import { HttpError } from '../http';
 import { asRecord, optionalString, requiredString } from '../validation';
 import { greenApi, toChatId, GreenApiError } from '../services/greenApi';
 import type { RouteContext } from './context';
+import { scopeOf } from '../authz/can';
 import { companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
 
@@ -227,8 +228,12 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       const current = store.getWhatsappChatSettings(req.params.companyId, req.params.chatId);
-      // Only someone who can see a private chat (its owner, or company scope) can change its settings.
-      if (current.visibility === 'private' && !canSee(req, 'whatsapp_chats', req.params.companyId, req.params.chatId)) {
+      // Changing a private chat's settings: its owner, or whatsapp.view at
+      // company scope (Admin/Manager today). Never a share or a team reach:
+      // reading a chat does not let anyone make it public or take it over.
+      const scope = scopeOf(viewerOf(req), 'whatsapp.view', req.params.companyId);
+      const mayChange = current.ownerUserId === req.user!.id || scope === 'company' || scope === 'group';
+      if (current.visibility === 'private' && !mayChange) {
         throw new HttpError(403, 'Only the chat owner or a manager can change these settings.');
       }
       const visibilityRaw = optionalString(body.visibility);
