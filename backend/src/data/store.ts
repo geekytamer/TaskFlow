@@ -5326,7 +5326,8 @@ export class DataStore {
       {
         // The manager line (authz/team.ts) is cached per company. Triggers keep
         // a per-company counter that moves whenever an employee row changes who
-        // they are, who manages them or which company they are in, so every
+        // they are, who manages them, their status or their company (a
+        // WHEN guard skips no-op rewrites such as a name edit), so every
         // writer is covered (raw SQL included) and every process sees it.
         id: '136_team_version',
         run: () => {
@@ -5339,7 +5340,9 @@ export class DataStore {
               INSERT INTO team_versions (companyId, version) VALUES (NEW.companyId, 1)
                 ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
             END;
-            CREATE TRIGGER IF NOT EXISTS trg_team_version_update AFTER UPDATE OF managerId, userId, companyId ON employees BEGIN
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_update AFTER UPDATE OF managerId, userId, companyId, status ON employees
+              WHEN OLD.managerId IS NOT NEW.managerId OR OLD.userId IS NOT NEW.userId
+                OR OLD.companyId IS NOT NEW.companyId OR OLD.status IS NOT NEW.status BEGIN
               INSERT INTO team_versions (companyId, version) VALUES (NEW.companyId, 1)
                 ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
               INSERT INTO team_versions (companyId, version) VALUES (OLD.companyId, 1)

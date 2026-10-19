@@ -10,7 +10,9 @@
  *     is covered with no write (Ruling H). In each company the key resolves to
  *     that company's role with the same key; failing that, the group-level role
  *     row (companyId NULL); failing that, the system template of that key. A
- *     role found but needing review grants nothing.
+ *     role found but needing review grants nothing in that company (no
+ *     fallback to the group-level role or template). An unparseable startsAt
+ *     or endsAt makes any assignment inactive.
  * Union: widest scope wins (own < team < company < group); highest limit wins
  * and no limit beats any number; field view/edit are OR-ed. Every grant keeps
  * the roles it came from (`sources`) for explanations.
@@ -19,8 +21,9 @@
  * company's legacy role (users.companyRoles) read as its template, no add-ons,
  * no group assignments. Task 5–7 compare against it under legacy/shadow.
  *
- * Locks applied to both, after the union: a module the company switched off
- * removes the grants of every area that belongs to it (AREA_MODULES). Field
+ * Locks applied to both, after the union: a key whose every gating module the
+ * company switched off is removed (KEY_MODULES — never more than today's route
+ * gates lock). Field
  * switches stay (a field can show in other modules' screens). Academy locks
  * are NOT applied here: they depend on mission progress, which does not move
  * authz_version, and they block only changes, per route module — the request
@@ -32,7 +35,9 @@
  * the next moment a time-bound assignment starts or ends.
  */
 import type { DataStore } from '../data/store';
-import { SCOPES, areaOf, type Scope } from './catalogue';
+import { SCOPES, allPermissionKeys, areaOf, isPermissionKey, type Scope } from './catalogue';
+import { ROUTES } from './route-registry';
+import { lookupRoutePermission } from '../permissions/route-permissions';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant, type TemplateKey } from './templates';
 import { teamOf } from './team';
 
@@ -59,44 +64,45 @@ export interface Effective {
 }
 
 /**
- * The legacy module (permissions/catalogue MODULES key) each catalogue area
- * belongs to, for module switches. The module that owns most of the area's
- * routes in today's route map: deliveries and returns are sales records,
- * quality readings are inventory's, influencers are contacts. Areas no module
- * switch covers today are null. `settings` and `dashboard` never switch off.
- * Routes of a mixed area (a few logistics routes are gated by inventory)
- * keep their own module check at the route gate.
+ * Which legacy modules (permissions/catalogue MODULES keys) switch each
+ * permission key off, derived from today's route gates so the evaluator never
+ * locks more than the server does now (server.ts: a route whose
+ * routeToPermission entry names a module is refused while it is off).
+ *
+ *   - A key is locked only when EVERY route declaring it is module-gated and
+ *     every one of those modules is off: logistics.view is served by sales
+ *     (deliveries, returns) and inventory (shipments) routes, so it stays
+ *     while either is on.
+ *   - A key with any route no module gates today (influencers.review, the
+ *     record DELETE routes, academy, portal, games...) is never locked here.
+ *   - A key no route declares (sales.cancel, checked on a body) takes its
+ *     area's modules when every route of the area is gated, else none.
+ * null = no module switch reaches the key. Built from legacy route maps; when
+ * permissions/ is removed (Task 12) the gates move here and this becomes data.
  */
-export const AREA_MODULES: Readonly<Record<string, string | null>> = {
-  dashboard: 'dashboard',
-  sales: 'sales',
-  purchasing: 'purchasing',
-  inventory: 'inventory',
-  manufacturing: 'manufacturing',
-  logistics: 'sales',
-  quality: 'inventory',
-  projects: 'projects',
-  tasks: 'tasks',
-  documents: 'documents',
-  invoices: 'invoices',
-  'vendor-bills': 'vendor-bills',
-  finance: 'finance',
-  commissions: 'commissions',
-  hr: 'hr',
-  payroll: 'payroll',
-  academy: null,
-  crm: 'crm',
-  contacts: 'contacts',
-  influencers: 'contacts',
-  campaigns: 'campaigns',
-  portal: null,
-  discover: null,
-  games: null,
-  inbox: null,
-  whatsapp: 'whatsapp',
-  settings: 'settings',
-  people: 'settings',
-};
+function deriveKeyModules(): Record<string, readonly string[] | null> {
+  const byKey = new Map<string, { modules: Set<string>; ungated: boolean }>();
+  const byArea = new Map<string, { modules: Set<string>; ungated: boolean }>();
+  const note = (map: typeof byKey, k: string, module: string | undefined) => {
+    let e = map.get(k);
+    if (!e) map.set(k, (e = { modules: new Set(), ungated: false }));
+    if (module) e.modules.add(module); else e.ungated = true;
+  };
+  for (const r of ROUTES) {
+    if (!isPermissionKey(r.permission)) continue;
+    const module = lookupRoutePermission(r.method, r.path)?.module;
+    note(byKey, r.permission, module);
+    note(byArea, areaOf(r.permission), module);
+  }
+  const out: Record<string, readonly string[] | null> = {};
+  for (const key of allPermissionKeys()) {
+    const e = byKey.get(key) ?? byArea.get(areaOf(key));
+    out[key] = e && !e.ungated && e.modules.size ? [...e.modules].sort() : null;
+  }
+  return out;
+}
+
+export const KEY_MODULES: Readonly<Record<string, readonly string[] | null>> = deriveKeyModules();
 
 export const CACHE_LIMIT = 500;
 
@@ -128,7 +134,12 @@ export function clearEffectiveCache(): void {
 }
 
 const rank = (scope: Scope) => SCOPES.indexOf(scope);
-const time = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
+/** null = open end; an unparseable date makes the assignment inactive (fails closed). */
+const time = (iso: string | null): number | null | 'bad' => {
+  if (iso === null || iso === undefined || iso === '') return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 'bad' : t;
+};
 
 class Builder {
   readonly byCompany = new Map<string, CompanyEffective>();
@@ -169,14 +180,14 @@ class Builder {
     }
   }
 
-  /** Module switches: drop the grants of areas whose module the company turned off. */
+  /** Module switches: drop the grants whose every gating module the company turned off (KEY_MODULES). */
   lock(store: DataStore): void {
     for (const [companyId, c] of this.byCompany) {
       const off = new Set(store.getDisabledModules(companyId));
       if (!off.size) continue;
       for (const key of [...c.grants.keys()]) {
-        const mod = AREA_MODULES[areaOf(key)];
-        if (mod && off.has(mod)) c.grants.delete(key);
+        const modules = KEY_MODULES[key];
+        if (modules && modules.every((m) => off.has(m))) c.grants.delete(key);
       }
     }
   }
@@ -204,8 +215,9 @@ export function effective(store: DataStore, userId: string, options: { now?: Dat
   const inWindow = (startsAt: string | null, endsAt: string | null) => {
     const start = time(startsAt);
     const end = time(endsAt);
-    for (const t of [start, end]) if (!Number.isNaN(t) && t > now) validUntil = Math.min(validUntil, t);
-    return (Number.isNaN(start) || start <= now) && (Number.isNaN(end) || now < end);
+    if (start === 'bad' || end === 'bad') return false;
+    for (const t of [start, end]) if (t !== null && t > now) validUntil = Math.min(validUntil, t);
+    return (start === null || start <= now) && (end === null || now < end);
   };
 
   for (const a of store.authz.directAssignmentsFor(userId)) {
@@ -223,6 +235,9 @@ export function effective(store: DataStore, userId: string, options: { now?: Dat
       const role = store.authz.holdingRoleFor(companyId, h.holdingGroupId, h.roleKey);
       let content: { grants: readonly TemplateGrant[]; fields: readonly TemplateField[] };
       let source: Source;
+      // A role that exists but still needs review grants nothing in that
+      // company: no falling back to the template (fails closed).
+      if (role === 'needs_review') continue;
       if (role) {
         content = store.authz.roleContent(role.id);
         source = { kind: 'holding', roleId: role.id, roleName: role.name };

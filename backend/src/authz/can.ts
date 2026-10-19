@@ -11,6 +11,7 @@
  *     of that company (group differs from company only in reaching every
  *     company of a holding group, which evaluate.ts already expanded).
  *   - Unscoped actions ignore the record.
+ *   - An amount that is not a finite number is over any limit (fails closed).
  */
 import type { Scope } from './catalogue';
 import type { Effective } from './evaluate';
@@ -33,7 +34,7 @@ export function can(eff: Effective, key: string, ctx: CanContext): CanResult {
   if (ctx.ownerUserId !== undefined && grant.scope && !inScope(eff, grant.scope, ctx)) {
     return { allowed: false, reason: 'out_of_scope' };
   }
-  if (ctx.amount !== undefined && grant.limit !== undefined && ctx.amount > grant.limit) {
+  if (ctx.amount !== undefined && grant.limit !== undefined && (!Number.isFinite(ctx.amount) || ctx.amount > grant.limit)) {
     return { allowed: false, reason: 'over_limit' };
   }
   return { allowed: true };

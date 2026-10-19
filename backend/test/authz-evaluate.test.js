@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
-const { effective, effectiveLegacy, clearEffectiveCache, AREA_MODULES, CACHE_LIMIT } = require('../dist/authz/evaluate');
+const { effective, effectiveLegacy, clearEffectiveCache, KEY_MODULES, CACHE_LIMIT } = require('../dist/authz/evaluate');
 const { teamOf } = require('../dist/authz/team');
 const { can, scopeOf } = require('../dist/authz/can');
 const { TEMPLATES } = require('../dist/authz/templates');
-const { CATALOGUE } = require('../dist/authz/catalogue');
+const { allPermissionKeys } = require('../dist/authz/catalogue');
 const { MODULES } = require('../dist/permissions/catalogue');
 const { makeTmpDir } = require('./helpers/tmp');
 
@@ -173,7 +173,7 @@ test('a holding role key missing in a company falls back to the group-level role
   assert.deepEqual(grant.sources, [{ kind: 'holding', roleId: 'grp-auditor', roleName: 'Group auditor' }]);
 });
 
-test('a module switched off removes its areas’ grants; always-on areas stay', () => {
+test('module switches lock a key only when every module gating its routes is off', () => {
   const store = freshStore();
   const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
   const admin = makeUser(store, [acme.id], 'Admin');
@@ -181,21 +181,35 @@ test('a module switched off removes its areas’ grants; always-on areas stay', 
   store.updateCompany(acme.id, { disabledModules: ['sales', 'contacts'] });
   for (const fn of [effective, effectiveLegacy]) {
     const grants = fn(store, admin.id).byCompany.get(acme.id).grants;
-    assert.equal(grants.has('sales.view'), false, `${fn.name}: sales off`);
-    assert.equal(grants.has('logistics.view'), false, `${fn.name}: deliveries follow sales`);
-    assert.equal(grants.has('influencers.view'), false, `${fn.name}: influencers follow contacts`);
-    assert.ok(grants.has('settings.view'), `${fn.name}: settings never switch off`);
-    assert.ok(grants.has('purchasing.view'), `${fn.name}: other modules untouched`);
+    const allowed = (key) => can({ userId: admin.id, byCompany: new Map([[acme.id, { grants, fields: new Map() }]]), team: () => new Set() }, key, { companyId: acme.id }).allowed;
+    assert.equal(allowed('sales.view'), false, `${fn.name}: a 1:1 area is locked`);
+    assert.equal(allowed('tasks.view'), true, `${fn.name}: tasks module still on`);
+    assert.equal(allowed('sales.cancel'), true, `${fn.name}: no route, area has an ungated route → never locked here`);
+    assert.equal(allowed('logistics.print'), false, `${fn.name}: delivery notes are sales-gated only`);
+    assert.equal(allowed('logistics.view'), true, `${fn.name}: shipments (inventory) still open with sales off`);
+    assert.equal(allowed('logistics.create'), true, `${fn.name}: shipments create still open`);
+    assert.equal(allowed('influencers.review'), true, `${fn.name}: influencer review has no module gate today`);
+    assert.equal(allowed('influencers.export'), false, `${fn.name}: influencer export is contacts-gated`);
+    assert.equal(allowed('sales.delete'), true, `${fn.name}: DELETE /sales-orders/:id has no module gate today`);
+    assert.ok(allowed('settings.view'), `${fn.name}: settings never switch off`);
+    assert.ok(allowed('purchasing.view'), `${fn.name}: other modules untouched`);
   }
+  store.updateCompany(acme.id, { disabledModules: ['sales', 'contacts', 'inventory', 'tasks'] });
+  const after = effective(store, admin.id).byCompany.get(acme.id).grants;
+  assert.equal(after.has('logistics.view'), false, 'both owning modules off');
+  assert.equal(after.has('tasks.view'), false, 'a key with no route follows its fully gated area');
 });
 
-test('every catalogue area maps to a legacy module key or to none', () => {
+test('KEY_MODULES covers every catalogue key with valid module keys or null', () => {
   const moduleKeys = new Set(MODULES.map((m) => m.key));
-  for (const area of CATALOGUE) {
-    assert.ok(Object.prototype.hasOwnProperty.call(AREA_MODULES, area.key), `missing ${area.key}`);
-    const mod = AREA_MODULES[area.key];
-    assert.ok(mod === null || moduleKeys.has(mod), `${area.key} → ${mod}`);
+  for (const key of allPermissionKeys()) {
+    assert.ok(Object.prototype.hasOwnProperty.call(KEY_MODULES, key), `missing ${key}`);
+    const mods = KEY_MODULES[key];
+    assert.ok(mods === null || (mods.length > 0 && mods.every((m) => moduleKeys.has(m))), `${key} → ${mods}`);
   }
+  assert.deepEqual(KEY_MODULES['logistics.view'], ['inventory', 'sales']);
+  assert.equal(KEY_MODULES['influencers.review'], null);
+  assert.equal(KEY_MODULES['academy.view'], null);
 });
 
 test('effectiveLegacy equals the template of each legacy role, with no add-ons', () => {
@@ -287,4 +301,108 @@ test('the cache serves the same answer until authz_version moves, and holds at m
   assert.equal(CACHE_LIMIT, 500);
   clearEffectiveCache();
   assert.notEqual(effective(store, user.id), second);
+});
+
+test('a holding role that needs review in a company grants nothing there (no template fallback)', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const beta = store.createCompany({ name: 'Beta', website: '', address: '' });
+  const ceo = makeUser(store, [acme.id], 'Employee');
+  const group = store.authz.createHoldingGroup({ name: 'Holding' }, null);
+  store.authz.attachCompany(group.id, acme.id, null);
+  store.authz.attachCompany(group.id, beta.id, null);
+  store.authz.setHoldingAssignment(group.id, ceo.id, { mainRoleKey: 'owner', addOnRoleKeys: [] }, null);
+  store.db.prepare(`UPDATE permission_groups SET needsReview = 1 WHERE companyId = ? AND key = 'owner'`).run(acme.id);
+  store.bumpAuthzVersion();
+  const eff = effective(store, ceo.id);
+  assert.equal(eff.byCompany.get(acme.id).grants.has('finance.view'), false, 'needs review: closed, not template:owner');
+  assert.ok(eff.byCompany.get(acme.id).grants.has('tasks.create'), 'own main role still counts');
+  assert.ok(eff.byCompany.get(beta.id).grants.has('finance.view'), 'other companies unaffected');
+  // A company without the role at all still falls back to the template.
+  store.db.prepare(`DELETE FROM permission_groups WHERE companyId = ? AND key = 'owner'`).run(beta.id);
+  store.bumpAuthzVersion();
+  const sources = effective(store, ceo.id).byCompany.get(beta.id).grants.get('finance.view').sources;
+  assert.deepEqual(sources.map((s) => s.roleId), ['template:owner']);
+});
+
+test('unparseable assignment dates fail closed', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const user = makeUser(store, [acme.id], 'Employee');
+  const a = addOn(store, acme.id, 'Bad start', [{ key: 'payroll.view' }]);
+  const b = addOn(store, acme.id, 'Bad end', [{ key: 'finance.view' }]);
+  temporary(store, user.id, acme.id, a.id, 'not-a-date', iso(HOUR));
+  temporary(store, user.id, acme.id, b.id, null, 'garbage');
+  const group = store.authz.createHoldingGroup({ name: 'Holding' }, null);
+  store.authz.attachCompany(group.id, acme.id, null);
+  store.db.prepare(`INSERT INTO holding_group_assignments (holdingGroupId, userId, roleKey, isMain, startsAt, endsAt) VALUES (?, ?, 'owner', 0, 'soon', NULL)`).run(group.id, user.id);
+  store.bumpAuthzVersion();
+  const grants = effective(store, user.id).byCompany.get(acme.id).grants;
+  assert.equal(grants.has('payroll.view'), false);
+  assert.equal(grants.has('finance.view'), false);
+  assert.ok(!grants.get('tasks.view').sources.some((s) => s.kind === 'holding'));
+});
+
+test('can() treats a non-finite amount as over the limit', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const buyer = makeUser(store, [acme.id], 'Employee');
+  giveAddOns(store, buyer.id, acme.id, [addOn(store, acme.id, 'Small', [{ key: 'purchasing.approve', limit: 1000 }]).id]);
+  const eff = effective(store, buyer.id);
+  for (const amount of [NaN, Infinity, -Infinity, Number('x')]) {
+    assert.deepEqual(can(eff, 'purchasing.approve', { companyId: acme.id, amount }), { allowed: false, reason: 'over_limit' }, String(amount));
+  }
+});
+
+test('legacy role per company matches http.ts getEffectiveRole on the sanitized user', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const beta = store.createCompany({ name: 'Beta', website: '', address: '' });
+  const { getEffectiveRole } = require('../dist/http');
+  const user = makeUser(store, [acme.id], 'Manager');
+  const cases = [
+    // companyRoles empty: every companyIds entry falls back to users.role.
+    { role: 'Accountant', companyIds: [acme.id, beta.id], companyRoles: [] },
+    // companyRoles non-empty: its entry decides; a stray companyIds entry gives no access (sanitizeUser).
+    { role: 'Manager', companyIds: [acme.id, beta.id], companyRoles: [{ companyId: acme.id, role: 'Employee' }] },
+  ];
+  for (const c of cases) {
+    store.db.prepare('UPDATE users SET role = ?, companyIds = ?, companyRoles = ? WHERE id = ?')
+      .run(c.role, JSON.stringify(c.companyIds), JSON.stringify(c.companyRoles), user.id);
+    store.bumpAuthzVersion();
+    const sanitized = store.getUserById(user.id);
+    const eff = effectiveLegacy(store, user.id);
+    for (const company of [acme, beta]) {
+      const role = getEffectiveRole(sanitized, company.id);
+      const keys = eff.byCompany.has(company.id) ? [...eff.byCompany.get(company.id).grants.keys()].sort() : undefined;
+      assert.deepEqual(keys, role ? TEMPLATES[role.toLowerCase()].grants.map((g) => g.key).sort() : undefined, `${c.role} ${company.name}`);
+    }
+  }
+});
+
+test('terminated employees are out of the team line; it still passes through them', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const [a, b, c] = Array.from({ length: 3 }, () => makeUser(store, [acme.id], 'Employee'));
+  const ea = store.createEmployee({ companyId: acme.id, userId: a.id, name: 'A' });
+  const eb = store.createEmployee({ companyId: acme.id, userId: b.id, name: 'B', managerId: ea.id, status: 'Terminated' });
+  store.createEmployee({ companyId: acme.id, userId: c.id, name: 'C', managerId: eb.id, status: 'On Leave' });
+  assert.deepEqual([...teamOf(store, acme.id, a.id)].sort(), [a.id, c.id].sort());
+  assert.deepEqual([...teamOf(store, acme.id, b.id)], [b.id], 'a terminated person leads nobody');
+  store.updateEmployee(eb.id, { status: 'Active' });
+  assert.deepEqual([...teamOf(store, acme.id, a.id)].sort(), [a.id, b.id, c.id].sort(), 'status change invalidates');
+});
+
+test('the team version moves on line changes only, not on a name edit', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const e = store.createEmployee({ companyId: acme.id, name: 'E' });
+  const v0 = store.authz.teamVersion(acme.id);
+  store.updateEmployee(e.id, { name: 'E renamed' });
+  assert.equal(store.authz.teamVersion(acme.id), v0, 'full-row rewrite with same line');
+  const boss = store.createEmployee({ companyId: acme.id, name: 'Boss' });
+  const v1 = store.authz.teamVersion(acme.id);
+  assert.ok(v1 > v0);
+  store.updateEmployee(e.id, { managerId: boss.id });
+  assert.ok(store.authz.teamVersion(acme.id) > v1);
 });

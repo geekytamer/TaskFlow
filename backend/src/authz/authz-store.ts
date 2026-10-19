@@ -486,9 +486,15 @@ export class AuthzStore {
     if (!row) return undefined;
     const parse = <T>(s: string | null): T | undefined => { try { return s ? JSON.parse(s) as T : undefined; } catch { return undefined; } };
     const roles = parse<Array<{ companyId: string; role: string }>>(row.companyRoles) ?? [];
-    // Same fallback as getEffectiveRole / syncUserGroupAssignments.
-    const list = roles.length ? roles : (parse<string[]>(row.companyIds) ?? []).map((id) => ({ companyId: id, role: row.role }));
-    const role = list.find((r) => r.companyId === companyId)?.role;
+    // Mirrors http.ts getEffectiveRole on the sanitized user: the company's
+    // companyRoles entry, else the user's role when companyIds lists the
+    // company. sanitizeUser derives companyIds from companyRoles whenever that
+    // list is non-empty, so the companyIds fallback only applies when
+    // companyRoles is empty (a raw companyIds entry beside a non-empty
+    // companyRoles grants no access today).
+    const companyIds = roles.length ? roles.map((r) => r.companyId) : (parse<string[]>(row.companyIds) ?? []);
+    const role = roles.find((r) => r.companyId === companyId)?.role
+      ?? (companyIds.includes(companyId) ? row.role : undefined);
     const key = String(role ?? '').toLowerCase();
     return LEGACY_ROLE_KEYS.has(key) ? key : undefined;
   }
@@ -769,14 +775,16 @@ export class AuthzStore {
 
   /**
    * The role a group assignment's key stands for in one company (Ruling H):
-   * the company's own role with that key, else the group-level role row. Null
-   * when neither exists or the role found needs review.
+   * the company's own role with that key, else the group-level role row.
+   * Null when neither exists; 'needs_review' when the role found needs review
+   * (the caller must grant nothing, not fall back).
    */
-  holdingRoleFor(companyId: string, holdingGroupId: string, roleKey: string): { id: string; name: string } | null {
+  holdingRoleFor(companyId: string, holdingGroupId: string, roleKey: string): { id: string; name: string } | 'needs_review' | null {
     const row = (this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId = ? AND key = ?').get(companyId, roleKey)
       ?? this.db.prepare('SELECT id, name, needsReview FROM permission_groups WHERE companyId IS NULL AND holdingGroupId = ? AND key = ?').get(holdingGroupId, roleKey)) as
       | { id: string; name: string; needsReview: number } | undefined;
-    if (!row || row.needsReview) return null;
+    if (!row) return null;
+    if (row.needsReview) return 'needs_review';
     return { id: row.id, name: row.name };
   }
 
@@ -818,9 +826,9 @@ export class AuthzStore {
   }
 
   /** Employee manager edges in a company, for the team line. */
-  employeeLines(companyId: string): Array<{ id: string; userId: string | null; managerId: string | null }> {
-    return this.db.prepare('SELECT id, userId, managerId FROM employees WHERE companyId = ?').all(companyId) as
-      Array<{ id: string; userId: string | null; managerId: string | null }>;
+  employeeLines(companyId: string): Array<{ id: string; userId: string | null; managerId: string | null; status: string }> {
+    return this.db.prepare('SELECT id, userId, managerId, status FROM employees WHERE companyId = ?').all(companyId) as
+      Array<{ id: string; userId: string | null; managerId: string | null; status: string }>;
   }
 
   /** Moves whenever an employee row in the company changes line (triggers, migration 136). */
