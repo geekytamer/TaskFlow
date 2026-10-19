@@ -14,7 +14,7 @@
  * module lock is additive.
  */
 import type { DataStore } from '../data/store';
-import { SCOPES, areaOf, isPermissionKey, type Scope } from './catalogue';
+import { SCOPES, SENSITIVE_FIELDS, areaOf, isPermissionKey, type Scope } from './catalogue';
 import { can, scopeOf } from './can';
 import { TEMPLATE_KEYS } from './templates';
 import type { Effective } from './evaluate';
@@ -109,12 +109,20 @@ export function rolesGranting(store: DataStore, companyId: string, key: string):
     const i = (TEMPLATE_KEYS as readonly string[]).indexOf(key);
     return i < 0 ? TEMPLATE_KEYS.length : i;
   };
+  // 'field:salary' — the roles that may change the sensitive field.
+  const field = key.startsWith('field:') ? key.slice(6) : undefined;
+  const grants = (r: (typeof roles)[number]) => (field
+    ? r.fields.some((f) => f.key === field && f.edit)
+    : r.grants.some((g) => g.key === key));
   const granting = roles
-    .filter((r) => r.isActive && !r.needsReview && r.grants.some((g) => g.key === key))
+    .filter((r) => r.isActive && !r.needsReview && grants(r))
     .sort((a, b) => rank(a.key) - rank(b.key) || a.name.localeCompare(b.name));
   const named = granting.filter((r) => r.key !== 'owner');
   return (named.length ? named : granting).map((r) => r.name);
 }
+
+/** 'field:<sensitive field>' — the permission named when a sensitive-field write is refused. */
+const isFieldKey = (key: string) => key.startsWith('field:') && SENSITIVE_FIELDS.some((f) => `field:${f.key}` === key);
 
 const LEGACY_FORBIDDEN = 'You do not have permission to perform this action.';
 
@@ -139,7 +147,7 @@ export function forbiddenBody(
   companyId: string,
   key: string | undefined,
 ): { message: string; details: { code: 'FORBIDDEN'; permission: string | null } } {
-  const message = engine === 'v2' && key && isPermissionKey(key)
+  const message = engine === 'v2' && key && (isPermissionKey(key) || isFieldKey(key))
     ? askSentence(rolesGranting(store, companyId, key))
     : LEGACY_FORBIDDEN;
   return { message, details: { code: 'FORBIDDEN', permission: key ?? null } };

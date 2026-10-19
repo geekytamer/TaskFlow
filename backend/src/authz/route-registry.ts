@@ -790,9 +790,9 @@ export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string
   CRM_ALL_READ: { becomes: 'crm.view scope', sites: { 'src/server.ts': 1 } },
   CRM_ALL_WRITE: { becomes: 'crm.edit / crm.delete scope', sites: { 'src/server.ts': 10 } },
   CAMPAIGNS_ALL_WRITE: { becomes: 'campaigns.edit scope', sites: { 'src/server.ts': 3 } },
-  // Field rules (mask)
-  CONTACTS_PRICING_READ: { becomes: 'rate_cards, client_terms fields', sites: { 'src/server.ts': 4 } },
-  PAYROLL_PAY_READ: { becomes: 'salary, personal_ids, bank_details fields', sites: { 'src/routes/hr.ts': 1 } },
+  // Field rules (CONTACTS_PRICING_READ, PAYROLL_PAY_READ) are no longer asked
+  // by name: every path a sensitive property leaves through goes through
+  // authz/mask.ts (rate_cards, client_terms, salary, personal_ids, bank_details).
 };
 
 const INDEX = new Map(ROUTES.map((r) => [`${r.method} ${r.path}`, r]));

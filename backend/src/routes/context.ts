@@ -3,6 +3,7 @@ import type { DataStore } from '../data/store';
 import type { PermissionsEngine } from '../authz/engine';
 import type { Effective } from '../authz/evaluate';
 import type { VisibleArea, VisibleOptions } from '../authz/visible';
+import type { MaskEntity, SensitiveField } from '../authz/mask';
 import type { RecordRuleName } from '../permissions/record-rules';
 import type { InvoiceLineItem, Project, SalesOrderLineItem, UserRole } from '../types';
 import type { TupleKey } from '../permissions/tuples';
@@ -29,6 +30,12 @@ export interface RouteContext {
   withActor: <T>(req: AuthedRequest, fn: () => T) => T;
   /** The Effective that decides what the person sees (authz/visible.ts; Ruling D picks it per engine). */
   viewerOf: (req: AuthedRequest) => Effective;
+  /** A row without the sensitive properties the person may not see (authz/mask.ts); `self` = the person's own record. */
+  maskFor: <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts?: { self?: boolean }) => T;
+  /** May the person see a sensitive field (CSV columns, files)? */
+  seesField: (req: AuthedRequest, companyId: string, field: SensitiveField, opts?: { self?: boolean }) => boolean;
+  /** 403 { permission: 'field:<key>' } when a write changes a sensitive field the person may not edit (v2; shadow records). */
+  requireFieldEdits: (req: AuthedRequest, companyId: string, entity: MaskEntity, body: Record<string, unknown> | null | undefined, existing?: object | null) => void;
   /** One record of a scoped area, by the same rule as its list. */
   canSee: (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, options?: VisibleOptions) => boolean;
   canViewProject: (req: AuthedRequest, project: Pick<Project, 'id' | 'companyId'>) => boolean;

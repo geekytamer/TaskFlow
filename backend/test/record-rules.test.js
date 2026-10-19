@@ -79,8 +79,14 @@ test('every rule declared is enforced somewhere', () => {
   // the rule's key, and company scope there sees every record.
   const { AREAS } = require('../dist/authz/visible');
   const visibleKeys = new Set(Object.values(AREAS).map((a) => a.key));
+  // Field rules are realised by authz/mask.ts: FIELD_MAP hides each of their
+  // fields, and the server masks through it (maskFor / seesField).
+  const { FIELD_MAP } = require('../dist/authz/mask');
+  const maskedFields = new Set(Object.values(FIELD_MAP).flatMap((props) => Object.values(props)));
+  assert.ok(enforcing.includes('maskFor(') && enforcing.includes('seesField('), 'the server masks');
   for (const [name, rule] of Object.entries(RECORD_RULES)) {
     const byVisible = 'keys' in rule.v2 && rule.v2.min === 'company' && rule.action.endsWith('.read') && visibleKeys.has(rule.v2.keys[0]);
-    assert.ok(byVisible || enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
+    const byMask = 'fields' in rule.v2 && rule.v2.fields.every((f) => maskedFields.has(f));
+    assert.ok(byVisible || byMask || enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
   }
 });

@@ -12,7 +12,7 @@ import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
 import { sweepShipments } from './logistics/shipments';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
-import type { Notification, VatTreatment, VendorBill } from './types';
+import type { GratuityLine, Notification, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import { routeToPermission } from './permissions/shadow';
 import { RECORD_ENTITY_MODULES } from './permissions/company-modules';
@@ -26,6 +26,7 @@ import {
 import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
 import { visible, type VisibleArea, type VisibleOptions } from './authz/visible';
 import { can, scopeOf } from './authz/can';
+import { canEditField, canViewField, fieldsWritten, mask, type MaskEntity, type SensitiveField } from './authz/mask';
 import { routeDecl, type RouteDecl } from './authz/route-registry';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
@@ -168,27 +169,6 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
       estimatedAvg: optionalNumber(a.estimatedAvg),
       notes: optionalString(a.notes),
     }));
-}
-
-/**
- * Commercial terms on a contact that rank-and-file staff should not see. An
- * influencer's rate card is negotiated pricing — hiding it in the UI alone is
- * not enough, because the value still ships in the API response and in CSV
- * exports. Strip it from the payload instead.
- */
-const COMMERCIAL_CONTACT_FIELDS = ['rateCardAmount'] as const;
-
-/** Strips commercial fields unless the viewer may see pricing (contacts:pricing.read). */
-function redactContact<T>(contact: T, showPricing: boolean): T {
-  if (!contact || showPricing) return contact;
-  const copy: any = { ...(contact as any) };
-  for (const field of COMMERCIAL_CONTACT_FIELDS) delete copy[field];
-  return copy as T;
-}
-
-function redactContacts<T>(contacts: T[], showPricing: boolean): T[] {
-  if (showPricing) return contacts;
-  return contacts.map((c) => redactContact(c, false));
 }
 
 /** Largest file (in raw bytes) accepted as a record attachment. */
@@ -1125,6 +1105,38 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   /**
+   * A row without the sensitive properties the person may not see
+   * (authz/mask.ts), read with the same Effective as the read filter (Ruling
+   * D). `self`: the row is the person's own (their employee record, payslip).
+   */
+  const maskFor = <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts: { self?: boolean } = {}): T =>
+    mask(viewerOf(req), companyId, entity, row, { self: opts.self, moduleOn: (m) => store.isModuleEnabled(companyId, m) });
+
+  /** May the person see a sensitive field (CSV columns, files)? */
+  const seesField = (req: AuthedRequest, companyId: string, field: SensitiveField, opts: { self?: boolean } = {}): boolean =>
+    canViewField(viewerOf(req), companyId, field, { self: opts.self, moduleOn: (m) => store.isModuleEnabled(companyId, m) });
+
+  /**
+   * Refuses a write that changes a sensitive field the person may not edit:
+   * 403 { code: 'FORBIDDEN', permission: 'field:<key>' }. Under legacy the
+   * route gate already gave today's answer (no field check existed); shadow
+   * records where v2 would refuse.
+   */
+  const requireFieldEdits = (
+    req: AuthedRequest,
+    companyId: string,
+    entity: MaskEntity,
+    body: Record<string, unknown> | null | undefined,
+    existing?: object | null,
+  ): void => {
+    for (const field of fieldsWritten(entity, body, existing as Record<string, unknown> | null | undefined)) {
+      const key = `field:${field}`;
+      const allowed = decideAccess(req, companyId, () => true, (eff) => canEditField(eff, companyId, field), () => key, `${key} @ `);
+      if (!allowed) throw forbidden(companyId, key);
+    }
+  };
+
+  /**
    * Wraps the response so that, under v2, a success answer from a route whose
    * declared permission was never decided by can() becomes a 403 (logged once
    * per route). Error answers pass untouched.
@@ -1329,6 +1341,12 @@ export function createServer(options: CreateServerOptions = {}) {
       const overage = Math.max(0, error.owed + error.adding - error.limit);
       const allowed = canOverride(overage);
       if (asked && allowed) return store.withinCreditLimit(clientId, change, { override: true });
+      // The limit itself is the client_terms field.
+      if (!seesField(req, companyId, 'client_terms')) {
+        throw new HttpError(409, `${error.clientName} would go over their credit limit.`, {
+          code: 'CREDIT_LIMIT_EXCEEDED', owed: error.owed, adding: error.adding, canOverride: allowed,
+        });
+      }
       throw new HttpError(409, error.message, {
         code: 'CREDIT_LIMIT_EXCEEDED', limit: error.limit, owed: error.owed, adding: error.adding, canOverride: allowed,
       });
@@ -1947,7 +1965,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
-    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
+    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, seesField, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
 
@@ -3429,7 +3447,8 @@ export function createServer(options: CreateServerOptions = {}) {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const role = req.query.role as string | undefined;
 	      const contacts = store.listContacts(req.params.companyId, role as any, viewerOf(req));
-	      res.json(redactContacts(contacts, allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ')));
+	      // Rate cards: the rate_cards field (authz/mask.ts).
+	      res.json(contacts.map((contact) => maskFor(req, req.params.companyId, 'contact', contact)));
 	    }),
 	  );
 
@@ -3496,7 +3515,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-      const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
+      const showPricing = seesField(req, req.params.companyId, 'rate_cards');
       // Exactly the influencers the contact list shows this person.
       const influencers = store.listContacts(req.params.companyId, 'Influencer' as any, viewerOf(req));
       const csv = toCsv(
@@ -3531,6 +3550,9 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
+      // A rate card in any row is a write of the rate_cards field.
+      const rateCard = rows.find((r) => r && typeof r === 'object' && optionalNumber((r as Record<string, unknown>).rateCard) !== undefined) as Record<string, unknown> | undefined;
+      if (rateCard) requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: rateCard.rateCard }, {});
       let created = 0;
       const errors: Array<{ row: number; error: string }> = [];
       rows.forEach((raw, index) => {
@@ -3575,6 +3597,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const { companyId } = req.params;
 	      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const body = asRecord(req.body, 'body');
+	      requireFieldEdits(req, companyId, 'contact', body, {});
 	      const managesAll = allowsRule(req, companyId, 'CONTACTS_ALL_WRITE');
 	      let contact;
 	      try {
@@ -3615,7 +3638,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        if (error instanceof HttpError) throw error;
 	        throw new HttpError(400, error?.message || 'Could not create contact.');
 	      }
-      res.status(201).json(contact);
+      res.status(201).json(maskFor(req, companyId, 'contact', contact));
     }),
   );
 
@@ -3627,7 +3650,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
       requireVisible(req, 'contacts', contact.companyId, contact.id);
-      res.json(contact);
+      res.json(maskFor(req, contact.companyId, 'contact', contact));
     }),
   );
 
@@ -3639,6 +3662,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
+      requireFieldEdits(req, existing.companyId, 'contact', body, existing);
       let contact;
       try {
       contact = store.updateContact(req.params.id, {
@@ -3670,7 +3694,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        if (error instanceof HttpError) throw error;
 	        throw new HttpError(400, error?.message || 'Could not update contact.');
 	      }
-      res.json(contact);
+      res.json(maskFor(req, existing.companyId, 'contact', contact));
     }),
   );
 
@@ -3684,7 +3708,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       const role = requiredString(body.role, 'role') as any;
       store.addContactRole(req.params.id, contact.companyId, role, 'Manual');
-      res.json(store.getContactById(req.params.id));
+      res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
   );
 
@@ -3770,7 +3794,7 @@ export function createServer(options: CreateServerOptions = {}) {
       };
 
       res.json({
-        contact: redactContact(contact, allowsRule(req, contact.companyId, 'CONTACTS_PRICING_READ')),
+        contact: maskFor(req, companyId, 'contact', contact),
         totals,
         invoices: invoices.slice(0, 50),
         salesOrders: salesOrders.slice(0, 50),
@@ -3790,7 +3814,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
       store.removeContactRole(req.params.id, req.params.role as any);
-      res.json(store.getContactById(req.params.id));
+      res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
   );
 
@@ -3878,7 +3902,7 @@ export function createServer(options: CreateServerOptions = {}) {
         nextFollowupNote: body.nextFollowupNote !== undefined ? optionalString(body.nextFollowupNote) : undefined,
         visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as const) : undefined,
       });
-      res.json(updated);
+      res.json(maskFor(req, contact.companyId, 'contact', updated));
     }),
   );
 
@@ -3900,7 +3924,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          nextFollowupDate: null,
 	          nextFollowupNote: '',
 	        });
-	        res.json(updated);
+	        res.json(maskFor(req, contact.companyId, 'contact', updated));
 	        return;
 	      }
 		      const followup = store.getFollowupById(rawId);
@@ -3939,7 +3963,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          nextFollowupDate: dueDate,
 	          nextFollowupNote: optionalString(body.nextAction) ?? contact.nextFollowupNote,
 	        });
-	        res.json(updated);
+	        res.json(maskFor(req, contact.companyId, 'contact', updated));
 	        return;
 	      }
 		      const followup = store.getFollowupById(rawId);
@@ -4139,7 +4163,6 @@ export function createServer(options: CreateServerOptions = {}) {
       // actually about. A collections queue that cannot name the invoice, or that
       // reports every row as a deleted contact because invoices have none, is not
       // a worklist anyone can act on.
-      const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
       const enriched = followups.map((f) => {
         let contact = store.getContactById(f.entityId);
         let entityLabel: string | undefined;
@@ -4164,11 +4187,9 @@ export function createServer(options: CreateServerOptions = {}) {
         if (contact && !canSee(req, 'contacts', contact.companyId, contact.id)) contact = undefined;
         return {
           ...f,
+          // Picked fields only: no sensitive field rides along.
           contact: contact
-            ? redactContact(
-                { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles },
-                showPricing,
-              )
+            ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles }
             : null,
           entityLabel,
           entityAmount,
@@ -5328,7 +5349,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       // What each client could owe now, for the credit limit beside it.
-      res.json(store.listClients(req.params.companyId).map((c) => ({ ...c, creditExposure: store.clientCreditExposure(c.id) })));
+      // The credit limit is the client_terms field (authz/mask.ts).
+      res.json(store.listClients(req.params.companyId).map((c) => maskFor(req, c.companyId, 'client', { ...c, creditExposure: store.clientCreditExposure(c.id) })));
     }),
   );
 
@@ -5339,6 +5361,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const body = asRecord(req.body, 'body');
 	      const companyId = requiredString(body.companyId, 'companyId');
 	      requireCompanyRoles(req, companyId, companyManagementRoles);
+	      requireFieldEdits(req, companyId, 'client', body, {});
 	      const client = withActor(req, () =>
 	        store.createClient({
 	          companyId,
@@ -5355,7 +5378,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          notes: optionalString(body.notes),
 	        }),
 	      );
-	      res.status(201).json(client);
+	      res.status(201).json(maskFor(req, companyId, 'client', client));
 	    }),
 	  );
 
@@ -5367,6 +5390,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      if (!existing) throw new HttpError(404, 'Client not found.');
 	      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
 	      const body = asRecord(req.body, 'body');
+	      requireFieldEdits(req, existing.companyId, 'client', body, existing);
 	      const updated = withActor(req, () =>
 	        store.updateClient(req.params.id, {
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
@@ -5397,7 +5421,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          notes: updated.notes,
 	        });
 	      }
-	      res.json(updated);
+	      res.json(maskFor(req, existing.companyId, 'client', updated));
 	    }),
 	  );
 
@@ -5643,7 +5667,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const archived = req.query.archived === 'include' || req.query.archived === 'only' ? req.query.archived : 'exclude';
-      res.json(store.listInventoryItems(req.params.companyId, archived));
+      // Cost is the cost_prices field (authz/mask.ts).
+      res.json(store.listInventoryItems(req.params.companyId, archived).map((item) => maskFor(req, item.companyId, 'item', item)));
     }),
   );
 
@@ -5653,10 +5678,11 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const items = store.listInventoryItems(req.params.companyId);
+      const showCost = seesField(req, req.params.companyId, 'cost_prices');
       const csv = toCsv(
-        ['sku', 'name', 'category', 'unit', 'onHand', 'reorderPoint', 'unitCost', 'salePrice', 'barcode', 'location'],
+        ['sku', 'name', 'category', 'unit', 'onHand', 'reorderPoint', ...(showCost ? ['unitCost'] : []), 'salePrice', 'barcode', 'location'],
         items.map((i) => [
-          i.sku, i.name, i.category, i.unit, i.onHand, i.reorderPoint, i.unitCost,
+          i.sku, i.name, i.category, i.unit, i.onHand, i.reorderPoint, ...(showCost ? [i.unitCost] : []),
           i.salePrice ?? '', i.barcode ?? '', i.location ?? '',
         ]),
       );
@@ -5673,6 +5699,9 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
+      // A cost in any row is a write of the cost_prices field.
+      const costed = rows.find((r) => r && typeof r === 'object' && optionalNumber((r as Record<string, unknown>).unitCost) !== undefined) as Record<string, unknown> | undefined;
+      if (costed) requireFieldEdits(req, req.params.companyId, 'item', { unitCost: costed.unitCost }, {});
       let created = 0;
       const errors: Array<{ row: number; error: string }> = [];
       rows.forEach((raw, index) => {
@@ -5719,6 +5748,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const unit = requiredString(body.unit, 'unit', { min: 1 });
       const preferredSupplierId = optionalString(body.preferredSupplierId);
       ensureSupplierBelongsToCompany(preferredSupplierId, req.params.companyId);
+      requireFieldEdits(req, req.params.companyId, 'item', body, {});
       const itemLocation = optionalString(body.location);
       const openingQty = requiredNumber(body.onHand ?? 0, 'onHand');
       const tracks = optionalBoolean(body.tracksInventory) ?? true;
@@ -5754,7 +5784,7 @@ export function createServer(options: CreateServerOptions = {}) {
         if (error instanceof HttpError) throw error;
         throw new HttpError(400, error?.message || 'Could not create inventory item.');
       }
-      res.status(201).json(item);
+      res.status(201).json(maskFor(req, req.params.companyId, 'item', item));
     }),
   );
 
@@ -5773,7 +5803,7 @@ export function createServer(options: CreateServerOptions = {}) {
           throw new HttpError(404, 'Inventory item not found.');
         }
       }
-      res.json(store.listStockMovements(req.params.companyId, inventoryItemId));
+      res.json(store.listStockMovements(req.params.companyId, inventoryItemId).map((m) => maskFor(req, req.params.companyId, 'stock_movement', m)));
     }),
   );
 
@@ -5811,7 +5841,7 @@ export function createServer(options: CreateServerOptions = {}) {
           throw new HttpError(404, 'Inventory item not found.');
         }
       }
-      res.json(store.listInventoryLots(req.params.companyId, inventoryItemId));
+      res.json(store.listInventoryLots(req.params.companyId, inventoryItemId).map((lot) => maskFor(req, req.params.companyId, 'lot', lot)));
     }),
   );
 
@@ -5822,7 +5852,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const days =
         req.query.days !== undefined ? requiredNumber(req.query.days, 'days') : 30;
-      res.json(store.listExpiringLots(req.params.companyId, days));
+      res.json(store.listExpiringLots(req.params.companyId, days).map((lot) => maskFor(req, req.params.companyId, 'lot', lot)));
     }),
   );
 
@@ -5846,6 +5876,7 @@ export function createServer(options: CreateServerOptions = {}) {
       ensureActiveWarehouse(req.params.companyId, lotLocation, 'location');
       const supplierId = optionalString(body.supplierId);
       ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
+      requireFieldEdits(req, req.params.companyId, 'lot', body, {});
       try {
         const lot = withActor(req, () =>
           store.createInventoryLot({
@@ -5862,7 +5893,7 @@ export function createServer(options: CreateServerOptions = {}) {
             note: optionalString(body.note),
           }),
         );
-        res.status(201).json({ lot, item: store.getInventoryItemById(req.params.itemId) });
+        res.status(201).json({ lot: maskFor(req, req.params.companyId, 'lot', lot), item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)) });
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not receive lot.');
       }
@@ -5898,7 +5929,7 @@ export function createServer(options: CreateServerOptions = {}) {
             { location: consumeLocation, note: optionalString(body.note) },
           ),
         );
-        res.status(201).json({ allocation, item: store.getInventoryItemById(req.params.itemId) });
+        res.status(201).json({ allocation, item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)) });
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not consume lots.');
       }
@@ -5942,8 +5973,8 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not adjust inventory.');
       }
       res.status(201).json({
-        movement,
-        item: store.getInventoryItemById(req.params.itemId),
+        movement: maskFor(req, req.params.companyId, 'stock_movement', movement),
+        item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)),
       });
     }),
   );
@@ -5982,7 +6013,7 @@ export function createServer(options: CreateServerOptions = {}) {
         );
         res.status(201).json({
           issue,
-          item: store.getInventoryItemById(req.params.itemId),
+          item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)),
           balances: store.listInventoryLocationBalances(req.params.companyId, req.params.itemId),
         });
       } catch (error) {
@@ -6026,7 +6057,7 @@ export function createServer(options: CreateServerOptions = {}) {
         );
         res.status(201).json({
           transfer,
-          item: store.getInventoryItemById(req.params.itemId),
+          item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)),
           balances: store.listInventoryLocationBalances(req.params.companyId, req.params.itemId),
         });
       } catch (error) {
@@ -7564,6 +7595,15 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /** Each employee's wage and entitlement are salary (own line shown); the totals stay. */
+  const gratuityFor = <R extends { companyId: string; lines: GratuityLine[] }>(req: AuthedRequest, report: R): R => {
+    const userOf = new Map(store.listEmployees(report.companyId).map((e) => [e.id, e.userId]));
+    return {
+      ...report,
+      lines: report.lines.map((line) => maskFor(req, report.companyId, 'gratuity_line', line, { self: userOf.get(line.employeeId) === req.user!.id })),
+    };
+  };
+
   app.get(
     '/companies/:companyId/hr/gratuity',
     authMiddleware,
@@ -7571,7 +7611,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : new Date();
       if (Number.isNaN(asOf.getTime())) throw new HttpError(400, 'asOf must be a valid date.');
-      res.json(store.getGratuityLiability(req.params.companyId, asOf));
+      res.json(gratuityFor(req, store.getGratuityLiability(req.params.companyId, asOf)));
     }),
   );
 
@@ -7584,7 +7624,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const asOf = body.asOf ? new Date(requiredDateInput(body.asOf, 'asOf')) : new Date();
       if (Number.isNaN(asOf.getTime())) throw new HttpError(400, 'asOf must be a valid date.');
       try {
-        res.json(withActor(req, () => store.accrueGratuity(req.params.companyId, asOf)));
+        res.json(gratuityFor(req, withActor(req, () => store.accrueGratuity(req.params.companyId, asOf))));
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not accrue gratuity.');
       }
@@ -7998,7 +8038,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (location) ensureActiveWarehouse(existing.companyId, location, 'location');
       const nullable = (value: unknown) => (value === undefined ? undefined : optionalString(value) ?? null);
       try {
-        res.json(withActor(req, () => store.updateInventoryItem(existing.id, {
+        res.json(maskFor(req, existing.companyId, 'item', withActor(req, () => store.updateInventoryItem(existing.id, {
           sku: body.sku !== undefined ? requiredString(body.sku, 'sku', { min: 1 }) : undefined,
           barcode: nullable(body.barcode),
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
@@ -8013,7 +8053,7 @@ export function createServer(options: CreateServerOptions = {}) {
           preferredSupplierId,
           location,
           customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
-        })));
+        }))));
       } catch (error) {
         if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update inventory item.');
@@ -8028,7 +8068,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getInventoryItemById(req.params.id);
       if (!existing) throw new HttpError(404, 'Inventory item not found.');
       requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
-      res.json(withActor(req, () => store.restoreInventoryItem(existing.id)));
+      res.json(maskFor(req, existing.companyId, 'item', withActor(req, () => store.restoreInventoryItem(existing.id))));
     }),
   );
   // Task deletion is scoped like task viewing: assignees (or a company
@@ -8228,6 +8268,8 @@ export function createServer(options: CreateServerOptions = {}) {
       seesContact: (req, contact) => canSee(req as AuthedRequest, 'inbox', contact.companyId, contact.id),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
+      maskFor: (req, companyId, entity, row) => maskFor(req as AuthedRequest, companyId, entity, row),
+      requireFieldEdits: (req, companyId, entity, body, existing) => requireFieldEdits(req as AuthedRequest, companyId, entity, body, existing),
     }),
   );
 
