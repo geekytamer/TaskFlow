@@ -43,12 +43,20 @@
 
 html { background: var(--canvas); }
 
-/* Peak's warm glow, kept behind the work: one soft light from the top corner. */
-body {
-  background:
-    radial-gradient(60rem 32rem at 100% -10%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%),
-    var(--canvas);
-  background-attachment: fixed;
+/*
+ * Peak's warm glow, kept behind the work: one soft light from the top corner.
+ * It lives on a fixed layer (html::before), not body's background with
+ * background-attachment: fixed, which makes browsers repaint the whole page
+ * on every scroll frame.
+ */
+body { background: transparent; }
+html::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: radial-gradient(60rem 32rem at 100% -10%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%);
 }
 
 body {
@@ -165,6 +173,9 @@ a.rounded-panel:hover {
 .orbit-arrive { animation: peak-arrive 900ms var(--ease-out) both; }
 @keyframes peak-spin { to { transform: rotate(360deg); } }
 @keyframes peak-arrive { from { opacity: 0; transform: scale(0.94); filter: blur(6px); } }
+
+/* Cards off screen are not drawn until they come near (they keep their space). */
+.cv-card { content-visibility: auto; contain-intrinsic-size: auto 300px; }
 
 /* Directory results: new cards settle in quickly, a beat apart, capped. */
 .results-in > * { animation: peak-rise 260ms var(--ease-out) both; }

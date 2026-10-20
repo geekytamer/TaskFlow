@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BudgetPlanner } from './budget-planner';
 import { FilterBar, ResultsHeader, ResultsPane, useDirectory } from './directory-filters';
 import { InfluencerPhoto } from './influencer-photo';
@@ -57,11 +57,11 @@ function Stats({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
 const metaOf = (entry: CatalogueEntry, lang: Lang) =>
   [splitNiches(entry.niche).map((n) => nicheLabel(n, lang)).join(listSep(lang)) || null, splitPlaces(entry.location).map((p) => placeLabel(p, lang)).join(listSep(lang)) || null, t(lang, `disc.tier.${entry.tier}` as Key)].filter(Boolean).join(listSep(lang));
 
-export function InfluencerCard({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
+export const InfluencerCard = memo(function InfluencerCard({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
   // Hovering a creator starts loading their page, so the click opens it at once.
   const router = useRouter();
   return (
-    <ShortlistItem id={entry.id} className={`${panel} flex flex-col gap-4 p-4`} chosenClassName="ring-2 ring-accent">
+    <ShortlistItem id={entry.id} className={`${panel} cv-card flex flex-col gap-4 p-4`} chosenClassName="ring-2 ring-accent">
       <div className="flex items-start justify-between gap-3">
         <Link href={`/influencers/${entry.id}`} prefetch={false} onMouseEnter={() => router.prefetch(`/influencers/${entry.id}`)} className="group flex min-w-0 items-center gap-3">
           <InfluencerPhoto id={entry.id} name={entry.name} photoAt={entry.photoAt} />
@@ -82,9 +82,9 @@ export function InfluencerCard({ entry, lang }: { entry: CatalogueEntry; lang: L
       </div>
     </ShortlistItem>
   );
-}
+});
 
-export function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
+export const InfluencerRow = memo(function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
   const router = useRouter();
   return (
     <ShortlistItem id={entry.id} className="grid gap-3 px-4 py-4 sm:px-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.3fr)_10rem_auto] md:items-center md:gap-6" chosenClassName="bg-accent/[0.04]">
@@ -101,8 +101,10 @@ export function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: La
       <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
     </ShortlistItem>
   );
-}
+});
 
+
+const PAGE = 24;
 
 export function DirectoryView({ all, facets, currency, lang, markSrc }: {
   all: CatalogueEntry[]; facets: CatalogueList['facets']; currency: string; lang: Lang; markSrc: string | null;
@@ -120,8 +122,19 @@ export function DirectoryView({ all, facets, currency, lang, markSrc }: {
     gender: optionCounts(all, values, 'gender', ['female', 'male']),
   }), [all, values, lists]);
   const Item = view === 'list' ? InfluencerRow : InfluencerCard;
-  // Remounts the list when the results change, so new cards settle in.
-  const resultsKey = `${JSON.stringify(values)}|${view}`;
+  // A screenful at a time: the first cards draw at once, more join as the
+  // list scrolls near its end. A new filter starts again from the top.
+  const [shown, setShown] = useState(PAGE);
+  const filterKey = JSON.stringify(values);
+  useEffect(() => { setShown(PAGE); }, [filterKey]);
+  const more = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = more.current;
+    if (!el || shown >= items.length) return;
+    const io = new IntersectionObserver((seen) => { if (seen.some((s) => s.isIntersecting)) setShown((n) => n + PAGE); }, { rootMargin: '600px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown, items.length]);
 
   return (
     <>
@@ -143,9 +156,17 @@ export function DirectoryView({ all, facets, currency, lang, markSrc }: {
           {items.length === 0 ? (
             <EmptyState title={t(lang, 'cat.noMatchTitle')} action={<button type="button" onClick={clearAll} className={button.secondary}>{t(lang, 'dir.clearAll')}</button>} />
           ) : (
-            <ul key={resultsKey} className={`results-in ${view === 'list' ? list : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}`}>
-              {items.map((entry) => <Item key={entry.id} entry={entry} lang={lang} />)}
-            </ul>
+            <>
+              {/* Not remounted on a change: cards that stay are left alone, only new ones settle in. */}
+              <ul className={`results-in ${view === 'list' ? list : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}`}>
+                {items.slice(0, shown).map((entry) => <Item key={entry.id} entry={entry} lang={lang} />)}
+              </ul>
+              {shown < items.length && (
+                <div ref={more} className="flex justify-center pt-2">
+                  <button type="button" onClick={() => setShown((n) => n + PAGE)} className={button.secondary}>{t(lang, 'dir.showMore')}</button>
+                </div>
+              )}
+            </>
           )}
         </ResultsPane>
       </section>
