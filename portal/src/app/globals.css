@@ -223,6 +223,21 @@ a.rounded-panel:hover {
 @keyframes pkg-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
 
 /*
+ * Taps answer at once: no double-tap-zoom wait on touch, no grey flash, and
+ * buttons give a little under the finger.
+ */
+a, button, [role='button'], [role='switch'], [role='option'], label, input, select { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+button:not(:disabled) { transition-property: background-color, border-color, color, box-shadow, transform; transition-duration: 150ms; }
+button:not(:disabled):active { transform: scale(0.97); transition-duration: 60ms; }
+
+/* Peak's dropdown: a short fade and drop, a faster fade out, and the highlight sliding between options. */
+.dd-panel { transform-origin: top; animation: dd-in 160ms var(--ease-out) both; }
+.dd-panel.dd-closing { animation: dd-out 110ms ease-in both; }
+.dd-bar { transition: transform 150ms var(--ease-out), height 150ms var(--ease-out); }
+@keyframes dd-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+@keyframes dd-out { to { opacity: 0; transform: translateY(-2px) scale(0.99); } }
+
+/*
  * Reduce Motion: nothing travels or loops. Pages still fade in (short and
  * still), and colour changes that confirm an action stay.
  */
@@ -233,6 +248,9 @@ a.rounded-panel:hover {
   .dir-progress { animation: none; width: 100%; opacity: 0.6; }
   .pkg-in { animation: peak-fade 160ms ease-out both; animation-delay: 0ms !important; }
   .think-orbit, .think-counter, .think-sweep, .think-pulse { animation: none; }
+  .dd-panel, .dd-panel.dd-closing { animation: peak-fade 100ms ease-out both; }
+  .dd-bar { transition: none; }
+  button:not(:disabled):active { transform: none; }
   body::after, .skeleton, .orbit-spin, .orbit-spin-slow, .orbit-spin-quick, .animate-pulse { animation: none; }
   .orbit-arrive { animation: peak-fade 300ms ease-out both; }
   a.rounded-panel { transition-property: border-color, background-color, box-shadow; }
