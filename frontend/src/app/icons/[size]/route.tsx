@@ -1,18 +1,20 @@
-import { ImageResponse } from 'next/og';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
-/** TaskFlow's home-screen icons: a white T on the app's indigo. `?maskable=1` keeps it in the safe zone. */
-const SIZES = new Set([180, 192, 512]);
+/** Home-screen icons: the Al Yarubi Group drop on white. `?maskable=1` keeps it in the safe zone. */
+const FILES: Record<string, string> = {
+  '180': 'icon-180.png',
+  '192': 'icon-192.png',
+  '512': 'icon-512.png',
+};
 
 export async function GET(request: Request, { params }: { params: Promise<{ size: string }> }) {
-  const size = Number((await params).size);
-  if (!SIZES.has(size)) return new Response('Not found', { status: 404 });
+  const size = (await params).size;
+  if (!FILES[size]) return new Response('Not found', { status: 404 });
   const maskable = new URL(request.url).searchParams.get('maskable') === '1';
-  return new ImageResponse(
-    (
-      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#5B6AF0' }}>
-        <div style={{ fontSize: size * (maskable ? 0.42 : 0.6), fontWeight: 700, color: '#ffffff', lineHeight: 1 }}>T</div>
-      </div>
-    ),
-    { width: size, height: size, headers: { 'Cache-Control': 'public, max-age=86400' } },
-  );
+  const file = maskable && size === '512' ? 'icon-512-maskable.png' : FILES[size];
+  const body = await readFile(path.join(process.cwd(), 'public', 'brand', file));
+  return new Response(new Uint8Array(body), {
+    headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
+  });
 }

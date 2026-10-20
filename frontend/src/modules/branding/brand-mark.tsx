@@ -1,6 +1,5 @@
 'use client';
 
-import { Logo } from '@/components/icons/logo';
 import { cn } from '@/lib/utils';
 import { useBrand } from './brand-context';
 
@@ -21,11 +20,11 @@ export function BrandMark({
   return (
     // Hidden until the remembered brand is known, so the wrong name never flashes first.
     <div className={cn('flex min-w-0 items-center gap-2', !ready && 'invisible', className)}>
-      {logoUrl ? (
-        <img src={logoUrl} alt="" className={cn('shrink-0 rounded-md object-contain', logoClassName)} />
-      ) : (
-        <Logo className={cn('shrink-0 text-primary', logoClassName)} />
-      )}
+      <img
+        src={logoUrl ?? '/brand/emblem.png'}
+        alt=""
+        className={cn('shrink-0 object-contain', logoUrl && 'rounded-md', logoClassName)}
+      />
       <span className={cn('truncate', nameClassName, hideNameClassName)}>{name}</span>
     </div>
   );

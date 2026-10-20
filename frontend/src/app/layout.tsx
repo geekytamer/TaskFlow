@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description: 'Al Yarubi Group — business management',
   // Installed on a phone, the app opens full screen with its own icon.
   appleWebApp: { capable: true, title: 'اليعربي', statusBarStyle: 'default' },
-  icons: { apple: '/icons/180' },
+  icons: { icon: '/brand/favicon.png', apple: '/icons/180' },
 };
 
 export const viewport: Viewport = { themeColor: '#5B6AF0' };
