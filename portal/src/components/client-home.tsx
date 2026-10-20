@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { CampaignSummary } from '@/lib/campaigns';
+import { PeakOrbit } from './peak-orbit';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { t, type Lang } from '@/lib/i18n';
 import type { Message } from '@/lib/messages';
@@ -39,7 +40,7 @@ export function ClientHome({ lang, firstName, items, campaigns, balances, lastTe
 
   return (
     <div className="space-y-10">
-      <PageHeader title={`${t(lang, 'dash.hello')} ${firstName}`} subtitle={items.length ? t(lang, 'home.subtitleWaiting') : t(lang, 'home.subtitleClear')} />
+      <PageHeader title={<span className="inline-flex items-center gap-3"><PeakOrbit glyph /><span>{t(lang, 'dash.hello')} {firstName}</span></span>} subtitle={items.length ? t(lang, 'home.subtitleWaiting') : t(lang, 'home.subtitleClear')} />
 
       <section aria-labelledby="needs-title">
         <SectionTitle id="needs-title">{t(lang, 'home.needsYou')}</SectionTitle>
