@@ -19,6 +19,7 @@ import { Logo } from '@/components/icons/logo';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useCompany } from '@/context/company-context';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
+import { ThemeSwitcher } from '@/modules/layout/components/theme-switcher';
 import { useI18n } from '@/context/i18n-context';
 import { TourProvider } from '@/components/tutorial/tour-context';
 import { AcademyProvider } from '@/modules/academy/academy-context';
@@ -131,6 +132,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
           <div className="flex items-center gap-2 sm:gap-4">
             <NotificationBell />
+            <ThemeSwitcher />
             <LanguageSwitcher />
             <CompanySwitcher />
           </div>

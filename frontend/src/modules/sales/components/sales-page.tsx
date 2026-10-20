@@ -72,10 +72,10 @@ const interpolate = (value: string, replacements: Record<string, string | number
   );
 
 const statusStyles: Record<SalesOrderStatus, string> = {
-  Draft: 'bg-slate-100 text-slate-700 border-slate-200',
-  Confirmed: 'bg-blue-100 text-blue-700 border-blue-200',
-  Invoiced: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Cancelled: 'bg-red-100 text-red-700 border-red-200',
+  Draft: 'bg-muted text-foreground/80 border-border',
+  Confirmed: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  Invoiced: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  Cancelled: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
 };
 
 const emptyForm = () => ({
@@ -358,15 +358,15 @@ export function SalesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.confirmedValue')}</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-blue-600">{amount(stats.confirmedValue)}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{amount(stats.confirmedValue)}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.invoicedValue')}</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-emerald-600">{amount(stats.invoicedValue)}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{amount(stats.invoicedValue)}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.cancelled')}</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-red-600">{stats.cancelled}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.cancelled}</div></CardContent>
         </Card>
       </div>
 
@@ -511,8 +511,8 @@ export function SalesPage() {
                       variant="outline"
                       className={`mt-1 block w-fit ${
                         order.fulfillmentStatus === 'Fulfilled'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                          : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30'
                       }`}
                     >
                       {order.fulfillmentStatus === 'Fulfilled'

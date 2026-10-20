@@ -195,7 +195,7 @@ function VarianceView({ report, onBack }: { report: BudgetVarianceReport; onBack
         </div>
         <div className="rounded-xl border bg-card p-4">
           <p className="text-xs text-muted-foreground">{tr('Variance', 'الفرق')}</p>
-          <p className={cn('mt-1 text-xl font-bold tabular-nums', report.totalVariance < 0 ? 'text-red-600' : 'text-emerald-600')}>
+          <p className={cn('mt-1 text-xl font-bold tabular-nums', report.totalVariance < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400')}>
             {money(report.totalVariance)}
           </p>
         </div>
@@ -221,7 +221,7 @@ function VarianceView({ report, onBack }: { report: BudgetVarianceReport; onBack
                 </TableCell>
                 <TableCell className="text-end tabular-nums">{money(l.budget)}</TableCell>
                 <TableCell className="text-end tabular-nums">{money(l.actual)}</TableCell>
-                <TableCell className={cn('text-end tabular-nums font-medium', overBudgetExpense(l) ? 'text-red-600' : 'text-foreground')}>
+                <TableCell className={cn('text-end tabular-nums font-medium', overBudgetExpense(l) ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
                   {money(l.variance)}
                 </TableCell>
                 <TableCell>

@@ -245,7 +245,7 @@ export function ContactDetailSheet({
                   </Badge>
                 ))}
                 {summary.contact.leadStatus && (
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                  <Badge variant="outline" className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30">
                     {summary.contact.leadStatus}
                   </Badge>
                 )}
@@ -325,35 +325,35 @@ export function ContactDetailSheet({
             {/* Counters */}
             <div className="grid grid-cols-2 gap-2">
               <SummaryStat
-                icon={<FileText className="h-4 w-4 text-blue-600" />}
+                icon={<FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
                 label={t('whatsapp.summaryInvoices')}
                 value={String(summary.totals.invoiceCount)}
                 helper={money(summary.totals.invoiceOutstanding) + ' ' + t('whatsapp.summaryOutstanding')}
               />
               <SummaryStat
-                icon={<Receipt className="h-4 w-4 text-emerald-600" />}
+                icon={<Receipt className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
                 label={t('whatsapp.summarySalesOrders')}
                 value={String(summary.totals.salesOrderCount)}
                 helper={money(summary.totals.salesOrderTotal)}
               />
               <SummaryStat
-                icon={<ShoppingCart className="h-4 w-4 text-orange-600" />}
+                icon={<ShoppingCart className="h-4 w-4 text-orange-600 dark:text-orange-400" />}
                 label={t('whatsapp.summaryPurchaseOrders')}
                 value={String(summary.totals.purchaseOrderCount)}
               />
               <SummaryStat
-                icon={<Package className="h-4 w-4 text-red-600" />}
+                icon={<Package className="h-4 w-4 text-red-600 dark:text-red-400" />}
                 label={t('whatsapp.summaryVendorBills')}
                 value={String(summary.totals.vendorBillCount)}
                 helper={money(summary.totals.vendorBillOutstanding) + ' ' + t('whatsapp.summaryOutstanding')}
               />
               <SummaryStat
-                icon={<TrendingUp className="h-4 w-4 text-violet-600" />}
+                icon={<TrendingUp className="h-4 w-4 text-violet-600 dark:text-violet-400" />}
                 label={t('whatsapp.summaryOpportunities')}
                 value={String(summary.totals.opportunityCount)}
               />
               <SummaryStat
-                icon={<Briefcase className="h-4 w-4 text-cyan-600" />}
+                icon={<Briefcase className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />}
                 label={t('whatsapp.summaryProjects')}
                 value={String(summary.totals.projectCount)}
               />

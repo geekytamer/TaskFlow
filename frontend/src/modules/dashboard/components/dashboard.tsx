@@ -48,11 +48,11 @@ function formatMetricValue(value: number, formatType: string, currencyCode: Supp
 }
 
 const TONE_COLORS: Record<string, string> = {
-  default: 'text-slate-700',
-  info: 'text-blue-600',
-  success: 'text-emerald-600',
+  default: 'text-foreground/80',
+  info: 'text-blue-600 dark:text-blue-400',
+  success: 'text-emerald-600 dark:text-emerald-400',
   warning: 'text-amber-500',
-  danger: 'text-rose-600',
+  danger: 'text-rose-600 dark:text-rose-400',
 };
 
 const DASHBOARD_AR: Record<string, string> = {
@@ -197,7 +197,7 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
 
   if (!data || data.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-6 min-h-[200px]">
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground/70 p-6 min-h-[200px]">
         <Inbox className="w-8 h-8 mb-2 opacity-20" />
         <p className="text-sm">{tr('No data available for this chart', 'لا توجد بيانات متاحة لهذا المخطط')}</p>
       </div>
@@ -227,7 +227,7 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
           {pieData.map((d, i) => (
             <div key={d.name} className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors[i % colors.length] || '#4F46E5' }} />
-              <div className="text-xs text-slate-500 font-medium">{d.name}</div>
+              <div className="text-xs text-muted-foreground font-medium">{d.name}</div>
             </div>
           ))}
         </div>
@@ -240,9 +240,9 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
       <div className="w-full mt-2 min-h-[240px]">
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 5, right: 0, left: -25, bottom: 25 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} dy={10} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
             <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }} />
             {series.map((s) => (
               <Line key={s.key} type="monotone" dataKey={`values.${s.key}`} name={s.label} stroke={s.color} strokeWidth={3} dot={{ r: 3, fill: s.color, strokeWidth: 2, stroke: '#fff' }} />
@@ -253,7 +253,7 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
           {series.map((s) => (
             <div key={s.key} className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-              <div className="text-xs text-slate-500 font-medium">{s.label}</div>
+              <div className="text-xs text-muted-foreground font-medium">{s.label}</div>
             </div>
           ))}
         </div>
@@ -265,9 +265,9 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
     <div className="w-full mt-2 min-h-[240px]">
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} margin={{ top: 0, right: 0, left: -25, bottom: 25 }} barGap={6}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-          <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
-          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+          <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} dy={10} />
+          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
           <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }} />
           {series.map((s) => (
             <Bar key={s.key} dataKey={`values.${s.key}`} name={s.label} fill={s.color} radius={[4, 4, 0, 0]} barSize={type === 'stacked-bar' ? 32 : 16} stackId={type === 'stacked-bar' ? 'a' : undefined} />
@@ -278,7 +278,7 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
         {series.map((s) => (
           <div key={s.key} className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-            <div className="text-xs text-slate-500 font-medium">{s.label}</div>
+            <div className="text-xs text-muted-foreground font-medium">{s.label}</div>
           </div>
         ))}
       </div>
@@ -361,7 +361,7 @@ export function Dashboard() {
 
   if (!selectedCompany) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] text-slate-500">
+      <div className="flex items-center justify-center min-h-[400px] text-muted-foreground">
         {tr('Please select a company to view the dashboard.', 'يرجى اختيار شركة لعرض لوحة التحكم.')}
       </div>
     );
@@ -369,7 +369,7 @@ export function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] text-slate-500 animate-pulse">
+      <div className="flex items-center justify-center min-h-[400px] text-muted-foreground animate-pulse">
         {tr('Loading dashboard data...', 'جاري تحميل بيانات لوحة التحكم...')}
       </div>
     );
@@ -377,9 +377,9 @@ export function Dashboard() {
 
   if (!localizedPayload) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-500 p-8 text-center bg-slate-50 rounded-[28px]">
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-muted-foreground p-8 text-center bg-muted/50 rounded-[28px]">
         <AlertTriangle className="w-10 h-10 mb-4 text-amber-500 opacity-80" />
-        <h2 className="text-xl font-bold text-slate-800 mb-2">{tr('No Dashboard Available', 'لوحة التحكم غير متاحة')}</h2>
+        <h2 className="text-xl font-bold text-foreground mb-2">{tr('No Dashboard Available', 'لوحة التحكم غير متاحة')}</h2>
         <p>{tr('We could not load the dashboard for this selection.', 'تعذر تحميل لوحة التحكم لهذا الاختيار.')}</p>
       </div>
     );
@@ -390,20 +390,20 @@ export function Dashboard() {
   const secondaryMetrics = metrics.length > 1 ? metrics.slice(1) : [];
 
   return (
-    <div className="min-h-screen bg-[#F4F7FE] p-4 lg:p-8 font-sans text-slate-800 space-y-6">
+    <div className="min-h-screen bg-background p-4 lg:p-8 font-sans text-foreground space-y-6">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight capitalize">
+          <h1 className="text-2xl font-bold text-foreground tracking-tight capitalize">
             {scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
           </h1>
-          <p className="text-sm text-slate-500 mt-1 capitalize">
+          <p className="text-sm text-muted-foreground mt-1 capitalize">
             {tr('Role View', 'عرض الدور')}: {localizeRole(role, language)}
           </p>
         </div>
         {quickActions.length > 0 && (
           <div className="flex gap-3" data-tutorial="dash-quick-actions">
             {quickActions.map((action) => (
-              <a key={action.id} href={action.route} className="bg-white hover:bg-slate-50 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-indigo-600 shadow-sm transition-colors flex items-center gap-2">
+              <a key={action.id} href={action.route} className="bg-card hover:bg-muted/50 px-4 py-2 border border-border rounded-lg text-sm font-semibold text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors flex items-center gap-2">
                 <Zap className="w-4 h-4" />
                 {action.label}
               </a>
@@ -415,23 +415,23 @@ export function Dashboard() {
       <OnboardingChecklist />
 
       {metrics.length > 0 && (
-        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10" style={{ background: 'linear-gradient(135deg, #e0ebff 0%, #e6e6ff 100%)' }} data-tutorial="dash-primary-metric">
-          <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
+        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-[#e0ebff] to-[#e6e6ff] dark:from-indigo-950/70 dark:to-violet-950/60" data-tutorial="dash-primary-metric">
+          <div className="absolute inset-0 opacity-40 dark:opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
 
           <div className="relative z-10 flex flex-col xl:flex-row items-center gap-8">
             {primaryMetric && (() => {
               const primaryHref = METRIC_ROUTES[primaryMetric.id];
               const inner = (
                 <>
-                  <h2 className="text-xl font-bold text-slate-800 mb-1">{primaryMetric.label}</h2>
-                  <p className="text-sm text-slate-500 mb-6">{primaryMetric.detail || tr('Primary Indicator', 'المؤشر الرئيسي')}</p>
+                  <h2 className="text-xl font-bold text-foreground mb-1">{primaryMetric.label}</h2>
+                  <p className="text-sm text-muted-foreground mb-6">{primaryMetric.detail || tr('Primary Indicator', 'المؤشر الرئيسي')}</p>
                   <div className={`text-5xl font-extrabold mb-2 ${TONE_COLORS[primaryMetric.tone || 'default'] || TONE_COLORS.default}`}>
                     {formatMetricValue(primaryMetric.value, primaryMetric.format, currencyCode)}
                   </div>
                 </>
               );
               return primaryHref ? (
-                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 p-2 -m-2">
+                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-card/30 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 p-2 -m-2">
                   {inner}
                 </Link>
               ) : (
@@ -445,20 +445,20 @@ export function Dashboard() {
                   const href = METRIC_ROUTES[item.id];
                   const inner = (
                     <>
-                      <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">{item.label}</p>
+                      <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-2">{item.label}</p>
                       <div className={`text-2xl font-bold ${TONE_COLORS[item.tone || 'default'] || TONE_COLORS.default}`}>
                         {formatMetricValue(item.value, item.format, currencyCode)}
                       </div>
-                      {item.detail && <p className="text-[11px] text-slate-400 mt-1 font-medium">{item.detail}</p>}
+                      {item.detail && <p className="text-[11px] text-muted-foreground/70 mt-1 font-medium">{item.detail}</p>}
                     </>
                   );
                   const cls =
-                    'bg-white/90 backdrop-blur-md rounded-2xl p-5 shadow-sm flex flex-col justify-center border border-white/60 transition';
+                    'bg-card/90 backdrop-blur-md rounded-2xl p-5 shadow-sm flex flex-col justify-center border border-white/60 dark:border-white/10 transition';
                   return href ? (
                     <Link
                       key={item.id}
                       href={href}
-                      className={`${cls} hover:bg-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400/40`}
+                      className={`${cls} hover:bg-card hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400/40`}
                     >
                       {inner}
                     </Link>
@@ -477,10 +477,10 @@ export function Dashboard() {
       {charts.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-tutorial="dash-charts">
           {charts.map((chart) => (
-            <div key={chart.id} className="bg-white rounded-[24px] p-6 shadow-sm flex flex-col">
+            <div key={chart.id} className="bg-card rounded-[24px] p-6 shadow-sm flex flex-col">
               <div className="mb-4">
-                <h3 className="font-bold text-slate-800 text-lg">{chart.title}</h3>
-                {chart.description && <p className="text-sm text-slate-500 mt-1">{chart.description}</p>}
+                <h3 className="font-bold text-foreground text-lg">{chart.title}</h3>
+                {chart.description && <p className="text-sm text-muted-foreground mt-1">{chart.description}</p>}
               </div>
               <ChartRenderer chart={chart} tr={tr} />
             </div>
@@ -491,15 +491,15 @@ export function Dashboard() {
       {(alerts.length > 0 || activity.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {alerts.length > 0 && (
-            <div className="lg:col-span-1 bg-white rounded-[24px] p-6 shadow-sm flex flex-col" data-tutorial="dash-alerts">
-              <h3 className="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
+            <div className="lg:col-span-1 bg-card rounded-[24px] p-6 shadow-sm flex flex-col" data-tutorial="dash-alerts">
+              <h3 className="font-bold text-foreground text-lg mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500" /> {tr('Action Required', 'إجراء مطلوب')}
               </h3>
               <div className="space-y-4">
                 {alerts.slice(0, 5).map((alert) => (
-                  <a key={alert.id} href={alert.route || '#'} className="block p-4 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors">
-                    <h4 className="font-bold text-sm text-slate-800">{alert.title}</h4>
-                    <p className="text-xs text-slate-500 mt-1">{alert.detail}</p>
+                  <a key={alert.id} href={alert.route || '#'} className="block p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors">
+                    <h4 className="font-bold text-sm text-foreground">{alert.title}</h4>
+                    <p className="text-xs text-muted-foreground mt-1">{alert.detail}</p>
                   </a>
                 ))}
               </div>
@@ -507,20 +507,20 @@ export function Dashboard() {
           )}
 
           {activity.length > 0 && (
-            <div className={alerts.length > 0 ? 'lg:col-span-2 bg-white rounded-[24px] p-6 shadow-sm flex flex-col' : 'lg:col-span-3 bg-white rounded-[24px] p-6 shadow-sm flex flex-col'}>
-              <h3 className="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
+            <div className={alerts.length > 0 ? 'lg:col-span-2 bg-card rounded-[24px] p-6 shadow-sm flex flex-col' : 'lg:col-span-3 bg-card rounded-[24px] p-6 shadow-sm flex flex-col'}>
+              <h3 className="font-bold text-foreground text-lg mb-4 flex items-center gap-2">
                 <Activity className="w-5 h-5 text-indigo-500" /> {tr('Recent Activity', 'النشاط الأخير')}
               </h3>
               <div className="space-y-3">
                 {activity.slice(0, 5).map((item) => (
-                  <div key={item.id} className="flex items-start justify-between py-3 border-b border-slate-100 last:border-0">
+                  <div key={item.id} className="flex items-start justify-between py-3 border-b border-border last:border-0">
                     <div>
-                      <h4 className="font-semibold text-sm text-slate-800">{item.title}</h4>
-                      <p className="text-xs text-slate-500 mt-1">
+                      <h4 className="font-semibold text-sm text-foreground">{item.title}</h4>
+                      <p className="text-xs text-muted-foreground mt-1">
                         {item.detail} {item.actorName && `• ${tr('by', 'بواسطة')} ${item.actorName}`}
                       </p>
                     </div>
-                    <time className="text-xs text-slate-400 font-medium whitespace-nowrap ms-4">
+                    <time className="text-xs text-muted-foreground/70 font-medium whitespace-nowrap ms-4">
                       {new Date(item.createdAt).toLocaleString(getCurrentLocale(), {
                         month: 'short',
                         day: 'numeric',

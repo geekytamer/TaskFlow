@@ -17,11 +17,11 @@ import type { Contact, ContactRoleType } from '@/services/contactService';
 export const ALL_ROLES: ContactRoleType[] = ['Lead', 'Client', 'Vendor', 'Influencer', 'Partner'];
 
 export const ROLE_COLORS: Record<ContactRoleType, string> = {
-  Lead: 'bg-yellow-100 text-yellow-800',
-  Client: 'bg-blue-100 text-blue-800',
-  Vendor: 'bg-purple-100 text-purple-800',
-  Influencer: 'bg-pink-100 text-pink-800',
-  Partner: 'bg-green-100 text-green-800',
+  Lead: 'bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300',
+  Client: 'bg-blue-100 dark:bg-blue-500/15 text-blue-800 dark:text-blue-300',
+  Vendor: 'bg-purple-100 dark:bg-purple-500/15 text-purple-800 dark:text-purple-300',
+  Influencer: 'bg-pink-100 dark:bg-pink-500/15 text-pink-800 dark:text-pink-300',
+  Partner: 'bg-green-100 dark:bg-green-500/15 text-green-800 dark:text-green-300',
 };
 
 export type ContactForm = {

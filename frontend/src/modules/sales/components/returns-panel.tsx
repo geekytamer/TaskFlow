@@ -26,9 +26,9 @@ import {
 } from '@/services/returnsService';
 
 const statusStyles: Record<CustomerReturnStatus, string> = {
-  Draft: 'bg-slate-100 text-slate-700 border-slate-200',
-  Received: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Cancelled: 'bg-red-100 text-red-700 border-red-200',
+  Draft: 'bg-muted text-foreground/80 border-border',
+  Received: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  Cancelled: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
 };
 
 type LineForm = { quantity: string; condition: ReturnCondition };

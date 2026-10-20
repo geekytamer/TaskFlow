@@ -352,11 +352,11 @@ export function ClientTable() {
                       </div>
                       <div className="rounded-lg border p-4">
                         <p className="text-sm text-muted-foreground">{tr('Outstanding', 'المستحق')}</p>
-                        <p className="text-2xl font-bold text-orange-600">{amount(outstanding)}</p>
+                        <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{amount(outstanding)}</p>
                       </div>
                       <div className="rounded-lg border p-4">
                         <p className="text-sm text-muted-foreground">{tr('Paid', 'المدفوع')}</p>
-                        <p className="text-2xl font-bold text-green-600">{amount(paid)}</p>
+                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">{amount(paid)}</p>
                         <Progress value={paidPct} className="mt-2" />
                         <p className="text-xs text-muted-foreground mt-1">{tr(`${paidPct}% paid`, `${paidPct}٪ مدفوع`)}</p>
                       </div>

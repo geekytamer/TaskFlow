@@ -347,14 +347,14 @@ export default function ProjectDetailsPage() {
             <span className="font-semibold">{tr('Finance Summary', 'الملخص المالي')}</span>
             <div className="flex items-center gap-3 text-sm">
               {readyToBillTasks.length > 0 && (
-                <span className="rounded-full bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 text-xs font-medium">
+                <span className="rounded-full bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 px-2 py-0.5 text-xs font-medium">
                   {readyToBillTasks.length} {tr('ready to bill', 'جاهزة للفوترة')}
                 </span>
               )}
               <span className="text-muted-foreground">{tr('Billed', 'مفوتر')}: <span className="font-medium text-foreground">{amount(billedAmount)}</span></span>
-              <span className="text-muted-foreground">{tr('Collected', 'محصّل')}: <span className="font-medium text-emerald-600">{amount(collectedAmount)}</span></span>
+              <span className="text-muted-foreground">{tr('Collected', 'محصّل')}: <span className="font-medium text-emerald-600 dark:text-emerald-400">{amount(collectedAmount)}</span></span>
               {outstandingAmount > 0 && (
-                <span className="text-muted-foreground">{tr('Outstanding', 'مستحق')}: <span className="font-medium text-amber-600">{amount(outstandingAmount)}</span></span>
+                <span className="text-muted-foreground">{tr('Outstanding', 'مستحق')}: <span className="font-medium text-amber-600 dark:text-amber-400">{amount(outstandingAmount)}</span></span>
               )}
             </div>
           </div>
@@ -368,8 +368,8 @@ export default function ProjectDetailsPage() {
               {[
                 { label: tr('Ready to Bill', 'جاهزة للفوترة'), value: readyToBillTasks.length, sub: amount(readyToBillAmount), color: '' },
                 { label: tr('Invoiced Tasks', 'المهام المفوترة'), value: billedTasks.length, sub: amount(billedAmount), color: '' },
-                { label: tr('Collected', 'محصّل'), value: amount(collectedAmount), sub: null, color: 'text-emerald-600' },
-                { label: tr('Outstanding', 'مستحق'), value: amount(outstandingAmount), sub: null, color: 'text-amber-600' },
+                { label: tr('Collected', 'محصّل'), value: amount(collectedAmount), sub: null, color: 'text-emerald-600 dark:text-emerald-400' },
+                { label: tr('Outstanding', 'مستحق'), value: amount(outstandingAmount), sub: null, color: 'text-amber-600 dark:text-amber-400' },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} className="px-5 py-4">
                   <p className="text-xs text-muted-foreground">{label}</p>

@@ -83,10 +83,10 @@ const COMMISSION_BASES: CommissionBasis[] = ['Revenue', 'Paid Amount', 'Profit']
 const RATE_TYPES: CommissionRateType[] = ['Percent', 'Fixed'];
 
 const STATUS_STYLES: Record<string, string> = {
-  Draft: 'bg-slate-100 text-slate-700 border-slate-200',
-  Approved: 'bg-blue-100 text-blue-700 border-blue-200',
-  Paid: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Voided: 'bg-red-100 text-red-700 border-red-200',
+  Draft: 'bg-muted text-foreground/80 border-border',
+  Approved: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  Paid: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  Voided: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
 };
 
 export function CommissionsPageV2() {
@@ -152,13 +152,13 @@ export function CommissionsPageV2() {
         {/* Earnings tab */}
         <TabsContent value="earnings" className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
-            <SummaryCard icon={<BadgeDollarSign className="h-4 w-4 text-slate-600" />}
+            <SummaryCard icon={<BadgeDollarSign className="h-4 w-4 text-muted-foreground" />}
               label={t('commissions.draftTotal')} value={amount(draftTotal)}
               sub={`${commissions.filter((c) => c.status === 'Draft').length} ${t('commissions.entries')}`} />
-            <SummaryCard icon={<CheckCircle2 className="h-4 w-4 text-blue-600" />}
+            <SummaryCard icon={<CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
               label={t('commissions.approvedTotal')} value={amount(approvedTotal)}
               sub={`${commissions.filter((c) => c.status === 'Approved').length} ${t('commissions.entries')}`} />
-            <SummaryCard icon={<TrendingUp className="h-4 w-4 text-emerald-600" />}
+            <SummaryCard icon={<TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
               label={t('commissions.paidTotal')} value={amount(paidTotal)}
               sub={`${commissions.filter((c) => c.status === 'Paid').length} ${t('commissions.entries')}`} />
           </div>
@@ -601,11 +601,11 @@ function RulesTab({
                     <TableCell className="text-sm">{r.priority}</TableCell>
                     <TableCell>
                       {r.isActive ? (
-                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <Badge variant="outline" className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30">
                           {t('commissions.active')}
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-slate-100 text-slate-600">
+                        <Badge variant="outline" className="bg-muted text-muted-foreground">
                           {t('commissions.inactive')}
                         </Badge>
                       )}

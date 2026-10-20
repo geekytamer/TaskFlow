@@ -104,25 +104,25 @@ const inputDate = (value?: Date) => value ? new Date(value).toISOString().slice(
 // ─── stage config ─────────────────────────────────────────────────────────────
 
 const stageConfig: Record<string, { color: string; bg: string; border: string; topBorder: string }> = {
-  New:         { color: 'text-sky-700',    bg: 'bg-sky-50',    border: 'border-sky-200',    topBorder: 'border-t-sky-400' },
-  Qualified:   { color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   topBorder: 'border-t-blue-500' },
-  Proposal:    { color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200', topBorder: 'border-t-violet-500' },
-  Negotiation: { color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200',  topBorder: 'border-t-amber-500' },
-  Won:         { color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  topBorder: 'border-t-green-500' },
+  New:         { color: 'text-sky-700 dark:text-sky-300',    bg: 'bg-sky-50 dark:bg-sky-500/10',    border: 'border-sky-200 dark:border-sky-500/30',    topBorder: 'border-t-sky-400' },
+  Qualified:   { color: 'text-blue-700 dark:text-blue-300',   bg: 'bg-blue-50 dark:bg-blue-500/10',   border: 'border-blue-200 dark:border-blue-500/30',   topBorder: 'border-t-blue-500' },
+  Proposal:    { color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-50 dark:bg-violet-500/10', border: 'border-violet-200 dark:border-violet-500/30', topBorder: 'border-t-violet-500' },
+  Negotiation: { color: 'text-amber-700 dark:text-amber-300',  bg: 'bg-amber-50 dark:bg-amber-500/10',  border: 'border-amber-200 dark:border-amber-500/30',  topBorder: 'border-t-amber-500' },
+  Won:         { color: 'text-green-700 dark:text-green-300',  bg: 'bg-green-50 dark:bg-green-500/10',  border: 'border-green-200 dark:border-green-500/30',  topBorder: 'border-t-green-500' },
 };
 
 const listStageBadge: Record<string, string> = {
-  New: 'bg-sky-50 text-sky-700 border-sky-200',
-  Qualified: 'bg-blue-50 text-blue-700 border-blue-200',
-  Proposal: 'bg-violet-50 text-violet-700 border-violet-200',
-  Negotiation: 'bg-amber-50 text-amber-700 border-amber-200',
-  Won: 'bg-green-50 text-green-700 border-green-200',
-  Lost: 'bg-red-50 text-red-700 border-red-200',
-  Cancelled: 'bg-gray-100 text-gray-600 border-gray-200',
+  New: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-500/30',
+  Qualified: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  Proposal: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-500/30',
+  Negotiation: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  Won: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 border-green-200 dark:border-green-500/30',
+  Lost: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  Cancelled: 'bg-muted text-muted-foreground border-border',
 };
 
 function StageBadge({ stage, label }: { stage: string; label?: string }) {
-  const cls = listStageBadge[stage] ?? 'bg-gray-100 text-gray-600 border-gray-200';
+  const cls = listStageBadge[stage] ?? 'bg-muted text-muted-foreground border-border';
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>{label ?? stage}</span>;
 }
 
@@ -408,27 +408,27 @@ export function PipelinePage() {
           label={t('pipelinePage.statOpenDeals')}
           value={loading ? <Skeleton className="h-6 w-8" /> : dashboard?.openOpportunities ?? openPipeline.length}
           sub={t('pipelinePage.statActiveLeads').replace('{count}', String(dashboard?.openLeads ?? '–'))}
-          color="text-blue-600"
+          color="text-blue-600 dark:text-blue-400"
         />
         <StatCard
           icon={DollarSign}
           label={t('pipelinePage.statPipelineValue')}
           value={loading ? <Skeleton className="h-6 w-20" /> : amount(dashboard?.openOpportunityValue ?? openPipeline.reduce((s, o) => s + o.expectedRevenue, 0))}
-          color="text-violet-600"
+          color="text-violet-600 dark:text-violet-400"
         />
         <StatCard
           icon={TrendingUp}
           label={t('pipelinePage.statForecast')}
           value={loading ? <Skeleton className="h-6 w-20" /> : amount(forecast)}
           sub={t('pipelinePage.statForecastSub')}
-          color="text-amber-600"
+          color="text-amber-600 dark:text-amber-400"
         />
         <StatCard
           icon={CheckCircle2}
           label={t('pipelinePage.statWonRevenue')}
           value={loading ? <Skeleton className="h-6 w-20" /> : amount(dashboard?.wonRevenue ?? wonRevenue)}
           sub={t('pipelinePage.statClosedDeals').replace('{count}', String(opportunities.filter((o) => o.stage === 'Won').length))}
-          color="text-green-600"
+          color="text-green-600 dark:text-green-400"
         />
       </div>
 
@@ -575,7 +575,7 @@ export function PipelinePage() {
                         <p className="text-xs text-muted-foreground">{item.serviceType}</p>
 
                         <div className="mt-2.5 flex items-center justify-between gap-1">
-                          <span className="text-sm font-bold text-green-700">{amount(item.expectedRevenue)}</span>
+                          <span className="text-sm font-bold text-green-700 dark:text-green-300">{amount(item.expectedRevenue)}</span>
                           {item.probability > 0 && (
                             <span className="text-xs text-muted-foreground">{item.probability}%</span>
                           )}

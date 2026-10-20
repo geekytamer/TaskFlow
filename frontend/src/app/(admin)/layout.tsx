@@ -8,6 +8,7 @@ import { Logo } from '@/components/icons/logo';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
+import { ThemeSwitcher } from '@/modules/layout/components/theme-switcher';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { logout } from '@/services/authService';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -56,14 +57,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <span className="font-headline text-lg font-bold tracking-tight text-primary">
               TaskFlow
             </span>
-            <span className="hidden items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-900 sm:inline-flex">
+            <span className="hidden items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-900 dark:text-amber-300 sm:inline-flex">
               <ShieldCheck className="h-3 w-3" />
               {t('admin.chrome.tag')}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <LanguageSwitcher />
+          <ThemeSwitcher />
+            <LanguageSwitcher />
           <div className="hidden items-center gap-2 sm:flex">
             <Avatar className="h-8 w-8">
               <AvatarImage src={liveUser?.avatar} alt={liveUser?.name} />

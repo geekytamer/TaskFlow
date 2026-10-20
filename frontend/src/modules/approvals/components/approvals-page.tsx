@@ -52,7 +52,7 @@ export function ApprovalsPage() {
     <SectionPageShell title={tr('Approvals', 'الموافقات')} description={tr('Purchase orders and expenses waiting for your sign-off. Rules are set in Settings.', 'أوامر الشراء والمصروفات التي تنتظر موافقتك. تُضبط القواعد في الإعدادات.')}>
       {items === null ? <p className="text-sm text-muted-foreground">{tr('Loading…', 'جارٍ التحميل…')}</p> : items.length === 0 ? (
         <div className="rounded-lg border border-dashed py-14 text-center text-muted-foreground">
-          <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-600" />{tr('Nothing is waiting for you.', 'لا شيء ينتظرك.')}
+          <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-600 dark:text-emerald-400" />{tr('Nothing is waiting for you.', 'لا شيء ينتظرك.')}
         </div>
       ) : (
         <ul className="space-y-3">

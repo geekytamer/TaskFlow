@@ -136,12 +136,12 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               </Badge>
             ))}
             {c.leadStatus && (
-              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+              <Badge variant="outline" className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30">
                 {c.leadStatus}
               </Badge>
             )}
             {c.priority && (
-              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              <Badge variant="outline" className="bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30">
                 {c.priority}
               </Badge>
             )}
@@ -175,35 +175,35 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Stat
-              icon={<FileText className="h-4 w-4 text-blue-600" />}
+              icon={<FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
               label={t('whatsapp.summaryInvoices')}
               value={String(summary.totals.invoiceCount)}
               helper={money(summary.totals.invoiceOutstanding) + ' ' + t('whatsapp.summaryOutstanding')}
             />
             <Stat
-              icon={<Receipt className="h-4 w-4 text-emerald-600" />}
+              icon={<Receipt className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
               label={t('whatsapp.summarySalesOrders')}
               value={String(summary.totals.salesOrderCount)}
               helper={money(summary.totals.salesOrderTotal)}
             />
             <Stat
-              icon={<ShoppingCart className="h-4 w-4 text-orange-600" />}
+              icon={<ShoppingCart className="h-4 w-4 text-orange-600 dark:text-orange-400" />}
               label={t('whatsapp.summaryPurchaseOrders')}
               value={String(summary.totals.purchaseOrderCount)}
             />
             <Stat
-              icon={<Package className="h-4 w-4 text-red-600" />}
+              icon={<Package className="h-4 w-4 text-red-600 dark:text-red-400" />}
               label={t('whatsapp.summaryVendorBills')}
               value={String(summary.totals.vendorBillCount)}
               helper={money(summary.totals.vendorBillOutstanding) + ' ' + t('whatsapp.summaryOutstanding')}
             />
             <Stat
-              icon={<TrendingUp className="h-4 w-4 text-violet-600" />}
+              icon={<TrendingUp className="h-4 w-4 text-violet-600 dark:text-violet-400" />}
               label={t('whatsapp.summaryOpportunities')}
               value={String(summary.totals.opportunityCount)}
             />
             <Stat
-              icon={<Briefcase className="h-4 w-4 text-cyan-600" />}
+              icon={<Briefcase className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />}
               label={t('whatsapp.summaryProjects')}
               value={String(summary.totals.projectCount)}
             />
@@ -223,23 +223,23 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat
-                icon={<Users className="h-4 w-4 text-fuchsia-600" />}
+                icon={<Users className="h-4 w-4 text-fuchsia-600 dark:text-fuchsia-400" />}
                 label={tr('Followers', 'المتابعون')}
                 value={totalFollowers(c) ? compact(totalFollowers(c)) : empty}
               />
               <Stat
-                icon={<TrendingUp className="h-4 w-4 text-emerald-600" />}
+                icon={<TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
                 label={tr('Engagement', 'التفاعل')}
                 value={c.engagementRate != null ? `${c.engagementRate}%` : empty}
               />
               <Stat
-                icon={<BadgeCheck className="h-4 w-4 text-sky-600" />}
+                icon={<BadgeCheck className="h-4 w-4 text-sky-600 dark:text-sky-400" />}
                 label={tr('Niche', 'المجال')}
                 value={c.influencerNiche || empty}
               />
               {canSeePricing && (
                 <Stat
-                  icon={<Receipt className="h-4 w-4 text-amber-600" />}
+                  icon={<Receipt className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
                   label={tr('Rate card', 'قائمة الأسعار')}
                   value={c.rateCardAmount != null ? money(c.rateCardAmount) : empty}
                 />

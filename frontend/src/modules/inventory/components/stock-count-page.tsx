@@ -120,7 +120,7 @@ function CountDetail({ count, onBack, onChanged }: {
                 </TableCell>
                 <TableCell className={cn('text-end tabular-nums font-medium',
                   l.countedQty === null ? 'text-muted-foreground'
-                    : l.variance < 0 ? 'text-red-600' : l.variance > 0 ? 'text-amber-600' : 'text-emerald-600')}>
+                    : l.variance < 0 ? 'text-red-600 dark:text-red-400' : l.variance > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400')}>
                   {l.countedQty === null ? '—' : l.variance > 0 ? `+${l.variance}` : l.variance}
                 </TableCell>
               </TableRow>

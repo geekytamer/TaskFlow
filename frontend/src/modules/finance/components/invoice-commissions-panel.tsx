@@ -44,7 +44,7 @@ export function InvoiceCommissionsPanel({
     <div className="rounded-lg border bg-card p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <BadgeDollarSign className="h-4 w-4 text-emerald-600" />
+          <BadgeDollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           <h4 className="text-sm font-semibold">{t('invoiceCommissions.title')}</h4>
         </div>
         <Badge variant="outline">{amount(total)}</Badge>

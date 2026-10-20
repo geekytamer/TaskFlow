@@ -40,9 +40,9 @@ export function ExpiringLotsPanel({
   const expiredCount = sorted.filter((l) => lotExpiryInfo(l.expiryDate).tone === 'expired').length;
 
   return (
-    <Card className="border-amber-200">
+    <Card className="border-amber-200 dark:border-amber-500/30">
       <CardHeader>
-        <CardTitle className="text-amber-700">
+        <CardTitle className="text-amber-700 dark:text-amber-300">
           {tr('Expiring Soon', 'قرب الانتهاء')}
           {' · '}
           {tr(`${sorted.length} lot(s) within 30 days`, `${sorted.length} دفعة خلال 30 يومًا`)}

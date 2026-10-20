@@ -376,7 +376,7 @@ export function AcademyDock() {
                     return (
                       <li key={o.id} className={cn('flex items-start gap-2 rounded-md px-2 py-1 text-sm', current && 'bg-primary/10 font-medium')}>
                         {o.done
-                          ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-label={tr('Done', 'تم')} />
+                          ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-label={tr('Done', 'تم')} />
                           : <Circle className={cn('mt-0.5 h-4 w-4 shrink-0', current ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />}
                         <span className={cn(o.done && 'text-muted-foreground line-through')} dir="auto">{tr(o.title.en, o.title.ar)}</span>
                       </li>

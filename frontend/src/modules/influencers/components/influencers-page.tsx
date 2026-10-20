@@ -85,19 +85,19 @@ function bestEngagement(c: Contact): number | undefined {
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
-  Instagram: 'bg-pink-100 text-pink-800',
+  Instagram: 'bg-pink-100 dark:bg-pink-500/15 text-pink-800 dark:text-pink-300',
   TikTok: 'bg-neutral-900 text-white',
-  Snapchat: 'bg-yellow-100 text-yellow-800',
-  Facebook: 'bg-blue-100 text-blue-800',
-  YouTube: 'bg-red-100 text-red-800',
-  X: 'bg-neutral-200 text-neutral-900',
+  Snapchat: 'bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300',
+  Facebook: 'bg-blue-100 dark:bg-blue-500/15 text-blue-800 dark:text-blue-300',
+  YouTube: 'bg-red-100 dark:bg-red-500/15 text-red-800 dark:text-red-300',
+  X: 'bg-muted text-foreground',
   Other: 'bg-muted text-muted-foreground',
 };
 
 const AVAILABILITY_COLORS: Record<string, string> = {
-  Available: 'bg-green-100 text-green-800',
-  'Partially Available': 'bg-amber-100 text-amber-800',
-  Unavailable: 'bg-red-100 text-red-800',
+  Available: 'bg-green-100 dark:bg-green-500/15 text-green-800 dark:text-green-300',
+  'Partially Available': 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300',
+  Unavailable: 'bg-red-100 dark:bg-red-500/15 text-red-800 dark:text-red-300',
 };
 
 function StatCard({

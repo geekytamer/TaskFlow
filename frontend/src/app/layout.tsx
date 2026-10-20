@@ -3,6 +3,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { Providers } from './providers';
 import { PwaRegister } from '@/components/pwa-register';
+import { themeBootScript } from '@/context/theme-context';
 
 export const metadata: Metadata = {
   title: 'TaskFlow',
@@ -22,6 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"

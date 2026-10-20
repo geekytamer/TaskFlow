@@ -30,12 +30,12 @@ import {
 import { Loader2, MessageSquare, QrCode, RefreshCw, Trash2 } from 'lucide-react';
 
 const stateBadgeStyles: Record<WhatsAppInstanceState, string> = {
-  authorized: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  notAuthorized: 'bg-amber-100 text-amber-700 border-amber-200',
-  starting: 'bg-blue-100 text-blue-700 border-blue-200',
-  sleepMode: 'bg-slate-100 text-slate-700 border-slate-200',
-  blocked: 'bg-red-100 text-red-700 border-red-200',
-  yellowCard: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  authorized: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  notAuthorized: 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  starting: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  sleepMode: 'bg-muted text-foreground/80 border-border',
+  blocked: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  yellowCard: 'bg-yellow-100 dark:bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border-yellow-200 dark:border-yellow-500/30',
   unknown: 'bg-muted text-muted-foreground border',
 };
 

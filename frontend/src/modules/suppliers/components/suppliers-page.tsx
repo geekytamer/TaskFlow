@@ -270,7 +270,7 @@ export function SuppliersPage() {
                   <TableCell className="text-end">{metrics?.orderCount ?? 0}</TableCell>
                   <TableCell className="text-end">
                     {payable?.openPayables ? (
-                      <Badge variant="outline" className="text-orange-600">{amount(payable.openPayables)}</Badge>
+                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amount(payable.openPayables)}</Badge>
                     ) : '—'}
                   </TableCell>
                 </TableRow>

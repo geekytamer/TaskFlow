@@ -32,8 +32,8 @@ function StatCard({ label, value, sub, icon: Icon, color }: {
 
 function RankBadge({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-yellow-500 font-bold text-base">🥇</span>;
-  if (rank === 2) return <span className="text-slate-400 font-bold text-base">🥈</span>;
-  if (rank === 3) return <span className="text-amber-600 font-bold text-base">🥉</span>;
+  if (rank === 2) return <span className="text-muted-foreground/70 font-bold text-base">🥈</span>;
+  if (rank === 3) return <span className="text-amber-600 dark:text-amber-400 font-bold text-base">🥉</span>;
   return <span className="text-xs text-muted-foreground font-medium ps-1">#{rank}</span>;
 }
 
@@ -122,13 +122,13 @@ export function PerformanceDashboard() {
       ) : company && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" data-tutorial="perf-stats">
           <StatCard label={t('perf.totalRevenue')} value={amount(company.wonRevenue)}
-            sub={`${company.wonDeals} ${t('perf.dealsWon')}`} icon={DollarSign} color="bg-green-100 text-green-700" />
+            sub={`${company.wonDeals} ${t('perf.dealsWon')}`} icon={DollarSign} color="bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300" />
           <StatCard label={t('perf.openPipeline')} value={amount(company.openOpportunityValue)}
-            sub={`${company.openOpportunities} ${t('perf.opportunities')}`} icon={TrendingUp} color="bg-blue-100 text-blue-700" />
+            sub={`${company.openOpportunities} ${t('perf.opportunities')}`} icon={TrendingUp} color="bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300" />
           <StatCard label={t('perf.openLeads')} value={company.openLeads}
-            sub={`${company.activeClients} ${t('perf.clients')}`} icon={Users} color="bg-purple-100 text-purple-700" />
+            sub={`${company.activeClients} ${t('perf.clients')}`} icon={Users} color="bg-purple-100 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300" />
           <StatCard label={t('perf.overdueFollowups')} value={company.overdueFollowups}
-            sub={`${company.openFollowups} ${t('perf.totalFollowups')}`} icon={AlertCircle} color="bg-red-100 text-red-700" />
+            sub={`${company.openFollowups} ${t('perf.totalFollowups')}`} icon={AlertCircle} color="bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300" />
         </div>
       )}
 
@@ -193,16 +193,16 @@ export function PerformanceDashboard() {
                   <div className="font-medium">{emp.userName}</div>
                   <div className="text-xs text-muted-foreground">{emp.role}</div>
                 </TableCell>
-                <TableCell className="text-right font-semibold text-green-700">{amount(emp.wonRevenue)}</TableCell>
-                <TableCell className="text-right font-medium text-emerald-700">{amount(emp.collectedRevenue || 0)}</TableCell>
+                <TableCell className="text-right font-semibold text-green-700 dark:text-green-300">{amount(emp.wonRevenue)}</TableCell>
+                <TableCell className="text-right font-medium text-emerald-700 dark:text-emerald-300">{amount(emp.collectedRevenue || 0)}</TableCell>
                 <TableCell className="text-right">
-                  <span className="text-green-700 font-medium">{emp.wonDeals}W</span>
+                  <span className="text-green-700 dark:text-green-300 font-medium">{emp.wonDeals}W</span>
                   {emp.lostDeals > 0 && <span className="text-red-500 text-xs ms-1">{emp.lostDeals}L</span>}
                 </TableCell>
                 <TableCell className="text-right text-sm">{amount(emp.openOpportunityValue)}</TableCell>
                 <TableCell className="text-right text-sm">{emp.openLeads}</TableCell>
                 <TableCell className="text-right">
-                  <span className={`text-sm font-medium ${emp.conversionRate >= 50 ? 'text-green-600' : emp.conversionRate >= 25 ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                  <span className={`text-sm font-medium ${emp.conversionRate >= 50 ? 'text-green-600 dark:text-green-400' : emp.conversionRate >= 25 ? 'text-orange-500' : 'text-muted-foreground'}`}>
                     {emp.conversionRate}%
                   </span>
                 </TableCell>
