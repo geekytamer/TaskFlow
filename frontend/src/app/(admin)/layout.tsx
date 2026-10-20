@@ -4,9 +4,9 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Logo } from '@/components/icons/logo';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
+import { BrandMark } from '@/modules/branding/brand-mark';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
 import { ThemeSwitcher } from '@/modules/layout/components/theme-switcher';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
@@ -52,11 +52,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <StagingBanner />
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-card/95 px-4 backdrop-blur sm:px-6">
         <div className="flex items-center gap-3">
-          <Logo className="h-6 w-6 text-primary" />
           <div className="flex items-baseline gap-2">
-            <span className="font-headline text-lg font-bold tracking-tight text-primary">
-              TaskFlow
-            </span>
+            <BrandMark logoClassName="h-6 w-6" nameClassName="font-headline text-lg font-bold tracking-tight text-primary" />
             <span className="hidden items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-900 dark:text-amber-300 sm:inline-flex">
               <ShieldCheck className="h-3 w-3" />
               {t('admin.chrome.tag')}

@@ -171,7 +171,7 @@ export function BrandSettingsPanel() {
       toast(
         branding
           ? { title: tr('Brand saved', 'تم حفظ الهوية'), description: tr('Everyone in the company sees it now.', 'يراها جميع موظفي الشركة الآن.') }
-          : { title: tr('Standard look restored', 'رجع الشكل الافتراضي'), description: tr('Everyone in the company sees TaskFlow again.', 'يرى جميع موظفي الشركة TaskFlow من جديد.') },
+          : { title: tr('Standard look restored', 'رجع الشكل الافتراضي'), description: tr('Everyone in the company sees Al Yarubi Group again.', 'يرى جميع موظفي الشركة مجموعة اليعربي من جديد.') },
       );
     } catch (error: unknown) {
       toast({
@@ -219,7 +219,7 @@ export function BrandSettingsPanel() {
           <div>
             <Label htmlFor="brand-enabled" className="text-base">{tr('Use our brand', 'استخدم هويتنا')}</Label>
             <p className="text-sm text-muted-foreground">
-              {tr('Shows your name and logo instead of TaskFlow, with your colours and font.', 'يظهر اسمكم وشعاركم بدل TaskFlow، مع ألوانكم وخطكم.')}
+              {tr('Shows your name and logo instead of Al Yarubi Group, with your colours and font.', 'يظهر اسمكم وشعاركم بدل مجموعة اليعربي، مع ألوانكم وخطكم.')}
             </p>
           </div>
           <Switch id="brand-enabled" checked={form.enabled} onCheckedChange={(enabled) => set({ enabled })} />

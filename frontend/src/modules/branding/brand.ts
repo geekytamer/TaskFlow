@@ -18,7 +18,14 @@ export interface CompanyBranding {
   defaultMode?: BrandMode;
 }
 
-export const PRODUCT_NAME = 'TaskFlow';
+/** The word source copy uses for the product; swapped for the shown name at render. */
+export const PRODUCT_TOKEN = 'TaskFlow';
+/** What the app is called when no company brand is on. */
+export const PRODUCT_NAMES = { en: 'Al Yarubi Group', ar: 'مجموعة اليعربي' } as const;
+
+export function productName(language: string | null | undefined): string {
+  return language === 'ar' ? PRODUCT_NAMES.ar : PRODUCT_NAMES.en;
+}
 
 export const BRAND_FONTS: Record<BrandFont, { label: string; family: string | null; google: string | null }> = {
   default: { label: 'PT Sans', family: null, google: null },
@@ -181,11 +188,12 @@ export function brandFontHref(branding: CompanyBranding | null | undefined): str
   return google ? `https://fonts.googleapis.com/css2?${google}&display=swap` : null;
 }
 
-/** The name shown where the app would say "TaskFlow". */
+/** The name shown where source copy says "TaskFlow": the brand's, else the product's. */
 export function brandName(
   branding: CompanyBranding | null | undefined,
   companyName: string | null | undefined,
+  product: string = PRODUCT_NAMES.en,
 ): string {
-  if (!branding?.enabled) return PRODUCT_NAME;
-  return branding.displayName?.trim() || companyName?.trim() || PRODUCT_NAME;
+  if (!branding?.enabled) return product;
+  return branding.displayName?.trim() || companyName?.trim() || product;
 }

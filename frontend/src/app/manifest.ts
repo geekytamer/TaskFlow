@@ -1,10 +1,12 @@
 import type { MetadataRoute } from 'next';
 
-/** Makes TaskFlow installable: a home-screen icon that opens full screen, like an app. */
+/** Makes the app installable: a home-screen icon that opens full screen, like an app. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'TaskFlow',
-    short_name: 'TaskFlow',
+    name: 'مجموعة اليعربي',
+    short_name: 'اليعربي',
+    lang: 'ar',
+    dir: 'rtl',
     start_url: '/',
     scope: '/',
     display: 'standalone',

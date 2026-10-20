@@ -6,7 +6,7 @@ const appUrl =
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:9002";
 const fromEmail =
-  process.env.RESEND_FROM_EMAIL || 'TaskFlow <no-reply@alyarubi-group.com>';
+  process.env.RESEND_FROM_EMAIL || 'Al Yarubi Group <no-reply@alyarubi-group.com>';
 
 interface WelcomeEmailInput {
   to: string;
@@ -29,7 +29,7 @@ export async function sendWelcomeEmail({
   const loginLink = `${appUrl.replace(/\/$/, '')}/login`;
 
   const html = `
-    <h1>Welcome to TaskFlow, ${name}!</h1>
+    <h1>Welcome to Al Yarubi Group, ${name}!</h1>
     <p>Your account has been created.</p>
     <p><strong>Login:</strong> <a href="${loginLink}">${loginLink}</a></p>
     <p><strong>Email:</strong> ${to}</p>
@@ -41,7 +41,7 @@ export async function sendWelcomeEmail({
     const result = await resend.emails.send({
       from: fromEmail,
       to,
-      subject: 'Your TaskFlow account is ready',
+      subject: 'Your Al Yarubi Group account is ready',
       html,
     });
 
@@ -112,7 +112,7 @@ export async function sendNotificationEmail(input: {
   const html = `
     <h2 style="margin:0 0 8px">${escapeHtml(input.title)}</h2>
     ${input.body ? `<p style="color:#475569">${escapeHtml(input.body)}</p>` : ''}
-    <p><a href="${href}" style="display:inline-block;margin-top:8px;padding:8px 14px;background:#4f46e5;color:#fff;border-radius:6px;text-decoration:none">Open in TaskFlow</a></p>
+    <p><a href="${href}" style="display:inline-block;margin-top:8px;padding:8px 14px;background:#4f46e5;color:#fff;border-radius:6px;text-decoration:none">Open in Al Yarubi Group</a></p>
   `;
   return send(input.to, input.title, html);
 }
@@ -136,9 +136,9 @@ export async function sendNotificationDigestEmail(input: {
     )
     .join('');
   const html = `
-    <h2 style="margin:0 0 4px">Your TaskFlow summary</h2>
+    <h2 style="margin:0 0 4px">Your Al Yarubi Group summary</h2>
     <p style="color:#64748b;margin:0 0 12px">${input.items.length} update${input.items.length === 1 ? '' : 's'} since yesterday.</p>
     <table style="width:100%;border-collapse:collapse">${rows}</table>
   `;
-  return send(input.to, `TaskFlow: ${input.items.length} new update${input.items.length === 1 ? '' : 's'}`, html);
+  return send(input.to, `Al Yarubi Group: ${input.items.length} new update${input.items.length === 1 ? '' : 's'}`, html);
 }

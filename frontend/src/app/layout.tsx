@@ -6,10 +6,10 @@ import { PwaRegister } from '@/components/pwa-register';
 import { themeBootScript } from '@/context/theme-context';
 
 export const metadata: Metadata = {
-  title: 'TaskFlow',
-  description: 'Employee Task Management System with a custom backend',
-  // Installed on a phone, TaskFlow opens full screen with its own icon.
-  appleWebApp: { capable: true, title: 'TaskFlow', statusBarStyle: 'default' },
+  title: 'مجموعة اليعربي',
+  description: 'Al Yarubi Group — business management',
+  // Installed on a phone, the app opens full screen with its own icon.
+  appleWebApp: { capable: true, title: 'اليعربي', statusBarStyle: 'default' },
   icons: { apple: '/icons/180' },
 };
 

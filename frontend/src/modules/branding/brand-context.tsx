@@ -4,7 +4,8 @@ import * as React from 'react';
 import { usePathname } from 'next/navigation';
 import { useCompany } from '@/context/company-context';
 import { BRAND_CACHE_KEY, useTheme } from '@/context/theme-context';
-import { brandCss, brandFontHref, brandName, PRODUCT_NAME, type BrandMode, type CompanyBranding } from './brand';
+import { useI18n } from '@/context/i18n-context';
+import { brandCss, brandFontHref, brandName, PRODUCT_TOKEN, productName, type BrandMode, type CompanyBranding } from './brand';
 
 /** What this device remembers of the last brand, for the login page and first paint. */
 type BrandCache = {
@@ -35,14 +36,14 @@ function writeCache(cache: BrandCache | null) {
 }
 
 type BrandContextValue = {
-  /** True when a company brand is in effect (its name and logo replace TaskFlow's). */
+  /** True when a company brand is in effect (its name and logo replace the group's). */
   branded: boolean;
   /** False for the first moment, before this device's remembered brand is read. */
   ready: boolean;
-  /** "TaskFlow", or the company's name when branded. */
+  /** The group's name, or the company's when branded. */
   name: string;
   logoUrl?: string;
-  /** Swaps "TaskFlow" in a sentence for the brand's name. */
+  /** Swaps the product word ("TaskFlow" in source copy) for the shown name. */
   brandText: (text: string) => string;
   /** Shows a brand across the app without saving it (brand settings preview). `undefined` ends it. */
   setPreview: (preview: { branding: CompanyBranding | null; logoUrl?: string } | undefined) => void;
@@ -70,6 +71,8 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
     [selected, companies],
   );
   const { setCompanyDefault } = useTheme();
+  const { language } = useI18n();
+  const product = productName(language);
   const pathname = usePathname();
   const [preview, setPreview] = React.useState<{ branding: CompanyBranding | null; logoUrl?: string }>();
   // undefined until read: rendering must match the server first, so the cache loads after mount.
@@ -77,7 +80,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => setCache(readCache()), []);
 
-  // The platform admin area is TaskFlow's own, never a company's.
+  // The platform admin area is the group's own, never a company's.
   const platformArea = !!pathname?.startsWith('/admin');
 
   const saved = selectedCompany?.branding?.enabled ? selectedCompany.branding : null;
@@ -88,11 +91,12 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   const known = !!selectedCompany || !!preview;
   const branded = !platformArea && (known ? !!active : !!cache);
   const name = platformArea
-    ? PRODUCT_NAME
+    ? product
     : known
-      ? brandName(active, selectedCompany?.name)
-      : cache?.name ?? PRODUCT_NAME;
+      ? brandName(active, selectedCompany?.name, product)
+      : cache?.name ?? product;
   const shownLogo = branded ? (known ? logoUrl : cache?.logoUrl) : undefined;
+  const ready = known || cache !== undefined;
 
   // Remember the saved brand on this device; forget it when the company has none.
   React.useEffect(() => {
@@ -104,7 +108,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
     }
     const logo = selectedCompany.logoUrl;
     const next: BrandCache = {
-      name: brandName(saved, selectedCompany.name),
+      name: brandName(saved, selectedCompany.name, product),
       logoUrl: logo && logo.length <= MAX_CACHED_LOGO ? logo : undefined,
       css: brandCss(saved),
       fontHref: brandFontHref(saved),
@@ -112,7 +116,7 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
     };
     writeCache(next);
     setCache(next);
-  }, [selectedCompany, saved, loading]);
+  }, [selectedCompany, saved, loading, product]);
 
   // Apply the colours, corners and font.
   const css = platformArea ? '' : known ? brandCss(active) : cache?.css ?? '';
@@ -137,46 +141,27 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   const defaultMode = platformArea ? undefined : known ? active?.defaultMode : cache?.defaultMode;
   React.useEffect(() => setCompanyDefault(defaultMode), [defaultMode, setCompanyDefault]);
 
-  // Browser tab: the brand's name and logo.
+  // Browser tab: the shown name. The tab icon stays the group's logo for every company.
   React.useEffect(() => {
-    if (!branded) return;
+    if (!ready) return;
     const set = () => {
-      if (document.title.includes(PRODUCT_NAME)) document.title = document.title.replaceAll(PRODUCT_NAME, name);
+      if (document.title !== name) document.title = name;
     };
     set();
     // Next swaps the <title> node on navigation, so watch the whole head.
     const observer = new MutationObserver(set);
     observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-    return () => {
-      observer.disconnect();
-      document.title = document.title.replaceAll(name, PRODUCT_NAME);
-    };
-  }, [branded, name, pathname]);
-  React.useEffect(() => {
-    if (!shownLogo) return;
-    const icons = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'));
-    const before = icons.map((l) => l.href);
-    icons.forEach((l) => { l.href = shownLogo; });
-    const own = upsertHeadNode('company-brand-icon', () => {
-      const l = document.createElement('link');
-      l.rel = 'icon';
-      return l;
-    });
-    own.href = shownLogo;
-    return () => {
-      icons.forEach((l, i) => { l.href = before[i]; });
-      own.remove();
-    };
-  }, [shownLogo]);
+    return () => observer.disconnect();
+  }, [ready, name]);
 
   const brandText = React.useCallback(
-    (text: string) => (name === PRODUCT_NAME ? text : text.replaceAll(PRODUCT_NAME, name)),
+    (text: string) => text.replaceAll(PRODUCT_TOKEN, name),
     [name],
   );
 
   const value = React.useMemo(
-    () => ({ branded, ready: known || cache !== undefined, name, logoUrl: shownLogo, brandText, setPreview }),
-    [branded, known, cache, name, shownLogo, brandText],
+    () => ({ branded, ready, name, logoUrl: shownLogo, brandText, setPreview }),
+    [branded, ready, name, shownLogo, brandText],
   );
   return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>;
 }

@@ -4,7 +4,7 @@ import { Logo } from '@/components/icons/logo';
 import { cn } from '@/lib/utils';
 import { useBrand } from './brand-context';
 
-/** The app's mark: the company's logo and name when branded, TaskFlow's otherwise. */
+/** The app's mark: the company's logo and name when branded, the group's otherwise. */
 export function BrandMark({
   className,
   logoClassName = 'h-6 w-6',
@@ -19,7 +19,7 @@ export function BrandMark({
 }) {
   const { name, logoUrl, ready } = useBrand();
   return (
-    // Hidden until the remembered brand is known, so "TaskFlow" never flashes first.
+    // Hidden until the remembered brand is known, so the wrong name never flashes first.
     <div className={cn('flex min-w-0 items-center gap-2', !ready && 'invisible', className)}>
       {logoUrl ? (
         <img src={logoUrl} alt="" className={cn('shrink-0 rounded-md object-contain', logoClassName)} />

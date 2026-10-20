@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { brandCss, brandName, brandVariables, forDarkBackground, hexToHsl, readableOn } from './brand';
+import { brandCss, brandName, brandVariables, forDarkBackground, hexToHsl, productName, readableOn } from './brand';
 
 test('hexToHsl reads #rrggbb and refuses anything else', () => {
   assert.deepEqual(hexToHsl('#ffffff'), { h: 0, s: 0, l: 100 });
@@ -44,9 +44,9 @@ test('brand CSS covers colours, corners and font', () => {
 });
 
 test('the product name only gives way when the brand is switched on', () => {
-  assert.equal(brandName(undefined, 'Peak'), 'TaskFlow');
-  assert.equal(brandName({ enabled: false, displayName: 'Peak' }, 'Peak Creative'), 'TaskFlow');
+  assert.equal(brandName(undefined, 'Peak'), 'Al Yarubi Group');
+  assert.equal(brandName({ enabled: false, displayName: 'Peak' }, 'Peak Creative', productName('ar')), 'مجموعة اليعربي');
   assert.equal(brandName({ enabled: true, displayName: 'Peak' }, 'Peak Creative'), 'Peak');
   assert.equal(brandName({ enabled: true }, 'Peak Creative'), 'Peak Creative');
-  assert.equal(brandName({ enabled: true, displayName: '  ' }, ''), 'TaskFlow');
+  assert.equal(brandName({ enabled: true, displayName: '  ' }, ''), 'Al Yarubi Group');
 });
