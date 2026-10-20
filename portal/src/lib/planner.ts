@@ -70,9 +70,20 @@ function summarise(kind: PackageKind, items: Priced[]): Package {
   };
 }
 
+/** The creators a plan can use: a price range to cost, and not marked unavailable. */
+export const plannable = (entries: CatalogueEntry[]) => entries.filter((e): e is Priced => e.price.kind === 'range' && !isUnavailable(e));
+
+/** How many groups of `k` there are among `n`, capped (only ever shown as a count). */
+export function groupsOf(n: number, k: number, cap = 1_000_000): number {
+  if (k > n) return 0;
+  let out = 1;
+  for (let i = 1; i <= Math.min(k, n - k); i++) { out = (out * (n - i + 1)) / i; if (out >= cap) return cap; }
+  return Math.round(out);
+}
+
 export function planPackages(entries: CatalogueEntry[], ask: { budget: number; count: number }): Plan {
   const onRequest = entries.filter((e) => e.price.kind === 'on_request' && !isUnavailable(e)).length;
-  const priced = entries.filter((e): e is Priced => e.price.kind === 'range' && !isUnavailable(e));
+  const priced = plannable(entries);
   const count = Math.max(1, Math.floor(ask.count));
   if (priced.length < count) return { status: 'too-few', available: priced.length, packages: [], onRequest };
 

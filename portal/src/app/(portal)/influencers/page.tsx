@@ -135,7 +135,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
         // page starts from that page's `with`, not the one held in memory.
         <ShortlistProvider key={shortlist.join(',')} initial={shortlist}>
           <DirectoryProvider>
-            <BudgetPlanner items={items} currency={currency} lang={lang} goal={goalOf(values)} />
+            <BudgetPlanner items={items} currency={currency} lang={lang} goal={goalOf(values)} markSrc={process.env.PORTAL_MARK_URL || null} />
             <FilterBar values={values} facets={facets} currency={currency} lang={lang} count={items.length} />
 
             <section aria-labelledby="results-title" className="space-y-4">

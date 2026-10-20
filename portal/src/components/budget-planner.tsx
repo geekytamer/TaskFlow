@@ -5,7 +5,8 @@ import type { CatalogueEntry } from '@/lib/catalogue';
 import { formatCompact, formatMoney, formatPercent } from '@/lib/format';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { Goal } from '@/lib/directory-view';
-import { planPackages, type Package } from '@/lib/planner';
+import { groupsOf, plannable, planPackages, type Package } from '@/lib/planner';
+import { PlannerThinking } from './planner-thinking';
 import { InfluencerPhoto } from './influencer-photo';
 import { PeakOrbit } from './peak-orbit';
 import { useShortlist } from './shortlist';
@@ -24,13 +25,13 @@ const MAX_COUNT = 10;
 const fieldBase =
   'h-11 w-full rounded-control border border-field bg-surface text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
 
-function PackageCard({ pkg, budget, currency, lang, featured = false }: { pkg: Package; budget: number; currency: string; lang: Lang; featured?: boolean }) {
+function PackageCard({ pkg, budget, currency, lang, featured = false, index = 0 }: { pkg: Package; budget: number; currency: string; lang: Lang; featured?: boolean; index?: number }) {
   const { ids, addMany } = useShortlist();
   const added = pkg.items.every((e) => ids.includes(e.id));
   const shown = pkg.items.slice(0, 5);
   const left = budget - pkg.costMax;
   return (
-    <li className={`chip-in flex flex-col gap-4 rounded-panel border bg-surface p-4 transition-[border-color] duration-200 hover:border-accent/40 ${featured ? 'border-accent/60' : 'border-line'}`}>
+    <li style={{ animationDelay: `${index * 110}ms` }} className={`pkg-in flex flex-col gap-4 rounded-panel border bg-surface p-4 transition-[border-color] duration-200 hover:border-accent/40 ${featured ? 'border-accent/60' : 'border-line'}`}>
       <div>
         {featured && <p className="mb-1.5 inline-flex rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-accent-ink">{t(lang, 'plan.forGoal')}</p>}
         <h3 className="text-[17px] font-extrabold">{t(lang, `plan.${pkg.kind}` as Key)}</h3>
@@ -79,7 +80,7 @@ function PackageCard({ pkg, budget, currency, lang, featured = false }: { pkg: P
 /** The group that suits each campaign goal comes first and is marked. */
 const GOAL_PACKAGE: Record<Goal, Package['kind']> = { awareness: 'reach', sales: 'engagement', launch: 'reach' };
 
-export function BudgetPlanner({ items, currency, lang, goal = null }: { items: CatalogueEntry[]; currency: string; lang: Lang; goal?: Goal | null }) {
+export function BudgetPlanner({ items, currency, lang, goal = null, markSrc = null }: { items: CatalogueEntry[]; currency: string; lang: Lang; goal?: Goal | null; markSrc?: string | null }) {
   const [open, setOpen] = useState(false);
   const [budget, setBudget] = useState('');
   const [count, setCount] = useState(3);
@@ -89,6 +90,25 @@ export function BudgetPlanner({ items, currency, lang, goal = null }: { items: C
   useEffect(() => { body.current?.toggleAttribute('inert', !open); }, [open]);
   // Re-plans when the filters change the list, against the last request.
   const plan = useMemo(() => (ask ? planPackages(items, ask) : null), [items, ask]);
+
+  // The sorting pause: 2 to 3 seconds the first time, about one after that,
+  // a short fade with Reduce Motion. The groups are already worked out; the
+  // pause shows the work (see PlannerThinking).
+  const [thinking, setThinking] = useState<number | null>(null);
+  const runs = useRef(0);
+  useEffect(() => {
+    if (thinking === null) return;
+    const id = setTimeout(() => setThinking(null), thinking);
+    return () => clearTimeout(id);
+  }, [thinking]);
+  const suggest = (next: { budget: number; count: number }) => {
+    setAsk(next);
+    const still = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const first = runs.current === 0;
+    runs.current += 1;
+    setThinking(still ? 500 : first ? 2000 + Math.round(Math.random() * 1000) : 900 + Math.round(Math.random() * 400));
+  };
+  const candidates = useMemo(() => plannable(items), [items]);
 
   // A client on a retainer sees no prices, so there is nothing to plan with.
   if (items.length > 0 && items.every((e) => e.price.kind === 'retainer')) return null;
@@ -111,7 +131,7 @@ export function BudgetPlanner({ items, currency, lang, goal = null }: { items: C
       <div id="plan-body" ref={body} className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[var(--ease-out)] ${open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
         <div className="overflow-hidden">
           <div className="space-y-4 px-4 pb-4">
-            <form onSubmit={(e) => { e.preventDefault(); if (canSuggest) setAsk({ budget: amount, count }); }}
+            <form onSubmit={(e) => { e.preventDefault(); if (canSuggest && thinking === null) suggest({ budget: amount, count }); }}
               className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
               <div className="min-w-0 space-y-1.5">
                 <label htmlFor="plan-budget" className="block text-sm font-medium text-ink-soft">{t(lang, 'plan.budget')}</label>
@@ -132,13 +152,17 @@ export function BudgetPlanner({ items, currency, lang, goal = null }: { items: C
                     className="inline-flex h-full w-11 items-center justify-center text-xl text-ink-soft hover:text-ink disabled:opacity-30">+</button>
                 </div>
               </div>
-              <button type="submit" disabled={!canSuggest}
+              <button type="submit" disabled={!canSuggest || thinking !== null}
                 className="inline-flex h-11 items-center justify-center rounded-control bg-accent px-5 text-[15px] font-bold text-accent-ink transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">
                 {t(lang, 'plan.suggest')}
               </button>
             </form>
 
-            {plan && (
+            {plan && thinking !== null && (
+              <PlannerThinking candidates={candidates} chosenIds={plan.packages.flatMap((p) => p.items.map((e) => e.id))}
+                groups={groupsOf(candidates.length, ask!.count)} duration={thinking} hasGoal={goal !== null} markSrc={markSrc} lang={lang} />
+            )}
+            {plan && thinking === null && (
               <div aria-live="polite" className="space-y-3">
                 {plan.status === 'over-budget' && (
                   <p className="rounded-control border border-warning/40 bg-warning/[0.06] px-4 py-3 text-[15px]">
@@ -153,7 +177,7 @@ export function BudgetPlanner({ items, currency, lang, goal = null }: { items: C
                 {plan.status === 'ok' && (
                   <ul className="grid gap-3 md:grid-cols-3">
                     {[...plan.packages].sort((a, b) => Number(goal !== null && b.kind === GOAL_PACKAGE[goal]) - Number(goal !== null && a.kind === GOAL_PACKAGE[goal]))
-                      .map((p) => <PackageCard key={p.kind} pkg={p} budget={ask!.budget} currency={currency} lang={lang} featured={goal !== null && p.kind === GOAL_PACKAGE[goal]} />)}
+                      .map((p, i) => <PackageCard key={p.kind} index={i} pkg={p} budget={ask!.budget} currency={currency} lang={lang} featured={goal !== null && p.kind === GOAL_PACKAGE[goal]} />)}
                   </ul>
                 )}
                 <p className="text-sm text-ink-soft">

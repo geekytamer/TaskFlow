@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planPackages } from './planner';
+import { groupsOf, planPackages } from './planner';
 import type { CatalogueEntry } from './catalogue';
 
 const c = (name: string, max: number, followers: number, er: number | null = 3, availability: string | null = null): CatalogueEntry => ({
@@ -53,4 +53,10 @@ test('asking for more creators than can be priced says how many there are', () =
 test('identical packages are shown once', () => {
   const plan = planPackages([c('a', 100, 1_000, 9), c('b', 100, 900, 8)], { budget: 200, count: 2 });
   assert.equal(plan.packages.length, 1);
+});
+
+test('group counts are exact when small and capped when huge', () => {
+  assert.equal(groupsOf(5, 2), 10);
+  assert.equal(groupsOf(3, 4), 0);
+  assert.equal(groupsOf(200, 6), 1_000_000);
 });
