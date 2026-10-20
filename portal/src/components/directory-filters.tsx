@@ -1,53 +1,82 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CatalogueList } from '@/lib/catalogue';
 import { DIRECTORY_PARAMS, GOALS, goalOf, SORTS, type DirectoryParams, type Goal, type Sort } from '@/lib/directory-view';
 import { formatCompact, formatPercent } from '@/lib/format';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
+import { nicheLabel, placeLabel } from '@/lib/directory-labels';
+import { Dropdown } from './dropdown';
 
 /**
- * The influencer directory's filters. Every change updates the URL at once
- * (search and the sliders after a short pause), the server page re-renders
- * with the new results, and the list dims under a thin bar while it does.
- * The URL stays the one source of truth: a reload, Back or a shared link
- * shows the same view. The shortlist's `with=` is carried along untouched.
+ * The influencer directory's filters. The page holds every creator the
+ * client may see, so a change filters in the browser at once: no trip to the
+ * server. The URL follows (history.replaceState), so a reload, Back or a
+ * shared link shows the same view, and the shortlist's `with=` is kept.
  */
 
 type Facets = CatalogueList['facets'];
 type Update = Record<string, string | null | undefined>;
+export type View = 'cards' | 'list';
 
 const fill = (text: string, vars: Record<string, string>) => text.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '');
 
-const Ctx = createContext<{ pending: boolean; navigate: (u: Update) => void; clearAll: () => void }>({
-  pending: false, navigate: () => {}, clearAll: () => {},
-});
+interface DirectoryState {
+  pending: boolean;
+  values: DirectoryParams;
+  view: View;
+  navigate: (u: Update) => void;
+  clearAll: () => void;
+}
+const Ctx = createContext<DirectoryState>({ pending: false, values: {}, view: 'cards', navigate: () => {}, clearAll: () => {} });
 
-export function DirectoryProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [pending, start] = useTransition();
-  const go = (sp: URLSearchParams) => {
-    const text = sp.toString();
-    start(() => router.replace(text ? `${pathname}?${text}` : pathname, { scroll: false }));
-  };
-  // Read the live URL each time: the shortlist rewrites `with=` in place.
-  const navigate = (u: Update) => {
-    const sp = new URLSearchParams(window.location.search);
-    for (const [k, v] of Object.entries(u)) { if (v) sp.set(k, v); else sp.delete(k); }
-    go(sp);
-  };
-  const clearAll = () => {
-    const sp = new URLSearchParams(window.location.search);
-    for (const k of DIRECTORY_PARAMS) if (k !== 'sort') sp.delete(k);
-    go(sp);
-  };
-  return <Ctx.Provider value={{ pending, navigate, clearAll }}>{children}</Ctx.Provider>;
+const readUrl = (): { values: DirectoryParams; view: View } => {
+  const sp = new URLSearchParams(window.location.search);
+  const values: DirectoryParams = {};
+  for (const k of DIRECTORY_PARAMS) { const v = sp.get(k)?.trim(); if (v) values[k] = v; }
+  return { values, view: sp.get('view') === 'list' ? 'list' : 'cards' };
+};
+
+function writeUrl(values: DirectoryParams, view: View) {
+  // Start from the live URL: the shortlist rewrites `with=` in place.
+  const sp = new URLSearchParams(window.location.search);
+  for (const k of DIRECTORY_PARAMS) sp.delete(k);
+  sp.delete('view');
+  for (const k of DIRECTORY_PARAMS) { const v = values[k]; if (v) sp.set(k, v); }
+  if (view === 'list') sp.set('view', 'list');
+  const text = sp.toString();
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${text ? `?${text}` : ''}${window.location.hash}`);
 }
 
-const useDirectory = () => useContext(Ctx);
+export function DirectoryProvider({ initialValues, initialView, children }: { initialValues: DirectoryParams; initialView: View; children: ReactNode }) {
+  const [state, setState] = useState({ values: initialValues, view: initialView });
+  const navigate = (u: Update) => setState((prev) => {
+    const values: DirectoryParams = { ...prev.values };
+    let view = prev.view;
+    for (const [k, v] of Object.entries(u)) {
+      if (k === 'view') { view = v === 'list' ? 'list' : 'cards'; continue; }
+      const key = k as keyof DirectoryParams;
+      if (v) values[key] = v; else delete values[key];
+    }
+    writeUrl(values, view);
+    return { values, view };
+  });
+  const clearAll = () => setState((prev) => {
+    const values: DirectoryParams = prev.values.sort ? { sort: prev.values.sort } : {};
+    writeUrl(values, prev.view);
+    return { values, view: prev.view };
+  });
+  // Back/Forward lands on another URL: it wins.
+  useEffect(() => {
+    const onPop = () => setState(readUrl());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  return <Ctx.Provider value={{ pending: false, values: state.values, view: state.view, navigate, clearAll }}>{children}</Ctx.Provider>;
+}
+
+export const useDirectory = () => useContext(Ctx);
 
 /** Calls `fn` once `value` has been still for `ms`; skips the first render. */
 function useSettled<T>(value: T, ms: number, fn: (v: T) => void) {
@@ -132,7 +161,7 @@ function useRangeParam(values: DirectoryParams, minKey: 'minPrice' | 'minFollowe
   useEffect(() => {
     if (urlKey !== sent.current) { sent.current = urlKey; setRange({ min: values[minKey] ?? '', max: values[maxKey] ?? '' }); }
   }, [urlKey, values, minKey, maxKey]);
-  useSettled(range, 500, (r) => {
+  useSettled(range, 150, (r) => {
     const key = `${r.min}:${r.max}`;
     if (key !== sent.current) { sent.current = key; navigate({ [minKey]: r.min, [maxKey]: r.max }); }
   });
@@ -285,19 +314,34 @@ function GoalChips({ values, lang }: { values: DirectoryParams; lang: Lang }) {
   );
 }
 
-function ListFields({ idPrefix, values, facets, lang }: { idPrefix: string; values: DirectoryParams; facets: Facets; lang: Lang }) {
+export type OptionCounts = Partial<Record<'platform' | 'niche' | 'location' | 'gender', Record<string, number>>>;
+
+/**
+ * The four lists. Wide screens get Peak's own dropdown (counts, a sliding
+ * highlight); the phone sheet keeps the native picker. Gender shows only once
+ * some creators have it recorded, so it never offers a choice with no results.
+ */
+function ListFields({ idPrefix, values, facets, lang, native = false, counts = {}, showGender = true }: {
+  idPrefix: string; values: DirectoryParams; facets: Facets; lang: Lang; native?: boolean; counts?: OptionCounts; showGender?: boolean;
+}) {
   const { navigate } = useDirectory();
   const any = t(lang, 'cat.any');
+  const lists: Array<{ key: 'platform' | 'niche' | 'location' | 'gender'; label: string; options: Array<{ value: string; label: string }> }> = [
+    { key: 'platform', label: t(lang, 'cat.platform'), options: facets.platforms.map((v) => ({ value: v, label: v })) },
+    { key: 'niche', label: t(lang, 'cat.niche'), options: facets.niches.map((v) => ({ value: v, label: nicheLabel(v, lang) })) },
+    { key: 'location', label: t(lang, 'disc.location'), options: facets.locations.map((v) => ({ value: v, label: placeLabel(v, lang) })) },
+    ...(showGender ? [{ key: 'gender' as const, label: t(lang, 'disc.gender'), options: [{ value: 'female', label: t(lang, 'disc.female') }, { value: 'male', label: t(lang, 'disc.male') }] }] : []),
+  ];
   return (
     <>
-      <Select id={`${idPrefix}-platform`} label={t(lang, 'cat.platform')} value={values.platform ?? ''} anyLabel={any}
-        options={facets.platforms.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ platform: v })} />
-      <Select id={`${idPrefix}-niche`} label={t(lang, 'cat.niche')} value={values.niche ?? ''} anyLabel={any}
-        options={facets.niches.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ niche: v })} />
-      <Select id={`${idPrefix}-location`} label={t(lang, 'disc.location')} value={values.location ?? ''} anyLabel={any}
-        options={facets.locations.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ location: v })} />
-      <Select id={`${idPrefix}-gender`} label={t(lang, 'disc.gender')} value={values.gender ?? ''} anyLabel={any}
-        options={[{ value: 'female', label: t(lang, 'disc.female') }, { value: 'male', label: t(lang, 'disc.male') }]} onChange={(v) => navigate({ gender: v })} />
+      {lists.map((l) => native ? (
+        <Select key={l.key} id={`${idPrefix}-${l.key}`} label={l.label} value={values[l.key] ?? ''} anyLabel={any}
+          options={l.options.map((o) => ({ ...o, label: counts[l.key] ? `${o.label} (${counts[l.key]![o.value] ?? 0})` : o.label }))}
+          onChange={(v) => navigate({ [l.key]: v })} />
+      ) : (
+        <Dropdown key={l.key} id={`${idPrefix}-${l.key}`} label={l.label} value={values[l.key] ?? ''} anyLabel={any}
+          options={l.options.map((o) => ({ ...o, count: counts[l.key]?.[o.value] }))} onChange={(v) => navigate({ [l.key]: v })} />
+      ))}
     </>
   );
 }
@@ -309,7 +353,7 @@ function SearchBox({ value, lang }: { value: string; lang: Lang }) {
   // Back) replaces the text: results arriving late never undo fresh typing.
   const sent = useRef(value);
   useEffect(() => { if (value !== sent.current) { sent.current = value; setQ(value); } }, [value]);
-  useSettled(q, 300, (v) => { if (v.trim() !== sent.current) { sent.current = v.trim(); navigate({ q: v.trim() }); } });
+  useSettled(q, 120, (v) => { if (v.trim() !== sent.current) { sent.current = v.trim(); navigate({ q: v.trim() }); } });
   return (
     <div className="min-w-0 flex-1 space-y-1.5 lg:col-span-4 xl:col-span-1">
       <label htmlFor="dir-q" className="sr-only lg:not-sr-only lg:block lg:text-sm lg:font-medium lg:text-ink-soft">{t(lang, 'cat.search')}</label>
@@ -336,8 +380,8 @@ function Badge({ n }: { n: number }) {
  * the two ranges and engagement below. Phones get the search box and a
  * Filters button that opens the same fields in a bottom sheet.
  */
-export function FilterBar({ values, facets, currency, lang, count, before }: {
-  values: DirectoryParams; facets: Facets; currency: string; lang: Lang; count: number; before?: ReactNode;
+export function FilterBar({ values, facets, currency, lang, count, before, counts, showGender = true }: {
+  values: DirectoryParams; facets: Facets; currency: string; lang: Lang; count: number; before?: ReactNode; counts?: OptionCounts; showGender?: boolean;
 }) {
   const { navigate } = useDirectory();
   const active = (['platform', 'niche', 'location', 'gender', 'minEngagement', 'active', 'goal'] as const).filter((k) => values[k]).length
@@ -358,7 +402,7 @@ export function FilterBar({ values, facets, currency, lang, count, before }: {
             <FilterIcon /><span>{t(lang, 'cat.filters')}</span><Badge n={active} />
           </button>
           <div className="hidden lg:contents">
-            <ListFields idPrefix="bar" values={values} facets={facets} lang={lang} />
+            <ListFields idPrefix="bar" values={values} facets={facets} lang={lang} counts={counts} showGender={showGender} />
           </div>
         </div>
         <div className="mt-4 hidden gap-x-8 gap-y-5 border-t border-line pt-4 lg:grid lg:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
@@ -383,7 +427,7 @@ export function FilterBar({ values, facets, currency, lang, count, before }: {
         <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-4">
           <GoalChips values={values} lang={lang} />
           <div className="grid grid-cols-2 gap-3">
-            <ListFields idPrefix="sheet" values={values} facets={facets} lang={lang} />
+            <ListFields idPrefix="sheet" values={values} facets={facets} lang={lang} native counts={counts} showGender={showGender} />
           </div>
           <FollowerRange values={values} lang={lang} />
           <PriceRange idPrefix="sheet" values={values} currency={currency} lang={lang} />
@@ -414,7 +458,7 @@ function ActiveChips({ values, facets, currency, lang }: { values: DirectoryPara
   const chips = ([
     values.q ? { id: 'q', label: `“${values.q}”`, clear: { q: null } } : null,
     values.platform ? { id: 'platform', label: values.platform, clear: { platform: null } } : null,
-    values.niche ? { id: 'niche', label: values.niche, clear: { niche: null } } : null,
+    values.niche ? { id: 'niche', label: nicheLabel(values.niche, lang), clear: { niche: null } } : null,
     values.minFollowers || values.maxFollowers ? {
       id: 'followers',
       label: values.minFollowers && values.maxFollowers
@@ -425,7 +469,7 @@ function ActiveChips({ values, facets, currency, lang }: { values: DirectoryPara
       clear: { minFollowers: null, maxFollowers: null },
     } : null,
     values.minPrice || values.maxPrice ? { id: 'price', label: budgetLabel(values.minPrice, values.maxPrice, currency, lang)!, clear: { minPrice: null, maxPrice: null } } : null,
-    values.location ? { id: 'location', label: values.location, clear: { location: null } } : null,
+    values.location ? { id: 'location', label: placeLabel(values.location, lang), clear: { location: null } } : null,
     values.gender ? { id: 'gender', label: t(lang, values.gender === 'male' ? 'disc.male' : 'disc.female'), clear: { gender: null } } : null,
     tier ? { id: 'tier', label: `${t(lang, 'disc.tier')}: ${tier}`, clear: { tier: null } } : null,
     values.availability ? { id: 'availability', label: availabilityLabel(values.availability, lang), clear: { availability: null } } : null,
@@ -471,8 +515,8 @@ export function ResultsHeader({ count, sort, lang, viewSwitch }: { count: number
       </h2>
       <div className="flex items-center gap-2">
         <div className="w-[11.5rem]">
-          <Select id="dir-sort" label={t(lang, 'disc.sort')} hideLabel value={sort}
-            options={SORTS.map((s) => ({ value: s, label: t(lang, `dir.sort.${s}` as Key) }))} onChange={(v) => navigate({ sort: v })} />
+          <Dropdown id="dir-sort" label={t(lang, 'disc.sort')} hideLabel value={sort}
+            options={SORTS.map((x) => ({ value: x, label: t(lang, `dir.sort.${x}` as Key) }))} onChange={(v) => navigate({ sort: v })} />
         </div>
         {viewSwitch}
       </div>
