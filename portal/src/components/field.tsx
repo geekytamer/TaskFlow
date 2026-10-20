@@ -19,7 +19,7 @@ export const backLink =
   'inline-flex min-h-11 items-center text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink';
 
 export const primaryButton =
-  'inline-flex h-11 w-full items-center justify-center rounded-control bg-accent px-5 text-[15px] font-semibold text-accent-ink transition-[background-color,transform] hover:bg-accent/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex h-11 w-full items-center justify-center rounded-control bg-accent px-5 text-[15px] font-semibold text-accent-ink transition-[background-color,transform,box-shadow] duration-150 hover:bg-accent/90 hover:shadow-[0_8px_20px_-10px_rgb(238_113_3/0.7)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
 
 /** The text input, select and textarea look, shared by every form. */
 export const control =

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { IBM_Plex_Sans_Arabic, Manrope } from 'next/font/google';
+import { Cairo, IBM_Plex_Sans_Arabic, Manrope } from 'next/font/google';
 import './globals.css';
 import { PwaRegister } from '@/components/pwa-register';
 import { getHost } from '@/lib/audience';
@@ -14,6 +14,8 @@ const arabic = IBM_Plex_Sans_Arabic({
   variable: '--font-arabic',
   display: 'swap',
 });
+// Headings only: Peak's display face on peak-creative.agency, heavy weights.
+const display = Cairo({ subsets: ['arabic', 'latin'], weight: ['700', '800'], variable: '--font-display', display: 'swap' });
 
 export const viewport: Viewport = { themeColor: '#050505' };
 
@@ -44,7 +46,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const lang = await currentLang();
   return (
-    <html lang={lang} dir={dirFor(lang)} className={`${latin.variable} ${arabic.variable}`}>
+    <html lang={lang} dir={dirFor(lang)} className={`${latin.variable} ${arabic.variable} ${display.variable}`}>
       <body className="min-h-[100dvh] font-sans"><PwaRegister />{children}</body>
     </html>
   );

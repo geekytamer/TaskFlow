@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Audience } from '@/lib/audience';
+import { PeakOrbit } from './peak-orbit';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import type { CampaignSummary } from '@/lib/campaigns';
 import type { Assignment, Payout } from '@/lib/influencer-types';
@@ -34,7 +35,7 @@ export function Dashboard({
 
   return (
     <div className="space-y-14">
-      <PageHeader title={`${t(lang, 'dash.hello')} ${me.user.name.split(/\s+/)[0]}`} />
+      <PageHeader title={<span className="inline-flex items-center gap-3"><PeakOrbit glyph /><span>{t(lang, 'dash.hello')} {me.user.name.split(/\s+/)[0]}</span></span>} />
 
       {waiting && (
         <section aria-labelledby="waiting-title" className="flex flex-wrap items-center justify-between gap-4 rounded-panel border border-accent/30 bg-accent/[0.06] p-5">
