@@ -2,7 +2,7 @@ import type { Request, RequestHandler, Response, Router } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Contact } from '../types';
-import { growthOver3Months, maskContacts, TIERS, tierOf, type Tier } from '../discover/discover';
+import { growthOver3Months, maskContacts, postsPerMonth, TIERS, tierOf, type Tier } from '../discover/discover';
 import type { DiscoverProfile } from '../discover/discover-store';
 import { instagramFigures } from '../discover/figures';
 import { priceFor, toCatalogueEntry, type CataloguePlatform, type PriceView } from './catalogue';
@@ -29,6 +29,8 @@ export interface DirectoryEntry {
   followers: number;
   engagementRate: number | null;
   growth3m: number | null;
+  /** Posts a month from the weekly snapshots; null until there is enough history. */
+  activity: { perMonth: number; days: number } | null;
   tier: Tier;
   /** When Peak's stored photo was taken; null shows initials. */
   photoAt: string | null;
@@ -172,6 +174,7 @@ function rosterEntry(store: DataStore, c: Contact, p: DiscoverProfile | undefine
     followers,
     engagementRate: rates.length ? Math.max(...rates) : p?.engagementRate ?? null,
     growth3m: p ? growthOver3Months(store.discover.snapshots(p.id), now) : null,
+    activity: p ? postsPerMonth(store.discover.snapshots(p.id), now) : null,
     tier: tierOf(followers),
     photoAt,
     price,
@@ -195,6 +198,7 @@ function discoverEntry(store: DataStore, p: DiscoverProfile, now: Date): Directo
     followers: p.followers!,
     engagementRate: p.engagementRate,
     growth3m: growthOver3Months(store.discover.snapshots(p.id), now),
+    activity: postsPerMonth(store.discover.snapshots(p.id), now),
     tier: tierOf(p.followers!),
     photoAt: p.hasPhoto ? p.lastFetchedAt : null,
     price: { kind: 'on_request' },

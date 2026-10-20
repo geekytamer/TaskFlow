@@ -35,6 +35,29 @@ export function growthOver3Months(snapshots: Array<{ followers: number; takenAt:
   return Math.round(((latest.followers - base.followers) / base.followers) * 1000) / 10;
 }
 
+/** How far back the posting rate looks, and the least history it needs. */
+const ACTIVITY_WINDOW_DAYS = 35;
+const ACTIVITY_MIN_DAYS = 6;
+
+/**
+ * Posts a month, from the change in the account's total post count between
+ * the oldest snapshot in about the last month and the latest one. Profiles
+ * are refreshed weekly, so this settles once a month of snapshots exists.
+ * Null until at least six days of history; deleted posts count as zero.
+ */
+export function postsPerMonth(snapshots: Array<{ posts: number | null; takenAt: string }>, now = new Date()): { perMonth: number; days: number } | null {
+  const known = snapshots.filter((s): s is { posts: number; takenAt: string } => typeof s.posts === 'number')
+    .sort((a, b) => Date.parse(a.takenAt) - Date.parse(b.takenAt));
+  if (known.length < 2) return null;
+  const latest = known[known.length - 1];
+  const inWindow = known.filter((s) => (now.getTime() - Date.parse(s.takenAt)) / DAY_MS <= ACTIVITY_WINDOW_DAYS);
+  const base = inWindow[0];
+  if (!base || base === latest) return null;
+  const days = (Date.parse(latest.takenAt) - Date.parse(base.takenAt)) / DAY_MS;
+  if (days < ACTIVITY_MIN_DAYS) return null;
+  return { perMonth: Math.round((Math.max(0, latest.posts - base.posts) / days) * 30), days: Math.round(days) };
+}
+
 /** Average likes plus comments of the recent posts, as a percent of followers, two decimals. */
 export function engagementRate(followers: number, posts: Array<{ likes: number; comments: number }>): number | null {
   if (!(followers > 0) || posts.length === 0) return null;
