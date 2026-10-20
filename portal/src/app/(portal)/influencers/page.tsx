@@ -7,10 +7,10 @@ import { EmptyState, PageHeader, button, list, panel } from '@/components/ui';
 import { VerifiedMark } from '@/components/verified-mark';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
 import { growthLabel } from '@/lib/discover';
-import { backendQuery, DIRECTORY_PARAMS, effectiveSort, isUnavailable, readParams, refineDirectory } from '@/lib/directory-view';
-import { formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
+import { activityLevel, backendQuery, DIRECTORY_PARAMS, effectiveSort, goalOf, isUnavailable, readParams, refineDirectory } from '@/lib/directory-view';
+import { formatCompact, listSep, nicheText, plural } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
-import { t, type Key, type Lang } from '@/lib/i18n';
+import { dictionaries, t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
 import { parseShortlist } from '@/lib/shortlist';
 import { ChooseButton, ShortlistBar, ShortlistInputs, ShortlistItem, ShortlistLink, ShortlistProvider } from '@/components/shortlist';
@@ -33,6 +33,8 @@ function hrefWith(params: Record<string, string | string[] | undefined>, view: V
 function Stats({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
   const top = [...entry.platforms].sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))[0];
   const growth = growthLabel(entry.growth3m);
+  // Posting rate a month replaces engagement on the card: is this creator still posting?
+  const level = activityLevel(entry.activity);
   return (
     <dl className="grid grid-cols-3 gap-2 text-center">
       <div className="rounded-control bg-ink/[0.04] px-2 py-2">
@@ -43,8 +45,10 @@ function Stats({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
         <dt className="text-xs text-ink-soft">{t(lang, 'cat.followers')}</dt>
       </div>
       <div className="rounded-control bg-ink/[0.04] px-2 py-2">
-        <dd className="font-semibold tabular-nums"><bdi>{formatPercent(entry.engagementRate, lang)}</bdi></dd>
-        <dt className="text-xs text-ink-soft">{t(lang, 'cat.engagement')}</dt>
+        <dd className={`font-semibold ${level === 'high' || level === 'active' ? 'text-success' : 'text-ink-soft'}`}>{t(lang, `dir.activity.${level}` as Key)}</dd>
+        <dt className="text-xs text-ink-soft">
+          {entry.activity ? <bdi>{plural(lang, 'dir.activity.perMonth', entry.activity.perMonth, dictionaries[lang])}</bdi> : t(lang, 'dir.activity')}
+        </dt>
       </div>
       <div className="rounded-control bg-ink/[0.04] px-2 py-2">
         <dd className={`font-semibold tabular-nums ${entry.growth3m === null ? 'text-ink-soft' : entry.growth3m >= 0 ? 'text-success' : 'text-danger'}`}>
@@ -118,7 +122,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
   const shortlist = parseShortlist(params.with);
   const Item = view === 'list' ? InfluencerRow : InfluencerCard;
   // Remounts the list when the results change, so new cards fade in.
-  const resultsKey = `${backendQuery(values)}|${values.minEngagement ?? ''}|${values.minGrowth ?? ''}|${view}`;
+  const resultsKey = `${backendQuery(values)}|${values.maxFollowers ?? ''}|${values.minEngagement ?? ''}|${values.minGrowth ?? ''}|${values.active ?? ''}|${sort}|${view}`;
 
   return (
     <div className="space-y-8">
@@ -131,7 +135,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
         // page starts from that page's `with`, not the one held in memory.
         <ShortlistProvider key={shortlist.join(',')} initial={shortlist}>
           <DirectoryProvider>
-            <BudgetPlanner items={items} currency={currency} lang={lang} />
+            <BudgetPlanner items={items} currency={currency} lang={lang} goal={goalOf(values)} />
             <FilterBar values={values} facets={facets} currency={currency} lang={lang} count={items.length} />
 
             <section aria-labelledby="results-title" className="space-y-4">

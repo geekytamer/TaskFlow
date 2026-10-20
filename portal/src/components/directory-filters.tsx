@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import type { CatalogueList } from '@/lib/catalogue';
-import { DIRECTORY_PARAMS, ENGAGEMENT_STEPS, SORTS, type DirectoryParams, type Sort } from '@/lib/directory-view';
+import { DIRECTORY_PARAMS, GOALS, goalOf, SORTS, type DirectoryParams, type Goal, type Sort } from '@/lib/directory-view';
 import { formatCompact, formatPercent } from '@/lib/format';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
@@ -239,24 +239,47 @@ function FollowerRange({ values, lang }: { values: DirectoryParams; lang: Lang }
   );
 }
 
-/** Engagement floors as one row of toggles: a single tap, no menu. */
-function EngagementChips({ values, lang }: { values: DirectoryParams; lang: Lang }) {
+/** One switch: creators posting about weekly or more (from their monthly rate). */
+function ActiveToggle({ values, lang }: { values: DirectoryParams; lang: Lang }) {
   const { navigate } = useDirectory();
-  const current = values.minEngagement ?? '';
-  const options = [{ value: '', label: t(lang, 'cat.any') }, ...ENGAGEMENT_STEPS.map((n) => ({ value: String(n), label: `${formatPercent(n, lang)}+` }))];
+  const on = Boolean(values.active);
   return (
     <fieldset className="min-w-0">
-      <legend className="mb-1.5 text-sm font-medium text-ink-soft">{t(lang, 'dir.engagement')}</legend>
-      <div className="flex flex-wrap gap-1.5">
+      <legend className="mb-1.5 text-sm font-medium text-ink-soft">{t(lang, 'dir.activity')}</legend>
+      <button type="button" role="switch" aria-checked={on} onClick={() => navigate({ active: on ? null : '1' })}
+        className={`inline-flex h-11 items-center gap-3 rounded-control border px-3.5 text-[15px] font-semibold transition-colors duration-150 ${on ? 'border-accent/60 bg-accent/10' : 'border-field bg-surface hover:border-ink/60'}`}>
+        <span aria-hidden="true" className={`relative h-5 w-9 shrink-0 rounded-full transition-colors duration-150 ${on ? 'bg-accent' : 'bg-ink/20'}`}>
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-ink transition-[inset-inline-start] duration-150 ${on ? 'start-[1.125rem]' : 'start-0.5'}`} />
+        </span>
+        <span className="text-start">
+          <span className="block leading-tight">{t(lang, 'dir.activeOnly')}</span>
+          <span className="block text-xs font-medium text-ink-soft">{t(lang, 'dir.activeOnlyHint')}</span>
+        </span>
+      </button>
+    </fieldset>
+  );
+}
+
+/** The campaign goal: one tap picks who comes first. It orders, never hides. */
+function GoalChips({ values, lang }: { values: DirectoryParams; lang: Lang }) {
+  const { navigate } = useDirectory();
+  const current = goalOf(values);
+  const options: Array<{ value: Goal | null; label: string }> = [{ value: null, label: t(lang, 'cat.any') }, ...GOALS.map((g) => ({ value: g, label: t(lang, `dir.goal.${g}` as Key) }))];
+  return (
+    <fieldset className="min-w-0">
+      <legend className="mb-1.5 text-sm font-medium text-ink-soft">{t(lang, 'dir.goal')}</legend>
+      <div className="flex flex-wrap items-center gap-1.5">
         {options.map((o) => {
           const on = current === o.value;
+          // Picking a goal clears a chosen sort, so the goal's order takes over.
           return (
-            <button key={o.value || 'any'} type="button" aria-pressed={on} onClick={() => navigate({ minEngagement: o.value })}
-              className={`inline-flex h-11 min-w-[3.25rem] items-center justify-center rounded-control border px-3 text-[15px] font-semibold tabular-nums transition-colors duration-150 ${on ? 'border-accent bg-accent text-accent-ink' : 'border-field bg-surface text-ink hover:border-ink/60'}`}>
-              <bdi dir="ltr">{o.label}</bdi>
+            <button key={o.value ?? 'any'} type="button" aria-pressed={on} onClick={() => navigate({ goal: o.value, sort: null })}
+              className={`inline-flex h-10 items-center rounded-full border px-4 text-[15px] font-semibold transition-colors duration-150 ${on ? 'border-accent bg-accent text-accent-ink' : 'border-field bg-surface text-ink hover:border-ink/60'}`}>
+              {o.label}
             </button>
           );
         })}
+        {current && <span className="ms-1 text-sm text-ink-soft">{t(lang, `dir.goalHint.${current}` as Key)}</span>}
       </div>
     </fieldset>
   );
@@ -317,7 +340,7 @@ export function FilterBar({ values, facets, currency, lang, count, before }: {
   values: DirectoryParams; facets: Facets; currency: string; lang: Lang; count: number; before?: ReactNode;
 }) {
   const { navigate } = useDirectory();
-  const active = (['platform', 'niche', 'location', 'gender', 'minEngagement'] as const).filter((k) => values[k]).length
+  const active = (['platform', 'niche', 'location', 'gender', 'minEngagement', 'active', 'goal'] as const).filter((k) => values[k]).length
     + (values.minFollowers || values.maxFollowers ? 1 : 0) + (values.minPrice || values.maxPrice ? 1 : 0);
   const sheet = useRef<HTMLDialogElement>(null);
 
@@ -327,6 +350,7 @@ export function FilterBar({ values, facets, currency, lang, count, before }: {
       <form method="get" action="/influencers" role="search" onSubmit={(e) => { e.preventDefault(); navigate({ q: (new FormData(e.currentTarget).get('q') as string)?.trim() }); }}
         className="rounded-[14px] border border-line bg-surface/80 p-3 sm:p-4">
         {before}
+        <div className="mb-4 hidden border-b border-line pb-4 lg:block"><GoalChips values={values} lang={lang} /></div>
         <div className="flex items-end gap-2 lg:grid lg:grid-cols-4 lg:gap-3 xl:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(0,1fr))]">
           <SearchBox value={values.q ?? ''} lang={lang} />
           <button type="button" onClick={() => sheet.current?.showModal()} aria-haspopup="dialog"
@@ -340,7 +364,7 @@ export function FilterBar({ values, facets, currency, lang, count, before }: {
         <div className="mt-4 hidden gap-x-8 gap-y-5 border-t border-line pt-4 lg:grid lg:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <FollowerRange values={values} lang={lang} />
           <PriceRange idPrefix="bar" values={values} currency={currency} lang={lang} />
-          <div className="lg:col-span-2 2xl:col-span-1"><EngagementChips values={values} lang={lang} /></div>
+          <div className="lg:col-span-2 2xl:col-span-1"><ActiveToggle values={values} lang={lang} /></div>
         </div>
       </form>
 
@@ -357,12 +381,13 @@ export function FilterBar({ values, facets, currency, lang, count, before }: {
           </button>
         </div>
         <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-4">
+          <GoalChips values={values} lang={lang} />
           <div className="grid grid-cols-2 gap-3">
             <ListFields idPrefix="sheet" values={values} facets={facets} lang={lang} />
           </div>
           <FollowerRange values={values} lang={lang} />
           <PriceRange idPrefix="sheet" values={values} currency={currency} lang={lang} />
-          <EngagementChips values={values} lang={lang} />
+          <ActiveToggle values={values} lang={lang} />
         </div>
         <div className="grid grid-cols-[auto_1fr] gap-3 border-t border-line bg-surface px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
           <ClearAllButton lang={lang} className="h-11 rounded-control border border-field px-4 text-[15px] font-semibold disabled:opacity-40" disabled={!active && !values.q} />
@@ -406,6 +431,8 @@ function ActiveChips({ values, facets, currency, lang }: { values: DirectoryPara
     values.availability ? { id: 'availability', label: availabilityLabel(values.availability, lang), clear: { availability: null } } : null,
     values.minEngagement ? { id: 'engagement', label: `${t(lang, 'dir.engagement')}: ${fill(t(lang, 'dir.engagementAtLeast'), { n: formatPercent(Number(values.minEngagement), lang) })}`, clear: { minEngagement: null } } : null,
     growth ? { id: 'growth', label: `${t(lang, 'dir.growth')}: ${growth}`, clear: { minGrowth: null } } : null,
+    values.active ? { id: 'active', label: t(lang, 'dir.activeOnly'), clear: { active: null } } : null,
+    goalOf(values) ? { id: 'goal', label: `${t(lang, 'dir.goal')}: ${t(lang, `dir.goal.${goalOf(values)}` as Key)}`, clear: { goal: null } } : null,
   ] as Array<Chip | null>).filter((c): c is Chip => c !== null);
 
   if (!chips.length) return null;

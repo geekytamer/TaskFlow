@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CatalogueEntry } from '@/lib/catalogue';
 import { formatCompact, formatMoney, formatPercent } from '@/lib/format';
 import { t, type Key, type Lang } from '@/lib/i18n';
+import type { Goal } from '@/lib/directory-view';
 import { planPackages, type Package } from '@/lib/planner';
 import { InfluencerPhoto } from './influencer-photo';
 import { PeakOrbit } from './peak-orbit';
@@ -23,14 +24,15 @@ const MAX_COUNT = 10;
 const fieldBase =
   'h-11 w-full rounded-control border border-field bg-surface text-[15px] text-ink transition-colors hover:border-ink/60 focus-visible:border-ink';
 
-function PackageCard({ pkg, budget, currency, lang }: { pkg: Package; budget: number; currency: string; lang: Lang }) {
+function PackageCard({ pkg, budget, currency, lang, featured = false }: { pkg: Package; budget: number; currency: string; lang: Lang; featured?: boolean }) {
   const { ids, addMany } = useShortlist();
   const added = pkg.items.every((e) => ids.includes(e.id));
   const shown = pkg.items.slice(0, 5);
   const left = budget - pkg.costMax;
   return (
-    <li className="chip-in flex flex-col gap-4 rounded-panel border border-line bg-surface p-4 transition-[border-color] duration-200 hover:border-accent/40">
+    <li className={`chip-in flex flex-col gap-4 rounded-panel border bg-surface p-4 transition-[border-color] duration-200 hover:border-accent/40 ${featured ? 'border-accent/60' : 'border-line'}`}>
       <div>
+        {featured && <p className="mb-1.5 inline-flex rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-accent-ink">{t(lang, 'plan.forGoal')}</p>}
         <h3 className="text-[17px] font-extrabold">{t(lang, `plan.${pkg.kind}` as Key)}</h3>
         <p className="mt-0.5 text-sm text-ink-soft">{t(lang, `plan.${pkg.kind}Hint` as Key)}</p>
       </div>
@@ -74,7 +76,10 @@ function PackageCard({ pkg, budget, currency, lang }: { pkg: Package; budget: nu
   );
 }
 
-export function BudgetPlanner({ items, currency, lang }: { items: CatalogueEntry[]; currency: string; lang: Lang }) {
+/** The group that suits each campaign goal comes first and is marked. */
+const GOAL_PACKAGE: Record<Goal, Package['kind']> = { awareness: 'reach', sales: 'engagement', launch: 'reach' };
+
+export function BudgetPlanner({ items, currency, lang, goal = null }: { items: CatalogueEntry[]; currency: string; lang: Lang; goal?: Goal | null }) {
   const [open, setOpen] = useState(false);
   const [budget, setBudget] = useState('');
   const [count, setCount] = useState(3);
@@ -147,7 +152,8 @@ export function BudgetPlanner({ items, currency, lang }: { items: CatalogueEntry
                 )}
                 {plan.status === 'ok' && (
                   <ul className="grid gap-3 md:grid-cols-3">
-                    {plan.packages.map((p) => <PackageCard key={p.kind} pkg={p} budget={ask!.budget} currency={currency} lang={lang} />)}
+                    {[...plan.packages].sort((a, b) => Number(goal !== null && b.kind === GOAL_PACKAGE[goal]) - Number(goal !== null && a.kind === GOAL_PACKAGE[goal]))
+                      .map((p) => <PackageCard key={p.kind} pkg={p} budget={ask!.budget} currency={currency} lang={lang} featured={goal !== null && p.kind === GOAL_PACKAGE[goal]} />)}
                   </ul>
                 )}
                 <p className="text-sm text-ink-soft">

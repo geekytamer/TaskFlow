@@ -86,3 +86,13 @@ export function catalogueQuery(params: Record<string, string | string[] | undefi
   const text = query.toString();
   return text ? `?${text}` : '';
 }
+
+/**
+ * A dictionary phrase in the right plural form: `base` holds "other", and
+ * `base.zero|one|two|few|many` the forms a language needs (Arabic uses all six).
+ */
+export function plural(lang: Lang, base: string, n: number, dict: Record<string, string>): string {
+  const form = n === 0 && dict[`${base}.zero`] ? 'zero' : new Intl.PluralRules(lang === 'ar' ? 'ar' : 'en').select(n);
+  const text = dict[`${base}.${form}`] ?? dict[base] ?? base;
+  return text.replace('{n}', new Intl.NumberFormat(locale(lang)).format(n));
+}

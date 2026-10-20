@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeFilterCount, effectiveSort, refineDirectory, type DirectoryParams } from './directory-view';
+import { activeFilterCount, activityLevel, backendQuery, effectiveSort, refineDirectory, type DirectoryParams } from './directory-view';
 import type { CatalogueEntry } from './catalogue';
 
 const entry = (over: Partial<CatalogueEntry>): CatalogueEntry => ({
@@ -55,4 +55,34 @@ test('without a search, most relevant keeps the order it was given', () => {
 test('a follower ceiling keeps creators at or under it', () => {
   const items = [entry({ name: 'a', followers: 50_000 }), entry({ name: 'b', followers: 500_000 })];
   assert.deepEqual(refineDirectory(items, p({ maxFollowers: '100000' })).map((e) => e.name), ['a']);
+});
+
+test('a campaign goal picks the order unless a sort is chosen; it is not a filter', () => {
+  assert.equal(effectiveSort(p({ goal: 'sales' })), 'engagement');
+  assert.equal(effectiveSort(p({ goal: 'launch', sort: 'price' })), 'price');
+  assert.equal(activeFilterCount(p({ goal: 'awareness', platform: 'X' })), 1);
+});
+
+test('active only keeps about weekly posters; most active orders by posts a month, unmeasured last', () => {
+  const items = [
+    entry({ name: 'a', activity: { perMonth: 2, days: 30 } }),
+    entry({ name: 'b', activity: { perMonth: 20, days: 30 } }),
+    entry({ name: 'c', activity: null }),
+    entry({ name: 'd', activity: { perMonth: 6, days: 30 } }),
+  ];
+  assert.deepEqual(refineDirectory(items, p({ active: '1' })).map((e) => e.name), ['b', 'd']);
+  assert.deepEqual(refineDirectory(items, p({ sort: 'activity' })).map((e) => e.name), ['b', 'd', 'a', 'c']);
+});
+
+test('activity levels: very active, active, rarely only after two weeks, else measuring', () => {
+  assert.equal(activityLevel({ perMonth: 16, days: 30 }), 'high');
+  assert.equal(activityLevel({ perMonth: 4, days: 30 }), 'active');
+  assert.equal(activityLevel({ perMonth: 1, days: 14 }), 'low');
+  assert.equal(activityLevel({ perMonth: 1, days: 7 }), 'measuring');
+  assert.equal(activityLevel(null), 'measuring');
+});
+
+test('portal-only orders are not sent to the backend', () => {
+  assert.equal(backendQuery(p({ sort: 'activity', platform: 'TikTok' })), '?platform=TikTok');
+  assert.equal(backendQuery(p({ goal: 'sales' })), '?sort=engagement');
 });

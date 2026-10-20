@@ -9,12 +9,34 @@ import { CATALOGUE_FILTERS } from './format';
  * "most relevant" order.
  */
 
-export const VIEW_FILTERS = ['maxFollowers', 'minEngagement', 'minGrowth'] as const;
+export const VIEW_FILTERS = ['maxFollowers', 'minEngagement', 'minGrowth', 'active', 'goal'] as const;
 export const DIRECTORY_PARAMS = [...CATALOGUE_FILTERS, ...VIEW_FILTERS] as const;
 export type DirectoryParams = Partial<Record<(typeof DIRECTORY_PARAMS)[number], string>>;
 
-export const SORTS = ['relevant', 'followers', 'engagement', 'growth', 'price', 'name'] as const;
+export const SORTS = ['relevant', 'followers', 'engagement', 'activity', 'growth', 'price', 'name'] as const;
 export type Sort = (typeof SORTS)[number];
+
+/** Orders the portal applies itself (the backend has no parameter for them). */
+const PORTAL_SORTS: readonly Sort[] = ['relevant', 'activity'];
+
+/** A campaign goal picks the order: who comes first for what the client wants. */
+export const GOALS = ['awareness', 'sales', 'launch'] as const;
+export type Goal = (typeof GOALS)[number];
+const GOAL_SORT: Record<Goal, Sort> = { awareness: 'followers', sales: 'engagement', launch: 'activity' };
+
+/** Posts a month from which a creator counts as active (about one a week), and very active (about four). */
+export const ACTIVE_PER_MONTH = 4;
+export const VERY_ACTIVE_PER_MONTH = 16;
+/** "Rarely posts" needs at least two weeks of history, so one quiet week never brands anyone. */
+const LOW_NEEDS_DAYS = 14;
+
+export type ActivityLevel = 'high' | 'active' | 'low' | 'measuring';
+export function activityLevel(a: CatalogueEntry['activity']): ActivityLevel {
+  if (!a) return 'measuring';
+  if (a.perMonth >= VERY_ACTIVE_PER_MONTH) return 'high';
+  if (a.perMonth >= ACTIVE_PER_MONTH) return 'active';
+  return a.days >= LOW_NEEDS_DAYS ? 'low' : 'measuring';
+}
 
 /** Engagement floors, in percent (4.2 means 4.2%, as the backend stores it). */
 export const ENGAGEMENT_STEPS = [2, 3, 5];
@@ -34,13 +56,17 @@ export function readParams(params: Record<string, string | string[] | undefined>
 
 /** Filters a person chose, not counting the search box or the order. */
 export function activeFilterCount(p: DirectoryParams): number {
-  return DIRECTORY_PARAMS.filter((k) => k !== 'q' && k !== 'sort' && p[k]).length;
+  return DIRECTORY_PARAMS.filter((k) => k !== 'q' && k !== 'sort' && k !== 'goal' && p[k]).length;
 }
+
+export const goalOf = (p: DirectoryParams): Goal | null => GOALS.find((g) => g === p.goal) ?? null;
 
 /** The order in force: the one chosen, else most relevant once someone is searching or narrowing. */
 export function effectiveSort(p: DirectoryParams): Sort {
   const chosen = SORTS.find((s) => s === p.sort);
   if (chosen) return chosen;
+  const goal = goalOf(p);
+  if (goal) return GOAL_SORT[goal];
   return p.q || activeFilterCount(p) >= 2 ? 'relevant' : 'followers';
 }
 
@@ -48,7 +74,7 @@ export function effectiveSort(p: DirectoryParams): Sort {
 export function backendQuery(p: DirectoryParams): string {
   const q = new URLSearchParams();
   for (const key of CATALOGUE_FILTERS) {
-    const v = key === 'sort' ? (effectiveSort(p) === 'relevant' ? '' : effectiveSort(p)) : p[key];
+    const v = key === 'sort' ? (PORTAL_SORTS.includes(effectiveSort(p)) ? '' : effectiveSort(p)) : p[key];
     if (v) q.set(key, v);
   }
   const text = q.toString();
@@ -81,9 +107,15 @@ export function refineDirectory(items: CatalogueEntry[], p: DirectoryParams): Ca
   const kept = items.filter((e) =>
     (maxFollowers === null || e.followers <= maxFollowers)
     && (minEngagement === null || (e.engagementRate !== null && e.engagementRate >= minEngagement))
-    && (minGrowth === null || (e.growth3m !== null && e.growth3m >= minGrowth)));
+    && (minGrowth === null || (e.growth3m !== null && e.growth3m >= minGrowth))
+    && (!p.active || (e.activity?.perMonth ?? -1) >= ACTIVE_PER_MONTH));
+  const sort = effectiveSort(p);
+  // Most active first; those still being measured last, then the backend's order (most followers).
+  if (sort === 'activity') {
+    return kept.map((e, i) => ({ e, i })).sort((a, b) => (b.e.activity?.perMonth ?? -1) - (a.e.activity?.perMonth ?? -1) || a.i - b.i).map((x) => x.e);
+  }
   const q = norm(p.q);
-  if (effectiveSort(p) !== 'relevant' || !q) return kept;
+  if (sort !== 'relevant' || !q) return kept;
   // Stable: equal relevance keeps the backend's order (most followers first).
   return kept.map((e, i) => ({ e, i, r: relevance(e, q) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.e);
 }
