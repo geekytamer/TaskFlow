@@ -12,8 +12,8 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     tag: data.tag,
     data: { url: data.url || '/' },
-    icon: '/icons/192',
-    badge: '/icons/192',
+    icon: '/android-chrome-192x192.png',
+    badge: '/android-chrome-192x192.png',
   }));
 });
 
