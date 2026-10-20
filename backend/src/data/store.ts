@@ -28,6 +28,7 @@ import { WorkspaceStore } from '../workspace/workspace-store';
 import { MediaKitStore } from '../workspace/media-kit';
 import { PushStore } from '../push/push-store';
 import { AcademyStore } from '../academy/academy-store';
+import { readStoredBranding } from '../branding';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
@@ -74,6 +75,7 @@ const FOLLOWUP_SOURCE_MODULES: Readonly<Record<string, string>> = {
 import { seedData } from './seed-data';
 import {
   Company,
+  CompanyBranding,
   Position,
   User,
   CompanyRoleAssignment,
@@ -5196,6 +5198,13 @@ export class DataStore {
           `);
         },
       },
+      {
+        // A company's own look in the app: one JSON column, read with the company row.
+        id: '135_company_branding',
+        run: () => {
+          this.db.exec(`ALTER TABLE companies ADD COLUMN branding TEXT;`);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5925,6 +5934,7 @@ export class DataStore {
     return {
       ...row,
       disabledModules: normalizeDisabledModules(this.parseJson(row.disabledModules)),
+      branding: readStoredBranding(row.branding),
       isTraining: row.isTraining === 1,
       trainingOwnerUserId: row.trainingOwnerUserId ?? undefined,
     };
@@ -6035,6 +6045,14 @@ export class DataStore {
     // how an open browser learns a module was switched off.
     if (modulesChanged) this.bumpAuthzVersion();
     return this.getCompanyById(id);
+  }
+
+  /** Saves a company's brand; null puts TaskFlow's look back. */
+  updateCompanyBranding(id: string, branding: CompanyBranding | null): Company | undefined {
+    const result = this.db
+      .prepare('UPDATE companies SET branding = ? WHERE id = ?')
+      .run(branding ? JSON.stringify(branding) : null, id);
+    return result.changes ? this.getCompanyById(id) : undefined;
   }
 
   private purgeCompanyPermissionData(companyId: string): void {

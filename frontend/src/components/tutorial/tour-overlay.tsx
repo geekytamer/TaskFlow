@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useTour } from './tour-context';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { Button } from '@/components/ui/button';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -58,6 +59,7 @@ async function closeStaleOverlay(target: string) {
 export function TourOverlay() {
   const { activeTour, currentStep, stepIndex, totalSteps, nextStep, prevStep, endTour } = useTour();
   const { language: locale, isRtl } = useI18n();
+  const { brandText } = useBrand();
   const router = useRouter();
   const [rect, setRect] = React.useState<TargetRect | null>(null);
   const [tooltipPos, setTooltipPos] = React.useState({ top: 0, left: 0 });
@@ -219,7 +221,8 @@ export function TourOverlay() {
 
   if (!activeTour || !currentStep) return null;
 
-  const content = locale === 'ar' ? currentStep.ar : currentStep.en;
+  const raw = locale === 'ar' ? currentStep.ar : currentStep.en;
+  const content = { ...raw, title: brandText(raw.title), desc: brandText(raw.desc) };
   const tourName = locale === 'ar' ? activeTour.ar : activeTour.en;
 
   const rx = rect ? rect.x - PAD : 0;

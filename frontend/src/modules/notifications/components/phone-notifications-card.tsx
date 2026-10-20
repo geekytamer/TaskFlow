@@ -5,6 +5,7 @@ import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { showInstallSteps } from '@/components/install-app-card';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { pushSupport, urlBase64ToUint8Array, type PushSupport } from '@/lib/push';
 import {
   getPushKey, listPushDevices, removePushDevice, subscribePush, testPushDevice, unsubscribePush, type PushDevice,
@@ -19,7 +20,8 @@ type State = 'checking' | PushSupport | 'not-set-up' | 'blocked' | 'off' | 'on';
  */
 export function PhoneNotificationsCard() {
   const { language } = useI18n();
-  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const { brandText } = useBrand();
+  const tr = (en: string, ar: string) => brandText(language === 'ar' ? ar : en);
   const [state, setState] = React.useState<State>('checking');
   const [busy, setBusy] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
@@ -138,7 +140,8 @@ export function PhoneNotificationsCard() {
 /** The devices that get this person's phone notifications: send a test to one, or remove it. */
 function DeviceList({ devices, onChanged, onRemovedCurrent }: { devices: PushDevice[]; onChanged: () => Promise<void>; onRemovedCurrent: () => Promise<void> }) {
   const { language } = useI18n();
-  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const { brandText } = useBrand();
+  const tr = (en: string, ar: string) => brandText(language === 'ar' ? ar : en);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ id: string; text: string; error?: boolean } | null>(null);
   const date = (iso: string) => new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));

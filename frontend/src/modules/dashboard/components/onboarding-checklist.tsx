@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { CheckCircle2, Circle, X } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { getContacts } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
 import { getInvoices, getSalesOrders } from '@/services/financeService';
@@ -23,6 +24,7 @@ const DISMISS_KEY_PREFIX = 'taskflow_onboarding_dismissed_';
 export function OnboardingChecklist() {
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
+  const { brandText } = useBrand();
   const [counts, setCounts] = React.useState<{
     contacts: number;
     inventory: number;
@@ -120,7 +122,7 @@ export function OnboardingChecklist() {
   const percent = Math.round((doneCount / offered.length) * 100);
 
   return (
-    <div className="relative rounded-2xl border bg-gradient-to-br from-indigo-50 dark:from-indigo-500/10 via-card to-emerald-50 dark:to-emerald-500/10 p-5 shadow-sm">
+    <div className="relative rounded-2xl border bg-gradient-to-br from-primary/10 via-card to-emerald-50 dark:to-emerald-500/10 p-5 shadow-sm">
       <button
         type="button"
         aria-label={language === 'ar' ? 'تجاهل' : 'Dismiss'}
@@ -131,7 +133,7 @@ export function OnboardingChecklist() {
       </button>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-foreground">{t('onboarding.title')}</h2>
+          <h2 className="text-lg font-bold text-foreground">{brandText(t('onboarding.title'))}</h2>
           <p className="text-sm text-muted-foreground">{t('onboarding.subtitle')}</p>
         </div>
         <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">

@@ -281,7 +281,12 @@ export function InvoiceTemplatePanel({
     };
     return map[layout];
   };
-  const newTemplateForm = React.useMemo(() => ({ ...emptyForm, docType }), [docType]);
+  // A company with a brand starts new templates in its own colour.
+  const brandColour = selectedCompany?.branding?.enabled ? selectedCompany.branding.primaryColor : undefined;
+  const newTemplateForm = React.useMemo(
+    () => ({ ...emptyForm, docType, ...(brandColour ? { accentColor: brandColour } : {}) }),
+    [docType, brandColour],
+  );
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | undefined>();
   const [form, setForm] = React.useState<InvoiceTemplateInput>(newTemplateForm);

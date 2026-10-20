@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTour } from './tour-context';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { useCompany } from '@/context/company-context';
 import { useAcademy } from '@/modules/academy/academy-context';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import { HelpCircle, Play } from 'lucide-react';
 export function WelcomeTourModal() {
   const { startTour } = useTour();
   const { language: locale } = useI18n();
+  const { name: brand } = useBrand();
   const [open, setOpen] = React.useState(false);
   const { currentUser } = useCompany();
   const { progress } = useAcademy();
@@ -48,13 +50,13 @@ export function WelcomeTourModal() {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">
-            {locale === 'ar' ? '👋 مرحباً بك في TaskFlow' : '👋 Welcome to TaskFlow'}
+            {locale === 'ar' ? `👋 مرحباً بك في ${brand}` : `👋 Welcome to ${brand}`}
           </DialogTitle>
         </DialogHeader>
         <p className="text-muted-foreground text-sm leading-relaxed">
           {locale === 'ar'
-            ? 'TaskFlow هو نظام متكامل لإدارة موارد الشركة وعلاقات العملاء — من العملاء المحتملين والفرص وحتى الفواتير والتقارير المالية.'
-            : 'TaskFlow is an all-in-one ERP + CRM — from leads and opportunities all the way through to invoices, projects, and financial reports.'}
+            ? `${brand} هو نظام متكامل لإدارة موارد الشركة وعلاقات العملاء — من العملاء المحتملين والفرص وحتى الفواتير والتقارير المالية.`
+            : `${brand} is an all-in-one ERP + CRM — from leads and opportunities all the way through to invoices, projects, and financial reports.`}
         </p>
         <p className="text-muted-foreground text-sm mt-1">
           {locale === 'ar'

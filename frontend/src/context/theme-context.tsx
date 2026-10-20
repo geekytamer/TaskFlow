@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation';
 export type ThemePreference = 'light' | 'dark' | 'system';
 
 export const THEME_KEY = 'taskflow_theme';
+/** The last company brand seen on this device (see modules/branding/brand-context). */
+export const BRAND_CACHE_KEY = 'taskflow_brand';
 
 // Printable documents (invoices, quotations, delivery notes...) are paper:
 // they always render light, whatever the viewer picked for the app.
@@ -15,41 +17,46 @@ export function isPaperRoute(pathname: string | null | undefined) {
   return !!pathname && PAPER_ROUTES.some((p) => pathname.startsWith(p));
 }
 
-// Runs in <head> before first paint so a dark-mode user never sees a white flash.
+// Runs in <head> before first paint: puts the remembered brand and the right
+// light/dark mode on the page so nobody sees TaskFlow's indigo or a white flash first.
 export const themeBootScript = `(function(){try{var p=location.pathname;var paper=${JSON.stringify(
   PAPER_ROUTES,
-)}.some(function(r){return p.indexOf(r)===0});var t=localStorage.getItem('${THEME_KEY}')||'system';var d=!paper&&(t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches));document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light'}catch(e){}})();`;
+)}.some(function(r){return p.indexOf(r)===0});var b=null;try{b=JSON.parse(localStorage.getItem('${BRAND_CACHE_KEY}')||'null')}catch(e){}if(b&&b.css&&p.indexOf('/admin')!==0){var s=document.createElement('style');s.id='company-brand-boot';s.textContent=b.css;document.head.appendChild(s);if(b.fontHref){var l=document.createElement('link');l.rel='stylesheet';l.href=b.fontHref;document.head.appendChild(l)}}var t=localStorage.getItem('${THEME_KEY}')||(b&&b.defaultMode)||'system';var d=!paper&&(t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches));document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light'}catch(e){}})();`;
 
 type ThemeContextValue = {
+  /** What is in effect: the viewer's own pick, else the company's default, else system. */
   theme: ThemePreference;
   resolvedTheme: 'light' | 'dark';
   setTheme: (theme: ThemePreference) => void;
+  /** The company's default mode, used until the viewer picks one. */
+  setCompanyDefault: (mode: ThemePreference | undefined) => void;
 };
 
 const ThemeContext = React.createContext<ThemeContextValue | null>(null);
 
-function readStored(): ThemePreference {
+function readStored(): ThemePreference | null {
   try {
     const v = localStorage.getItem(THEME_KEY);
     if (v === 'light' || v === 'dark' || v === 'system') return v;
   } catch {}
-  return 'system';
+  return null;
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [theme, setThemeState] = React.useState<ThemePreference>('system');
+  const [chosen, setChosen] = React.useState<ThemePreference | null>(null);
+  const [companyDefault, setCompanyDefault] = React.useState<ThemePreference | undefined>(undefined);
   const [systemDark, setSystemDark] = React.useState(false);
 
   React.useEffect(() => {
-    setThemeState(readStored());
+    setChosen(readStored());
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     setSystemDark(mq.matches);
     const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
     mq.addEventListener('change', onChange);
     // Another tab changed the preference.
     const onStorage = (e: StorageEvent) => {
-      if (e.key === THEME_KEY) setThemeState(readStored());
+      if (e.key === THEME_KEY) setChosen(readStored());
     };
     window.addEventListener('storage', onStorage);
     return () => {
@@ -58,6 +65,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const theme: ThemePreference = chosen ?? companyDefault ?? 'system';
   const resolvedTheme: 'light' | 'dark' =
     theme === 'dark' || (theme === 'system' && systemDark) ? 'dark' : 'light';
   const applied = isPaperRoute(pathname) ? 'light' : resolvedTheme;
@@ -69,11 +77,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [applied]);
 
   const setTheme = React.useCallback((next: ThemePreference) => {
-    setThemeState(next);
+    setChosen(next);
     try { localStorage.setItem(THEME_KEY, next); } catch {}
   }, []);
 
-  const value = React.useMemo(() => ({ theme, resolvedTheme, setTheme }), [theme, resolvedTheme, setTheme]);
+  const value = React.useMemo(
+    () => ({ theme, resolvedTheme, setTheme, setCompanyDefault }),
+    [theme, resolvedTheme, setTheme],
+  );
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

@@ -37,11 +37,12 @@ import { WhatsappSettingsPanel } from './whatsapp-settings-panel';
 import { ConversationSettingsPanel } from './conversation-settings-panel';
 import { PositionTable } from '@/modules/companies/components/position-table';
 import { useCompany } from '@/context/company-context';
+import { BrandSettingsPanel } from '@/modules/branding/brand-settings-panel';
 
 export function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany, currentRole, currentUser } = useCompany();
   const canAdminister = usePermissionOr('settings', 'administration.write', currentRole === 'Admin');
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
@@ -140,6 +141,8 @@ export function SettingsPage() {
           {t('settings.subtitle')}
         </p>
       </div>
+
+      {selectedCompany && !selectedCompany.isTraining && (currentRole === 'Admin' || currentUser?.isSuperAdmin) && <BrandSettingsPanel />}
 
       <NumberingSettingsPanel />
 

@@ -403,7 +403,7 @@ export function Dashboard() {
         {quickActions.length > 0 && (
           <div className="flex gap-3" data-tutorial="dash-quick-actions">
             {quickActions.map((action) => (
-              <a key={action.id} href={action.route} className="bg-card hover:bg-muted/50 px-4 py-2 border border-border rounded-lg text-sm font-semibold text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors flex items-center gap-2">
+              <a key={action.id} href={action.route} className="bg-card hover:bg-muted/50 px-4 py-2 border border-border rounded-lg text-sm font-semibold text-primary shadow-sm transition-colors flex items-center gap-2">
                 <Zap className="w-4 h-4" />
                 {action.label}
               </a>
@@ -415,8 +415,8 @@ export function Dashboard() {
       <OnboardingChecklist />
 
       {metrics.length > 0 && (
-        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-[#e0ebff] to-[#e6e6ff] dark:from-indigo-950/70 dark:to-violet-950/60" data-tutorial="dash-primary-metric">
-          <div className="absolute inset-0 opacity-40 dark:opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
+        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-primary/15 via-primary/5 to-primary/20" data-tutorial="dash-primary-metric">
+          <div className="absolute inset-0 opacity-40 dark:opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, hsl(var(--primary) / 0.45) 0%, transparent 40%), radial-gradient(circle at 100% 80%, hsl(var(--primary) / 0.3) 0%, transparent 40%)' }} />
 
           <div className="relative z-10 flex flex-col xl:flex-row items-center gap-8">
             {primaryMetric && (() => {
@@ -431,7 +431,7 @@ export function Dashboard() {
                 </>
               );
               return primaryHref ? (
-                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-card/30 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 p-2 -m-2">
+                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-card/30 focus:outline-none focus:ring-2 focus:ring-ring/40 p-2 -m-2">
                   {inner}
                 </Link>
               ) : (
@@ -458,7 +458,7 @@ export function Dashboard() {
                     <Link
                       key={item.id}
                       href={href}
-                      className={`${cls} hover:bg-card hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400/40`}
+                      className={`${cls} hover:bg-card hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring/40`}
                     >
                       {inner}
                     </Link>
@@ -509,7 +509,7 @@ export function Dashboard() {
           {activity.length > 0 && (
             <div className={alerts.length > 0 ? 'lg:col-span-2 bg-card rounded-[24px] p-6 shadow-sm flex flex-col' : 'lg:col-span-3 bg-card rounded-[24px] p-6 shadow-sm flex flex-col'}>
               <h3 className="font-bold text-foreground text-lg mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-indigo-500" /> {tr('Recent Activity', 'النشاط الأخير')}
+                <Activity className="w-5 h-5 text-primary" /> {tr('Recent Activity', 'النشاط الأخير')}
               </h3>
               <div className="space-y-3">
                 {activity.slice(0, 5).map((item) => (
