@@ -51,3 +51,8 @@ test('without a search, most relevant keeps the order it was given', () => {
   const items = [entry({ name: 'b', followers: 10 }), entry({ name: 'a', followers: 20 })];
   assert.deepEqual(refineDirectory(items, p({ platform: 'X', niche: 'Y' })).map((e) => e.name), ['b', 'a']);
 });
+
+test('a follower ceiling keeps creators at or under it', () => {
+  const items = [entry({ name: 'a', followers: 50_000 }), entry({ name: 'b', followers: 500_000 })];
+  assert.deepEqual(refineDirectory(items, p({ maxFollowers: '100000' })).map((e) => e.name), ['a']);
+});

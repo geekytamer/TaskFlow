@@ -7,6 +7,7 @@ import { formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Key } from '@/lib/i18n';
 import { growthLabel } from '@/lib/discover';
+import { isUnavailable } from '@/lib/directory-view';
 import { availabilityLabel } from '@/lib/labels';
 import { currentLang } from '@/lib/session';
 import { PageHeader, button, panel } from '@/components/ui';
@@ -51,9 +52,13 @@ export default async function InfluencerPage({ params }: { params: Promise<{ id:
         <div className={`${panel} p-5 md:row-span-2`}>
           <p className="mb-2 text-sm text-ink-soft">{t(lang, 'cat.price')}</p>
           <PriceTag price={influencer.price} lang={lang} detailed />
-          <Link href={`/requests/new?with=${encodeURIComponent(influencer.id)}`} className={`${button.primary} mt-4 w-full`}>
-            {t(lang, 'cat.request')}
-          </Link>
+          {isUnavailable(influencer) ? (
+            <p className="mt-4 rounded-control border border-line px-4 py-3 text-center text-[15px] font-semibold text-ink-soft">{t(lang, 'dir.unavailableLock')}</p>
+          ) : (
+            <Link href={`/requests/new?with=${encodeURIComponent(influencer.id)}`} className={`${button.primary} mt-4 w-full`}>
+              {t(lang, 'cat.request')}
+            </Link>
+          )}
         </div>
 
       <section aria-labelledby="accounts-title" className="min-w-0">

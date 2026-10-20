@@ -1,16 +1,16 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useId, useRef, useState, useTransition, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import type { CatalogueList } from '@/lib/catalogue';
-import { DIRECTORY_PARAMS, ENGAGEMENT_STEPS, GROWTH_STEPS, SORTS, type DirectoryParams, type Sort } from '@/lib/directory-view';
+import { DIRECTORY_PARAMS, ENGAGEMENT_STEPS, SORTS, type DirectoryParams, type Sort } from '@/lib/directory-view';
 import { formatCompact, formatPercent } from '@/lib/format';
 import { t, type Key, type Lang } from '@/lib/i18n';
 import { availabilityLabel } from '@/lib/labels';
 
 /**
  * The influencer directory's filters. Every change updates the URL at once
- * (search and price fields after a short pause), the server page re-renders
+ * (search and the sliders after a short pause), the server page re-renders
  * with the new results, and the list dims under a thin bar while it does.
  * The URL stays the one source of truth: a reload, Back or a shared link
  * shows the same view. The shortlist's `with=` is carried along untouched.
@@ -18,10 +18,6 @@ import { availabilityLabel } from '@/lib/labels';
 
 type Facets = CatalogueList['facets'];
 type Update = Record<string, string | null | undefined>;
-
-const FOLLOWER_STEPS = [10_000, 50_000, 100_000, 500_000, 1_000_000];
-/** Budget presets per post: [min, max], null for open. */
-const BUDGETS: Array<[number | null, number | null]> = [[null, 250], [250, 1_000], [1_000, 5_000], [5_000, null]];
 
 const fill = (text: string, vars: Record<string, string>) => text.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '');
 
@@ -100,73 +96,102 @@ function budgetLabel(min: string | undefined, max: string | undefined, currency:
   return null;
 }
 
-const presetValue = (min?: string, max?: string) => (min || max ? `${min ?? ''}:${max ?? ''}` : '');
-
-function BudgetSelect({ id, values, currency, lang }: { id: string; values: DirectoryParams; currency: string; lang: Lang }) {
-  const { navigate } = useDirectory();
-  const current = presetValue(values.minPrice, values.maxPrice);
-  const presets = BUDGETS.map(([a, b]) => {
-    const value = presetValue(a === null ? undefined : String(a), b === null ? undefined : String(b));
-    return { value, label: budgetLabel(a === null ? undefined : String(a), b === null ? undefined : String(b), currency, lang)! };
-  });
-  // A custom From/To pair still shows as itself, not as "Any".
-  const options = current && !presets.some((p) => p.value === current)
-    ? [...presets, { value: current, label: budgetLabel(values.minPrice, values.maxPrice, currency, lang)! }]
-    : presets;
-  return (
-    <Select id={id} label={t(lang, 'dir.budget')} value={current} anyLabel={t(lang, 'cat.any')} options={options}
-      onChange={(v) => { const [a, b] = v.split(':'); navigate({ minPrice: a, maxPrice: b }); }} />
-  );
-}
-
 /**
- * Slider stops for a price per post. Steps widen as prices grow, so the low
- * end (where most creators sit) gets room. The first stop means "no minimum",
- * the last "no maximum".
+ * Slider stops. Steps widen as values grow, so the low end (where most
+ * creators sit) gets room. The first stop means "no minimum", the last
+ * "no maximum".
  */
 const PRICE_STOPS = [0, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1_000, 1_500, 2_000, 2_500, 3_000, 4_000, 5_000, 7_500, 10_000];
-const LAST = PRICE_STOPS.length - 1;
-/** The stop nearest a typed amount, for placing a handle. */
-const stopOf = (v: string, fallback: number) => {
+const FOLLOWER_STOPS = [0, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 750_000, 1_000_000, 2_000_000, 5_000_000];
+/** Follower bands (the backend's tiers): where each starts on FOLLOWER_STOPS. */
+const TIER_BANDS: Array<{ tier: 'nano' | 'micro' | 'mid' | 'macro' | 'mega'; from: number; to: number }> = [
+  { tier: 'nano', from: 0, to: 2 }, { tier: 'micro', from: 2, to: 5 }, { tier: 'mid', from: 5, to: 7 },
+  { tier: 'macro', from: 7, to: 9 }, { tier: 'mega', from: 9, to: 11 },
+];
+
+/** The stop nearest an amount, for placing a handle. */
+function stopOf(stops: number[], v: string, fallback: number) {
   const n = Number.parseInt(v, 10);
   if (!Number.isFinite(n)) return fallback;
   let best = 0;
-  PRICE_STOPS.forEach((s, i) => { if (Math.abs(s - n) < Math.abs(PRICE_STOPS[best] - n)) best = i; });
+  stops.forEach((x, i) => { if (Math.abs(x - n) < Math.abs(stops[best] - n)) best = i; });
   return best;
-};
+}
 
-function PriceRange({ idPrefix, values, currency, lang }: { idPrefix: string; values: DirectoryParams; currency: string; lang: Lang }) {
+/**
+ * A min/max pair of URL params edited locally and sent once still. Only a
+ * change from elsewhere (a chip, Clear all, Back) rewrites what is shown, so
+ * results arriving late never undo a drag in progress.
+ */
+function useRangeParam(values: DirectoryParams, minKey: 'minPrice' | 'minFollowers', maxKey: 'maxPrice' | 'maxFollowers') {
   const { navigate } = useDirectory();
-  const [range, setRange] = useState({ min: values.minPrice ?? '', max: values.maxPrice ?? '' });
-  // As in the search box: only a change from elsewhere (a preset, a chip, Clear all) rewrites the fields.
-  const urlKey = `${values.minPrice ?? ''}:${values.maxPrice ?? ''}`;
+  const fromUrl = { min: values[minKey] ?? '', max: values[maxKey] ?? '' };
+  const [range, setRange] = useState(fromUrl);
+  const urlKey = `${fromUrl.min}:${fromUrl.max}`;
   const sent = useRef(urlKey);
   useEffect(() => {
-    if (urlKey !== sent.current) { sent.current = urlKey; setRange({ min: values.minPrice ?? '', max: values.maxPrice ?? '' }); }
-  }, [urlKey, values.minPrice, values.maxPrice]);
-  useSettled(range, 600, (r) => {
+    if (urlKey !== sent.current) { sent.current = urlKey; setRange({ min: values[minKey] ?? '', max: values[maxKey] ?? '' }); }
+  }, [urlKey, values, minKey, maxKey]);
+  useSettled(range, 500, (r) => {
     const key = `${r.min}:${r.max}`;
-    if (key !== sent.current) { sent.current = key; navigate({ minPrice: r.min, maxPrice: r.max }); }
+    if (key !== sent.current) { sent.current = key; navigate({ [minKey]: r.min, [maxKey]: r.max }); }
   });
+  return [range, setRange] as const;
+}
 
-  const lo = stopOf(range.min, 0);
-  const hi = Math.max(lo, stopOf(range.max, LAST));
-  const pct = (i: number) => (i / LAST) * 100;
-  const number = (n: number) => new Intl.NumberFormat(lang === 'ar' ? 'ar-OM-u-nu-latn' : 'en-OM').format(n);
-  const money = (n: number) => `${currency} ${number(n)}`;
-  const loText = lo === 0 ? money(0) : money(PRICE_STOPS[lo]);
-  const hiText = hi === LAST ? `${money(PRICE_STOPS[LAST])}+` : money(PRICE_STOPS[hi]);
-  const setStop = (key: 'min' | 'max', i: number) => setRange((r) => ({
-    ...r,
-    [key]: (key === 'min' && i === 0) || (key === 'max' && i === LAST) ? '' : String(PRICE_STOPS[i]),
+/** Two native range inputs on one track: keyboard, touch and screen readers work as usual. */
+function SliderTrack({ lo, hi, last, onLo, onHi, loText, hiText, minLabel, maxLabel, lang }: {
+  lo: number; hi: number; last: number; onLo: (i: number) => void; onHi: (i: number) => void;
+  loText: string; hiText: string; minLabel: string; maxLabel: string; lang: Lang;
+}) {
+  const pct = (i: number) => (i / last) * 100;
+  const inward = lang === 'ar' ? '50%' : '-50%';
+  const close = hi - lo <= Math.max(1, Math.round(last / 6));
+  return (
+    <>
+      <div className="relative mx-2.5 h-6">
+        <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-ink/15" />
+        <div aria-hidden="true" className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent"
+          style={{ insetInlineStart: `${pct(lo)}%`, insetInlineEnd: `${100 - pct(hi)}%` }} />
+        <input type="range" min={0} max={last} step={1} value={lo} aria-label={minLabel} aria-valuetext={loText}
+          onChange={(e) => onLo(Math.min(Number(e.target.value), hi))} className="price-thumb" style={{ zIndex: lo >= last - 1 ? 3 : 2 }} />
+        <input type="range" min={0} max={last} step={1} value={hi} aria-label={maxLabel} aria-valuetext={hiText}
+          onChange={(e) => onHi(Math.max(Number(e.target.value), lo))} className="price-thumb" style={{ zIndex: 2 }} />
+      </div>
+      {/* Labels ride under their handles; when the handles meet, one label shows both. */}
+      <div aria-hidden="true" className="relative mx-2.5 mt-2 h-5 text-[13px] font-semibold tabular-nums text-ink">
+        {close ? (
+          <span className="absolute whitespace-nowrap" style={{ insetInlineStart: `${pct((lo + hi) / 2)}%`, translate: (lo + hi) / 2 / last < 0.2 ? '0' : (lo + hi) / 2 / last > 0.8 ? (lang === 'ar' ? '100%' : '-100%') : inward }}>
+            <bdi dir="ltr">{lo === hi ? loText : `${loText} – ${hiText}`}</bdi>
+          </span>
+        ) : (
+          <>
+            <span className="absolute whitespace-nowrap" style={{ insetInlineStart: `${pct(lo)}%`, translate: lo / last < 0.15 ? '0' : inward }}><bdi dir="ltr">{loText}</bdi></span>
+            <span className="absolute whitespace-nowrap" style={{ insetInlineEnd: `${100 - pct(hi)}%`, translate: hi / last > 0.85 ? '0' : (lang === 'ar' ? '-50%' : '50%') }}><bdi dir="ltr">{hiText}</bdi></span>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+const numberFmt = (lang: Lang) => new Intl.NumberFormat(lang === 'ar' ? 'ar-OM-u-nu-latn' : 'en-OM');
+
+function PriceRange({ idPrefix, values, currency, lang }: { idPrefix: string; values: DirectoryParams; currency: string; lang: Lang }) {
+  const [range, setRange] = useRangeParam(values, 'minPrice', 'maxPrice');
+  const last = PRICE_STOPS.length - 1;
+  const lo = stopOf(PRICE_STOPS, range.min, 0);
+  const hi = Math.max(lo, stopOf(PRICE_STOPS, range.max, last));
+  const money = (n: number) => `${currency} ${numberFmt(lang).format(n)}`;
+  const set = (key: 'min' | 'max', i: number) => setRange((r) => ({
+    ...r, [key]: (key === 'min' && i === 0) || (key === 'max' && i === last) ? '' : String(PRICE_STOPS[i]),
   }));
-
   const input = (key: 'min' | 'max', label: string) => (
     <div className="min-w-0 space-y-1.5">
       <label htmlFor={`${idPrefix}-${key}Price`} className="block text-sm font-medium text-ink-soft">{label}</label>
       <div className="relative">
         <input id={`${idPrefix}-${key}Price`} type="text" inputMode="numeric" dir="ltr" autoComplete="off"
-          placeholder={key === 'min' ? '0' : `${number(PRICE_STOPS[LAST])}+`}
+          placeholder={key === 'min' ? '0' : t(lang, 'cat.any')}
           value={range[key]} onChange={(e) => setRange((r) => ({ ...r, [key]: e.target.value.replace(/[^\d]/g, '').slice(0, 7) }))}
           className={`${fieldBase} pl-3 pr-14 tabular-nums`} />
         {/* The field is always left-to-right (digits), so the unit sits on its physical right in both languages. */}
@@ -174,62 +199,70 @@ function PriceRange({ idPrefix, values, currency, lang }: { idPrefix: string; va
       </div>
     </div>
   );
-
   return (
     <fieldset className="min-w-0">
-      <legend className="mb-3 flex w-full items-baseline justify-between gap-3 text-sm font-medium text-ink-soft">
-        <span>{t(lang, 'dir.priceRange')} ({currency})</span>
-      </legend>
-      {/* Two native range inputs share one track: keyboard, touch and screen readers work as usual. */}
-      <div className="price-slider relative mx-2.5 h-6">
-        <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-ink/15" />
-        <div aria-hidden="true" className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent transition-[inset] duration-75"
-          style={{ insetInlineStart: `${pct(lo)}%`, insetInlineEnd: `${100 - pct(hi)}%` }} />
-        <input type="range" min={0} max={LAST} step={1} value={lo} aria-label={`${t(lang, 'dir.priceRange')}: ${t(lang, 'dir.from')}`} aria-valuetext={loText}
-          onChange={(e) => setStop('min', Math.min(Number(e.target.value), hi))} className="price-thumb" style={{ zIndex: lo > LAST - 2 ? 3 : 2 }} />
-        <input type="range" min={0} max={LAST} step={1} value={hi} aria-label={`${t(lang, 'dir.priceRange')}: ${t(lang, 'dir.to')}`} aria-valuetext={hiText}
-          onChange={(e) => setStop('max', Math.max(Number(e.target.value), lo))} className="price-thumb" style={{ zIndex: 2 }} />
-      </div>
-      {/* Each label rides under its handle, pulled inward at the ends so it never spills out. */}
-      <div aria-hidden="true" className="relative mx-2.5 mt-2 h-5 text-[13px] font-semibold tabular-nums text-ink">
-        <span className="absolute whitespace-nowrap" style={{ insetInlineStart: `${pct(lo)}%`, translate: lo / LAST < 0.15 ? '0' : lang === 'ar' ? '50%' : '-50%' }}><bdi dir="ltr">{loText}</bdi></span>
-        <span className="absolute whitespace-nowrap" style={{ insetInlineEnd: `${100 - pct(hi)}%`, translate: hi / LAST > 0.85 ? '0' : lang === 'ar' ? '-50%' : '50%' }}><bdi dir="ltr">{hiText}</bdi></span>
-      </div>
+      <legend className="mb-3 text-sm font-medium text-ink-soft">{t(lang, 'dir.budget')} ({currency})</legend>
+      <SliderTrack lo={lo} hi={hi} last={last} onLo={(i) => set('min', i)} onHi={(i) => set('max', i)} lang={lang}
+        loText={money(PRICE_STOPS[lo])} hiText={hi === last ? `${money(PRICE_STOPS[last])}+` : money(PRICE_STOPS[hi])}
+        minLabel={`${t(lang, 'dir.budget')}: ${t(lang, 'dir.min')}`} maxLabel={`${t(lang, 'dir.budget')}: ${t(lang, 'dir.max')}`} />
       <div className="mt-3 grid grid-cols-2 gap-3">{input('min', t(lang, 'dir.min'))}{input('max', t(lang, 'dir.max'))}</div>
     </fieldset>
   );
 }
 
-function tierOptions(facets: Facets, lang: Lang) {
-  return facets.tiers.map((v) => ({ value: v, label: `${t(lang, `disc.tier.${v}` as Key)} · ${t(lang, `dir.tierHint.${v}` as Key)}` }));
-}
-
-/** Filters behind "Advanced": the same fields in the desktop panel and the phone sheet. */
-function AdvancedFields({ idPrefix, values, facets, currency, lang }: { idPrefix: string; values: DirectoryParams; facets: Facets; currency: string; lang: Lang }) {
-  const { navigate } = useDirectory();
-  const any = t(lang, 'cat.any');
+/** Followers as a range, with the size bands (Nano to Mega) named along the track. */
+function FollowerRange({ values, lang }: { values: DirectoryParams; lang: Lang }) {
+  const [range, setRange] = useRangeParam(values, 'minFollowers', 'maxFollowers');
+  const last = FOLLOWER_STOPS.length - 1;
+  const lo = stopOf(FOLLOWER_STOPS, range.min, 0);
+  const hi = Math.max(lo, stopOf(FOLLOWER_STOPS, range.max, last));
+  const set = (key: 'min' | 'max', i: number) => setRange((r) => ({
+    ...r, [key]: (key === 'min' && i === 0) || (key === 'max' && i === last) ? '' : String(FOLLOWER_STOPS[i]),
+  }));
+  const num = (i: number) => formatCompact(FOLLOWER_STOPS[i], lang);
   return (
-    <>
-      <Select id={`${idPrefix}-location`} label={t(lang, 'disc.location')} value={values.location ?? ''} anyLabel={any}
-        options={facets.locations.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ location: v })} />
-      <Select id={`${idPrefix}-gender`} label={t(lang, 'disc.gender')} value={values.gender ?? ''} anyLabel={any}
-        options={[{ value: 'female', label: t(lang, 'disc.female') }, { value: 'male', label: t(lang, 'disc.male') }]} onChange={(v) => navigate({ gender: v })} />
-      <Select id={`${idPrefix}-tier`} label={t(lang, 'disc.tier')} value={values.tier ?? ''} anyLabel={any}
-        options={tierOptions(facets, lang)} onChange={(v) => navigate({ tier: v })} />
-      <Select id={`${idPrefix}-availability`} label={t(lang, 'cat.availability')} value={values.availability ?? ''} anyLabel={any}
-        options={facets.availability.map((v) => ({ value: v, label: availabilityLabel(v, lang) }))} onChange={(v) => navigate({ availability: v })} />
-      <Select id={`${idPrefix}-engagement`} label={t(lang, 'dir.engagement')} value={values.minEngagement ?? ''} anyLabel={any}
-        options={ENGAGEMENT_STEPS.map((n) => ({ value: String(n), label: fill(t(lang, 'dir.engagementAtLeast'), { n: formatPercent(n, lang) }) }))}
-        onChange={(v) => navigate({ minEngagement: v })} />
-      <Select id={`${idPrefix}-growth`} label={t(lang, 'dir.growth')} value={values.minGrowth ?? ''} anyLabel={any}
-        options={GROWTH_STEPS.map((n) => ({ value: String(n), label: n === 0 ? t(lang, 'dir.growing') : fill(t(lang, 'dir.growthAtLeast'), { n: formatPercent(n, lang) }) }))}
-        onChange={(v) => navigate({ minGrowth: v })} />
-      <div className="sm:col-span-2 lg:col-span-2"><PriceRange idPrefix={idPrefix} values={values} currency={currency} lang={lang} /></div>
-    </>
+    <fieldset className="min-w-0">
+      <legend className="mb-1.5 text-sm font-medium text-ink-soft">{t(lang, 'dir.followers')}</legend>
+      {/* The bands explain the sizes; the ones the range covers are lit. */}
+      <div aria-hidden="true" className="mx-2.5 mb-1 flex text-[11px] font-semibold">
+        {TIER_BANDS.map((b) => (
+          <span key={b.tier} className={`truncate text-center transition-colors duration-150 ${b.to > lo && b.from < hi ? 'text-ink' : 'text-ink-soft/60'}`}
+            style={{ width: `${((b.to - b.from) / last) * 100}%` }}>
+            {t(lang, `disc.tier.${b.tier}` as Key)}
+          </span>
+        ))}
+      </div>
+      <SliderTrack lo={lo} hi={hi} last={last} onLo={(i) => set('min', i)} onHi={(i) => set('max', i)} lang={lang}
+        loText={num(lo)} hiText={hi === last ? `${num(last)}+` : num(hi)}
+        minLabel={`${t(lang, 'dir.followers')}: ${t(lang, 'dir.min')}`} maxLabel={`${t(lang, 'dir.followers')}: ${t(lang, 'dir.max')}`} />
+    </fieldset>
   );
 }
 
-function MainFields({ idPrefix, values, facets, currency, lang }: { idPrefix: string; values: DirectoryParams; facets: Facets; currency: string; lang: Lang }) {
+/** Engagement floors as one row of toggles: a single tap, no menu. */
+function EngagementChips({ values, lang }: { values: DirectoryParams; lang: Lang }) {
+  const { navigate } = useDirectory();
+  const current = values.minEngagement ?? '';
+  const options = [{ value: '', label: t(lang, 'cat.any') }, ...ENGAGEMENT_STEPS.map((n) => ({ value: String(n), label: `${formatPercent(n, lang)}+` }))];
+  return (
+    <fieldset className="min-w-0">
+      <legend className="mb-1.5 text-sm font-medium text-ink-soft">{t(lang, 'dir.engagement')}</legend>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const on = current === o.value;
+          return (
+            <button key={o.value || 'any'} type="button" aria-pressed={on} onClick={() => navigate({ minEngagement: o.value })}
+              className={`inline-flex h-11 min-w-[3.25rem] items-center justify-center rounded-control border px-3 text-[15px] font-semibold tabular-nums transition-colors duration-150 ${on ? 'border-accent bg-accent text-accent-ink' : 'border-field bg-surface text-ink hover:border-ink/60'}`}>
+              <bdi dir="ltr">{o.label}</bdi>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function ListFields({ idPrefix, values, facets, lang }: { idPrefix: string; values: DirectoryParams; facets: Facets; lang: Lang }) {
   const { navigate } = useDirectory();
   const any = t(lang, 'cat.any');
   return (
@@ -238,9 +271,10 @@ function MainFields({ idPrefix, values, facets, currency, lang }: { idPrefix: st
         options={facets.platforms.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ platform: v })} />
       <Select id={`${idPrefix}-niche`} label={t(lang, 'cat.niche')} value={values.niche ?? ''} anyLabel={any}
         options={facets.niches.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ niche: v })} />
-      <Select id={`${idPrefix}-minFollowers`} label={t(lang, 'cat.minFollowers')} value={values.minFollowers ?? ''} anyLabel={any}
-        options={FOLLOWER_STEPS.map((n) => ({ value: String(n), label: `${formatCompact(n, lang)}+` }))} onChange={(v) => navigate({ minFollowers: v })} />
-      <BudgetSelect id={`${idPrefix}-budget`} values={values} currency={currency} lang={lang} />
+      <Select id={`${idPrefix}-location`} label={t(lang, 'disc.location')} value={values.location ?? ''} anyLabel={any}
+        options={facets.locations.map((v) => ({ value: v, label: v }))} onChange={(v) => navigate({ location: v })} />
+      <Select id={`${idPrefix}-gender`} label={t(lang, 'disc.gender')} value={values.gender ?? ''} anyLabel={any}
+        options={[{ value: 'female', label: t(lang, 'disc.female') }, { value: 'male', label: t(lang, 'disc.male') }]} onChange={(v) => navigate({ gender: v })} />
     </>
   );
 }
@@ -254,11 +288,13 @@ function SearchBox({ value, lang }: { value: string; lang: Lang }) {
   useEffect(() => { if (value !== sent.current) { sent.current = value; setQ(value); } }, [value]);
   useSettled(q, 300, (v) => { if (v.trim() !== sent.current) { sent.current = v.trim(); navigate({ q: v.trim() }); } });
   return (
-    <div className="relative min-w-0 flex-1">
-      <label htmlFor="dir-q" className="sr-only">{t(lang, 'cat.search')}</label>
-      <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute start-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-ink-soft" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><circle cx="9" cy="9" r="5.5" /><path d="m13.2 13.2 3.3 3.3" /></svg>
-      <input id="dir-q" name="q" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t(lang, 'dir.searchHint')}
-        autoComplete="off" enterKeyHint="search" className={`${fieldBase} pe-3 ps-10`} />
+    <div className="min-w-0 flex-1 space-y-1.5 lg:col-span-4 xl:col-span-1">
+      <label htmlFor="dir-q" className="sr-only lg:not-sr-only lg:block lg:text-sm lg:font-medium lg:text-ink-soft">{t(lang, 'cat.search')}</label>
+      <div className="relative">
+        <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute start-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-ink-soft" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><circle cx="9" cy="9" r="5.5" /><path d="m13.2 13.2 3.3 3.3" /></svg>
+        <input id="dir-q" name="q" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t(lang, 'dir.searchHint')}
+          autoComplete="off" enterKeyHint="search" className={`${fieldBase} pe-3 ps-10`} />
+      </div>
     </div>
   );
 }
@@ -272,46 +308,39 @@ function Badge({ n }: { n: number }) {
   return <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-xs font-bold leading-5 text-accent-ink"><bdi>{n}</bdi></span>;
 }
 
-const ADVANCED_KEYS = ['location', 'gender', 'tier', 'availability', 'minEngagement', 'minGrowth'] as const;
-
-export function FilterBar({ values, facets, currency, lang, count }: { values: DirectoryParams; facets: Facets; currency: string; lang: Lang; count: number }) {
+/**
+ * Seven filters, all in view on a wide screen: search and four lists on top,
+ * the two ranges and engagement below. Phones get the search box and a
+ * Filters button that opens the same fields in a bottom sheet.
+ */
+export function FilterBar({ values, facets, currency, lang, count, before }: {
+  values: DirectoryParams; facets: Facets; currency: string; lang: Lang; count: number; before?: ReactNode;
+}) {
   const { navigate } = useDirectory();
-  const advancedActive = ADVANCED_KEYS.filter((k) => values[k]).length;
-  const allActive = advancedActive + (['platform', 'niche', 'minFollowers'] as const).filter((k) => values[k]).length + (values.minPrice || values.maxPrice ? 1 : 0);
-  const [open, setOpen] = useState(advancedActive > 0);
-  const panelId = useId();
+  const active = (['platform', 'niche', 'location', 'gender', 'minEngagement'] as const).filter((k) => values[k]).length
+    + (values.minFollowers || values.maxFollowers ? 1 : 0) + (values.minPrice || values.maxPrice ? 1 : 0);
   const sheet = useRef<HTMLDialogElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  // Closed, the panel's fields leave the tab order (React 18 has no `inert` prop).
-  useEffect(() => { panel.current?.toggleAttribute('inert', !open); }, [open]);
 
   return (
     <div className="space-y-3">
       {/* Enter in the search box still works without the debounce, and without JavaScript. */}
       <form method="get" action="/influencers" role="search" onSubmit={(e) => { e.preventDefault(); navigate({ q: (new FormData(e.currentTarget).get('q') as string)?.trim() }); }}
-        className={`rounded-[14px] border border-line bg-surface/80 p-3 transition-[border-color] duration-200 sm:p-4 ${open ? 'border-ink/20' : ''}`}>
-        <div className="flex gap-2">
+        className="rounded-[14px] border border-line bg-surface/80 p-3 sm:p-4">
+        {before}
+        <div className="flex items-end gap-2 lg:grid lg:grid-cols-4 lg:gap-3 xl:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(0,1fr))]">
           <SearchBox value={values.q ?? ''} lang={lang} />
           <button type="button" onClick={() => sheet.current?.showModal()} aria-haspopup="dialog"
             className="inline-flex h-11 shrink-0 items-center gap-2 rounded-control border border-field bg-surface px-3.5 text-[15px] font-semibold transition-colors hover:border-ink/60 lg:hidden">
-            <FilterIcon /><span>{t(lang, 'cat.filters')}</span><Badge n={allActive} />
+            <FilterIcon /><span>{t(lang, 'cat.filters')}</span><Badge n={active} />
           </button>
-          <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}
-            className={`hidden h-11 shrink-0 items-center gap-2 rounded-control border px-3.5 text-[15px] font-semibold transition-colors lg:inline-flex ${open ? 'border-ink/60 bg-ink/[0.06]' : 'border-field bg-surface hover:border-ink/60'}`}>
-            <FilterIcon /><span className="whitespace-nowrap">{t(lang, 'dir.advanced')}</span><Badge n={advancedActive} />
-            <svg aria-hidden="true" viewBox="0 0 16 16" className={`h-4 w-4 text-ink-soft transition-transform duration-200 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m4 6 4 4 4-4" /></svg>
-          </button>
-        </div>
-        <div className="mt-3 hidden grid-cols-4 gap-3 lg:grid">
-          <MainFields idPrefix="bar" values={values} facets={facets} currency={currency} lang={lang} />
-        </div>
-        {/* Opens by growing its row: no measuring, no layout jump below. */}
-        <div id={panelId} ref={panel} className={`hidden transition-[grid-template-rows,opacity] duration-300 ease-[var(--ease-out)] lg:grid ${open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-          <div className="overflow-hidden">
-            <div className="mt-4 grid grid-cols-4 gap-x-3 gap-y-4 border-t border-line pt-4">
-              <AdvancedFields idPrefix="adv" values={values} facets={facets} currency={currency} lang={lang} />
-            </div>
+          <div className="hidden lg:contents">
+            <ListFields idPrefix="bar" values={values} facets={facets} lang={lang} />
           </div>
+        </div>
+        <div className="mt-4 hidden gap-x-8 gap-y-5 border-t border-line pt-4 lg:grid lg:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <FollowerRange values={values} lang={lang} />
+          <PriceRange idPrefix="bar" values={values} currency={currency} lang={lang} />
+          <div className="lg:col-span-2 2xl:col-span-1"><EngagementChips values={values} lang={lang} /></div>
         </div>
       </form>
 
@@ -327,15 +356,16 @@ export function FilterBar({ values, facets, currency, lang, count }: { values: D
             <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <MainFields idPrefix="sheet" values={values} facets={facets} currency={currency} lang={lang} />
-            <div className="border-t border-line sm:col-span-2" />
-            <AdvancedFields idPrefix="sheet-adv" values={values} facets={facets} currency={currency} lang={lang} />
+        <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <ListFields idPrefix="sheet" values={values} facets={facets} lang={lang} />
           </div>
+          <FollowerRange values={values} lang={lang} />
+          <PriceRange idPrefix="sheet" values={values} currency={currency} lang={lang} />
+          <EngagementChips values={values} lang={lang} />
         </div>
         <div className="grid grid-cols-[auto_1fr] gap-3 border-t border-line bg-surface px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
-          <ClearAllButton lang={lang} className="h-11 rounded-control border border-field px-4 text-[15px] font-semibold disabled:opacity-40" disabled={!allActive && !values.q} />
+          <ClearAllButton lang={lang} className="h-11 rounded-control border border-field px-4 text-[15px] font-semibold disabled:opacity-40" disabled={!active && !values.q} />
           <button type="button" onClick={() => sheet.current?.close()}
             className="inline-flex h-11 items-center justify-center rounded-control bg-accent px-4 text-[15px] font-bold text-accent-ink transition-colors hover:bg-accent/90">
             {fill(t(lang, 'dir.showResults'), { n: String(count) })}
@@ -360,7 +390,15 @@ function ActiveChips({ values, facets, currency, lang }: { values: DirectoryPara
     values.q ? { id: 'q', label: `“${values.q}”`, clear: { q: null } } : null,
     values.platform ? { id: 'platform', label: values.platform, clear: { platform: null } } : null,
     values.niche ? { id: 'niche', label: values.niche, clear: { niche: null } } : null,
-    values.minFollowers ? { id: 'minFollowers', label: fill(t(lang, 'dir.followersAtLeast'), { n: formatCompact(Number(values.minFollowers), lang) }), clear: { minFollowers: null } } : null,
+    values.minFollowers || values.maxFollowers ? {
+      id: 'followers',
+      label: values.minFollowers && values.maxFollowers
+        ? fill(t(lang, 'dir.followersBetween'), { a: formatCompact(Number(values.minFollowers), lang), b: formatCompact(Number(values.maxFollowers), lang) })
+        : values.maxFollowers
+          ? fill(t(lang, 'dir.followersUpTo'), { b: formatCompact(Number(values.maxFollowers), lang) })
+          : fill(t(lang, 'dir.followersAtLeast'), { n: formatCompact(Number(values.minFollowers), lang) }),
+      clear: { minFollowers: null, maxFollowers: null },
+    } : null,
     values.minPrice || values.maxPrice ? { id: 'price', label: budgetLabel(values.minPrice, values.maxPrice, currency, lang)!, clear: { minPrice: null, maxPrice: null } } : null,
     values.location ? { id: 'location', label: values.location, clear: { location: null } } : null,
     values.gender ? { id: 'gender', label: t(lang, values.gender === 'male' ? 'disc.male' : 'disc.female'), clear: { gender: null } } : null,

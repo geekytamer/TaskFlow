@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BudgetPlanner } from '@/components/budget-planner';
 import { DirectoryProvider, FilterBar, ResultsHeader, ResultsPane } from '@/components/directory-filters';
 import { InfluencerPhoto } from '@/components/influencer-photo';
 import { PriceTag } from '@/components/price-tag';
@@ -6,7 +7,7 @@ import { EmptyState, PageHeader, button, list, panel } from '@/components/ui';
 import { VerifiedMark } from '@/components/verified-mark';
 import { getCatalogue, type CatalogueEntry } from '@/lib/catalogue';
 import { growthLabel } from '@/lib/discover';
-import { backendQuery, DIRECTORY_PARAMS, effectiveSort, readParams, refineDirectory } from '@/lib/directory-view';
+import { backendQuery, DIRECTORY_PARAMS, effectiveSort, isUnavailable, readParams, refineDirectory } from '@/lib/directory-view';
 import { formatCompact, formatPercent, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Key, type Lang } from '@/lib/i18n';
@@ -77,7 +78,7 @@ function InfluencerCard({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) 
       <Stats entry={entry} lang={lang} />
       <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <PriceTag price={entry.price} lang={lang} />
-        <ChooseButton id={entry.id} name={entry.name} lang={lang} />
+        <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
       </div>
     </ShortlistItem>
   );
@@ -96,7 +97,7 @@ function InfluencerRow({ entry, lang }: { entry: CatalogueEntry; lang: Lang }) {
       </Link>
       <Stats entry={entry} lang={lang} />
       <div className="md:text-end"><PriceTag price={entry.price} lang={lang} /></div>
-      <ChooseButton id={entry.id} name={entry.name} lang={lang} />
+      <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
     </ShortlistItem>
   );
 }
@@ -130,6 +131,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
         // page starts from that page's `with`, not the one held in memory.
         <ShortlistProvider key={shortlist.join(',')} initial={shortlist}>
           <DirectoryProvider>
+            <BudgetPlanner items={items} currency={currency} lang={lang} />
             <FilterBar values={values} facets={facets} currency={currency} lang={lang} count={items.length} />
 
             <section aria-labelledby="results-title" className="space-y-4">
