@@ -1,7 +1,9 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Deploys build into a side folder (NEXT_DIST_DIR=.next-new) and swap it in,
+  // so the running server never serves a half-written .next.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Builds fail on type errors and lint errors, so neither can reach a deploy.
   typescript: {
     ignoreBuildErrors: false,
