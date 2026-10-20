@@ -90,7 +90,7 @@ export function TourHelpButton() {
       asChild
       variant="ghost"
       size="sm"
-      className={`w-full justify-start gap-2 ${active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+      className={`w-full justify-start gap-2 hover:bg-sidebar-accent ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/75 hover:text-sidebar-accent-foreground'}`}
       data-tutorial="tour-help-button"
     >
       <Link href="/guide">

@@ -71,7 +71,7 @@ function ColourField({
         <label className="relative flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full border bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)] shadow-sm" title={label}>
           <input
             type="color"
-            value={value ?? '#5b6af0'}
+            value={value ?? '#94701a'}
             onChange={(e) => onChange(e.target.value)}
             className="absolute inset-0 cursor-pointer opacity-0"
           />

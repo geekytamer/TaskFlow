@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   icons: { icon: '/brand/favicon.png', apple: '/icons/180' },
 };
 
-export const viewport: Viewport = { themeColor: '#5B6AF0' };
+export const viewport: Viewport = { themeColor: '#0a1929' };
 
 export default function RootLayout({
   children,

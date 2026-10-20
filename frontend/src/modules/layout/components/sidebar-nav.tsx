@@ -270,7 +270,7 @@ export function SidebarNav() {
         if (!visible.length) return null;
         return (
           <SidebarGroup key={section.labelKey} className="py-1">
-            <SidebarGroupLabel className="px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            <SidebarGroupLabel className="px-3 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/55">
               {t(section.labelKey)}
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -296,7 +296,7 @@ export function SidebarNav() {
                             <span className="truncate">{t(item.labelKey)}</span>
                           </span>
                           {isLocked(item.href) && (
-                            <Lock className="ms-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={t('nav.lockedByAcademy')} />
+                            <Lock className="ms-2 h-3.5 w-3.5 shrink-0 text-sidebar-foreground/60" aria-label={t('nav.lockedByAcademy')} />
                           )}
                           {badge > 0 && (
                             <span className="ms-2 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">

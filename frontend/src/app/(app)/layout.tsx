@@ -95,7 +95,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <BrandMark
             className="px-2 group-data-[collapsible=icon]:hidden"
             logoClassName="h-8 w-8"
-            nameClassName="font-headline text-2xl font-bold text-primary"
+            nameClassName="font-headline text-2xl font-bold text-sidebar-primary"
           />
         </SidebarHeader>
         <SidebarContent>

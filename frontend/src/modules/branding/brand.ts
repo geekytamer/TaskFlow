@@ -47,7 +47,7 @@ export const BRAND_RADII: Record<BrandRadius, string> = {
 
 /** Colours offered as one-click choices in the brand panel. */
 export const BRAND_SWATCHES = [
-  '#5b6af0', '#f26a1b', '#e11d48', '#16a34a', '#0891b2', '#7c3aed', '#ca8a04', '#111111',
+  '#94701a', '#0a1929', '#f26a1b', '#e11d48', '#16a34a', '#0891b2', '#7c3aed', '#ca8a04', '#111111',
 ];
 
 type Hsl = { h: number; s: number; l: number };
