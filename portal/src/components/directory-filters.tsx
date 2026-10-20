@@ -119,6 +119,22 @@ function BudgetSelect({ id, values, currency, lang }: { id: string; values: Dire
   );
 }
 
+/**
+ * Slider stops for a price per post. Steps widen as prices grow, so the low
+ * end (where most creators sit) gets room. The first stop means "no minimum",
+ * the last "no maximum".
+ */
+const PRICE_STOPS = [0, 50, 100, 150, 200, 250, 300, 400, 500, 750, 1_000, 1_500, 2_000, 2_500, 3_000, 4_000, 5_000, 7_500, 10_000];
+const LAST = PRICE_STOPS.length - 1;
+/** The stop nearest a typed amount, for placing a handle. */
+const stopOf = (v: string, fallback: number) => {
+  const n = Number.parseInt(v, 10);
+  if (!Number.isFinite(n)) return fallback;
+  let best = 0;
+  PRICE_STOPS.forEach((s, i) => { if (Math.abs(s - n) < Math.abs(PRICE_STOPS[best] - n)) best = i; });
+  return best;
+};
+
 function PriceRange({ idPrefix, values, currency, lang }: { idPrefix: string; values: DirectoryParams; currency: string; lang: Lang }) {
   const { navigate } = useDirectory();
   const [range, setRange] = useState({ min: values.minPrice ?? '', max: values.maxPrice ?? '' });
@@ -132,22 +148,54 @@ function PriceRange({ idPrefix, values, currency, lang }: { idPrefix: string; va
     const key = `${r.min}:${r.max}`;
     if (key !== sent.current) { sent.current = key; navigate({ minPrice: r.min, maxPrice: r.max }); }
   });
+
+  const lo = stopOf(range.min, 0);
+  const hi = Math.max(lo, stopOf(range.max, LAST));
+  const pct = (i: number) => (i / LAST) * 100;
+  const number = (n: number) => new Intl.NumberFormat(lang === 'ar' ? 'ar-OM-u-nu-latn' : 'en-OM').format(n);
+  const money = (n: number) => `${currency} ${number(n)}`;
+  const loText = lo === 0 ? money(0) : money(PRICE_STOPS[lo]);
+  const hiText = hi === LAST ? `${money(PRICE_STOPS[LAST])}+` : money(PRICE_STOPS[hi]);
+  const setStop = (key: 'min' | 'max', i: number) => setRange((r) => ({
+    ...r,
+    [key]: (key === 'min' && i === 0) || (key === 'max' && i === LAST) ? '' : String(PRICE_STOPS[i]),
+  }));
+
   const input = (key: 'min' | 'max', label: string) => (
     <div className="min-w-0 space-y-1.5">
       <label htmlFor={`${idPrefix}-${key}Price`} className="block text-sm font-medium text-ink-soft">{label}</label>
       <div className="relative">
-        <input id={`${idPrefix}-${key}Price`} type="text" inputMode="numeric" dir="ltr" autoComplete="off" placeholder="0"
+        <input id={`${idPrefix}-${key}Price`} type="text" inputMode="numeric" dir="ltr" autoComplete="off"
+          placeholder={key === 'min' ? '0' : `${number(PRICE_STOPS[LAST])}+`}
           value={range[key]} onChange={(e) => setRange((r) => ({ ...r, [key]: e.target.value.replace(/[^\d]/g, '').slice(0, 7) }))}
-          className={`${fieldBase} pe-14 ps-3 tabular-nums`} />
-        <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-sm text-ink-soft">{currency}</span>
+          className={`${fieldBase} pl-3 pr-14 tabular-nums`} />
+        {/* The field is always left-to-right (digits), so the unit sits on its physical right in both languages. */}
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-ink-soft">{currency}</span>
       </div>
     </div>
   );
+
   return (
     <fieldset className="min-w-0">
-      {/* One label row, level with the fields beside it: "Price range: From" / "To". */}
-      <legend className="sr-only">{t(lang, 'dir.priceRange')}</legend>
-      <div className="grid grid-cols-2 gap-3">{input('min', `${t(lang, 'dir.priceRange')}: ${t(lang, 'dir.from')}`)}{input('max', t(lang, 'dir.to'))}</div>
+      <legend className="mb-3 flex w-full items-baseline justify-between gap-3 text-sm font-medium text-ink-soft">
+        <span>{t(lang, 'dir.priceRange')} ({currency})</span>
+      </legend>
+      {/* Two native range inputs share one track: keyboard, touch and screen readers work as usual. */}
+      <div className="price-slider relative mx-2.5 h-6">
+        <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-ink/15" />
+        <div aria-hidden="true" className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent transition-[inset] duration-75"
+          style={{ insetInlineStart: `${pct(lo)}%`, insetInlineEnd: `${100 - pct(hi)}%` }} />
+        <input type="range" min={0} max={LAST} step={1} value={lo} aria-label={`${t(lang, 'dir.priceRange')}: ${t(lang, 'dir.from')}`} aria-valuetext={loText}
+          onChange={(e) => setStop('min', Math.min(Number(e.target.value), hi))} className="price-thumb" style={{ zIndex: lo > LAST - 2 ? 3 : 2 }} />
+        <input type="range" min={0} max={LAST} step={1} value={hi} aria-label={`${t(lang, 'dir.priceRange')}: ${t(lang, 'dir.to')}`} aria-valuetext={hiText}
+          onChange={(e) => setStop('max', Math.max(Number(e.target.value), lo))} className="price-thumb" style={{ zIndex: 2 }} />
+      </div>
+      {/* Each label rides under its handle, pulled inward at the ends so it never spills out. */}
+      <div aria-hidden="true" className="relative mx-2.5 mt-2 h-5 text-[13px] font-semibold tabular-nums text-ink">
+        <span className="absolute whitespace-nowrap" style={{ insetInlineStart: `${pct(lo)}%`, translate: lo / LAST < 0.15 ? '0' : lang === 'ar' ? '50%' : '-50%' }}><bdi dir="ltr">{loText}</bdi></span>
+        <span className="absolute whitespace-nowrap" style={{ insetInlineEnd: `${100 - pct(hi)}%`, translate: hi / LAST > 0.85 ? '0' : lang === 'ar' ? '-50%' : '50%' }}><bdi dir="ltr">{hiText}</bdi></span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">{input('min', t(lang, 'dir.min'))}{input('max', t(lang, 'dir.max'))}</div>
     </fieldset>
   );
 }
