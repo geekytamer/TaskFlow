@@ -34,6 +34,10 @@
   --radius-control: 6px;
   --radius-panel: 10px;
   --shadow-float: 0 -1px 0 rgb(255 255 255 / 0.04), 0 -12px 32px -12px rgb(0 0 0 / 0.8);
+  /* Motion: quick, decelerating arrivals; nothing waits on choreography. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-quick: 150ms;
+  --dur-enter: 420ms;
   color-scheme: dark;
 }
 
@@ -61,9 +65,6 @@ body {
 
 ::selection { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 
-@media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-}
 
 /* Figures line up in columns everywhere. */
 body { font-variant-numeric: tabular-nums; }
@@ -78,3 +79,102 @@ p { text-wrap: pretty; }
 /* The end edge for direction-aware gradients (the mobile nav fade). */
 :root { --nav-end: right; }
 [dir='rtl'] { --nav-end: left; }
+
+/* Headings speak in Peak's voice: Cairo, heavy and tight, as on peak-creative.agency. */
+h1, h2 { font-family: var(--font-display), var(--font-latin), var(--font-arabic), system-ui, sans-serif; }
+[dir='rtl'] h1 { letter-spacing: -0.01em; }
+
+/*
+ * The night sky behind the work: two sparse layers of tiny points, fixed to
+ * the viewport, so faint they read as texture rather than stars. One layer
+ * breathes slowly; nothing moves across the screen.
+ */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body { isolation: isolate; }
+body::before {
+  background-image:
+    radial-gradient(1px 1px at 23px 41px, rgb(255 255 255 / 0.5), transparent 70%),
+    radial-gradient(1px 1px at 141px 97px, rgb(255 255 255 / 0.35), transparent 70%),
+    radial-gradient(1px 1px at 211px 13px, rgb(255 255 255 / 0.45), transparent 70%),
+    radial-gradient(1px 1px at 87px 183px, rgb(255 255 255 / 0.3), transparent 70%),
+    radial-gradient(1.5px 1.5px at 267px 221px, rgb(238 113 3 / 0.55), transparent 70%);
+  background-size: 300px 260px;
+  opacity: 0.35;
+}
+body::after {
+  background-image:
+    radial-gradient(1px 1px at 61px 137px, rgb(255 255 255 / 0.6), transparent 70%),
+    radial-gradient(1px 1px at 331px 59px, rgb(255 255 255 / 0.4), transparent 70%),
+    radial-gradient(1px 1px at 397px 311px, rgb(255 255 255 / 0.5), transparent 70%);
+  background-size: 460px 380px;
+  opacity: 0.25;
+  animation: peak-twinkle 9s ease-in-out infinite alternate;
+}
+@keyframes peak-twinkle { to { opacity: 0.08; } }
+
+/*
+ * Arriving on a page: its blocks rise a few pixels and fade in, a beat apart.
+ * The template wraps every page in .page-enter; a page with one wrapper gets
+ * the stagger on that wrapper's children instead. The delay is capped so a
+ * long page never makes anyone wait.
+ */
+.page-enter > :not(:only-child),
+.page-enter > :only-child > * {
+  animation: peak-rise var(--dur-enter) var(--ease-out) both;
+}
+.page-enter > :nth-child(2), .page-enter > :only-child > :nth-child(2) { animation-delay: 40ms; }
+.page-enter > :nth-child(3), .page-enter > :only-child > :nth-child(3) { animation-delay: 80ms; }
+.page-enter > :nth-child(4), .page-enter > :only-child > :nth-child(4) { animation-delay: 120ms; }
+.page-enter > :nth-child(n + 5), .page-enter > :only-child > :nth-child(n + 5) { animation-delay: 160ms; }
+.rise { animation: peak-rise 600ms var(--ease-out) both; }
+@keyframes peak-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes peak-fade { from { opacity: 0; } }
+
+/* Cards that are links answer the pointer: a warmer edge and a soft lift. */
+a.rounded-panel {
+  transition: border-color var(--dur-quick) ease, background-color var(--dur-quick) ease, box-shadow 240ms var(--ease-out), transform 240ms var(--ease-out);
+}
+a.rounded-panel:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  box-shadow: 0 10px 24px -14px rgb(0 0 0 / 0.9);
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  a.rounded-panel:hover { transform: translateY(-1px); }
+}
+
+/* Loading placeholders: a slow sheen passes over the shapes of what is coming. */
+.skeleton {
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgb(244 242 239 / 0.06) 0%, rgb(244 242 239 / 0.11) 40%, rgb(244 242 239 / 0.06) 80%) 0 0 / 300% 100%;
+  animation: peak-sheen 1.6s linear infinite;
+}
+[dir='rtl'] .skeleton { animation-direction: reverse; }
+@keyframes peak-sheen { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+
+/* Peak's orbit: thin rings and two orange points circling the mark. */
+.orbit-spin { animation: peak-spin 48s linear infinite; }
+.orbit-spin-quick { animation: peak-spin 14s linear infinite; }
+.orbit-spin-slow { animation: peak-spin 76s linear infinite reverse; }
+.orbit-arrive { animation: peak-arrive 900ms var(--ease-out) both; }
+@keyframes peak-spin { to { transform: rotate(360deg); } }
+@keyframes peak-arrive { from { opacity: 0; transform: scale(0.94); filter: blur(6px); } }
+
+/*
+ * Reduce Motion: nothing travels or loops. Pages still fade in (short and
+ * still), and colour changes that confirm an action stay.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .page-enter > :not(:only-child),
+  .page-enter > :only-child > *, .rise { animation: peak-fade 160ms ease-out both; animation-delay: 0ms !important; }
+  body::after, .skeleton, .orbit-spin, .orbit-spin-slow, .orbit-spin-quick, .animate-pulse { animation: none; }
+  .orbit-arrive { animation: peak-fade 300ms ease-out both; }
+  a.rounded-panel { transition-property: border-color, background-color, box-shadow; }
+}

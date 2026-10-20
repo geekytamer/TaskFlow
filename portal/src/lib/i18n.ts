@@ -5,7 +5,7 @@ export const dirFor = (lang: Lang): 'rtl' | 'ltr' => (lang === 'ar' ? 'rtl' : 'l
 
 const en = {
   'signIn.title': 'Sign in',
-  'signIn.client': 'Follow your campaigns, proposals and invoices in one place.',
+  'signIn.client': 'Your campaigns, proposals and invoices in one place.',
   'signIn.influencer': 'Your assignments, content and payments in one place.',
   'signIn.help': 'No account yet? Your account manager will send you an invitation.',
   'signIn.submit': 'Sign in',
@@ -957,7 +957,7 @@ export type Key = keyof typeof en;
 
 const ar: Record<Key, string> = {
   'signIn.title': 'تسجيل الدخول',
-  'signIn.client': 'تابع حملاتك وعروضك وفواتيرك في مكان واحد.',
+  'signIn.client': 'حملاتك، عروضك وفواتيرك في مكان واحد.',
   'signIn.influencer': 'مهامك ومحتواك ومدفوعاتك في مكان واحد.',
   'signIn.help': 'لا تملك حسابًا؟ سيرسل لك مدير حسابك دعوة.',
   'signIn.submit': 'دخول',
