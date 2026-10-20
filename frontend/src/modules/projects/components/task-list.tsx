@@ -51,7 +51,7 @@ const PRIORITY_DOT: Record<Task['priority'], string> = {
 };
 
 const STATUS_STYLE: Record<TaskStatus, { dot: string; text: string }> = {
-  'To Do': { dot: 'bg-slate-400', text: 'text-slate-600 dark:text-slate-300' },
+  'To Do': { dot: 'bg-slate-400', text: 'text-muted-foreground' },
   'In Progress': { dot: 'bg-blue-500', text: 'text-blue-600 dark:text-blue-400' },
   Done: { dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
 };
@@ -249,7 +249,7 @@ function TaskRow({
         <div
           className={cn(
             'hidden sm:flex items-center gap-1 text-xs shrink-0',
-            overdue ? 'text-red-600 font-medium' : 'text-muted-foreground',
+            overdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground',
           )}
         >
           <CalendarClock className="h-3.5 w-3.5" />
@@ -549,12 +549,12 @@ export function TaskList({ projectId }: { projectId?: string }) {
     accent?: string;
     defaultOpen: boolean;
   }[] = [
-    { key: 'overdue', label: tr('Overdue', 'متأخرة'), accent: 'text-red-600', defaultOpen: true },
+    { key: 'overdue', label: tr('Overdue', 'متأخرة'), accent: 'text-red-600 dark:text-red-400', defaultOpen: true },
     { key: 'today', label: tr('Today', 'اليوم'), accent: 'text-foreground', defaultOpen: true },
     { key: 'week', label: tr('This week', 'هذا الأسبوع'), defaultOpen: true },
     { key: 'later', label: tr('Later', 'لاحقاً'), defaultOpen: false },
     { key: 'none', label: tr('No due date', 'بدون تاريخ'), defaultOpen: false },
-    { key: 'done', label: tr('Completed', 'مكتملة'), accent: 'text-emerald-600', defaultOpen: false },
+    { key: 'done', label: tr('Completed', 'مكتملة'), accent: 'text-emerald-600 dark:text-emerald-400', defaultOpen: false },
   ];
 
   const total = filteredTasks.length;
@@ -597,7 +597,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
           icon={TrendingUp}
           label={tr('In Progress', 'قيد التنفيذ')}
           value={counts.inProgress}
-          accent="text-blue-600"
+          accent="text-blue-600 dark:text-blue-400"
           active={filter === 'In Progress'}
           onClick={() => setFilter((f) => (f === 'In Progress' ? 'all' : 'In Progress'))}
         />
@@ -605,7 +605,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
           icon={CheckSquare}
           label={tr('Done', 'مكتملة')}
           value={counts.done}
-          accent="text-emerald-600"
+          accent="text-emerald-600 dark:text-emerald-400"
           active={filter === 'Done'}
           onClick={() => setFilter((f) => (f === 'Done' ? 'all' : 'Done'))}
         />
@@ -613,7 +613,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
           icon={AlertCircle}
           label={tr('Overdue', 'متأخرة')}
           value={counts.overdue}
-          accent={counts.overdue > 0 ? 'text-red-600' : undefined}
+          accent={counts.overdue > 0 ? 'text-red-600 dark:text-red-400' : undefined}
           active={filter === 'overdue'}
           onClick={() => setFilter((f) => (f === 'overdue' ? 'all' : 'overdue'))}
         />

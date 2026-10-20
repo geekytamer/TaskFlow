@@ -97,39 +97,39 @@ import {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 const proposalStatusColor: Record<string, string> = {
-  Draft: 'bg-gray-100 text-gray-700 border-gray-200',
-  Sent: 'bg-blue-50 text-blue-700 border-blue-200',
-  Accepted: 'bg-green-50 text-green-700 border-green-200',
-  Declined: 'bg-red-50 text-red-700 border-red-200',
-  Expired: 'bg-orange-50 text-orange-700 border-orange-200',
+  Draft: 'bg-muted text-foreground/80 border-border',
+  Sent: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  Accepted: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 border-green-200 dark:border-green-500/30',
+  Declined: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  Expired: 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-500/30',
 };
 
 const campaignStatusColor: Record<string, string> = {
-  Planned: 'bg-purple-50 text-purple-700 border-purple-200',
-  Active: 'bg-green-50 text-green-700 border-green-200',
-  'On Hold': 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  Completed: 'bg-blue-50 text-blue-700 border-blue-200',
-  Cancelled: 'bg-red-50 text-red-700 border-red-200',
-  Archived: 'bg-gray-100 text-gray-600 border-gray-200',
+  Planned: 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-500/30',
+  Active: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 border-green-200 dark:border-green-500/30',
+  'On Hold': 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border-yellow-200 dark:border-yellow-500/30',
+  Completed: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  Cancelled: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  Archived: 'bg-muted text-muted-foreground border-border',
 };
 
 const vendorStatusColor: Record<string, string> = {
-  New: 'bg-blue-50 text-blue-700 border-blue-200',
-  'Under Review': 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  Approved: 'bg-green-50 text-green-700 border-green-200',
-  Rejected: 'bg-red-50 text-red-700 border-red-200',
-  Converted: 'bg-purple-50 text-purple-700 border-purple-200',
-  Archived: 'bg-gray-100 text-gray-600 border-gray-200',
+  New: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  'Under Review': 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border-yellow-200 dark:border-yellow-500/30',
+  Approved: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 border-green-200 dark:border-green-500/30',
+  Rejected: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  Converted: 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-500/30',
+  Archived: 'bg-muted text-muted-foreground border-border',
 };
 
 const commissionStatusColor: Record<string, string> = {
-  Draft: 'bg-gray-100 text-gray-700 border-gray-200',
-  Approved: 'bg-blue-50 text-blue-700 border-blue-200',
-  Paid: 'bg-green-50 text-green-700 border-green-200',
+  Draft: 'bg-muted text-foreground/80 border-border',
+  Approved: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  Paid: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 border-green-200 dark:border-green-500/30',
 };
 
 function ColorBadge({ status, map, label }: { status: string; map: Record<string, string>; label?: string }) {
-  const cls = map[status] ?? 'bg-gray-100 text-gray-700 border-gray-200';
+  const cls = map[status] ?? 'bg-muted text-foreground/80 border-border';
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${cls}`}>{label ?? status}</span>;
 }
 
@@ -192,12 +192,12 @@ const CAMPAIGN_PLATFORMS = ['Instagram', 'TikTok', 'YouTube', 'LinkedIn', 'Snapc
 
 /** Badge tones for campaign records: one tinted background, a darker text of the same hue. */
 const tone = {
-  slate: 'bg-slate-50 text-slate-700 border-slate-200',
-  blue: 'bg-blue-50 text-blue-800 border-blue-200',
-  amber: 'bg-amber-50 text-amber-900 border-amber-200',
-  emerald: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  green: 'bg-green-50 text-green-800 border-green-200',
-  red: 'bg-red-50 text-red-800 border-red-200',
+  slate: 'bg-muted/50 text-foreground/80 border-border',
+  blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  green: 'bg-green-50 dark:bg-green-500/10 text-green-800 dark:text-green-300 border-green-200 dark:border-green-500/30',
+  red: 'bg-red-50 dark:bg-red-500/10 text-red-800 dark:text-red-300 border-red-200 dark:border-red-500/30',
 } as const;
 const deliverableStatusColor: Record<string, string> = {
   Planned: tone.slate, 'In Progress': tone.blue, Submitted: tone.amber, Approved: tone.emerald, Published: tone.green, Cancelled: tone.red,
@@ -298,9 +298,9 @@ export function ProposalsPage() {
       {/* Stats strip */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={FileText} label={t('proposalsPage.statTotal')} value={proposals.length} />
-        <StatCard icon={Clock} label={t('proposalsPage.statDrafts')} value={byStatus('Draft')} color="text-gray-600" />
-        <StatCard icon={Send} label={t('proposalsPage.statSent')} value={byStatus('Sent')} color="text-blue-600" />
-        <StatCard icon={TrendingUp} label={t('proposalsPage.statTotalValue')} value={amount(total)} color="text-green-600" />
+        <StatCard icon={Clock} label={t('proposalsPage.statDrafts')} value={byStatus('Draft')} color="text-muted-foreground" />
+        <StatCard icon={Send} label={t('proposalsPage.statSent')} value={byStatus('Sent')} color="text-blue-600 dark:text-blue-400" />
+        <StatCard icon={TrendingUp} label={t('proposalsPage.statTotalValue')} value={amount(total)} color="text-green-600 dark:text-green-400" />
       </div>
 
       {/* Toolbar */}
@@ -366,7 +366,7 @@ export function ProposalsPage() {
                       </Button>
                     )}
                     {item.status === 'Sent' && (
-                      <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                      <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/30 hover:bg-red-50 dark:hover:bg-red-500/10"
                         onClick={() => act(() => updateProposalStatus(item.id, 'Declined'), tr('Could not decline', 'تعذر الرفض'))}>
                         <XCircle className="h-3 w-3" /> {t('proposalsPage.actionDecline')}
                       </Button>
@@ -674,9 +674,9 @@ export function CampaignsPage() {
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Megaphone} label={t('campaignsPage.statTotal')} value={campaigns.length} />
-        <StatCard icon={TrendingUp} label={t('campaignsPage.statActive')} value={active} color="text-green-600" />
-        <StatCard icon={Clock} label={t('campaignsPage.statPlanned')} value={planned} color="text-purple-600" />
-        <StatCard icon={DollarSign} label={t('campaignsPage.statBudget')} value={amount(totalBudget)} color="text-blue-600" />
+        <StatCard icon={TrendingUp} label={t('campaignsPage.statActive')} value={active} color="text-green-600 dark:text-green-400" />
+        <StatCard icon={Clock} label={t('campaignsPage.statPlanned')} value={planned} color="text-purple-600 dark:text-purple-400" />
+        <StatCard icon={DollarSign} label={t('campaignsPage.statBudget')} value={amount(totalBudget)} color="text-blue-600 dark:text-blue-400" />
       </div>
 
       {/* Toolbar */}
@@ -779,7 +779,7 @@ export function CampaignsPage() {
             <div className="flex items-center gap-2">
               {canManageFinance && (selectedCampaign.invoiceId ? (
                 <>
-                  <Badge variant="outline" className="gap-1 text-xs text-green-700 border-green-300 bg-green-50">
+                  <Badge variant="outline" className="gap-1 text-xs text-green-700 dark:text-green-300 border-green-300 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10">
                     <Receipt className="h-3 w-3" /> {t('campaignsPage.invoiceGenerated')}
                   </Badge>
                   <Button
@@ -878,7 +878,7 @@ export function CampaignsPage() {
                 </div>
               </div>
               {(invoiceDisabledReason || vendorBillsDisabledReason) && (
-                <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <div>
                     {invoiceDisabledReason && <div>{t('campaignsPage.invoicePrefix')} {invoiceDisabledReason}</div>}
@@ -936,7 +936,7 @@ export function CampaignsPage() {
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {item.vendorBillId && (
-                            <Badge variant="outline" className="gap-1 text-[10px] h-5 text-blue-700 border-blue-300 bg-blue-50">
+                            <Badge variant="outline" className="gap-1 text-[10px] h-5 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10">
                               <BadgeDollarSign className="h-2.5 w-2.5" /> {t('campaignsPage.billBadge')}
                             </Badge>
                           )}
@@ -1397,9 +1397,9 @@ export function VendorRequestsPage() {
     <SectionPageShell title={t('vendorRequestsPage.title')} description={t('vendorRequestsPage.description')}>
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard icon={AlertCircle} label={t('vendorRequestsPage.statPending')} value={pending} color={pending > 0 ? 'text-yellow-600' : 'text-foreground'} />
-        <StatCard icon={CheckCircle2} label={t('vendorRequestsPage.statApproved')} value={approved} color="text-green-600" />
-        <StatCard icon={XCircle} label={t('vendorRequestsPage.statRejected')} value={rejected} color="text-red-600" />
+        <StatCard icon={AlertCircle} label={t('vendorRequestsPage.statPending')} value={pending} color={pending > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-foreground'} />
+        <StatCard icon={CheckCircle2} label={t('vendorRequestsPage.statApproved')} value={approved} color="text-green-600 dark:text-green-400" />
+        <StatCard icon={XCircle} label={t('vendorRequestsPage.statRejected')} value={rejected} color="text-red-600 dark:text-red-400" />
       </div>
 
       {/* Toolbar */}
@@ -1455,7 +1455,7 @@ export function VendorRequestsPage() {
                           onClick={async () => { await updateVendorRequestStatus(item.id, 'Approved'); await load(); }}>
                           <CheckCircle2 className="h-3 w-3" /> {t('vendorRequestsPage.actionApprove')}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/30 hover:bg-red-50 dark:hover:bg-red-500/10"
                           onClick={() => { setRejectDialogItem(item); setRejectNote(''); }}>
                           <XCircle className="h-3 w-3" /> {t('vendorRequestsPage.actionReject')}
                         </Button>
@@ -1553,7 +1553,7 @@ export function VendorRequestsPage() {
       <Dialog open={!!rejectDialogItem} onOpenChange={(v) => { if (!v) { setRejectDialogItem(null); setRejectNote(''); } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
               <XCircle className="h-5 w-5" /> {t('vendorRequestsPage.rejectTitle')}
             </DialogTitle>
           </DialogHeader>
@@ -1608,9 +1608,9 @@ export function CommissionsPage() {
     <SectionPageShell title={tr('Commissions', 'العمولات')} description={tr('Approve and pay commissions generated from won opportunities.', 'اعتماد وصرف العمولات الناتجة عن الفرص المكسوبة.')}>
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard icon={BadgeDollarSign} label={tr('Draft', 'مسودة')} value={amount(draftTotal)} sub={`${commissions.filter((c) => c.status === 'Draft').length} ${tr('entries', 'إدخالات')}`} color="text-gray-600" />
-        <StatCard icon={CheckCircle2} label={tr('Approved', 'معتمدة')} value={amount(approvedTotal)} sub={`${commissions.filter((c) => c.status === 'Approved').length} ${tr('entries', 'إدخالات')}`} color="text-blue-600" />
-        <StatCard icon={TrendingUp} label={tr('Paid Out', 'المصروفة')} value={amount(paidTotal)} sub={`${commissions.filter((c) => c.status === 'Paid').length} ${tr('entries', 'إدخالات')}`} color="text-green-600" />
+        <StatCard icon={BadgeDollarSign} label={tr('Draft', 'مسودة')} value={amount(draftTotal)} sub={`${commissions.filter((c) => c.status === 'Draft').length} ${tr('entries', 'إدخالات')}`} color="text-muted-foreground" />
+        <StatCard icon={CheckCircle2} label={tr('Approved', 'معتمدة')} value={amount(approvedTotal)} sub={`${commissions.filter((c) => c.status === 'Approved').length} ${tr('entries', 'إدخالات')}`} color="text-blue-600 dark:text-blue-400" />
+        <StatCard icon={TrendingUp} label={tr('Paid Out', 'المصروفة')} value={amount(paidTotal)} sub={`${commissions.filter((c) => c.status === 'Paid').length} ${tr('entries', 'إدخالات')}`} color="text-green-600 dark:text-green-400" />
       </div>
 
       {/* Table */}

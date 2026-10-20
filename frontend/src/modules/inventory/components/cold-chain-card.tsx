@@ -122,7 +122,7 @@ export function ColdChainCard({ warehouseId, canConfigure, tr }: { warehouseId: 
             </Table>
           </div>
         )}
-        {c && view?.readings.some((r) => r.excursion) && <Badge variant="outline" className="border-red-300 text-red-800 dark:text-red-200">{tr(`${view.readings.filter((r) => r.excursion).length} out-of-range readings shown`, `${view.readings.filter((r) => r.excursion).length} قراءات خارج النطاق معروضة`)}</Badge>}
+        {c && view?.readings.some((r) => r.excursion) && <Badge variant="outline" className="border-red-300 dark:border-red-500/30 text-red-800 dark:text-red-200">{tr(`${view.readings.filter((r) => r.excursion).length} out-of-range readings shown`, `${view.readings.filter((r) => r.excursion).length} قراءات خارج النطاق معروضة`)}</Badge>}
       </CardContent>
     </Card>
   );

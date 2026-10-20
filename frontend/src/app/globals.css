@@ -6,8 +6,6 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #f4f6f8; /* Soft light background like the image */
-  color: #111827;
 }
 
 @layer base {
@@ -50,6 +48,44 @@ body {
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
+
+  /* Dark mode: toggled by the .dark class on <html> (see context/theme-context). */
+  .dark {
+    --background: 224 24% 8%;
+    --foreground: 210 20% 94%;
+    --card: 224 20% 12%;
+    --card-foreground: 210 20% 94%;
+    --popover: 224 20% 13%;
+    --popover-foreground: 210 20% 94%;
+    --primary: 236 85% 70%;
+    --primary-foreground: 224 30% 10%;
+    --secondary: 224 16% 18%;
+    --secondary-foreground: 210 20% 94%;
+    --muted: 224 16% 17%;
+    --muted-foreground: 218 12% 65%;
+    --accent: 224 16% 20%;
+    --accent-foreground: 210 20% 94%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 224 14% 22%;
+    --input: 224 14% 24%;
+    --ring: 236 85% 70%;
+
+    --chart-1: 236 85% 70%;
+    --chart-2: 199 89% 58%;
+    --chart-3: 160 70% 48%;
+    --chart-4: 340 82% 62%;
+    --chart-5: 45 93% 55%;
+
+    --sidebar-background: 224 22% 10%;
+    --sidebar-foreground: 215 15% 80%;
+    --sidebar-primary: 236 85% 70%;
+    --sidebar-primary-foreground: 224 30% 10%;
+    --sidebar-accent: 224 16% 17%;
+    --sidebar-accent-foreground: 210 20% 94%;
+    --sidebar-border: 224 14% 18%;
+    --sidebar-ring: 236 85% 70%;
+  }
 }
 
 @layer base {
@@ -63,7 +99,7 @@ body {
 
 @layer utilities {
   .glass-card {
-    background: white;
+    background: hsl(var(--card));
     border: none;
     border-radius: var(--radius);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
@@ -71,4 +107,34 @@ body {
   .font-mono-data {
     font-family: inherit;
   }
+}
+
+/* React Flow (diagram) ships its own light chrome; v11 has no colour-mode prop. */
+.dark .react-flow__controls-button,
+.dark .react-flow__minimap,
+.dark .react-flow__attribution {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  fill: hsl(var(--foreground));
+}
+.dark .react-flow__controls-button:hover {
+  background: hsl(var(--accent));
+}
+.dark .react-flow__attribution a {
+  color: hsl(var(--muted-foreground));
+}
+.dark .react-flow__node-default,
+.dark .react-flow__node-input,
+.dark .react-flow__node-output {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-color: hsl(var(--border));
+}
+.dark .react-flow__minimap-node {
+  fill: hsl(var(--muted-foreground) / 0.5) !important;
+  stroke: none !important;
+}
+.dark .react-flow__minimap-mask {
+  fill: hsl(var(--background) / 0.6);
 }

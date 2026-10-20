@@ -29,13 +29,13 @@ export function OverviewChart() {
         <BarChart data={data} margin={{ top: 20, right: 20, left: -10, bottom: 0 }}>
             <XAxis
             dataKey="name"
-            stroke="#888888"
+            stroke="hsl(var(--muted-foreground))"
             fontSize={12}
             tickLine={false}
             axisLine={false}
             />
             <YAxis
-            stroke="#888888"
+            stroke="hsl(var(--muted-foreground))"
             fontSize={12}
             tickLine={false}
             axisLine={false}

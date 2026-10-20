@@ -277,7 +277,7 @@ export function ClientsPage() {
                   <TableCell className="text-end">{metrics?.invoiceCount ?? 0}</TableCell>
                   <TableCell className="text-end">
                     {metrics?.outstanding ? (
-                      <Badge variant="outline" className="text-orange-600">{amount(metrics.outstanding)}</Badge>
+                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amount(metrics.outstanding)}</Badge>
                     ) : '—'}
                   </TableCell>
                   {canManagePortal && (

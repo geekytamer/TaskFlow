@@ -109,12 +109,12 @@ export function CsvImportExport({
           </DialogHeader>
           {result && (
             <div className="space-y-3 text-sm">
-              <div className="flex items-center gap-2 text-emerald-700">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 className="h-4 w-4" />
                 <span><strong>{result.created}</strong> row{result.created === 1 ? '' : 's'} imported</span>
               </div>
               {result.failed > 0 && (
-                <div className="flex items-center gap-2 text-amber-700">
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
                   <AlertTriangle className="h-4 w-4" />
                   <span><strong>{result.failed}</strong> row{result.failed === 1 ? '' : 's'} skipped</span>
                 </div>

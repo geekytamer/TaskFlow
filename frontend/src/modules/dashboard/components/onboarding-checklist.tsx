@@ -120,25 +120,25 @@ export function OnboardingChecklist() {
   const percent = Math.round((doneCount / offered.length) * 100);
 
   return (
-    <div className="relative rounded-2xl border bg-gradient-to-br from-indigo-50 via-white to-emerald-50 p-5 shadow-sm">
+    <div className="relative rounded-2xl border bg-gradient-to-br from-indigo-50 dark:from-indigo-500/10 via-card to-emerald-50 dark:to-emerald-500/10 p-5 shadow-sm">
       <button
         type="button"
         aria-label={language === 'ar' ? 'تجاهل' : 'Dismiss'}
         onClick={handleDismiss}
-        className="absolute end-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-white/60"
+        className="absolute end-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-card/60"
       >
         <X className="h-4 w-4" />
       </button>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">{t('onboarding.title')}</h2>
-          <p className="text-sm text-slate-500">{t('onboarding.subtitle')}</p>
+          <h2 className="text-lg font-bold text-foreground">{t('onboarding.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('onboarding.subtitle')}</p>
         </div>
-        <div className="text-sm font-semibold text-emerald-700">
+        <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
           {doneCount}/{offered.length} · {percent}%
         </div>
       </div>
-      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/70">
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-card/70">
         <div
           className="h-full bg-emerald-500 transition-all"
           style={{ width: `${percent}%` }}
@@ -149,20 +149,20 @@ export function OnboardingChecklist() {
           <li key={item.id}>
             <Link
               href={item.href}
-              className={`flex items-start gap-3 rounded-lg border bg-white/80 p-3 transition hover:border-primary/40 hover:bg-white ${
+              className={`flex items-start gap-3 rounded-lg border bg-card/80 p-3 transition hover:border-primary/40 hover:bg-card ${
                 item.done ? 'opacity-70' : ''
               }`}
             >
               {item.done ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <Circle className="mt-0.5 h-4 w-4 text-slate-400" />
+                <Circle className="mt-0.5 h-4 w-4 text-muted-foreground/70" />
               )}
               <div className="min-w-0">
-                <div className={`text-sm font-medium ${item.done ? 'line-through text-slate-500' : 'text-slate-800'}`}>
+                <div className={`text-sm font-medium ${item.done ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
                   {t(item.labelKey)}
                 </div>
-                <div className="text-xs text-slate-500">{t(item.detailKey)}</div>
+                <div className="text-xs text-muted-foreground">{t(item.detailKey)}</div>
               </div>
             </Link>
           </li>

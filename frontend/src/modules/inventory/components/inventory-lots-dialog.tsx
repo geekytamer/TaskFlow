@@ -47,10 +47,10 @@ export function lotExpiryInfo(expiryDate?: Date): {
 }
 
 const TONE_CLASS: Record<string, string> = {
-  expired: 'bg-red-100 text-red-700 border-red-200',
-  critical: 'bg-red-100 text-red-700 border-red-200',
-  warning: 'bg-amber-100 text-amber-700 border-amber-200',
-  ok: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  expired: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  critical: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
+  warning: 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  ok: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
   none: 'bg-muted text-muted-foreground',
 };
 

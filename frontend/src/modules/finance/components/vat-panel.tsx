@@ -120,7 +120,7 @@ export function VatPanel() {
             <Stat label={tr('Taxable purchases', 'المشتريات الخاضعة')} value={preview.taxablePurchases} />
             <Stat label={tr('Input VAT', 'ضريبة المدخلات')} value={preview.inputVat} />
             <Stat label={tr('Net VAT payable', 'صافي الضريبة المستحقة')} value={preview.netVat}
-                  accent={preview.netVat >= 0 ? 'text-red-600' : 'text-emerald-600'} />
+                  accent={preview.netVat >= 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'} />
           </div>
           {preview.breakdown && <VatBreakdownView b={preview.breakdown} tr={tr} />}
           <div className="flex items-center gap-3">

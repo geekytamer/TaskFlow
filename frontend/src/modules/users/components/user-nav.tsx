@@ -112,7 +112,7 @@ export function UserNav() {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push('/admin')}>
-              <ShieldCheck className="me-2 h-4 w-4 text-amber-600" />
+              <ShieldCheck className="me-2 h-4 w-4 text-amber-600 dark:text-amber-400" />
               {t('user.adminPanel')}
             </DropdownMenuItem>
           </>

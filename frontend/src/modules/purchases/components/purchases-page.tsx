@@ -62,11 +62,11 @@ import { useI18n } from '@/context/i18n-context';
 import { usePermissionOr } from '@/context/permissions-context';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
-  Draft: 'bg-slate-100 text-slate-700 border-slate-200',
-  Ordered: 'bg-blue-100 text-blue-700 border-blue-200',
-  'Partially Received': 'bg-amber-100 text-amber-700 border-amber-200',
-  Received: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Cancelled: 'bg-red-100 text-red-700 border-red-200',
+  Draft: 'bg-muted text-foreground/80 border-border',
+  Ordered: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+  'Partially Received': 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  Received: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  Cancelled: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30',
 };
 
 type PurchaseItemForm = {
@@ -585,7 +585,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">{tr('Awaiting Receipt', 'بانتظار الاستلام')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.awaitingReceiptUnits}</div>
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.awaitingReceiptUnits}</div>
           </CardContent>
         </Card>
         <Card>
@@ -593,7 +593,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">{tr('Received This Month', 'المستلَم هذا الشهر')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">{stats.receivedThisMonth}</div>
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{stats.receivedThisMonth}</div>
           </CardContent>
         </Card>
         <Card>
@@ -601,7 +601,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">{tr('Unbilled PO Value', 'قيمة أوامر الشراء غير المفوترة')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{amount(stats.unbilledValue)}</div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{amount(stats.unbilledValue)}</div>
           </CardContent>
         </Card>
       </div>
@@ -1037,19 +1037,19 @@ export function PurchasesPage() {
                         } as Record<PurchaseOrderStatus, string>)[order.status])}
                       </Badge>
                       {order.approvalStatus === 'pending' && (
-                        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
+                        <Badge variant="outline" className="bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30">
                           {tr('Awaiting approval', 'بانتظار الموافقة')}
                         </Badge>
                       )}
                       {order.approvalStatus === 'approved' && (
-                        <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                        <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30">
                           {tr('Approved', 'تمت الموافقة')}{order.approvedBy ? ` · ${order.approvedBy}` : ''}
                         </Badge>
                       )}
                       {order.approvalStatus === 'rejected' && (
                         <Badge
                           variant="outline"
-                          className="bg-rose-100 text-rose-800 border-rose-200"
+                          className="bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-500/30"
                           title={order.rejectionReason || undefined}
                         >
                           {tr('Rejected', 'مرفوض')}
@@ -1071,7 +1071,7 @@ export function PurchasesPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          className="border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
                           onClick={() => handleApprove(order.id)}
                         >
                           {tr('Approve', 'موافقة')}
@@ -1079,7 +1079,7 @@ export function PurchasesPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                          className="border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10"
                           onClick={() => handleReject(order.id)}
                         >
                           {tr('Reject', 'رفض')}

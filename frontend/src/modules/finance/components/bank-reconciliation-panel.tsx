@@ -119,7 +119,7 @@ export function BankReconciliationPanel() {
                 </TableCell>
                 <TableCell>
                   {s.status === 'reconciled'
-                    ? <Badge className="gap-1 bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-200"><CheckCircle2 className="h-3 w-3" />{tr('Reconciled', 'مُسوّى')}</Badge>
+                    ? <Badge className="gap-1 bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-500/15 dark:bg-emerald-900/40 dark:text-emerald-200"><CheckCircle2 className="h-3 w-3" />{tr('Reconciled', 'مُسوّى')}</Badge>
                     : <Badge variant="outline">{tr('Open', 'مفتوح')}</Badge>}
                 </TableCell>
                 <TableCell className="text-end">
@@ -343,7 +343,7 @@ function StatementScreen({ statement, accounts, accountName, tr, onChange, onBac
                 <TableCell>
                   {line.journalLineId ? (
                     <div className="flex items-center gap-2 text-sm">
-                      <Badge className="gap-1 bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-200"><Check className="h-3 w-3" />{tr('Matched', 'مطابق')}</Badge>
+                      <Badge className="gap-1 bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-500/15 dark:bg-emerald-900/40 dark:text-emerald-200"><Check className="h-3 w-3" />{tr('Matched', 'مطابق')}</Badge>
                       {!locked && <Button size="sm" variant="ghost" onClick={() => run(() => unmatchLine(statement.id, line.id), tr('Could not undo', 'تعذّر التراجع'))}><Undo2 className="me-1 h-3.5 w-3.5" />{tr('Undo', 'تراجع')}</Button>}
                     </div>
                   ) : line.ignored ? (

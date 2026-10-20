@@ -326,7 +326,7 @@ function WorkOrdersTab({ recipes, workOrders, reload }: { recipes: Recipe[]; wor
                   <TableCell>{wo.recipeName}</TableCell>
                   <TableCell className="text-end tabular-nums">{num(wo.expectedQuantity)}</TableCell>
                   <TableCell className="text-end tabular-nums">{wo.status === 'completed' ? num(wo.producedQuantity) : '—'}</TableCell>
-                  <TableCell className={cn('text-end tabular-nums', wo.status === 'completed' && (yieldPct(wo) >= 100 ? 'text-emerald-600' : yieldPct(wo) >= 90 ? 'text-amber-600' : 'text-red-600'))}>
+                  <TableCell className={cn('text-end tabular-nums', wo.status === 'completed' && (yieldPct(wo) >= 100 ? 'text-emerald-600 dark:text-emerald-400' : yieldPct(wo) >= 90 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'))}>
                     {wo.status === 'completed' ? `${yieldPct(wo)}%` : '—'}
                   </TableCell>
                   <TableCell className="text-end tabular-nums">{wo.status === 'completed' ? money(unitCost(wo)) : '—'}</TableCell>

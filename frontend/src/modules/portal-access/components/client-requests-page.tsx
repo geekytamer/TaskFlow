@@ -268,7 +268,7 @@ function RequestSheet({ id, onClose, onChanged, tr }: { id: string | null; onClo
                           : <Link href="/influencers/discover" className="font-medium underline-offset-4 hover:underline">{i.name}</Link>}
                         {i.handle && <span className="ms-2 text-muted-foreground" dir="ltr">{i.handle}</span>}
                       </span>
-                      {!i.onRoster && <Badge variant="outline" className="shrink-0 border-amber-300 text-amber-700 dark:text-amber-300">{tr('Not on the roster yet', 'ليس ضمن القائمة بعد')}</Badge>}
+                      {!i.onRoster && <Badge variant="outline" className="shrink-0 border-amber-300 dark:border-amber-500/30 text-amber-700 dark:text-amber-300">{tr('Not on the roster yet', 'ليس ضمن القائمة بعد')}</Badge>}
                     </li>
                   ))}
                 </ul>

@@ -183,7 +183,7 @@ export function GuidePage() {
                   >
                     <div className="flex w-full items-start gap-2">
                       {seen ? (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
                       ) : (
                         <Play className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                       )}

@@ -201,7 +201,7 @@ export function CustomFieldsPanel() {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{def.label}</span>
                           <Badge variant="outline">{def.fieldType}</Badge>
-                          {def.required && <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">{tr('Required', 'إلزامي')}</Badge>}
+                          {def.required && <Badge variant="outline" className="bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30">{tr('Required', 'إلزامي')}</Badge>}
                           {def.fieldType === 'select' && def.options && (
                             <span className="text-xs text-muted-foreground">{def.options.join(', ')}</span>
                           )}

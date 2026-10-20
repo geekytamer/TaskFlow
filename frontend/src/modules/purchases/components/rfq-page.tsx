@@ -206,7 +206,7 @@ function OrderFromQuote({ rfq, quote, suppliers, onOrdered }: {
         </TableBody>
       </Table>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className={cn('text-sm', Math.abs(orderTotal - quote.totalAmount) > 0.01 ? 'text-amber-700' : 'text-muted-foreground')}>
+        <p className={cn('text-sm', Math.abs(orderTotal - quote.totalAmount) > 0.01 ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
           {tr('Order total', 'إجمالي الطلب')} <span className="tabular-nums font-medium">{money(orderTotal)}</span>
           {Math.abs(orderTotal - quote.totalAmount) > 0.01 && ` · ${tr('differs from the quote', 'يختلف عن العرض')}`}
         </p>
@@ -310,7 +310,7 @@ function RfqDetail({ rfq: initial, suppliers, onBack }: { rfq: Rfq; suppliers: S
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-2">
                       {q.supplierName}
-                      {isBest && !awarded && <Badge variant="outline" className="text-emerald-600 border-emerald-600/40">{tr('Lowest', 'الأقل')}</Badge>}
+                      {isBest && !awarded && <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-600/40">{tr('Lowest', 'الأقل')}</Badge>}
                       {awarded && <Badge className="gap-1"><Trophy className="h-3 w-3" />{tr('Awarded', 'تمت الترسية')}</Badge>}
                     </span>
                   </TableCell>

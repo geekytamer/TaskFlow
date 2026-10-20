@@ -132,7 +132,7 @@ export function TraceDialog({ lotId, tr, onClose }: { lotId: string; tr: Tr; onC
               {trace.inspections.length === 0 ? <p className="text-muted-foreground">{tr('None yet.', 'لا يوجد بعد.')}</p> : trace.inspections.map((i) => (
                 <div key={i.id} className="mb-1.5 rounded-md border p-2">
                   <p className="flex items-center gap-2">
-                    {i.result === 'pass' ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-destructive" />}
+                    {i.result === 'pass' ? <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : <X className="h-4 w-4 text-destructive" />}
                     <span className="font-medium">{stageLabel(i.stage, tr)}</span>
                     <span className="text-muted-foreground">{day(i.inspectedAt)}{i.inspectedByName ? ` · ${i.inspectedByName}` : ''}</span>
                   </p>

@@ -672,7 +672,7 @@ export function AddUserSheet({
             )}
             <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
               <div className="flex items-center gap-2">
-                <BadgeDollarSign className="h-4 w-4 text-emerald-600" />
+                <BadgeDollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 <h4 className="text-sm font-semibold">{t('userForm.commissionTitle')}</h4>
               </div>
               <p className="text-xs text-muted-foreground">

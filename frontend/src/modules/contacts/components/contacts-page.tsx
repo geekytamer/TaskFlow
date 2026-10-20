@@ -86,19 +86,19 @@ import {
 } from './contact-form-fields';
 
 const LEAD_STATUS_COLORS: Record<LeadStatus, string> = {
-  New: 'bg-sky-100 text-sky-700',
-  Qualified: 'bg-indigo-100 text-indigo-700',
-  'Follow-up': 'bg-orange-100 text-orange-700',
-  Proposal: 'bg-yellow-100 text-yellow-700',
-  Won: 'bg-green-100 text-green-700',
-  Lost: 'bg-red-100 text-red-700',
-  Archived: 'bg-gray-100 text-gray-500',
+  New: 'bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300',
+  Qualified: 'bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300',
+  'Follow-up': 'bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300',
+  Proposal: 'bg-yellow-100 dark:bg-yellow-500/15 text-yellow-700 dark:text-yellow-300',
+  Won: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300',
+  Lost: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300',
+  Archived: 'bg-muted text-muted-foreground',
 };
 
 const PRIORITY_COLORS: Record<ContactPriority, string> = {
-  High: 'text-red-600',
+  High: 'text-red-600 dark:text-red-400',
   Medium: 'text-orange-500',
-  Low: 'text-slate-400',
+  Low: 'text-muted-foreground/70',
 };
 
 
@@ -446,7 +446,7 @@ export function ContactsPage() {
                 </TableCell>
                 <TableCell>
                   {(c as any).nextFollowupDate ? (
-                    <div className="flex items-center gap-1 text-xs text-amber-700">
+                    <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
                       <CalendarClock className="h-3 w-3" />
                       {new Date((c as any).nextFollowupDate).toLocaleDateString()}
                     </div>
@@ -596,8 +596,8 @@ export function ContactsPage() {
                           className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
                             crmForm.visibility === v
                               ? v === 'Private'
-                                ? 'bg-red-100 text-red-700 border-red-300'
-                                : 'bg-green-100 text-green-700 border-green-300'
+                                ? 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-300 dark:border-red-500/30'
+                                : 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300 border-green-300 dark:border-green-500/30'
                               : 'bg-transparent border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground'
                           }`}
                         >
