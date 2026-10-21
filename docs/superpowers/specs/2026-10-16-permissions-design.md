@@ -124,3 +124,21 @@ Equivalence matrix (every route × template); poison fixtures for every read pat
 ## 9. Out of scope
 
 Sub-holdings, department scope, field rules beyond the sensitive list, approval chains beyond two levels (project 2 adds Legal steps), shared records across companies (project 4).
+
+## 10. Rollout
+
+The switch is one setting, `PERMISSIONS_ENGINE` in `backend/.env` (DEPLOY.md §2b). The owner approves the move to `v2`; nobody flips it on their own.
+
+1. **Deploy with `PERMISSIONS_ENGINE=shadow`.** The roles still decide every answer. Beside them the server computes the v2 answer and writes each disagreement to `authz_divergence` (one row per person, company, route and answer per hour; kept 14 days).
+2. **Watch it for a week.** Daily: `npm run ops -- authz:status` (engine, authz version, divergences logged) and `npm run ops -- authz:compare` (what each member's roles give against what their groups grant), or `GET /admin/authz/divergences` as super admin. Each divergence is either a v2 bug, fixed and redeployed (the week restarts for that area), or an intended difference, written into §6 with the reason.
+3. **The owner reviews converted custom roles.** Settings → People and roles → Roles lists every custom permission group converted in Task 3 as needing review (`needsReview`). They grant nothing until the owner activates them. For each, the owner keeps it (activate), changes it, or deletes it. Anything left unreviewed stays inert after the switch.
+4. **Switch to `v2` with the owner's approval.** Set `PERMISSIONS_ENGINE=v2`, restart, and check the startup line `PERMISSIONS_ENGINE=v2`. Then sign in as an Admin and as an Employee and confirm their menus.
+5. **Rollback = the setting.** Set `PERMISSIONS_ENGINE=legacy` and restart. Nothing has to be migrated back: roles, grants and assignments sit in the same SQLite tables under every engine. Add-ons and custom main roles go quiet again until the next switch.
+
+**Pre-switch checklist** (all true before step 4):
+- [ ] Divergences are zero for the last week, or each remaining one is explained in §6 as an intended difference.
+- [ ] The record-route test is green under v2: `v2: every catalogue-key route refuses a role that lacks its key` in `backend/test/authz-engine.test.js`. It seeds one record per resource, so every record route is really refused (no 404 short cuts).
+- [ ] The full backend suite is green under `legacy`, `shadow` and `v2`, and the equivalence table shows zero differences.
+- [ ] Staging has run under `v2` for at least a day with real use: People, Roles, an Employee's menus and a refused action's message all checked.
+- [ ] Every converted role needing review has been activated, changed or deleted by the owner (or knowingly left inert).
+- [ ] The owner has approved the switch in writing (chat or ticket), with the date.
