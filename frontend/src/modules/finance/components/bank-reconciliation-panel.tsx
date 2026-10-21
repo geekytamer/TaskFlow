@@ -304,7 +304,7 @@ function StatementScreen({ statement, accounts, accountName, tr, onChange, onBac
         <span className="text-sm text-muted-foreground">{accountName(statement.accountId)} · {statement.periodStart} → {statement.periodEnd}</span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label={tr('Still to do', 'المتبقي')} value={String(check.openLines)} tone={check.openLines ? 'warn' : 'ok'} />
         <Stat label={tr('Bank says', 'حسب البنك')} value={check.statementClosing === null ? tr('not given', 'غير محدد') : money(check.statementClosing)} />
         <Stat label={tr('Books say', 'حسب الدفاتر')} value={money(check.ledgerClosing)} />

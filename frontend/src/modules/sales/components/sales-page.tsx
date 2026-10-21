@@ -351,7 +351,7 @@ export function SalesPage() {
           <ReturnsPanel />
         </TabsContent>
         <TabsContent value="orders" className="mt-4 space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="sales-metrics">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="sales-metrics">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.openOrders')}</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{stats.openOrders}</div></CardContent>

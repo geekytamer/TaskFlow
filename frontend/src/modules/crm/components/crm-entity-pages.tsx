@@ -296,7 +296,7 @@ export function ProposalsPage() {
       description={t('proposalsPage.description')}
     >
       {/* Stats strip */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={FileText} label={t('proposalsPage.statTotal')} value={proposals.length} />
         <StatCard icon={Clock} label={t('proposalsPage.statDrafts')} value={byStatus('Draft')} color="text-muted-foreground" />
         <StatCard icon={Send} label={t('proposalsPage.statSent')} value={byStatus('Sent')} color="text-blue-600 dark:text-blue-400" />
@@ -672,7 +672,7 @@ export function CampaignsPage() {
   return (
     <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.description')} actions={<GamesLink />}>
       {/* Stats */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Megaphone} label={t('campaignsPage.statTotal')} value={campaigns.length} />
         <StatCard icon={TrendingUp} label={t('campaignsPage.statActive')} value={active} color="text-green-600 dark:text-green-400" />
         <StatCard icon={Clock} label={t('campaignsPage.statPlanned')} value={planned} color="text-purple-600 dark:text-purple-400" />
@@ -1396,7 +1396,7 @@ export function VendorRequestsPage() {
   return (
     <SectionPageShell title={t('vendorRequestsPage.title')} description={t('vendorRequestsPage.description')}>
       {/* Stats */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard icon={AlertCircle} label={t('vendorRequestsPage.statPending')} value={pending} color={pending > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-foreground'} />
         <StatCard icon={CheckCircle2} label={t('vendorRequestsPage.statApproved')} value={approved} color="text-green-600 dark:text-green-400" />
         <StatCard icon={XCircle} label={t('vendorRequestsPage.statRejected')} value={rejected} color="text-red-600 dark:text-red-400" />
@@ -1607,7 +1607,7 @@ export function CommissionsPage() {
   return (
     <SectionPageShell title={tr('Commissions', 'العمولات')} description={tr('Approve and pay commissions generated from won opportunities.', 'اعتماد وصرف العمولات الناتجة عن الفرص المكسوبة.')}>
       {/* Stats */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard icon={BadgeDollarSign} label={tr('Draft', 'مسودة')} value={amount(draftTotal)} sub={`${commissions.filter((c) => c.status === 'Draft').length} ${tr('entries', 'إدخالات')}`} color="text-muted-foreground" />
         <StatCard icon={CheckCircle2} label={tr('Approved', 'معتمدة')} value={amount(approvedTotal)} sub={`${commissions.filter((c) => c.status === 'Approved').length} ${tr('entries', 'إدخالات')}`} color="text-blue-600 dark:text-blue-400" />
         <StatCard icon={TrendingUp} label={tr('Paid Out', 'المصروفة')} value={amount(paidTotal)} sub={`${commissions.filter((c) => c.status === 'Paid').length} ${tr('entries', 'إدخالات')}`} color="text-green-600 dark:text-green-400" />

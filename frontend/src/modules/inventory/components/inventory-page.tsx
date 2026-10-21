@@ -619,7 +619,7 @@ export function InventoryPage() {
       title={tr('Inventory Management', 'إدارة المخزون')}
       description={tr('Track stock levels, reorder points, and inbound quantities from purchase orders.', 'تتبع مستويات المخزون ونقاط إعادة الطلب والكميات الواردة من أوامر الشراء.')}
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="inventory-metrics">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="inventory-metrics">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{tr('Active SKUs', 'الأصناف النشطة')}</CardTitle>

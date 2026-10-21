@@ -7,7 +7,6 @@ import {
   SidebarHeader,
   SidebarContent,
   SidebarFooter,
-  SidebarTrigger,
   SidebarInset,
   SidebarProvider,
 } from '@/components/ui/sidebar';
@@ -18,6 +17,8 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useCompany } from '@/context/company-context';
 import { BrandMark } from '@/modules/branding/brand-mark';
 import { useBrand } from '@/modules/branding/brand-context';
+import { MobileTabBar } from '@/modules/layout/components/mobile-tab-bar';
+import { DrawerPreferences } from '@/modules/layout/components/drawer-preferences';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
 import { ThemeSwitcher } from '@/modules/layout/components/theme-switcher';
 import { useI18n } from '@/context/i18n-context';
@@ -102,6 +103,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarNav />
         </SidebarContent>
         <SidebarFooter>
+          <DrawerPreferences />
           <div className="px-2 pb-1">
             <TourHelpButton />
           </div>
@@ -112,8 +114,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <StagingBanner />
         <ImpersonationBanner />
         <PracticeBanner />
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6">
-          <SidebarTrigger className="md:hidden" />
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b bg-background/80 px-3 backdrop-blur-sm sm:px-6 md:h-16">
+          {/* Phones: the brand here, the menu in the bottom bar's "More". */}
+          <BrandMark className="md:hidden" logoClassName="h-7 w-7" nameClassName="font-headline text-base font-bold text-primary" />
           <button
             type="button"
             onClick={() => {
@@ -128,15 +131,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               ⌘K
             </kbd>
           </button>
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
+            <button
+              type="button"
+              aria-label={t('cmdk.button')}
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background/60 text-muted-foreground transition hover:bg-muted md:hidden"
+            >
+              <Search className="h-4 w-4" />
+            </button>
             <NotificationBell />
-            <ThemeSwitcher />
-            <LanguageSwitcher />
+            <div className="hidden items-center gap-4 md:flex">
+              <ThemeSwitcher />
+              <LanguageSwitcher />
+            </div>
             <CompanySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6"><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
+        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
       </SidebarInset>
+      <MobileTabBar />
       <TourOverlay />
       <WelcomeTourModal />
       <CommandPalette />

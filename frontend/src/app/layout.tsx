@@ -13,7 +13,8 @@ export const metadata: Metadata = {
   icons: { icon: '/brand/favicon.png', apple: '/icons/180' },
 };
 
-export const viewport: Viewport = { themeColor: '#0a1929' };
+// viewportFit cover lets the phone tab bar pad itself clear of the iPhone home indicator.
+export const viewport: Viewport = { themeColor: '#0a1929', viewportFit: 'cover' };
 
 export default function RootLayout({
   children,

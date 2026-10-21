@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   SidebarMenu,
@@ -9,6 +10,7 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarGroupContent,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import {
   LayoutDashboard,
@@ -70,7 +72,7 @@ type NavSection = {
   items: NavItem[];
 };
 
-const sections: NavSection[] = [
+export const NAV_SECTIONS: NavSection[] = [
   {
     labelKey: 'nav.section.workspace',
     items: [
@@ -155,10 +157,89 @@ function showAppBadge(count: number) {
   done?.catch(() => undefined);
 }
 
-export function SidebarNav() {
-  const pathname = usePathname();
+const NAV_ITEMS = new Map(NAV_SECTIONS.flatMap((section) => section.items.map((item) => [item.href, item] as const)));
+
+/** Who may see which menu entry, shared by the sidebar and the phone tab bar. */
+export function useNavAccess() {
   const { user, loading, effectiveRole } = useAuthGuard();
   const { can, moduleOn, loaded: permissionsLoaded } = usePermissions();
+  const academy = useAcademy();
+
+  /** Locked by an unfinished Academy mission (never inside the practice company). */
+  const isLocked = (href: string) => {
+    if (academy.inPractice) return false;
+    const itemModule = moduleForPath(href);
+    return Boolean(itemModule && academy.locked.has(itemModule));
+  };
+
+  const canSee = (href: string) => {
+    const item = NAV_ITEMS.get(href);
+    if (!item) return false;
+    // A module the company switched off is hidden under every engine.
+    const itemModule = moduleForPath(item.href);
+    if (itemModule && !moduleOn(itemModule)) return false;
+    // Once the server has reported a permission set, it is the only authority.
+    // The frontend holds no rules of its own; it renders what the server says.
+    if (permissionsLoaded) {
+      const permission = navPermission(item.href);
+      if (!permission) return true; // record-level: projects, tasks, diagram
+      const [module, action] = [
+        permission.slice(0, permission.indexOf(':')),
+        permission.slice(permission.indexOf(':') + 1),
+      ];
+      return can(module, action);
+    }
+    // Fallback while AUTHZ_ENGINE=legacy, or before the feed has answered.
+    if (item.href === '/settings') return effectiveRole === 'Admin';
+    if (!effectiveRole) return false;
+    return item.roles.includes(effectiveRole);
+  };
+
+  return { ready: !loading && !!user, effectiveRole, canSee, isLocked };
+}
+
+/** Conversations waiting on us, polled; also mirrored on the installed app's icon. */
+export function useInboxWaiting(effectiveRole: string | null | undefined, enabled = true) {
+  const { selectedCompany } = useCompany();
+  const [inboxWaiting, setInboxWaiting] = React.useState(0);
+  // Same permission as the Inbox nav item: no badge fetch for someone the server would refuse.
+  const canUseInbox = usePermissionOr(
+    INBOX_PERMISSION.slice(0, INBOX_PERMISSION.indexOf(':')),
+    INBOX_PERMISSION.slice(INBOX_PERMISSION.indexOf(':') + 1),
+    Boolean(effectiveRole),
+  );
+  React.useEffect(() => {
+    if (!enabled || !selectedCompany?.id || !canUseInbox) {
+      setInboxWaiting(0);
+      return;
+    }
+    const companyId = selectedCompany.id;
+    let live = true;
+    const fetchWaiting = () => {
+      getInbox(companyId, 'mine', 'waiting_us')
+        .then((r) => {
+          if (!live) return;
+          const count = waitingCount(r.counts);
+          setInboxWaiting(count);
+          showAppBadge(count);
+        })
+        .catch(() => undefined);
+    };
+    fetchWaiting();
+    const id = window.setInterval(fetchWaiting, 30000);
+    window.addEventListener(DATA_CHANGED_EVENT, fetchWaiting);
+    return () => {
+      live = false;
+      window.clearInterval(id);
+      window.removeEventListener(DATA_CHANGED_EVENT, fetchWaiting);
+    };
+  }, [selectedCompany?.id, canUseInbox, enabled]);
+  return inboxWaiting;
+}
+
+export function SidebarNav() {
+  const pathname = usePathname();
+  const { ready, effectiveRole, canSee, isLocked } = useNavAccess();
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
   const [whatsappUnread, setWhatsappUnread] = React.useState(0);
@@ -185,47 +266,24 @@ export function SidebarNav() {
     return () => window.clearInterval(id);
   }, [selectedCompany?.id, canReadChats]);
 
-  const [inboxWaiting, setInboxWaiting] = React.useState(0);
-  // Same permission as the Inbox nav item: no badge fetch for someone the server would refuse.
-  const canUseInbox = usePermissionOr(
-    INBOX_PERMISSION.slice(0, INBOX_PERMISSION.indexOf(':')),
-    INBOX_PERMISSION.slice(INBOX_PERMISSION.indexOf(':') + 1),
-    Boolean(effectiveRole),
-  );
+  const inboxWaiting = useInboxWaiting(effectiveRole);
+
+  // On a phone the menu is a drawer: close it once a page is picked.
+  // The drawer mounts this list when it opens, so only a change of page closes it.
+  const { setOpenMobile } = useSidebar();
+  const shownAt = React.useRef(pathname);
   React.useEffect(() => {
-    if (!selectedCompany?.id || !canUseInbox) {
-      setInboxWaiting(0);
-      return;
-    }
-    const companyId = selectedCompany.id;
-    let live = true;
-    const fetchWaiting = () => {
-      getInbox(companyId, 'mine', 'waiting_us')
-        .then((r) => {
-          if (!live) return;
-          const count = waitingCount(r.counts);
-          setInboxWaiting(count);
-          showAppBadge(count);
-        })
-        .catch(() => undefined);
-    };
-    fetchWaiting();
-    const id = window.setInterval(fetchWaiting, 30000);
-    window.addEventListener(DATA_CHANGED_EVENT, fetchWaiting);
-    return () => {
-      live = false;
-      window.clearInterval(id);
-      window.removeEventListener(DATA_CHANGED_EVENT, fetchWaiting);
-    };
-  }, [selectedCompany?.id, canUseInbox]);
+    if (shownAt.current === pathname) return;
+    shownAt.current = pathname;
+    setOpenMobile(false);
+  }, [pathname, setOpenMobile]);
 
   const badges: Record<string, number> = {
     '/inbox': inboxWaiting,
     '/whatsapp': whatsappUnread,
   };
 
-  const academy = useAcademy();
-  if (loading || !user) {
+  if (!ready) {
     return (
       <div className="p-4 space-y-2">
         {[...Array(6)].map((_, i) => (
@@ -235,37 +293,11 @@ export function SidebarNav() {
     );
   }
 
-  /** Locked by an unfinished Academy mission (never inside the practice company). */
-  const isLocked = (href: string) => {
-    if (academy.inPractice) return false;
-    const itemModule = moduleForPath(href);
-    return Boolean(itemModule && academy.locked.has(itemModule));
-  };
-
-  const canSeeItem = (item: NavItem) => {
-    // A module the company switched off is hidden under every engine.
-    const itemModule = moduleForPath(item.href);
-    if (itemModule && !moduleOn(itemModule)) return false;
-    // Once the server has reported a permission set, it is the only authority.
-    // The frontend holds no rules of its own; it renders what the server says.
-    if (permissionsLoaded) {
-      const permission = navPermission(item.href);
-      if (!permission) return true; // record-level: projects, tasks, diagram
-      const [module, action] = [
-        permission.slice(0, permission.indexOf(':')),
-        permission.slice(permission.indexOf(':') + 1),
-      ];
-      return can(module, action);
-    }
-    // Fallback while AUTHZ_ENGINE=legacy, or before the feed has answered.
-    if (item.href === '/settings') return effectiveRole === 'Admin';
-    if (!effectiveRole) return false;
-    return item.roles.includes(effectiveRole);
-  };
+  const canSeeItem = (item: NavItem) => canSee(item.href);
 
   return (
     <div data-tutorial="sidebar-nav" className="flex flex-col gap-1">
-      {sections.map((section) => {
+      {NAV_SECTIONS.map((section) => {
         const visible = section.items.filter(canSeeItem);
         if (!visible.length) return null;
         return (
@@ -290,7 +322,7 @@ export function SidebarNav() {
                         tooltip={{ children: t(item.labelKey), side: 'right' }}
                         data-tutorial={item.tutorial}
                       >
-                        <a href={item.href} className="flex items-center justify-between">
+                        <Link href={item.href} className="flex items-center justify-between">
                           <span className="flex items-center gap-2 min-w-0">
                             <Icon />
                             <span className="truncate">{t(item.labelKey)}</span>
@@ -303,7 +335,7 @@ export function SidebarNav() {
                               {badge > 99 ? '99+' : badge}
                             </span>
                           )}
-                        </a>
+                        </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );

@@ -171,7 +171,7 @@ export function FinanceOverviewPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7" data-tutorial="finance-metrics-grid">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7" data-tutorial="finance-metrics-grid">
         <KpiCardLink href="/finance?tab=reports">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.revenueThisMonth')}</CardTitle>

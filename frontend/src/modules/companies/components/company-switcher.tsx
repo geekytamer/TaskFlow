@@ -37,17 +37,19 @@ export function CompanySwitcher() {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-[250px] justify-between"
+          aria-label={selectedCompany.name}
+          className="h-9 w-9 justify-center px-0 md:w-[250px] md:justify-between md:px-4"
           data-tutorial="company-switcher"
         >
-          <div className="flex items-center gap-2">
+          {/* Phones show just the company's mark; the name needs a wider screen. */}
+          <div className="flex min-w-0 items-center gap-2">
             <CompanyMark company={selectedCompany} className="h-6 w-6" />
-            <span className="truncate">{selectedCompany.name}</span>
+            <span className="hidden truncate md:inline">{selectedCompany.name}</span>
           </div>
-          <ChevronsUpDown className="ms-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="ms-2 hidden h-4 w-4 shrink-0 opacity-50 md:block" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[250px] p-0">
+      <PopoverContent className="w-[250px] p-0" align="end">
         <Command>
           <CommandInput placeholder={t('company.search')} />
           <CommandList>

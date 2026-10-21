@@ -1,6 +1,9 @@
 /*
- * TaskFlow's service worker: shows phone notifications and opens the page
- * each one is about. It caches nothing; every page still comes from the server.
+ * The app's service worker: shows phone notifications and opens the page each
+ * one is about, and keeps the app's own files (scripts, styles, icons) on the
+ * device so the installed app opens fast. Pages and data always come from the
+ * server; only files the server marks immutable are kept, so a deploy can never
+ * be shadowed by an old copy.
  *
  * Registered as /sw.js?api=<API base> (components/pwa-register.tsx), so the
  * "Mark done" button knows where to post. A conversation push replaces the
@@ -11,8 +14,44 @@ const API_BASE = (() => {
   try { return (new URL(self.location.href).searchParams.get('api') || '').replace(/\/+$/, ''); } catch { return ''; }
 })();
 
+// Bump when the app icons change: they are kept until the cache name changes.
+const STATIC_CACHE = 'app-static-v1';
+const MAX_FILES = 300;
+
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (event) => event.waitUntil((async () => {
+  const names = await caches.keys();
+  await Promise.all(names.filter((n) => n.startsWith('app-static-') && n !== STATIC_CACHE).map((n) => caches.delete(n)));
+  await self.clients.claim();
+})()));
+
+const isAppFile = (url) =>
+  url.origin === self.location.origin &&
+  (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/brand/') || url.pathname.startsWith('/icons/'));
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (!isAppFile(url)) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(STATIC_CACHE);
+    const hit = await cache.match(request);
+    if (hit) return hit;
+    const response = await fetch(request);
+    // Hashed build files are immutable; icons and the logo change only with a deploy
+    // and carry a day's max-age. Dev-server files are neither, so they never stick.
+    const cc = response.headers.get('cache-control') || '';
+    const keep = response.ok && (cc.includes('immutable') || (/max-age=\d{4,}/.test(cc) && !url.pathname.startsWith('/_next/')));
+    if (keep) {
+      await cache.put(request, response.clone()).catch(() => undefined);
+      // Each deploy brings new file names; drop the oldest so the cache stays small.
+      const keys = await cache.keys();
+      if (keys.length > MAX_FILES) await Promise.all(keys.slice(0, keys.length - MAX_FILES).map((k) => cache.delete(k)));
+    }
+    return response;
+  })());
+});
 
 const setBadge = async (count) => {
   const nav = self.navigator;

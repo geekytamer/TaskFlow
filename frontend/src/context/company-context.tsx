@@ -73,8 +73,8 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   
   const initialize = React.useCallback(async () => {
     setLoading(true);
-    const accessibleCompanies = await fetchCompanies();
-    await fetchProjects();
+    // Both need only the sign-in, so ask for them together rather than one after the other.
+    const [accessibleCompanies] = await Promise.all([fetchCompanies(), fetchProjects()]);
 
     if (accessibleCompanies.length > 0) {
       const storedCompanyId = (() => { try { return localStorage.getItem('selectedCompanyId'); } catch { return null; } })();

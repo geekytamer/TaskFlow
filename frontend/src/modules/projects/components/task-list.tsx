@@ -585,7 +585,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
       </div>
 
       {/* Clickable stats / filters */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={ListTodo}
           label={tr('To Do', 'قيد الانتظار')}

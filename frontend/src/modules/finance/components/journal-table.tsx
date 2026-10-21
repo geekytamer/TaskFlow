@@ -620,7 +620,7 @@ export function JournalTable() {
         )}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="coa-stats">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="coa-stats">
         {accountStats.map((stat) => (
           <Card key={stat.type}>
             <CardHeader className="pb-2">

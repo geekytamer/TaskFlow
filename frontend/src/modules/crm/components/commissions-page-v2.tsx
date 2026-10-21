@@ -151,7 +151,7 @@ export function CommissionsPageV2() {
 
         {/* Earnings tab */}
         <TabsContent value="earnings" className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <SummaryCard icon={<BadgeDollarSign className="h-4 w-4 text-muted-foreground" />}
               label={t('commissions.draftTotal')} value={amount(draftTotal)}
               sub={`${commissions.filter((c) => c.status === 'Draft').length} ${t('commissions.entries')}`} />
