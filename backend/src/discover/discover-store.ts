@@ -173,8 +173,8 @@ export class DiscoverStore {
       .run(id, takenAt, followers);
   }
 
-  snapshots(profileId: string): Array<{ followers: number; takenAt: string }> {
-    return this.db.prepare('SELECT followers, takenAt FROM discover_snapshots WHERE profileId = ? ORDER BY takenAt').all(profileId) as Array<{ followers: number; takenAt: string }>;
+  snapshots(profileId: string): Array<{ followers: number; posts: number | null; takenAt: string }> {
+    return this.db.prepare('SELECT followers, posts, takenAt FROM discover_snapshots WHERE profileId = ? ORDER BY takenAt').all(profileId) as Array<{ followers: number; posts: number | null; takenAt: string }>;
   }
 
   photo(id: string): { bytes: Buffer; type: string } | undefined {

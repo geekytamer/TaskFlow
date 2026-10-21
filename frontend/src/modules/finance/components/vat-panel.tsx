@@ -114,13 +114,13 @@ export function VatPanel() {
 
       {preview && (
         <div className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label={tr('Taxable sales', 'المبيعات الخاضعة')} value={preview.taxableSales} />
             <Stat label={tr('Output VAT', 'ضريبة المخرجات')} value={preview.outputVat} />
             <Stat label={tr('Taxable purchases', 'المشتريات الخاضعة')} value={preview.taxablePurchases} />
             <Stat label={tr('Input VAT', 'ضريبة المدخلات')} value={preview.inputVat} />
             <Stat label={tr('Net VAT payable', 'صافي الضريبة المستحقة')} value={preview.netVat}
-                  accent={preview.netVat >= 0 ? 'text-red-600' : 'text-emerald-600'} />
+                  accent={preview.netVat >= 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'} />
           </div>
           {preview.breakdown && <VatBreakdownView b={preview.breakdown} tr={tr} />}
           <div className="flex items-center gap-3">

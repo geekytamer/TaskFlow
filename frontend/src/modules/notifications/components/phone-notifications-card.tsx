@@ -5,12 +5,11 @@ import { Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { showInstallSteps } from '@/components/install-app-card';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/context/i18n-context';
-import { pushSupport, urlBase64ToUint8Array, type PushSupport } from '@/lib/push';
+import { useBrand } from '@/modules/branding/brand-context';
 import {
-  getPushKey, listPushDevices, removePushDevice, subscribePush, testPushDevice, unsubscribePush, type PushDevice,
+  listPushDevices, removePushDevice, testPushDevice, type PushDevice,
 } from '@/services/notificationService';
-
-type State = 'checking' | PushSupport | 'not-set-up' | 'blocked' | 'off' | 'on';
+import { announcePhoneNotificationsChanged, usePhoneNotifications } from '../use-phone-notifications';
 
 /**
  * Turns phone notifications on or off for this device. Where it cannot work yet
@@ -19,10 +18,9 @@ type State = 'checking' | PushSupport | 'not-set-up' | 'blocked' | 'off' | 'on';
  */
 export function PhoneNotificationsCard() {
   const { language } = useI18n();
-  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const [state, setState] = React.useState<State>('checking');
-  const [busy, setBusy] = React.useState(false);
-  const [failed, setFailed] = React.useState(false);
+  const { brandText } = useBrand();
+  const tr = (en: string, ar: string) => brandText(language === 'ar' ? ar : en);
+  const { state, busy, failed, enable, disable } = usePhoneNotifications();
   const [devices, setDevices] = React.useState<PushDevice[] | null>(null);
 
   /** Lists this person's devices, marking this one by its own subscription endpoint. */
@@ -40,55 +38,6 @@ export function PhoneNotificationsCard() {
   React.useEffect(() => {
     if (state !== 'checking') void loadDevices();
   }, [state, loadDevices]);
-
-  React.useEffect(() => {
-    (async () => {
-      const standalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-      const support = pushSupport({
-        ua: navigator.userAgent, standalone, touchPoints: navigator.maxTouchPoints ?? 0,
-        hasPush: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
-      });
-      if (support !== 'ok') { setState(support); return; }
-      const key = await getPushKey().catch(() => ({ enabled: false }));
-      if (!key.enabled) { setState('not-set-up'); return; }
-      if (Notification.permission === 'denied') { setState('blocked'); return; }
-      const reg = await navigator.serviceWorker.ready;
-      setState((await reg.pushManager.getSubscription()) ? 'on' : 'off');
-    })().catch(() => setState('unsupported'));
-  }, []);
-
-  const enable = async () => {
-    setBusy(true);
-    setFailed(false);
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') { setState(permission === 'denied' ? 'blocked' : 'off'); return; }
-      const key = await getPushKey();
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key.publicKey!) });
-      try { await subscribePush(sub.toJSON()); } catch (error) { await sub.unsubscribe(); throw error; }
-      setState('on');
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const disable = async () => {
-    setBusy(true);
-    setFailed(false);
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) { await unsubscribePush(sub.endpoint).catch(() => undefined); await sub.unsubscribe(); }
-      setState('off');
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const note = (en: string, ar: string) => <p className="text-sm text-muted-foreground">{tr(en, ar)}</p>;
   return (
@@ -127,7 +76,7 @@ export function PhoneNotificationsCard() {
           onChanged={loadDevices}
           onRemovedCurrent={async () => {
             try { await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription().then((sub) => sub?.unsubscribe()); } catch { /* already gone upstream */ }
-            setState('off');
+            announcePhoneNotificationsChanged();
           }}
         />
       )}
@@ -138,7 +87,8 @@ export function PhoneNotificationsCard() {
 /** The devices that get this person's phone notifications: send a test to one, or remove it. */
 function DeviceList({ devices, onChanged, onRemovedCurrent }: { devices: PushDevice[]; onChanged: () => Promise<void>; onRemovedCurrent: () => Promise<void> }) {
   const { language } = useI18n();
-  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const { brandText } = useBrand();
+  const tr = (en: string, ar: string) => brandText(language === 'ar' ? ar : en);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<{ id: string; text: string; error?: boolean } | null>(null);
   const date = (iso: string) => new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));

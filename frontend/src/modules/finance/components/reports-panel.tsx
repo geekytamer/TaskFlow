@@ -184,7 +184,7 @@ export function ReportsPanel() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{t('accountActivity.openReceivables')}</CardTitle>
@@ -215,7 +215,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">{t('accountActivity.lowStockAlerts')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{summary.inventory.lowStockCount}</div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.inventory.lowStockCount}</div>
             <div className="text-xs text-muted-foreground">{t('accountActivity.outOfStock').replace('{count}', String(summary.inventory.outOfStockCount))}</div>
           </CardContent>
         </Card>
@@ -241,7 +241,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">{t('accountActivity.collectedThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">{amount(summary.finance.paidThisMonth)}</div>
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{amount(summary.finance.paidThisMonth)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -249,7 +249,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">{t('accountActivity.paidPayablesThisMonth')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{amount(summary.finance.paidPayablesThisMonth)}</div>
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{amount(summary.finance.paidPayablesThisMonth)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -257,7 +257,7 @@ export function ReportsPanel() {
             <CardTitle className="text-sm font-medium">{t('accountActivity.unbilledPoValue')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{amount(summary.purchases.unbilledValue)}</div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{amount(summary.purchases.unbilledValue)}</div>
           </CardContent>
         </Card>
       </div>

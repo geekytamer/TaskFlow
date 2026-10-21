@@ -68,6 +68,7 @@ import { usePermissionOr } from '@/context/permissions-context';
 import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { useLiveRefresh } from '@/lib/live';
 
 type InventoryFormState = {
   name: string;
@@ -245,7 +246,8 @@ export function InventoryPage() {
     }
   };
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) {
       setItems([]);
       setOrders([]);
@@ -257,7 +259,7 @@ export function InventoryPage() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [itemData, orderData, supplierData, movementData, balanceData, warehouseData, expiringData, projectData] = await Promise.all([
         getInventoryItems(selectedCompany.id),
@@ -281,6 +283,7 @@ export function InventoryPage() {
       setExpiringLots(expiringData);
       setProjects(projectData.filter((project) => project.companyId === selectedCompany.id));
     } catch (error: any) {
+      if (quiet) return;
       toast({
         variant: 'destructive',
         title: tr('Inventory unavailable', 'المخزون غير متاح'),
@@ -290,6 +293,9 @@ export function InventoryPage() {
       setLoading(false);
     }
   }, [selectedCompany, toast]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['inventory-items', 'stock-movements', 'warehouses', 'inventory-lots', 'stock-counts', 'purchase-orders', 'purchase-receipts', 'deliveries', 'shipments'], () => load({ quiet: true }));
 
   React.useEffect(() => {
     load();
@@ -592,12 +598,12 @@ export function InventoryPage() {
 
   const getStatus = (item: InventoryItem) => {
     if (item.onHand <= 0) {
-      return { label: tr('Out of Stock', 'نفد المخزون'), className: 'bg-red-100 text-red-700 border-red-200' };
+      return { label: tr('Out of Stock', 'نفد المخزون'), className: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30' };
     }
     if (item.onHand <= item.reorderPoint) {
-      return { label: tr('Low Stock', 'مخزون منخفض'), className: 'bg-amber-100 text-amber-700 border-amber-200' };
+      return { label: tr('Low Stock', 'مخزون منخفض'), className: 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30' };
     }
-    return { label: tr('Healthy', 'جيد'), className: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+    return { label: tr('Healthy', 'جيد'), className: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30' };
   };
 
   if (!selectedCompany) {
@@ -619,7 +625,7 @@ export function InventoryPage() {
       title={tr('Inventory Management', 'إدارة المخزون')}
       description={tr('Track stock levels, reorder points, and inbound quantities from purchase orders.', 'تتبع مستويات المخزون ونقاط إعادة الطلب والكميات الواردة من أوامر الشراء.')}
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="inventory-metrics">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="inventory-metrics">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{tr('Active SKUs', 'الأصناف النشطة')}</CardTitle>
@@ -633,7 +639,7 @@ export function InventoryPage() {
             <CardTitle className="text-sm font-medium">{tr('Low Stock', 'مخزون منخفض')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{stats.lowStock}</div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.lowStock}</div>
           </CardContent>
         </Card>
         <Card>
@@ -641,7 +647,7 @@ export function InventoryPage() {
             <CardTitle className="text-sm font-medium">{tr('Out of Stock', 'نفد المخزون')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.outOfStock}</div>
+            <div className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.outOfStock}</div>
           </CardContent>
         </Card>
         <Card>

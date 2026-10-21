@@ -18,7 +18,7 @@
  * whoever hangs below the cycle.
  *
  * Cached per company against team_versions, a counter that triggers on the
- * employees table move whenever a row changes its line (migration 136), so
+ * employees table move whenever a row changes its line (migration 138), so
  * every writer — store methods and raw SQL alike — invalidates it, in every
  * process.
  */

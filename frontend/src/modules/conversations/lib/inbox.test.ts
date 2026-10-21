@@ -29,11 +29,13 @@ test('waiting count is mine plus unassigned and never negative or NaN', () => {
   assert.equal(waitingCount({ mine: -2, unassigned: 1, all: 1 }), 1);
 });
 
-test('the inbox needs contacts:read in the nav, the sidebar badge and the page guard', () => {
+test('the inbox is for everyone; its client side needs contacts:read', () => {
+  // Client conversations (and the waiting badge) stay gated on contacts:read...
   assert.equal(INBOX_PERMISSION, 'contacts:read');
-  assert.equal(navPermission('/inbox'), INBOX_PERMISSION);
-  // A company with contacts switched off hides the inbox too.
-  assert.equal(moduleForPath('/inbox'), 'contacts');
+  // ...but /inbox itself also holds staff chats, which every member uses, so the
+  // menu shows it to all and a company without contacts keeps it.
+  assert.equal(navPermission('/inbox'), undefined);
+  assert.equal(moduleForPath('/inbox'), undefined);
 });
 
 test('elapsed waiting time is compact in minutes, hours and days', () => {

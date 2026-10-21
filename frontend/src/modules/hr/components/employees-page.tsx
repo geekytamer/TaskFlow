@@ -34,9 +34,9 @@ import {
 const EMPLOYMENT_TYPES: EmploymentType[] = ['Full-time', 'Part-time', 'Contractor', 'Intern'];
 const STATUSES: EmployeeStatus[] = ['Active', 'On Leave', 'Terminated'];
 const STATUS_STYLES: Record<EmployeeStatus, string> = {
-  Active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'On Leave': 'bg-amber-50 text-amber-700 border-amber-200',
-  Terminated: 'bg-rose-50 text-rose-700 border-rose-200',
+  Active: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  'On Leave': 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  Terminated: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30',
 };
 
 type Form = {

@@ -14,7 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Logo } from '@/components/icons/logo';
+import { BrandMark } from '@/modules/branding/brand-mark';
 import { login } from '@/services/authService';
 import { useI18n } from '@/context/i18n-context';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
@@ -57,10 +57,9 @@ function LoginPageInner() {
       <div className="flex flex-1 items-center justify-center p-4">
         <Card className="mx-auto w-full max-w-sm">
           <CardHeader className="text-center">
-              <div className="flex justify-center items-center gap-2 mb-4">
-                  <Logo className="h-8 w-8 text-primary" />
-                  <h1 className="text-3xl font-bold text-primary font-headline">TaskFlow</h1>
-              </div>
+              <h1 className="mb-4 flex justify-center">
+                <BrandMark logoClassName="h-10 w-10" nameClassName="text-3xl font-bold text-primary font-headline" />
+              </h1>
             <CardTitle className="text-2xl">{t('login.title')}</CardTitle>
             <CardDescription>
               {t('login.subtitle')}

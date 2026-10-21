@@ -38,8 +38,8 @@ export function BillMatchingPage() {
   }, [companyId]);
 
   const statusMeta: Record<BillMatchStatus, { label: string; icon: React.ElementType; cls: string }> = {
-    matched: { label: tr('Matched', 'مطابق'), icon: CheckCircle2, cls: 'text-emerald-600' },
-    variance: { label: tr('Variance', 'اختلاف'), icon: AlertTriangle, cls: 'text-amber-600' },
+    matched: { label: tr('Matched', 'مطابق'), icon: CheckCircle2, cls: 'text-emerald-600 dark:text-emerald-400' },
+    variance: { label: tr('Variance', 'اختلاف'), icon: AlertTriangle, cls: 'text-amber-600 dark:text-amber-400' },
     no_po: { label: tr('No PO', 'بدون أمر شراء'), icon: MinusCircle, cls: 'text-muted-foreground' },
   };
 
@@ -50,7 +50,7 @@ export function BillMatchingPage() {
   };
 
   const Var = ({ v }: { v: number }) => (
-    <span className={cn('tabular-nums', v < 0 ? 'text-red-600' : v > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+    <span className={cn('tabular-nums', v < 0 ? 'text-red-600 dark:text-red-400' : v > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
       {v === 0 ? '—' : v > 0 ? `+${money(v)}` : money(v)}
     </span>
   );
@@ -67,11 +67,11 @@ export function BillMatchingPage() {
         <div className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border bg-card p-4 flex items-center gap-3">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               <div><div className="text-xl font-bold tabular-nums">{counts.matched}</div><div className="text-xs text-muted-foreground">{tr('Matched', 'مطابقة')}</div></div>
             </div>
             <div className="rounded-xl border bg-card p-4 flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               <div><div className="text-xl font-bold tabular-nums">{counts.variance}</div><div className="text-xs text-muted-foreground">{tr('With variance', 'باختلاف')}</div></div>
             </div>
             <div className="rounded-xl border bg-card p-4 flex items-center gap-3">

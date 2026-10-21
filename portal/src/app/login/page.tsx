@@ -14,7 +14,7 @@ export default async function LoginPage() {
 
   return (
     <AuthFrame branding={branding} lang={lang} tagline={t(lang, audience === 'client' ? 'signIn.client' : 'signIn.influencer')}>
-      <h1 className="mb-8 text-3xl font-semibold tracking-tight">{t(lang, 'signIn.title')}</h1>
+      <h1 className="mb-7 text-[28px] font-extrabold tracking-tight">{t(lang, 'signIn.title')}</h1>
       <LoginForm
         strings={{
           email: t(lang, 'field.email'),

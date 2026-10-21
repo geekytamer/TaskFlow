@@ -16,12 +16,14 @@ import { hrefWithShortlist, parseShortlist, shortlistHref, toggleShortlist } fro
 interface ShortlistState {
   ids: string[];
   toggle(id: string): void;
+  /** Adds several at once (a suggested group); ones already chosen stay. */
+  addMany(ids: string[]): void;
   clear(): void;
 }
 
 const ShortlistContext = createContext<ShortlistState | null>(null);
 
-function useShortlist(): ShortlistState {
+export function useShortlist(): ShortlistState {
   const state = useContext(ShortlistContext);
   if (!state) throw new Error('Shortlist components must sit inside <ShortlistProvider>.');
   return state;
@@ -38,6 +40,7 @@ export function ShortlistProvider({ initial, children }: { initial: string[]; ch
   // Functional updates, so taps landing before the next render each count.
   const toggle = useCallback((id: string) => setIds((prev) => parseShortlist(toggleShortlist(prev, id))), []);
   const clear = useCallback(() => setIds([]), []);
+  const addMany = useCallback((more: string[]) => setIds((prev) => parseShortlist([...prev, ...more.filter((id) => !prev.includes(id))])), []);
   useEffect(() => { syncUrl(ids); }, [ids]);
   // Back/Forward lands on a URL whose `with` may differ from what is held here: the URL wins.
   useEffect(() => {
@@ -45,7 +48,7 @@ export function ShortlistProvider({ initial, children }: { initial: string[]; ch
     window.addEventListener('popstate', fromUrl);
     return () => window.removeEventListener('popstate', fromUrl);
   }, []);
-  const value = useMemo<ShortlistState>(() => ({ ids, toggle, clear }), [ids, toggle, clear]);
+  const value = useMemo<ShortlistState>(() => ({ ids, toggle, addMany, clear }), [ids, toggle, addMany, clear]);
   return <ShortlistContext.Provider value={value}>{children}</ShortlistContext.Provider>;
 }
 
@@ -71,9 +74,18 @@ export function ShortlistItem({ id, className, chosenClassName, children }: {
   return <li className={`${className} ${ids.includes(id) ? chosenClassName : ''}`}>{children}</li>;
 }
 
-export function ChooseButton({ id, name, lang }: { id: string; name: string; lang: Lang }) {
+export function ChooseButton({ id, name, lang, unavailable = false }: { id: string; name: string; lang: Lang; unavailable?: boolean }) {
   const { ids, toggle } = useShortlist();
   const chosen = ids.includes(id);
+  // Marked unavailable by Peak: shown so the client knows them, but not choosable.
+  if (unavailable && !chosen) {
+    return (
+      <span aria-disabled="true" className="inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-control border border-line px-3 text-sm font-medium text-ink-soft">
+        <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="8" cy="8" r="5.5" /><path d="m4.2 11.8 7.6-7.6" /></svg>
+        {t(lang, 'dir.unavailableLock')}
+      </span>
+    );
+  }
   return (
     <button type="button" onClick={() => toggle(id)} aria-pressed={chosen}
       aria-label={`${t(lang, chosen ? 'cat.removeShortlist' : 'cat.addShortlist')}: ${name}`}

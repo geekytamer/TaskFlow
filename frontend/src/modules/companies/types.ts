@@ -1,3 +1,5 @@
+import type { CompanyBranding } from '@/modules/branding/brand';
+
 export interface Company {
   id: string;
   name: string;
@@ -19,6 +21,8 @@ export interface Company {
   /** A TaskFlow Academy practice company (only its trainee sees it). */
   isTraining?: boolean;
   trainingOwnerUserId?: string;
+  /** The company's own look in the app; absent = TaskFlow's. */
+  branding?: CompanyBranding;
 }
 
 export interface Position {

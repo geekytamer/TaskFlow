@@ -8,6 +8,7 @@ import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { getContactConversation, type ThreadSummary } from '@/services/conversationService';
 import { ThreadView } from './thread-view';
+import { useLiveRefresh } from '@/lib/live';
 
 /** General first, then the rest by most recent activity. */
 export function orderThreads(threads: ThreadSummary[]): ThreadSummary[] {
@@ -39,6 +40,7 @@ export function ContactConversation({ companyId, contactId }: { companyId: strin
   }, [companyId, contactId]);
 
   React.useEffect(() => { setThreads(null); setActive(null); load(); }, [load]);
+  useLiveRefresh(['inbox', 'conversation-threads', 'conversations', 'messages', 'contacts'], load);
 
   // Land on the section when the URL asks for it; the page renders after its data arrives.
   const section = React.useRef<HTMLElement>(null);

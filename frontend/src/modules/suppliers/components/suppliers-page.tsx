@@ -177,7 +177,7 @@ export function SuppliersPage() {
         </Dialog>
       }
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{t('suppliers.statSuppliers')}</CardTitle>
@@ -270,7 +270,7 @@ export function SuppliersPage() {
                   <TableCell className="text-end">{metrics?.orderCount ?? 0}</TableCell>
                   <TableCell className="text-end">
                     {payable?.openPayables ? (
-                      <Badge variant="outline" className="text-orange-600">{amount(payable.openPayables)}</Badge>
+                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amount(payable.openPayables)}</Badge>
                     ) : '—'}
                   </TableCell>
                 </TableRow>

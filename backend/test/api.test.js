@@ -1298,7 +1298,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '124_portal_push_log',
     '125_item_home_location',
     '126_influencer_discover',
-    '127_discover_roster', '128_discover_photo_at', '129_catalogue_hidden_and_ranges', '130_request_close_reason', '131_conversations', '132_conversation_settings', '133_push_held', '134_portal_alert_groups', '135_authz_v2', '136_team_version', '137_authz_divergence_observed',
+    '127_discover_roster', '128_discover_photo_at', '129_catalogue_hidden_and_ranges', '130_request_close_reason', '131_conversations', '132_conversation_settings', '133_push_held', '134_portal_alert_groups', '135_company_branding', '136_team_chats', '137_authz_v2', '138_team_version', '139_authz_divergence_observed',
   ]);
 });
 

@@ -6,10 +6,10 @@ import type { ReactNode } from 'react';
  * button, panel and heading. Controls are 44px tall: phones come first.
  */
 
-const base = 'inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-control px-4 text-[15px] font-semibold transition-[background-color,border-color,color,transform] duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
+const base = 'inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-control px-4 text-[15px] font-semibold transition-[background-color,border-color,color,transform,box-shadow] duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
 
 export const button = {
-  primary: `${base} bg-accent text-accent-ink hover:bg-accent/90`,
+  primary: `${base} bg-accent text-accent-ink hover:bg-accent/90 hover:shadow-[0_8px_20px_-10px_rgb(238_113_3/0.7)]`,
   secondary: `${base} border border-field bg-surface text-ink hover:border-ink/60`,
   ghost: `${base} px-3 text-ink-soft hover:bg-ink/5 hover:text-ink`,
   danger: `${base} bg-danger text-canvas hover:bg-danger/90`,
@@ -30,7 +30,7 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
       )}
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 max-w-2xl">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{title}</h1>
+          <h1 className="text-[28px] font-extrabold leading-tight tracking-tight sm:text-[32px]">{title}</h1>
           {subtitle && <div className="mt-1.5 text-[15px] leading-relaxed text-ink-soft">{subtitle}</div>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

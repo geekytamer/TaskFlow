@@ -50,7 +50,7 @@ const snapshot = (dbPath) => {
  * Builds a database shaped as production is today (migration 134): four
  * system groups per company with legacy grants, a custom group with old keys,
  * users whose legacy role lives in companyRoles. Then rewinds every v2 trace so
- * reopening the store runs migration 135 against it for real.
+ * reopening the store runs migration 137 against it for real.
  */
 const legacyShapedDb = () => {
   const dbPath = freshPath();
@@ -87,7 +87,7 @@ const legacyShapedDb = () => {
     DELETE FROM permission_groups WHERE key = 'owner';
     UPDATE permission_groups SET templateKey = NULL, needsReview = 0, convertedAt = NULL;
     UPDATE user_group_assignments SET isMain = 0, isActive = 1;
-    DELETE FROM schema_migrations WHERE id = '135_authz_v2';
+    DELETE FROM schema_migrations WHERE id = '137_authz_v2';
   `);
   const versionBefore = db.prepare('SELECT version FROM authz_version').get().version;
   db.close();
@@ -95,7 +95,7 @@ const legacyShapedDb = () => {
   return { dbPath, acme, beta, admin, clerk, boss, custom, legacyBefore, versionBefore };
 };
 
-test('migration 135 creates the v2 tables and columns', () => {
+test('migration 137 creates the v2 tables and columns', () => {
   const dbPath = freshPath();
   new DataStore({ dbPath, seedOnEmpty: false });
   const db = new Database(dbPath, { readonly: true });

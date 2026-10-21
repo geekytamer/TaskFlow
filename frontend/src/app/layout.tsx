@@ -3,16 +3,18 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { Providers } from './providers';
 import { PwaRegister } from '@/components/pwa-register';
+import { themeBootScript } from '@/context/theme-context';
 
 export const metadata: Metadata = {
-  title: 'TaskFlow',
-  description: 'Employee Task Management System with a custom backend',
-  // Installed on a phone, TaskFlow opens full screen with its own icon.
-  appleWebApp: { capable: true, title: 'TaskFlow', statusBarStyle: 'default' },
-  icons: { apple: '/icons/180' },
+  title: 'مجموعة اليعربي',
+  description: 'Al Yarubi Group — business management',
+  // Installed on a phone, the app opens full screen with its own icon.
+  appleWebApp: { capable: true, title: 'اليعربي', statusBarStyle: 'default' },
+  icons: { icon: '/brand/favicon.png', apple: '/icons/180' },
 };
 
-export const viewport: Viewport = { themeColor: '#5B6AF0' };
+// viewportFit cover lets the phone tab bar pad itself clear of the iPhone home indicator.
+export const viewport: Viewport = { themeColor: '#0a1929', viewportFit: 'cover' };
 
 export default function RootLayout({
   children,
@@ -22,6 +24,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"

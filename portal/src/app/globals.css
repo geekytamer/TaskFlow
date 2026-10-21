@@ -34,17 +34,29 @@
   --radius-control: 6px;
   --radius-panel: 10px;
   --shadow-float: 0 -1px 0 rgb(255 255 255 / 0.04), 0 -12px 32px -12px rgb(0 0 0 / 0.8);
+  /* Motion: quick, decelerating arrivals; nothing waits on choreography. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-quick: 150ms;
+  --dur-enter: 420ms;
   color-scheme: dark;
 }
 
 html { background: var(--canvas); }
 
-/* Peak's warm glow, kept behind the work: one soft light from the top corner. */
-body {
-  background:
-    radial-gradient(60rem 32rem at 100% -10%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%),
-    var(--canvas);
-  background-attachment: fixed;
+/*
+ * Peak's warm glow, kept behind the work: one soft light from the top corner.
+ * It lives on a fixed layer (html::before), not body's background with
+ * background-attachment: fixed, which makes browsers repaint the whole page
+ * on every scroll frame.
+ */
+body { background: transparent; }
+html::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: radial-gradient(60rem 32rem at 100% -10%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%);
 }
 
 body {
@@ -61,9 +73,6 @@ body {
 
 ::selection { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 
-@media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-}
 
 /* Figures line up in columns everywhere. */
 body { font-variant-numeric: tabular-nums; }
@@ -78,3 +87,182 @@ p { text-wrap: pretty; }
 /* The end edge for direction-aware gradients (the mobile nav fade). */
 :root { --nav-end: right; }
 [dir='rtl'] { --nav-end: left; }
+
+/* Headings speak in Peak's voice: Cairo, heavy and tight, as on peak-creative.agency. */
+h1, h2 { font-family: var(--font-display), var(--font-latin), var(--font-arabic), system-ui, sans-serif; }
+[dir='rtl'] h1 { letter-spacing: -0.01em; }
+
+/*
+ * The night sky behind the work: two sparse layers of tiny points, fixed to
+ * the viewport, so faint they read as texture rather than stars. One layer
+ * breathes slowly; nothing moves across the screen.
+ */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body { isolation: isolate; }
+body::before {
+  background-image:
+    radial-gradient(1px 1px at 23px 41px, rgb(255 255 255 / 0.5), transparent 70%),
+    radial-gradient(1px 1px at 141px 97px, rgb(255 255 255 / 0.35), transparent 70%),
+    radial-gradient(1px 1px at 211px 13px, rgb(255 255 255 / 0.45), transparent 70%),
+    radial-gradient(1px 1px at 87px 183px, rgb(255 255 255 / 0.3), transparent 70%),
+    radial-gradient(1.5px 1.5px at 267px 221px, rgb(238 113 3 / 0.55), transparent 70%);
+  background-size: 300px 260px;
+  opacity: 0.35;
+}
+body::after {
+  background-image:
+    radial-gradient(1px 1px at 61px 137px, rgb(255 255 255 / 0.6), transparent 70%),
+    radial-gradient(1px 1px at 331px 59px, rgb(255 255 255 / 0.4), transparent 70%),
+    radial-gradient(1px 1px at 397px 311px, rgb(255 255 255 / 0.5), transparent 70%);
+  background-size: 460px 380px;
+  opacity: 0.25;
+  animation: peak-twinkle 9s ease-in-out infinite alternate;
+}
+@keyframes peak-twinkle { to { opacity: 0.08; } }
+
+/*
+ * Arriving on a page: its blocks rise a few pixels and fade in, a beat apart.
+ * The template wraps every page in .page-enter; a page with one wrapper gets
+ * the stagger on that wrapper's children instead. The delay is capped so a
+ * long page never makes anyone wait.
+ */
+.page-enter > :not(:only-child),
+.page-enter > :only-child > * {
+  animation: peak-rise var(--dur-enter) var(--ease-out) both;
+}
+.page-enter > :nth-child(2), .page-enter > :only-child > :nth-child(2) { animation-delay: 40ms; }
+.page-enter > :nth-child(3), .page-enter > :only-child > :nth-child(3) { animation-delay: 80ms; }
+.page-enter > :nth-child(4), .page-enter > :only-child > :nth-child(4) { animation-delay: 120ms; }
+.page-enter > :nth-child(n + 5), .page-enter > :only-child > :nth-child(n + 5) { animation-delay: 160ms; }
+.rise { animation: peak-rise 600ms var(--ease-out) both; }
+@keyframes peak-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes peak-fade { from { opacity: 0; } }
+
+/* Cards that are links answer the pointer: a warmer edge and a soft lift. */
+a.rounded-panel {
+  transition: border-color var(--dur-quick) ease, background-color var(--dur-quick) ease, box-shadow 240ms var(--ease-out), transform 240ms var(--ease-out);
+}
+a.rounded-panel:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  box-shadow: 0 10px 24px -14px rgb(0 0 0 / 0.9);
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  a.rounded-panel:hover { transform: translateY(-1px); }
+}
+
+/* Loading placeholders: a slow sheen passes over the shapes of what is coming. */
+.skeleton {
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgb(244 242 239 / 0.06) 0%, rgb(244 242 239 / 0.11) 40%, rgb(244 242 239 / 0.06) 80%) 0 0 / 300% 100%;
+  animation: peak-sheen 1.6s linear infinite;
+}
+[dir='rtl'] .skeleton { animation-direction: reverse; }
+@keyframes peak-sheen { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+
+/* Peak's orbit: thin rings and two orange points circling the mark. */
+.orbit-spin { animation: peak-spin 48s linear infinite; }
+.orbit-spin-quick { animation: peak-spin 14s linear infinite; }
+.orbit-spin-slow { animation: peak-spin 76s linear infinite reverse; }
+.orbit-arrive { animation: peak-arrive 900ms var(--ease-out) both; }
+@keyframes peak-spin { to { transform: rotate(360deg); } }
+@keyframes peak-arrive { from { opacity: 0; transform: scale(0.94); filter: blur(6px); } }
+
+/* Cards off screen are not drawn until they come near (they keep their space). */
+.cv-card { content-visibility: auto; contain-intrinsic-size: auto 300px; }
+
+/* Directory results: new cards settle in quickly, a beat apart, capped. */
+.results-in > * { animation: peak-rise 260ms var(--ease-out) both; }
+.results-in > :nth-child(2) { animation-delay: 25ms; }
+.results-in > :nth-child(3) { animation-delay: 50ms; }
+.results-in > :nth-child(4) { animation-delay: 75ms; }
+.results-in > :nth-child(n + 5) { animation-delay: 100ms; }
+.chip-in { animation: peak-fade 180ms ease-out both; }
+
+/* While results load: a short orange bar slides across the top of the list. */
+.dir-progress { animation: peak-progress 1.1s var(--ease-out) infinite; }
+@keyframes peak-progress { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+[dir='rtl'] .dir-progress { animation-direction: reverse; }
+
+/* The phone filter sheet rises from the bottom edge. */
+.dir-sheet[open] { animation: peak-sheet 280ms var(--ease-out) both; }
+.dir-sheet[open]::backdrop { animation: peak-fade 200ms ease-out both; }
+@keyframes peak-sheet { from { transform: translateY(24px); opacity: 0; } }
+
+/* Price slider: two native ranges stacked on one track; only the thumbs take the pointer. */
+.price-thumb {
+  position: absolute; inset: 0 -11px; width: calc(100% + 22px); height: 100%; margin: 0;
+  background: none; pointer-events: none; -webkit-appearance: none; appearance: none;
+}
+.price-thumb::-webkit-slider-runnable-track { background: none; height: 100%; }
+.price-thumb::-moz-range-track { background: none; }
+.price-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none; pointer-events: auto; cursor: grab;
+  width: 22px; height: 22px; margin-top: 1px; border-radius: 9999px;
+  background: var(--accent); border: 3px solid var(--surface);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6), 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: transform var(--dur-quick) var(--ease-out);
+}
+.price-thumb::-moz-range-thumb {
+  pointer-events: auto; cursor: grab; width: 16px; height: 16px; border-radius: 9999px;
+  background: var(--accent); border: 3px solid var(--surface);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6), 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.price-thumb:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.12); }
+.price-thumb:focus-visible { outline: none; }
+.price-thumb:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.price-thumb:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Help me choose, while it sorts: the ring turns, a beam sweeps, the mark breathes. */
+.think-orbit { animation: peak-spin 16s linear infinite; }
+.think-counter { animation: peak-spin 16s linear infinite reverse; }
+.think-sweep { animation: peak-spin 2.2s linear infinite; }
+.think-spin { animation: peak-spin 0.8s linear infinite; }
+.think-pulse { animation: think-pulse 1.6s ease-in-out infinite; }
+.think-bar { transform-origin: left; animation: think-bar linear both; }
+[dir='rtl'] .think-bar { transform-origin: right; }
+@keyframes think-pulse { 50% { transform: scale(1.08); opacity: 0.8; } }
+@keyframes think-bar { from { transform: scaleX(0.04); } to { transform: scaleX(1); } }
+/* The groups arrive one after another. */
+.pkg-in { animation: pkg-in 480ms var(--ease-out) both; }
+@keyframes pkg-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
+
+/*
+ * Taps answer at once: no double-tap-zoom wait on touch, no grey flash, and
+ * buttons give a little under the finger.
+ */
+a, button, [role='button'], [role='switch'], [role='option'], label, input, select { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+button:not(:disabled) { transition-property: background-color, border-color, color, box-shadow, transform; transition-duration: 150ms; }
+button:not(:disabled):active { transform: scale(0.97); transition-duration: 60ms; }
+
+/* Peak's dropdown: a short fade and drop, a faster fade out, and the highlight sliding between options. */
+.dd-panel { transform-origin: top; animation: dd-in 160ms var(--ease-out) both; }
+.dd-panel.dd-closing { animation: dd-out 110ms ease-in both; }
+.dd-bar { transition: transform 150ms var(--ease-out), height 150ms var(--ease-out); }
+@keyframes dd-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+@keyframes dd-out { to { opacity: 0; transform: translateY(-2px) scale(0.99); } }
+
+/*
+ * Reduce Motion: nothing travels or loops. Pages still fade in (short and
+ * still), and colour changes that confirm an action stay.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .page-enter > :not(:only-child),
+  .page-enter > :only-child > *, .rise, .results-in > *, .dir-sheet[open] { animation: peak-fade 160ms ease-out both; animation-delay: 0ms !important; }
+  .dir-progress { animation: none; width: 100%; opacity: 0.6; }
+  .pkg-in { animation: peak-fade 160ms ease-out both; animation-delay: 0ms !important; }
+  .think-orbit, .think-counter, .think-sweep, .think-pulse { animation: none; }
+  .dd-panel, .dd-panel.dd-closing { animation: peak-fade 100ms ease-out both; }
+  .dd-bar { transition: none; }
+  button:not(:disabled):active { transform: none; }
+  body::after, .skeleton, .orbit-spin, .orbit-spin-slow, .orbit-spin-quick, .animate-pulse { animation: none; }
+  .orbit-arrive { animation: peak-fade 300ms ease-out both; }
+  a.rounded-panel { transition-property: border-color, background-color, box-shadow; }
+}

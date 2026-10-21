@@ -25,8 +25,8 @@ self.addEventListener('push', (event) => {
       // A thread's later push replaces its earlier one (same tag) and sounds again.
       renotify: !!(data.renotify && data.tag),
       data: { url: data.url || '/' },
-      icon: '/icons/192',
-      badge: '/icons/192',
+      icon: '/android-chrome-192x192.png',
+      badge: '/android-chrome-192x192.png',
     }),
     setBadge(data.badge),
   ]));

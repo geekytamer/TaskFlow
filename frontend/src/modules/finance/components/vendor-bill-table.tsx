@@ -70,10 +70,10 @@ import { useI18n } from '@/context/i18n-context';
 const vendorPaymentMethods = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'] as const;
 
 const statusColor: Record<VendorBillStatus, string> = {
-  Draft: 'bg-slate-200 text-slate-800',
-  Approved: 'bg-blue-200 text-blue-800',
-  Paid: 'bg-green-200 text-green-800',
-  Overdue: 'bg-red-200 text-red-800',
+  Draft: 'bg-muted text-foreground',
+  Approved: 'bg-blue-200 dark:bg-blue-500/25 text-blue-800 dark:text-blue-300',
+  Paid: 'bg-green-200 dark:bg-green-500/25 text-green-800 dark:text-green-300',
+  Overdue: 'bg-red-200 dark:bg-red-500/25 text-red-800 dark:text-red-300',
 };
 
 /**
@@ -830,7 +830,7 @@ export function VendorBillTable() {
         )}
       />
 
-      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+      <div className="rounded-lg border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-3 py-2 text-sm text-blue-900 dark:text-blue-300">
         {t('vendorBills.helperText')} <span className="font-medium">{t('vendorBills.helperRecordPayment')}</span>{t('vendorBills.helperTextSuffix')}
       </div>
 
@@ -1100,7 +1100,7 @@ export function VendorBillTable() {
                   {tr(' to control the layout.', ' للتحكم في التصميم.')}
                 </p>
               )}
-              <div className="rounded-lg border bg-white">
+              <div className="rounded-lg border bg-card">
                 <VendorBillDocument data={preview} />
               </div>
               <RecordSupportPanel

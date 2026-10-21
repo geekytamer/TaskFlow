@@ -87,10 +87,10 @@ export function ShipmentsPage() {
             return (
               <article key={s.id} className="rounded-lg border p-4">
                 <header className="flex flex-wrap items-center gap-2">
-                  {s.direction === 'import' ? <ArrowDownToLine className="h-4 w-4 text-sky-600" aria-label={tr('Import', 'وارد')} /> : <ArrowUpFromLine className="h-4 w-4 text-violet-600" aria-label={tr('Export', 'صادر')} />}
+                  {s.direction === 'import' ? <ArrowDownToLine className="h-4 w-4 text-sky-600 dark:text-sky-400" aria-label={tr('Import', 'وارد')} /> : <ArrowUpFromLine className="h-4 w-4 text-violet-600 dark:text-violet-400" aria-label={tr('Export', 'صادر')} />}
                   <h3 className="font-semibold">{s.reference}</h3>
                   <span className="text-sm text-muted-foreground">{modeLabel(s.mode, tr)}{s.carrier ? ` · ${s.carrier}` : ''}</span>
-                  <Badge variant="outline" className={cn('ms-auto', s.status === 'cancelled' && 'opacity-60', late && 'border-red-300 text-red-800 dark:text-red-200')}>
+                  <Badge variant="outline" className={cn('ms-auto', s.status === 'cancelled' && 'opacity-60', late && 'border-red-300 dark:border-red-500/30 text-red-800 dark:text-red-200')}>
                     {late ? tr('Late', 'متأخرة') : statusLabel(s.status, tr)}
                   </Badge>
                 </header>
@@ -103,7 +103,7 @@ export function ShipmentsPage() {
                   <ol className="mt-3 flex items-center gap-1 text-[11px]" aria-label={tr('Progress', 'التقدم')}>
                     {FLOW.map((step, i) => (
                       <li key={step} className={cn('flex flex-1 items-center gap-1', i <= stepIndex ? 'text-foreground' : 'text-muted-foreground')}>
-                        {i <= stepIndex ? <Check className="h-3 w-3 text-emerald-600" /> : <Circle className="h-3 w-3" />}
+                        {i <= stepIndex ? <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" /> : <Circle className="h-3 w-3" />}
                         <span className="truncate">{statusLabel(step, tr)}</span>
                       </li>
                     ))}

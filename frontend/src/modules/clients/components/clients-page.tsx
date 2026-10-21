@@ -183,7 +183,7 @@ export function ClientsPage() {
         </Dialog>
       }
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{t('clients.statClients')}</CardTitle>
@@ -277,7 +277,7 @@ export function ClientsPage() {
                   <TableCell className="text-end">{metrics?.invoiceCount ?? 0}</TableCell>
                   <TableCell className="text-end">
                     {metrics?.outstanding ? (
-                      <Badge variant="outline" className="text-orange-600">{amount(metrics.outstanding)}</Badge>
+                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amount(metrics.outstanding)}</Badge>
                     ) : '—'}
                   </TableCell>
                   {canManagePortal && (

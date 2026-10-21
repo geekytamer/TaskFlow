@@ -150,7 +150,7 @@ export function WarehouseDetailPage({ warehouseId }: { warehouseId: string }) {
             ) : null}
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-3">
+        <CardContent className="grid grid-cols-2 gap-3 md:gap-4 sm:grid-cols-3">
           <div>
             <p className="text-xs text-muted-foreground">{tr('Address', 'العنوان')}</p>
             <p className="text-sm">{warehouse.address || '—'}</p>

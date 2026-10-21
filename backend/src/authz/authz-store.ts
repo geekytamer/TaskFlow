@@ -1,6 +1,6 @@
 /**
  * store.authz: roles, assignments, holding groups, record shares and the
- * permission audit, in TaskFlow's own database (migration 135_authz_v2).
+ * permission audit, in TaskFlow's own database (migration 137_authz_v2).
  *
  * Tables (spec §4 "Data"):
  * - permission_groups = roles. v2 adds templateKey, holdingGroupId (non-null =
@@ -243,7 +243,7 @@ export class AuthzStore {
 
   constructor(private readonly db: Database.Database) {}
 
-  /** Whether migration 135 has created the v2 tables (false while older migrations run). */
+  /** Whether migration 137 has created the v2 tables (false while older migrations run). */
   ready(): boolean {
     if (this.isReady) return true;
     this.isReady = Boolean(
@@ -1163,7 +1163,7 @@ export class AuthzStore {
       Array<{ id: string; userId: string | null; managerId: string | null; status: string }>;
   }
 
-  /** Moves whenever an employee row in the company changes line (triggers, migration 136). */
+  /** Moves whenever an employee row in the company changes line (triggers, migration 138). */
   teamVersion(companyId: string): number {
     const row = this.db.prepare('SELECT version FROM team_versions WHERE companyId = ?').get(companyId) as { version: number } | undefined;
     return row?.version ?? 0;

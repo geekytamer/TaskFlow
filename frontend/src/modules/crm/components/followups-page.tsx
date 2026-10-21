@@ -40,6 +40,7 @@ import {
   LayoutGrid, AlertTriangle, Shuffle, TrendingDown, ChevronRight,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useLiveRefresh } from '@/lib/live';
 
 type View = 'today' | 'list' | 'team';
 
@@ -47,11 +48,11 @@ const CHANNEL_ICON: Record<string, React.ElementType> = {
   Call: Phone, WhatsApp: MessageCircle, Email: Mail, Meeting: UsersIcon, Task: ListTodo, Follow: Clock,
 };
 const CHANNEL_COLOR: Record<string, string> = {
-  Call: 'bg-blue-100 text-blue-700', WhatsApp: 'bg-green-100 text-green-700',
-  Email: 'bg-violet-100 text-violet-700', Meeting: 'bg-amber-100 text-amber-700', Task: 'bg-slate-100 text-slate-700',
+  Call: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300', WhatsApp: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300',
+  Email: 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300', Meeting: 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300', Task: 'bg-muted text-foreground/80',
 };
 const PRIORITY_DOT: Record<string, string> = {
-  urgent: 'bg-red-500', high: 'bg-orange-500', normal: 'bg-slate-300', low: 'bg-slate-200',
+  urgent: 'bg-red-500', high: 'bg-orange-500', normal: 'bg-slate-300', low: 'bg-muted',
 };
 // Outcome → default next-touch (days). Absent ⇒ thread ends (no next step).
 const NEXT_DAYS: Record<string, number> = {
@@ -106,9 +107,10 @@ export function FollowupsPage() {
   const [logFor, setLogFor] = React.useState<Followup | null>(null);
   const [shareFor, setShareFor] = React.useState<Followup | null>(null);
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) { setFollowups([]); setLoading(false); return; }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [fu, mem, cts] = await Promise.all([
         getFollowups(selectedCompany.id, ownerFilter === 'mine' && currentUser ? { ownerUserId: currentUser.id } : undefined),
@@ -119,11 +121,15 @@ export function FollowupsPage() {
       setMembers(mem);
       setContacts(cts);
     } catch (error: any) {
+      if (quiet) return;
       toast({ variant: 'destructive', title: tr('Could not load follow-ups', 'تعذر تحميل المتابعات'), description: error?.message });
     } finally {
       setLoading(false);
     }
   }, [selectedCompany, ownerFilter, currentUser, toast, tr]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['followups', 'contacts', 'opportunities'], () => load({ quiet: true }));
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -182,9 +188,9 @@ export function FollowupsPage() {
         else buckets.later.push(f);
       }
       return [
-        { key: 'overdue', label: tr('Overdue', 'متأخرة'), accent: 'text-red-600', items: buckets.overdue, defaultOpen: true },
-        { key: 'today', label: tr('Today', 'اليوم'), accent: 'text-orange-600', items: buckets.today, defaultOpen: true },
-        { key: 'week', label: tr('This week', 'هذا الأسبوع'), accent: 'text-blue-600', items: buckets.week, defaultOpen: true },
+        { key: 'overdue', label: tr('Overdue', 'متأخرة'), accent: 'text-red-600 dark:text-red-400', items: buckets.overdue, defaultOpen: true },
+        { key: 'today', label: tr('Today', 'اليوم'), accent: 'text-orange-600 dark:text-orange-400', items: buckets.today, defaultOpen: true },
+        { key: 'week', label: tr('This week', 'هذا الأسبوع'), accent: 'text-blue-600 dark:text-blue-400', items: buckets.week, defaultOpen: true },
         { key: 'later', label: tr('Later', 'لاحقاً'), accent: 'text-muted-foreground', items: buckets.later, defaultOpen: false },
         { key: 'none', label: tr('No date', 'بدون تاريخ'), accent: 'text-muted-foreground', items: buckets.none, defaultOpen: false },
       ].filter((c) => c.items.length > 0);
@@ -201,9 +207,9 @@ export function FollowupsPage() {
     }
     if (groupBy === 'priority') {
       const order: Array<{ k: string; label: string; accent: string }> = [
-        { k: 'High', label: tr('High', 'عالية'), accent: 'text-red-600' },
-        { k: 'Medium', label: tr('Medium', 'متوسطة'), accent: 'text-amber-600' },
-        { k: 'Low', label: tr('Low', 'منخفضة'), accent: 'text-emerald-600' },
+        { k: 'High', label: tr('High', 'عالية'), accent: 'text-red-600 dark:text-red-400' },
+        { k: 'Medium', label: tr('Medium', 'متوسطة'), accent: 'text-amber-600 dark:text-amber-400' },
+        { k: 'Low', label: tr('Low', 'منخفضة'), accent: 'text-emerald-600 dark:text-emerald-400' },
       ];
       return order
         .map(({ k, label, accent }) => ({ key: k, label, accent, items: filtered.filter((f) => (f.priority || 'Medium') === k), defaultOpen: true }))
@@ -260,11 +266,11 @@ export function FollowupsPage() {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1.5 rounded-lg border bg-red-50 px-2.5 py-1 text-xs">
-            <span className="font-semibold text-red-700">{overdueCt}</span><span className="text-red-600">{tr('overdue', 'متأخر')}</span>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-red-50 dark:bg-red-500/10 px-2.5 py-1 text-xs">
+            <span className="font-semibold text-red-700 dark:text-red-300">{overdueCt}</span><span className="text-red-600 dark:text-red-400">{tr('overdue', 'متأخر')}</span>
           </div>
-          <div className="flex items-center gap-1.5 rounded-lg border bg-orange-50 px-2.5 py-1 text-xs">
-            <span className="font-semibold text-orange-700">{todayCt}</span><span className="text-orange-600">{tr('today', 'اليوم')}</span>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-orange-50 dark:bg-orange-500/10 px-2.5 py-1 text-xs">
+            <span className="font-semibold text-orange-700 dark:text-orange-300">{todayCt}</span><span className="text-orange-600 dark:text-orange-400">{tr('today', 'اليوم')}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -443,17 +449,17 @@ function ChannelPill({ channel, isAuto, tr }: { channel?: string; isAuto?: boole
   const Icon = CHANNEL_ICON[channel ?? 'Follow'] ?? Clock;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${CHANNEL_COLOR[channel ?? ''] ?? 'bg-slate-100 text-slate-600'}`}>
+      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${CHANNEL_COLOR[channel ?? ''] ?? 'bg-muted text-muted-foreground'}`}>
         <Icon className="h-3 w-3" />{channel ?? tr('Follow-up', 'متابعة')}
       </span>
-      {isAuto && <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700">{tr('Auto', 'تلقائي')}</span>}
+      {isAuto && <span className="rounded-full bg-indigo-100 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 dark:text-indigo-300">{tr('Auto', 'تلقائي')}</span>}
     </span>
   );
 }
 
 function DueBadge({ due }: { due?: Date }) {
   if (!due) return <span className="text-xs text-muted-foreground">—</span>;
-  const cls = isOverdue(due) && !isToday(due) ? 'bg-red-100 text-red-700' : isToday(due) ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600';
+  const cls = isOverdue(due) && !isToday(due) ? 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-300' : isToday(due) ? 'bg-orange-100 dark:bg-orange-500/15 text-orange-700 dark:text-orange-300' : 'bg-muted text-muted-foreground';
   const t = fmtTime(due);
   return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{fmt(due)}{t && t !== '12:00 AM' ? ` · ${t}` : ''}</span>;
 }
@@ -482,7 +488,7 @@ function FollowupCard({
   return (
     <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
-        <span className={`mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CHANNEL_COLOR[f.channel ?? ''] ?? 'bg-slate-100 text-slate-600'}`}>
+        <span className={`mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CHANNEL_COLOR[f.channel ?? ''] ?? 'bg-muted text-muted-foreground'}`}>
           <ChIcon className="h-4 w-4" />
         </span>
         <div className="min-w-0">
@@ -516,17 +522,17 @@ function FollowupCard({
                 {tr('Lead', 'عميل محتمل')}
               </span>
             )}
-            {f.status === 'snoozed' && <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-purple-700">{tr('Snoozed', 'مؤجل')}</span>}
-            {f.isAuto && <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700" title={f.trigger}>{tr('Auto', 'تلقائي')}</span>}
+            {f.status === 'snoozed' && <span className="rounded-full bg-purple-100 dark:bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-purple-700 dark:text-purple-300">{tr('Snoozed', 'مؤجل')}</span>}
+            {f.isAuto && <span className="rounded-full bg-indigo-100 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 dark:text-indigo-300" title={f.trigger}>{tr('Auto', 'تلقائي')}</span>}
             {ownerIsOther && <span className="text-xs text-muted-foreground">· {memberName(f.ownerUserId) || f.ownerName}</span>}
             {f.assignees && f.assignees.length > 0 && (
               <span className="flex items-center -space-x-1.5" title={f.assignees.map((a) => a.name || memberName(a.userId)).filter(Boolean).join(', ')}>
                 {f.assignees.slice(0, 3).map((a) => (
-                  <span key={a.userId} className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-card bg-emerald-100 text-[9px] font-semibold text-emerald-700">
+                  <span key={a.userId} className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-card bg-emerald-100 dark:bg-emerald-500/15 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
                     {initials(a.name || memberName(a.userId))}
                   </span>
                 ))}
-                {f.assignees.length > 3 && <span className="inline-flex h-5 items-center rounded-full bg-emerald-100 px-1 text-[9px] font-semibold text-emerald-700">+{f.assignees.length - 3}</span>}
+                {f.assignees.length > 3 && <span className="inline-flex h-5 items-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 px-1 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">+{f.assignees.length - 3}</span>}
               </span>
             )}
           </div>
@@ -642,12 +648,12 @@ function ShareDialog({
               <div className="flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">{initials(ownerName)}</span>
                 <span className="flex-1 truncate text-sm">{ownerName || tr('Unassigned', 'غير مُسند')}{f.ownerUserId === meId ? ` (${tr('me', 'أنا')})` : ''}</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">{tr('Owner', 'المالك')}</span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">{tr('Owner', 'المالك')}</span>
               </div>
               {/* Collaborators */}
               {assignees.map((a) => (
                 <div key={a.userId} className="flex items-center gap-2 rounded-md border px-2 py-1.5">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">{initials(a.name || memberName(a.userId))}</span>
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">{initials(a.name || memberName(a.userId))}</span>
                   <span className="flex-1 truncate text-sm">{a.name || memberName(a.userId) || a.userId}{a.userId === meId ? ` (${tr('me', 'أنا')})` : ''}</span>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => remove(a.userId)}>
                     <X className="h-3.5 w-3.5" />
@@ -729,10 +735,10 @@ function TeamView({ companyId, tr, members, meId }: {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {([
           [tr('Active', 'نشطة'), t.active, 'text-foreground'],
-          [tr('Overdue', 'متأخرة'), t.overdue, 'text-red-600'],
-          [tr('Due today', 'مستحقة اليوم'), t.dueToday, 'text-orange-600'],
-          [tr('Snoozed', 'مؤجلة'), t.snoozed, 'text-purple-600'],
-          [tr('Unassigned', 'غير مُسندة'), t.unassigned, 'text-amber-600'],
+          [tr('Overdue', 'متأخرة'), t.overdue, 'text-red-600 dark:text-red-400'],
+          [tr('Due today', 'مستحقة اليوم'), t.dueToday, 'text-orange-600 dark:text-orange-400'],
+          [tr('Snoozed', 'مؤجلة'), t.snoozed, 'text-purple-600 dark:text-purple-400'],
+          [tr('Unassigned', 'غير مُسندة'), t.unassigned, 'text-amber-600 dark:text-amber-400'],
         ] as const).map(([label, val, color]) => (
           <div key={label} className="rounded-xl border bg-card p-3">
             <div className={`text-2xl font-bold ${color}`}>{val}</div>
@@ -754,7 +760,7 @@ function TeamView({ companyId, tr, members, meId }: {
             return (
               <div key={u.userId ?? 'unassigned'} className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
                 <div className="w-32 shrink-0 truncate text-sm font-medium">
-                  {u.userId === null ? <span className="text-amber-700">{tr('Unassigned', 'غير مُسندة')}</span> : u.name}{u.userId === meId ? ` (${tr('me', 'أنا')})` : ''}
+                  {u.userId === null ? <span className="text-amber-700 dark:text-amber-300">{tr('Unassigned', 'غير مُسندة')}</span> : u.name}{u.userId === meId ? ` (${tr('me', 'أنا')})` : ''}
                 </div>
                 <div className="flex h-3 flex-1 overflow-hidden rounded-full bg-muted">
                   {seg(u.overdue, 'bg-red-500')}
@@ -763,7 +769,7 @@ function TeamView({ companyId, tr, members, meId }: {
                   {seg(u.snoozed, 'bg-purple-300')}
                 </div>
                 <div className="flex w-44 shrink-0 items-center justify-end gap-2 text-xs">
-                  {u.overdue > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-700">{u.overdue} {tr('overdue', 'متأخر')}</span>}
+                  {u.overdue > 0 && <span className="rounded-full bg-red-100 dark:bg-red-500/15 px-1.5 py-0.5 font-semibold text-red-700 dark:text-red-300">{u.overdue} {tr('overdue', 'متأخر')}</span>}
                   {oldest !== null && oldest > 0 && <span className="text-muted-foreground" title={tr('Oldest overdue', 'أقدم متأخر')}>{oldest}{tr('d', 'ي')}</span>}
                   <span className="font-semibold">{u.open}</span>
                   {u.open > 0 && (
@@ -795,7 +801,7 @@ function TeamView({ companyId, tr, members, meId }: {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{g.title}</span>
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{g.stage}</span>
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{g.stage}</span>
                   </div>
                   <div className="truncate text-xs text-muted-foreground">
                     {g.contactName ? `${g.contactName} · ` : ''}{g.ownerName || tr('Unassigned', 'غير مُسندة')}
@@ -888,7 +894,7 @@ function BulkReassignDialog({ from, tr, companyId, members, onClose, onDone }: {
 function EmptyState({ tr, onNew }: { tr: (e: string, a: string) => string; onNew: () => void }) {
   return (
     <div className="mt-10 flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
-      <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-700"><CheckCircle2 className="h-6 w-6" /></div>
+      <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-300"><CheckCircle2 className="h-6 w-6" /></div>
       <h3 className="text-lg font-semibold">{tr('Inbox zero — nice.', 'لا متابعات معلّقة — رائع.')}</h3>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">{tr('No open follow-ups match your filters. Every thread is handled.', 'لا توجد متابعات مفتوحة تطابق عوامل التصفية. كل خيط تمت معالجته.')}</p>
       <Button className="mt-4" size="sm" onClick={onNew}><Plus className="me-1.5 h-4 w-4" />{tr('New follow-up', 'متابعة جديدة')}</Button>

@@ -32,6 +32,8 @@ export interface CatalogueEntry {
   followers: number;
   engagementRate: number | null;
   growth3m: number | null;
+  /** Posts a month from Peak's weekly snapshots; null until there is enough history. */
+  activity?: { perMonth: number; days: number } | null;
   tier: 'nano' | 'micro' | 'mid' | 'macro' | 'mega';
 }
 

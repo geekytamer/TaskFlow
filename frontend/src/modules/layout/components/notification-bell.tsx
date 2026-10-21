@@ -23,6 +23,7 @@ import {
   type AppNotification,
   type NotificationCategory,
 } from '@/services/notificationService';
+import { useLiveRefresh } from '@/lib/live';
 
 const CATEGORY_BORDER: Record<NotificationCategory, string> = {
   tasks: 'border-l-sky-500',
@@ -86,6 +87,9 @@ export function NotificationBell() {
     }
   }, [companyId, canReadChats]);
 
+  // New alerts reach the bell the moment they are created.
+  useLiveRefresh(['notifications', 'inbox', 'whatsapp'], refresh);
+
   React.useEffect(() => {
     refresh();
     const id = window.setInterval(refresh, 60000);
@@ -138,7 +142,7 @@ export function NotificationBell() {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-96 p-0" align="end">
+      <PopoverContent className="w-[calc(100vw-1rem)] max-w-96 p-0" align="end" collisionPadding={8}>
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="text-sm font-semibold">{t('notif.title')}</span>
           {unread > 0 && (

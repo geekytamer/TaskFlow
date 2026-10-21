@@ -22,6 +22,7 @@ const KNOWN_UNGATED = new Set([
     'POST /auth/login',
     'POST /auth/logout',
     'GET /auth/me',
+    'GET /live', // signals only (topic names); every screen re-reads through gated routes
     'PUT /auth/me',
     'GET /notifications',
     'GET /notifications/unread-count',

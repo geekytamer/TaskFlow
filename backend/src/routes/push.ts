@@ -56,7 +56,7 @@ export function registerPushRoutes(app: Express, ctx: RouteContext, push: PushCo
       const device = ownDeviceOr404(store, 'staff', req.user!.id, String(req.params.id));
       if (!push) throw new HttpError(409, 'Phone notifications are not set up on this server.');
       const result = await sendToDevice(store, push.send, device, {
-        title: 'TaskFlow', body: 'Test notification: this device gets your alerts.', url: '/notifications', tag: `test:${device.id}`,
+        title: 'مجموعة اليعربي', body: 'Test notification: this device gets your alerts.', url: '/notifications', tag: `test:${device.id}`,
       });
       res.json(result);
     }),

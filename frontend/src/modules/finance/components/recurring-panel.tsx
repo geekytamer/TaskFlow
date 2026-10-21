@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { cn } from '@/lib/utils';
@@ -71,7 +72,8 @@ const runTotal = (r: RecurringDocument) => {
 export function RecurringPanel() {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
-  const tr: Tr = React.useCallback((en, ar) => (language === 'ar' ? ar : en), [language]);
+  const { brandText } = useBrand();
+  const tr: Tr = React.useCallback((en, ar) => brandText(language === 'ar' ? ar : en), [language, brandText]);
   const { money } = useCompanyCurrency();
   const { toast } = useToast();
   const confirm = useConfirm();

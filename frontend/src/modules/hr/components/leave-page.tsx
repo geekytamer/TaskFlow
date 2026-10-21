@@ -36,10 +36,10 @@ import {
 } from '@/services/hrService';
 
 const STATUS_STYLES: Record<LeaveRequestStatus, string> = {
-  Pending: 'bg-amber-50 text-amber-700 border-amber-200',
-  Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Rejected: 'bg-rose-50 text-rose-700 border-rose-200',
-  Cancelled: 'bg-slate-50 text-slate-700 border-slate-200',
+  Pending: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
+  Approved: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30',
+  Rejected: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/30',
+  Cancelled: 'bg-muted/50 text-foreground/80 border-border',
 };
 
 export function LeavePage() {
@@ -212,8 +212,8 @@ export function LeavePage() {
                         <div className="flex justify-end gap-1">
                           {r.status === 'Pending' && (
                             <>
-                              <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700" onClick={() => handleSetStatus(r, 'Approved')}><Check className="h-4 w-4" /></Button>
-                              <Button variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => handleSetStatus(r, 'Rejected')}><X className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300" onClick={() => handleSetStatus(r, 'Approved')}><Check className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="sm" className="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300" onClick={() => handleSetStatus(r, 'Rejected')}><X className="h-4 w-4" /></Button>
                             </>
                           )}
                           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => handleDeleteRequest(r)}><Trash2 className="h-4 w-4" /></Button>
@@ -241,7 +241,7 @@ export function LeavePage() {
                     <div key={t.id} className="flex items-center justify-between rounded-md border px-3 py-1.5">
                       <span className="text-sm">{t.name}</span>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={t.paid ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}>
+                        <Badge variant="outline" className={t.paid ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30' : 'bg-muted/50 text-muted-foreground border-border'}>
                           {t.paid ? tr('Paid', 'مدفوعة') : tr('Unpaid', 'غير مدفوعة')}
                         </Badge>
                         <button type="button" onClick={() => { setEditingType(t); setNewTypeName(t.name); setNewTypePaid(t.paid); setTypeDialogOpen(true); }} className="text-muted-foreground hover:text-foreground" aria-label={tr(`Edit ${t.name}`, `تعديل ${t.name}`)}><Pencil className="h-3.5 w-3.5" /></button>
@@ -273,7 +273,7 @@ export function LeavePage() {
                     <span>{e.name}</span>
                     <span className="text-muted-foreground">
                       {b ? `${b.remaining} / ${b.allowance}` : '—'}
-                      {b && b.pending > 0 ? <span className="text-amber-600"> (+{b.pending} {tr('pending', 'معلّق')})</span> : null}
+                      {b && b.pending > 0 ? <span className="text-amber-600 dark:text-amber-400"> (+{b.pending} {tr('pending', 'معلّق')})</span> : null}
                     </span>
                   </div>
                 );

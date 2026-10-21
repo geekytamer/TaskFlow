@@ -641,9 +641,8 @@ export function WhatsappInboxPage() {
             {/* Thread body */}
             <div
               ref={threadRef}
-              className="relative flex-1 overflow-y-auto px-4 py-4"
+              className="relative flex-1 overflow-y-auto bg-[#efeae2] px-4 py-4 dark:bg-[#0b141a] dark:![background-image:none]"
               style={{
-                backgroundColor: '#efeae2',
                 backgroundImage:
                   'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.6) 0, transparent 40%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.4) 0, transparent 40%)',
               }}
@@ -656,7 +655,7 @@ export function WhatsappInboxPage() {
               {messageGroups.map((group) => (
                 <div key={group.dateKey} className="space-y-1">
                   <div className="my-3 flex justify-center">
-                    <span className="rounded-md bg-white/80 px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm">
+                    <span className="rounded-md bg-white/80 px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm dark:bg-[#182229] dark:text-slate-400">
                       {formatDateLabel(group.messages[0].sentAt || group.messages[0].receivedAt || group.messages[0].createdAt, locale, t)}
                     </span>
                   </div>
@@ -667,8 +666,8 @@ export function WhatsappInboxPage() {
                         <div
                           className={`relative max-w-[72%] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-sm shadow-sm ${
                             out
-                              ? 'rounded-ee-sm bg-[#d9fdd3] text-slate-900'
-                              : 'rounded-ss-sm bg-white text-slate-900'
+                              ? 'rounded-ee-sm bg-[#d9fdd3] text-slate-900 dark:bg-[#005c4b] dark:text-[#e9edef]'
+                              : 'rounded-ss-sm bg-white text-slate-900 dark:bg-[#202c33] dark:text-[#e9edef]'
                           }`}
                         >
                           {m.body || (m.mediaUrl ? (

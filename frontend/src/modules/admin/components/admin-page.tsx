@@ -342,7 +342,7 @@ export function AdminPage() {
                     <TableCell className="text-end">{amount(c.revenue)}</TableCell>
                     <TableCell className="text-end">{c.taskCount}</TableCell>
                     <TableCell>{c.whatsappLinked
-                      ? <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">{t('admin.linked')}</Badge>
+                      ? <Badge variant="outline" className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30">{t('admin.linked')}</Badge>
                       : <span className="text-xs text-muted-foreground">—</span>
                     }</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatRelative(c.lastActivityAt)}</TableCell>
@@ -432,7 +432,7 @@ export function AdminPage() {
                     <TableCell><Badge variant="outline">{u.role}</Badge></TableCell>
                     <TableCell className="text-end">{u.companyIds.length}</TableCell>
                     <TableCell>{u.commissionEligible
-                      ? <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">{t('admin.yes')}</Badge>
+                      ? <Badge variant="outline" className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30">{t('admin.yes')}</Badge>
                       : <span className="text-xs text-muted-foreground">{t('admin.no')}</span>
                     }</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatRelative(u.lastActivityAt)}</TableCell>
@@ -693,7 +693,7 @@ export function AdminPage() {
               {t('admin.deleteCompanyDesc').replace('{name}', companyToDelete?.name ?? '')}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm cursor-pointer">
+          <label className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 text-sm cursor-pointer">
             <input
               type="checkbox"
               className="mt-0.5 rounded"
@@ -701,8 +701,8 @@ export function AdminPage() {
               onChange={(e) => setCascadeDelete(e.target.checked)}
             />
             <span>
-              <span className="font-medium text-amber-900">{t('admin.deleteCompanyCascadeLabel')}</span>
-              <span className="block text-xs text-amber-800">{t('admin.deleteCompanyCascadeHint')}</span>
+              <span className="font-medium text-amber-900 dark:text-amber-300">{t('admin.deleteCompanyCascadeLabel')}</span>
+              <span className="block text-xs text-amber-800 dark:text-amber-300">{t('admin.deleteCompanyCascadeHint')}</span>
             </span>
           </label>
           <AlertDialogFooter>

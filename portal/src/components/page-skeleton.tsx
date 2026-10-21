@@ -1,6 +1,6 @@
 /** Loading placeholder shaped like a page: a heading, a figure row and a list. */
 export function PageSkeleton({ label }: { label: string }) {
-  const bar = 'rounded-md bg-ink/[0.07] motion-safe:animate-pulse';
+  const bar = 'skeleton';
   return (
     <div role="status" aria-live="polite" className="space-y-8">
       <span className="sr-only">{label}</span>
