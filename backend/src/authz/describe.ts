@@ -60,8 +60,8 @@ const scopePhrase: Readonly<Record<Scope, Label>> = {
   group: { en: ' (every company of the group)', ar: ' (كل شركات المجموعة)' },
 };
 
-/** First letter only: the catalogue's own capitals stay ("employees and HR"). */
-const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+/** First letter only: the catalogue's own capitals stay ("employees and HR"), and so does a leading acronym ("ID numbers"). */
+const lower = (s: string) => (/^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 
 const LEVEL_PHRASE: Readonly<Record<'view' | 'edit' | 'full' | 'custom', (area: Label) => Label>> = {
   view: (a) => ({ en: `Sees ${lower(a.en)}`, ar: `يطّلع على ${a.ar}` }),

@@ -158,6 +158,7 @@ test('describe: level presets, summary lines and the no-higher-than-me compariso
   assert.ok(en.some((l) => /up to 5000$/.test(l)), 'limited approval');
   assert.ok(en.some((l) => l.startsWith('Sees tasks (own records)')));
   assert.ok(en.some((l) => /^Can't see salaries/i.test(l) && !/cost prices/i.test(l)));
+  assert.ok(en.some((l) => /^Can't see .*; ID numbers/.test(l)), 'a leading acronym keeps its capitals');
   assert.ok(lines.every((l) => l.ar && l.ar !== l.en), 'every line has Arabic');
 
   assert.deepEqual(beyond(company, [{ key: 'sales.view' }], []), []);
