@@ -8,6 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { getTeam, type AcademyMission, type TeamMember } from '@/services/academyService';
@@ -26,7 +27,8 @@ export function AcademyPage() {
   const { progress, enterPractice, reset, inPractice, currentMission } = useAcademy();
   const { companies, selectedCompany } = useCompany();
   const { language, t } = useI18n();
-  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const { brandText } = useBrand();
+  const tr = (en: string, ar: string) => brandText(language === 'ar' ? ar : en);
   const labels = (modules: string[]) => modules.map((m) => moduleLabel(m, t)).join(language === 'ar' ? '، ' : ', ');
   const { toast } = useToast();
   const confirm = useConfirm();

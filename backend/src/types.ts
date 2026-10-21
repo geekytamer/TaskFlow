@@ -23,6 +23,20 @@ export interface Company {
   /** A TaskFlow Academy practice company: one trainee's sandbox, never mixed with real ones. */
   isTraining?: boolean;
   trainingOwnerUserId?: string;
+  /** The company's own look in the app (see branding.ts). Absent = TaskFlow's. */
+  branding?: CompanyBranding;
+}
+
+export interface CompanyBranding {
+  /** When on, the company's name and logo replace TaskFlow's everywhere in the app. */
+  enabled: boolean;
+  /** Short name shown in place of "TaskFlow"; falls back to the company name. */
+  displayName?: string;
+  primaryColor?: string;
+  sidebarColor?: string;
+  font?: 'default' | 'ibm-plex' | 'tajawal' | 'cairo' | 'inter';
+  radius?: 'sharp' | 'soft' | 'round';
+  defaultMode?: 'light' | 'dark' | 'system';
 }
 
 export type NumberingEntityType =

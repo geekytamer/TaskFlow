@@ -390,9 +390,9 @@ export function Dashboard() {
   const secondaryMetrics = metrics.length > 1 ? metrics.slice(1) : [];
 
   return (
-    <div className="min-h-screen bg-background p-4 lg:p-8 font-sans text-foreground space-y-6">
-      <div className="flex items-center justify-between mb-2">
-        <div>
+    <div className="min-h-screen bg-background p-0 sm:p-4 lg:p-8 font-sans text-foreground space-y-6">
+      <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground tracking-tight capitalize">
             {scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
           </h1>
@@ -401,12 +401,13 @@ export function Dashboard() {
           </p>
         </div>
         {quickActions.length > 0 && (
-          <div className="flex gap-3" data-tutorial="dash-quick-actions">
+          // On a phone the shortcuts scroll sideways in one row instead of squeezing the title.
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:gap-3 sm:overflow-visible sm:pb-0" data-tutorial="dash-quick-actions">
             {quickActions.map((action) => (
-              <a key={action.id} href={action.route} className="bg-card hover:bg-muted/50 px-4 py-2 border border-border rounded-lg text-sm font-semibold text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors flex items-center gap-2">
+              <Link key={action.id} href={action.route} className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary shadow-sm transition-colors hover:bg-muted/50">
                 <Zap className="w-4 h-4" />
                 {action.label}
-              </a>
+              </Link>
             ))}
           </div>
         )}
@@ -415,8 +416,8 @@ export function Dashboard() {
       <OnboardingChecklist />
 
       {metrics.length > 0 && (
-        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-[#e0ebff] to-[#e6e6ff] dark:from-indigo-950/70 dark:to-violet-950/60" data-tutorial="dash-primary-metric">
-          <div className="absolute inset-0 opacity-40 dark:opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, #a5b4fc 0%, transparent 40%), radial-gradient(circle at 100% 80%, #c4b5fd 0%, transparent 40%)' }} />
+        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-primary/15 via-primary/5 to-primary/20" data-tutorial="dash-primary-metric">
+          <div className="absolute inset-0 opacity-40 dark:opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, hsl(var(--primary) / 0.45) 0%, transparent 40%), radial-gradient(circle at 100% 80%, hsl(var(--primary) / 0.3) 0%, transparent 40%)' }} />
 
           <div className="relative z-10 flex flex-col xl:flex-row items-center gap-8">
             {primaryMetric && (() => {
@@ -431,7 +432,7 @@ export function Dashboard() {
                 </>
               );
               return primaryHref ? (
-                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-card/30 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 p-2 -m-2">
+                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-card/30 focus:outline-none focus:ring-2 focus:ring-ring/40 p-2 -m-2">
                   {inner}
                 </Link>
               ) : (
@@ -458,7 +459,7 @@ export function Dashboard() {
                     <Link
                       key={item.id}
                       href={href}
-                      className={`${cls} hover:bg-card hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-400/40`}
+                      className={`${cls} hover:bg-card hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring/40`}
                     >
                       {inner}
                     </Link>
@@ -509,7 +510,7 @@ export function Dashboard() {
           {activity.length > 0 && (
             <div className={alerts.length > 0 ? 'lg:col-span-2 bg-card rounded-[24px] p-6 shadow-sm flex flex-col' : 'lg:col-span-3 bg-card rounded-[24px] p-6 shadow-sm flex flex-col'}>
               <h3 className="font-bold text-foreground text-lg mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-indigo-500" /> {tr('Recent Activity', 'النشاط الأخير')}
+                <Activity className="w-5 h-5 text-primary" /> {tr('Recent Activity', 'النشاط الأخير')}
               </h3>
               <div className="space-y-3">
                 {activity.slice(0, 5).map((item) => (

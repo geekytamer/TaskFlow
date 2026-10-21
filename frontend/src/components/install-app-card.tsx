@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Share, SquarePlus, Smartphone, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { INSTALL_CARD_DISMISSED_KEY, showInstallCard } from '@/lib/push';
 
 /** Fired to bring the card back after it was dismissed (the phone card's "Show the steps"). */
@@ -32,7 +33,8 @@ export function showInstallSteps() {
  */
 export function InstallAppCard() {
   const { language } = useI18n();
-  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const { brandText } = useBrand();
+  const tr = (en: string, ar: string) => brandText(language === 'ar' ? ar : en);
   const [visible, setVisible] = React.useState(false);
 
   React.useEffect(() => {

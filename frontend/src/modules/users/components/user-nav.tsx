@@ -80,7 +80,7 @@ export function UserNav() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="relative h-10 w-full justify-start gap-2 px-2"
+          className="relative h-10 w-full justify-start gap-2 px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Avatar className="h-8 w-8">
             <AvatarImage src={user.avatar} alt={user.name} />
@@ -88,7 +88,7 @@ export function UserNav() {
           </Avatar>
           <div className="text-start group-data-[collapsible=icon]:hidden">
             <p className="text-sm font-medium leading-none">{user.name}</p>
-            <p className="text-xs leading-none text-muted-foreground">
+            <p className="text-xs leading-none text-sidebar-foreground/70">
               {user.email}
             </p>
           </div>

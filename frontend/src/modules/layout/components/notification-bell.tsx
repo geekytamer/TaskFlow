@@ -138,7 +138,7 @@ export function NotificationBell() {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-96 p-0" align="end">
+      <PopoverContent className="w-[calc(100vw-1rem)] max-w-96 p-0" align="end" collisionPadding={8}>
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="text-sm font-semibold">{t('notif.title')}</span>
           {unread > 0 && (

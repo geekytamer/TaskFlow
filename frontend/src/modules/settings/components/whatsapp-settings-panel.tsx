@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { useBrand } from '@/modules/branding/brand-context';
 import { useToast } from '@/hooks/use-toast';
 import type { WhatsAppInstance, WhatsAppInstanceState } from '@/services/whatsappService';
 import {
@@ -42,6 +43,7 @@ const stateBadgeStyles: Record<WhatsAppInstanceState, string> = {
 export function WhatsappSettingsPanel() {
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
+  const { name: brand } = useBrand();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const [instance, setInstance] = React.useState<WhatsAppInstance | null>(null);
@@ -60,7 +62,7 @@ export function WhatsappSettingsPanel() {
   });
   const [testPhone, setTestPhone] = React.useState('');
   const [testMessage, setTestMessage] = React.useState(
-    language === 'ar' ? 'مرحباً من TaskFlow 👋' : 'Hello from TaskFlow 👋',
+    language === 'ar' ? `مرحباً من ${brand} 👋` : `Hello from ${brand} 👋`,
   );
   const [testSending, setTestSending] = React.useState(false);
 

@@ -563,7 +563,7 @@ export function PurchasesPage() {
       title={tr('Purchases', 'المشتريات')}
       description={tr('Manage procurement orders and receive stock directly into inventory.', 'إدارة أوامر التوريد واستلام المخزون مباشرةً في المستودع.')}
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="purchases-metrics">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-5" data-tutorial="purchases-metrics">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{tr('Open Orders', 'الأوامر المفتوحة')}</CardTitle>

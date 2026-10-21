@@ -323,7 +323,7 @@ export function FinancialReportsPanel() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">{t('financialReports.revenue')}</CardTitle></CardHeader>
                   <CardContent><div className="text-2xl font-bold">{amount(profitAndLoss?.totalRevenue || 0)}</div></CardContent>

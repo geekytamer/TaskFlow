@@ -1,3 +1,4 @@
+import { parseBranding } from '../branding';
 import { isSwitchableModule } from '../permissions/company-modules';
 import { type NumberingEntityType } from '../types';
 import { HttpError, getAccessibleCompanyIds } from '../http';
@@ -175,6 +176,11 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
       if (body.disabledModules !== undefined && !req.user?.isSuperAdmin) {
         throw new HttpError(403, 'Only the platform administrator can switch modules on or off.');
       }
+      // The brand is what every member sees, so only the company's Admins set it.
+      if (body.branding !== undefined && !req.user?.isSuperAdmin) {
+        requireCompanyRoles(req, req.params.id, ['Admin']);
+      }
+      const branding = body.branding !== undefined ? parseBranding(body.branding) : undefined;
       const optionalText = (value: unknown) => (value !== undefined ? String(value || '') : undefined);
       const company = store.updateCompany(req.params.id, {
         name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
@@ -194,7 +200,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
         disabledModules: body.disabledModules !== undefined ? parseDisabledModules(body.disabledModules) : undefined,
       });
       if (!company) throw new HttpError(404, 'Company not found.');
-      res.json(company);
+      res.json(branding !== undefined ? store.updateCompanyBranding(req.params.id, branding) : company);
     }),
   );
 
