@@ -100,10 +100,20 @@ function buildHeaders(init?: HeadersInit) {
   return headers;
 }
 
+export interface ApiFetchOptions extends RequestInit {
+  /**
+   * 'inline': the screen shows a refusal sentence next to the control that
+   * caused it, so the global refusal toast is skipped (the ApiError message
+   * still carries the translated sentence). Default 'toast'.
+   */
+  refusal?: 'toast' | 'inline';
+}
+
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {},
+  apiOptions: ApiFetchOptions = {},
 ): Promise<T> {
+  const { refusal: refusalMode = 'toast', ...options } = apiOptions;
   const isFormData =
     typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = buildHeaders(options.headers);
@@ -134,7 +144,7 @@ export async function apiFetch<T>(
     if (response.status === 409 && refusal?.code === 'CREDIT_LIMIT_EXCEEDED' && typeof options.body === 'string') {
       const body = JSON.parse(options.body || '{}') as Record<string, unknown>;
       if (refusal.canOverride && !body.overrideCreditLimit && creditLimitPrompt && (await creditLimitPrompt(refusal))) {
-        return apiFetch<T>(path, { ...options, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
+        return apiFetch<T>(path, { ...apiOptions, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
       }
     }
     const coded = details as { code?: unknown } | undefined;
@@ -145,7 +155,7 @@ export async function apiFetch<T>(
         // An action the person tried: say so at once. A refused read stays quiet
         // (the screen hides what it cannot show) but carries the same sentence.
         const method = (options.method || 'GET').toUpperCase();
-        if (method !== 'GET' && method !== 'HEAD') forbiddenHandler.notify(sentence);
+        if (method !== 'GET' && method !== 'HEAD' && refusalMode !== 'inline') forbiddenHandler.notify(sentence);
       }
     }
     throw new ApiError(response.status, message, details);

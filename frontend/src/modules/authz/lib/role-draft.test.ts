@@ -199,3 +199,21 @@ test('reducer: collapse hides the actions; the level still reads from the grants
   state = editorReducer(state, { type: 'toggle', area: sales, key: 'sales.delete', on: true });
   assert.equal(shownLevel(state, sales), 'custom');
 });
+
+test('Ruling S: an area with a limit reads Custom; a preset clears the limits', () => {
+  const purchasing = area('purchasing');
+  // Full with a ceiling, as a saved role arrives (not opened).
+  const role = draftFrom({ name: 'R', grants: purchasing.levels.full.map((key) => (key === 'purchasing.approve' ? { key, limit: 5000 } : { key })), fields: [] }, FIELD_KEYS);
+  let state = initialEditor(role);
+  assert.equal(levelOf(purchasing, heldKeys(state.draft, purchasing)), 'full', 'the keys alone are Full');
+  assert.equal(shownLevel(state, purchasing), 'custom', 'but the limit makes it Custom');
+  state = editorReducer(state, { type: 'level', area: purchasing, level: 'full' });
+  assert.equal(state.draft.grants['purchasing.approve'].limit, undefined, 'Full clears the limit');
+  assert.equal(shownLevel(state, purchasing), 'full');
+  assert.equal(isDirty(state), true);
+  // Collapsing a limited area still reads Custom.
+  state = editorReducer(state, { type: 'level', area: purchasing, level: 'custom' });
+  state = editorReducer(state, { type: 'limit', key: 'purchasing.approve', limit: 10 });
+  state = editorReducer(state, { type: 'collapse', area: purchasing });
+  assert.equal(shownLevel(state, purchasing), 'custom');
+});

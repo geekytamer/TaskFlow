@@ -10,18 +10,16 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
-import { useCompanyCurrency } from '@/lib/currency';
 import { getHoldingTemplate, saveHoldingTemplate, type HoldingTemplate } from '@/services/authzService';
 import { draftFrom, editorReducer, initialEditor, isDirty, toInput } from '../lib/role-draft';
 import { RoleForm } from './role-form';
-import { SaveBar, useUnsavedGuard } from './role-editor';
-import { AccessHeader, ErrorState, ListSkeleton, errorText, roleLabel, useCatalogue, useTr } from './shared';
+import { SaveBar } from './role-editor';
+import { AccessHeader, ErrorState, ListSkeleton, errorText, roleLabel, useCatalogue, useLeaveGuard, useTr } from './shared';
 
 export function TemplatePage({ groupId, templateKey }: { groupId: string; templateKey: string }) {
   const { tr, lang } = useTr();
   const { isRtl } = useI18n();
   const { toast } = useToast();
-  const { currencyCode } = useCompanyCurrency();
   const { catalogue, error: catalogueError, retry } = useCatalogue();
   const [template, setTemplate] = React.useState<HoldingTemplate | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -48,7 +46,7 @@ export function TemplatePage({ groupId, templateKey }: { groupId: string; templa
   }, [groupId, templateKey, catalogue, nonce]);
 
   const dirty = isDirty(state);
-  useUnsavedGuard(dirty);
+  useLeaveGuard(dirty);
 
   const save = async () => {
     if (!state.draft.name.trim()) {
@@ -88,7 +86,17 @@ export function TemplatePage({ groupId, templateKey }: { groupId: string; templa
       {!template && !catalogueError && !error && <ListSkeleton rows={6} />}
       {template && catalogue && (
         <>
-          <RoleForm catalogue={catalogue} state={state} dispatch={dispatch} readOnly={false} currency={currencyCode} nameError={nameError} />
+          <RoleForm
+            catalogue={catalogue}
+            state={state}
+            dispatch={dispatch}
+            readOnly={false}
+            // Limits apply in each company's own currency; group admins are not bound by a company's grants.
+            currency={tr('in each company\'s currency', 'بعملة كل شركة')}
+            nameError={nameError}
+            me={null}
+            groupScope
+          />
           <SaveBar
             dirty={dirty}
             saving={saving}

@@ -1788,12 +1788,12 @@ export function createServer(options: CreateServerOptions = {}) {
     // they administer or manage.
     if (actor.isSuperAdmin) return;
     // Someone in no company at all belongs to the platform, not to a company admin.
-    if (!assignments.length) throw new HttpError(403, 'Only the super admin can manage this user.');
+    if (!assignments.length) throw new HttpError(403, 'Only the super admin can manage this user.', { code: 'SUPER_ADMIN_ONLY' });
     const invalidCompany = assignments.find(
       (assignment) => !allowsRule(req, assignment.companyId, 'USERS_WRITE'),
     );
     if (invalidCompany) {
-      throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
+      throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
     }
     const elevatedAssignment = assignments.find(
       (assignment) =>
@@ -1804,6 +1804,7 @@ export function createServer(options: CreateServerOptions = {}) {
       throw new HttpError(
         403,
         'Only company admins can assign Admin, Manager, or Accountant roles in that company.',
+        { code: 'ROLE_ASSIGN_FORBIDDEN' },
       );
     }
   };
@@ -3057,16 +3058,16 @@ export function createServer(options: CreateServerOptions = {}) {
         // change only when the admin manages all of them.
         const manages = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
         const isSelf = req.user!.id === existing.id;
-        if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.');
+        if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.', { code: 'SUPER_ADMIN_ONLY' });
         if (!isSelf && !existingAssignments.some((a) => manages(a.companyId))) {
-          throw new HttpError(403, 'You can only edit people in companies you administer or manage.');
+          throw new HttpError(403, 'You can only edit people in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         const identityChange =
           (payload.name !== undefined && payload.name !== existing.name)
           || (payload.email !== undefined && payload.email.toLowerCase() !== existing.email.toLowerCase())
           || payload.password !== undefined;
         if (identityChange && !isSelf && !existingAssignments.every((a) => manages(a.companyId))) {
-          throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.');
+          throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.', { code: 'IDENTITY_SHARED' });
         }
       }
       let targetAssignments =
@@ -3083,7 +3084,7 @@ export function createServer(options: CreateServerOptions = {}) {
           return !before || before.role !== a.role || (before.positionId ?? undefined) !== (a.positionId ?? undefined);
         });
         if (foreignChange) {
-          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.');
+          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         targetAssignments = [
           ...payload.companyRoles.filter((a) => manageable(a.companyId)),
@@ -3131,14 +3132,14 @@ export function createServer(options: CreateServerOptions = {}) {
             !targetByCompany.has(assignment.companyId),
         );
         if (unmanagedTargetChange || unmanagedRemoval) {
-          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.');
+          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         const assignmentsToAuthorize =
           changedAssignments.length > 0
             ? changedAssignments
             : targetAssignments.filter((assignment) => canManageAssignment(assignment.companyId));
         if (!assignmentsToAuthorize.length) {
-          throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
+          throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         assertUserManagementPermission(req, assignmentsToAuthorize);
       }
@@ -3190,7 +3191,7 @@ export function createServer(options: CreateServerOptions = {}) {
           role: existing.role,
           positionId: existing.positionId,
         }));
-      if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.');
+      if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.', { code: 'SUPER_ADMIN_ONLY' });
       assertUserManagementPermission(req, targetAssignments);
       const authzBefore = snapshotAuthz([
         ...existing.companyIds,

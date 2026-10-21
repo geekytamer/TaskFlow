@@ -122,3 +122,27 @@ test('a user with no company assignments can only be deleted by the super admin'
   assert.ok(store.getUserById(orphan.id));
   assert.equal((await as(superAdmin)(request(app).delete(`/users/${orphan.id}`))).status, 200);
 });
+
+test('user-management refusals carry a code the app can translate', async () => {
+  const { app, store, companyAdmin, shared, outsider, superAdmin, as } = setup();
+  const manager = store.createUser({
+    name: 'mona', email: 'mona@one.example', password: 'Password1!', companyIds: ['1'],
+    companyRoles: [{ companyId: '1', role: 'Manager' }], role: 'Manager',
+  });
+  // A Manager editing an Admin's assignment (unchanged role is still authorised).
+  const elevated = await as(manager)(request(app).put(`/users/${companyAdmin.id}`)).send({ name: 'Ali B' });
+  assert.equal(elevated.status, 403);
+  assert.equal(elevated.body.code, 'ROLE_ASSIGN_FORBIDDEN');
+  // Someone in no company they manage.
+  const outside = await as(companyAdmin)(request(app).put(`/users/${outsider.id}`)).send({ name: 'Omar B' });
+  assert.equal(outside.status, 403);
+  assert.equal(outside.body.code, 'USER_OUTSIDE_COMPANY');
+  // A shared person's name.
+  const identity = await as(companyAdmin)(request(app).put(`/users/${shared.id}`)).send({ name: 'Sara B' });
+  assert.equal(identity.status, 403);
+  assert.equal(identity.body.code, 'IDENTITY_SHARED');
+  // The platform's super admin.
+  const root = await as(companyAdmin)(request(app).delete(`/users/${superAdmin.id}`));
+  assert.equal(root.status, 403);
+  assert.equal(root.body.code, 'SUPER_ADMIN_ONLY');
+});

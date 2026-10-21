@@ -219,8 +219,8 @@ function GroupDetail({ groupId }: { groupId: string }) {
         <h2 id="templates-heading" className="text-sm font-semibold text-muted-foreground">{tr('Role templates', 'قوالب الأدوار')}</h2>
         <p className="mb-2 mt-0.5 text-sm text-muted-foreground">
           {tr(
-            'Companies start their roles from these. Push sends your latest version to every company still using a template unchanged.',
-            'تبدأ الشركات أدوارها من هذه القوالب. «إرسال» يوصل آخر نسخة إلى كل شركة ما زالت تستخدم القالب دون تعديل.',
+            'Companies start their roles from these. Push update sends your latest version to every company still using a template unchanged.',
+            'تبدأ الشركات أدوارها من هذه القوالب. «نشر التحديث» يوصل آخر نسخة إلى كل شركة ما زالت تستخدم القالب دون تعديل.',
           )}
         </p>
         <ul className="divide-y rounded-lg border">
@@ -244,19 +244,31 @@ function GroupDetail({ groupId }: { groupId: string }) {
 function TemplateRow({ groupId, template, companyName }: { groupId: string; template: HoldingTemplate; companyName: (id: string) => string }) {
   const { tr, lang } = useTr();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [pushing, setPushing] = React.useState(false);
   const [result, setResult] = React.useState<PushResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const push = async () => {
+    const name = roleLabel(template, lang);
+    const ok = await confirm({
+      title: tr(`Push ${name} to companies using it unchanged?`, `نشر تحديث «${name}» إلى الشركات التي تستخدمه دون تعديل؟`),
+      description: tr(
+        'Customised copies and standard roles are left alone.',
+        'النسخ المعدّلة والأدوار القياسية تبقى كما هي.',
+      ),
+      confirmText: tr('Push update', 'نشر التحديث'),
+      cancelText: tr('Cancel', 'إلغاء'),
+    });
+    if (!ok) return;
     setPushing(true);
     setError(null);
     try {
       const r = await pushHoldingTemplate(groupId, template.key);
       setResult(r);
-      toast({ title: tr('Template pushed', 'تم إرسال القالب') });
+      toast({ title: tr('Update pushed', 'تم نشر التحديث') });
     } catch (e) {
-      setError(errorText(e, tr('The template could not be pushed.', 'تعذّر إرسال القالب.')));
+      setError(errorText(e, tr('The update could not be pushed.', 'تعذّر نشر التحديث.')));
     } finally {
       setPushing(false);
     }
@@ -278,7 +290,7 @@ function TemplateRow({ groupId, template, companyName }: { groupId: string; temp
           </Button>
           <Button size="sm" variant="outline" onClick={push} disabled={pushing} className="gap-1.5">
             {pushing ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Send className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />}
-            {tr('Push', 'إرسال')}
+            {tr('Push update', 'نشر التحديث')}
           </Button>
         </div>
       </div>

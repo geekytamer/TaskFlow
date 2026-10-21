@@ -20,7 +20,8 @@ import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { activateRole, duplicateRole, listRoles, type Role } from '@/services/authzService';
 import { RoleBadges } from './role-editor';
-import { AccessHeader, EmptyState, EngineNotice, ErrorState, InlineError, ListSkeleton, errorText, roleLabel, useTr } from './shared';
+import { AccessHeader, EmptyState, EngineNotice, ErrorState, InlineError, ListSkeleton, countLabel, errorText, roleLabel, useMe, useTr } from './shared';
+import { beyondMe, type Holder } from '../lib/beyond';
 
 export function RolesPage() {
   const { tr, lang } = useTr();
@@ -29,6 +30,9 @@ export function RolesPage() {
   const { selectedCompany } = useCompany();
   const companyId = selectedCompany?.id ?? null;
   const canManage = usePermissions().canAdmin('people.manage_roles');
+  const me = useMe();
+  const aboveMe = (role: Role) => beyondMe(me, role.grants, role.fields).length > 0;
+  const aboveReason = tr('Has access you don\'t have yourself.', 'فيه وصول لا تملكه أنت.');
 
   const [roles, setRoles] = React.useState<Role[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -113,10 +117,7 @@ export function RolesPage() {
                   {roleLabel(role, lang)}
                   <span className="font-normal text-muted-foreground">
                     {' · '}
-                    {tr(
-                      `${role.peopleCount} ${role.peopleCount === 1 ? 'person' : 'people'}`,
-                      `${role.peopleCount} ${role.peopleCount === 1 ? 'شخص' : 'أشخاص'}`,
-                    )}
+                    {countLabel(role.peopleCount, 'people', lang)}
                   </span>
                 </h2>
                 {role.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{role.description}</p>}
@@ -127,7 +128,7 @@ export function RolesPage() {
               {canManage && (role.needsReview || role.kind === 'system') && (
                 <div className="mt-auto flex flex-wrap gap-2 pt-3">
                   {role.needsReview && (
-                    <Button size="sm" onClick={() => activate(role)} disabled={busy !== null} className="gap-1.5">
+                    <Button size="sm" onClick={() => activate(role)} disabled={busy !== null || aboveMe(role)} className="gap-1.5">
                       {busy === role.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />}
                       {tr('Activate', 'تفعيل')}
                     </Button>
@@ -137,7 +138,7 @@ export function RolesPage() {
                       size="sm"
                       variant="outline"
                       onClick={() => duplicate(role)}
-                      disabled={busy !== null}
+                      disabled={busy !== null || aboveMe(role)}
                       className="gap-1.5"
                       aria-label={tr(`Duplicate ${role.name}`, `نسخ ${roleLabel(role, 'ar')}`)}
                     >
@@ -146,6 +147,9 @@ export function RolesPage() {
                     </Button>
                   )}
                 </div>
+              )}
+              {canManage && aboveMe(role) && (role.needsReview || role.kind === 'system') && (
+                <p className="mt-2 text-xs text-muted-foreground">{aboveReason}</p>
               )}
               {cardError?.id === role.id && <InlineError message={cardError.message} className="mt-2" />}
             </li>
@@ -159,6 +163,7 @@ export function RolesPage() {
           onOpenChange={setCreating}
           roles={roles.filter((r) => r.kind !== 'group')}
           companyId={companyId}
+          me={me}
           onCreated={(role) => router.push(`/settings/roles/${role.id}`)}
         />
       )}
@@ -166,7 +171,8 @@ export function RolesPage() {
   );
 }
 
-function NewRoleDialog({ open, onOpenChange, roles, companyId, onCreated }: {
+function NewRoleDialog({ open, onOpenChange, roles, companyId, onCreated, me }: {
+  me: Holder | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roles: Role[];
@@ -182,11 +188,12 @@ function NewRoleDialog({ open, onOpenChange, roles, companyId, onCreated }: {
 
   React.useEffect(() => {
     if (!open) return;
-    setSourceId(roles.find((r) => r.key === 'employee')?.id ?? roles[0]?.id ?? '');
+    const offered = roles.filter((r) => beyondMe(me, r.grants, r.fields).length === 0);
+    setSourceId((offered.find((r) => r.key === 'employee') ?? offered[0])?.id ?? '');
     setName('');
     setNameAr('');
     setError(null);
-  }, [open, roles]);
+  }, [open, roles, me]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,17 +233,24 @@ function NewRoleDialog({ open, onOpenChange, roles, companyId, onCreated }: {
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">{tr('Start from…', 'ابدأ من…')}</legend>
             <RadioGroup value={sourceId} onValueChange={setSourceId} className="gap-1">
-              {roles.map((r) => (
-                <Label
-                  key={r.id}
-                  htmlFor={`source-${r.id}`}
-                  className="flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
-                >
-                  <RadioGroupItem id={`source-${r.id}`} value={r.id} />
-                  <span className="flex-1">{roleLabel(r, lang)}</span>
-                  {r.kind === 'system' && <span className="text-xs text-muted-foreground">{tr('Standard', 'قياسي')}</span>}
-                </Label>
-              ))}
+              {roles.map((r) => {
+                // A copy holds what its source holds: the server refuses one above me.
+                const above = beyondMe(me, r.grants, r.fields).length > 0;
+                return (
+                  <Label
+                    key={r.id}
+                    htmlFor={`source-${r.id}`}
+                    className={`flex items-center gap-3 rounded-md border px-3 py-2 font-normal has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5 ${above ? 'cursor-not-allowed text-muted-foreground' : 'cursor-pointer'}`}
+                  >
+                    <RadioGroupItem id={`source-${r.id}`} value={r.id} disabled={above} />
+                    <span className="flex-1">
+                      {roleLabel(r, lang)}
+                      {above && <span className="block text-xs">{tr('Has access you don\'t have yourself.', 'فيه وصول لا تملكه أنت.')}</span>}
+                    </span>
+                    {r.kind === 'system' && <span className="text-xs text-muted-foreground">{tr('Standard', 'قياسي')}</span>}
+                  </Label>
+                );
+              })}
             </RadioGroup>
           </fieldset>
           <InlineError message={error} />

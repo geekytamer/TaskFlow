@@ -27,6 +27,7 @@ import {
   type Role,
 } from '@/services/authzService';
 import { explainSummary } from '../lib/explain';
+import { beyondMe } from '../lib/beyond';
 import { PersonFlags, SwitchOverChip, waitsForSwitchOver } from './people-page';
 import {
   EngineNotice,
@@ -39,6 +40,7 @@ import {
   shortDate,
   useCatalogue,
   useLegacyDecides,
+  useMe,
   useTr,
   type Tr,
 } from './shared';
@@ -65,6 +67,7 @@ export function PersonPage({ userId }: { userId: string }) {
   const canManage = usePermissions().canAdmin('people.manage_roles');
   const legacy = useLegacyDecides();
   const { catalogue } = useCatalogue();
+  const me = useMe();
 
   const [person, setPerson] = React.useState<PersonDetail | null>(null);
   const [roles, setRoles] = React.useState<Role[]>([]);
@@ -107,7 +110,11 @@ export function PersonPage({ userId }: { userId: string }) {
     mainRoleId !== (person?.mainRole?.id ?? '')
     || [...addOnIds].sort().join() !== person!.addOns.map((a) => a.id).sort().join()
   );
-  const editable = Boolean(person) && !person!.readOnly && canManage;
+  // Nobody changes the roles of someone holding more than them (server: HIGHER_THAN_YOU).
+  const aboveMe = person ? beyondMe(me, person.grants, person.fields).length > 0 : false;
+  const editable = Boolean(person) && !person!.readOnly && canManage && !aboveMe;
+  const roleAboveMe = (r: Role) => beyondMe(me, r.grants, r.fields).length > 0;
+  const notMine = tr('Has access you don\'t have yourself.', 'فيه وصول لا تملكه أنت.');
 
   const save = async () => {
     if (!companyId || !person || !mainRoleId) return;
@@ -131,6 +138,10 @@ export function PersonPage({ userId }: { userId: string }) {
 
   const Back = isRtl ? ArrowRight : ArrowLeft;
   const lines = person && catalogue ? explainSummary(person, catalogue.areas) : person?.summary.map((text) => ({ text, why: [] as GrantSource[], kind: 'area' as const })) ?? [];
+  // When every line comes from the same roles, say it once instead of on each line.
+  const signature = (why: GrantSource[]) => why.map((w) => `${w.kind}:${w.roleId}`).join('|');
+  const explained = lines.filter((l) => l.why.length > 0);
+  const allFrom = explained.length > 1 && explained.every((l) => signature(l.why) === signature(explained[0].why)) ? explained[0].why : null;
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -174,6 +185,12 @@ export function PersonPage({ userId }: { userId: string }) {
                   {tr('Platform administrator: also manages every company\'s settings and roles.', 'مسؤول المنصة: يدير أيضًا إعدادات وأدوار كل الشركات.')}
                 </p>
               )}
+              {allFrom && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  <span className="font-medium">{tr('All from ', 'كلها من ')}</span>
+                  {allFrom.map((s) => sourceText(s, tr, lang, roles)).join(lang === 'ar' ? '، ' : ', ')}
+                </p>
+              )}
               {lines.length === 0 ? (
                 <p className="rounded-lg border px-4 py-6 text-center text-sm text-muted-foreground">
                   {tr('Nothing yet: give them a main role.', 'لا شيء بعد: امنحه دورًا أساسيًا.')}
@@ -183,7 +200,7 @@ export function PersonPage({ userId }: { userId: string }) {
                   {lines.map((line, i) => (
                     <li key={i} className="px-4 py-3">
                       <p className={line.kind === 'hidden' ? 'text-sm text-muted-foreground' : 'text-sm'}>{pick(line.text, lang)}</p>
-                      {line.why.length > 0 && (
+                      {line.why.length > 0 && !allFrom && (
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           <span className="font-medium">{tr('Why: ', 'السبب: ')}</span>
                           {line.why.map((s) => sourceText(s, tr, lang, roles)).join(lang === 'ar' ? '، ' : ', ')}
@@ -195,7 +212,8 @@ export function PersonPage({ userId }: { userId: string }) {
               )}
             </section>
 
-            <section aria-labelledby="roles-heading" className="rounded-lg border p-4">
+            {/* On phones and tablets the roles come first: they are what this page is opened to change. */}
+            <section aria-labelledby="roles-heading" className="order-first rounded-lg border p-4 lg:order-none">
               <h2 id="roles-heading" className="mb-3 text-sm font-semibold">{tr('Roles', 'الأدوار')}</h2>
               {person.readOnly ? (
                 <div className="space-y-2 text-sm text-muted-foreground">
@@ -216,12 +234,15 @@ export function PersonPage({ userId }: { userId: string }) {
                         <SelectValue placeholder={tr('Choose a role', 'اختر دورًا')} />
                       </SelectTrigger>
                       <SelectContent>
-                        {assignable.map((r) => (
-                          <SelectItem key={r.id} value={r.id} disabled={r.needsReview}>
-                            {roleLabel(r, lang)}
-                            {r.needsReview ? ` — ${tr('needs review', 'بحاجة إلى مراجعة')}` : ''}
-                          </SelectItem>
-                        ))}
+                        {assignable.map((r) => {
+                          const above = r.id !== mainRoleId && roleAboveMe(r);
+                          return (
+                            <SelectItem key={r.id} value={r.id} disabled={r.needsReview || above}>
+                              {roleLabel(r, lang)}
+                              {r.needsReview ? ` — ${tr('needs review', 'بحاجة إلى مراجعة')}` : above ? ` — ${notMine}` : ''}
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                     {waitsForSwitchOver(legacy, mainRoleId, roles) && <div><SwitchOverChip tr={tr} /></div>}
@@ -233,15 +254,22 @@ export function PersonPage({ userId }: { userId: string }) {
                     <div className="space-y-1.5">
                       {assignable.filter((r) => r.id !== mainRoleId).map((r) => {
                         const id = `addon-${r.id}`;
+                        const checked = addOnIds.includes(r.id);
+                        const above = !checked && roleAboveMe(r);
                         return (
-                          <div key={r.id} className="flex items-center gap-2">
+                          <div key={r.id} className="flex items-start gap-2">
                             <Checkbox
                               id={id}
-                              checked={addOnIds.includes(r.id)}
-                              disabled={!editable}
+                              checked={checked}
+                              disabled={!editable || above}
+                              className="mt-0.5"
                               onCheckedChange={(on) => setAddOnIds((ids) => (on === true ? [...ids, r.id] : ids.filter((x) => x !== r.id)))}
                             />
-                            <Label htmlFor={id} className="text-sm font-normal">{roleLabel(r, lang)}</Label>
+                            <Label htmlFor={id} className={`text-sm font-normal leading-snug ${above ? 'text-muted-foreground' : ''}`}>
+                              {roleLabel(r, lang)}
+                              {r.needsReview && <span className="block text-xs text-muted-foreground">{tr('Needs review — not counted yet', 'بحاجة إلى مراجعة — لا يُحتسب بعد')}</span>}
+                              {above && <span className="block text-xs">{notMine}</span>}
+                            </Label>
                           </div>
                         );
                       })}
@@ -260,6 +288,11 @@ export function PersonPage({ userId }: { userId: string }) {
                   )}
                   <GroupRoles person={person} tr={tr} lang={lang} />
 
+                  {canManage && aboveMe && (
+                    <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                      {tr('They have access you don\'t, so you can\'t change their roles — ask an Admin.', 'لديه وصول لا تملكه أنت، فلا يمكنك تغيير أدواره — اطلب ذلك من مدير النظام.')}
+                    </p>
+                  )}
                   {!canManage && (
                     <p className="text-xs text-muted-foreground">{tr('Only people who manage roles can change these.', 'يغيّرها فقط من يدير الأدوار.')}</p>
                   )}

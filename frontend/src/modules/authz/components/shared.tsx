@@ -7,7 +7,7 @@
  */
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangle, Info, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,6 +15,8 @@ import { useI18n } from '@/context/i18n-context';
 import { useCompany } from '@/context/company-context';
 import { usePermissions } from '@/context/permissions-context';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { holderFromAccess, type Holder } from '../lib/beyond';
 import {
   fetchAuthzCatalogue,
   listHoldingGroups,
@@ -44,6 +46,89 @@ export function shortDate(value: string | null | undefined, lang: 'en' | 'ar') {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString(lang === 'ar' ? 'ar' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// ── Counts (Arabic has six plural forms: Intl.PluralRules) ───────────
+
+const AR_RULES = new Intl.PluralRules('ar');
+const EN_RULES = new Intl.PluralRules('en');
+
+const COUNT_FORMS = {
+  people: {
+    en: { one: '1 person', other: '{n} people' },
+    ar: { zero: 'لا أحد', one: 'شخص واحد', two: 'شخصان', few: '{n} أشخاص', many: '{n} شخصًا', other: '{n} شخص' },
+  },
+  actions: {
+    en: { one: '1 action', other: '{n} actions' },
+    ar: { zero: 'لا إجراءات', one: 'إجراء واحد', two: 'إجراءان', few: '{n} إجراءات', many: '{n} إجراءً', other: '{n} إجراء' },
+  },
+} as const;
+
+/** "4 people" / "٤ أشخاص"-style counts with the right plural form in each language. */
+export function countLabel(n: number, kind: keyof typeof COUNT_FORMS, lang: 'en' | 'ar') {
+  const forms = COUNT_FORMS[kind][lang] as Record<string, string>;
+  const rule = (lang === 'ar' ? AR_RULES : EN_RULES).select(n);
+  return (forms[rule] ?? forms.other).replace('{n}', String(n));
+}
+
+/** What I hold in the selected company, for "no higher than me" checks (null: super admin, exempt). */
+export function useMe(): Holder | null {
+  const access = usePermissions();
+  return React.useMemo(() => holderFromAccess(access), [access]);
+}
+
+/**
+ * While there are unsaved changes: asks before an in-app link (or Back)
+ * leaves the page, and before the tab closes. Links are caught in the capture
+ * phase, before Next's Link handles them.
+ */
+export function useLeaveGuard(dirty: boolean) {
+  const confirm = useConfirm();
+  const router = useRouter();
+  const { tr } = useTr();
+  const dirtyRef = React.useRef(dirty);
+  dirtyRef.current = dirty;
+
+  const ask = React.useCallback(() => confirm({
+    title: tr('Leave without saving?', 'المغادرة دون حفظ؟'),
+    description: tr('Your changes to this role will be lost.', 'ستفقد التغييرات التي أجريتها.'),
+    confirmText: tr('Leave', 'مغادرة'),
+    cancelText: tr('Stay', 'البقاء'),
+    destructive: true,
+  }), [confirm, tr]);
+
+  React.useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    const onClick = (e: MouseEvent) => {
+      if (!dirtyRef.current || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void ask().then((ok) => { if (ok) { dirtyRef.current = false; router.push(url.pathname + url.search + url.hash); } });
+    };
+    // Back: an extra history entry for this page catches the first Back.
+    window.history.pushState(window.history.state, '', window.location.href);
+    const onPopState = () => {
+      if (!dirtyRef.current) return;
+      void ask().then((ok) => {
+        if (ok) { dirtyRef.current = false; window.history.back(); }
+        else window.history.pushState(window.history.state, '', window.location.href);
+      });
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('click', onClick, true);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onClick, true);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [dirty, ask, router]);
 }
 
 export const errorText = (error: unknown, fallback: string) =>

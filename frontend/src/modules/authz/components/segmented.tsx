@@ -5,7 +5,13 @@ import * as RadioGroupPrimitive from '@radix-ui/react-radio-group';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/context/i18n-context';
 
-export interface SegmentOption<T extends string> { value: T; label: string }
+export interface SegmentOption<T extends string> {
+  value: T;
+  label: string;
+  /** Not offered (e.g. beyond what the editor holds); `reason` says why on hover. */
+  disabled?: boolean;
+  reason?: string;
+}
 
 /**
  * A segmented single choice (None / View / Edit / Full / Custom). Radix radio
@@ -43,11 +49,17 @@ export function Segmented<T extends string>({
         <RadioGroupPrimitive.Item
           key={o.value}
           value={o.value}
+          disabled={o.disabled}
+          title={o.disabled ? o.reason : undefined}
+          aria-description={o.disabled ? o.reason : undefined}
           className={cn(
             'min-h-8 flex-1 whitespace-nowrap rounded-[5px] px-2 text-xs font-medium text-muted-foreground transition-colors sm:w-[3.75rem] sm:flex-none',
-            'hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'hover:text-foreground',
             'data-[state=checked]:bg-primary/15 data-[state=checked]:text-foreground data-[state=checked]:ring-1 data-[state=checked]:ring-inset data-[state=checked]:ring-primary/50',
-            'disabled:cursor-not-allowed disabled:hover:text-muted-foreground',
+            // Keyboard focus is an outline, so it shows on the selected segment
+            // too (its ring is the selection mark).
+            'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+            'disabled:cursor-not-allowed disabled:text-muted-foreground/50 disabled:hover:text-muted-foreground/50 data-[state=checked]:disabled:text-foreground',
           )}
         >
           {o.label}

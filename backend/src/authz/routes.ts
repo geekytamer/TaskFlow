@@ -156,6 +156,9 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
       fields: fieldsOut(company),
       disabledModules: store.getDisabledModules(companyId),
       academy: { lockedModules: extras.academyLocked(user, companyId) },
+      // The holding group the company belongs to (null: none), so role
+      // editors offer the "group" scope only where it means something.
+      holdingGroupId: store.authz.holdingGroups().find((g) => g.companyIds.includes(companyId))?.id ?? null,
     });
   }));
 

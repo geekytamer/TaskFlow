@@ -28,7 +28,8 @@ import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useRouter } from 'next/navigation';
-import { listPeople, type Person } from '@/services/authzService';
+import { listPeople, listRoles, type Person, type Role } from '@/services/authzService';
+import { beyondMe, holderFromAccess } from '@/modules/authz/lib/beyond';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
@@ -66,19 +67,48 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
   // In the selected company: managing users (profile, position, sign-in) is
   // people.manage. Roles are not changed here any more: they live in
   // Settings → People and roles (people.view_roles to open, manage_roles to change).
-  const { canAdmin } = usePermissions();
+  const access = usePermissions();
+  const { canAdmin, engine } = access;
   const canManageUsersHere = canAdmin('people.manage');
   const canSeeRolesHere = canAdmin('people.view_roles');
-  // Main roles as the People API reports them (custom roles included).
+  const me = React.useMemo(() => holderFromAccess(access), [access]);
+  // Main roles as the People API reports them (custom roles included), and the
+  // company's roles, to tell who holds more than me.
   const [people, setPeople] = React.useState<Map<string, Person>>(new Map());
+  const [roles, setRoles] = React.useState<Role[] | null>(null);
   React.useEffect(() => {
-    if (!selectedCompany || !canSeeRolesHere) { setPeople(new Map()); return; }
+    if (!selectedCompany || !canSeeRolesHere) { setPeople(new Map()); setRoles(null); return; }
     let active = true;
-    listPeople(selectedCompany.id)
-      .then((list) => { if (active) setPeople(new Map(list.map((p) => [p.userId, p]))); })
-      .catch(() => { if (active) setPeople(new Map()); });
+    Promise.all([listPeople(selectedCompany.id), listRoles(selectedCompany.id)])
+      .then(([list, r]) => { if (active) { setPeople(new Map(list.map((p) => [p.userId, p]))); setRoles(r); } })
+      .catch(() => { if (active) { setPeople(new Map()); setRoles(null); } });
     return () => { active = false; };
   }, [selectedCompany, canSeeRolesHere, refreshToken]);
+
+  /**
+   * The roles that decide the person here: under legacy/shadow their company
+   * role (as its standard role), under v2 their main role and add-ons.
+   * Null when unknown (no roles read): the server decides then.
+   */
+  const decidingRoles = (targetUser: User): Role[] | null => {
+    if (!roles) return null;
+    if (engine && engine !== 'v2') {
+      const key = String(getRoleForCompany(targetUser)).toLowerCase();
+      const standard = roles.find((r) => r.kind === 'system' && r.key === key);
+      return standard ? [standard] : null;
+    }
+    const person = people.get(targetUser.id);
+    if (!person) return null;
+    const ids = new Set([person.mainRole?.id, ...person.addOns.filter((a) => a.isActive).map((a) => a.id)]);
+    return roles.filter((r) => ids.has(r.id));
+  };
+
+  /** Holds access I don't: the server refuses to let me edit or delete them. */
+  const aboveMe = (targetUser: User) => {
+    const deciding = decidingRoles(targetUser);
+    if (!deciding) return false;
+    return beyondMe(me, deciding.flatMap((r) => r.grants), deciding.flatMap((r) => r.fields)).length > 0;
+  };
 
   const fetchData = React.useCallback(async () => {
       // Without a company only the platform administrator lists everyone.
@@ -162,7 +192,11 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
     return user.role;
   };
 
-  /** A member of the selected company, for someone who manages users here; the server has the last word. */
+  /**
+   * A member of the selected company who holds no more than me, for someone
+   * who manages users here. The server has the last word; its refusals are
+   * coded and shown as one translated sentence.
+   */
   const canManageUser = (targetUser: User) => {
     if (!selectedCompany) return false;
     const assignmentCompanyIds =
@@ -170,7 +204,7 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
         ? targetUser.companyRoles.map((assignment) => assignment.companyId)
         : targetUser.companyIds || [];
     if (!assignmentCompanyIds.includes(selectedCompany.id)) return false;
-    return canManageUsersHere;
+    return canManageUsersHere && !aboveMe(targetUser);
   }
 
   /** The main role's name from People (custom roles included), else the company role. */

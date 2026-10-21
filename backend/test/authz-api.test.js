@@ -206,6 +206,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.deepEqual(me.body.grants, sortGrants(TEMPLATES.employee.grants), 'the Employee template');
     assert.deepEqual(me.body.fields, TEMPLATES.employee.fields);
     assert.deepEqual(me.body.academy, { lockedModules: [] }, 'Academy not enforced under test');
+    assert.equal(me.body.holdingGroupId, null, 'company 1 is in no group yet');
 
     // A reviewed add-on counts only under v2 (Ruling D: inert before the switch).
     const extra = store.authz.saveRole('1', { name: 'Finance peek', grants: [{ key: 'finance.view' }], fields: [] }, null);
@@ -422,7 +423,9 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
       const put = await as(admin).put(`/companies/1/people/${dana.id}/roles`, { mainRoleId: roleId('employee'), addOnRoleIds: [] });
       assert.equal(put.status, 403);
       assert.equal(put.body.details?.code ?? put.body.code, 'GROUP_PERSON');
-      assert.equal((await as(dana).get('/me/permissions?companyId=1')).status, 200, 'reach through the group');
+      const danaMe = await as(dana).get('/me/permissions?companyId=1');
+      assert.equal(danaMe.status, 200, 'reach through the group');
+      assert.equal(danaMe.body.holdingGroupId, group.id, 'the company names its group');
     } else {
       assert.equal(d, undefined);
       assert.equal((await as(admin).put(`/companies/1/people/${dana.id}/roles`, { mainRoleId: roleId('employee'), addOnRoleIds: [] })).status, 404);

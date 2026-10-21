@@ -55,9 +55,19 @@ export function levelOf(area: CatalogueArea, held: readonly string[]): LevelChoi
   return 'custom';
 }
 
-/** What the level picker shows: Custom when opened as Custom, else the matching preset. */
+/** Held actions of the area that carry a limit (Ruling S: such an area is always Custom). */
+export function limitedActions(draft: RoleDraft, area: CatalogueArea) {
+  return area.actions.filter((a) => draft.grants[a.key]?.limit !== undefined);
+}
+
+/**
+ * What the level picker shows: Custom when opened as Custom or when any of the
+ * area's actions has a limit (a preset never shows a limit it would hide);
+ * else the matching preset.
+ */
 export function shownLevel(state: EditorState, area: CatalogueArea): LevelChoice {
   if (state.customOpen.includes(area.key)) return 'custom';
+  if (limitedActions(state.draft, area).length) return 'custom';
   return levelOf(area, heldKeys(state.draft, area));
 }
 
@@ -87,14 +97,20 @@ function grantFor(area: CatalogueArea, key: string, scope: Scope | undefined, pr
   return out;
 }
 
-/** Replaces the area's grants by a preset's keys; kept keys keep their scope and limit. */
+/**
+ * Replaces the area's grants by a preset's keys. Kept keys keep their scope;
+ * every limit of the area is cleared (Ruling S: a preset has no limits).
+ */
 export function applyLevel(draft: RoleDraft, area: CatalogueArea, level: Level): RoleDraft {
   const scope = areaScope(draft, area);
   const grants = { ...draft.grants };
   const wanted = new Set(area.levels[level] ?? []);
   for (const action of area.actions) {
-    if (wanted.has(action.key)) grants[action.key] = grantFor(area, action.key, scope, draft.grants[action.key]);
-    else delete grants[action.key];
+    if (wanted.has(action.key)) {
+      const kept = grantFor(area, action.key, scope, draft.grants[action.key]);
+      delete kept.limit;
+      grants[action.key] = kept;
+    } else delete grants[action.key];
   }
   return { ...draft, grants };
 }

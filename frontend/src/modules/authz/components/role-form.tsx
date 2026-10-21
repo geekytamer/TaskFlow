@@ -14,18 +14,19 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import type { AreaGroup, Catalogue, CatalogueArea, Scope } from '@/services/authzService';
 import {
   areaHasScope,
   areaScope,
+  limitedActions,
   shownLevel,
   type EditorAction,
   type EditorState,
   type LevelChoice,
 } from '../lib/role-draft';
 import { Segmented } from './segmented';
-import { pick, useTr, type Tr } from './shared';
+import { beyondMe, within, type Holder } from '../lib/beyond';
+import { countLabel, pick, useTr, type Tr } from './shared';
 
 const GROUP_ORDER: AreaGroup[] = ['core', 'operations', 'finance', 'crm', 'hr'];
 const GROUP_LABEL: Record<AreaGroup, [string, string]> = {
@@ -63,19 +64,26 @@ export function RoleForm({
   readOnly,
   currency,
   nameError,
+  me,
+  groupScope,
 }: {
   catalogue: Catalogue;
   state: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   readOnly: boolean;
-  /** The company currency code for amount limits ("OMR"). */
+  /** The currency amount limits are in ("OMR"), or a phrase for templates. */
   currency: string;
   nameError?: string | null;
+  /** What the editor holds; choices beyond it are not offered (null: no limit, super admin). */
+  me: Holder | null;
+  /** Offer the "group" scope (the company belongs to a holding group, or this is a group template). */
+  groupScope: boolean;
 }) {
   const { tr, lang } = useTr();
   const groups = GROUP_ORDER
     .map((g) => ({ group: g, areas: catalogue.areas.filter((a) => a.group === g) }))
     .filter((g) => g.areas.length);
+  const notMine = tr('You don\'t have this yourself, so you can\'t give it.', 'لا تملك هذا بنفسك، فلا يمكنك منحه.');
 
   return (
     <div className="space-y-8">
@@ -125,7 +133,17 @@ export function RoleForm({
           </h2>
           <div className="divide-y rounded-lg border">
             {areas.map((area) => (
-              <AreaRow key={area.key} area={area} state={state} dispatch={dispatch} readOnly={readOnly} currency={currency} />
+              <AreaRow
+                key={area.key}
+                area={area}
+                state={state}
+                dispatch={dispatch}
+                readOnly={readOnly}
+                currency={currency}
+                me={me}
+                groupScope={groupScope}
+                notMine={notMine}
+              />
             ))}
           </div>
         </section>
@@ -147,18 +165,23 @@ export function RoleForm({
           {catalogue.fields.map((f) => {
             const value = state.draft.fields[f.key] ?? { view: false, edit: false };
             const name = pick(f.label, lang);
+            // Turning a switch off is always allowed; on, only what I have.
+            const canView = value.view || beyondMe(me, [], [{ key: f.key, view: true, edit: false }]).length === 0;
+            const canEdit = value.edit || beyondMe(me, [], [{ key: f.key, view: true, edit: true }]).length === 0;
             return (
               <div key={f.key} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 px-4 py-3">
                 <span className="text-sm">{name}</span>
                 <Switch
                   checked={value.view}
-                  disabled={readOnly}
+                  disabled={readOnly || !canView}
+                  title={!canView ? notMine : undefined}
                   aria-label={`${tr('See', 'عرض')}: ${name}`}
                   onCheckedChange={(on) => dispatch({ type: 'field', key: f.key, which: 'view', on })}
                 />
                 <Switch
                   checked={value.edit}
-                  disabled={readOnly}
+                  disabled={readOnly || !canEdit}
+                  title={!canEdit ? notMine : undefined}
                   aria-label={`${tr('Change', 'تعديل')}: ${name}`}
                   onCheckedChange={(on) => dispatch({ type: 'field', key: f.key, which: 'edit', on })}
                 />
@@ -171,12 +194,17 @@ export function RoleForm({
   );
 }
 
-function AreaRow({ area, state, dispatch, readOnly, currency }: {
+const formatAmount = (n: number, lang: 'en' | 'ar') => n.toLocaleString(lang === 'ar' ? 'ar' : 'en-US');
+
+function AreaRow({ area, state, dispatch, readOnly, currency, me, groupScope, notMine }: {
   area: CatalogueArea;
   state: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   readOnly: boolean;
   currency: string;
+  me: Holder | null;
+  groupScope: boolean;
+  notMine: string;
 }) {
   const { tr, lang } = useTr();
   const level = shownLevel(state, area);
@@ -187,7 +215,18 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
   const held = area.actions.filter((a) => a.key in state.draft.grants).length;
   const scope = areaScope(state.draft, area);
   const showScope = areaHasScope(area) && level !== 'none' && area.actions.some((a) => a.scoped && a.key in state.draft.grants);
-  const options: Array<{ value: LevelChoice; label: string }> = [
+  const limited = limitedActions(state.draft, area);
+  const unitOf = (limit: 'amount' | 'percent' | null) => (limit === 'percent' ? '%' : currency);
+  // The scopes offered: "group" only where a holding group exists (or the role already has it).
+  const scopes = area.scopes.filter((sc) => sc !== 'group' || groupScope || scope === 'group');
+
+  /** The preset's grants as the role would hold them, checked against what I hold. */
+  const presetWithin = (preset: 'view' | 'edit' | 'full') => beyondMe(me, area.levels[preset].map((key) => {
+    const action = area.actions.find((a) => a.key === key);
+    return { key, ...(action?.scoped && scope ? { scope } : {}) };
+  })).length === 0;
+
+  const options: Array<{ value: LevelChoice; label: string; disabled?: boolean; reason?: string }> = [
     { value: 'none', label: tr('None', 'لا شيء') },
     { value: 'view', label: tr('View', 'عرض') },
     { value: 'edit', label: tr('Edit', 'تعديل') },
@@ -197,11 +236,20 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
   // Presets nest (view ⊆ edit ⊆ full). Where two give the same actions (an
   // area with only view actions), offer only the wider one, as the server
   // reads it, so the picker never shows a choice that changes nothing.
-  const distinct = options.filter((o) => {
-    if (o.value === 'view') return area.levels.view.length !== area.levels.edit.length;
-    if (o.value === 'edit') return area.levels.edit.length !== area.levels.full.length;
-    return true;
-  });
+  const distinct = options
+    .filter((o) => {
+      if (o.value === 'view') return area.levels.view.length !== area.levels.edit.length;
+      if (o.value === 'edit') return area.levels.edit.length !== area.levels.full.length;
+      return true;
+    })
+    .map((o) => (o.value === 'view' || o.value === 'edit' || o.value === 'full') && o.value !== level && !presetWithin(o.value)
+      ? { ...o, disabled: true, reason: notMine }
+      : o);
+
+  /** A scope is offered when every scoped action the area holds stays within what I hold at it. */
+  const scopeWithin = (sc: Scope) => beyondMe(me, area.actions
+    .filter((a) => a.scoped && state.draft.grants[a.key])
+    .map((a) => ({ key: a.key, scope: sc, limit: state.draft.grants[a.key].limit }))).length === 0;
 
   return (
     <div className="px-4 py-3">
@@ -210,7 +258,7 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
           <p className="text-sm font-medium">{name}</p>
           {level === 'custom' && (
             <p className="text-xs text-muted-foreground">
-              {tr(`${held} of ${area.actions.length} actions`, `${held} من ${area.actions.length} إجراءات`)}
+              {tr(`${held} of ${countLabel(area.actions.length, 'actions', 'en')}`, `${held} من ${countLabel(area.actions.length, 'actions', 'ar')}`)}
               {' · '}
               <button
                 type="button"
@@ -222,6 +270,15 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
               </button>
             </p>
           )}
+          {/* Ruling S: limits are always visible, never hidden under a preset. */}
+          {!open && limited.map((a) => (
+            <p key={a.key} className="text-xs text-muted-foreground">
+              {tr(
+                `${pick(a.label, 'en')} — up to ${formatAmount(state.draft.grants[a.key].limit!, 'en')} ${unitOf(a.limit)}`,
+                `${pick(a.label, 'ar')} — حتى ${formatAmount(state.draft.grants[a.key].limit!, 'ar')} ${unitOf(a.limit)}`,
+              )}
+            </p>
+          ))}
         </div>
         <Segmented
           value={level}
@@ -242,9 +299,14 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {area.scopes.map((s) => (
-                <SelectItem key={s} value={s} className="text-xs">{scopeName(s, tr)}</SelectItem>
-              ))}
+              {scopes.map((sc) => {
+                const ok = sc === scope || scopeWithin(sc);
+                return (
+                  <SelectItem key={sc} value={sc} disabled={!ok} className="text-xs">
+                    {scopeName(sc, tr)}{ok ? '' : ` — ${tr('beyond your own', 'أوسع مما لديك')}`}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">{scopeHelp(scope, area, tr, lang)}</p>
@@ -256,24 +318,31 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
           {area.actions.map((action) => {
             const grant = state.draft.grants[action.key];
             const id = `action-${action.key}`;
+            const canAdd = Boolean(grant) || within(me, { key: action.key, ...(action.scoped && scope ? { scope } : {}) });
+            const myLimit = me?.grant(action.key)?.limit;
             return (
-              <li key={action.key} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <li key={action.key} className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="flex items-start gap-2">
                   <Checkbox
                     id={id}
                     checked={Boolean(grant)}
-                    disabled={readOnly}
+                    disabled={readOnly || !canAdd}
+                    title={!canAdd ? notMine : undefined}
                     className="mt-0.5"
                     onCheckedChange={(on) => dispatch({ type: 'toggle', area, key: action.key, on: on === true })}
                   />
-                  <Label htmlFor={id} className="text-sm font-normal leading-snug">{pick(action.label, lang)}</Label>
+                  <Label htmlFor={id} className={`text-sm font-normal leading-snug ${canAdd ? '' : 'text-muted-foreground'}`}>
+                    {pick(action.label, lang)}
+                    {!canAdd && <span className="block text-xs">{notMine}</span>}
+                  </Label>
                 </div>
                 {action.limit && grant && (
                   <LimitInput
                     actionKey={action.key}
                     value={grant.limit}
-                    unit={action.limit === 'percent' ? '%' : currency}
+                    unit={unitOf(action.limit)}
                     readOnly={readOnly}
+                    myLimit={myLimit}
                     onChange={(limit) => dispatch({ type: 'limit', key: action.key, limit })}
                     label={pick(action.label, lang)}
                   />
@@ -287,46 +356,64 @@ function AreaRow({ area, state, dispatch, readOnly, currency }: {
   );
 }
 
-function LimitInput({ actionKey, value, unit, readOnly, onChange, label }: {
+function LimitInput({ actionKey, value, unit, readOnly, onChange, label, myLimit }: {
   actionKey: string;
   value: number | undefined;
   unit: string;
   readOnly: boolean;
   onChange: (limit: number | null) => void;
   label: string;
+  /** My own ceiling on this action: the role may not go above it (or have none). */
+  myLimit: number | undefined;
 }) {
-  const { tr } = useTr();
+  const { tr, lang } = useTr();
   const [text, setText] = React.useState(value === undefined ? '' : String(value));
   // Follow outside changes (Reset, a level change) without rewriting what is
-  // being typed ("5." is 5 and must stay "5.").
+  // being typed ("5." is 5 and must stay "5."; "-3" stays to show the hint).
   React.useEffect(() => {
     setText((current) => {
       const typed = current.trim() === '' ? undefined : Number(current);
+      if (typed !== undefined && (Number.isNaN(typed) || typed < 0) && value === undefined) return current;
       return typed === value ? current : value === undefined ? '' : String(value);
     });
   }, [value]);
   const id = `limit-${actionKey}`;
+  const hintId = `${id}-hint`;
+  const typed = text.trim() === '' ? undefined : Number(text);
+  let hint: string | null = null;
+  if (typed !== undefined && (Number.isNaN(typed) || typed < 0)) {
+    hint = tr('Enter 0 or more. Leave empty for no limit.', 'أدخل صفرًا أو أكثر. اتركه فارغًا لعدم وضع حد.');
+  } else if (myLimit !== undefined && (typed === undefined || typed > myLimit)) {
+    const mine = `${myLimit.toLocaleString(lang === 'ar' ? 'ar' : 'en-US')} ${unit}`;
+    hint = tr(`Your own limit is ${mine}; this can't be higher.`, `حدك أنت ${mine}؛ لا يمكن أن يكون أعلى.`);
+  }
   return (
-    <div className={cn('flex items-center gap-2 ps-6 text-xs text-muted-foreground sm:ps-0')}>
-      <label htmlFor={id}>{tr('Up to', 'حتى')}</label>
-      <Input
-        id={id}
-        type="number"
-        inputMode="decimal"
-        min={0}
-        step="any"
-        value={text}
-        readOnly={readOnly}
-        placeholder={tr('No limit', 'بلا حد')}
-        aria-label={tr(`${label}: up to`, `${label}: حتى`)}
-        className="h-8 w-28 text-xs tabular-nums"
-        onChange={(e) => {
-          setText(e.target.value);
-          const n = e.target.value.trim() === '' ? null : Number(e.target.value);
-          onChange(n);
-        }}
-      />
-      <span>{unit}</span>
+    <div className="space-y-1 ps-6 sm:ps-0">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <label htmlFor={id}>{tr('Up to', 'حتى')}</label>
+        <Input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={myLimit}
+          step="any"
+          value={text}
+          readOnly={readOnly}
+          placeholder={tr('No limit', 'بلا حد')}
+          aria-label={tr(`${label}: up to`, `${label}: حتى`)}
+          aria-invalid={Boolean(hint)}
+          aria-describedby={hint ? hintId : undefined}
+          className="h-8 w-28 text-xs tabular-nums"
+          onChange={(e) => {
+            setText(e.target.value);
+            const n = e.target.value.trim() === '' ? null : Number(e.target.value);
+            onChange(n);
+          }}
+        />
+        <span>{unit}</span>
+      </div>
+      {hint && <p id={hintId} className="max-w-xs text-xs text-destructive">{hint}</p>}
     </div>
   );
 }

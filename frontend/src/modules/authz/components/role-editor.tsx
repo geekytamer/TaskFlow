@@ -36,12 +36,16 @@ import {
   ErrorState,
   InlineError,
   ListSkeleton,
+  countLabel,
   errorText,
   roleLabel,
   shortDate,
   useCatalogue,
+  useLeaveGuard,
+  useMe,
   useTr,
 } from './shared';
+import { beyondMe } from '../lib/beyond';
 
 export function RoleBadges({ role }: { role: { kind: string; needsReview: boolean } }) {
   const { tr } = useTr();
@@ -56,16 +60,6 @@ export function RoleBadges({ role }: { role: { kind: string; needsReview: boolea
       )}
     </>
   );
-}
-
-/** Leave-page guard while there are unsaved changes. */
-export function useUnsavedGuard(dirty: boolean) {
-  React.useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dirty]);
 }
 
 /**
@@ -117,8 +111,9 @@ export function RoleEditorPage({ roleId }: { roleId: string }) {
   const { toast } = useToast();
   const { selectedCompany } = useCompany();
   const companyId = selectedCompany?.id ?? null;
-  const { canAdmin } = usePermissions();
+  const { canAdmin, holdingGroupId } = usePermissions();
   const canManage = canAdmin('people.manage_roles');
+  const me = useMe();
   const { currencyCode } = useCompanyCurrency();
   const { catalogue, error: catalogueError, retry: retryCatalogue } = useCatalogue();
 
@@ -150,8 +145,12 @@ export function RoleEditorPage({ roleId }: { roleId: string }) {
   }, [companyId, roleId, catalogue, nonce]);
 
   const dirty = isDirty(state);
-  useUnsavedGuard(dirty);
-  const readOnly = !role || role.readOnly || !canManage;
+  useLeaveGuard(dirty);
+  // The server refuses any save, copy or activation of a role that gives more
+  // than the editor holds (HIGHER_THAN_YOU): such a role opens read-only.
+  const aboveMe = role ? beyondMe(me, role.grants, role.fields).length > 0 : false;
+  const readOnly = !role || role.readOnly || !canManage || aboveMe;
+  const aboveReason = tr('Has access you don\'t have yourself.', 'فيه وصول لا تملكه أنت.');
 
   const onSave = async () => {
     if (!companyId || !role) return;
@@ -239,13 +238,24 @@ export function RoleEditorPage({ roleId }: { roleId: string }) {
         actions={role && canManage ? (
           <>
             {role.needsReview && (
-              <Button onClick={onActivate} disabled={busy !== null} className="gap-1.5">
+              <Button
+                onClick={onActivate}
+                disabled={busy !== null || dirty || aboveMe}
+                title={dirty ? tr('Save or discard your changes first.', 'احفظ تغييراتك أو تجاهلها أولًا.') : aboveMe ? aboveReason : undefined}
+                className="gap-1.5"
+              >
                 {busy === 'activate' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-4 w-4" aria-hidden="true" />}
                 {tr('Activate', 'تفعيل')}
               </Button>
             )}
             {role.kind !== 'group' && (
-              <Button variant="outline" onClick={onDuplicate} disabled={busy !== null} className="gap-1.5">
+              <Button
+                variant="outline"
+                onClick={onDuplicate}
+                disabled={busy !== null || dirty || aboveMe}
+                title={dirty ? tr('Save or discard your changes first.', 'احفظ تغييراتك أو تجاهلها أولًا.') : aboveMe ? aboveReason : undefined}
+                className="gap-1.5"
+              >
                 {busy === 'duplicate' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
                 {tr('Duplicate', 'نسخ')}
               </Button>
@@ -275,19 +285,18 @@ export function RoleEditorPage({ roleId }: { roleId: string }) {
           <div className="mb-6 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <RoleBadges role={role} />
             <span>
-              {tr(
-                `${role.peopleCount} ${role.peopleCount === 1 ? 'person' : 'people'}`,
-                `${role.peopleCount} ${role.peopleCount === 1 ? 'شخص' : 'أشخاص'}`,
-              )}
+              {countLabel(role.peopleCount, 'people', lang)}
             </span>
           </div>
-          <ReadOnlyReason role={role} canManage={canManage} />
+          <ReadOnlyReason role={role} canManage={canManage} aboveMe={aboveMe} />
           <RoleForm
             catalogue={catalogue as Catalogue}
             state={state}
             dispatch={dispatch}
             readOnly={readOnly}
             currency={currencyCode}
+            me={me}
+            groupScope={Boolean(holdingGroupId)}
             nameError={nameError}
           />
           <Holders role={role} />
@@ -306,7 +315,7 @@ export function RoleEditorPage({ roleId }: { roleId: string }) {
   );
 }
 
-function ReadOnlyReason({ role, canManage }: { role: RoleDetail; canManage: boolean }) {
+function ReadOnlyReason({ role, canManage, aboveMe }: { role: RoleDetail; canManage: boolean; aboveMe: boolean }) {
   const { tr } = useTr();
   let text: string | null = null;
   if (role.kind === 'system') {
@@ -318,6 +327,11 @@ function ReadOnlyReason({ role, canManage }: { role: RoleDetail; canManage: bool
     text = tr(
       'This role comes from the group. The group\'s administrators change it; here it is read-only.',
       'هذا الدور يأتي من المجموعة. يغيّره مسؤولو المجموعة؛ وهو هنا للعرض فقط.',
+    );
+  } else if (canManage && aboveMe) {
+    text = tr(
+      'This role gives access you don\'t have yourself, so you can\'t change, copy or activate it. Ask an Admin.',
+      'يمنح هذا الدور وصولًا لا تملكه أنت، فلا يمكنك تعديله أو نسخه أو تفعيله. اطلب ذلك من مدير النظام.',
     );
   } else if (!canManage) {
     text = tr('You can see this role but not change it.', 'يمكنك رؤية هذا الدور دون تعديله.');

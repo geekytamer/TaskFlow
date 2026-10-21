@@ -30,6 +30,8 @@ export interface MyPermissions {
   /** Legacy module keys the company switched off. */
   disabledModules: string[];
   academy: { lockedModules: string[] };
+  /** The holding group the company belongs to; null when none (older servers: absent). */
+  holdingGroupId?: string | null;
 }
 
 /** The sensitive fields of the catalogue (backend authz/catalogue.ts SENSITIVE_FIELDS). */
@@ -80,6 +82,8 @@ export interface Access {
   academyLocked: (module: string) => boolean;
   engine: Engine | undefined;
   version: number | undefined;
+  /** The company's holding group (null: none; undefined: not loaded). */
+  holdingGroupId: string | null | undefined;
 }
 
 const CLOSED_FIELD: FieldAccess = { view: false, edit: false };
@@ -107,6 +111,7 @@ export function buildAccess(feed: MyPermissions | null, fallbackDisabledModules:
       academyLocked: () => false,
       engine: undefined,
       version: undefined,
+      holdingGroupId: undefined,
     };
   }
 
@@ -144,5 +149,6 @@ export function buildAccess(feed: MyPermissions | null, fallbackDisabledModules:
     academyLocked: (module) => locked.has(module),
     engine: feed.engine,
     version: feed.version,
+    holdingGroupId: feed.holdingGroupId ?? null,
   };
 }

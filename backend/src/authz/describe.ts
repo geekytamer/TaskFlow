@@ -60,14 +60,16 @@ const scopePhrase: Readonly<Record<Scope, Label>> = {
   group: { en: ' (every company of the group)', ar: ' (كل شركات المجموعة)' },
 };
 
+/** First letter only: the catalogue's own capitals stay ("employees and HR"). */
+const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 const LEVEL_PHRASE: Readonly<Record<'view' | 'edit' | 'full' | 'custom', (area: Label) => Label>> = {
-  view: (a) => ({ en: `Sees ${a.en.toLowerCase()}`, ar: `يطّلع على ${a.ar}` }),
-  edit: (a) => ({ en: `Works on ${a.en.toLowerCase()}`, ar: `يعمل على ${a.ar}` }),
-  full: (a) => ({ en: `Full access to ${a.en.toLowerCase()}`, ar: `صلاحية كاملة على ${a.ar}` }),
-  custom: (a) => ({ en: `Some access to ${a.en.toLowerCase()}`, ar: `صلاحيات محددة على ${a.ar}` }),
+  view: (a) => ({ en: `Sees ${lower(a.en)}`, ar: `يطّلع على ${a.ar}` }),
+  edit: (a) => ({ en: `Works on ${lower(a.en)}`, ar: `يعمل على ${a.ar}` }),
+  full: (a) => ({ en: `Full access to ${lower(a.en)}`, ar: `صلاحية كاملة على ${a.ar}` }),
+  custom: (a) => ({ en: `Some access to ${lower(a.en)}`, ar: `صلاحيات محددة على ${a.ar}` }),
 };
 
-const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /**
  * One line per area the person has anything in ("Sees sales", "Full access to

@@ -142,6 +142,22 @@ export function refusalSentence(body: ForbiddenBody & { code?: string; missing?:
       return ar
         ? 'هذا الشخص يصل عبر المجموعة — غيّر أدواره من إعدادات المجموعة.'
         : 'This person comes through the group — change their roles in the group settings.';
+    case 'ROLE_ASSIGN_FORBIDDEN':
+      return ar
+        ? 'لا يغيّر مدير النظام أو المدير أو المحاسب إلا من يدير الأدوار — اطلب ذلك من مدير النظام.'
+        : 'Only someone who manages roles can change an Admin, Manager or Accountant — ask an Admin.';
+    case 'USER_OUTSIDE_COMPANY':
+      return ar
+        ? 'هذا الشخص خارج الشركات التي تديرها — اطلب ذلك من مسؤول شركته.'
+        : "This person is outside the companies you manage — ask their company's administrator.";
+    case 'IDENTITY_SHARED':
+      return ar
+        ? 'هذا الشخص يعمل في شركات أخرى أيضًا، لذا يغيّر اسمه وبريده وكلمة مروره مسؤول المنصة فقط.'
+        : 'This person also works in other companies, so only the platform administrator can change their name, email or password.';
+    case 'SUPER_ADMIN_ONLY':
+      return ar
+        ? 'هذا الحساب يديره مسؤول المنصة فقط.'
+        : 'Only the platform administrator can change this account.';
     default:
       return null;
   }

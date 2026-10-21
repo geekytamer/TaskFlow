@@ -118,6 +118,9 @@ export interface PersonDetail extends Person {
   fields: Array<{ key: string; label: Label; view: boolean; edit: boolean; sources: GrantSource[] }>;
 }
 
+/** Every change on these screens shows its refusal next to the control (no second, global toast). */
+const INLINE = { refusal: 'inline' as const };
+
 export function fetchAuthzCatalogue() {
   return apiFetch<Catalogue>('/permissions/catalogue');
 }
@@ -128,19 +131,19 @@ export const listRoles = (companyId: string) => apiFetch<Role[]>(`${company(comp
 export const getRole = (companyId: string, id: string) =>
   apiFetch<RoleDetail>(`${company(companyId)}/roles/${encodeURIComponent(id)}`);
 export const saveRole = (companyId: string, id: string, input: RoleInput) =>
-  apiFetch<Role>(`${company(companyId)}/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) });
+  apiFetch<Role>(`${company(companyId)}/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input), ...INLINE });
 export const deleteRole = (companyId: string, id: string) =>
-  apiFetch<void>(`${company(companyId)}/roles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  apiFetch<void>(`${company(companyId)}/roles/${encodeURIComponent(id)}`, { method: 'DELETE', ...INLINE });
 export const duplicateRole = (companyId: string, id: string, body: { name?: string; nameAr?: string } = {}) =>
-  apiFetch<Role>(`${company(companyId)}/roles/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: JSON.stringify(body) });
+  apiFetch<Role>(`${company(companyId)}/roles/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: JSON.stringify(body), ...INLINE });
 export const activateRole = (companyId: string, id: string) =>
-  apiFetch<Role>(`${company(companyId)}/roles/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+  apiFetch<Role>(`${company(companyId)}/roles/${encodeURIComponent(id)}/activate`, { method: 'POST', ...INLINE });
 
 export const listPeople = (companyId: string) => apiFetch<Person[]>(`${company(companyId)}/people`);
 export const getPerson = (companyId: string, userId: string) =>
   apiFetch<PersonDetail>(`${company(companyId)}/people/${encodeURIComponent(userId)}`);
 export const setPersonRoles = (companyId: string, userId: string, body: { mainRoleId: string; addOnRoleIds: string[] }) =>
-  apiFetch<Person>(`${company(companyId)}/people/${encodeURIComponent(userId)}/roles`, { method: 'PUT', body: JSON.stringify(body) });
+  apiFetch<Person>(`${company(companyId)}/people/${encodeURIComponent(userId)}/roles`, { method: 'PUT', body: JSON.stringify(body), ...INLINE });
 
 // ── Holding groups ────────────────────────────────────────────────────
 
@@ -195,10 +198,10 @@ export const setHoldingAssignment = (
   id: string,
   userId: string,
   body: { roleKey: string | null; addOnKeys: string[]; startsAt?: string | null; endsAt?: string | null },
-) => apiFetch<HoldingGroupDetail>(`${holding(id)}/assignments/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify(body) });
+) => apiFetch<HoldingGroupDetail>(`${holding(id)}/assignments/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify(body), ...INLINE });
 export const getHoldingTemplate = (id: string, key: string) =>
   apiFetch<HoldingTemplate>(`${holding(id)}/templates/${encodeURIComponent(key)}`);
 export const saveHoldingTemplate = (id: string, key: string, input: RoleInput) =>
-  apiFetch<HoldingTemplate>(`${holding(id)}/templates/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(input) });
+  apiFetch<HoldingTemplate>(`${holding(id)}/templates/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(input), ...INLINE });
 export const pushHoldingTemplate = (id: string, key: string) =>
-  apiFetch<PushResult>(`${holding(id)}/templates/${encodeURIComponent(key)}/push`, { method: 'POST' });
+  apiFetch<PushResult>(`${holding(id)}/templates/${encodeURIComponent(key)}/push`, { method: 'POST', ...INLINE });

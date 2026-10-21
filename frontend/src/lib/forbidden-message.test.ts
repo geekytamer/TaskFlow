@@ -76,7 +76,7 @@ test('other coded refusals are translated; an unknown code keeps the server mess
   const higher = refusalSentence({ code: 'HIGHER_THAN_YOU', missing: ['sales.delete'] }, labels, 'en');
   assert.equal(higher, "You can't give permissions you don't have yourself: Delete quotations and sales orders.");
   assert.equal(refusalSentence({ code: 'HIGHER_THAN_YOU', missing: ['sales.delete'] }, labels, 'ar'), 'لا يمكنك منح صلاحيات لا تملكها بنفسك: حذف عروض الأسعار وأوامر البيع.');
-  for (const code of ['NO_COMPANY_ACCESS', 'LOCKOUT', 'SYSTEM_ROLE', 'GROUP_ROLE', 'GROUP_PERSON']) {
+  for (const code of ['NO_COMPANY_ACCESS', 'LOCKOUT', 'SYSTEM_ROLE', 'GROUP_ROLE', 'GROUP_PERSON', 'ROLE_ASSIGN_FORBIDDEN', 'USER_OUTSIDE_COMPANY', 'IDENTITY_SHARED', 'SUPER_ADMIN_ONLY']) {
     const en = refusalSentence({ code }, labels, 'en');
     const ar = refusalSentence({ code }, labels, 'ar');
     assert.ok(en && !/\d{3}/.test(en), code);

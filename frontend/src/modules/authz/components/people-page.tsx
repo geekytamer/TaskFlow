@@ -14,9 +14,11 @@ import { Input } from '@/components/ui/input';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { listPeople, listRoles, type Person, type Role } from '@/services/authzService';
+import { usePermissions } from '@/context/permissions-context';
 import {
   AccessHeader,
   Chip,
+  countLabel,
   EmptyState,
   EngineNotice,
   ErrorState,
@@ -46,12 +48,17 @@ export function SwitchOverChip({ tr }: { tr: Tr }) {
   );
 }
 
-export function PersonFlags({ person, tr }: { person: Person; tr: Tr }) {
+/**
+ * `quietHr`: when nobody in the company is linked to HR yet, the flag is a
+ * fact about the company, not a warning about this person (the count line
+ * above the list says it once).
+ */
+export function PersonFlags({ person, tr, quietHr = false }: { person: Person; tr: Tr; quietHr?: boolean }) {
   const needsReview = [person.mainRole, ...person.addOns].some((r) => r?.needsReview);
   return (
     <>
       {!person.linkedToHr && !person.readOnly && (
-        <Chip tone="warn">
+        <Chip tone={quietHr ? 'neutral' : 'warn'}>
           <AlertTriangle className="h-3 w-3" aria-hidden="true" />
           {tr('Not linked to an HR record', 'غير مرتبط بسجل موظف')}
         </Chip>
@@ -59,7 +66,7 @@ export function PersonFlags({ person, tr }: { person: Person; tr: Tr }) {
       {needsReview && (
         <Chip tone="warn">
           <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-          {tr('Needs review', 'بحاجة إلى مراجعة')}
+          {tr('Needs review — not counted yet', 'بحاجة إلى مراجعة — لا يُحتسب بعد')}
         </Chip>
       )}
     </>
@@ -74,6 +81,7 @@ export function PeoplePage() {
   const { selectedCompany } = useCompany();
   const companyId = selectedCompany?.id ?? null;
   const legacy = useLegacyDecides();
+  const canManage = usePermissions().canAdmin('people.manage_roles');
 
   const [people, setPeople] = React.useState<Person[] | null>(null);
   const [roles, setRoles] = React.useState<Role[]>([]);
@@ -99,16 +107,22 @@ export function PeoplePage() {
     || (p.email ?? '').toLowerCase().includes(q)
     || (p.mainRole && roleLabel(p.mainRole, lang).toLowerCase().includes(q)));
   const unlinked = (people ?? []).filter((p) => !p.readOnly && !p.linkedToHr).length;
+  const members = (people ?? []).filter((p) => !p.readOnly).length;
   const Chevron = isRtl ? ChevronLeft : ChevronRight;
 
   return (
     <div className="mx-auto w-full max-w-5xl">
       <AccessHeader
         title={tr('People', 'الأشخاص')}
-        description={tr(
-          `Who can do what in ${selectedCompany?.name ?? 'this company'}. Open someone to see why and to change their roles.`,
-          `من يستطيع فعل ماذا في ${selectedCompany?.name ?? 'هذه الشركة'}. افتح أي شخص لترى السبب ولتغيير أدواره.`,
-        )}
+        description={canManage
+          ? tr(
+            `Who can do what in ${selectedCompany?.name ?? 'this company'}. Open someone to see why and to change their roles.`,
+            `من يستطيع فعل ماذا في ${selectedCompany?.name ?? 'هذه الشركة'}. افتح أي شخص لترى السبب ولتغيير أدواره.`,
+          )
+          : tr(
+            `Who can do what in ${selectedCompany?.name ?? 'this company'}. Open someone to see why.`,
+            `من يستطيع فعل ماذا في ${selectedCompany?.name ?? 'هذه الشركة'}. افتح أي شخص لترى السبب.`,
+          )}
       />
       <EngineNotice />
 
@@ -130,8 +144,10 @@ export function PeoplePage() {
               />
             </div>
             <p className="text-sm text-muted-foreground" aria-live="polite">
-              {tr(`${people.length} ${people.length === 1 ? 'person' : 'people'}`, `${people.length} ${people.length === 1 ? 'شخص' : 'أشخاص'}`)}
-              {unlinked > 0 && tr(` · ${unlinked} not linked to HR`, ` · ${unlinked} غير مرتبطين بالموارد البشرية`)}
+              {countLabel(people.length, 'people', lang)}
+              {unlinked > 0 && (unlinked === members
+                ? tr(' · nobody is linked to an HR record yet', ' · لا أحد مرتبط بسجل موظف بعد')
+                : tr(` · ${unlinked} not linked to HR`, ` · ${unlinked} غير مرتبطين بالموارد البشرية`))}
             </p>
           </div>
 
@@ -160,7 +176,7 @@ export function PeoplePage() {
                       </div>
                       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5 sm:mt-0">
                         <PersonRoles person={person} roles={roles} legacy={legacy} tr={tr} lang={lang} />
-                        <PersonFlags person={person} tr={tr} />
+                        <PersonFlags person={person} tr={tr} quietHr={unlinked === members} />
                       </div>
                     </div>
                     <Chevron className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
