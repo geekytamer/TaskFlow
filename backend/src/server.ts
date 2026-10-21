@@ -12,7 +12,7 @@ import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
 import { sweepShipments } from './logistics/shipments';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
-import type { GratuityLine, Notification, VatTreatment, VendorBill } from './types';
+import type { GratuityLine, Notification, SanitizedUser, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import { routeToPermission } from './permissions/shadow';
 import { RECORD_ENTITY_MODULES } from './permissions/company-modules';
@@ -1006,13 +1006,27 @@ export function createServer(options: CreateServerOptions = {}) {
    * legacyRoles are today's answer). A platform super admin outside the company
    * keeps the legacy super-admin handling (Ruling I).
    */
+  /**
+   * Company access without logging (Ruling M): membership, plus under v2 an
+   * active group assignment covering the company.
+   */
+  const companyReach = (user: SanitizedUser, companyId: string): boolean =>
+    canAccessCompany(user, companyId)
+    || (engine === 'v2' && store.authz.holdingCompanyIds(user.id).includes(companyId));
+
+  /** The companies a person reaches under the configured engine (see companyReach). */
+  const accessibleCompanyIds = (user: SanitizedUser): string[] =>
+    engine === 'v2'
+      ? [...new Set([...getAccessibleCompanyIds(user), ...store.authz.holdingCompanyIds(user.id)])]
+      : getAccessibleCompanyIds(user);
+
   const requireDeclaredKey = (req: AuthedRequest, companyId: string) => {
     if (engine === 'legacy' || !req.user) return;
     const decl = declOf(req);
     const key = catalogueKey(decl?.permission);
     if (!decl || !key) return;
     const user = req.user;
-    if (!canAccessCompany(user, companyId)) return; // the access check answers non-members
+    if (!companyReach(user, companyId)) return; // the access check answers non-members
     // Today's answer: the declared role list, with the route's module on (the
     // evaluator's module lock is part of the v2 answer).
     const mapping = routeToPermission(req.method === 'HEAD' ? 'GET' : req.method, req.route?.path ?? req.path);
@@ -1267,7 +1281,16 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   const requireCompanyAccess = (req: AuthedRequest, companyId: string) => {
-    if (!req.user || !canAccessCompany(req.user, companyId)) {
+    const user = req.user;
+    // Ruling M: legacy = membership; v2 = membership or an active group
+    // assignment covering the company (shadow logs where the two differ).
+    const allowed = Boolean(user) && decideAccess(
+      req, companyId,
+      () => canAccessCompany(user!, companyId),
+      () => canAccessCompany(user!, companyId) || store.authz.holdingCompanyIds(user!.id).includes(companyId),
+      () => 'company.access',
+    );
+    if (!allowed) {
       throw new HttpError(403, 'You do not have access to this company.');
     }
     requireAcademyUnlocked(req, companyId);
@@ -1682,7 +1705,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   /** Companies whose people the caller may see: where they administer or manage. */
   const userAdminCompanyIds = (req: AuthedRequest): Set<string> =>
-    new Set(getAccessibleCompanyIds(req.user!).filter((companyId) => allowsRule(req, companyId, 'USERS_WRITE')));
+    new Set(accessibleCompanyIds(req.user!).filter((companyId) => allowsRule(req, companyId, 'USERS_WRITE')));
 
   /**
    * A user as seen from some companies only: their assignments elsewhere are
@@ -1989,7 +2012,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
     store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, maskEvent, seesField, requireFieldEdit, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
-    requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
+    requireSuperAdmin, ensureSalesItemsBelongToCompany, accessibleCompanyIds, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
 
   app.get(
@@ -3122,7 +3145,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       // Every company the person belongs to, each by its own visibility (in SQL).
       const viewer = viewerOf(req);
-      const parts = getAccessibleCompanyIds(req.user!)
+      const parts = accessibleCompanyIds(req.user!)
         .filter((companyId) => store.isModuleEnabled(companyId, 'projects'))
         .map((companyId) => ({ companyId, viewer }));
       res.json(store.listVisibleProjects(parts));
@@ -3233,7 +3256,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const viewer = viewerOf(req);
       const platformSupport = Boolean(req.user!.isSuperAdmin);
-      const parts = getAccessibleCompanyIds(req.user!)
+      const parts = accessibleCompanyIds(req.user!)
         .filter((companyId) => store.isModuleEnabled(companyId, 'tasks'))
         .map((companyId) => ({ companyId, viewer, platformSupport }));
       res.json(store.listVisibleTasks(parts));

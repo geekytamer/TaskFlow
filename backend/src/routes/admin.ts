@@ -1,6 +1,6 @@
 import { isSwitchableModule } from '../permissions/company-modules';
 import { type NumberingEntityType } from '../types';
-import { HttpError, getAccessibleCompanyIds } from '../http';
+import { HttpError } from '../http';
 import { asRecord, enumValue, optionalNumber, optionalString, requiredDateInput, requiredNumber, requiredString } from '../validation';
 import type { RouteContext } from './context';
 import { handler } from './shared';
@@ -128,7 +128,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
       if (req.user!.isSuperAdmin) {
         return res.json(companies);
       }
-      const accessible = new Set(getAccessibleCompanyIds(req.user!));
+      const accessible = new Set(ctx.accessibleCompanyIds(req.user!));
       res.json(companies.filter((company) => accessible.has(company.id)));
     }),
   );

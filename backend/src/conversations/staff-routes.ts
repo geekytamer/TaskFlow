@@ -1,6 +1,6 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import type { DataStore } from '../data/store';
-import { canAccessCompany, HttpError } from '../http';
+import { HttpError } from '../http';
 import type { Contact, SanitizedUser } from '../types';
 import { downloadHeaders, readUpload } from '../portal/files';
 import { afterStaffMessage, fileDto, parseFileIds, parseMessage } from '../portal/thread';
@@ -50,7 +50,7 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
 
   const isMember = (userId: string, companyId: string): boolean => {
     const user = store.getUserById(userId);
-    return !!user && canAccessCompany(user as SanitizedUser, companyId);
+    return !!user && store.reachesCompany(user as SanitizedUser, companyId);
   };
 
   /** Company member, then the contacts permission: conversations belong to contacts. */

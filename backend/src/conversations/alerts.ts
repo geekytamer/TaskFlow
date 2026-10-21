@@ -1,7 +1,6 @@
 import type { DataStore } from '../data/store';
 import { sendToPrincipal, type PushPayload, type PushSender } from '../push/push';
 import { canSignActionTokens, signActionToken } from '../push/action-token';
-import { canAccessCompany } from '../http';
 import type { Contact, Notification, NotificationPrefs, SanitizedUser } from '../types';
 import type { ConvMessage, Thread } from './conversations-store';
 import { slaOf } from './sla';
@@ -33,7 +32,7 @@ const contactName = (store: DataStore, thread: Thread) => store.getContactById(t
  */
 function canSeeContactOf(store: DataStore, contact: Contact | undefined, userId: string): boolean {
   const user = store.getUserById(userId);
-  if (!contact || !user || !canAccessCompany(user as SanitizedUser, contact.companyId)) return false;
+  if (!contact || !user || !store.reachesCompany(user as SanitizedUser, contact.companyId)) return false;
   return store.isVisibleTo(store.visibilityEffective(userId), 'inbox', contact.companyId, contact.id);
 }
 

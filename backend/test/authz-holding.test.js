@@ -133,7 +133,7 @@ test('the group template library: system templates plus group-defined ones; assi
   assert.deepEqual(copiesOf(store, acme.id), []);
 });
 
-test('push updates only copies and company roles still equal to a version the group supplied', () => {
+test('push updates only copies and non-system company roles still equal to a version the group supplied', () => {
   const store = freshStore();
   const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
   const beta = store.createCompany({ name: 'Beta', website: '', address: '' });
@@ -143,11 +143,13 @@ test('push updates only copies and company roles still equal to a version the gr
   [acme, beta, gamma].forEach((c) => store.authz.attachCompany(group.id, c.id, null));
   store.authz.setHoldingAssignment(group.id, ceo.id, { mainRoleKey: 'admin', addOnRoleKeys: [] }, null);
 
-  // Beta customises its own Admin role; Gamma's copy was tampered with (raw SQL).
-  const betaAdmin = store.authz.listRoles(beta.id).find((r) => r.key === 'admin');
-  store.authz.saveRole(beta.id, { id: betaAdmin.id, name: betaAdmin.name, grants: betaAdmin.grants.filter((g) => g.key !== 'payroll.view'), fields: betaAdmin.fields }, null);
+  // Company roles started from the Admin template: Acme's unchanged, Beta's customised.
+  store.authz.saveRole(acme.id, { name: 'Office admin', templateKey: 'admin', grants: TEMPLATES.admin.grants, fields: TEMPLATES.admin.fields }, null);
+  store.authz.saveRole(beta.id, { name: 'Office admin', templateKey: 'admin', grants: TEMPLATES.admin.grants.filter((g) => g.key !== 'payroll.view'), fields: TEMPLATES.admin.fields }, null);
+  // Gamma's copy was tampered with (raw SQL).
   const gammaCopy = copiesOf(store, gamma.id)[0];
   store.db.prepare(`DELETE FROM role_permissions WHERE groupId = ? AND key = 'tasks.view'`).run(gammaCopy.id);
+  const systemBefore = [acme, beta, gamma].map((c) => store.authz.listRoles(c.id).find((r) => r.key === 'admin'));
 
   // The group edits Admin: drops finance.view.
   const next = TEMPLATES.admin.grants.filter((g) => g.key !== 'finance.view');
@@ -158,20 +160,50 @@ test('push updates only copies and company roles still equal to a version the gr
 
   const report = store.authz.pushHoldingTemplate(group.id, 'admin', null);
   const ids = (list) => list.map((r) => `${r.companyId}:${r.roleKey}`).sort();
-  assert.deepEqual(ids(report.updated), [`${acme.id}:admin`, `${acme.id}:group:admin`, `${beta.id}:group:admin`, `${gamma.id}:admin`].sort());
-  assert.deepEqual(ids(report.customised), [`${beta.id}:admin`, `${gamma.id}:group:admin`].sort());
+  assert.deepEqual(ids(report.updated), [`${acme.id}:group:admin`, `${acme.id}:office_admin`, `${beta.id}:group:admin`].sort());
+  assert.deepEqual(ids(report.customised), [`${beta.id}:office_admin`, `${gamma.id}:group:admin`].sort());
   assert.ok(report.customised.every((r) => r.message === 'customised — not updated'));
+  // Ruling N: system roles are never pushed, only reported.
+  assert.deepEqual(ids(report.standard), [acme, beta, gamma].map((c) => `${c.id}:admin`).sort());
+  assert.ok(report.standard.every((r) => r.message === 'company standard role — not updated'));
+  [acme, beta, gamma].forEach((c, i) => assert.deepEqual(store.authz.listRoles(c.id).find((r) => r.key === 'admin'), systemBefore[i]));
 
   assert.deepEqual(sorted(copiesOf(store, acme.id)[0].grants), sorted(next));
-  const betaAfter = store.authz.listRoles(beta.id).find((r) => r.key === 'admin').grants;
+  const betaAfter = store.authz.listRoles(beta.id).find((r) => r.key === 'office_admin').grants;
   assert.ok(!betaAfter.some((g) => g.key === 'payroll.view') && betaAfter.some((g) => g.key === 'finance.view'), 'customised role untouched');
   assert.equal(effective(store, ceo.id).byCompany.get(acme.id).grants.has('finance.view'), false, 'group-wide person follows the pushed copy');
 
-  // A second edit: copies at the first version and at the second both count as unchanged.
+  // A second edit: roles at the first version and at the second both count as unchanged.
   store.authz.saveHoldingTemplate(group.id, 'admin', { name: 'Admin', grants: TEMPLATES.admin.grants, fields: TEMPLATES.admin.fields }, null);
   const again = store.authz.pushHoldingTemplate(group.id, 'admin', null);
-  assert.deepEqual(ids(again.customised), [`${beta.id}:admin`, `${gamma.id}:group:admin`].sort());
-  assert.equal(again.updated.length, 4);
+  assert.deepEqual(ids(again.customised), [`${beta.id}:office_admin`, `${gamma.id}:group:admin`].sort());
+  assert.equal(again.updated.length, 3);
+});
+
+test('pushing an emptied owner or employee template leaves every company system role unchanged', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const group = store.authz.createHoldingGroup({ name: 'Holding' }, null);
+  store.authz.attachCompany(group.id, acme.id, null);
+  const before = store.authz.listRoles(acme.id).filter((r) => r.isSystem);
+  for (const key of ['owner', 'employee']) {
+    store.authz.saveHoldingTemplate(group.id, key, { name: key, grants: [], fields: [] }, null);
+    const report = store.authz.pushHoldingTemplate(group.id, key, null);
+    assert.deepEqual(report.updated, []);
+    assert.deepEqual(report.standard.map((r) => r.roleKey), [key]);
+  }
+  assert.deepEqual(store.authz.listRoles(acme.id).filter((r) => r.isSystem), before);
+});
+
+test('group assignment dates must be ISO dates', () => {
+  const store = freshStore();
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const user = makeUser(store, [acme.id], 'Employee');
+  const group = store.authz.createHoldingGroup({ name: 'Holding' }, null);
+  for (const bad of ['next week', '3/4/2026', '2026-13-01', 'Tue Oct 20 2026']) {
+    assert.throws(() => store.authz.setHoldingAssignment(group.id, user.id, { mainRoleKey: 'owner', addOnRoleKeys: [], endsAt: bad }, null), /ISO/);
+  }
+  store.authz.setHoldingAssignment(group.id, user.id, { mainRoleKey: 'owner', addOnRoleKeys: [], startsAt: '2026-01-01', endsAt: '2099-01-01T00:00:00Z' }, null);
 });
 
 // ── HTTP, under every engine ─────────────────────────────────────────
@@ -243,10 +275,32 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.deepEqual(assigned.body.assignments.map((a) => [a.userId, a.roleKey, a.isMain]), [[charlie.id, 'owner', true]]);
     assert.ok(effective(store, charlie.id).byCompany.get('2').grants.has('finance.view'));
     assert.equal(effective(store, charlie.id).byCompany.get('3'), undefined);
+    // Ruling O: only people of the group's companies (company 3 is outside the group yet).
+    const outsider = makeUser(store, ['3'], 'Employee');
+    assert.equal((await as(dana).put(`/holding-groups/${g}/assignments/${outsider.id}`, { roleKey: 'owner' })).status, 403);
+    assert.equal((await as(dana).put(`/holding-groups/${g}/admins`, { userIds: [dana.id, outsider.id] })).status, 403);
+    assert.equal((await as(dana).put(`/holding-groups/${g}/assignments/${outsider.id}`, { roleKey: null, addOnKeys: [] })).status, 200, 'removal is always allowed');
+    assert.equal((await as(root).put(`/holding-groups/${g}/assignments/${outsider.id}`, { roleKey: 'employee' })).status, 200, 'super admin unrestricted');
+    assert.equal((await as(root).put(`/holding-groups/${g}/assignments/${outsider.id}`, {})).status, 200);
+    // M5: strict ISO dates.
+    assert.equal((await as(dana).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'owner', endsAt: 'next week' })).status, 400);
+
+    // Ruling M: charlie is not a member of company 3. Attached later, the
+    // group-wide Owner reaches it at once under v2 (legacy: membership only).
+    const reach = async () => (await as(charlie).get('/companies/3/sales-orders')).status;
+    const listed = async () => (await as(charlie).get('/companies')).body.some((c) => c.id === '3');
+    const notified = () => store.listUserIdsWithPermission('3', 'invoices:read', ['Admin', 'Manager', 'Accountant']).includes(charlie.id);
+    assert.equal(await reach(), 403);
     await as(root).post(`/holding-groups/${g}/companies`, { companyId: '3' });
     assert.ok(effective(store, charlie.id).byCompany.get('3').grants.has('finance.view'), 'attached later: reached at once');
+    assert.equal(await reach(), engine === 'v2' ? 200 : 403);
+    assert.equal(await listed(), engine === 'v2', 'company switcher');
+    assert.equal(notified(), engine === 'v2', 'notification recipients');
     assert.equal((await as(root).del(`/holding-groups/${g}/companies/3`)).status, 200);
     assert.equal(effective(store, charlie.id).byCompany.get('3'), undefined, 'detached: gone at once');
+    assert.equal(await reach(), 403);
+    assert.equal(await listed(), false);
+    assert.equal(notified(), false);
     assert.equal((await as(root).del(`/holding-groups/${other}/companies/1`)).status, 404, 'not in that group');
 
     // The copy is read-only to the company, also through the legacy group routes.
@@ -269,11 +323,21 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     const pushed = await as(dana).post(`/holding-groups/${g}/templates/owner/push`);
     assert.equal(pushed.status, 200);
     assert.ok(pushed.body.updated.some((r) => r.companyId === '1' && r.roleKey === 'group:owner'));
+    // Ruling N: the companies' own Owner roles are reported, never changed.
+    assert.deepEqual(pushed.body.standard.map((r) => `${r.companyId}:${r.roleKey}`).sort(), ['1:owner', '2:owner']);
+    assert.ok(store.authz.listRoles('1').find((r) => r.key === 'owner').grants.some((x) => x.key === 'finance.view'));
     assert.equal(effective(store, charlie.id).byCompany.get('1').grants.has('finance.view'), false);
     assert.equal((await as(dana).get(`/holding-groups/${g}/templates/unknown`)).status, 404);
 
     // Audit carries the group.
     assert.ok(store.authz.audit({ holdingGroupId: g }).some((a) => a.entity === 'holding_template'));
-    if (engine === 'shadow') assert.deepEqual(store.listAuthzDivergences(), []);
+    if (engine === 'shadow') {
+      // The only disagreements: the group-wide person's access to company 3 while attached
+      // (the column is still named openfgaAllowed; Task 12 renames it).
+      const rows = store.listAuthzDivergences();
+      assert.ok(rows.length > 0);
+      assert.ok(rows.every((r) => r.userId === charlie.id && r.companyId === '3'), JSON.stringify(rows));
+      assert.ok(rows.some((r) => r.module === 'company' && r.action === 'access' && !r.legacyAllowed && r.openfgaAllowed));
+    }
   });
 }

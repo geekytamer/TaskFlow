@@ -10,6 +10,9 @@
  *   set its admins, set a person's group-wide roles, edit the group's
  *   templates and push them to the companies.
  *
+ * A group admin appoints admins and assigns group-wide roles only to people
+ * who belong to a company of the group (Ruling O); the super admin to anyone.
+ *
  * Group admin is not a company role, so these routes are declared
  * 'per_record' in route-registry.ts and decided here, on the group.
  */
@@ -136,6 +139,12 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const userIds = stringList(body(req).userIds, 'userIds');
     const missing = userIds.find((id) => !store.getUserById(id));
     if (missing) throw new HttpError(400, `User ${missing} not found.`);
+    // Ruling O: a group admin appoints only people of the group's companies.
+    const current = new Set(loadGroup(req.params.id).adminUserIds);
+    if (!req.user!.isSuperAdmin) {
+      const outsider = userIds.find((id) => !current.has(id) && !store.authz.isGroupMember(req.params.id, id));
+      if (outsider) throw new HttpError(403, 'Only people who belong to a company of this group can be made group administrators.', { code: 'FORBIDDEN', permission: null });
+    }
     run(() => store.authz.setHoldingAdmins(req.params.id, userIds, req.user!.id));
     res.json(detail(req.params.id));
   }));
@@ -145,9 +154,15 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     if (!store.getUserById(req.params.userId)) throw new HttpError(404, 'User not found.');
     const b = body(req);
     const roleKey = optionalText(b.roleKey, 'roleKey') || null;
+    const addOnKeys = stringList(b.addOnKeys, 'addOnKeys');
+    // Ruling O: a group admin assigns only people of the group's companies
+    // (removing someone is always allowed). The super admin is unrestricted.
+    if (!req.user!.isSuperAdmin && (roleKey || addOnKeys.length) && !store.authz.isGroupMember(req.params.id, req.params.userId)) {
+      throw new HttpError(403, 'Only people who belong to a company of this group can be given group-wide roles.', { code: 'FORBIDDEN', permission: null });
+    }
     run(() => store.authz.setHoldingAssignment(req.params.id, req.params.userId, {
       mainRoleKey: roleKey,
-      addOnRoleKeys: stringList(b.addOnKeys, 'addOnKeys'),
+      addOnRoleKeys: addOnKeys,
       startsAt: optionalText(b.startsAt, 'startsAt') ?? null,
       endsAt: optionalText(b.endsAt, 'endsAt') ?? null,
     }, req.user!.id));

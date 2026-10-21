@@ -211,6 +211,19 @@ export const copyKey = (roleKey: string) => `group:${roleKey}`;
 
 const TEMPLATE_KEY_RE = /^[a-z][a-z0-9_]{1,39}$/;
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+
+/** A strict ISO 8601 date or date-time (no loose strings such as "next week" or "3/4/2026"). */
+export const isIsoDate = (value: string): boolean => ISO_DATE_RE.test(value) && !Number.isNaN(Date.parse(value));
+
+/** Whether a start/end window holds now; an unparseable date makes it inactive (as in evaluate.ts). */
+const activeNow = (startsAt: string | null, endsAt: string | null, now: number): boolean => {
+  const start = startsAt ? Date.parse(startsAt) : null;
+  const end = endsAt ? Date.parse(endsAt) : null;
+  if (Number.isNaN(start) || Number.isNaN(end)) return false;
+  return (start === null || start <= now) && (end === null || now < end);
+};
+
 export interface HoldingTemplateView {
   key: string;
   /** 'system': a system template the group has not edited; 'group': the group's own row. */
@@ -754,7 +767,7 @@ export class AuthzStore {
     const startsAt = input.startsAt || null;
     const endsAt = input.endsAt || null;
     for (const [label, value] of [['start', startsAt], ['end', endsAt]] as const) {
-      if (value !== null && Number.isNaN(Date.parse(value))) throw new Error(`The ${label} date is not a date.`);
+      if (value !== null && !isIsoDate(value)) throw new Error(`The ${label} date must be an ISO date (YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS][Z]).`);
     }
     if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) throw new Error('The end date must be after the start date.');
     this.tx(() => {
@@ -868,11 +881,14 @@ export class AuthzStore {
 
   /**
    * Pushes a group template to the group's companies: their read-only copy of
-   * it, and their own roles started from it (templateKey = key), are updated
-   * when still equal to a version the group supplied; the rest are reported as
-   * customised and left alone.
+   * it, and their own non-system roles started from it (templateKey = key),
+   * are updated when still equal to a version the group supplied; the rest are
+   * reported as customised and left alone. A company's system roles (Owner,
+   * Admin, ...) are never touched (Ruling N) and are reported as standard.
    */
-  pushHoldingTemplate(holdingGroupId: string, key: string, actorId: string | null): { updated: PushReportRow[]; customised: PushReportRow[] } {
+  pushHoldingTemplate(
+    holdingGroupId: string, key: string, actorId: string | null,
+  ): { updated: PushReportRow[]; customised: PushReportRow[]; standard: PushReportRow[] } {
     return this.tx(() => {
       this.holdingRow(holdingGroupId);
       const template = this.holdingTemplate(holdingGroupId, key);
@@ -881,17 +897,28 @@ export class AuthzStore {
       const supplied = this.suppliedVersions(holdingGroupId, key);
       const updated: PushReportRow[] = [];
       const customised: PushReportRow[] = [];
+      const standard: PushReportRow[] = [];
       const candidates = this.db
         .prepare(
           `SELECT pg.* FROM permission_groups pg JOIN companies c ON c.id = pg.companyId
             WHERE c.holdingGroupId = ?
-              AND ((pg.holdingGroupId = ? AND pg.key = ?) OR (pg.holdingGroupId IS NULL AND pg.templateKey = ? AND pg.needsReview = 0))
+              AND ((pg.holdingGroupId = ? AND pg.key = ?) OR (pg.holdingGroupId IS NULL AND pg.templateKey = ?))
             ORDER BY pg.companyId, pg.key`,
         )
         .all(holdingGroupId, holdingGroupId, copyKey(key), key) as RoleRow[];
       for (const row of candidates) {
-        const before = this.view(row);
         const report = { companyId: row.companyId!, roleId: row.id, roleKey: row.key, roleName: row.name };
+        // Ruling N: a company's standard (system) roles are the company's own; never pushed.
+        if (row.isSystem) {
+          standard.push({ ...report, message: 'company standard role — not updated' });
+          continue;
+        }
+        // A role still waiting for review is the company's to decide first.
+        if (row.needsReview) {
+          customised.push({ ...report, message: 'customised — not updated' });
+          continue;
+        }
+        const before = this.view(row);
         const sig = contentSig(before.grants, before.fields);
         if (sig !== target && !supplied.has(sig)) {
           customised.push({ ...report, message: 'customised — not updated' });
@@ -911,9 +938,10 @@ export class AuthzStore {
       }
       this.writeAudit({
         holdingGroupId, actorUserId: actorId, entity: 'holding_template_push', entityId: `${holdingGroupId}:${key}`,
-        before: null, after: { updated: updated.map((r) => r.roleId), customised: customised.map((r) => r.roleId) },
+        before: null,
+        after: { updated: updated.map((r) => r.roleId), customised: customised.map((r) => r.roleId), standard: standard.map((r) => r.roleId) },
       });
-      return { updated, customised };
+      return { updated, customised, standard };
     });
   }
 
@@ -1036,6 +1064,43 @@ export class AuthzStore {
       startsAt: r.startsAt ?? null, endsAt: r.endsAt ?? null,
       companyIds: (companies.all(r.holdingGroupId) as Array<{ id: string }>).map((c) => c.id),
     }));
+  }
+
+  /** Companies a person reaches now through an active group assignment (Ruling M). */
+  holdingCompanyIds(userId: string, now: number = Date.now()): string[] {
+    const ids = new Set<string>();
+    for (const h of this.holdingAssignmentsFor(userId)) {
+      if (activeNow(h.startsAt, h.endsAt, now)) h.companyIds.forEach((id) => ids.add(id));
+    }
+    return [...ids].sort();
+  }
+
+  /** People whose active group assignment covers a company now (Ruling M). */
+  holdingUserIds(companyId: string, now: number = Date.now()): string[] {
+    if (!this.ready()) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT hga.userId, hga.startsAt, hga.endsAt FROM holding_group_assignments hga
+           JOIN companies c ON c.holdingGroupId = hga.holdingGroupId
+          WHERE c.id = ?`,
+      )
+      .all(companyId) as Array<{ userId: string; startsAt: string | null; endsAt: string | null }>;
+    return [...new Set(rows.filter((r) => activeNow(r.startsAt, r.endsAt, now)).map((r) => r.userId))].sort();
+  }
+
+  /** Whether a person belongs (users.companyRoles / companyIds) to any company of the group. */
+  isGroupMember(holdingGroupId: string, userId: string): boolean {
+    const companies = new Set(this.holdingGroup(holdingGroupId)?.companyIds ?? []);
+    return this.legacyMemberships(userId).some((id) => companies.has(id));
+  }
+
+  private legacyMemberships(userId: string): string[] {
+    const row = this.db.prepare('SELECT companyIds, companyRoles FROM users WHERE id = ?').get(userId) as
+      | { companyIds: string | null; companyRoles: string | null } | undefined;
+    if (!row) return [];
+    const parse = <T>(v: string | null): T | undefined => { try { return v ? JSON.parse(v) as T : undefined; } catch { return undefined; } };
+    const roles = parse<Array<{ companyId: string }>>(row.companyRoles) ?? [];
+    return roles.length ? roles.map((r) => r.companyId) : (parse<string[]>(row.companyIds) ?? []);
   }
 
   /**

@@ -1,3 +1,4 @@
+import { canAccessCompany } from '../http';
 import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
@@ -20374,6 +20375,17 @@ export class DataStore {
   }
 
   /**
+   * Company access as the configured engine sees it (Ruling M): membership
+   * (users.companyRoles / companyIds); under v2 also an active group
+   * assignment covering the company. For store-side checks (alerts, push
+   * actions, conversation recipients); routes use the server's own gate.
+   */
+  reachesCompany(user: SanitizedUser, companyId: string): boolean {
+    if (canAccessCompany(user, companyId)) return true;
+    return this.permissionHolders?.engine === 'v2' && this.authz.holdingCompanyIds(user.id).includes(companyId);
+  }
+
+  /**
    * The Effective that decides what a person may SEE (authz/visible.ts) when
    * the store itself picks recipients or figures for someone (alerts, badges):
    * under legacy and shadow the role's template (Ruling D), under v2 the real
@@ -20408,8 +20420,8 @@ export class DataStore {
     const holders = this.permissionHolders;
     const legacy = this.listUserIdsByCompanyRoles(companyId, legacyRoles);
     if (!holders || holders.engine === 'legacy') return legacy;
-    const v2Holders = () => this.listUsersByCompany(companyId)
-      .map((u) => u.id)
+    // v2 company access = membership or an active group assignment (Ruling M).
+    const v2Holders = () => [...new Set([...this.listUsersByCompany(companyId).map((u) => u.id), ...this.authz.holdingUserIds(companyId)])]
       .filter((id) => holders.holds(id, companyId, permission));
     if (holders.engine === 'v2') return v2Holders();
     // Shadow observes only: a failure computing v2 never changes who is notified.

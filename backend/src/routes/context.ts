@@ -5,7 +5,7 @@ import type { Effective } from '../authz/evaluate';
 import type { VisibleArea, VisibleOptions } from '../authz/visible';
 import type { MaskEntity, SensitiveField } from '../authz/mask';
 import type { RecordRuleName } from '../permissions/record-rules';
-import type { InvoiceLineItem, Project, SalesOrderLineItem, UserRole } from '../types';
+import type { InvoiceLineItem, Project, SalesOrderLineItem, SanitizedUser, UserRole } from '../types';
 import type { TupleKey } from '../permissions/tuples';
 import type { AuthedRequest } from './shared';
 
@@ -56,6 +56,8 @@ export interface RouteContext {
   parseSalesOrderItems: (value: unknown) => SalesOrderLineItem[];
   ensureSalesItemsBelongToCompany: (items: SalesOrderLineItem[], companyId: string) => void;
   requireSuperAdmin: (req: AuthedRequest) => void;
+  /** Companies the person reaches: membership; under v2 also active group assignments (Ruling M). */
+  accessibleCompanyIds: (user: SanitizedUser) => string[];
   uploadedImage: (value: unknown, fieldName: string) => string;
   /** No-ops kept for callers until Task 12 (OpenFGA no longer decides). */
   snapshotAuthz: (companyIds: Iterable<string>) => Map<string, TupleKey[]>;

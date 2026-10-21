@@ -56,6 +56,16 @@ Data — evolve what exists instead of starting over (the tables already live in
 - `authz_version` kept; `fga_outbox` and OpenFGA tuples dropped at the end; `authz_divergence` reused for shadow mode (column `openfgaAllowed` renamed in code to `newAllowed`).
 - `users.companyRoles[].role` remains the legacy answer during shadow; at switch-over the main-role assignment becomes the truth and `companyRoles` is derived from it for old readers.
 
+### Holding groups — behaviour and known limits (Task 8)
+
+- **Company access through a group (Ruling M).** Under v2, a person reaches a company if they are a member (`users.companyRoles`) **or** hold an active group assignment covering it (company in the group, inside startsAt/endsAt). This applies to the company gate, the company switcher (`GET /companies`), the "all my companies" lists (projects, tasks, people) and notification recipients. Legacy is unchanged (membership only); shadow logs the difference as `company.access`.
+- **Read-only copies.** Each company of a group holds a copy (`group:<key>`) of every group role in use. It decides group-wide people there; the company's own roles never do. Company role writes refuse it (403 `GROUP_ROLE`).
+- **Push spares system roles (Ruling N).** Push updates the copies and the company's non-system roles started from the template that still equal a version the group published. A company's system roles (Owner, Admin, Manager, Accountant, Employee) are never changed and are reported as "company standard role — not updated".
+- **Who a group admin may appoint (Ruling O).** Group admins assign group-wide roles to, and appoint as group admins, only people who belong to a company of the group. Removing someone is always allowed. The super admin is unrestricted.
+- **Known limit: one window per person.** A person's group assignment is one set of keys with one startsAt/endsAt. Setting it replaces all of that person's rows in the group, temporary ones included.
+- **Known limit: push remembers versions through the audit.** "Unchanged" means equal to a version recorded in `permission_audit` (`holding_template`) or the system template. Pruning that table makes older copies look customised. That is a safe failure: they are reported, not overwritten.
+- Assignment dates must be strict ISO dates (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM[:SS][Z|±HH:MM]`).
+
 ## 5. UI (simple first, detail on demand)
 
 Settings → **People**: list per company (or group): name, main role, add-on chips, temporary access with end date, ⚠ for conflicts / not linked to HR. Person page: plain-language summary ("Sees all sales; approves POs up to 5,000 OMR; can't see salaries"), "Why" per line (which role/add-on), View as, Give temporary access.
