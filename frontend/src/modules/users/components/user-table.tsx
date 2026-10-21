@@ -23,11 +23,12 @@ import { Button } from '@/components/ui/button';
 import { MoreHorizontal } from 'lucide-react';
 import { getUsers, getUsersByCompany, deleteUser } from '@/services/userService';
 import { getPositions } from '@/services/companyService';
-import type { User, UserRole } from '@/modules/users/types';
+import type { User } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
 import { usePermissions } from '@/context/permissions-context';
-import { UserGroupsSheet } from './user-groups-sheet';
+import { useRouter } from 'next/navigation';
+import { listPeople, type Person } from '@/services/authzService';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
@@ -45,13 +46,6 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { isApiError } from '@/lib/api-client';
 
-const roleColors: Record<UserRole, string> = {
-    Admin: 'bg-primary text-primary-foreground',
-    Manager: 'bg-accent text-accent-foreground',
-    Employee: 'bg-secondary text-secondary-foreground',
-    Accountant: 'bg-emerald-500 text-white',
-}
-
 interface UserTableProps {
   onUserUpdated: () => void;
   refreshToken?: number;
@@ -66,14 +60,25 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
   const [loading, setLoading] = React.useState(true);
   const [editingUser, setEditingUser] = React.useState<User | null>(null);
   const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
-  const [groupsUser, setGroupsUser] = React.useState<User | null>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
-  // In the selected company: managing users is people.manage; changing someone
-  // above Employee also needs people.manage_roles (the server's rule for PUT /users).
+  // In the selected company: managing users (profile, position, sign-in) is
+  // people.manage. Roles are not changed here any more: they live in
+  // Settings → People and roles (people.view_roles to open, manage_roles to change).
   const { canAdmin } = usePermissions();
   const canManageUsersHere = canAdmin('people.manage');
-  const canAssignElevatedRolesHere = canAdmin('people.manage_roles');
+  const canSeeRolesHere = canAdmin('people.view_roles');
+  // Main roles as the People API reports them (custom roles included).
+  const [people, setPeople] = React.useState<Map<string, Person>>(new Map());
+  React.useEffect(() => {
+    if (!selectedCompany || !canSeeRolesHere) { setPeople(new Map()); return; }
+    let active = true;
+    listPeople(selectedCompany.id)
+      .then((list) => { if (active) setPeople(new Map(list.map((p) => [p.userId, p]))); })
+      .catch(() => { if (active) setPeople(new Map()); });
+    return () => { active = false; };
+  }, [selectedCompany, canSeeRolesHere, refreshToken]);
 
   const fetchData = React.useCallback(async () => {
       // Without a company only the platform administrator lists everyone.
@@ -157,6 +162,7 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
     return user.role;
   };
 
+  /** A member of the selected company, for someone who manages users here; the server has the last word. */
   const canManageUser = (targetUser: User) => {
     if (!selectedCompany) return false;
     const assignmentCompanyIds =
@@ -164,12 +170,15 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
         ? targetUser.companyRoles.map((assignment) => assignment.companyId)
         : targetUser.companyIds || [];
     if (!assignmentCompanyIds.includes(selectedCompany.id)) return false;
-    if (!canManageUsersHere) return false;
-    if (canAssignElevatedRolesHere) return true;
-    // The server's rule for PUT /users: without people.manage_roles only
-    // Employees may be edited (the target's role, not the viewer's).
-    return getRoleForCompany(targetUser) === 'Employee';
+    return canManageUsersHere;
   }
+
+  /** The main role's name from People (custom roles included), else the company role. */
+  const roleNameFor = (targetUser: User) => {
+    const main = people.get(targetUser.id)?.mainRole;
+    if (main) return language === 'ar' && main.nameAr ? main.nameAr : main.name;
+    return getRoleForCompany(targetUser);
+  };
 
   const getUserCompanies = (companyIds: string[]) => {
       if (!companyIds) return '';
@@ -263,9 +272,9 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell><Badge variant="outline" className={roleColors[getRoleForCompany(user)]}>{getRoleForCompany(user)}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{roleNameFor(user)}</Badge></TableCell>
                   <TableCell className="text-end">
-                    {isManageable && (
+                    {(isManageable || (canSeeRolesHere && selectedCompany)) && (
                         <AlertDialog>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -276,17 +285,21 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                             <DropdownMenuLabel>{tr('Actions', 'الإجراءات')}</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => setEditingUser(user)}>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
-                            {selectedCompany && (
-                              <DropdownMenuItem onClick={() => setGroupsUser(user)}>
-                                {tr('Permission Groups', 'مجموعات الصلاحيات')}
+                            {isManageable && (
+                              <DropdownMenuItem onClick={() => setEditingUser(user)}>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
+                            )}
+                            {canSeeRolesHere && selectedCompany && (
+                              <DropdownMenuItem onClick={() => router.push(`/settings/people/${encodeURIComponent(user.id)}`)}>
+                                {tr('Roles and access', 'الأدوار والوصول')}
                               </DropdownMenuItem>
                             )}
+                            {isManageable && (
                             <AlertDialogTrigger asChild>
                                 <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
                                 {tr('Delete User', 'حذف المستخدم')}
                                 </DropdownMenuItem>
                             </AlertDialogTrigger>
+                            )}
                             </DropdownMenuContent>
                         </DropdownMenu>
                         {userToDelete?.id === user.id && (
@@ -321,18 +334,6 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
           onOpenChange={(isOpen) => !isOpen && setEditingUser(null)}
           onUserAdded={handleUserUpdated}
           userToEdit={editingUser}
-        />
-      )}
-      {groupsUser && selectedCompany && (
-        <UserGroupsSheet
-          open={!!groupsUser}
-          onOpenChange={(isOpen) => !isOpen && setGroupsUser(null)}
-          userId={groupsUser.id}
-          userName={groupsUser.name}
-          companyId={selectedCompany.id}
-          companyName={selectedCompany.name}
-          canEdit={canAssignElevatedRolesHere}
-          onSaved={handleUserUpdated}
         />
       )}
     </>

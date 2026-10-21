@@ -26,9 +26,7 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -38,7 +36,7 @@ import { useCompany } from '@/context/company-context';
 import { usePermissions } from '@/context/permissions-context';
 import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
-import { fetchPermissionGroups, fetchUserGroups, setUserGroups, type PermissionGroup } from '@/services/permissionService';
+import Link from 'next/link';
 import type { Position, User, UserRole } from '@/lib/types';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { Building, BadgeDollarSign } from 'lucide-react';
@@ -126,114 +124,15 @@ export function AddUserSheet({
     return [];
   }, [canAssignElevatedRoles, canManageUsers]);
 
+  const canSeeRoles = canAdmin('people.view_roles');
   /**
-   * Built-in group keys that still exist, per company. A role whose built-in
-   * group was deleted is not offered there; the server refuses it anyway.
-   * Until a company's groups are known, or if they cannot be read, every role
-   * is offered and the server decides.
+   * Editing someone already in a company (company view): their role there is
+   * changed in People and roles, not here, so a custom main role is never
+   * overwritten by a company-role edit (spec §5, known limits). New people and
+   * new companies (platform view) still get a standard role here.
    */
-  const [groupsByCompany, setGroupsByCompany] = React.useState<Record<string, PermissionGroup[]>>({});
-  // Why a company's roles could not be read; shown instead of failing silently.
-  const [groupsError, setGroupsError] = React.useState<Record<string, string>>({});
-  // A custom role chosen in the role picker: that group alone, on an Employee base.
-  const [customRole, setCustomRole] = React.useState<Record<string, string>>({});
-  const companyIdsKey = (selectedCompanyIds || []).join(',');
-  React.useEffect(() => {
-    const missing = (selectedCompanyIds || []).filter((cid) => !(cid in groupsByCompany));
-    if (missing.length === 0) return;
-    let active = true;
-    Promise.all(
-      missing.map((cid) =>
-        fetchPermissionGroups(cid)
-          .then((groups) => ({ cid, groups }))
-          .catch((error: unknown) => ({ cid, error: error instanceof Error ? error.message : String(error) }))),
-    ).then((rows) => {
-      if (!active) return;
-      setGroupsByCompany((prev) => {
-        const next = { ...prev };
-        rows.forEach((row) => {
-          if ('groups' in row) next[row.cid] = row.groups;
-        });
-        return next;
-      });
-      setGroupsError((prev) => {
-        const next = { ...prev };
-        rows.forEach((row) => {
-          if ('error' in row) next[row.cid] = row.error;
-          else delete next[row.cid];
-        });
-        return next;
-      });
-    });
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey]);
-
-  const roleGroupId = (companyId: string, role: UserRole) =>
-    groupsByCompany[companyId]?.find((g) => g.isSystem && g.key === role.toLowerCase())?.id;
-
-  /** A company's own roles: active groups that are not one of the built-ins. */
-  const customGroups = (companyId: string) =>
-    (groupsByCompany[companyId] || []).filter((g) => !g.isSystem && g.isActive !== false);
-
-  const rolesFor = (companyId: string, current?: UserRole) => {
-    const groups = groupsByCompany[companyId];
-    if (!groups) return availableRoles;
-    const keys = new Set(groups.filter((g) => g.isSystem).map((g) => g.key));
-    return availableRoles.filter((role) => keys.has(role.toLowerCase()) || role === current);
-  };
-
-  /**
-   * Permission groups per company, for people who administer the company.
-   *
-   * A company's selection starts as what the server would assign anyway — the
-   * person's current groups when editing, otherwise their role's built-in
-   * group — and follows role changes. Only a selection someone actually changed
-   * is saved; untouched companies are left to the server, which assigns the
-   * role's built-in group and keeps custom groups.
-   */
-  const canAssignGroups = canAssignElevatedRoles;
-  const [selectedGroups, setSelectedGroups] = React.useState<Record<string, string[]>>({});
-  const [groupsTouched, setGroupsTouched] = React.useState<Record<string, boolean>>({});
-  React.useEffect(() => {
-    if (!canAssignGroups) return;
-    let active = true;
-    (selectedCompanyIds || []).forEach((cid) => {
-      if (groupsTouched[cid] || !groupsByCompany[cid] || selectedGroups[cid]) return;
-      if (userToEdit && (userToEdit.companyIds || []).includes(cid)) {
-        fetchUserGroups(cid, userToEdit.id)
-          .then(({ groups }) => {
-            if (!active) return;
-            setSelectedGroups((prev) => (prev[cid] ? prev : { ...prev, [cid]: groups.map((g) => g.id) }));
-            // Someone whose only group is a custom one holds that custom role.
-            const only = groups.length === 1 ? groupsByCompany[cid]?.find((g) => g.id === groups[0].id) : undefined;
-            if (only && !only.isSystem) setCustomRole((prev) => ({ ...prev, [cid]: only.id }));
-          })
-          .catch(() => undefined);
-      } else {
-        const id = roleGroupId(cid, companyAssignments[cid]?.role || 'Employee');
-        setSelectedGroups((prev) => (prev[cid] ? prev : { ...prev, [cid]: id ? [id] : [] }));
-      }
-    });
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, groupsByCompany, userToEdit?.id, canAssignGroups]);
-
-  /** Swaps the built-in group for the new role's, keeping custom groups — as the server does. */
-  const followRoleChange = (companyId: string, role: UserRole) => {
-    setSelectedGroups((prev) => {
-      const current = prev[companyId];
-      if (!current) return prev;
-      const builtIns = new Set((groupsByCompany[companyId] || []).filter((g) => g.isSystem).map((g) => g.id));
-      const kept = current.filter((id) => !builtIns.has(id));
-      const id = roleGroupId(companyId, role);
-      return { ...prev, [companyId]: id ? [...kept, id] : kept };
-    });
-  };
+  const roleLocked = (companyId: string) =>
+    isEditMode && scope === 'company' && Boolean(userToEdit?.companyIds?.includes(companyId) || userToEdit?.companyRoles?.some((r) => r.companyId === companyId));
 
   // People are placed in several companies only from the super admin view.
   // Everywhere else the form works on the company open in the header alone,
@@ -314,9 +213,6 @@ export function AddUserSheet({
         companyIds: editableCompanyIds,
       });
       setCompanyAssignments(existingAssignments);
-      setSelectedGroups({});
-      setGroupsTouched({});
-      setCustomRole({});
       setCommission({
         eligible: Boolean(userToEdit.commissionEligible),
         rate: userToEdit.defaultCommissionRate != null ? String(userToEdit.defaultCommissionRate) : '',
@@ -335,9 +231,6 @@ export function AddUserSheet({
               : [],
       });
       setCompanyAssignments({});
-      setSelectedGroups({});
-      setGroupsTouched({});
-      setCustomRole({});
       setCommission({ eligible: false, rate: '', basis: 'Revenue', costRatePerHour: '' });
     }
   }, [companyItems, form, manageableCompanyIds, selectedCompany, userToEdit]);
@@ -347,27 +240,6 @@ export function AddUserSheet({
       form.reset();
     }
     onOpenChange(isOpen);
-  };
-
-  const saveGroupSelections = async (userId: string | undefined, companyIds: string[]) => {
-    if (!canAssignGroups || !userId) return;
-    for (const cid of companyIds) {
-      if (!groupsTouched[cid]) continue;
-      try {
-        await setUserGroups(cid, userId, selectedGroups[cid] || []);
-      } catch (error) {
-        const company = companies.find((c) => c.id === cid)?.name || cid;
-        const reason = error instanceof Error ? error.message : '';
-        toast({
-          variant: 'destructive',
-          title: tr('Groups not saved', 'لم تُحفظ المجموعات'),
-          description: tr(
-            `The user was saved, but their groups in ${company} were not. ${reason}`,
-            `تم حفظ المستخدم، لكن لم تُحفظ مجموعاته في ${company}. ${reason}`,
-          ),
-        });
-      }
-    }
   };
 
   const onSubmit = async (data: AddUserFormValues) => {
@@ -398,7 +270,6 @@ export function AddUserSheet({
         costRatePerHour:
           commission.costRatePerHour.trim() === '' ? undefined : Number(commission.costRatePerHour),
       };
-      let savedUserId: string | undefined;
       if (isEditMode && userToEdit) {
         await updateUser(userToEdit.id, {
           ...data,
@@ -407,7 +278,6 @@ export function AddUserSheet({
           positionId: undefined,
           ...commissionPayload,
         });
-        savedUserId = userToEdit.id;
         toast({
           title: tr('User Updated', 'تم تحديث المستخدم'),
           description: tr(
@@ -424,8 +294,6 @@ export function AddUserSheet({
           avatar: undefined,
           ...commissionPayload,
         } as any);
-        const created = result as { user?: { id?: string }; id?: string };
-        savedUserId = created.user?.id ?? created.id;
         toast({
           title: tr('User Created', 'تم إنشاء المستخدم'),
           description: tr(
@@ -434,7 +302,6 @@ export function AddUserSheet({
           ),
         });
       }
-      await saveGroupSelections(savedUserId, data.companyIds || []);
       onUserAdded();
       handleOpenChange(false);
     } catch (error: any) {
@@ -531,35 +398,30 @@ export function AddUserSheet({
                     >
                       <div className="space-y-1">
                         <p className="text-sm font-medium">{company?.name || cid}</p>
+                        {roleLocked(cid) ? (
+                          // Roles of someone already in the company are set in
+                          // People and roles (main role and add-ons), the only
+                          // place that keeps a custom main role.
+                          <div className="space-y-1">
+                            <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm">{assignment.role}</div>
+                            {canSeeRoles && (
+                              <Link
+                                href={`/settings/people/${encodeURIComponent(userToEdit!.id)}`}
+                                className="text-xs text-primary underline-offset-4 hover:underline"
+                              >
+                                {tr('Change roles in People and roles', 'غيّر الأدوار من «الأشخاص والأدوار»')}
+                              </Link>
+                            )}
+                          </div>
+                        ) : (
                         <Select
-                          value={customRole[cid] ? `group:${customRole[cid]}` : assignment.role}
+                          value={assignment.role}
                           onValueChange={(value: string) => {
-                            if (value.startsWith('group:')) {
-                              // A custom role: an Employee base with that group as the only grant.
-                              const groupId = value.slice('group:'.length);
-                              setCompanyAssignments((prev) => ({ ...prev, [cid]: { ...assignment, role: 'Employee' } }));
-                              setCustomRole((prev) => ({ ...prev, [cid]: groupId }));
-                              setSelectedGroups((prev) => ({ ...prev, [cid]: [groupId] }));
-                              setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
-                              return;
-                            }
                             const role = value as UserRole;
-                            setCustomRole((prev) => {
-                              const next = { ...prev };
-                              delete next[cid];
-                              return next;
-                            });
                             setCompanyAssignments((prev) => ({
                               ...prev,
                               [cid]: { ...assignment, role },
                             }));
-                            if (customRole[cid]) {
-                              const id = roleGroupId(cid, role);
-                              setSelectedGroups((prev) => ({ ...prev, [cid]: id ? [id] : [] }));
-                              setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
-                            } else {
-                              followRoleChange(cid, role);
-                            }
                           }}
                         >
                           <FormControl>
@@ -568,23 +430,14 @@ export function AddUserSheet({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {rolesFor(cid, assignment.role).map((role) => (
+                            {availableRoles.map((role) => (
                               <SelectItem key={role} value={role}>
                                 {role}
                               </SelectItem>
                             ))}
-                            {canAssignGroups && customGroups(cid).length > 0 && (
-                              <SelectGroup>
-                                <SelectLabel>{tr('Custom roles', 'أدوار مخصصة')}</SelectLabel>
-                                {customGroups(cid).map((group) => (
-                                  <SelectItem key={group.id} value={`group:${group.id}`}>
-                                    {language === 'ar' && group.nameAr ? group.nameAr : group.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            )}
                           </SelectContent>
                         </Select>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <p className="text-sm font-medium">{t('userForm.positionOptional')}</p>
@@ -618,47 +471,6 @@ export function AddUserSheet({
                           </SelectContent>
                         </Select>
                       </div>
-                      {groupsError[cid] && (
-                        <p className="text-xs text-destructive sm:col-span-2" role="alert">
-                          {tr(
-                            `This company's roles could not be loaded, so only the built-in roles are offered. ${groupsError[cid]}`,
-                            `تعذر تحميل أدوار هذه الشركة، لذا تظهر الأدوار الأساسية فقط. ${groupsError[cid]}`,
-                          )}
-                        </p>
-                      )}
-                      {canAssignGroups && groupsByCompany[cid] && (
-                        <div className="space-y-1 sm:col-span-2" data-testid={`groups-${cid}`}>
-                          <p className="text-sm font-medium">{tr('Permission groups', 'مجموعات الصلاحيات')}</p>
-                          <MultiSelect
-                            items={groupsByCompany[cid].map((g) => ({
-                              value: g.id,
-                              label: language === 'ar' && g.nameAr ? g.nameAr : g.name,
-                            }))}
-                            selected={selectedGroups[cid] || []}
-                            onChange={(ids) => {
-                              setSelectedGroups((prev) => ({ ...prev, [cid]: ids }));
-                              setGroupsTouched((prev) => ({ ...prev, [cid]: true }));
-                              // Hand-picked groups are no longer a single custom role.
-                              if (!(ids.length === 1 && ids[0] === customRole[cid])) {
-                                setCustomRole((prev) => {
-                                  const next = { ...prev };
-                                  delete next[cid];
-                                  return next;
-                                });
-                              }
-                            }}
-                            placeholder={tr('Select groups', 'اختر المجموعات')}
-                          />
-                          {(selectedGroups[cid] || []).length === 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              {tr(
-                                'No groups: this person will have no access in this company.',
-                                'بلا مجموعات: لن تكون لهذا الشخص أي صلاحيات في هذه الشركة.',
-                              )}
-                            </p>
-                          )}
-                        </div>
-                      )}
                     </div>
                   );
                 })}

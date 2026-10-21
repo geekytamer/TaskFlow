@@ -43,9 +43,13 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/hr/payroll': 'payroll.view',
   '/company-profile': 'settings.edit',
   '/users': 'people.manage',
-  // Company settings: the panels there are the administrator's (approval rules, roles).
+  // Company settings: the panels there are the administrator's (approval rules).
   '/settings': 'settings.manage_approvals',
-  '/settings/permissions': 'people.manage_roles',
+  // People and roles: reading them is the server's people.view_roles gate;
+  // changing them (people.manage_roles) is decided on each control.
+  '/settings/people': 'people.view_roles',
+  '/settings/roles': 'people.view_roles',
+  // /settings/group is for group administrators (GET /holding-groups), not a company key.
 };
 
 export function navPermission(href: string): string | undefined {

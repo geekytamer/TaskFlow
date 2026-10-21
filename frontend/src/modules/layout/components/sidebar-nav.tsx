@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useMyHoldingGroups } from '@/modules/authz/components/shared';
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -44,7 +45,7 @@ import {
   Factory,
   Building2,
   FileText,
-  ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare } from 'lucide-react';
+  ShieldCheck, Layers, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
@@ -145,7 +146,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/company-profile', labelKey: 'nav.companyProfile', icon: Building2, tutorial: 'nav-company-profile' },
       { href: '/users', labelKey: 'nav.users', icon: Users, tutorial: 'nav-users' },
       { href: '/settings', labelKey: 'nav.settings', icon: Settings, tutorial: 'nav-settings' },
-      { href: '/settings/permissions', labelKey: 'nav.permissions', icon: ShieldCheck },
+      { href: '/settings/people', labelKey: 'nav.peopleRoles', icon: ShieldCheck },
+      { href: '/settings/group', labelKey: 'nav.group', icon: Layers },
     ],
   },
 ];
@@ -158,6 +160,23 @@ function showAppBadge(count: number) {
   done?.catch(() => undefined);
 }
 
+/** Pages that belong to another menu entry (Roles sits under People and roles). */
+const ACTIVE_ALIAS: Readonly<Record<string, string>> = { '/settings/roles': '/settings/people' };
+
+/** The menu entry a path belongs to: the longest matching href, so /settings/people is not also /settings. */
+export function activeHref(pathname: string): string | undefined {
+  if (pathname === '/') return '/';
+  let best: string | undefined;
+  for (const href of NAV_ITEMS.keys()) {
+    if (href === '/') continue;
+    if ((pathname === href || pathname.startsWith(`${href}/`)) && (!best || href.length > best.length)) best = href;
+  }
+  for (const [from, to] of Object.entries(ACTIVE_ALIAS)) {
+    if ((pathname === from || pathname.startsWith(`${from}/`)) && (!best || from.length >= best.length)) return to;
+  }
+  return best;
+}
+
 const NAV_ITEMS = new Map(NAV_SECTIONS.flatMap((section) => section.items.map((item) => [item.href, item] as const)));
 
 /** Who may see which menu entry, shared by the sidebar and the phone tab bar. */
@@ -165,6 +184,8 @@ export function useNavAccess() {
   const { user, loading, effectiveRole } = useAuthGuard();
   const { canAdmin, moduleOn, loading: permissionsLoading } = usePermissions();
   const academy = useAcademy();
+  // Group settings belong to group administrators, not to a company role.
+  const { groups: adminOfGroups } = useMyHoldingGroups();
 
   /** Locked by an unfinished Academy mission (never inside the practice company). */
   const isLocked = (href: string) => {
@@ -181,6 +202,7 @@ export function useNavAccess() {
     // A module the company switched off is hidden whatever the role.
     const itemModule = moduleForPath(item.href);
     if (itemModule && !moduleOn(itemModule)) return false;
+    if (item.href === '/settings/group') return adminOfGroups.length > 0;
     // canAdmin: equals can(), plus the super admin's own surfaces (Ruling R).
     return navAllowed(item.href, canAdmin);
   };
@@ -300,10 +322,7 @@ export function SidebarNav() {
               <SidebarMenu>
                 {visible.map((item) => {
                   const Icon = item.icon;
-                  const isActive =
-                    item.href === '/'
-                      ? pathname === '/'
-                      : pathname.startsWith(item.href);
+                  const isActive = item.href === activeHref(pathname);
                   const badge = badges[item.href] || 0;
                   return (
                     <SidebarMenuItem key={item.href}>

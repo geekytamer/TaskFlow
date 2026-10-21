@@ -35,6 +35,7 @@ import {
   Package,
   ReceiptText,
   Settings,
+  ShieldCheck,
   ShoppingCart,
   Ship,
   Truck,
@@ -73,6 +74,7 @@ const navTargets: PaletteNavItem[] = [
   { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck },
   { href: '/users', labelKey: 'nav.users', icon: Users },
   { href: '/settings', labelKey: 'nav.settings', icon: Settings },
+  { href: '/settings/people', labelKey: 'nav.peopleRoles', icon: ShieldCheck },
 ];
 
 const SEARCH_GROUPS: Record<SearchType, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
