@@ -56,10 +56,15 @@ export function RecordSupportPanel({
   const [note, setNote] = React.useState('');
   const [localFile, setLocalFile] = React.useState<File | null>(null);
 
-  const canDelete = usePermissions().can('documents.delete');
+  const permissions = usePermissions();
+  const canDelete = permissions.can('documents.delete');
+  // Attachments and the timeline are read with documents.view and added with
+  // documents.create: without them the panel is absent instead of refused.
+  const canView = permissions.can('documents.view');
+  const canCreate = permissions.can('documents.create');
 
   const load = React.useCallback(async () => {
-    if (!resolvedCompanyId || !entityId) {
+    if (!resolvedCompanyId || !entityId || !canView) {
       setAttachments([]);
       setTimeline([]);
       setLoading(false);
@@ -82,7 +87,7 @@ export function RecordSupportPanel({
     } finally {
       setLoading(false);
     }
-  }, [compact, entityId, entityType, resolvedCompanyId, toast]);
+  }, [canView, compact, entityId, entityType, resolvedCompanyId, toast]);
 
   React.useEffect(() => {
     load();
@@ -180,6 +185,8 @@ export function RecordSupportPanel({
     }
   };
 
+  if (!canView) return null;
+
   if (loading) {
     return (
       <Card>
@@ -204,7 +211,7 @@ export function RecordSupportPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
+        {canCreate && (<div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-1">
             <Label>{tr('Local File', 'ملف محلي')}</Label>
             <Input type="file" onChange={(event) => handleLocalFile(event.target.files?.[0] || null)} />
@@ -229,7 +236,7 @@ export function RecordSupportPanel({
           <p className="text-xs text-muted-foreground md:col-span-3">
             {tr('Choose a file to store it here (viewable and downloadable, up to 20 MB), or paste an external link instead.', 'اختر ملفاً لتخزينه هنا (قابل للعرض والتنزيل، حتى 20 ميغابايت)، أو الصق رابطاً خارجياً بدلاً من ذلك.')}
           </p>
-        </div>
+        </div>)}
 
         <div className="space-y-2">
           <h4 className="text-sm font-semibold">{tr('Attachments', 'المرفقات')}</h4>
