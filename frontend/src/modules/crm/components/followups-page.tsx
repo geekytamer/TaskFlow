@@ -40,6 +40,7 @@ import {
   LayoutGrid, AlertTriangle, Shuffle, TrendingDown, ChevronRight,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useLiveRefresh } from '@/lib/live';
 
 type View = 'today' | 'list' | 'team';
 
@@ -106,9 +107,10 @@ export function FollowupsPage() {
   const [logFor, setLogFor] = React.useState<Followup | null>(null);
   const [shareFor, setShareFor] = React.useState<Followup | null>(null);
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) { setFollowups([]); setLoading(false); return; }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [fu, mem, cts] = await Promise.all([
         getFollowups(selectedCompany.id, ownerFilter === 'mine' && currentUser ? { ownerUserId: currentUser.id } : undefined),
@@ -119,11 +121,15 @@ export function FollowupsPage() {
       setMembers(mem);
       setContacts(cts);
     } catch (error: any) {
+      if (quiet) return;
       toast({ variant: 'destructive', title: tr('Could not load follow-ups', 'تعذر تحميل المتابعات'), description: error?.message });
     } finally {
       setLoading(false);
     }
   }, [selectedCompany, ownerFilter, currentUser, toast, tr]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['followups', 'contacts', 'opportunities'], () => load({ quiet: true }));
 
   React.useEffect(() => { load(); }, [load]);
 

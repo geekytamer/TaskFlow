@@ -57,6 +57,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReturnsPanel } from './returns-panel';
 import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
 import { usePermissionOr } from '@/context/permissions-context';
+import { useLiveRefresh } from '@/lib/live';
 
 const formatDisplayDate = (value: Date, locale: string) =>
   new Intl.DateTimeFormat(locale, {
@@ -140,7 +141,8 @@ export function SalesPage() {
     [t],
   );
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) {
       setOrders([]);
       setClients([]);
@@ -150,7 +152,7 @@ export function SalesPage() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [orderData, clientData, itemData, invoiceData, templateData] = await Promise.all([
         getSalesOrders(selectedCompany.id),
@@ -165,6 +167,7 @@ export function SalesPage() {
       setInvoiceIds(new Set(invoiceData.map((invoice) => invoice.id)));
       setInvoiceTemplates(templateData);
     } catch (error: any) {
+      if (quiet) return;
       toast({
         variant: 'destructive',
         title: t('sales.unavailableTitle'),
@@ -174,6 +177,9 @@ export function SalesPage() {
       setLoading(false);
     }
   }, [selectedCompany, toast]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['sales-orders', 'quotations', 'deliveries', 'customer-returns', 'invoices', 'inventory-items', 'contacts'], () => load({ quiet: true }));
 
   React.useEffect(() => {
     load();

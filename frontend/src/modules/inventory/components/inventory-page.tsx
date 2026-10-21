@@ -68,6 +68,7 @@ import { usePermissionOr } from '@/context/permissions-context';
 import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
+import { useLiveRefresh } from '@/lib/live';
 
 type InventoryFormState = {
   name: string;
@@ -245,7 +246,8 @@ export function InventoryPage() {
     }
   };
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) {
       setItems([]);
       setOrders([]);
@@ -257,7 +259,7 @@ export function InventoryPage() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [itemData, orderData, supplierData, movementData, balanceData, warehouseData, expiringData, projectData] = await Promise.all([
         getInventoryItems(selectedCompany.id),
@@ -281,6 +283,7 @@ export function InventoryPage() {
       setExpiringLots(expiringData);
       setProjects(projectData.filter((project) => project.companyId === selectedCompany.id));
     } catch (error: any) {
+      if (quiet) return;
       toast({
         variant: 'destructive',
         title: tr('Inventory unavailable', 'المخزون غير متاح'),
@@ -290,6 +293,9 @@ export function InventoryPage() {
       setLoading(false);
     }
   }, [selectedCompany, toast]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['inventory-items', 'stock-movements', 'warehouses', 'inventory-lots', 'stock-counts', 'purchase-orders', 'purchase-receipts', 'deliveries', 'shipments'], () => load({ quiet: true }));
 
   React.useEffect(() => {
     load();

@@ -18,6 +18,7 @@ import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { groupByDay } from '../lib/compose';
 import { Composer } from './composer';
 import { MessageBubble } from './message-bubble';
+import { useLiveRefresh } from '@/lib/live';
 
 interface Props {
   threadId: string;
@@ -62,6 +63,9 @@ export function ThreadView({ threadId, onChanged, focusMessageId }: Props) {
     setDetail(null);
     void load();
   }, [load]);
+
+  // New messages appear in the open conversation as they arrive.
+  useLiveRefresh(['inbox', 'conversation-threads', 'conversations', 'messages', 'contacts'], load);
 
   React.useEffect(() => {
     if (!companyId) return;

@@ -23,6 +23,7 @@ import {
   type AppNotification,
   type NotificationCategory,
 } from '@/services/notificationService';
+import { useLiveRefresh } from '@/lib/live';
 
 const CATEGORY_BORDER: Record<NotificationCategory, string> = {
   tasks: 'border-l-sky-500',
@@ -85,6 +86,9 @@ export function NotificationBell() {
       setLoading(false);
     }
   }, [companyId, canReadChats]);
+
+  // New alerts reach the bell the moment they are created.
+  useLiveRefresh(['notifications', 'inbox', 'whatsapp'], refresh);
 
   React.useEffect(() => {
     refresh();

@@ -56,6 +56,7 @@ import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { usePermissionOr } from '@/context/permissions-context';
+import { useLiveRefresh } from '@/lib/live';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
@@ -91,7 +92,8 @@ export function InvoiceTable() {
   const { effectiveRole } = useAuthGuard();
   const canManageFinance = usePermissionOr('invoices', 'write', effectiveRole !== 'Employee');
 
-  const fetchData = React.useCallback(async () => {
+  const fetchData = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) {
       setInvoices([]);
       setClients([]);
@@ -100,7 +102,7 @@ export function InvoiceTable() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [invoiceData, clientData, templateData, taskData, campaignData] = await Promise.all([
         getInvoices(selectedCompany.id),
@@ -115,6 +117,7 @@ export function InvoiceTable() {
       setTasks(taskData.filter((t) => t.companyId === selectedCompany.id));
       setCampaigns(campaignData);
     } catch (error: any) {
+      if (quiet) return;
       setInvoices([]);
       setClients([]);
       setTemplates([]);
@@ -128,6 +131,9 @@ export function InvoiceTable() {
       setLoading(false);
     }
   }, [selectedCompany, toast, t]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['invoices', 'payments', 'credit-notes', 'sales-orders', 'contacts', 'clients'], () => fetchData({ quiet: true }));
 
   React.useEffect(() => {
     fetchData();

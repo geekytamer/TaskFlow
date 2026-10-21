@@ -52,6 +52,8 @@ import { useCompany } from '@/context/company-context';
 import { getInbox } from '@/services/conversationService';
 import { INBOX_PERMISSION, waitingCount } from '@/modules/conversations/lib/inbox';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
+import { LIVE_EVENT } from '@/lib/live';
+import { useTeamUnread } from '@/modules/teamchat/use-team-unread';
 import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions, usePermissionOr } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
@@ -228,10 +230,17 @@ export function useInboxWaiting(effectiveRole: string | null | undefined, enable
     fetchWaiting();
     const id = window.setInterval(fetchWaiting, 30000);
     window.addEventListener(DATA_CHANGED_EVENT, fetchWaiting);
+    // A client's message lifts the count at once, not at the next poll.
+    const onLive = (e: Event) => {
+      const topics = (e as CustomEvent<{ topics: string[]; all?: boolean }>).detail;
+      if (topics?.all || topics?.topics.some((t) => t === 'inbox' || t === 'conversation-threads')) fetchWaiting();
+    };
+    window.addEventListener(LIVE_EVENT, onLive);
     return () => {
       live = false;
       window.clearInterval(id);
       window.removeEventListener(DATA_CHANGED_EVENT, fetchWaiting);
+      window.removeEventListener(LIVE_EVENT, onLive);
     };
   }, [selectedCompany?.id, canUseInbox, enabled]);
   return inboxWaiting;
@@ -267,6 +276,7 @@ export function SidebarNav() {
   }, [selectedCompany?.id, canReadChats]);
 
   const inboxWaiting = useInboxWaiting(effectiveRole);
+  const teamUnread = useTeamUnread();
 
   // On a phone the menu is a drawer: close it once a page is picked.
   // The drawer mounts this list when it opens, so only a change of page closes it.
@@ -279,7 +289,7 @@ export function SidebarNav() {
   }, [pathname, setOpenMobile]);
 
   const badges: Record<string, number> = {
-    '/inbox': inboxWaiting,
+    '/inbox': inboxWaiting + teamUnread,
     '/whatsapp': whatsappUnread,
   };
 
