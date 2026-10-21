@@ -136,7 +136,10 @@ export class TeamChatStore {
   addMembers(chatId: string, userIds: string[], now = new Date().toISOString()) {
     const insert = this.db.prepare('INSERT OR IGNORE INTO team_chat_members (chatId, userId, joinedAt, lastReadAt, muted) VALUES (?, ?, ?, ?, 0)');
     // Joining counts as having read what came before: no flood of old unread messages.
-    for (const userId of new Set(userIds)) insert.run(chatId, userId, now, now);
+    // The read mark sits 1 ms before the join, so a message sent in the same
+    // millisecond as the join (a new chat's first message) still counts as unread.
+    const readBefore = new Date(new Date(now).getTime() - 1).toISOString();
+    for (const userId of new Set(userIds)) insert.run(chatId, userId, now, readBefore);
   }
 
   removeMembers(chatId: string, userIds: string[]) {
