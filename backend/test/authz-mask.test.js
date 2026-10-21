@@ -188,11 +188,11 @@ const READS = (w) => ({
     ['/companies/:c/clients', [/creditLimit/, /9162847/]],
   ],
   cost_prices: [
-    ['/companies/:c/inventory-items', [/unitCost/, /3\.21/]],
-    ['/companies/:c/inventory-items/export', [/unitCost/, /3\.21/]],
+    ['/companies/:c/inventory-items', [/unitCost/, /3\.2147/]],
+    ['/companies/:c/inventory-items/export', [/unitCost/, /3\.2147/]],
     // Side paths: the low-stock report and its CSV, and the item-created event's metadata.
     ['/companies/:c/reports/management-summary', [/"unitCost"/]],
-    ['/companies/:c/reports/export/inventory-alerts', [/unitCost/, /3\.21/]],
+    ['/companies/:c/reports/export/inventory-alerts', [/unitCost/, /3\.2147/]],
     ['/companies/:c/activity-events?limit=200', [/"unitCost"/]],
   ],
 });
