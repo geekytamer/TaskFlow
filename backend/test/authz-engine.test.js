@@ -158,6 +158,21 @@ test('an undeclared route is refused under v2 and logged as an error', async () 
   assert.ok(errors.some((e) => e.includes('undeclared') && e.includes('/companies/:companyId/sales-orders')), errors.join('\n'));
 });
 
+test('an undeclared route is refused under v2 even when its handler only checks membership', async () => {
+  // /members asks requireCompanyAccess, never a role gate: without its
+  // declaration only the auth middleware stands between a member and the data.
+  const errors = [];
+  const hidden = 'GET /companies/:companyId/members';
+  const { company, users, token, agent } = build('v2', {
+    routeLookup: (method, p) => (`${method} ${p}` === hidden ? undefined : routeDecl(method, p)),
+    logger: { info() {}, warn() {}, error: (m) => errors.push(String(m)) },
+  });
+  const res = await agent.get(`/companies/${company.id}/members`).set('Authorization', `Bearer ${token(users.Admin)}`);
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'FORBIDDEN');
+  assert.ok(errors.some((e) => e.includes('undeclared') && e.includes(hidden.split(' ')[1])), errors.join('\n'));
+});
+
 test('403 body: code, the declared permission and who can grant it', async () => {
   const v2 = build('v2');
   const res = await v2.agent.get(`/companies/${v2.company.id}/sales-orders`).set('Authorization', `Bearer ${v2.token(v2.users.Employee)}`);
