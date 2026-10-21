@@ -17,6 +17,7 @@ import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useCompany } from '@/context/company-context';
 import { BrandMark } from '@/modules/branding/brand-mark';
 import { useBrand } from '@/modules/branding/brand-context';
+import { EnableNotificationsPrompt } from '@/modules/notifications/components/enable-notifications-prompt';
 import { MobileTabBar } from '@/modules/layout/components/mobile-tab-bar';
 import { DrawerPreferences } from '@/modules/layout/components/drawer-preferences';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
@@ -148,7 +149,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <CompanySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
+        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><EnableNotificationsPrompt /><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
       </SidebarInset>
       <MobileTabBar />
       <TourOverlay />
