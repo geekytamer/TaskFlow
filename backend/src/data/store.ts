@@ -29,6 +29,7 @@ import { MediaKitStore } from '../workspace/media-kit';
 import { PushStore } from '../push/push-store';
 import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
+import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
@@ -708,6 +709,7 @@ export class DataStore {
   readonly workspace: WorkspaceStore;
   readonly mediaKits: MediaKitStore;
   readonly push: PushStore;
+  readonly teamChats: TeamChatStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -755,6 +757,7 @@ export class DataStore {
     this.workspace = new WorkspaceStore(this.db);
     this.mediaKits = new MediaKitStore(this.db);
     this.push = new PushStore(this.db);
+    this.teamChats = new TeamChatStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5203,6 +5206,13 @@ export class DataStore {
         id: '135_company_branding',
         run: () => {
           this.db.exec(`ALTER TABLE companies ADD COLUMN branding TEXT;`);
+        },
+      },
+      {
+        // Staff chats (teamchat/team-chat-store.ts): direct and group, members only.
+        id: '136_team_chats',
+        run: () => {
+          this.db.exec(TEAM_CHAT_SCHEMA);
         },
       },
     ];

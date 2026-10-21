@@ -124,6 +124,9 @@ import { validateInvoiceDoc } from './invoice-doc';
 import type { RouteContext } from './routes/context';
 import { type AuthedRequest, companyManagementRoles, handler } from './routes/shared';
 import { registerNotificationRoutes } from './routes/notifications';
+import { registerLiveRoutes } from './routes/live';
+import { createTeamChatRouter } from './teamchat/routes';
+import { LiveHub, topicsFromPath } from './live/hub';
 import { registerAdminRoutes } from './routes/admin';
 import { registerCustomFieldRoutes } from './routes/custom-fields';
 import { registerWarehouseRoutes } from './routes/warehouses';
@@ -725,9 +728,19 @@ export function createServer(options: CreateServerOptions = {}) {
     await dispatchStaffPush(store, push.send, notifications, Date.now(), (error) => logger.warn('[push] could not send a staff notification', error));
   };
 
+  const liveHub = new LiveHub();
+
   store.setOnNotificationsCreated((notifications) => {
     void dispatchCriticalEmails(notifications);
     void dispatchPush(notifications);
+    // Open screens of the people notified fetch again: the bell, and the inbox for messages.
+    const byUser = new Map<string, Set<string>>();
+    for (const n of notifications) {
+      const topics = byUser.get(n.userId) ?? new Set(['notifications']);
+      if (n.category === 'messages') topics.add('inbox');
+      byUser.set(n.userId, topics);
+    }
+    for (const [userId, topics] of byUser) liveHub.publish({ userIds: [userId], topics: [...topics] });
   });
 
   // Daily digest: roll each user's unsent normal-priority notifications into one
@@ -914,6 +927,47 @@ export function createServer(options: CreateServerOptions = {}) {
     const startedAt = Date.now();
     res.on('finish', () => {
       logger.info(`${req.method} ${redactUrl(req.originalUrl)} ${res.statusCode} ${Date.now() - startedAt}ms`);
+    });
+    next();
+  });
+
+  // Every successful change tells colleagues' open screens which topics moved
+  // (live/hub.ts). Per-person paths are left out: nobody else shows them.
+  // The company comes from the path, else the request, else the saved record
+  // the route answers with, else (for a delete) the record looked up first. When
+  // none says, and the person works in several companies, nothing is sent:
+  // a signal must never reach a company the change was not in.
+  const PERSONAL_PATHS = /^\/(?:auth|notifications|push|live|admin|me)(?:\/|$)/;
+  const companyOfRecord = (path: string): string | undefined => {
+    const m = /^\/(tasks|projects)\/([^/]+)/.exec(path);
+    if (!m) return undefined;
+    return m[1] === 'tasks' ? store.getTaskById(m[2])?.companyId : store.getProjectById(m[2])?.companyId;
+  };
+  const companyIn = (value: unknown): string | undefined => {
+    const id = value && typeof value === 'object' ? (value as { companyId?: unknown }).companyId : undefined;
+    return typeof id === 'string' && id ? id : undefined;
+  };
+  app.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    const path = req.originalUrl.split('?')[0];
+    // Staff chats signal their members themselves (routes/team-chat.ts), never the whole company.
+    if (PERSONAL_PATHS.test(path) || /\/team-chats(?:\/|$)/.test(path)) return next();
+    const { companyId: pathCompany, topics } = topicsFromPath(path);
+    if (topics.length === 0) return next();
+    const before = pathCompany ? undefined : companyOfRecord(path);
+    let answered: unknown;
+    const json = res.json.bind(res);
+    res.json = (body: unknown) => {
+      answered = body;
+      return json(body);
+    };
+    res.on('finish', () => {
+      const user = (req as AuthedRequest).user;
+      if (!user || res.statusCode >= 400) return;
+      const accessible = getAccessibleCompanyIds(user);
+      const companyId = pathCompany ?? companyIn(req.body) ?? companyIn(answered) ?? before
+        ?? (accessible.length === 1 ? accessible[0] : undefined);
+      if (companyId && accessible.includes(companyId)) liveHub.publish({ companyId, topics });
     });
     next();
   });
@@ -2220,6 +2274,8 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   registerNotificationRoutes(app, routeContext);
+  registerLiveRoutes(app, routeContext, liveHub);
+  app.use(createTeamChatRouter(routeContext, { live: liveHub, push }));
 
   registerAdminRoutes(app, routeContext);
 
