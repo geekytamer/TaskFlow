@@ -738,7 +738,7 @@ export class DataStore {
     this.db = new Database(options.dbPath ?? defaultDbPath);
 
     // More than one connection is opened against the same file in normal use:
-    // the ops commands (fga:sync, authz:repair, status) run while the server
+    // the ops commands (authz:repair, status) run while the server
     // holds its own, and several tests seed through a direct store while the
     // server reads through another. SQLite's default rollback journal serialises
     // those badly and its default busy timeout is zero, so a reader hits a lock
@@ -6406,8 +6406,7 @@ export class DataStore {
   }
 
   // ── Permission groups ──────────────────────────────────────────────
-  // SQL is the source of truth for groups, grants and assignments; OpenFGA
-  // holds a projection of them. Every mutation here bumps authz_version, which
+  // SQL is the source of truth for groups, grants and assignments. Every mutation here bumps authz_version, which
   // is what invalidates the in-process permission cache across pm2 workers.
 
   /**
@@ -6660,8 +6659,8 @@ export class DataStore {
    * Effective permissions for one user in one company, with implications
    * resolved. UNION rather than UNION ALL is what makes an A->B->A cycle
    * terminate: a group id already seen is discarded instead of re-expanded.
-   * The admin UI reads this for display; authorization decisions come from
-   * OpenFGA, never from here.
+   * The admin UI reads this for display; authorization decisions under
+   * the v2 engine come from authz/evaluate.ts.
    */
   getEffectivePermissions(userId: string, companyId: string): string[] {
     const rows = this.db
@@ -6690,99 +6689,6 @@ export class DataStore {
           ORDER BY pg.name ASC`,
       )
       .all(userId, companyId) as Array<{ id: string; key: string; name: string }>;
-  }
-
-  // ── Tuple projection sources ───────────────────────────────────────
-  // Read models for building the OpenFGA tuple set. Exposed as methods so the
-  // projection code never has to reach into the private database handle.
-
-  listAllGroupAssignments(companyId?: string) {
-    const sql = 'SELECT userId, companyId, groupId FROM user_group_assignments'
-      + (companyId ? ' WHERE companyId = ?' : '');
-    return (companyId
-      ? this.db.prepare(sql).all(companyId)
-      : this.db.prepare(sql).all()) as Array<{
-      userId: string; companyId: string; groupId: string;
-    }>;
-  }
-
-  listAllGroupImplications(companyId?: string) {
-    if (!companyId) {
-      return this.db
-        .prepare('SELECT parentGroupId, childGroupId FROM group_implications')
-        .all() as Array<{ parentGroupId: string; childGroupId: string }>;
-    }
-    return this.db
-      .prepare(
-        `SELECT gi.parentGroupId, gi.childGroupId FROM group_implications gi
-           JOIN permission_groups pg ON pg.id = gi.parentGroupId
-          WHERE pg.companyId = ?`,
-      )
-      .all(companyId) as Array<{ parentGroupId: string; childGroupId: string }>;
-  }
-
-  listAllGroupGrants(companyId?: string) {
-    const sql = `SELECT gp.groupId, gp.module, gp.action, pg.companyId
-                   FROM group_permissions gp
-                   JOIN permission_groups pg ON pg.id = gp.groupId`
-      + (companyId ? ' WHERE pg.companyId = ?' : '');
-    return (companyId
-      ? this.db.prepare(sql).all(companyId)
-      : this.db.prepare(sql).all()) as Array<{
-      groupId: string; module: string; action: string; companyId: string;
-    }>;
-  }
-
-  listSuperAdminCompanyPairs(companyId?: string) {
-    const rows = this.db
-      .prepare('SELECT id, companyIds FROM users WHERE isSuperAdmin = 1')
-      .all() as Array<{ id: string; companyIds: string }>;
-    return rows.flatMap((row) =>
-      (this.parseJson<string[]>(row.companyIds) || [])
-        .filter((id) => !companyId || id === companyId)
-        .map((id) => ({ userId: row.id, companyId: id })),
-    );
-  }
-
-  // ── FGA outbox ─────────────────────────────────────────────────────
-
-  /** Appends tuple deltas. Call inside the same transaction as the SQL change. */
-  enqueueFgaTuples(op: 'write' | 'delete', tuples: Array<Record<string, string>>): void {
-    if (!tuples.length) return;
-    const insert = this.db.prepare(
-      'INSERT INTO fga_outbox (op, tuple, createdAt) VALUES (?, ?, ?)',
-    );
-    const now = new Date().toISOString();
-    const trx = this.db.transaction(() => {
-      tuples.forEach((t) => insert.run(op, JSON.stringify(t), now));
-    });
-    trx();
-  }
-
-  takeFgaOutboxBatch(limit = 100) {
-    return this.db
-      .prepare('SELECT id, op, tuple FROM fga_outbox ORDER BY id ASC LIMIT ?')
-      .all(limit) as Array<{ id: number; op: string; tuple: string }>;
-  }
-
-  deleteFgaOutboxRows(ids: number[]): void {
-    if (!ids.length) return;
-    const remove = this.db.prepare('DELETE FROM fga_outbox WHERE id = ?');
-    const trx = this.db.transaction(() => ids.forEach((id) => remove.run(id)));
-    trx();
-  }
-
-  markFgaOutboxFailure(ids: number[], message: string): void {
-    if (!ids.length) return;
-    const bump = this.db.prepare(
-      'UPDATE fga_outbox SET attempts = attempts + 1, lastError = ? WHERE id = ?',
-    );
-    const trx = this.db.transaction(() => ids.forEach((id) => bump.run(message, id)));
-    trx();
-  }
-
-  countFgaOutbox(): number {
-    return (this.db.prepare('SELECT COUNT(*) c FROM fga_outbox').get() as { c: number }).c;
   }
 
   /**

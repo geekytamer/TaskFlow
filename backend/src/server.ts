@@ -14,11 +14,10 @@ import { sweepShipments } from './logistics/shipments';
 import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
 import type { GratuityLine, Notification, SanitizedUser, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
-import { routeToPermission } from './permissions/shadow';
+import { routeToPermission } from './authz/legacy-routes';
 import { RECORD_ENTITY_MODULES } from './permissions/company-modules';
 import { registerPermissionRoutes } from './permissions/routes';
 import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
-import type { TupleKey } from './permissions/tuples';
 import {
   NOTIFY_KEYS, catalogueKey, configuredEngine, forbiddenBody, recordShadowDivergence, ruleAllowsV2, scopeAtLeast,
   type PermissionsEngine,
@@ -979,7 +978,7 @@ export function createServer(options: CreateServerOptions = {}) {
     logger.error(message);
   };
   if (process.env.AUTHZ_ENGINE) {
-    logger.warn('AUTHZ_ENGINE is no longer read; PERMISSIONS_ENGINE (legacy | shadow | v2) decides. OpenFGA is not consulted.');
+    logger.warn('AUTHZ_ENGINE is ignored; PERMISSIONS_ENGINE (legacy | shadow | v2) decides.');
   }
   if (engine !== 'legacy') {
     logger.info(`PERMISSIONS_ENGINE=${engine}: ${engine === 'shadow'
@@ -1465,15 +1464,6 @@ export function createServer(options: CreateServerOptions = {}) {
       throw forbidden(companyId, key);
     }
   };
-
-  /**
-   * Kept for the callers that wrapped membership changes for the OpenFGA
-   * projection. OpenFGA no longer decides anything, and every such change
-   * already bumps authz_version in the store (which the evaluator's cache
-   * follows), so both are no-ops until Task 12 removes them.
-   */
-  const snapshotAuthz = (_companyIds: Iterable<string>) => new Map<string, TupleKey[]>();
-  const publishAuthzChange = async (_before: Map<string, TupleKey[]>): Promise<void> => undefined;
 
   /**
    * The route gate. legacy: the role list decides (unchanged). v2: the route's
@@ -2068,7 +2058,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
     store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, maskEvent, seesField, requireFieldEdit, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
-    requireSuperAdmin, ensureSalesItemsBelongToCompany, accessibleCompanyIds, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
+    requireSuperAdmin, ensureSalesItemsBelongToCompany, accessibleCompanyIds, logger, uploadedImage, parseSalesOrderItems,
   };
 
   app.get(
@@ -3002,10 +2992,6 @@ export function createServer(options: CreateServerOptions = {}) {
       assertNoForeignPractice(null, [...(payload.companyIds ?? []), ...payload.companyRoles!.map((a) => a.companyId)]);
       assertUserManagementPermission(req, payload.companyRoles!);
       assertRolesAvailable(payload.companyRoles!);
-      const authzBefore = snapshotAuthz([
-        ...(payload.companyIds ?? []),
-        ...payload.companyRoles!.map((assignment) => assignment.companyId),
-      ]);
       // Only an existing super-admin may grant the super-admin flag.
       const isSuperAdmin =
         payload.isSuperAdmin === true && req.user?.isSuperAdmin === true
@@ -3032,7 +3018,6 @@ export function createServer(options: CreateServerOptions = {}) {
         name: user.name,
         password: payload.password!,
       }).catch((error) => logger.error('Failed to send welcome email', error));
-      await publishAuthzChange(authzBefore);
       res.status(201).json({ user });
     }),
   );
@@ -3158,12 +3143,6 @@ export function createServer(options: CreateServerOptions = {}) {
           (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
         ),
       );
-      const authzBefore = snapshotAuthz([
-        ...existing.companyIds,
-        ...existingAssignments.map((assignment) => assignment.companyId),
-        ...targetAssignments.map((assignment) => assignment.companyId),
-        ...(payload.companyIds ?? []),
-      ]);
       const updated = store.updateUser(req.params.id, {
         ...safePayload,
         companyIds: req.user!.isSuperAdmin && payload.companyIds
@@ -3173,7 +3152,6 @@ export function createServer(options: CreateServerOptions = {}) {
         role: payload.role || targetAssignments[0]?.role || existing.role,
       });
       if (!updated) throw new HttpError(404, 'User not found.');
-      await publishAuthzChange(authzBefore);
       res.json(updated);
     }),
   );
@@ -3193,12 +3171,7 @@ export function createServer(options: CreateServerOptions = {}) {
         }));
       if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.', { code: 'SUPER_ADMIN_ONLY' });
       assertUserManagementPermission(req, targetAssignments);
-      const authzBefore = snapshotAuthz([
-        ...existing.companyIds,
-        ...targetAssignments.map((assignment) => assignment.companyId),
-      ]);
       store.deleteUser(req.params.id);
-      await publishAuthzChange(authzBefore);
       res.json({ success: true });
     }),
   );
@@ -8225,12 +8198,6 @@ export function createServer(options: CreateServerOptions = {}) {
     permissionsEngine: engine,
     managementRoles: companyManagementRoles,
     logger,
-    // After an admin edits groups, OpenFGA must reflect it before the next
-    // request is served. Only the affected company's delta is published, so
-    // the cost does not grow with the number of other companies. `ops fga:sync`
-    // remains the full reconcile for drift. In legacy mode there is nothing
-    // to project.
-    projectTuples: (companyId, before) => publishAuthzChange(new Map([[companyId, before]])),
   });
 
   const portalCompanyId = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
@@ -8426,12 +8393,6 @@ export function createServer(options: CreateServerOptions = {}) {
     enforce: academyEnforce,
     authMiddleware: authMiddleware as unknown as RequestHandler,
     requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
-    publishMembership: async (companyIds, change) => {
-      const before = snapshotAuthz(companyIds);
-      change();
-      await publishAuthzChange(before);
-    },
-    publishNewCompany: (companyId) => publishAuthzChange(new Map([[companyId, []]])),
     recordActivity: ({ companyId, actor, summary, metadata }) => store.createActivityEvent({
       companyId, entityType: 'contact', entityId: actor.id, action: 'academy_exemption',
       actorUserId: actor.id, actorName: actor.name, summary, metadata,

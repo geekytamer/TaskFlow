@@ -39,7 +39,7 @@
 import type { DataStore } from '../data/store';
 import { SCOPES, allPermissionKeys, areaOf, isPermissionKey, type Scope } from './catalogue';
 import { ROUTES } from './route-registry';
-import { lookupRoutePermission } from '../permissions/route-permissions';
+import { lookupRoutePermission } from './legacy-routes';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant, type TemplateKey } from './templates';
 import { teamOf } from './team';
 
@@ -79,8 +79,8 @@ export interface Effective {
  *     record DELETE routes, academy, portal, games...) is never locked here.
  *   - A key no route declares (sales.cancel, checked on a body) takes its
  *     area's modules when every route of the area is gated, else none.
- * null = no module switch reaches the key. Built from legacy route maps; when
- * permissions/ is removed (Task 12) the gates move here and this becomes data.
+ * null = no module switch reaches the key. Built from the committed legacy route
+ * snapshot (authz/legacy-routes.ts).
  */
 function deriveKeyModules(): Record<string, readonly string[] | null> {
   const byKey = new Map<string, { modules: Set<string>; ungated: boolean }>();

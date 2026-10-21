@@ -8,8 +8,8 @@
  * - role_permissions(groupId, key, scope, limitAmount) = a role's grants in
  *   catalogue keys. A separate table, not new columns on group_permissions:
  *   the legacy module:action rows keep answering today's readers (lock-out
- *   guard, /auth/permissions, OpenFGA projection, authz:compare) until Task 12
- *   removes them, and the two key spaces collide on the old primary key
+ *   guard, /auth/permissions, authz:compare) until the switch-over
+ *   (1b) removes them, and the two key spaces collide on the old primary key
  *   ('inventory:post' vs 'inventory.post').
  * - role_fields(groupId, field, canView, canEdit).
  * - user_group_assignments gains isMain, isActive, startsAt, endsAt,

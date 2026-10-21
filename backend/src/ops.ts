@@ -22,17 +22,14 @@ Commands:
   prune-orphans                Delete every row whose company no longer exists (requires --force)
   delete-company <id>          Delete a company and all its data (requires --force)
   authz:repair                 Re-seed missing permission groups and user assignments
-  fga:sync [--dry-run]         Reconcile OpenFGA tuples with the database
-  fga:status                   Show OpenFGA connectivity, outbox depth and authz version
+  authz:status                 Show the permissions engine, authz version and logged shadow divergences
   authz:compare                Compare role-only rules with what each member's groups grant (read-only)
-  fga:bootstrap [--force]      Create the OpenFGA store and model; prints FGA_STORE_ID and FGA_MODEL_ID
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
   PERMISSIONS_ENGINE=legacy|shadow|v2 (default legacy): who decides access. legacy: company
     roles; shadow: roles decide and every disagreement with v2 goes to authz_divergence;
     v2: declared permissions and roles/add-ons (rollback = set it back to legacy)
-  FGA_API_URL, FGA_API_TOKEN, FGA_STORE_ID, FGA_MODEL_ID (fga:* commands only; OpenFGA decides nothing)
 `);
 }
 
@@ -143,58 +140,13 @@ function deleteCompany() {
   console.log(`Deleted company "${company.name}" (${id}) and all its related data.`);
 }
 
-async function fgaSync() {
-  const { syncTuples } = await import('./permissions/sync');
+async function authzStatus() {
   const store = new DataStore({ dbPath, seedOnEmpty: false });
-  const dryRun = args.includes('--dry-run');
-  const result = await syncTuples(store, { dryRun });
-  console.log(`Database: ${dbPath}`);
-  console.log(`To write: ${result.toWrite.length}`);
-  console.log(`To delete: ${result.toDelete.length}`);
-  if (dryRun) {
-    console.log('Dry run — nothing was changed.');
-  } else {
-    console.log(`Written: ${result.written}, deleted: ${result.deleted}`);
-    if (result.written || result.deleted) {
-      // A running API caches decisions per authz version. Without a bump it
-      // keeps serving what OpenFGA answered before this sync until it restarts,
-      // which defeats running fga:sync to repair drift in the first place.
-      store.bumpAuthzVersion();
-      console.log('Authz version bumped; running servers will refetch permissions.');
-    }
-  }
-}
-
-async function fgaStatus() {
-  const { fgaHealthy, getFgaConfig } = await import('./permissions/fga-client');
-  const store = new DataStore({ dbPath, seedOnEmpty: false });
-  const config = getFgaConfig();
   console.log(`Database: ${dbPath}`);
   console.log(`Engine: ${process.env.PERMISSIONS_ENGINE || 'legacy'} (PERMISSIONS_ENGINE)`);
-  console.log(`API: ${config.apiUrl}`);
-  console.log(`Store: ${config.storeId || '(unset)'}`);
-  console.log(`Reachable: ${(await fgaHealthy()) ? 'yes' : 'no'}`);
-  console.log(`Outbox depth: ${store.countFgaOutbox()}`);
   console.log(`Authz version: ${store.getAuthzVersion()}`);
   const divergences = store.listAuthzDivergences(1000);
   console.log(`Logged divergences: ${divergences.length}`);
-}
-
-/**
- * Creates the OpenFGA store and writes the authorization model, printing the
- * ids as .env lines for a deploy script to capture. Refuses when a store is
- * already configured: a second store silently orphans every tuple in the first.
- */
-async function fgaBootstrap() {
-  if (process.env.FGA_STORE_ID && !force) {
-    throw new Error(
-      `FGA_STORE_ID is already set (${process.env.FGA_STORE_ID}). Pass --force to create another store anyway.`,
-    );
-  }
-  const { bootstrapFgaStore } = await import('./permissions/fga-model');
-  const { storeId, modelId } = await bootstrapFgaStore();
-  console.log(`FGA_STORE_ID=${storeId}`);
-  console.log(`FGA_MODEL_ID=${modelId}`);
 }
 
 /**
@@ -271,7 +223,7 @@ function authzRepair() {
   console.log(`Users without a group after:  ${orphansAfter}`);
   console.log(
     orphansAfter === 0
-      ? 'All users have a group. Run "fga:sync" next to publish the tuples.'
+      ? 'All users have a group.'
       : 'Some users still have no group — they belong to no company.',
   );
 }
@@ -280,17 +232,11 @@ switch (command) {
   case 'authz:repair':
     authzRepair();
     break;
-  case 'fga:sync':
-    fgaSync().catch(fail);
-    break;
-  case 'fga:status':
-    fgaStatus().catch(fail);
+  case 'authz:status':
+    authzStatus().catch(fail);
     break;
   case 'authz:compare':
     authzCompare().catch(fail);
-    break;
-  case 'fga:bootstrap':
-    fgaBootstrap().catch(fail);
     break;
   case 'status':
     showStatus();

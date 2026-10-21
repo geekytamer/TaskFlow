@@ -16,7 +16,7 @@ const ROLES = ['Admin', 'Manager', 'Accountant', 'Employee'];
 const TEMPLATE_OF = { Admin: 'admin', Manager: 'manager', Accountant: 'accountant', Employee: 'employee' };
 const id = (r) => `${r.method} ${r.path}`;
 
-const MATRIX = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv'), 'utf8')
+const MATRIX = fs.readFileSync(path.join(__dirname, 'fixtures', 'legacy-gate-matrix.csv'), 'utf8')
   .trim().split('\n').slice(1).map((line) => {
     // No field contains a comma; the roles field is quoted.
     const [method, route, module, action, roles] = line.split(',').map((c) => c.replace(/^"|"$/g, ''));

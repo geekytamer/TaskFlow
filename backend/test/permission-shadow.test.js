@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { DataStore } = require('../dist/data/store');
-const { routeToPermission } = require('../dist/permissions/shadow');
+const { routeToPermission } = require('../dist/authz/legacy-routes');
 const { recordShadowDivergence } = require('../dist/authz/engine');
 const { makeTmpDir } = require('./helpers/tmp');
 

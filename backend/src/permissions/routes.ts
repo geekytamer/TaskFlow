@@ -3,8 +3,6 @@ import type { RecordRuleName } from './record-rules';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { isValidPermission } from './catalogue';
-import { projectCompanyDelta, syncTuples } from './sync';
-import { tuplesForStore } from './tuples';
 
 /** Permissions that a company must never lose its last holder of. */
 const LOCKOUT_GUARD = ['settings:administration.write', 'settings:write', 'settings:users.read'] as const;
@@ -20,8 +18,6 @@ export interface PermissionRoutesDeps {
   /** Company access plus a record rule (permissions/record-rules.ts). */
   requireCompanyRule: (req: any, companyId: string, rule: RecordRuleName) => void;
   managementRoles: any[];
-  /** Publishes the delta a change made to one company's tuples. */
-  projectTuples: (companyId: string, before: ReturnType<typeof tuplesForStore>) => Promise<void>;
   logger: Pick<Console, 'info' | 'warn' | 'error'>;
 }
 
@@ -109,8 +105,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   };
 
   /**
-   * Applies a change, verifies it did not lock the company out, then publishes
-   * the result to OpenFGA.
+   * Applies a change and verifies it did not lock the company out.
    *
    * The mutation and the guard share one transaction on purpose. The guard has
    * to run *after* the change to see its effect, but if it rejects, the change
@@ -118,13 +113,11 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
    * reports failure, which is the worst of both outcomes.
    */
   const withProjection = async <T>(companyId: string, fn: () => T): Promise<T> => {
-    const before = tuplesForStore(store, companyId);
     const result = store.transaction(() => {
       const value = fn();
       assertNotLockingOut(companyId);
       return value;
     });
-    await deps.projectTuples(companyId, before);
     return result;
   };
 
@@ -150,7 +143,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
     res.json({
       version: store.getAuthzVersion(),
       companyId,
-      // The UI follows `permissions` only when engine is 'openfga', which no
+      // The UI follows `permissions` only under an engine that no
       // longer exists, so it keeps its role fallback under every engine. Under
       // v2 that is safe: the system templates answer exactly as the roles did,
       // and only reviewed add-ons can differ (the server allows; the UI may
@@ -159,7 +152,7 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
       engine: permissionsEngine,
       // Switched off for this company: off for everyone, whatever groups grant.
       // Listed separately too, because the UI hides these modules under every
-      // engine, while it follows `permissions` only under openfga.
+      // engine, while it ignores `permissions`.
       disabledModules,
       permissions: store
         .getEffectivePermissions(req.user!.id, companyId)
@@ -341,4 +334,3 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   }));
 }
 
-export { syncTuples };

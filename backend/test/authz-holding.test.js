@@ -337,7 +337,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.ok(store.authz.audit({ holdingGroupId: g }).some((a) => a.entity === 'holding_template'));
     if (engine === 'shadow') {
       // The only disagreements: the group-wide person's access to company 3 while attached
-      // (the column is still named openfgaAllowed; Task 12 renames it).
+      // (the column is still named openfgaAllowed; a later change may rename it).
       const rows = store.listAuthzDivergences();
       assert.ok(rows.length > 0);
       assert.ok(rows.every((r) => r.userId === charlie.id && r.companyId === '3'), JSON.stringify(rows));

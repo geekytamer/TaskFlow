@@ -23,7 +23,7 @@ test('every record rule is grantable and seeded for exactly the roles that held 
 });
 
 test('no record rule reuses a permission a gate already enforces', () => {
-  const csv = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv');
+  const csv = path.join(__dirname, 'fixtures', 'legacy-gate-matrix.csv');
   const gated = new Set(fs.readFileSync(csv, 'utf8').trim().split('\n').slice(1)
     .map((line) => line.split(',')).filter((cols) => cols[6] !== 'none').map((cols) => `${cols[2]}:${cols[3]}`));
   for (const [name, rule] of Object.entries(RECORD_RULES)) {

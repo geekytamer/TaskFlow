@@ -20,7 +20,7 @@ const numberingEntityTypes = [
 
 /** Admin panel, companies and company-wide settings. */
 export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyAccess, requireCompanyRoles, requireSuperAdmin, uploadedImage, snapshotAuthz, publishAuthzChange } = ctx;
+  const { store, authMiddleware, requireCompanyAccess, requireCompanyRoles, requireSuperAdmin, uploadedImage } = ctx;
 
   app.get('/admin/overview', authMiddleware, handler((req, res) => {
     requireSuperAdmin(req);
@@ -158,8 +158,6 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
         logoUrl: optionalString(body.logoUrl),
         disabledModules: parseDisabledModules(body.disabledModules),
       });
-      // A new company had no tuples, so everything it has now is the delta.
-      await publishAuthzChange(new Map([[company.id, []]]));
       res.status(201).json(company);
     }),
   );
@@ -210,9 +208,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
     handler(async (req, res) => {
       requireSuperAdmin(req);
       const cascade = req.query.cascade === 'true' || req.query.cascade === '1';
-      const authzBefore = snapshotAuthz([req.params.id]);
       store.deleteCompany(req.params.id, { cascade });
-      await publishAuthzChange(authzBefore);
       res.json({ success: true });
     }),
   );

@@ -2,9 +2,9 @@ import type { UserRole } from '../types';
 import { recordRulePermissionsFor } from './record-rules';
 
 /**
- * The permissions each legacy role holds today, derived mechanically from the
- * gate matrix. Seeding the four built-in groups from this is what makes the
- * migration lossless. GENERATED — regenerate rather than editing by hand.
+ * The permissions each legacy role holds today, derived once from the
+ * gate matrix (test/fixtures/legacy-gate-matrix.csv). Seeding the four built-in groups from this is what makes the
+ * migration lossless. The generator is retired: edit by hand.
  */
 const GATE_SEED_MATRIX: Record<UserRole, string[]> = {
   Admin: [

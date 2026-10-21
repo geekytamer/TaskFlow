@@ -29,13 +29,9 @@ DATA_DIR=/var/lib/taskflow-staging
 ENV_FILE="$APP_DIR/backend/.env"
 TEMPLATES="$APP_DIR/deploy/staging"
 ECOSYSTEM="$TEMPLATES/ecosystem.config.cjs"
-FGA_VERSION=1.18.3
-FGA_BIN="/opt/openfga/$FGA_VERSION/openfga"
 # Must match ecosystem.config.cjs.
 API_PORT=4105
 WEB_PORT=3105
-FGA_HTTP_PORT=8180
-FGA_GRPC_PORT=8181
 SITE="/etc/nginx/sites-available/$STAGING_DOMAIN"
 HTPASSWD=/etc/nginx/taskflow-staging.htpasswd
 GATE_FILE="$DATA_DIR/gate-secret"
@@ -60,7 +56,6 @@ render() {
   sed -e "s|__STAGING_DOMAIN__|$STAGING_DOMAIN|g" \
       -e "s|__API_PORT__|$API_PORT|g" \
       -e "s|__WEB_PORT__|$WEB_PORT|g" \
-      -e "s|__FGA_HTTP_PORT__|$FGA_HTTP_PORT|g" \
       "$1"
 }
 
@@ -89,7 +84,7 @@ staging_pids() {
 # ─────────────────────────────────────────────────────────────────────
 step "Preflight"
 [ "$(id -u)" -eq 0 ] || die "run as root"
-[ "$(uname -m)" = x86_64 ] || die "expected x86_64, got $(uname -m); pick the matching OpenFGA release"
+[ "$(uname -m)" = x86_64 ] || die "expected x86_64, got $(uname -m)"
 for cmd in git node npm pm2 nginx certbot openssl curl sqlite3 ss tar sha256sum; do
   command -v "$cmd" >/dev/null || die "missing required command: $cmd"
 done
@@ -104,7 +99,7 @@ grep -qx "$resolved" <<< "$(hostname -I | tr ' ' '\n')" \
   || die "$STAGING_DOMAIN resolves to $resolved, which is not an address of this server ($(hostname -I))"
 
 mine=$(staging_pids || true)
-for port in $API_PORT $WEB_PORT $FGA_HTTP_PORT $FGA_GRPC_PORT; do
+for port in $API_PORT $WEB_PORT; do
   holder=$(ss -ltnpH "sport = :$port" | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2 || true)
   if [ -n "$holder" ] && ! printf '%s\n' "$mine" | grep -qx "$holder"; then
     die "port $port is held by pid $holder, which is not a staging process"
@@ -129,22 +124,6 @@ fi
 git -C "$APP_DIR" log --oneline -1
 
 # ─────────────────────────────────────────────────────────────────────
-step "OpenFGA $FGA_VERSION"
-if [ ! -x "$FGA_BIN" ]; then
-  tmp=$(mktemp -d)
-  base="https://github.com/openfga/openfga/releases/download/v$FGA_VERSION"
-  tarball="openfga_${FGA_VERSION}_linux_amd64.tar.gz"
-  curl -fsSL -o "$tmp/$tarball" "$base/$tarball"
-  curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt"
-  (cd "$tmp" && grep " $tarball\$" checksums.txt | sha256sum -c -) \
-    || die "OpenFGA download failed its checksum; not installing it"
-  install -d "$(dirname "$FGA_BIN")"
-  tar -xzf "$tmp/$tarball" -C "$(dirname "$FGA_BIN")" openfga
-  rm -rf "$tmp"
-fi
-"$FGA_BIN" version 2>&1 | head -1 || true
-
-# ─────────────────────────────────────────────────────────────────────
 step "Configuration"
 install -d -m 700 "$DATA_DIR"
 if [ ! -f "$ENV_FILE" ]; then
@@ -153,7 +132,6 @@ if [ ! -f "$ENV_FILE" ]; then
   render "$TEMPLATES/backend.env.template" \
     | sed -e "s|__SEED_ON_EMPTY__|$seed_demo|" \
           -e "s|__GEN_WHATSAPP_KEY__|$(rand_hex)|" \
-          -e "s|__GEN_FGA_TOKEN__|$(rand_hex)|" \
     > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   echo "created $ENV_FILE with fresh secrets"
@@ -166,9 +144,8 @@ staging_wa=$(env_value WHATSAPP_ENCRYPTION_KEY "$ENV_FILE")
   || die "staging's WHATSAPP_ENCRYPTION_KEY equals production's; staging could decrypt real tokens"
 case "$(env_value PERMISSIONS_ENGINE "$ENV_FILE")" in
   legacy|shadow|v2) ;;
-  *) die "set PERMISSIONS_ENGINE=legacy|shadow|v2 in $ENV_FILE (AUTHZ_ENGINE/OpenFGA no longer decide; staging default: shadow)" ;;
+  *) die "set PERMISSIONS_ENGINE=legacy|shadow|v2 in $ENV_FILE (staging default: shadow)" ;;
 esac
-FGA_TOKEN=$(env_value FGA_API_TOKEN "$ENV_FILE")
 
 # ─────────────────────────────────────────────────────────────────────
 DB="$DATA_DIR/taskflow.db"
@@ -180,12 +157,10 @@ if [ "$FROM_PRODUCTION" -eq 1 ] && { [ ! -f "$DB" ] || [ "$REFRESH_DATA" -eq 1 ]
   prod_fds=$(readlink "/proc/$prod_pid/fd/"* 2>/dev/null || true)
   grep -qx "$PROD_DB" <<< "$prod_fds" \
     || die "$PROD_PM2_API does not hold $PROD_DB open. It holds: $(grep -E '\.db$' <<< "$prod_fds" | sort -u | tr '\n' ' ' || true). Set PROD_DB."
-  pm2 stop taskflow-staging-api taskflow-staging-fga >/dev/null 2>&1 || true
-  rm -f "$DB" "$DB-wal" "$DB-shm" "$DATA_DIR/openfga.db" "$DATA_DIR/openfga.db-wal" "$DATA_DIR/openfga.db-shm"
+  pm2 stop taskflow-staging-api >/dev/null 2>&1 || true
+  rm -f "$DB" "$DB-wal" "$DB-shm"
   sqlite3 "$PROD_DB" ".backup '$DB'"   # consistent even against the live writer
   chmod 600 "$DB"
-  # New data means the old tuple store is wrong: rebuild it from scratch.
-  sed -i -e 's/^FGA_STORE_ID=.*/FGA_STORE_ID=/' -e 's/^FGA_MODEL_ID=.*/FGA_MODEL_ID=/' "$ENV_FILE"
   echo "copied $(du -h "$DB" | cut -f1) from $PROD_DB"
 fi
 
@@ -203,37 +178,20 @@ npm ci
 NODE_OPTIONS="--localstorage-file=$DATA_DIR/node-localstorage" npx next build
 
 # ─────────────────────────────────────────────────────────────────────
-step "Authorization store"
-"$FGA_BIN" migrate --datastore-engine sqlite --datastore-uri "file:$DATA_DIR/openfga.db"
-pm2 startOrReload "$ECOSYSTEM" --only taskflow-staging-fga --update-env
-wait_http "http://127.0.0.1:$FGA_HTTP_PORT/stores" "Authorization: Bearer $FGA_TOKEN"
-cd "$APP_DIR/backend"
-if [ -z "$(env_value FGA_STORE_ID "$ENV_FILE")" ]; then
-  ids=$(npm run --silent ops -- fga:bootstrap)
-  store_id=$(printf '%s\n' "$ids" | sed -n 's/^FGA_STORE_ID=//p')
-  model_id=$(printf '%s\n' "$ids" | sed -n 's/^FGA_MODEL_ID=//p')
-  [ -n "$store_id" ] && [ -n "$model_id" ] || die "fga:bootstrap did not report ids: $ids"
-  sed -i -e "s|^FGA_STORE_ID=.*|FGA_STORE_ID=$store_id|" \
-         -e "s|^FGA_MODEL_ID=.*|FGA_MODEL_ID=$model_id|" "$ENV_FILE"
-  echo "store $store_id, model $model_id"
-fi
-
-# ─────────────────────────────────────────────────────────────────────
 step "Start staging processes"
+# The OpenFGA process of earlier deploys is no longer part of the stack.
+pm2 delete taskflow-staging-fga >/dev/null 2>&1 || true
 pm2 startOrReload "$ECOSYSTEM" --update-env
 pm2 save
 wait_http "http://127.0.0.1:$API_PORT/health"
 wait_http "http://127.0.0.1:$WEB_PORT/login"
 
 # ─────────────────────────────────────────────────────────────────────
-step "Publish permissions to OpenFGA"
-# After the API's first boot, never before. The ops commands do not seed, so
-# on a demo-data deploy the database stays empty until the app starts; a sync
-# run earlier publishes nothing and OpenFGA then denies everyone. Rehearsed:
-# 0 tuples published before first boot, 1,400 after.
+step "Seed permission groups"
+# After the API's first boot, never before: the ops commands do not seed, so on
+# a demo-data deploy the database stays empty until the app starts.
 cd "$APP_DIR/backend"
 npm run --silent ops -- authz:repair
-npm run --silent ops -- fga:sync
 
 # ─────────────────────────────────────────────────────────────────────
 step "nginx and TLS for $STAGING_DOMAIN"
@@ -292,7 +250,7 @@ check "API refuses requests without the gate"    401 "$(http_code "https://$STAG
 check "API answers behind the gate"              200 "$(http_code -H "$gate" "https://$STAGING_DOMAIN/api/health")"
 check "WhatsApp webhooks are blocked"            404 "$(http_code -X POST -H "$gate" "https://$STAGING_DOMAIN/api/whatsapp/webhook/x")"
 check "production unaffected"                    "$prod_before" "$(http_code "$PROD_URL")"
-exposed=$(ss -ltnH | awk '{print $4}' | grep -E ":($API_PORT|$WEB_PORT|$FGA_HTTP_PORT|$FGA_GRPC_PORT)\$" | grep -v '^127\.0\.0\.1:' || true)
+exposed=$(ss -ltnH | awk '{print $4}' | grep -E ":($API_PORT|$WEB_PORT\$" | grep -v '^127\.0\.0\.1:' || true)
 check "staging ports bound to loopback only"     "" "$exposed"
 [ "$fails" -eq 0 ] || die "$fails verification check(s) failed"
 
@@ -308,4 +266,4 @@ if [ "$(env_value SEED_ON_EMPTY "$ENV_FILE")" = false ]; then
 else
   echo "  Data: demo. Sign in as admin@taskflow.com / password."
 fi
-echo "  Email: disabled.   WhatsApp: cannot decrypt production tokens.   Authorization: OpenFGA."
+echo "  Email: disabled.   WhatsApp: cannot decrypt production tokens.   Permissions engine: $(env_value PERMISSIONS_ENGINE "$ENV_FILE")."
