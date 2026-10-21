@@ -79,17 +79,17 @@ test('platform-wide actions belong to the super admin', async () => {
 
 test("the super admin sees a company's custom roles without being a member", async () => {
   const { app, store, superAdmin, as } = setup();
-  const group = store.createPermissionGroup({ companyId: '2', key: 'field-sales', name: 'Field sales' });
-  const res = await as(superAdmin)(request(app).get('/companies/2/permission-groups'));
+  const role = store.authz.saveRole('2', { name: 'Field sales', grants: [{ key: 'sales.view' }], fields: [] }, null);
+  const res = await as(superAdmin)(request(app).get('/companies/2/roles'));
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.ok(res.body.some((g) => g.id === group.id));
+  assert.ok(res.body.some((g) => g.id === role.id));
 });
 
-test('group assignment is only for members of that company', async () => {
+test('role assignment is only for members of that company', async () => {
   const { app, store, companyAdmin, outsider, as } = setup();
-  const group = store.createPermissionGroup({ companyId: '1', key: 'helpers', name: 'Helpers' });
-  const res = await as(companyAdmin)(request(app).put(`/companies/1/users/${outsider.id}/groups`)).send({ groupIds: [group.id] });
-  assert.equal(res.status, 400);
+  const role = store.authz.saveRole('1', { name: 'Helpers', grants: [{ key: 'sales.view' }], fields: [] }, null);
+  const res = await as(companyAdmin)(request(app).put(`/companies/1/people/${outsider.id}/roles`)).send({ mainRoleId: role.id, addOnRoleIds: [] });
+  assert.equal(res.status, 404);
 });
 
 test("a company admin cannot edit or take over someone outside their companies", async () => {

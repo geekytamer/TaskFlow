@@ -6453,13 +6453,23 @@ export class DataStore {
    * authoritative. Assignments to non-system groups are left alone — those are
    * deliberate admin choices, not derived from the role.
    */
-  syncUserGroupAssignments(userId: string): void {
-    const trx = this.db.transaction(() => this.syncUserGroupAssignmentsInTrx(userId));
+  syncUserGroupAssignments(userId: string, roleChanged: ReadonlySet<string> = new Set()): void {
+    const trx = this.db.transaction(() => this.syncUserGroupAssignmentsInTrx(userId, roleChanged));
     trx();
   }
 
-  /** Transaction-free variant, for callers that already hold one (migrations). */
-  private syncUserGroupAssignmentsInTrx(userId: string): void {
+  /**
+   * Transaction-free variant, for callers that already hold one (migrations).
+   *
+   * A custom main role (set in the People screen) is a deliberate choice the
+   * legacy role list does not express: in a company where the person has one,
+   * the sync leaves their assignments alone, unless the legacy role there is
+   * what just changed (roleChanged), when the standard role follows it as
+   * before. Otherwise any later write to companyRoles (a position change, a
+   * role change in another company, authz:repair) would put the standard role
+   * back as main and widen the person under v2.
+   */
+  private syncUserGroupAssignmentsInTrx(userId: string, roleChanged: ReadonlySet<string> = new Set()): void {
     const row = this.db
       .prepare('SELECT id, role, companyIds, companyRoles FROM users WHERE id = ?')
       .get(userId) as
@@ -6480,6 +6490,8 @@ export class DataStore {
     {
       assignments.forEach(({ companyId, role }) => {
         this.seedPermissionGroupsForCompanyInTrx(companyId);
+        const replaceCustom = roleChanged.has(companyId);
+        if (!replaceCustom && this.authz.hasCustomMain(userId, companyId)) return;
         const key = String(role || '').toLowerCase();
         const target = this.getPermissionGroupByKey(companyId, key);
         if (!target) return;
@@ -6501,7 +6513,7 @@ export class DataStore {
             'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
           )
           .run(userId, companyId, target.id);
-        this.authz.syncMainAssignment(userId, companyId);
+        this.authz.syncMainAssignment(userId, companyId, null, { replaceCustom });
       });
       this.bumpAuthzVersionInTrx();
     }
@@ -6719,26 +6731,6 @@ export class DataStore {
       | undefined;
   }
 
-  updatePermissionGroup(
-    id: string,
-    updates: { name?: string; nameAr?: string; description?: string },
-  ): void {
-    const existing = this.getPermissionGroupById(id);
-    if (!existing) return;
-    const trx = this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE permission_groups SET name = ?, nameAr = ?, description = ? WHERE id = ?')
-        .run(
-          updates.name ?? existing.name,
-          updates.nameAr ?? existing.nameAr,
-          updates.description ?? existing.description,
-          id,
-        );
-      this.bumpAuthzVersionInTrx();
-    });
-    trx();
-  }
-
   /**
    * Keys of built-in groups an administrator deleted in this company.
    *
@@ -6759,18 +6751,6 @@ export class DataStore {
   /** Whether a role can still be assigned in a company: its built-in group was not deleted. */
   isRoleAvailable(companyId: string, role: string): boolean {
     return !this.deletedBuiltInGroupKeys(companyId).has(String(role).toLowerCase());
-  }
-
-  /** Names of the groups that inherit from this one, whose members would lose access if it went. */
-  listGroupsInheriting(groupId: string): string[] {
-    return (this.db
-      .prepare(
-        `SELECT pg.name FROM group_implications gi
-           JOIN permission_groups pg ON pg.id = gi.parentGroupId
-          WHERE gi.childGroupId = ?
-          ORDER BY pg.name`,
-      )
-      .all(groupId) as Array<{ name: string }>).map((row) => row.name);
   }
 
   deletePermissionGroup(id: string): void {
@@ -6802,31 +6782,6 @@ export class DataStore {
         .prepare('SELECT module, action FROM group_permissions WHERE groupId = ? ORDER BY module, action')
         .all(groupId) as Array<{ module: string; action: string }>
     ).map((r) => `${r.module}:${r.action}`);
-  }
-
-  /** Alias used where the caller is reasoning about a hypothetical assignment. */
-  listGroupPermissionKeys(groupId: string): string[] {
-    return this.listGroupPermissions(groupId);
-  }
-
-  listGroupImplications(parentGroupId: string): string[] {
-    return (
-      this.db
-        .prepare('SELECT childGroupId FROM group_implications WHERE parentGroupId = ?')
-        .all(parentGroupId) as Array<{ childGroupId: string }>
-    ).map((r) => r.childGroupId);
-  }
-
-  setGroupImplications(parentGroupId: string, childGroupIds: string[]): void {
-    const trx = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM group_implications WHERE parentGroupId = ?').run(parentGroupId);
-      const insert = this.db.prepare(
-        'INSERT OR IGNORE INTO group_implications (parentGroupId, childGroupId) VALUES (?, ?)',
-      );
-      childGroupIds.forEach((childId) => insert.run(parentGroupId, childId));
-      this.bumpAuthzVersionInTrx();
-    });
-    trx();
   }
 
   countGroupMembers(groupId: string): number {
@@ -7131,7 +7086,18 @@ export class DataStore {
       ? `${after.role}|${after.companyRoles ?? after.companyIds}`
       : roleSignatureBefore;
     if (roleSignatureAfter !== roleSignatureBefore) {
-      this.syncUserGroupAssignments(userId);
+      // The companies whose legacy role itself changed (not just a position).
+      // Read as the sync reads them: companyRoles, else companyIds with role.
+      const roleOf = (row: { role: string; companyRoles: string | null; companyIds: string }) => {
+        const list = this.parseJson<Array<{ companyId: string; role: string }>>(row.companyRoles) || [];
+        return new Map(list.length
+          ? list.map((r) => [r.companyId, String(r.role)] as const)
+          : (this.parseJson<string[]>(row.companyIds) || []).map((id) => [id, String(row.role)] as const));
+      };
+      const beforeRoles = roleOf(existing);
+      const afterRoles = roleOf(after!);
+      const roleChanged = new Set([...afterRoles].filter(([id, role]) => beforeRoles.get(id) !== role).map(([id]) => id));
+      this.syncUserGroupAssignments(userId, roleChanged);
     }
     return this.getUserById(userId);
   }

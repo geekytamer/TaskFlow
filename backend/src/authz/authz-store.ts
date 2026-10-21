@@ -7,8 +7,8 @@
  *   a group-level role; companyId is then null), needsReview, convertedAt.
  * - role_permissions(groupId, key, scope, limitAmount) = a role's grants in
  *   catalogue keys. A separate table, not new columns on group_permissions:
- *   the legacy module:action rows keep answering today's readers (lock-out
- *   guard, /auth/permissions, authz:compare) until the switch-over
+ *   the legacy module:action rows keep answering today's reader
+ *   (/auth/permissions) until the switch-over
  *   (1b) removes them, and the two key spaces collide on the old primary key
  *   ('inventory:post' vs 'inventory.post').
  * - role_fields(groupId, field, canView, canEdit).
@@ -526,8 +526,14 @@ export class AuthzStore {
    * add-on. Legacy remains the truth during shadow, so the main assignment
    * follows it. Returns whether anything changed.
    */
-  syncMainAssignment(userId: string, companyId: string, actorId: string | null = null): boolean {
+  syncMainAssignment(
+    userId: string, companyId: string, actorId: string | null = null,
+    options: { replaceCustom?: boolean } = {},
+  ): boolean {
     if (!this.ready()) return false;
+    // A custom main role is the People screen's choice, not the legacy role's:
+    // only a change of the legacy role itself (replaceCustom) moves it.
+    if (!options.replaceCustom && this.hasCustomMain(userId, companyId)) return false;
     const legacyKey = this.legacyRoleKey(userId, companyId);
     const target = legacyKey
       ? (this.db.prepare('SELECT id FROM permission_groups WHERE companyId = ? AND key = ? AND isSystem = 1').get(companyId, legacyKey) as { id: string } | undefined)
@@ -546,6 +552,39 @@ export class AuthzStore {
     this.db.prepare('UPDATE user_group_assignments SET isMain = 0 WHERE userId = ? AND companyId = ?').run(userId, companyId);
     this.db.prepare('UPDATE user_group_assignments SET isMain = 1 WHERE userId = ? AND companyId = ? AND groupId = ?').run(userId, companyId, target.id);
     return this.changed({ companyId, actorUserId: actorId, entity: 'assignments', entityId: userId, before, after: this.assignmentShape(userId, companyId) });
+  }
+
+  /** Whether the person's direct main role in the company is a custom (non-standard) role. */
+  hasCustomMain(userId: string, companyId: string): boolean {
+    if (!this.ready()) return false;
+    return Boolean(this.db
+      .prepare(`SELECT 1 FROM user_group_assignments uga JOIN permission_groups pg ON pg.id = uga.groupId
+                 WHERE uga.userId = ? AND uga.companyId = ? AND uga.isMain = 1 AND uga.viaHoldingGroupId IS NULL
+                   AND pg.isSystem = 0 AND pg.holdingGroupId IS NULL`)
+      .get(userId, companyId));
+  }
+
+  /**
+   * The legacy role (Admin/Manager/...) a person's main role in a company
+   * stands for under v2: their direct main standard role (Owner stands for
+   * Admin), else the main role of an active group assignment covering the
+   * company. Undefined for a custom main role or none.
+   */
+  mainLegacyRole(userId: string, companyId: string, now: number = Date.now()): string | undefined {
+    if (!this.ready()) return undefined;
+    const toLegacy = (key: string | undefined) => {
+      const k = String(key ?? '').replace(/^group:/, '');
+      return k === 'owner' ? 'Admin' : LEGACY_ROLE_KEYS.has(k) ? k[0].toUpperCase() + k.slice(1) : undefined;
+    };
+    const direct = this.db
+      .prepare(`SELECT pg.key, pg.isSystem, pg.holdingGroupId, uga.startsAt, uga.endsAt FROM user_group_assignments uga
+                  JOIN permission_groups pg ON pg.id = uga.groupId
+                 WHERE uga.userId = ? AND uga.companyId = ? AND uga.isMain = 1 AND uga.isActive = 1 AND uga.viaHoldingGroupId IS NULL`)
+      .get(userId, companyId) as { key: string; isSystem: number; holdingGroupId: string | null; startsAt: string | null; endsAt: string | null } | undefined;
+    if (direct && activeNow(direct.startsAt, direct.endsAt, now)) return direct.isSystem ? toLegacy(direct.key) : undefined;
+    const viaGroup = this.holdingAssignmentsFor(userId)
+      .find((h) => h.isMain && h.companyIds.includes(companyId) && activeNow(h.startsAt, h.endsAt, now));
+    return viaGroup ? toLegacy(viaGroup.roleKey) : undefined;
   }
 
   /** The legacy role key (admin/manager/...) a person holds in a company, from users.companyRoles. */

@@ -120,8 +120,8 @@ const PROBES = [
   ['ADMINISTRATION', 'add a Manager', async (c, x, role) => (await c.post('/users', {
     name: `Manager by ${role}`, email: `manager.${role.toLowerCase()}@parity.test`, password: 'password', role: 'Manager', companyRoles: [{ companyId: COMPANY, role: 'Manager' }],
   })).status === 201],
-  ['ADMINISTRATION', 'create a permission group', async (c, x, role) => (await c.post(`/companies/${COMPANY}/permission-groups`, { name: `Parity ${role}` })).status === 201],
-  ['GROUPS_READ', 'list permission groups', async (c) => (await c.get(`/companies/${COMPANY}/permission-groups`)).status === 200],
+  ['ADMINISTRATION', 'create a role', async (c, x, role) => (await c.post(`/companies/${COMPANY}/roles`, { name: `Parity ${role}`, grants: [], fields: [] })).status === 201],
+  ['GROUPS_READ', 'list roles', async (c) => (await c.get(`/companies/${COMPANY}/roles`)).status === 200],
 ];
 
 const outcomes = {};

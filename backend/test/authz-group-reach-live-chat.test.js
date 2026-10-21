@@ -100,3 +100,17 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.equal(theirs.body.messages.at(-1).body, 'hello group');
   });
 }
+
+test('v2: a write by a group-only person signals the company they reach through the group', async (t) => {
+  const { server, store, admin, groupPerson, token } = setup('v2');
+  const stream = await openStream(server, token(admin.id));
+  t.after(() => stream.close());
+  assert.equal(stream.status, 200);
+  await wait(50);
+  const project = store.listProjects().find((p) => p.companyId === '1');
+  const res = await request(server).post('/tasks').set('Authorization', `Bearer ${token(groupPerson.id)}`)
+    .send({ title: 'From the group', projectId: project.id, companyId: '1', status: 'To Do', priority: 'Medium' });
+  assert.ok(res.status < 300, JSON.stringify(res.body));
+  await wait(100);
+  assert.ok(stream.events.some((e) => e.topics.includes('tasks')), JSON.stringify(stream.events));
+});

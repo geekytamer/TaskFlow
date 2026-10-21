@@ -672,14 +672,6 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/users', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'ungated in the matrix; handler: USERS_WRITE in every company of the assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles)' },
   { method: 'PUT', path: '/users/:id', permission: 'per_record', note: 'self (own profile), or USERS_WRITE (people.manage) in every company of the target and of the new assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles)' },
   { method: 'DELETE', path: '/users/:id', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'ungated in the matrix; handler: USERS_WRITE in every company of the target (a super admin target needs the super admin)' },
-  { method: 'GET', path: '/companies/:companyId/permission-groups', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
-  { method: 'POST', path: '/companies/:companyId/permission-groups', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
-  { method: 'PATCH', path: '/permission-groups/:id', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
-  { method: 'DELETE', path: '/permission-groups/:id', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
-  { method: 'PUT', path: '/permission-groups/:id/permissions', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
-  { method: 'PUT', path: '/permission-groups/:id/implications', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
-  { method: 'GET', path: '/companies/:companyId/users/:userId/groups', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
-  { method: 'PUT', path: '/companies/:companyId/users/:userId/groups', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
   // Roles and people API (authz/routes.ts); the super admin manages any company.
   { method: 'GET', path: '/companies/:companyId/roles', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
   { method: 'POST', path: '/companies/:companyId/roles', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); no higher than me: the role may not give more than the caller holds' },
@@ -811,9 +803,8 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
  */
 export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
   // Action rules
-  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users, permission-group routes); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/permissions/routes.ts': 6, 'src/routes/approvals.ts': 1 } },
+  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 1 } },
   USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5 } },
-  GROUPS_READ: { becomes: 'people.view_roles', sites: { 'src/permissions/routes.ts': 2 } },
   GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },
   PORTAL_ACCESS_MANAGE: { becomes: 'portal.* / influencers.review (portal staff router gate)', sites: { 'src/server.ts': 1 } },

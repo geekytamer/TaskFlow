@@ -307,13 +307,9 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.equal(notified(), false);
     assert.equal((await as(root).del(`/holding-groups/${other}/companies/1`)).status, 404, 'not in that group');
 
-    // The copy is read-only to the company, also through the legacy group routes.
+    // The copy exists in the company (read-only there; the old group routes are gone).
     const copy = store.authz.listRoles('1').find((r) => r.key === 'group:owner');
     assert.ok(copy);
-    assert.equal((await as(companyAdmin).put(`/permission-groups/${copy.id}/permissions`, { permissions: [] })).status, 403);
-    assert.equal((await as(companyAdmin).del(`/permission-groups/${copy.id}`)).status, 403);
-    const legacyList = await as(companyAdmin).get('/companies/1/permission-groups');
-    assert.ok(!legacyList.body.some((r) => r.id === copy.id), 'legacy screen does not list group copies');
 
     // Templates: read, edit, push.
     const tpl = await as(dana).get(`/holding-groups/${g}/templates/owner`);

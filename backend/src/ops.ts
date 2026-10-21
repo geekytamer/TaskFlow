@@ -23,7 +23,8 @@ Commands:
   delete-company <id>          Delete a company and all its data (requires --force)
   authz:repair                 Re-seed missing permission groups and user assignments
   authz:status                 Show the permissions engine, authz version and logged shadow divergences
-  authz:compare                Compare role-only rules with what each member's groups grant (read-only)
+  authz:compare [--days N]     Summarise shadow divergences (authz_divergence) of the last N days
+                               (default 7): by route, key and company, newest first (read-only)
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
@@ -150,48 +151,64 @@ async function authzStatus() {
 }
 
 /**
- * For every member of every company, compares what the role-only rules allowed
- * with what the member's groups grant now (permissions/record-rules.ts).
- *
- * Differences are expected only where someone changed a person's groups by
- * hand, or for super-admins, whom the authorization model grants everything in
- * their companies. Anything else is a bug. Read-only; prints user and company
- * ids, never names or contact details.
+ * The shadow-week tool: summarises authz_divergence (every request where the
+ * v2 answer differed from the legacy one) since N days ago (--days, default
+ * 7): counts by route, by permission key and by company, then the newest
+ * disagreements. Read-only; prints user and company ids, never names or
+ * contact details.
  */
 async function authzCompare() {
-  const { RECORD_RULES } = await import('./permissions/record-rules');
-  const { getEffectiveRole } = await import('./http');
-  const store = new DataStore({ dbPath, seedOnEmpty: false });
-  const companies = store.listCompanies();
-  const users = store.listUsers();
-  let memberships = 0;
-  let decisions = 0;
-  const byMember = new Map<string, string[]>();
-  for (const company of companies) {
-    for (const user of users) {
-      const role = getEffectiveRole(user, company.id);
-      if (!role) continue;
-      memberships += 1;
-      const held = new Set(store.getEffectivePermissions(user.id, company.id));
-      const superAdmin = Boolean(user.isSuperAdmin);
-      for (const [name, rule] of Object.entries(RECORD_RULES)) {
-        decisions += 1;
-        const roleAllows = (rule.roles as readonly string[]).includes(role);
-        const groupsAllow = superAdmin || held.has(`${rule.module}:${rule.action}`);
-        if (roleAllows === groupsAllow) continue;
-        const groups = store.listUserGroupAssignments(user.id, company.id).map((g) => g.key).sort().join('+') || '(none)';
-        const key = `company ${company.id}  user ${user.id}  role ${role}${superAdmin ? '  super-admin' : ''}  groups ${groups}`;
-        byMember.set(key, [...(byMember.get(key) ?? []), `${name} (${roleAllows ? 'role allowed, groups deny' : 'role denied, groups allow'})`]);
-      }
-    }
+  const daysAt = args.indexOf('--days');
+  const days = daysAt >= 0 ? Number(args[daysAt + 1]) : 7;
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('Usage: npm run ops -- authz:compare [--days N]   (N > 0, default 7)');
+    process.exitCode = 1;
+    return;
   }
-  const differences = [...byMember.values()].reduce((sum, list) => sum + list.length, 0);
   console.log(`Database: ${dbPath}`);
-  console.log(`Companies: ${companies.length}  memberships: ${memberships}  rule decisions compared: ${decisions}`);
-  console.log(`Differences: ${differences} across ${byMember.size} membership(s)`);
-  for (const [member, rules] of byMember) {
-    console.log(`  ${member}`);
-    rules.forEach((line) => console.log(`      ${line}`));
+  if (!fs.existsSync(dbPath)) {
+    console.log('Exists: no');
+    return;
+  }
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const table = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'authz_divergence'`).get();
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    console.log(`Since: ${since} (last ${days} days)`);
+    if (!table) {
+      console.log('Divergences: 0 (no authz_divergence table yet)');
+      return;
+    }
+    const rows = db
+      .prepare(`SELECT userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt
+                  FROM authz_divergence WHERE observedAt >= ? ORDER BY observedAt DESC, id DESC`)
+      .all(since) as Array<{
+        userId: string; companyId: string; module: string; action: string; route: string;
+        legacyAllowed: number; openfgaAllowed: number; observedAt: string;
+      }>;
+    console.log(`Divergences: ${rows.length}`);
+    if (!rows.length) return;
+    const keyOf = (r: { module: string; action: string }) => (r.module === 'field' ? `field:${r.action}` : `${r.module}.${r.action}`);
+    const answer = (r: { legacyAllowed: number; openfgaAllowed: number }) =>
+      `legacy ${r.legacyAllowed ? 'allow' : 'deny'}, v2 ${r.openfgaAllowed ? 'allow' : 'deny'}`;
+    const section = (title: string, label: (r: (typeof rows)[number]) => string) => {
+      const counts = new Map<string, number>();
+      rows.forEach((r) => counts.set(label(r), (counts.get(label(r)) ?? 0) + 1));
+      console.log(`\nBy ${title}:`);
+      [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .forEach(([name, n]) => console.log(`  ${String(n).padStart(6)}  ${name}`));
+    };
+    section('route', (r) => r.route);
+    section('permission key', keyOf);
+    section('company', (r) => r.companyId);
+    section('answer', answer);
+    const limit = 20;
+    console.log(`\nNewest ${Math.min(limit, rows.length)}:`);
+    rows.slice(0, limit).forEach((r) => console.log(
+      `  ${r.observedAt}  company ${r.companyId}  user ${r.userId}  ${r.route}  ${keyOf(r)}  (${answer(r)})`,
+    ));
+  } finally {
+    db.close();
   }
 }
 

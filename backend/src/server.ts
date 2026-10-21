@@ -25,6 +25,7 @@ import {
 import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
 import { visible, type VisibleArea, type VisibleOptions } from './authz/visible';
 import { can, scopeOf } from './authz/can';
+import { beyond, permissionLabel } from './authz/describe';
 import { canEditField, canViewField, fieldsWritten, mask, maskActivity, type MaskEntity, type MaskOptions, type SensitiveField } from './authz/mask';
 import type { FieldOpts } from './routes/context';
 import { routeDecl, type RouteDecl } from './authz/route-registry';
@@ -940,7 +941,8 @@ export function createServer(options: CreateServerOptions = {}) {
     res.on('finish', () => {
       const user = (req as AuthedRequest).user;
       if (!user || res.statusCode >= 400) return;
-      const accessible = getAccessibleCompanyIds(user);
+      // Under v2 a person reached through a group publishes for that company too.
+      const accessible = accessibleCompanyIds(user);
       const companyId = pathCompany ?? companyIn(req.body) ?? companyIn(answered) ?? before
         ?? (accessible.length === 1 ? accessible[0] : undefined);
       if (companyId && accessible.includes(companyId)) liveHub.publish({ companyId, topics });
@@ -1426,6 +1428,8 @@ export function createServer(options: CreateServerOptions = {}) {
    * Runs a change that may raise what a client owes, refusing it (409
    * CREDIT_LIMIT_EXCEEDED) if it takes them past their credit limit. Someone
    * allowed to override sends `overrideCreditLimit: true` to go ahead.
+   * `change` must stay database-only (no emails, pushes, live signals or other
+   * side effects): it may run twice, and the first, refused run is rolled back.
    */
   const creditGuard = <T>(req: AuthedRequest, companyId: string, clientId: string | undefined | null, change: () => T): T => {
     // invoices.override_credit may carry a limit: the most it lets a client go
@@ -1796,6 +1800,28 @@ export function createServer(options: CreateServerOptions = {}) {
         'Only company admins can assign Admin, Manager, or Accountant roles in that company.',
         { code: 'ROLE_ASSIGN_FORBIDDEN' },
       );
+    }
+  };
+
+  /**
+   * v2: giving someone a standard role through the user form follows the
+   * People screen's rule, no higher than me, against that role's grants
+   * (authz/routes.ts requireWithin). Legacy and shadow: unchanged.
+   */
+  const assertRolesWithin = (req: AuthedRequest, assignments: CompanyRoleAssignment[]) => {
+    if (engine !== 'v2' || req.user!.isSuperAdmin) return;
+    for (const assignment of assignments) {
+      const role = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
+      if (!role) continue;
+      const content = store.authz.roleContent(role.id);
+      const missing = beyond(viewerOf(req).byCompany.get(assignment.companyId), content.grants, content.fields);
+      if (missing.length) {
+        throw new HttpError(
+          403,
+          `You can't give permissions you don't have yourself: ${missing.map((k) => permissionLabel(k).en).join('; ')}.`,
+          { code: 'HIGHER_THAN_YOU', permission: missing[0], missing },
+        );
+      }
     }
   };
 
@@ -2991,6 +3017,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const payload = parseUserPayload(req.body);
       assertNoForeignPractice(null, [...(payload.companyIds ?? []), ...payload.companyRoles!.map((a) => a.companyId)]);
       assertUserManagementPermission(req, payload.companyRoles!);
+      assertRolesWithin(req, payload.companyRoles!);
       assertRolesAvailable(payload.companyRoles!);
       // Only an existing super-admin may grant the super-admin flag.
       const isSuperAdmin =
@@ -3143,7 +3170,11 @@ export function createServer(options: CreateServerOptions = {}) {
           (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
         ),
       );
-      const updated = store.updateUser(req.params.id, {
+      const roleChanges = targetAssignments.filter(
+        (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
+      );
+      assertRolesWithin(req, roleChanges);
+      const write = () => store.updateUser(req.params.id, {
         ...safePayload,
         companyIds: req.user!.isSuperAdmin && payload.companyIds
           ? payload.companyIds
@@ -3151,6 +3182,25 @@ export function createServer(options: CreateServerOptions = {}) {
         companyRoles: targetAssignments,
         role: payload.role || targetAssignments[0]?.role || existing.role,
       });
+      // v2: a role given here is the person's main role in that company (a
+      // custom main role is replaced; add-ons stay), and companyRoles, written
+      // above, matches it. Legacy and shadow keep the legacy sync's answer.
+      const updated = engine === 'v2'
+        ? store.transaction(() => {
+          const prior = new Map(roleChanges.map((a) => [a.companyId, store.authz.assignments(existing.id, a.companyId)]));
+          const out = write();
+          if (!out) return out;
+          for (const assignment of roleChanges) {
+            const main = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
+            if (!main) continue;
+            const addOnRoleIds = (prior.get(assignment.companyId) ?? [])
+              .filter((r) => !r.isMain && !r.viaHoldingGroupId && !r.endsAt && r.roleId !== main.id && !store.authz.getRole(r.roleId)?.isSystem)
+              .map((r) => r.roleId);
+            store.authz.setAssignments(existing.id, assignment.companyId, { mainRoleId: main.id, addOnRoleIds }, req.user!.id);
+          }
+          return store.getUserById(existing.id) ?? out;
+        })
+        : write();
       if (!updated) throw new HttpError(404, 'User not found.');
       res.json(updated);
     }),
@@ -7753,7 +7803,12 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
-      if (!getEffectiveRole(req.user!, req.params.companyId)) {
+      // v2: company access and the declared dashboard.view decide, so a
+      // person reached through a group gets in. Legacy/shadow: a role here.
+      const companyRole = engine === 'v2'
+        ? store.authz.mainLegacyRole(req.user!.id, req.params.companyId)
+        : getEffectiveRole(req.user!, req.params.companyId) ?? undefined;
+      if (engine !== 'v2' && !companyRole) {
         throw new HttpError(403, 'You do not have a role in this company.');
       }
       // The variant follows permissions: operations and finance together is
@@ -7765,7 +7820,7 @@ export function createServer(options: CreateServerOptions = {}) {
         ? 'Admin'
         : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
       res.json(store.getDashboardPayload(req.params.companyId, {
-        userId: req.user!.id, role: variant, companyRole: getEffectiveRole(req.user!, req.params.companyId) ?? undefined,
+        userId: req.user!.id, role: variant, companyRole,
         visibleTo: viewerOf(req),
       }));
     }),

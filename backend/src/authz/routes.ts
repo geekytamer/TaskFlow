@@ -1,7 +1,7 @@
 /**
  * Roles, people and my-permissions API (spec §5; Task 9). Replaces
- * permissions/routes.ts once the frontend moves over (Tasks 10/11); the old
- * /auth/permissions and permission-groups routes keep working until then.
+ * permissions/routes.ts: the old permission-group routes are gone (final
+ * review); /auth/permissions stays until 1b.
  *
  * - GET /me/permissions?companyId= — what I may do there, as the server
  *   decides it: legacy/shadow send the legacy-equivalent grants (Ruling D),

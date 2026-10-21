@@ -87,6 +87,9 @@ test('every rule declared is enforced somewhere', () => {
   for (const [name, rule] of Object.entries(RECORD_RULES)) {
     const byVisible = 'keys' in rule.v2 && rule.v2.min === 'company' && rule.action.endsWith('.read') && visibleKeys.has(rule.v2.keys[0]);
     const byMask = 'fields' in rule.v2 && rule.v2.fields.every((f) => maskedFields.has(f));
-    assert.ok(byVisible || byMask || enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
+    // GROUPS_READ's routes (the old permission-group reads) are gone; its key
+    // gates the roles and people reads in authz/routes.ts.
+    const byPeopleGate = name === 'GROUPS_READ' && read('authz', 'routes.ts').includes("'people.view_roles'");
+    assert.ok(byVisible || byMask || byPeopleGate || enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
   }
 });
