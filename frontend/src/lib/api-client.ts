@@ -41,18 +41,22 @@ export function setCreditLimitPrompt(prompt: typeof creditLimitPrompt) {
 }
 
 /**
- * Turns a 403 FORBIDDEN body into one translated sentence naming what is
- * missing and who to ask, and shows it. Registered once by the app (see
- * ForbiddenBridge). Without it the server's own message is kept.
+ * Turns a refusal body (403 FORBIDDEN and the other coded refusals: see
+ * lib/forbidden-message.ts) into one translated sentence, and shows it.
+ * Registered once by the app (see ForbiddenBridge). `describe` answers null
+ * for a body it does not know; the server's own message is kept then.
  */
 export interface ForbiddenHandler {
-  describe: (body: { code: 'FORBIDDEN'; permission?: string | null; message?: string }) => string;
+  describe: (body: { code: string; [key: string]: unknown }) => string | null;
   notify: (sentence: string) => void;
 }
 let forbiddenHandler: ForbiddenHandler | null = null;
 export function setForbiddenHandler(handler: ForbiddenHandler | null) {
   forbiddenHandler = handler;
 }
+
+/** What a data change event carries: the request that changed data. */
+export interface DataChangedDetail { method: string; path: string }
 
 /** Fired on window after any request that changed data succeeds. */
 export const DATA_CHANGED_EVENT = 'taskflow:data-changed';
@@ -133,20 +137,23 @@ export async function apiFetch<T>(
         return apiFetch<T>(path, { ...options, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
       }
     }
-    const forbidden = details as { code?: string; permission?: string | null; message?: string } | undefined;
-    if (response.status === 403 && forbidden?.code === 'FORBIDDEN' && forbiddenHandler) {
-      message = forbiddenHandler.describe({ ...forbidden, code: 'FORBIDDEN' });
-      // An action the person tried: say so at once. A refused read stays quiet
-      // (the screen hides what it cannot show) but carries the same sentence.
-      const method = (options.method || 'GET').toUpperCase();
-      if (method !== 'GET' && method !== 'HEAD') forbiddenHandler.notify(message);
+    const coded = details as { code?: unknown } | undefined;
+    if ((response.status === 403 || response.status === 409) && typeof coded?.code === 'string' && forbiddenHandler) {
+      const sentence = forbiddenHandler.describe({ ...(details as Record<string, unknown>), code: coded.code });
+      if (sentence) {
+        message = sentence;
+        // An action the person tried: say so at once. A refused read stays quiet
+        // (the screen hides what it cannot show) but carries the same sentence.
+        const method = (options.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD') forbiddenHandler.notify(sentence);
+      }
     }
     throw new ApiError(response.status, message, details);
   }
 
   const method = (options.method || 'GET').toUpperCase();
   if (method !== 'GET' && method !== 'HEAD' && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
+    window.dispatchEvent(new CustomEvent<DataChangedDetail>(DATA_CHANGED_EVENT, { detail: { method, path } }));
   }
 
   if (response.status === 204) {

@@ -143,7 +143,7 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
     const companyId = typeof req.query.companyId === 'string' ? req.query.companyId : '';
     if (!companyId) throw new HttpError(400, 'companyId is required.');
     const reaches = accessibleCompanyIds(user).includes(companyId);
-    if (!reaches && !user.isSuperAdmin) throw new HttpError(403, 'You do not have access to this company.');
+    if (!reaches && !user.isSuperAdmin) throw new HttpError(403, 'You do not have access to this company.', { code: 'NO_COMPANY_ACCESS' });
     requireCompany(companyId);
     const company = viewerOf(req).byCompany.get(companyId);
     res.json({

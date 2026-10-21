@@ -71,9 +71,9 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
 
   // In the selected company: managing users is people.manage; changing someone
   // above Employee also needs people.manage_roles (the server's rule for PUT /users).
-  const { can } = usePermissions();
-  const canManageUsersHere = can('people.manage');
-  const canAssignElevatedRolesHere = can('people.manage_roles');
+  const { canAdmin } = usePermissions();
+  const canManageUsersHere = canAdmin('people.manage');
+  const canAssignElevatedRolesHere = canAdmin('people.manage_roles');
 
   const fetchData = React.useCallback(async () => {
       // Without a company only the platform administrator lists everyone.

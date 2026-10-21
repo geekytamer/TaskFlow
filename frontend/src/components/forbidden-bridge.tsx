@@ -3,14 +3,14 @@
 import * as React from 'react';
 import { useI18n } from '@/context/i18n-context';
 import { getStoredToken, setForbiddenHandler } from '@/lib/api-client';
-import { forbiddenSentence, labelsFromCatalogue, type CatalogueLabels } from '@/lib/forbidden-message';
+import { labelsFromCatalogue, refusalSentence, type CatalogueLabels } from '@/lib/forbidden-message';
 import { showRefusalToast } from '@/hooks/use-toast';
 import { fetchCatalogue } from '@/services/permissionService';
 
 /**
- * A refused action (403 FORBIDDEN) shows one translated sentence naming what
- * was missing and who to ask, built from the catalogue label of the refused
- * permission. Registered once by the app; api-client calls it.
+ * A refused action (403 FORBIDDEN, and the other coded refusals) shows one
+ * translated sentence naming what was missing and who to ask, built from the
+ * catalogue label of the refused permission. Registered once by the app; api-client calls it.
  */
 export function ForbiddenBridge() {
   const { language } = useI18n();
@@ -40,7 +40,7 @@ export function ForbiddenBridge() {
   React.useEffect(() => {
     const lang = language === 'ar' ? 'ar' : 'en';
     setForbiddenHandler({
-      describe: (body) => forbiddenSentence(body, labels.current, lang),
+      describe: (body) => refusalSentence(body, labels.current, lang),
       notify: (sentence) => {
         showRefusalToast({
           variant: 'destructive',

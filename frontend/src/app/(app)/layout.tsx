@@ -35,6 +35,7 @@ import { NotificationBell } from '@/modules/layout/components/notification-bell'
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { ModuleGate } from '@/modules/companies/components/module-gate';
+import { PermissionsErrorNotice } from '@/components/permissions-error';
 import { isImpersonating } from '@/services/adminService';
 import { Search } from 'lucide-react';
 
@@ -121,6 +122,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <StagingBanner />
         <ImpersonationBanner />
         <PracticeBanner />
+        <PermissionsErrorNotice />
         <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b bg-background/80 px-3 backdrop-blur-sm sm:px-6 md:h-16">
           {/* Phones: the brand here, the menu in the bottom bar's "More". */}
           <BrandMark className="md:hidden" logoClassName="h-7 w-7" nameClassName="font-headline text-base font-bold text-primary" />

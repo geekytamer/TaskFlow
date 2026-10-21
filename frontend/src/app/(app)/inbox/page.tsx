@@ -15,8 +15,11 @@ import { TeamChatPage } from '@/modules/teamchat/components/team-chat-page';
  */
 function InboxSides() {
   const params = useSearchParams();
-  const { can, moduleOn } = usePermissions();
+  const { can, moduleOn, loading } = usePermissions();
   const canClients = can(INBOX_PERMISSION) && moduleOn('contacts');
+  // Which side opens depends on the permissions: wait for them, or a person
+  // with client conversations would land on staff chats first.
+  if (loading) return null;
   const team = params.get('tab') === 'team' || params.has('team') || !canClients;
   return team ? <TeamChatPage showClients={canClients} /> : <InboxPage />;
 }

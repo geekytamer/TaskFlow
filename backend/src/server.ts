@@ -1346,7 +1346,7 @@ export function createServer(options: CreateServerOptions = {}) {
       () => 'company.access',
     );
     if (!allowed) {
-      throw new HttpError(403, 'You do not have access to this company.');
+      throw new HttpError(403, 'You do not have access to this company.', { code: 'NO_COMPANY_ACCESS' });
     }
     requireAcademyUnlocked(req, companyId);
     requireDeclaredKey(req, companyId);

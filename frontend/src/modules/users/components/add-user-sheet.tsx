@@ -114,11 +114,12 @@ export function AddUserSheet({
   const selectedCompanyIds = form.watch('companyIds');
 
   // people.manage_roles gives every role; people.manage alone gives only Employee.
-  // On the platform console (no company) the platform administrator gives any role.
-  const { can } = usePermissions();
+  // The platform administrator passes both (canAdmin, Ruling R), and on the
+  // platform console, where no company is selected, they decide alone.
+  const { canAdmin } = usePermissions();
   const platformAdmin = scope === 'platform' && Boolean(currentUser?.isSuperAdmin);
-  const canAssignElevatedRoles = can('people.manage_roles') || platformAdmin;
-  const canManageUsers = can('people.manage') || platformAdmin;
+  const canAssignElevatedRoles = canAdmin('people.manage_roles') || platformAdmin;
+  const canManageUsers = canAdmin('people.manage') || platformAdmin;
   const availableRoles = React.useMemo((): UserRole[] => {
     if (canAssignElevatedRoles) return allUserRoles;
     if (canManageUsers) return ['Employee'];
@@ -193,7 +194,7 @@ export function AddUserSheet({
    * is saved; untouched companies are left to the server, which assigns the
    * role's built-in group and keeps custom groups.
    */
-  const canAssignGroups = canAssignElevatedRoles || Boolean(currentUser?.isSuperAdmin);
+  const canAssignGroups = canAssignElevatedRoles;
   const [selectedGroups, setSelectedGroups] = React.useState<Record<string, string[]>>({});
   const [groupsTouched, setGroupsTouched] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => {
@@ -244,7 +245,6 @@ export function AddUserSheet({
     if (canChooseCompanies) return companies;
     if (!selectedCompany) return [];
     const current = companies.find((company) => company.id === selectedCompany.id) ?? selectedCompany;
-    if (currentUser.isSuperAdmin) return [current];
     return canManageUsers ? [current] : [];
   }, [canChooseCompanies, companies, currentUser, selectedCompany, canManageUsers]);
 

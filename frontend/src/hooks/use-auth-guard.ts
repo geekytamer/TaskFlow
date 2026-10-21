@@ -7,6 +7,7 @@ import { useCurrentUser } from './use-current-user';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissionsOptional } from '@/context/permissions-context';
+import { guardDecision } from '@/lib/guard-decision';
 
 /**
  * Signs the person in, and with `permission` (a catalogue key such as
@@ -29,12 +30,14 @@ export function useAuthGuard(permission?: string) {
     user?.role;
 
   const permissions = usePermissionsOptional();
-  const ready = Boolean(permissions?.ready);
-  const allows = Boolean(permission && permissions?.can(permission));
-  // Waiting on the answer for this company; with no company there is nothing to wait for.
-  const waiting = Boolean(permission) && !ready && Boolean(selectedCompany) && permissions !== undefined;
-  const settled = !loading && !companyLoading && !waiting;
-  const denied = Boolean(permission) && settled && !allows;
+  const decision = guardDecision({
+    permission,
+    userLoading: loading,
+    companyLoading,
+    hasCompany: Boolean(selectedCompany),
+    permissions,
+  });
+  const { denied } = decision;
 
   // The deny action (warn + toast + redirect) must fire once, not on every
   // re-render before navigation completes.
@@ -62,9 +65,12 @@ export function useAuthGuard(permission?: string) {
 
   return {
     user,
-    loading: loading || companyLoading || waiting,
+    loading: decision.loading,
     effectiveRole,
     /** False when this user may not open the page (or the answer is not in yet). */
-    allowed: !permission || (settled && allows),
+    allowed: decision.allowed,
+    /** The permissions could not be loaded: PermissionsErrorNotice offers Retry; not a denial. */
+    permissionsError: decision.error,
+    retryPermissions: permissions?.refresh,
   };
 }

@@ -36,6 +36,19 @@ export interface MyPermissions {
 export const SENSITIVE_FIELDS = ['salary', 'personal_ids', 'bank_details', 'cost_prices', 'rate_cards', 'client_terms'] as const;
 export type SensitiveField = (typeof SENSITIVE_FIELDS)[number];
 
+/**
+ * The company surfaces the server opens to the platform super admin whatever
+ * their grants (Ruling R): the brand (PUT /companies/:id branding), roles and
+ * people (authz routes, permission groups), and user management
+ * (assertUserManagementPermission). Nothing else.
+ */
+export const SUPER_ADMIN_KEYS: ReadonlySet<string> = new Set([
+  'settings.edit_branding',
+  'people.view_roles',
+  'people.manage_roles',
+  'people.manage',
+]);
+
 const SCOPE_RANK: Record<Scope, number> = { own: 0, team: 1, company: 2, group: 3 };
 
 export interface Access {
@@ -47,6 +60,11 @@ export interface Access {
    * answers true to any scope.
    */
   can: (key: string, opts?: { scope?: Scope }) => boolean;
+  /**
+   * `can(key)`, or true for the platform super admin on the surfaces the
+   * server opens to them (SUPER_ADMIN_KEYS). Use it only for those surfaces.
+   */
+  canAdmin: (key: string) => boolean;
   /** True when any of the keys is held. */
   canAny: (...keys: string[]) => boolean;
   /** The widest scope held for `key`; undefined when it is not held or not scoped. */
@@ -79,6 +97,7 @@ export function buildAccess(feed: MyPermissions | null, fallbackDisabledModules:
     return {
       ready: false,
       can: () => false,
+      canAdmin: () => false,
       canAny: () => false,
       scopeOf: () => undefined,
       limitOf: () => undefined,
@@ -115,6 +134,7 @@ export function buildAccess(feed: MyPermissions | null, fallbackDisabledModules:
   return {
     ready: true,
     can,
+    canAdmin: (key) => can(key) || (superAdmin && SUPER_ADMIN_KEYS.has(key)),
     canAny: (...keys) => keys.some((k) => can(k)),
     scopeOf: (key) => grants.get(key)?.scope,
     limitOf: (key) => grants.get(key)?.limit,

@@ -57,6 +57,7 @@ import { useTeamUnread } from '@/modules/teamchat/use-team-unread';
 import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions } from '@/context/permissions-context';
 import { navAllowed } from '@/modules/layout/lib/nav-permissions';
+import { PermissionsErrorNotice } from '@/components/permissions-error';
 import { useAcademy } from '@/modules/academy/academy-context';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
@@ -162,7 +163,7 @@ const NAV_ITEMS = new Map(NAV_SECTIONS.flatMap((section) => section.items.map((i
 /** Who may see which menu entry, shared by the sidebar and the phone tab bar. */
 export function useNavAccess() {
   const { user, loading, effectiveRole } = useAuthGuard();
-  const { can, moduleOn, loading: permissionsLoading } = usePermissions();
+  const { canAdmin, moduleOn, loading: permissionsLoading } = usePermissions();
   const academy = useAcademy();
 
   /** Locked by an unfinished Academy mission (never inside the practice company). */
@@ -180,7 +181,8 @@ export function useNavAccess() {
     // A module the company switched off is hidden whatever the role.
     const itemModule = moduleForPath(item.href);
     if (itemModule && !moduleOn(itemModule)) return false;
-    return navAllowed(item.href, can);
+    // canAdmin: equals can(), plus the super admin's own surfaces (Ruling R).
+    return navAllowed(item.href, canAdmin);
   };
 
   return { ready: !loading && !!user && !permissionsLoading, effectiveRole, canSee, isLocked };
@@ -285,6 +287,7 @@ export function SidebarNav() {
 
   return (
     <div data-tutorial="sidebar-nav" className="flex flex-col gap-1">
+      <PermissionsErrorNotice compact />
       {NAV_SECTIONS.map((section) => {
         const visible = section.items.filter(canSeeItem);
         if (!visible.length) return null;

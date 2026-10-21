@@ -87,6 +87,19 @@ test('the super admin flag opens nothing by itself (the server decides by grants
   assert.equal(access.can('sales.view'), false);
 });
 
+test('canAdmin: can(), plus only the super admin surfaces for the platform administrator', () => {
+  const sa = buildAccess(feed({ superAdmin: true, grants: [] }));
+  for (const key of ['settings.edit_branding', 'people.manage_roles', 'people.view_roles', 'people.manage']) {
+    assert.equal(sa.canAdmin(key), true, key);
+  }
+  assert.equal(sa.canAdmin('sales.view'), false);
+  assert.equal(sa.canAdmin('settings.manage_approvals'), false);
+  const member = buildAccess(feed());
+  assert.equal(member.canAdmin('sales.view'), true);
+  assert.equal(member.canAdmin('people.manage_roles'), false);
+  assert.equal(buildAccess(null).canAdmin('people.manage_roles'), false);
+});
+
 test('modules and academy locks come from the answer', () => {
   const access = buildAccess(feed(), ['sales']);
   assert.equal(access.moduleOn('manufacturing'), false);
@@ -118,7 +131,7 @@ test('every literal can(...), useAuthGuard(...) and field(...) in the app names 
   let seen = 0;
   for (const file of sources(root)) {
     const text = readFileSync(file, 'utf8');
-    for (const m of text.matchAll(/\b(?:can|useCan|useAuthGuard)\('([a-z_-]+\.[a-z_]+)'/g)) {
+    for (const m of text.matchAll(/\b(?:can|canAdmin|useCan|useAuthGuard)\('([a-z_-]+\.[a-z_]+)'/g)) {
       seen++;
       if (!KEYS.has(m[1])) unknown.push(`${file}: ${m[1]}`);
     }

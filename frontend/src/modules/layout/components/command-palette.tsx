@@ -93,14 +93,14 @@ export function CommandPalette() {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { selectedCompany } = useCompany();
-  const { can, moduleOn } = usePermissions();
+  const { canAdmin, moduleOn } = usePermissions();
 
   /** Quick actions are shortcuts to pages, so they answer to the same rule as the menu. */
   const allowsHref = React.useCallback((href: string) => {
     const hrefModule = moduleForPath(href);
     if (hrefModule && !moduleOn(hrefModule)) return false;
-    return navAllowed(href, can);
-  }, [can, moduleOn]);
+    return navAllowed(href, canAdmin);
+  }, [canAdmin, moduleOn]);
 
   const quickActions = React.useMemo(() => ([
     { href: '/inbox', labelKey: 'cmdk.openInbox', icon: MessagesSquare },

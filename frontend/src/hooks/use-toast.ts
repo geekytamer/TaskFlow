@@ -147,21 +147,31 @@ type Toast = Omit<ToasterToast, "id">
 
 /**
  * A permission refusal toast (lib/forbidden-message.ts) was just shown. The
- * screen that made the call usually follows with its own generic error toast,
- * which would replace it (one toast at a time): for a moment, error toasts
- * other than the refusal itself are dropped.
+ * screen that made the call often follows with its own error toast carrying
+ * the same sentence (error.message), which would replace it (one toast at a
+ * time). For a moment, only that echo of the same failure is dropped; any
+ * other toast shows as usual.
  */
-let refusalShownUntil = 0
+let refusalEcho: { text: string; until: number } | null = null
 export function showRefusalToast(props: Toast, holdMs = 2500) {
-  refusalShownUntil = 0
+  refusalEcho = null
   const shown = toast(props)
-  refusalShownUntil = Date.now() + holdMs
+  if (typeof props.description === "string") {
+    refusalEcho = { text: props.description, until: Date.now() + holdMs }
+  }
   return shown
+}
+
+/** Whether a toast only repeats the refusal just shown. */
+export function isRefusalEcho(props: Pick<Toast, "title" | "description">, now = Date.now()): boolean {
+  if (!refusalEcho || now >= refusalEcho.until) return false
+  const text = refusalEcho.text
+  return [props.title, props.description].some((v) => typeof v === "string" && v.includes(text))
 }
 
 function toast({ ...props }: Toast) {
   const id = genId()
-  if (props.variant === "destructive" && Date.now() < refusalShownUntil) {
+  if (isRefusalEcho(props)) {
     return { id, dismiss: () => undefined, update: () => undefined }
   }
   const localizedTitle =

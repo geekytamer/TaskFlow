@@ -139,18 +139,20 @@ export function askSentence(roleNames: readonly string[]): string {
 /**
  * The 403 body for a refused permission: `{ code, permission, message }`.
  * Under legacy and shadow the message stays today's sentence; under v2 it
- * names who can grant it.
+ * names who can grant it, and `roles` lists those role names for clients
+ * that build their own sentence (the staff app translates it).
  */
 export function forbiddenBody(
   store: DataStore,
   engine: PermissionsEngine,
   companyId: string,
   key: string | undefined,
-): { message: string; details: { code: 'FORBIDDEN'; permission: string | null } } {
-  const message = engine === 'v2' && key && (isPermissionKey(key) || isFieldKey(key))
-    ? askSentence(rolesGranting(store, companyId, key))
-    : LEGACY_FORBIDDEN;
-  return { message, details: { code: 'FORBIDDEN', permission: key ?? null } };
+): { message: string; details: { code: 'FORBIDDEN'; permission: string | null; roles?: string[] } } {
+  if (engine === 'v2' && key && (isPermissionKey(key) || isFieldKey(key))) {
+    const roles = rolesGranting(store, companyId, key);
+    return { message: askSentence(roles), details: { code: 'FORBIDDEN', permission: key, roles } };
+  }
+  return { message: LEGACY_FORBIDDEN, details: { code: 'FORBIDDEN', permission: key ?? null } };
 }
 
 /** Splits a catalogue key into the authz_divergence module/action columns. */

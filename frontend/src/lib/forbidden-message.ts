@@ -21,6 +21,8 @@ export interface ForbiddenBody {
   code?: string;
   permission?: string | null;
   message?: string;
+  /** Under v2: the names of the roles that grant it (backend authz/engine.ts forbiddenBody). */
+  roles?: string[];
 }
 
 /** The standard roles' Arabic names (backend authz/templates.ts); custom role names stay as written. */
@@ -49,14 +51,16 @@ function joinList(items: string[], lang: Lang): string {
   return `${items.slice(0, -1).join(lang === 'ar' ? '، ' : ', ')}${or}${items[items.length - 1]}`;
 }
 
-function whoToAsk(message: string | undefined, lang: Lang): string {
-  const roles = rolesToAsk(message);
+function whoToAsk(body: ForbiddenBody, lang: Lang): string {
+  const message = body.message;
+  // The structured list when the server sends it; the sentence as a fallback.
+  const roles = Array.isArray(body.roles) ? body.roles : rolesToAsk(message);
   if (roles && roles.length) {
     if (lang === 'ar') return `اطلبها من ${joinList(roles.map((r) => ROLE_AR[r] ?? r), 'ar')}`;
     const article = /^[aeiou]/i.test(roles[0]) ? 'an' : 'a';
     return `ask ${article} ${joinList(roles, 'en')}`;
   }
-  if (/^Nobody in this company/i.test(message ?? '')) {
+  if ((roles && roles.length === 0) || /^Nobody in this company/i.test(message ?? '')) {
     return lang === 'ar' ? 'لا أحد في هذه الشركة يملكها بعد، فاطلبها من مسؤول المنصة' : 'nobody in this company has it yet, so ask the platform administrator';
   }
   return lang === 'ar' ? 'اطلبها من مسؤول الأدوار في شركتك' : 'ask whoever manages roles in your company';
@@ -64,7 +68,7 @@ function whoToAsk(message: string | undefined, lang: Lang): string {
 
 /** One sentence: what is missing and who to ask. */
 export function forbiddenSentence(body: ForbiddenBody, labels: CatalogueLabels | null, lang: Lang): string {
-  const ask = whoToAsk(body.message, lang);
+  const ask = whoToAsk(body, lang);
   const permission = body.permission ?? '';
   if (permission.startsWith('field:')) {
     const label = labels?.fields[permission.slice(6)]?.[lang];
@@ -97,4 +101,48 @@ export function labelsFromCatalogue(catalogue: {
   const fields: Record<string, Label> = {};
   for (const field of catalogue.fields ?? []) fields[field.key] = field.label;
   return { permissions, fields };
+}
+
+const permissionLabel = (key: string, labels: CatalogueLabels | null, lang: Lang) =>
+  labels?.permissions[key]?.[lang] ?? key;
+
+/**
+ * One sentence for any coded refusal the staff app can meet, or null for a
+ * code it does not know (the server's message is kept then).
+ */
+export function refusalSentence(body: ForbiddenBody & { code?: string; missing?: unknown }, labels: CatalogueLabels | null, lang: Lang): string | null {
+  const ar = lang === 'ar';
+  switch (body.code) {
+    case 'FORBIDDEN':
+      return forbiddenSentence(body, labels, lang);
+    case 'HIGHER_THAN_YOU': {
+      const missing = Array.isArray(body.missing) ? body.missing.filter((k): k is string => typeof k === 'string') : [];
+      const list = missing.map((k) => permissionLabel(k, labels, lang)).join(ar ? '؛ ' : '; ');
+      return ar
+        ? `لا يمكنك منح صلاحيات لا تملكها بنفسك${list ? `: ${list}` : ''}.`
+        : `You can't give permissions you don't have yourself${list ? `: ${list}` : ''}.`;
+    }
+    case 'NO_COMPANY_ACCESS':
+      return ar
+        ? 'ليس لديك وصول إلى هذه الشركة — اطلب من مسؤولها إضافتك.'
+        : "You don't have access to this company — ask its administrator to add you.";
+    case 'LOCKOUT':
+      return ar
+        ? 'هذا التغيير يترك الشركة بلا أحد يدير الأدوار — أبقِ شخصًا واحدًا على الأقل يملك «إدارة الأدوار».'
+        : 'This change would leave nobody who can manage roles — keep at least one person with "Manage roles".';
+    case 'SYSTEM_ROLE':
+      return ar
+        ? 'لا يمكن تعديل الأدوار القياسية — انسخ الدور لتصنع دورك الخاص.'
+        : "Standard roles can't be changed — duplicate the role to make your own.";
+    case 'GROUP_ROLE':
+      return ar
+        ? 'هذا الدور يأتي من المجموعة — غيّره من إعدادات المجموعة.'
+        : 'This role comes from the group — change it in the group settings.';
+    case 'GROUP_PERSON':
+      return ar
+        ? 'هذا الشخص يصل عبر المجموعة — غيّر أدواره من إعدادات المجموعة.'
+        : 'This person comes through the group — change their roles in the group settings.';
+    default:
+      return null;
+  }
 }

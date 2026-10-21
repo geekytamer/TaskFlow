@@ -43,7 +43,7 @@ export function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
-  const { can } = usePermissions();
+  const { can, canAdmin } = usePermissions();
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
   const [adminPassword, setAdminPassword] = React.useState('');
@@ -142,7 +142,7 @@ export function SettingsPage() {
         </p>
       </div>
 
-      {selectedCompany && !selectedCompany.isTraining && can('settings.edit_branding') && <BrandSettingsPanel />}
+      {selectedCompany && !selectedCompany.isTraining && canAdmin('settings.edit_branding') && <BrandSettingsPanel />}
 
       <NumberingSettingsPanel />
 

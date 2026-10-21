@@ -40,7 +40,7 @@ export default function ProjectDetailsPage() {
   const seesAllProjects = useSeesAllProjects();
   const isManager = useCanManageProjects();
   // What this page may load follows the permission each request needs.
-  const { can } = usePermissions();
+  const { can, ready: permissionsReady } = usePermissions();
   const canLoadClients = can('contacts.view_details');
   const canLoadInvoices = can('invoices.view');
   const { language } = useI18n();
@@ -65,7 +65,9 @@ export default function ProjectDetailsPage() {
 
   React.useEffect(() => {
     async function fetchData() {
-      if (!id || !selectedCompany || !currentUser) return;
+      // Visibility is decided by the permissions (seesAllProjects): deciding
+      // before they arrive would bounce a manager off a private project.
+      if (!id || !selectedCompany || !currentUser || !permissionsReady) return;
       
       setLoading(true);
       const projectData = await getProjectById(id);
@@ -105,7 +107,7 @@ export default function ProjectDetailsPage() {
     }
 
     fetchData();
-  }, [id, selectedCompany, router, currentUser, seesAllProjects, canLoadClients, canLoadInvoices]);
+  }, [id, selectedCompany, router, currentUser, seesAllProjects, canLoadClients, canLoadInvoices, permissionsReady]);
 
   // A task added, edited or logged anywhere on this page shows up without a reload.
   React.useEffect(() => {

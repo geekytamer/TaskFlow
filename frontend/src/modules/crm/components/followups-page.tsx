@@ -94,6 +94,14 @@ export function FollowupsPage() {
   const [view, setView] = React.useState<View>('today');
   const [search, setSearch] = React.useState('');
   const [ownerFilter, setOwnerFilter] = React.useState<'all' | 'mine'>(canManage ? 'all' : 'mine');
+  // The default follows the permissions once they arrive (they are closed while loading).
+  const { ready: permissionsReady } = usePermissions();
+  const ownerDefaulted = React.useRef(false);
+  React.useEffect(() => {
+    if (!permissionsReady || ownerDefaulted.current) return;
+    ownerDefaulted.current = true;
+    setOwnerFilter(canManage ? 'all' : 'mine');
+  }, [permissionsReady, canManage]);
   const [channelFilter, setChannelFilter] = React.useState<'all' | FollowUpChannel>('all');
   const [groupBy, setGroupBy] = React.useState<'time' | 'channel' | 'priority' | 'owner'>('time');
   // Chasing a lead and chasing an unpaid invoice are different jobs, usually

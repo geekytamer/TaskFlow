@@ -2038,6 +2038,7 @@ test('company admins see and edit only their assigned companies', async () => {
     .send({ name: 'Unauthorized Rename' });
   assert.equal(editOther.status, 403);
   assert.equal(editOther.body.message, 'You do not have access to this company.');
+  assert.equal(editOther.body.code, 'NO_COMPANY_ACCESS');
 });
 
 test('company scoping blocks access outside a manager company', async () => {

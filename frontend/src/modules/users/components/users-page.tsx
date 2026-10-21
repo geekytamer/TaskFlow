@@ -13,7 +13,7 @@ export function UsersPage() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [refreshToken, setRefreshToken] = React.useState(0);
   const { user } = useAuthGuard('people.manage');
-  const canAddUsers = usePermissions().can('people.manage');
+  const canAddUsers = usePermissions().canAdmin('people.manage');
   const { t } = useI18n();
 
   const handleUsersChanged = () => {

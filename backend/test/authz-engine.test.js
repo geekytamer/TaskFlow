@@ -162,7 +162,7 @@ test('403 body: code, the declared permission and who can grant it', async () =>
   const v2 = build('v2');
   const res = await v2.agent.get(`/companies/${v2.company.id}/sales-orders`).set('Authorization', `Bearer ${v2.token(v2.users.Employee)}`);
   assert.equal(res.status, 403);
-  assert.deepEqual(res.body, { code: 'FORBIDDEN', permission: 'sales.view', message: 'Ask an Admin, Manager or Accountant.' });
+  assert.deepEqual(res.body, { code: 'FORBIDDEN', permission: 'sales.view', roles: ['Admin', 'Manager', 'Accountant'], message: 'Ask an Admin, Manager or Accountant.' });
 
   const legacy = build('legacy');
   const old = await legacy.agent.get(`/companies/${legacy.company.id}/sales-orders`).set('Authorization', `Bearer ${legacy.token(legacy.users.Employee)}`);
