@@ -250,7 +250,14 @@ check "API refuses requests without the gate"    401 "$(http_code "https://$STAG
 check "API answers behind the gate"              200 "$(http_code -H "$gate" "https://$STAGING_DOMAIN/api/health")"
 check "WhatsApp webhooks are blocked"            404 "$(http_code -X POST -H "$gate" "https://$STAGING_DOMAIN/api/whatsapp/webhook/x")"
 check "production unaffected"                    "$prod_before" "$(http_code "$PROD_URL")"
-exposed=$(ss -ltnH | awk '{print $4}' | grep -E ":($API_PORT|$WEB_PORT\$" | grep -v '^127\.0\.0\.1:' || true)
+listening=$(ss -ltnH | awk '{print $4}')
+# grep: 0 = matches, 1 = none (both fine); 2 = the pattern or input itself failed.
+set +e
+staging_listeners=$(printf '%s\n' "$listening" | grep -E ":($API_PORT|$WEB_PORT)\$")
+rc=$?
+set -e
+[ "$rc" -le 1 ] || die "port check failed (grep exit $rc)"
+exposed=$(printf '%s\n' "$staging_listeners" | grep -v '^127\.0\.0\.1:' || true)
 check "staging ports bound to loopback only"     "" "$exposed"
 [ "$fails" -eq 0 ] || die "$fails verification check(s) failed"
 

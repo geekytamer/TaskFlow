@@ -6,7 +6,7 @@
  *
  * - OLD_TO_NEW: action permissions → the catalogue keys to grant. For a gate
  *   permission these are the declared permissions (authz/route-registry.ts) of
- *   every gate-matrix route it opened, so a converted group never loses a
+ *   every route in backend/test/fixtures/legacy-gate-matrix.csv it opened, so a converted group never loses a
  *   route (tested). Where the old permission's routes are now split across
  *   verbs or areas it maps to all of them, which can open a few routes the old
  *   permission did not; test/fixtures/authz-widenings.json lists every such

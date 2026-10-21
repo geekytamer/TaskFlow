@@ -13,7 +13,7 @@
  *   - 'super_admin': the platform administrator only.
  *
  * `legacyRoles` is today's answer: the company roles the legacy gate lets in.
- * For routes in docs/superpowers/plans/gate-matrix.csv it is the matrix's roles
+ * For routes in backend/test/fixtures/legacy-gate-matrix.csv it is the matrix's roles
  * column; for the routers the matrix does not cover it was read from the
  * handler's gate (named in `note`). It is absent where no role list gates the
  * route. test/authz-route-registry.test.js proves that every route of the built

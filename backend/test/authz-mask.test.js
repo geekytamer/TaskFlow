@@ -2,7 +2,7 @@
  * Sensitive fields (authz/mask.ts) on every path they leave through.
  *
  * Poison values: every sensitive value carries a marker (SAL-, IBAN-, IDNO-,
- * RATE 7777, CREDIT 9999, COST 3.21...). A path leaks when the marker or the
+ * RATE 7352619, CREDIT 9162847, COST 3.2147...). A path leaks when the marker or the
  * property appears in what it returns — list, detail, write echo, CSV.
  *
  * No PDF or payslip file carries these fields today (payslips are JSON inside
@@ -92,9 +92,9 @@ test('canEditField() and fieldsWritten()', () => {
 
 // ─── The server ─────────────────────────────────────────────────────────────
 
-const RATE = 7777;
-const CREDIT = 9999;
-const COST = 3.21;
+const RATE = 7352619;
+const CREDIT = 9162847;
+const COST = 3.2147;
 
 const build = (engine) => {
   const dbPath = path.join(makeTmpDir(`taskflow-mask-${engine}-`), 'taskflow.db');
@@ -115,7 +115,7 @@ const build = (engine) => {
     idType: 'civil_id', idNumber: `IDNO-${tag}`, hireDate: twoYearsAgo, status: 'Active',
   });
   const e = {
-    other: store.createEmployee({ companyId: c, name: 'Other', ...pay('OTHER', 4321) }),
+    other: store.createEmployee({ companyId: c, name: 'Other', ...pay('OTHER', 4837261) }),
     emp: store.createEmployee({ companyId: c, name: 'Emp', userId: u.emp.id, ...pay('EMPSELF', 1234) }),
     clerk: store.createEmployee({ companyId: c, name: 'Clerk', userId: u.clerk.id, ...pay('CLERKSELF', 2345) }),
   };
@@ -166,9 +166,9 @@ const CLERK_GRANTS = [
 /** Every read path a sensitive property leaves through, with what marks it. */
 const READS = (w) => ({
   salary: [
-    ['/companies/:c/employees', [/4321/]],
-    [`/employees/${w.e.other.id}`, [/"basicSalary"/, /4321/]],
-    ['/companies/:c/hr/gratuity', [/"monthlyWage":4321/]],
+    ['/companies/:c/employees', [/4837261/]],
+    [`/employees/${w.e.other.id}`, [/"basicSalary"/, /4837261/]],
+    ['/companies/:c/hr/gratuity', [/"monthlyWage":4837261/]],
   ],
   bank_details: [
     ['/companies/:c/employees', [/IBAN-OTHER/, /BANK-OTHER/, /BIC-OTHER/]],
@@ -179,13 +179,13 @@ const READS = (w) => ({
     [`/employees/${w.e.other.id}`, [/IDNO-OTHER/]],
   ],
   rate_cards: [
-    ['/companies/:c/contacts', [/rateCardAmount/, /7777/]],
-    [`/contacts/${w.influencer.id}`, [/rateCardAmount/, /7777/]],
-    [`/contacts/${w.influencer.id}/summary`, [/rateCardAmount/, /7777/]],
-    ['/companies/:c/influencers/export', [/rateCard/, /7777/]],
+    ['/companies/:c/contacts', [/rateCardAmount/, /7352619/]],
+    [`/contacts/${w.influencer.id}`, [/rateCardAmount/, /7352619/]],
+    [`/contacts/${w.influencer.id}/summary`, [/rateCardAmount/, /7352619/]],
+    ['/companies/:c/influencers/export', [/rateCard/, /7352619/]],
   ],
   client_terms: [
-    ['/companies/:c/clients', [/creditLimit/, /9999/]],
+    ['/companies/:c/clients', [/creditLimit/, /9162847/]],
   ],
   cost_prices: [
     ['/companies/:c/inventory-items', [/unitCost/, /3\.21/]],
@@ -218,7 +218,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     }
     // Employees: the HR list and their own record; contacts and influencer export.
     const list = text(await w.get(w.u.emp, '/companies/:c/employees'));
-    for (const marker of ['4321', 'IBAN-OTHER', 'BANK-OTHER', 'BIC-OTHER', 'IDNO-OTHER']) assert.ok(!list.includes(marker), `${engine} employee list: ${marker}`);
+    for (const marker of ['4837261', 'IBAN-OTHER', 'BANK-OTHER', 'BIC-OTHER', 'IDNO-OTHER']) assert.ok(!list.includes(marker), `${engine} employee list: ${marker}`);
     for (const marker of ['1234', 'IBAN-EMPSELF', 'IDNO-EMPSELF']) assert.ok(list.includes(marker), `${engine} employee sees own ${marker}`);
     const own = (await w.get(w.u.emp, `/employees/${w.e.emp.id}`)).body;
     assert.equal(own.basicSalary, 1234);
@@ -229,7 +229,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     for (const url of ['/companies/:c/contacts', `/contacts/${w.influencer.id}/summary`, '/companies/:c/influencers/export', '/companies/:c/followups']) {
       const res = await w.get(w.u.emp, url);
       ok(res, `${engine} employee ${url}`);
-      assert.ok(!/rateCard|7777/.test(text(res)), `${engine} employee ${url} carries no rate card`);
+      assert.ok(!/rateCard|7352619/.test(text(res)), `${engine} employee ${url} carries no rate card`);
     }
     assert.ok(text(await w.get(w.u.emp, '/companies/:c/contacts')).includes('Influ'), 'not vacuous: the contact is listed');
     // CSV export: no rateCard column at all.
@@ -270,14 +270,14 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     const w = build(engine);
     w.store.db.prepare('UPDATE companies SET disabledModules = ? WHERE id = ?').run(JSON.stringify(['payroll']), w.c);
     const list = text(await w.get(w.u.manager, '/companies/:c/employees'));
-    assert.ok(!list.includes('4321'), `${engine}: payroll off hides others' salary`);
+    assert.ok(!list.includes('4837261'), `${engine}: payroll off hides others' salary`);
     assert.ok(text(await w.get(w.u.emp, `/employees/${w.e.emp.id}`)).includes('1234'), 'own still shown');
     // Only the paths the old rule was asked on lock: the gratuity report and a
     // write echo show pay as they did.
-    assert.equal((await w.get(w.u.manager, '/companies/:c/hr/gratuity')).body.lines.find((l) => l.employeeId === w.e.other.id).monthlyWage, 4321);
+    assert.equal((await w.get(w.u.manager, '/companies/:c/hr/gratuity')).body.lines.find((l) => l.employeeId === w.e.other.id).monthlyWage, 4837261);
     const echo = await w.put(w.u.manager, `/employees/${w.e.other.id}`, { jobTitle: 'Tech' });
     ok(echo, 'PUT employee');
-    assert.equal(echo.body.basicSalary, 4321);
+    assert.equal(echo.body.basicSalary, 4837261);
   });
 
   test(`${engine}: with contacts switched off, client terms outside the contact screens show as before`, async () => {
@@ -338,10 +338,10 @@ test('v2: a custom role without any sensitive field gets no sensitive property o
   // Write echoes: PUT employee (no salary in it), POST /contacts/:id/roles.
   const put = await w.put(w.u.clerk, `/employees/${w.e.other.id}`, { jobTitle: 'Tech' });
   ok(put, 'clerk PUT employee without sensitive fields');
-  assert.ok(!/4321|IBAN-OTHER|IDNO-OTHER/.test(text(put)));
+  assert.ok(!/4837261|IBAN-OTHER|IDNO-OTHER/.test(text(put)));
   const roles = await w.post(w.u.clerk, `/contacts/${w.influencer.id}/roles`, { role: 'Lead' });
   ok(roles, 'clerk add role');
-  assert.ok(!/7777/.test(text(roles)));
+  assert.ok(!/7352619/.test(text(roles)));
 });
 
 test('v2: payslips are hidden without salary, except the person\'s own; the WPS file needs salary, bank and IDs', async () => {
@@ -358,7 +358,7 @@ test('v2: payslips are hidden without salary, except the person\'s own; the WPS 
     for (const s of slips.filter((s) => s.employeeId !== w.e.clerk.id)) {
       for (const p of ['basic', 'allowances', 'deductions', 'net']) assert.ok(!(p in s), `${url}: ${p} of another's payslip`);
     }
-    assert.ok(!text(res).includes('4321'));
+    assert.ok(!text(res).includes('4837261'));
   }
   const wps = await w.get(w.u.clerk, `/payroll-runs/${run.id}/wps`);
   assert.equal(wps.status, 403, wps.text);
@@ -399,11 +399,11 @@ test('v2: view without edit — a write changing the field is 403 with the field
   await refused(await w.post(w.u.clerk, '/clients', { companyId: w.c, name: 'New Client', email: 'n@n.test', address: '2 Main Street', creditLimit: 5 }), 'client_terms');
   await refused(await w.post(w.u.clerk, '/companies/:c/inventory-items', { name: 'Gadget', category: 'Parts', unit: 'pcs', tracksInventory: false, unitCost: 2 }), 'cost_prices');
   // Nothing was written.
-  assert.equal(w.store.getEmployeeById(w.e.other.id).basicSalary, 4321);
+  assert.equal(w.store.getEmployeeById(w.e.other.id).basicSalary, 4837261);
   assert.equal(w.store.getContactById(w.influencer.id).rateCardAmount, RATE);
   assert.equal(w.store.getClientById(w.client.id).creditLimit, CREDIT);
   // The same values sent back (an edit form) and other fields: allowed.
-  ok(await w.put(w.u.clerk, `/employees/${w.e.other.id}`, { basicSalary: 4321, iban: 'IBAN-OTHER', jobTitle: 'Lead tech' }), 'unchanged salary re-sent');
+  ok(await w.put(w.u.clerk, `/employees/${w.e.other.id}`, { basicSalary: 4837261, iban: 'IBAN-OTHER', jobTitle: 'Lead tech' }), 'unchanged salary re-sent');
   ok(await w.put(w.u.clerk, `/clients/${w.client.id}`, { creditLimit: CREDIT, notes: 'ok' }), 'unchanged credit re-sent');
   ok(await w.post(w.u.clerk, '/companies/:c/inventory-items', { name: 'Gadget', category: 'Parts', unit: 'pcs', tracksInventory: false }), 'item without a cost');
 
@@ -480,7 +480,7 @@ test('v2: linking an employee record to a login is a write of pay, IDs and bank 
   const post = await w.post(w.u.clerk, '/companies/:c/employees', { name: 'Twin', userId: w.u.clerk.id, basicSalary: 0 });
   assert.equal(post.status, 403, post.text);
   // Others' figures stay hidden.
-  assert.ok(!text(await w.get(w.u.clerk, `/employees/${w.e.other.id}`)).includes('4321'));
+  assert.ok(!text(await w.get(w.u.clerk, `/employees/${w.e.other.id}`)).includes('4837261'));
   // Re-sending the existing link, or none, is fine; defaults on create are not writes.
   ok(await w.put(w.u.clerk, `/employees/${w.e.clerk.id}`, { userId: w.u.clerk.id, jobTitle: 'Clerk' }), 'same link');
   ok(await w.post(w.u.clerk, '/companies/:c/employees', { name: 'Fresh', basicSalary: 0, allowances: '', iban: null }), 'create with blank defaults');

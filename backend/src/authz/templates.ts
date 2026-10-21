@@ -2,7 +2,7 @@
  * System templates: the starting roles every company gets.
  *
  * Admin, Manager, Accountant and Employee reproduce today's four roles
- * exactly: the route role lists (docs/superpowers/plans/gate-matrix.csv plus
+ * exactly: the route role lists (backend/test/fixtures/legacy-gate-matrix.csv plus
  * the routers outside it) and the record rules (permissions/record-rules.ts),
  * which become scopes and sensitive fields here. Owner is Admin with `group`
  * scope wherever an action is scoped.
