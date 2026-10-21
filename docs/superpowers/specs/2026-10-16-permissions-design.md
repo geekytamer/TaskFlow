@@ -145,4 +145,5 @@ The switch is one setting, `PERMISSIONS_ENGINE` in `backend/.env` (DEPLOY.md §2
 - [ ] The full backend suite is green under `legacy`, `shadow` and `v2`, and the equivalence table shows zero differences.
 - [ ] Staging has run under `v2` for at least a day with real use: People, Roles, an Employee's menus and a refused action's message all checked.
 - [ ] Every converted role needing review has been activated, changed or deleted by the owner (or knowingly left inert).
+- [ ] PUT and DELETE `/users` under `v2` run the people.manage_roles lock-out guard and the "target no higher than me" check (as the People API does). Today a Manager can demote the only Admin, or an Admin can demote themselves, leaving no one able to manage roles — the same is true under legacy, but it must be closed before v2 (final review, 2026-10-22). Also decide (and document) whether a PUT /users role change should keep standard roles held as add-ons.
 - [ ] The owner has approved the switch in writing (chat or ticket), with the date.
