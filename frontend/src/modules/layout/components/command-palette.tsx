@@ -11,12 +11,11 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command';
-import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { searchCompany, type SearchGroup, type SearchType } from '@/services/searchService';
 import { usePermissions } from '@/context/permissions-context';
-import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { navAllowed } from '@/modules/layout/lib/nav-permissions';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 import {
   BarChart3,
@@ -49,32 +48,31 @@ type PaletteNavItem = {
   href: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles: Array<'Admin' | 'Manager' | 'Employee' | 'Accountant'>;
 };
 
 const navTargets: PaletteNavItem[] = [
-  { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/documents', labelKey: 'nav.documents', icon: FileText, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'] },
-  { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox, roles: ['Admin', 'Manager'] },
-  { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-  { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'] },
-  { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'] },
-  { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'] },
-  { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'] },
+  { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+  { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban },
+  { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare },
+  { href: '/diagram', labelKey: 'nav.diagram', icon: Network },
+  { href: '/documents', labelKey: 'nav.documents', icon: FileText },
+  { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText },
+  { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart },
+  { href: '/inventory', labelKey: 'nav.inventory', icon: Package },
+  { href: '/finance', labelKey: 'nav.finance', icon: Banknote },
+  { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign },
+  { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser },
+  { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare },
+  { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined },
+  { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone },
+  { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock },
+  { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox },
+  { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch },
+  { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3 },
+  { href: '/clients', labelKey: 'nav.clients', icon: Handshake },
+  { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck },
+  { href: '/users', labelKey: 'nav.users', icon: Users },
+  { href: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
 const SEARCH_GROUPS: Record<SearchType, { en: string; ar: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -95,22 +93,14 @@ export function CommandPalette() {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { selectedCompany } = useCompany();
-  const { effectiveRole } = useAuthGuard();
-  const { can, moduleOn, loaded: permissionsLoaded } = usePermissions();
+  const { can, moduleOn } = usePermissions();
 
-  /** Quick actions are shortcuts to pages, so they answer to the same rule. */
+  /** Quick actions are shortcuts to pages, so they answer to the same rule as the menu. */
   const allowsHref = React.useCallback((href: string) => {
     const hrefModule = moduleForPath(href);
     if (hrefModule && !moduleOn(hrefModule)) return false;
-    const permission = navPermission(href);
-    if (!permissionsLoaded) return true; // legacy mode: the page guard decides
-    if (!permission) return true;
-    const [module, action] = [
-      permission.slice(0, permission.indexOf(':')),
-      permission.slice(permission.indexOf(':') + 1),
-    ];
-    return can(module, action);
-  }, [can, moduleOn, permissionsLoaded]);
+    return navAllowed(href, can);
+  }, [can, moduleOn]);
 
   const quickActions = React.useMemo(() => ([
     { href: '/inbox', labelKey: 'cmdk.openInbox', icon: MessagesSquare },
@@ -148,24 +138,8 @@ export function CommandPalette() {
 
   const visibleNav = React.useMemo(
     () =>
-      navTargets.filter((item) => {
-        const itemModule = moduleForPath(item.href);
-        if (itemModule && !moduleOn(itemModule)) return false;
-        // Once the server reports a permission set it is the only authority;
-        // the role list below is the fallback while AUTHZ_ENGINE is legacy.
-        const permission = navPermission(item.href);
-        if (permissionsLoaded) {
-          if (!permission) return true; // record-level destinations stay listed
-          const [module, action] = [
-            permission.slice(0, permission.indexOf(':')),
-            permission.slice(permission.indexOf(':') + 1),
-          ];
-          return can(module, action);
-        }
-        if (item.href === '/settings') return effectiveRole === 'Admin';
-        return effectiveRole ? item.roles.includes(effectiveRole) : false;
-      }),
-    [effectiveRole, can, moduleOn, permissionsLoaded],
+      navTargets.filter((item) => allowsHref(item.href)),
+    [allowsHref],
   );
 
   const go = (href: string) => {

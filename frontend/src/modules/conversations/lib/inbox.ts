@@ -1,7 +1,7 @@
 /** Pure helpers for the staff inbox. Dates are in the viewer's local time. */
 
-/** Conversations belong to contacts: the server gates every inbox route on contacts:read. */
-export const INBOX_PERMISSION = 'contacts:read';
+/** Client conversations: the server gates the inbox's client side on inbox.view. */
+export const INBOX_PERMISSION = 'inbox.view';
 
 /** Tomorrow at 08:00. */
 export function tomorrowAt8(now: Date): Date {

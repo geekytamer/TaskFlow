@@ -145,8 +145,25 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">
 
+/**
+ * A permission refusal toast (lib/forbidden-message.ts) was just shown. The
+ * screen that made the call usually follows with its own generic error toast,
+ * which would replace it (one toast at a time): for a moment, error toasts
+ * other than the refusal itself are dropped.
+ */
+let refusalShownUntil = 0
+export function showRefusalToast(props: Toast, holdMs = 2500) {
+  refusalShownUntil = 0
+  const shown = toast(props)
+  refusalShownUntil = Date.now() + holdMs
+  return shown
+}
+
 function toast({ ...props }: Toast) {
   const id = genId()
+  if (props.variant === "destructive" && Date.now() < refusalShownUntil) {
+    return { id, dismiss: () => undefined, update: () => undefined }
+  }
   const localizedTitle =
     typeof props.title === "string" ? localizeUiNode(props.title) : props.title
   const localizedDescription =

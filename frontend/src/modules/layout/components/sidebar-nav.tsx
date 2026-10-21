@@ -55,8 +55,8 @@ import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import { LIVE_EVENT } from '@/lib/live';
 import { useTeamUnread } from '@/modules/teamchat/use-team-unread';
 import { getWhatsappChats } from '@/services/whatsappService';
-import { usePermissions, usePermissionOr } from '@/context/permissions-context';
-import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { usePermissions } from '@/context/permissions-context';
+import { navAllowed } from '@/modules/layout/lib/nav-permissions';
 import { useAcademy } from '@/modules/academy/academy-context';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 
@@ -64,8 +64,6 @@ type NavItem = {
   href: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
-  /** Legacy gate, kept as the fallback while AUTHZ_ENGINE=legacy. */
-  roles: Array<'Admin' | 'Manager' | 'Employee' | 'Accountant'>;
   tutorial?: string;
 };
 
@@ -78,75 +76,75 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     labelKey: 'nav.section.workspace',
     items: [
-      { href: '/inbox', labelKey: 'nav.inbox', icon: MessagesSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'] },
-      { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-dashboard' },
-      { href: '/academy', labelKey: 'nav.academy', icon: GraduationCap, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-academy' },
-      { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-projects' },
-      { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-tasks' },
-      { href: '/diagram', labelKey: 'nav.diagram', icon: Network, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-diagram' },
-      { href: '/documents', labelKey: 'nav.documents', icon: FileText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-documents' },
+      { href: '/inbox', labelKey: 'nav.inbox', icon: MessagesSquare },
+      { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, tutorial: 'nav-dashboard' },
+      { href: '/academy', labelKey: 'nav.academy', icon: GraduationCap, tutorial: 'nav-academy' },
+      { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, tutorial: 'nav-projects' },
+      { href: '/tasks', labelKey: 'nav.tasks', icon: CheckSquare, tutorial: 'nav-tasks' },
+      { href: '/diagram', labelKey: 'nav.diagram', icon: Network, tutorial: 'nav-diagram' },
+      { href: '/documents', labelKey: 'nav.documents', icon: FileText, tutorial: 'nav-documents' },
     ],
   },
   {
     labelKey: 'nav.section.operations',
     items: [
-      { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-sales' },
-      { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-purchases' },
-      { href: '/purchases/requisitions', labelKey: 'nav.requisitions', icon: ClipboardList, roles: ['Admin', 'Manager', 'Accountant'] },
-      { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-rfq' },
-      { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-matching' },
-      { href: '/inventory', labelKey: 'nav.inventory', icon: Package, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-inventory' },
-      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-stock-counts' },
-      { href: '/shipments', labelKey: 'nav.shipments', icon: Ship, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-shipments' },
-      { href: '/warehouse', labelKey: 'nav.warehouseMode', icon: ScanLine, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-warehouse-mode' },
-      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-manufacturing' },
+      { href: '/sales', labelKey: 'nav.sales', icon: ReceiptText, tutorial: 'nav-sales' },
+      { href: '/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, tutorial: 'nav-purchases' },
+      { href: '/purchases/requisitions', labelKey: 'nav.requisitions', icon: ClipboardList },
+      { href: '/purchases/rfq', labelKey: 'nav.rfq', icon: FileQuestion, tutorial: 'nav-rfq' },
+      { href: '/purchases/matching', labelKey: 'nav.matching', icon: Scale, tutorial: 'nav-matching' },
+      { href: '/inventory', labelKey: 'nav.inventory', icon: Package, tutorial: 'nav-inventory' },
+      { href: '/inventory/counts', labelKey: 'nav.stockCounts', icon: ClipboardCheck, tutorial: 'nav-stock-counts' },
+      { href: '/shipments', labelKey: 'nav.shipments', icon: Ship, tutorial: 'nav-shipments' },
+      { href: '/warehouse', labelKey: 'nav.warehouseMode', icon: ScanLine, tutorial: 'nav-warehouse-mode' },
+      { href: '/manufacturing', labelKey: 'nav.manufacturing', icon: Factory, tutorial: 'nav-manufacturing' },
     ],
   },
   {
     labelKey: 'nav.section.finance',
     items: [
-      { href: '/finance', labelKey: 'nav.finance', icon: Banknote, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-finance' },
-      { href: '/approvals', labelKey: 'nav.approvals', icon: ClipboardCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-approvals' },
-      { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-commissions' },
+      { href: '/finance', labelKey: 'nav.finance', icon: Banknote, tutorial: 'nav-finance' },
+      { href: '/approvals', labelKey: 'nav.approvals', icon: ClipboardCheck, tutorial: 'nav-approvals' },
+      { href: '/crm/commissions', labelKey: 'nav.commissions', icon: BadgeDollarSign, tutorial: 'nav-commissions' },
     ],
   },
   {
     labelKey: 'nav.section.crm',
     items: [
-      { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-contacts' },
-      { href: '/influencers', labelKey: 'nav.influencers', icon: Sparkles, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-influencers' },
-      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-whatsapp' },
-      { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
-      { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
-      { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
-      { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox, roles: ['Admin', 'Manager'] },
-      { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-vendor-requests' },
-      { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], tutorial: 'nav-performance' },
+      { href: '/contacts', labelKey: 'nav.contacts', icon: BookUser, tutorial: 'nav-contacts' },
+      { href: '/influencers', labelKey: 'nav.influencers', icon: Sparkles, tutorial: 'nav-influencers' },
+      { href: '/whatsapp', labelKey: 'nav.whatsapp', icon: MessageSquare, tutorial: 'nav-whatsapp' },
+      { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, tutorial: 'nav-opportunities' },
+      { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, tutorial: 'nav-campaigns' },
+      { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, tutorial: 'nav-followups' },
+      { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox },
+      { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, tutorial: 'nav-vendor-requests' },
+      { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, tutorial: 'nav-performance' },
     ],
   },
   {
     labelKey: 'nav.section.directory',
     items: [
-      { href: '/clients', labelKey: 'nav.clients', icon: Handshake, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-clients' },
-      { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-suppliers' },
+      { href: '/clients', labelKey: 'nav.clients', icon: Handshake, tutorial: 'nav-clients' },
+      { href: '/suppliers', labelKey: 'nav.suppliers', icon: Truck, tutorial: 'nav-suppliers' },
     ],
   },
   {
     labelKey: 'nav.section.hr',
     items: [
-      { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-employees' },
-      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-attendance' },
-      { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-leave' },
-      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'], tutorial: 'nav-payroll' },
+      { href: '/hr/employees', labelKey: 'nav.employees', icon: Contact2, tutorial: 'nav-employees' },
+      { href: '/hr/attendance', labelKey: 'nav.attendance', icon: CalendarCheck, tutorial: 'nav-attendance' },
+      { href: '/hr/leave', labelKey: 'nav.leave', icon: CalendarOff, tutorial: 'nav-leave' },
+      { href: '/hr/payroll', labelKey: 'nav.payroll', icon: Wallet, tutorial: 'nav-payroll' },
     ],
   },
   {
     labelKey: 'nav.section.admin',
     items: [
-      { href: '/company-profile', labelKey: 'nav.companyProfile', icon: Building2, roles: ['Admin', 'Manager'], tutorial: 'nav-company-profile' },
-      { href: '/users', labelKey: 'nav.users', icon: Users, roles: ['Admin', 'Manager'], tutorial: 'nav-users' },
-      { href: '/settings', labelKey: 'nav.settings', icon: Settings, roles: ['Admin'], tutorial: 'nav-settings' },
-      { href: '/settings/permissions', labelKey: 'nav.permissions', icon: ShieldCheck, roles: ['Admin'] },
+      { href: '/company-profile', labelKey: 'nav.companyProfile', icon: Building2, tutorial: 'nav-company-profile' },
+      { href: '/users', labelKey: 'nav.users', icon: Users, tutorial: 'nav-users' },
+      { href: '/settings', labelKey: 'nav.settings', icon: Settings, tutorial: 'nav-settings' },
+      { href: '/settings/permissions', labelKey: 'nav.permissions', icon: ShieldCheck },
     ],
   },
 ];
@@ -164,7 +162,7 @@ const NAV_ITEMS = new Map(NAV_SECTIONS.flatMap((section) => section.items.map((i
 /** Who may see which menu entry, shared by the sidebar and the phone tab bar. */
 export function useNavAccess() {
   const { user, loading, effectiveRole } = useAuthGuard();
-  const { can, moduleOn, loaded: permissionsLoaded } = usePermissions();
+  const { can, moduleOn, loading: permissionsLoading } = usePermissions();
   const academy = useAcademy();
 
   /** Locked by an unfinished Academy mission (never inside the practice company). */
@@ -174,42 +172,26 @@ export function useNavAccess() {
     return Boolean(itemModule && academy.locked.has(itemModule));
   };
 
+  // The server's permissions are the only authority: `can` answers false until
+  // they are in, so a gated entry is never listed on a guess.
   const canSee = (href: string) => {
     const item = NAV_ITEMS.get(href);
     if (!item) return false;
-    // A module the company switched off is hidden under every engine.
+    // A module the company switched off is hidden whatever the role.
     const itemModule = moduleForPath(item.href);
     if (itemModule && !moduleOn(itemModule)) return false;
-    // Once the server has reported a permission set, it is the only authority.
-    // The frontend holds no rules of its own; it renders what the server says.
-    if (permissionsLoaded) {
-      const permission = navPermission(item.href);
-      if (!permission) return true; // record-level: projects, tasks, diagram
-      const [module, action] = [
-        permission.slice(0, permission.indexOf(':')),
-        permission.slice(permission.indexOf(':') + 1),
-      ];
-      return can(module, action);
-    }
-    // Fallback while AUTHZ_ENGINE=legacy, or before the feed has answered.
-    if (item.href === '/settings') return effectiveRole === 'Admin';
-    if (!effectiveRole) return false;
-    return item.roles.includes(effectiveRole);
+    return navAllowed(item.href, can);
   };
 
-  return { ready: !loading && !!user, effectiveRole, canSee, isLocked };
+  return { ready: !loading && !!user && !permissionsLoading, effectiveRole, canSee, isLocked };
 }
 
 /** Conversations waiting on us, polled; also mirrored on the installed app's icon. */
-export function useInboxWaiting(effectiveRole: string | null | undefined, enabled = true) {
+export function useInboxWaiting(enabled = true) {
   const { selectedCompany } = useCompany();
   const [inboxWaiting, setInboxWaiting] = React.useState(0);
-  // Same permission as the Inbox nav item: no badge fetch for someone the server would refuse.
-  const canUseInbox = usePermissionOr(
-    INBOX_PERMISSION.slice(0, INBOX_PERMISSION.indexOf(':')),
-    INBOX_PERMISSION.slice(INBOX_PERMISSION.indexOf(':') + 1),
-    Boolean(effectiveRole),
-  );
+  // The client conversations' permission: no badge fetch for someone the server would refuse.
+  const canUseInbox = usePermissions().can(INBOX_PERMISSION);
   React.useEffect(() => {
     if (!enabled || !selectedCompany?.id || !canUseInbox) {
       setInboxWaiting(0);
@@ -248,15 +230,11 @@ export function useInboxWaiting(effectiveRole: string | null | undefined, enable
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const { ready, effectiveRole, canSee, isLocked } = useNavAccess();
+  const { ready, canSee, isLocked } = useNavAccess();
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
   const [whatsappUnread, setWhatsappUnread] = React.useState(0);
-  const canReadChats = usePermissionOr(
-    'whatsapp',
-    'whatsapp.chats.read',
-    effectiveRole === 'Admin' || effectiveRole === 'Manager' || effectiveRole === 'Accountant',
-  );
+  const canReadChats = usePermissions().can('whatsapp.view');
 
   React.useEffect(() => {
     if (!selectedCompany?.id || !canReadChats) {
@@ -275,7 +253,7 @@ export function SidebarNav() {
     return () => window.clearInterval(id);
   }, [selectedCompany?.id, canReadChats]);
 
-  const inboxWaiting = useInboxWaiting(effectiveRole);
+  const inboxWaiting = useInboxWaiting();
   const teamUnread = useTeamUnread();
 
   // On a phone the menu is a drawer: close it once a page is picked.

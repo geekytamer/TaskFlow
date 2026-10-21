@@ -26,7 +26,7 @@ import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { UserGroupsSheet } from './user-groups-sheet';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -54,11 +54,10 @@ const roleColors: Record<UserRole, string> = {
 
 interface UserTableProps {
   onUserUpdated: () => void;
-  currentUserRole?: UserRole;
   refreshToken?: number;
 }
 
-export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: UserTableProps) {
+export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
   const { selectedCompany, companies, currentUser } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -70,29 +69,15 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
   const [groupsUser, setGroupsUser] = React.useState<User | null>(null);
   const { toast } = useToast();
 
-  const managedCompanyIds = React.useMemo(() => {
-    if (!currentUser) return [];
-    if (currentUser.role === 'Admin') {
-      return companies.map((company) => company.id);
-    }
-    return (currentUser.companyRoles || [])
-      .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
-      .map((assignment) => assignment.companyId);
-  }, [companies, currentUser]);
-
-  // Per company, managing users follows settings:users.write and assigning roles
-  // above Employee follows settings:administration.write; the role rules are the legacy
-  // fallback. The global-Admin shortcut below is platform-level and unchanged.
-  const canManageUsersHere = usePermissionOr(
-    'settings',
-    'users.write',
-    Boolean(selectedCompany && managedCompanyIds.includes(selectedCompany.id))
-      && (currentUserRole === 'Admin' || currentUserRole === 'Manager'),
-  );
-  const canAssignElevatedRolesHere = usePermissionOr('settings', 'administration.write', currentUserRole === 'Admin');
+  // In the selected company: managing users is people.manage; changing someone
+  // above Employee also needs people.manage_roles (the server's rule for PUT /users).
+  const { can } = usePermissions();
+  const canManageUsersHere = can('people.manage');
+  const canAssignElevatedRolesHere = can('people.manage_roles');
 
   const fetchData = React.useCallback(async () => {
-      if (!selectedCompany && currentUser?.role !== 'Admin') {
+      // Without a company only the platform administrator lists everyone.
+      if (!selectedCompany && !currentUser?.isSuperAdmin) {
         setUsers([]);
         setPositions([]);
         setLoading(false);
@@ -103,18 +88,16 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
         const usersPromise =
           selectedCompany
             ? getUsersByCompany(selectedCompany.id)
-            : currentUser?.role === 'Admin'
+            : currentUser?.isSuperAdmin
             ? getUsers()
             : Promise.resolve([]);
-        const positionsPromise =
-          currentUser?.role === 'Admin'
-            ? getPositions().catch((error) => {
-                if (isApiError(error) && (error.status === 401 || error.status === 403)) {
-                  return [];
-                }
-                throw error;
-              })
-            : Promise.resolve([]);
+        // Positions are platform-wide; the server decides who reads them.
+        const positionsPromise = getPositions().catch((error) => {
+          if (isApiError(error) && (error.status === 401 || error.status === 403)) {
+            return [];
+          }
+          throw error;
+        });
 
         const [scopedUsers, allPositions] = await Promise.all([
             usersPromise,
@@ -135,7 +118,7 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
       } finally {
         setLoading(false);
       }
-  }, [currentUser?.role, selectedCompany, toast]);
+  }, [currentUser?.isSuperAdmin, selectedCompany, toast]);
 
   React.useEffect(() => {
     fetchData();
@@ -175,8 +158,6 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
   };
 
   const canManageUser = (targetUser: User) => {
-    if (!currentUserRole) return false;
-    if (currentUser?.role === 'Admin') return true;
     if (!selectedCompany) return false;
     const assignmentCompanyIds =
       targetUser.companyRoles && targetUser.companyRoles.length > 0
@@ -185,6 +166,8 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
     if (!assignmentCompanyIds.includes(selectedCompany.id)) return false;
     if (!canManageUsersHere) return false;
     if (canAssignElevatedRolesHere) return true;
+    // The server's rule for PUT /users: without people.manage_roles only
+    // Employees may be edited (the target's role, not the viewer's).
     return getRoleForCompany(targetUser) === 'Employee';
   }
 
@@ -338,7 +321,6 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
           onOpenChange={(isOpen) => !isOpen && setEditingUser(null)}
           onUserAdded={handleUserUpdated}
           userToEdit={editingUser}
-          currentUserRole={currentUserRole}
         />
       )}
       {groupsUser && selectedCompany && (

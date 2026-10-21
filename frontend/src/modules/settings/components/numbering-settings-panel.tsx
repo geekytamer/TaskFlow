@@ -17,7 +17,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { supportedCurrencies, normalizeCurrencyCode, currencyLabel } from '@/lib/currency';
 import type {
@@ -70,7 +70,7 @@ type EditableSetting = CompanyNumberingSetting & {
 };
 
 export function NumberingSettingsPanel() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const { t, language } = useI18n();
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
@@ -95,7 +95,9 @@ export function NumberingSettingsPanel() {
   const [loading, setLoading] = React.useState(true);
   const [savingFinance, setSavingFinance] = React.useState(false);
 
-  const canEdit = usePermissionOr('settings', 'write', currentRole === 'Admin' || currentRole === 'Manager');
+  const { can } = usePermissions();
+  const canEdit = can('settings.edit');
+  const canEditFinance = can('finance.edit_settings');
 
   const load = React.useCallback(async () => {
     if (!selectedCompany) {
@@ -335,7 +337,7 @@ export function NumberingSettingsPanel() {
             <Select
               value={currencyCode}
               onValueChange={setCurrencyCode}
-              disabled={!canEdit}
+              disabled={!canEditFinance}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -354,7 +356,7 @@ export function NumberingSettingsPanel() {
             <Select
               value={fiscalYearStartMonth}
               onValueChange={setFiscalYearStartMonth}
-              disabled={!canEdit}
+              disabled={!canEditFinance}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -372,7 +374,7 @@ export function NumberingSettingsPanel() {
               type="date"
               value={lockedThroughDate}
               onChange={(event) => setLockedThroughDate(event.target.value)}
-              disabled={!canEdit}
+              disabled={!canEditFinance}
             />
           </div>
           <div className="space-y-1">
@@ -383,14 +385,14 @@ export function NumberingSettingsPanel() {
               step="0.01"
               value={poApprovalThreshold}
               onChange={(event) => setPoApprovalThreshold(event.target.value)}
-              disabled={!canEdit}
+              disabled={!canEditFinance}
             />
             <p className="text-xs text-muted-foreground">
               {tr('Orders at or above this need approval. 0 disables.', 'الأوامر بهذا المبلغ أو أكثر تتطلب اعتماداً. 0 لتعطيله.')}
             </p>
           </div>
           <div className="flex items-end justify-end sm:col-span-2 xl:col-span-4">
-            <Button onClick={saveFinanceSettings} disabled={!canEdit || savingFinance}>
+            <Button onClick={saveFinanceSettings} disabled={!canEditFinance || savingFinance}>
               {savingFinance ? t('settingsPage.saving') : t('settingsPage.saveFinanceControls')}
             </Button>
           </div>

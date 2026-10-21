@@ -32,7 +32,7 @@ import { useCompanyCurrency } from '@/lib/currency';
 import { createExpense, deleteExpense, getExpenses, updateExpense } from '@/services/financeService';
 import type { Expense } from '@/modules/finance/types';
 import { Pencil, Plus, Trash2, Receipt } from 'lucide-react';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 
 const emptyForm = () => ({
   category: '',
@@ -45,7 +45,7 @@ const emptyForm = () => ({
 });
 
 export function StandaloneExpenseTable() {
-  const { selectedCompany, projects, currentRole } = useCompany();
+  const { selectedCompany, projects } = useCompany();
   const { language } = useI18n();
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
@@ -54,7 +54,7 @@ export function StandaloneExpenseTable() {
     (en: string, ar: string) => (language === 'ar' ? ar : en),
     [language],
   );
-  const canManage = usePermissionOr('finance', 'write', currentRole !== 'Employee');
+  const canManage = usePermissions().can('finance.edit');
 
   const [expenses, setExpenses] = React.useState<Expense[]>([]);
   const [loading, setLoading] = React.useState(true);

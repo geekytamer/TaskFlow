@@ -7,13 +7,13 @@ import { PlusCircle } from 'lucide-react';
 import { AddUserSheet } from './add-user-sheet';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 
 export function UsersPage() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [refreshToken, setRefreshToken] = React.useState(0);
-  const { user, effectiveRole } = useAuthGuard(['Admin', 'Manager']);
-  const canAddUsers = usePermissionOr('settings', 'users.write', Boolean(effectiveRole && ['Admin', 'Manager'].includes(effectiveRole)));
+  const { user } = useAuthGuard('people.manage');
+  const canAddUsers = usePermissions().can('people.manage');
   const { t } = useI18n();
 
   const handleUsersChanged = () => {
@@ -35,7 +35,6 @@ export function UsersPage() {
             open={isSheetOpen}
             onOpenChange={setIsSheetOpen}
             onUserAdded={handleUsersChanged}
-            currentUserRole={effectiveRole}
           >
             <Button>
               <PlusCircle className="me-2 h-4 w-4" />
@@ -46,7 +45,6 @@ export function UsersPage() {
       </div>
       <UserTable
         onUserUpdated={handleUsersChanged}
-        currentUserRole={effectiveRole}
         refreshToken={refreshToken}
       />
     </div>

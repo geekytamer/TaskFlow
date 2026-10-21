@@ -2,8 +2,8 @@
 
 import * as React from 'react';
 import { useTour, useSeenTours, SEEN_KEY, TOURS_CHANGED_EVENT } from '@/components/tutorial/tour-context';
-import { TOURS, TOUR_CATEGORIES, tourAllowsRole, type Tour } from '@/components/tutorial/tour-steps';
-import { useCompany } from '@/context/company-context';
+import { TOURS, TOUR_CATEGORIES, tourAllowed, type Tour } from '@/components/tutorial/tour-steps';
+import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,14 +22,14 @@ export function GuidePage() {
   const { startTour } = useTour();
   const seenTours = useSeenTours();
   const { language: locale, isRtl } = useI18n();
-  const { currentRole } = useCompany();
+  const { can } = usePermissions();
   const [query, setQuery] = React.useState('');
 
-  // Only tours whose page this role can actually open. Offering a walkthrough
+  // Only tours whose page this person may open. Offering a walkthrough
   // that bounces the user out at the first step is worse than not offering it.
   const availableTours = React.useMemo(
-    () => TOURS.filter((tour) => tourAllowsRole(tour, currentRole)),
-    [currentRole],
+    () => TOURS.filter((tour) => tourAllowed(tour, can)),
+    [can],
   );
 
   const tr = (en: string, ar: string) => (locale === 'ar' ? ar : en);

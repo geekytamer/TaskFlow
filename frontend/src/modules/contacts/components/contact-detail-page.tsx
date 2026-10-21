@@ -18,7 +18,8 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
+import { hiddenText } from '@/components/hidden-value';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
@@ -70,16 +71,12 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const { money, amount, amountIn } = useCompanyCurrency();
-  const { currentRole, selectedCompany } = useCompany();
+  const { selectedCompany } = useCompany();
   const photos = useInfluencerPhotos(selectedCompany?.id);
-  // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
-  // tile is absent rather than empty. The role is the legacy fallback.
-  const canSeePricing = usePermissionOr(
-    'contacts',
-    'pricing.read',
-    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
-  );
-  const canSeeWorkspace = usePermissionOr('contacts', 'contacts.workspace.read', currentRole === 'Admin' || currentRole === 'Manager');
+  const { can, field } = usePermissions();
+  // The API leaves rateCardAmount out without the rate_cards field: say "Hidden", not empty.
+  const canSeePricing = field('rate_cards').view;
+  const canSeeWorkspace = can('influencers.use_workspace');
   const canManagePortal = useCanManagePortal();
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -237,13 +234,13 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 label={tr('Niche', 'المجال')}
                 value={c.influencerNiche || empty}
               />
-              {canSeePricing && (
-                <Stat
-                  icon={<Receipt className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
-                  label={tr('Rate card', 'قائمة الأسعار')}
-                  value={c.rateCardAmount != null ? money(c.rateCardAmount) : empty}
-                />
-              )}
+              <Stat
+                icon={<Receipt className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
+                label={tr('Rate card', 'قائمة الأسعار')}
+                value={!canSeePricing && c.rateCardAmount == null
+                  ? hiddenText(language)
+                  : c.rateCardAmount != null ? money(c.rateCardAmount) : empty}
+              />
             </div>
 
             {(c.influencerAccounts || []).length > 0 ? (

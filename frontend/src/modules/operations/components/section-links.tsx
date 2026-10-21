@@ -4,75 +4,60 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Banknote, Handshake, Package, ShoppingCart, Truck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
-import { navPermission } from '@/modules/layout/lib/nav-permissions';
+import { navAllowed } from '@/modules/layout/lib/nav-permissions';
 import { moduleForPath } from '@/modules/companies/lib/company-modules';
 import { cn } from '@/lib/utils';
-import type { UserRole } from '@/lib/types';
 
 const sectionItems: Array<{
   href: string;
   titleKey: string;
   descriptionKey: string;
   icon: typeof Banknote;
-  roles: UserRole[];
 }> = [
   {
     href: '/finance',
     titleKey: 'sections.finance.title',
     descriptionKey: 'sections.finance.description',
     icon: Banknote,
-    roles: ['Admin', 'Manager', 'Accountant'],
   },
   {
     href: '/inventory',
     titleKey: 'sections.inventory.title',
     descriptionKey: 'sections.inventory.description',
     icon: Package,
-    roles: ['Admin', 'Manager', 'Accountant'],
   },
   {
     href: '/purchases',
     titleKey: 'sections.purchases.title',
     descriptionKey: 'sections.purchases.description',
     icon: ShoppingCart,
-    roles: ['Admin', 'Manager', 'Accountant'],
   },
   {
     href: '/clients',
     titleKey: 'sections.clients.title',
     descriptionKey: 'sections.clients.description',
     icon: Handshake,
-    roles: ['Admin', 'Manager', 'Accountant'],
   },
   {
     href: '/suppliers',
     titleKey: 'sections.suppliers.title',
     descriptionKey: 'sections.suppliers.description',
     icon: Truck,
-    roles: ['Admin', 'Manager', 'Accountant'],
   },
 ];
 
 export function SectionLinks() {
   const pathname = usePathname();
-  const { currentRole } = useCompany();
   const { t } = useI18n();
-  const { can, moduleOn, loaded } = usePermissions();
+  const { can, moduleOn } = usePermissions();
 
-  // Same rule as the sidebar: the destination's permission once the server has
-  // answered, the role list before that and under the legacy engine.
+  // Same rule as the sidebar: the destination's permission, from the server.
   const visibleItems = sectionItems.filter((item) => {
     const itemModule = moduleForPath(item.href);
     if (itemModule && !moduleOn(itemModule)) return false;
-    const permission = navPermission(item.href);
-    if (loaded && permission) {
-      const cut = permission.indexOf(':');
-      return can(permission.slice(0, cut), permission.slice(cut + 1));
-    }
-    return currentRole ? item.roles.includes(currentRole) : false;
+    return navAllowed(item.href, can);
   });
 
   if (!visibleItems.length) return null;

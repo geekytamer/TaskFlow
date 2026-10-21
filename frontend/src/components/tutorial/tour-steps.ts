@@ -1,3 +1,5 @@
+import { navAllowed } from '@/modules/layout/lib/nav-permissions';
+
 export interface TourStep {
   target: string;
   en: { title: string; desc: string };
@@ -44,9 +46,6 @@ export const TOUR_CATEGORIES: Array<{ id: TourCategory; en: string; ar: string; 
     blurb_ar: 'الشركات والمستخدمون وإعدادات النظام.' },
 ];
 
-/** Roles as used by the page guards. */
-export type TourRole = 'Admin' | 'Manager' | 'Employee' | 'Accountant';
-
 export interface Tour {
   id: string;
   en: string;
@@ -55,20 +54,16 @@ export interface Tour {
   route?: string;
   /** Which section of the guide page this tour belongs to. */
   category?: TourCategory;
-  /**
-   * Roles that can actually open this tour's page. Mirrors the route's own
-   * guard — offering a walkthrough of a page the user would be bounced out of
-   * is worse than not offering it. Omit when the page is open to everyone.
-   */
-  roles?: TourRole[];
   steps: TourStep[];
 }
 
-/** Does this tour apply to the given role? Unrestricted tours apply to all. */
-export function tourAllowsRole(tour: Tour, role?: string | null): boolean {
-  if (!tour.roles) return true;
-  if (!role) return false;
-  return tour.roles.includes(role as TourRole);
+/**
+ * Is this tour offered? Only when the person may open its page (the page's own
+ * permission, from the server): a walkthrough of a page they would be bounced
+ * out of is worse than none.
+ */
+export function tourAllowed(tour: Tour, can: (key: string) => boolean): boolean {
+  return !tour.route || navAllowed(tour.route, can);
 }
 
 export const TOURS: Tour[] = [
@@ -199,7 +194,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'finance',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'finance',
     en: 'Finance Module',
     ar: 'وحدة المالية',
@@ -263,7 +257,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'invoicing',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'finance',
     en: 'Invoicing Workflow',
     ar: 'سير عمل الفوترة',
@@ -342,7 +335,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'ledger',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'finance',
     en: 'Ledger & Chart of Accounts',
     ar: 'دفتر الأستاذ ودليل الحسابات',
@@ -387,7 +379,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'sales',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Sales Orders',
     ar: 'أوامر البيع',
@@ -446,7 +437,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'purchases',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Purchase Orders',
     ar: 'أوامر الشراء',
@@ -499,7 +489,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'inventory',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Inventory Management',
     ar: 'إدارة المخزون',
@@ -575,7 +564,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'contacts',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Contacts & Leads',
     ar: 'جهات الاتصال والعملاء المحتملون',
@@ -601,7 +589,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'crm-panel',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'CRM Panel',
     ar: 'لوحة إدارة العلاقات',
@@ -640,7 +627,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'pipeline',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'CRM Pipeline',
     ar: 'خط أنابيب المبيعات',
@@ -667,7 +653,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'followups',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Follow-Up Center',
     ar: 'مركز المتابعة',
@@ -693,7 +678,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'performance',
-    roles: ['Admin', 'Manager'],
     category: 'crm',
     en: 'Performance Dashboard',
     ar: 'لوحة الأداء',
@@ -726,7 +710,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'manufacturing',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Manufacturing',
     ar: 'التصنيع',
@@ -762,7 +745,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'rfq',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Requests for Quotation',
     ar: 'طلبات عروض الأسعار',
@@ -791,7 +773,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'invoice-matching',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Invoice Matching',
     ar: 'مطابقة الفواتير',
@@ -819,7 +800,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'stock-counts',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Stock Counts',
     ar: 'جرد المخزون',
@@ -848,7 +828,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'payroll',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'people',
     en: 'Payroll',
     ar: 'الرواتب',
@@ -877,7 +856,6 @@ export const TOURS: Tour[] = [
   // ─────────────────────────────────────────────
   {
     id: 'documents',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'finance',
     en: 'Document Builder',
     ar: 'منشئ المستندات',
@@ -901,7 +879,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'clients',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'finance',
     en: 'Client Directory',
     ar: 'دليل العملاء',
@@ -929,7 +906,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'suppliers',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'operations',
     en: 'Supplier Directory',
     ar: 'دليل الموردين',
@@ -978,7 +954,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'campaigns',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Marketing Campaigns',
     ar: 'الحملات التسويقية',
@@ -1006,7 +981,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'commissions',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Commissions',
     ar: 'العمولات',
@@ -1034,7 +1008,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'vendor-requests',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Vendor Requests',
     ar: 'طلبات الموردين',
@@ -1056,7 +1029,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'pipeline-board',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Opportunity Board',
     ar: 'لوحة الفرص',
@@ -1078,7 +1050,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'hr-employees',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'people',
     en: 'Employee Directory',
     ar: 'دليل الموظفين',
@@ -1106,7 +1077,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'hr-leave',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'people',
     en: 'Leave Management',
     ar: 'إدارة الإجازات',
@@ -1128,7 +1098,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'hr-attendance',
-    roles: ['Admin', 'Manager', 'Accountant'],
     category: 'people',
     en: 'Attendance',
     ar: 'الحضور',
@@ -1144,7 +1113,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'influencers',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'Influencers',
     ar: 'المؤثرون',
@@ -1166,7 +1134,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'whatsapp',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'crm',
     en: 'WhatsApp Inbox',
     ar: 'صندوق واتساب',
@@ -1188,7 +1155,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'notifications',
-    roles: ['Admin', 'Manager', 'Employee', 'Accountant'],
     category: 'admin',
     en: 'Notifications',
     ar: 'الإشعارات',
@@ -1225,7 +1191,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'users',
-    roles: ['Admin', 'Manager'],
     category: 'admin',
     en: 'Users & Roles',
     ar: 'المستخدمون والأدوار',
@@ -1270,7 +1235,6 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'company-profile',
-    roles: ['Admin', 'Manager'],
     category: 'admin',
     en: 'Company Profile',
     ar: 'ملف الشركة',
@@ -1293,7 +1257,6 @@ export const TOURS: Tour[] = [
 
   {
     id: 'settings',
-    roles: ['Admin'],
     category: 'admin',
     en: 'Settings & Numbering',
     ar: 'الإعدادات والترقيم',

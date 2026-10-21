@@ -9,8 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/i18n-context';
 import type { RecordAttachment, RecordEntityType, RecordTimelineItem } from '@/modules/finance/types';
@@ -43,7 +42,6 @@ export function RecordSupportPanel({
   title,
   compact = false,
 }: RecordSupportPanelProps) {
-  const { currentRole } = useCompany();
   const { toast } = useToast();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -58,7 +56,7 @@ export function RecordSupportPanel({
   const [note, setNote] = React.useState('');
   const [localFile, setLocalFile] = React.useState<File | null>(null);
 
-  const canDelete = usePermissionOr('documents', 'delete', currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant');
+  const canDelete = usePermissions().can('documents.delete');
 
   const load = React.useCallback(async () => {
     if (!resolvedCompanyId || !entityId) {

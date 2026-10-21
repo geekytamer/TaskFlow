@@ -17,7 +17,8 @@ import { Badge } from '@/components/ui/badge';
 import { hasNiche, nicheOptions, splitNiches } from '@/lib/niches';
 import { useCompany } from '@/context/company-context';
 import { InfluencerAvatar, useInfluencerPhotos } from './influencer-avatar';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -215,14 +216,14 @@ function InfluencerCard({
           <p className="text-sm font-semibold">{engagement != null ? `${engagement}%` : '—'}</p>
           <p className="text-[11px] text-muted-foreground">{t('crm.engagementRate')}</p>
         </div>
-        {showPricing && (
-          <div className="rounded-md bg-muted/50 px-2 py-1.5">
-            <p className="truncate text-sm font-semibold">
-              {c.rateCardAmount != null ? money(c.rateCardAmount) : '—'}
-            </p>
-            <p className="text-[11px] text-muted-foreground">{t('crm.rateCard')}</p>
-          </div>
-        )}
+        <div className="rounded-md bg-muted/50 px-2 py-1.5">
+          <p className="truncate text-sm font-semibold">
+            {!showPricing && c.rateCardAmount == null
+              ? <HiddenValue className="text-xs font-normal" />
+              : c.rateCardAmount != null ? money(c.rateCardAmount) : '—'}
+          </p>
+          <p className="text-[11px] text-muted-foreground">{t('crm.rateCard')}</p>
+        </div>
       </div>
 
       {(c.location || (c.languages && c.languages.length)) ? (
@@ -267,15 +268,11 @@ function InfluencerCard({
 }
 
 export function InfluencersPage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const photos = useInfluencerPhotos(selectedCompany?.id);
-  // The API strips rateCardAmount without contacts:pricing.read; mirror that so the
-  // tile is absent rather than empty. The role is the legacy fallback.
-  const showPricing = usePermissionOr(
-    'contacts',
-    'pricing.read',
-    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
-  );
+  // The API leaves rateCardAmount out without the rate_cards field: the tile says "Hidden".
+  const { can, field } = usePermissions();
+  const showPricing = field('rate_cards').view;
   const { t } = useI18n();
   const { toast } = useToast();
   const { money } = useCompanyCurrency();
@@ -421,7 +418,7 @@ export function InfluencersPage() {
           <CsvImportExport
             exportPath={`/companies/${selectedCompany.id}/influencers/export`}
             exportFilename="influencers.csv"
-            importPath={`/companies/${selectedCompany.id}/influencers/import`}
+            importPath={can('influencers.create') ? `/companies/${selectedCompany.id}/influencers/import` : undefined}
             onImported={loadInfluencers}
             template={{
               filename: 'influencers-template.csv',

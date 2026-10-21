@@ -8,7 +8,7 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { getTasks } from '@/services/projectService';
 import type { Task } from '@/lib/types';
@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function OverviewChart() {
   const { selectedCompany, currentUser } = useCompany();
-  const seesAllTasks = usePermissionOr('tasks', 'all.read', currentUser?.role !== 'Employee');
+  const seesAllTasks = usePermissions().can('tasks.view', { scope: 'company' });
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const chartConfig = {

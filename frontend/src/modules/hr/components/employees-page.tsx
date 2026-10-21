@@ -15,7 +15,8 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Plus, Trash2, Pencil, X } from 'lucide-react';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import {
   createDepartment,
   createEmployee,
@@ -55,13 +56,15 @@ const emptyForm = (): Form => ({
 });
 
 export function EmployeesPage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const confirm = useConfirm();
   const [editingDept, setEditingDept] = React.useState<Department | null>(null);
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const canManage = usePermissionOr('hr', 'write', currentRole !== 'Employee');
+  const { can, field } = usePermissions();
+  const canCreate = can('hr.create');
+  const canManage = can('hr.edit');
 
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [departments, setDepartments] = React.useState<Department[]>([]);
@@ -111,6 +114,21 @@ export function EmployeesPage() {
     setDialogOpen(true);
   };
 
+  /**
+   * Sensitive groups in the form. On an existing record a group the server
+   * left out (masked) is shown as "Hidden" and never sent: sending '' or 0
+   * would be a change the person may not make. A group they may see but not
+   * change is shown read-only and not sent either.
+   */
+  const group = (key: 'salary' | 'bank_details' | 'personal_ids', prop: keyof Employee) => {
+    // Seen through the role, or present because the record is the person's own.
+    const shown = editing ? field(key).view || prop in editing : field(key).edit;
+    return { shown, editable: shown && field(key).edit };
+  };
+  const salaryGroup = group('salary', 'basicSalary');
+  const bankGroup = group('bank_details', 'iban');
+  const idGroup = group('personal_ids', 'idNumber');
+
   const handleSave = async () => {
     if (!selectedCompany || !form.name.trim()) return;
     setSaving(true);
@@ -126,14 +144,20 @@ export function EmployeesPage() {
       hireDate: form.hireDate || undefined,
       annualLeaveAllowance: Number(form.annualLeaveAllowance || 0),
       notes: form.notes.trim() || undefined,
-      basicSalary: Number(form.basicSalary || 0),
-      allowances: Number(form.allowances || 0),
-      deductions: Number(form.deductions || 0),
-      bankName: form.bankName.trim() || undefined,
-      iban: form.iban.trim().replace(/\s+/g, '').toUpperCase() || undefined,
-      bankCode: form.bankCode.trim().toUpperCase() || undefined,
-      idType: form.idType,
-      idNumber: form.idNumber.trim() || undefined,
+      ...(salaryGroup.editable ? {
+        basicSalary: Number(form.basicSalary || 0),
+        allowances: Number(form.allowances || 0),
+        deductions: Number(form.deductions || 0),
+      } : {}),
+      ...(bankGroup.editable ? {
+        bankName: form.bankName.trim() || undefined,
+        iban: form.iban.trim().replace(/\s+/g, '').toUpperCase() || undefined,
+        bankCode: form.bankCode.trim().toUpperCase() || undefined,
+      } : {}),
+      ...(idGroup.editable ? {
+        idType: form.idType,
+        idNumber: form.idNumber.trim() || undefined,
+      } : {}),
     } as Partial<Employee>;
     try {
       if (editing) {
@@ -202,7 +226,7 @@ export function EmployeesPage() {
           <h1 className="text-3xl font-bold font-headline">{tr('Employees', 'الموظفون')}</h1>
           <p className="text-muted-foreground">{tr('Your team directory and org structure.', 'دليل فريقك وهيكله التنظيمي.')}</p>
         </div>
-        {canManage && (
+        {canCreate && (
           <Button onClick={openCreate}><Plus className="me-2 h-4 w-4" />{tr('New Employee', 'موظف جديد')}</Button>
         )}
       </div>
@@ -353,44 +377,71 @@ export function EmployeesPage() {
             <div className="sm:col-span-2 mt-1 border-t pt-3">
               <p className="text-sm font-semibold text-muted-foreground">{tr('Payroll', 'الرواتب')}</p>
             </div>
-            <div className="space-y-1">
-              <Label>{tr('Basic salary', 'الراتب الأساسي')}</Label>
-              <Input type="number" value={form.basicSalary} onChange={(e) => setForm((p) => ({ ...p, basicSalary: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('Allowances', 'البدلات')}</Label>
-              <Input type="number" value={form.allowances} onChange={(e) => setForm((p) => ({ ...p, allowances: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('Deductions', 'الاستقطاعات')}</Label>
-              <Input type="number" value={form.deductions} onChange={(e) => setForm((p) => ({ ...p, deductions: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('Bank name', 'اسم البنك')}</Label>
-              <Input value={form.bankName} onChange={(e) => setForm((p) => ({ ...p, bankName: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('IBAN', 'رقم الآيبان')}</Label>
-              <Input value={form.iban} onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('Bank SWIFT code', 'رمز سويفت للبنك')}</Label>
-              <Input value={form.bankCode} placeholder="BMUSOMRX" onChange={(e) => setForm((p) => ({ ...p, bankCode: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('ID document', 'وثيقة الهوية')}</Label>
-              <Select value={form.idType} onValueChange={(v) => setForm((p) => ({ ...p, idType: v as Form['idType'] }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="civil_id">{tr('Civil ID / resident card', 'البطاقة المدنية / بطاقة الإقامة')}</SelectItem>
-                  <SelectItem value="passport">{tr('Passport', 'جواز السفر')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>{tr('ID number', 'رقم الهوية')}</Label>
-              <Input value={form.idNumber} onChange={(e) => setForm((p) => ({ ...p, idNumber: e.target.value }))} />
-            </div>
+            {salaryGroup.shown ? (
+              <>
+                <div className="space-y-1">
+                  <Label>{tr('Basic salary', 'الراتب الأساسي')}</Label>
+                  <Input type="number" value={form.basicSalary} disabled={!salaryGroup.editable} onChange={(e) => setForm((p) => ({ ...p, basicSalary: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>{tr('Allowances', 'البدلات')}</Label>
+                  <Input type="number" value={form.allowances} disabled={!salaryGroup.editable} onChange={(e) => setForm((p) => ({ ...p, allowances: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>{tr('Deductions', 'الاستقطاعات')}</Label>
+                  <Input type="number" value={form.deductions} disabled={!salaryGroup.editable} onChange={(e) => setForm((p) => ({ ...p, deductions: e.target.value }))} />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1 sm:col-span-2">
+                <Label>{tr('Salary, allowances and deductions', 'الراتب والبدلات والاستقطاعات')}</Label>
+                <div><HiddenValue /></div>
+              </div>
+            )}
+            {bankGroup.shown ? (
+              <>
+                <div className="space-y-1">
+                  <Label>{tr('Bank name', 'اسم البنك')}</Label>
+                  <Input value={form.bankName} disabled={!bankGroup.editable} onChange={(e) => setForm((p) => ({ ...p, bankName: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>{tr('IBAN', 'رقم الآيبان')}</Label>
+                  <Input value={form.iban} disabled={!bankGroup.editable} onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>{tr('Bank SWIFT code', 'رمز سويفت للبنك')}</Label>
+                  <Input value={form.bankCode} disabled={!bankGroup.editable} placeholder="BMUSOMRX" onChange={(e) => setForm((p) => ({ ...p, bankCode: e.target.value }))} />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1 sm:col-span-2">
+                <Label>{tr('Bank details', 'البيانات المصرفية')}</Label>
+                <div><HiddenValue /></div>
+              </div>
+            )}
+            {idGroup.shown ? (
+              <>
+                <div className="space-y-1">
+                  <Label>{tr('ID document', 'وثيقة الهوية')}</Label>
+                  <Select value={form.idType} disabled={!idGroup.editable} onValueChange={(v) => setForm((p) => ({ ...p, idType: v as Form['idType'] }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="civil_id">{tr('Civil ID / resident card', 'البطاقة المدنية / بطاقة الإقامة')}</SelectItem>
+                      <SelectItem value="passport">{tr('Passport', 'جواز السفر')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>{tr('ID number', 'رقم الهوية')}</Label>
+                  <Input value={form.idNumber} disabled={!idGroup.editable} onChange={(e) => setForm((p) => ({ ...p, idNumber: e.target.value }))} />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1 sm:col-span-2">
+                <Label>{tr('ID number', 'رقم الهوية')}</Label>
+                <div><HiddenValue /></div>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground sm:col-span-2">{tr('The WPS salary file needs the IBAN, the bank\u2019s SWIFT code and the ID number.', 'يحتاج ملف حماية الأجور إلى الآيبان ورمز سويفت للبنك ورقم الهوية.')}</p>
           </div>
           <DialogFooter>

@@ -35,7 +35,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { getPositions } from '@/services/companyService';
 import { createUser, updateUser } from '@/services/userService';
 import { fetchPermissionGroups, fetchUserGroups, setUserGroups, type PermissionGroup } from '@/services/permissionService';
@@ -67,7 +67,6 @@ interface AddUserSheetProps {
   onOpenChange: (open: boolean) => void;
   onUserAdded: () => void;
   userToEdit?: User | null;
-  currentUserRole?: UserRole;
   /**
    * `company` (default): the form works on the company open in the header and
    * nothing else, whoever is signed in. `platform`: the super admin view, where
@@ -82,7 +81,6 @@ export function AddUserSheet({
   onOpenChange,
   onUserAdded,
   userToEdit,
-  currentUserRole,
   scope = 'company',
 }: AddUserSheetProps) {
   const { toast } = useToast();
@@ -115,10 +113,12 @@ export function AddUserSheet({
 
   const selectedCompanyIds = form.watch('companyIds');
 
-  // settings:administration.write gives every role; settings:users.write alone gives only
-  // Employee. The legacy fallbacks are the Admin and Manager rules they replaced.
-  const canAssignElevatedRoles = usePermissionOr('settings', 'administration.write', !currentUserRole || currentUserRole === 'Admin');
-  const canManageUsers = usePermissionOr('settings', 'users.write', currentUserRole === 'Admin' || currentUserRole === 'Manager');
+  // people.manage_roles gives every role; people.manage alone gives only Employee.
+  // On the platform console (no company) the platform administrator gives any role.
+  const { can } = usePermissions();
+  const platformAdmin = scope === 'platform' && Boolean(currentUser?.isSuperAdmin);
+  const canAssignElevatedRoles = can('people.manage_roles') || platformAdmin;
+  const canManageUsers = can('people.manage') || platformAdmin;
   const availableRoles = React.useMemo((): UserRole[] => {
     if (canAssignElevatedRoles) return allUserRoles;
     if (canManageUsers) return ['Employee'];
@@ -245,11 +245,8 @@ export function AddUserSheet({
     if (!selectedCompany) return [];
     const current = companies.find((company) => company.id === selectedCompany.id) ?? selectedCompany;
     if (currentUser.isSuperAdmin) return [current];
-    const manages = (currentUser.companyRoles || []).some(
-      (assignment) => assignment.companyId === current.id && ['Admin', 'Manager'].includes(assignment.role),
-    );
-    return manages ? [current] : [];
-  }, [canChooseCompanies, companies, currentUser, selectedCompany]);
+    return canManageUsers ? [current] : [];
+  }, [canChooseCompanies, companies, currentUser, selectedCompany, canManageUsers]);
 
   const companyItems: MultiSelectItem[] = React.useMemo(() => 
     manageableCompanies.map(c => ({ value: c.id, label: c.name, icon: Building })),
@@ -262,10 +259,7 @@ export function AddUserSheet({
 
   React.useEffect(() => {
     async function loadPositions() {
-      if (currentUser?.role !== 'Admin') {
-        setPositions([]);
-        return;
-      }
+      // Positions are platform-wide; the server decides who reads them.
       try {
         const allPositions = await getPositions();
         setPositions(allPositions);
@@ -278,7 +272,7 @@ export function AddUserSheet({
       }
     }
     loadPositions();
-  }, [currentUser?.role]);
+  }, []);
 
   // Ensure every selected company has an assignment entry
   React.useEffect(() => {

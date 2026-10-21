@@ -23,7 +23,8 @@ export function isApiError(error: unknown): error is ApiError {
 export interface CreditLimitRefusal {
   code: 'CREDIT_LIMIT_EXCEEDED';
   message: string;
-  limit: number;
+  /** Absent when the person may not see client terms (masked by the server). */
+  limit?: number;
   owed: number;
   adding: number;
   canOverride: boolean;
@@ -37,6 +38,20 @@ export interface CreditLimitRefusal {
 let creditLimitPrompt: ((refusal: CreditLimitRefusal) => Promise<boolean>) | null = null;
 export function setCreditLimitPrompt(prompt: typeof creditLimitPrompt) {
   creditLimitPrompt = prompt;
+}
+
+/**
+ * Turns a 403 FORBIDDEN body into one translated sentence naming what is
+ * missing and who to ask, and shows it. Registered once by the app (see
+ * ForbiddenBridge). Without it the server's own message is kept.
+ */
+export interface ForbiddenHandler {
+  describe: (body: { code: 'FORBIDDEN'; permission?: string | null; message?: string }) => string;
+  notify: (sentence: string) => void;
+}
+let forbiddenHandler: ForbiddenHandler | null = null;
+export function setForbiddenHandler(handler: ForbiddenHandler | null) {
+  forbiddenHandler = handler;
 }
 
 /** Fired on window after any request that changed data succeeds. */
@@ -117,6 +132,14 @@ export async function apiFetch<T>(
       if (refusal.canOverride && !body.overrideCreditLimit && creditLimitPrompt && (await creditLimitPrompt(refusal))) {
         return apiFetch<T>(path, { ...options, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
       }
+    }
+    const forbidden = details as { code?: string; permission?: string | null; message?: string } | undefined;
+    if (response.status === 403 && forbidden?.code === 'FORBIDDEN' && forbiddenHandler) {
+      message = forbiddenHandler.describe({ ...forbidden, code: 'FORBIDDEN' });
+      // An action the person tried: say so at once. A refused read stays quiet
+      // (the screen hides what it cannot show) but carries the same sentence.
+      const method = (options.method || 'GET').toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD') forbiddenHandler.notify(message);
     }
     throw new ApiError(response.status, message, details);
   }

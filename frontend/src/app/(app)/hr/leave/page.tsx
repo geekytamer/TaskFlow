@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { LeavePage } from '@/modules/hr/components/leave-page';
 
 export default function LeaveRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant'], { permission: 'hr:read' });
+  const { user, loading } = useAuthGuard('hr.view');
   const { t } = useI18n();
 
   if (loading || !user) {

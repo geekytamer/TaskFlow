@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { NotificationsPage } from '@/modules/notifications/components/notifications-page';
 
 export default function NotificationsRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant', 'Employee']);
+  const { user, loading } = useAuthGuard();
   const { t } = useI18n();
 
   if (loading || !user) {

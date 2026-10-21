@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { getTasks } from '@/services/projectService';
 import { format } from 'date-fns';
 import { ExternalLink, Receipt, Image as ImageIcon, Download } from 'lucide-react';
@@ -20,7 +20,7 @@ import { useI18n } from '@/context/i18n-context';
 
 export function ExpenseTable() {
   const { selectedCompany, projects, currentUser } = useCompany();
-  const seesAllProjects = usePermissionOr('projects', 'all.read', currentUser?.role === 'Admin');
+  const seesAllProjects = usePermissions().can('projects.view', { scope: 'company' });
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();

@@ -398,7 +398,6 @@ export function AdminPage() {
             open={createUserOpen}
             onOpenChange={setCreateUserOpen}
             onUserAdded={load}
-            currentUserRole="Admin"
             scope="platform"
           />
           {editingUser && (
@@ -407,7 +406,6 @@ export function AdminPage() {
               onOpenChange={(isOpen) => { if (!isOpen) setEditingUser(null); }}
               onUserAdded={() => { setEditingUser(null); load(); }}
               userToEdit={editingUser}
-              currentUserRole="Admin"
               scope="platform"
             />
           )}

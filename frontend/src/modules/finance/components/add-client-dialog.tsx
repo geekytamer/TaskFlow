@@ -35,6 +35,7 @@ import { useToast } from '@/hooks/use-toast';
 import { createClient } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
 
 const addClientSchema = z.object({
   name: z.string().min(2, 'Client name must be at least 2 characters.'),
@@ -68,6 +69,8 @@ export function AddClientDialog({
   const { toast } = useToast();
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
+  // Credit limits are client terms: no input for someone who may not set them.
+  const canSetCreditLimit = usePermissions().field('client_terms').edit;
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const form = useForm<AddClientFormValues>({
     resolver: zodResolver(addClientSchema),
@@ -205,6 +208,7 @@ export function AddClientDialog({
                 </FormItem>
               )}
             />
+            {canSetCreditLimit && (
             <FormField
               control={form.control}
               name="creditLimit"
@@ -218,6 +222,7 @@ export function AddClientDialog({
                 </FormItem>
               )}
             />
+            )}
             <FormField
               control={form.control}
               name="creditNumber"

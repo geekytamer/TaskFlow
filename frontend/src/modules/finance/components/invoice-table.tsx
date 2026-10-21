@@ -54,8 +54,7 @@ import { InvoiceDocument } from './invoice-document';
 import { InvoiceCommissionsPanel } from './invoice-commissions-panel';
 import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
-import { useAuthGuard } from '@/hooks/use-auth-guard';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
 
 export function InvoiceTable() {
@@ -89,8 +88,7 @@ export function InvoiceTable() {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amountIn } = useCompanyCurrency();
-  const { effectiveRole } = useAuthGuard();
-  const canManageFinance = usePermissionOr('invoices', 'write', effectiveRole !== 'Employee');
+  const canManageFinance = usePermissions().can('invoices.edit');
 
   const fetchData = React.useCallback(async (opts?: { quiet?: boolean }) => {
     const quiet = opts?.quiet === true;

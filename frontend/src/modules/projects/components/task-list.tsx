@@ -13,7 +13,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask } from '@/services/projectService';
@@ -327,12 +327,11 @@ function TaskGroup({
 type Scope = 'mine' | 'all' | 'unassigned';
 
 export function TaskList({ projectId }: { projectId?: string }) {
-  const { selectedCompany, projects, currentRole, currentUser } = useCompany();
+  const { selectedCompany, projects, currentUser } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
-  const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
-  const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
+  const canLoadClients = usePermissions().can('contacts.view_details');
   const currentUserId = currentUser?.id;
 
   const tr = React.useCallback(
@@ -412,7 +411,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     } finally {
       setLoading(false);
     }
-  }, [currentRole, selectedCompanyId, canLoadClients]);
+  }, [selectedCompanyId, canLoadClients]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['tasks', 'projects', 'time-entries', 'comments'], () => loadData({ quiet: true }));

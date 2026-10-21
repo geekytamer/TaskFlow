@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { DiscoverPage } from '@/modules/discover/components/discover-page';
 
 export default function DiscoverRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager']);
+  const { user, loading } = useAuthGuard('discover.view');
   const { t } = useI18n();
 
   if (loading || !user) {

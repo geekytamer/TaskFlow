@@ -8,6 +8,7 @@ import { ThemeProvider } from '@/context/theme-context';
 import { BrandProvider } from '@/modules/branding/brand-context';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { CreditLimitBridge } from '@/components/credit-limit-bridge';
+import { ForbiddenBridge } from '@/components/forbidden-bridge';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -18,6 +19,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <PermissionsProvider>
           <ConfirmProvider>
             <CreditLimitBridge />
+            <ForbiddenBridge />
             {children}
           </ConfirmProvider>
         </PermissionsProvider>

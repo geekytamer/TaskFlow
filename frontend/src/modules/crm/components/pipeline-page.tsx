@@ -20,7 +20,7 @@ import { SectionEmptyState } from '@/modules/operations/components/section-empty
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { ContributorsPanel } from './contributors-panel';
 import { QuotationsPanel } from '@/modules/sales/components/quotations-panel';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
 import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
 import {
@@ -146,9 +146,9 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-foreground' }: 
 // ─── PipelinePage ─────────────────────────────────────────────────────────────
 
 export function PipelinePage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   // Quotations live in Sales; only people who can read Sales see them here.
-  const canSeeQuotations = usePermissionOr('sales', 'read', currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant');
+  const canSeeQuotations = usePermissions().can('sales.view');
   const { user } = useCurrentUser();
   const { toast } = useToast();
   const confirm = useConfirm();

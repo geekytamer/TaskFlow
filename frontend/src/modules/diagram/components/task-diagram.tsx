@@ -92,8 +92,8 @@ const getNodesAndEdges = (companyTasks: Task[]) => {
 
 
 export function TaskDiagram() {
-  const { selectedCompany, currentUser, currentRole, projects } = useCompany();
-  const seesAllProjects = useSeesAllProjects(currentRole);
+  const { selectedCompany, currentUser, projects } = useCompany();
+  const seesAllProjects = useSeesAllProjects();
   const [nodes, setNodes] = useState<Node<Task>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,7 +108,7 @@ export function TaskDiagram() {
           .filter(
             (project) =>
               project.companyId === selectedCompany.id &&
-              canViewProject(project, currentUser.id, currentRole, seesAllProjects),
+              canViewProject(project, currentUser.id, seesAllProjects),
           )
           .map((project) => project.id),
       );
@@ -122,7 +122,7 @@ export function TaskDiagram() {
       setLoading(false);
     }
     loadTasks();
-  }, [selectedCompany, currentUser, currentRole, projects, seesAllProjects]);
+  }, [selectedCompany, currentUser, projects, seesAllProjects]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),

@@ -19,10 +19,16 @@ export function CreditLimitBridge() {
     const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
     setCreditLimitPrompt((r: CreditLimitRefusal) => confirm({
       title: tr('Over the credit limit', 'تجاوز سقف الائتمان'),
-      description: tr(
-        `This client owes ${money(r.owed)}. Adding ${money(r.adding)} takes them to ${money(r.owed + r.adding)}, over their limit of ${money(r.limit)}. Go ahead anyway?`,
-        `يدين هذا العميل بـ ${money(r.owed)}. إضافة ${money(r.adding)} تجعله ${money(r.owed + r.adding)}، فوق سقفه البالغ ${money(r.limit)}. هل تريد المتابعة رغم ذلك؟`,
-      ),
+      // The limit is a client term: someone who may not see client terms gets no figure.
+      description: typeof r.limit === 'number'
+        ? tr(
+          `This client owes ${money(r.owed)}. Adding ${money(r.adding)} takes them to ${money(r.owed + r.adding)}, over their limit of ${money(r.limit)}. Go ahead anyway?`,
+          `يدين هذا العميل بـ ${money(r.owed)}. إضافة ${money(r.adding)} تجعله ${money(r.owed + r.adding)}، فوق سقفه البالغ ${money(r.limit)}. هل تريد المتابعة رغم ذلك؟`,
+        )
+        : tr(
+          `This client owes ${money(r.owed)}. Adding ${money(r.adding)} takes them over their credit limit. Go ahead anyway?`,
+          `يدين هذا العميل بـ ${money(r.owed)}. إضافة ${money(r.adding)} تتجاوز سقف ائتمانه. هل تريد المتابعة رغم ذلك؟`,
+        ),
       confirmText: tr('Go ahead', 'تابع'),
       cancelText: tr('Cancel', 'إلغاء'),
       destructive: true,

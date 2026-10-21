@@ -1,55 +1,59 @@
 /**
- * The permission each navigation destination requires.
+ * The permission each navigation destination requires: a catalogue key
+ * (backend authz/catalogue.ts), held in the selected company.
  *
- * Single source of truth for the sidebar, the command palette and anything
- * else that lists places a user can go. These rules previously lived in two
- * separate hardcoded role arrays that were free to drift apart.
- *
- * A route absent from this map is governed per record rather than by group
- * membership — /projects and /tasks decide visibility per project and per
- * task — so it stays visible and the server enforces the detail.
+ * Single source of truth for the sidebar, the phone tab bar, the command
+ * palette, the section links and the page guards. A destination absent from
+ * this map is open to every member: /projects and /tasks decide visibility per
+ * record, /inbox lists what each person may see (staff chats are for everyone),
+ * /academy and /diagram are for everyone.
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
-  '/': 'dashboard:read',
-  // /inbox is open to everyone: its Team side (staff chats) is for every member.
-  // Client conversations inside it stay gated on contacts:read (INBOX_PERMISSION).
-  '/documents': 'documents:read',
-  '/sales': 'sales:read',
-  '/purchases': 'purchasing:read',
-  '/purchases/requisitions': 'purchasing:read',
-  '/purchases/rfq': 'purchasing:read',
-  '/purchases/matching': 'purchasing:read',
-  '/inventory': 'inventory:read',
-  '/inventory/counts': 'inventory:read',
-  '/shipments': 'inventory:read',
-  '/warehouse': 'inventory:read',
-  '/approvals': 'finance:read',
-  '/manufacturing': 'manufacturing:read',
-  '/finance': 'finance:read',
-  '/crm/commissions': 'commissions:read',
-  '/contacts': 'contacts:contacts.read',
-  '/influencers': 'contacts:read',
-  // The inbox lists chats. whatsapp:read covers only the Admin's connection screens.
-  '/whatsapp': 'whatsapp:whatsapp.chats.read',
-  '/crm/opportunities': 'crm:read',
-  '/crm/campaigns': 'campaigns:read',
-  '/crm/followups': 'crm:read',
-  '/crm/client-requests': 'contacts:portal.manage',
-  '/crm/vendor-requests': 'crm:read',
-  '/crm/performance': 'crm:crm-performance.read',
-  '/crm/pipeline': 'crm:read',
-  '/clients': 'contacts:clients.read',
-  '/suppliers': 'contacts:suppliers.read',
-  '/hr/employees': 'hr:read',
-  '/hr/attendance': 'hr:attendance.read',
-  '/hr/leave': 'hr:read',
-  '/hr/payroll': 'payroll:read',
-  '/company-profile': 'settings:companies.read',
-  '/users': 'settings:users.read',
-  '/settings': 'settings:administration.write',
-  '/settings/permissions': 'settings:administration.write',
+  '/': 'dashboard.view',
+  '/documents': 'documents.view',
+  '/sales': 'sales.view',
+  '/purchases': 'purchasing.view',
+  '/purchases/requisitions': 'purchasing.view',
+  '/purchases/rfq': 'purchasing.view',
+  '/purchases/matching': 'purchasing.view',
+  '/inventory': 'inventory.view',
+  '/inventory/counts': 'inventory.view',
+  '/shipments': 'logistics.view',
+  '/warehouse': 'inventory.view',
+  '/approvals': 'settings.view_approvals',
+  '/manufacturing': 'manufacturing.view',
+  '/finance': 'finance.view',
+  '/crm/commissions': 'commissions.view',
+  '/contacts': 'contacts.view',
+  '/influencers': 'influencers.view',
+  '/influencers/discover': 'discover.view',
+  '/whatsapp': 'whatsapp.view',
+  '/crm/opportunities': 'crm.view',
+  '/crm/campaigns': 'campaigns.view',
+  '/crm/followups': 'crm.view',
+  '/crm/client-requests': 'portal.view',
+  '/crm/vendor-requests': 'crm.view',
+  '/crm/performance': 'crm.view_performance',
+  '/crm/pipeline': 'crm.view',
+  '/clients': 'contacts.view_details',
+  '/suppliers': 'contacts.view_details',
+  '/hr/employees': 'hr.view',
+  '/hr/attendance': 'hr.view_attendance',
+  '/hr/leave': 'hr.view',
+  '/hr/payroll': 'payroll.view',
+  '/company-profile': 'settings.edit',
+  '/users': 'people.manage',
+  // Company settings: the panels there are the administrator's (approval rules, roles).
+  '/settings': 'settings.manage_approvals',
+  '/settings/permissions': 'people.manage_roles',
 };
 
 export function navPermission(href: string): string | undefined {
   return NAV_PERMISSIONS[href];
+}
+
+/** Whether a destination is open, given `can` from the permissions context. */
+export function navAllowed(href: string, can: (key: string) => boolean): boolean {
+  const permission = NAV_PERMISSIONS[href];
+  return permission ? can(permission) : true;
 }

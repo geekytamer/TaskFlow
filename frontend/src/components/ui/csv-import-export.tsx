@@ -25,7 +25,8 @@ export function CsvImportExport({
 }: {
   exportPath: string;
   exportFilename: string;
-  importPath: string;
+  /** Absent: no Import button (the person may not import). */
+  importPath?: string;
   onImported?: () => void | Promise<void>;
   labels?: { export?: string; import?: string; template?: string };
   /** When provided, renders a "Template" button that downloads a header-only
@@ -54,7 +55,7 @@ export function CsvImportExport({
   };
 
   const handleFile = async (file: File | null) => {
-    if (!file) return;
+    if (!file || !importPath) return;
     setBusy(true);
     try {
       const rows = parseCsv(await readFileText(file));
@@ -97,10 +98,12 @@ export function CsvImportExport({
         <Download className="h-4 w-4" />
         {labels?.export ?? 'Export'}
       </Button>
-      <Button variant="outline" size="sm" className="gap-1" onClick={() => inputRef.current?.click()} disabled={busy}>
-        <Upload className="h-4 w-4" />
-        {busy ? 'Importing…' : labels?.import ?? 'Import'}
-      </Button>
+      {importPath && (
+        <Button variant="outline" size="sm" className="gap-1" onClick={() => inputRef.current?.click()} disabled={busy}>
+          <Upload className="h-4 w-4" />
+          {busy ? 'Importing…' : labels?.import ?? 'Import'}
+        </Button>
+      )}
 
       <Dialog open={!!result} onOpenChange={(open) => { if (!open) setResult(null); }}>
         <DialogContent className="sm:max-w-md">

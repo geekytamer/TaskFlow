@@ -64,7 +64,8 @@ import { ExpiringLotsPanel } from './expiring-lots-panel';
 import { CsvImportExport } from '@/components/ui/csv-import-export';
 import type { Project } from '@/modules/projects/types';
 import { optionalFetch } from '@/lib/optional-fetch';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { ArrowRightLeft, Layers, PackageMinus, PackagePlus, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
@@ -132,9 +133,12 @@ const emptyForm = (): InventoryFormState => ({
 const inventoryUnitOptions = ['pcs', 'box', 'pack', 'set', 'kg', 'g', 'ltr', 'ml'] as const;
 
 export function InventoryPage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const confirm = useConfirm();
-  const canManageInventory = usePermissionOr('inventory', 'write', currentRole !== 'Employee');
+  const { can, field } = usePermissions();
+  const canManageInventory = can('inventory.manage_items');
+  // Cost prices are a sensitive field: "Hidden" without view, no input without edit.
+  const costs = field('cost_prices');
   const { amount } = useCompanyCurrency();
   const { language } = useI18n();
   const { toast } = useToast();
@@ -357,7 +361,7 @@ export function InventoryPage() {
         (sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0),
         0,
       );
-    const inventoryValue = items.reduce((sum, item) => sum + item.onHand * item.unitCost, 0);
+    const inventoryValue = items.reduce((sum, item) => sum + item.onHand * (item.unitCost ?? 0), 0);
 
     return {
       totalItems: items.length,
@@ -413,7 +417,7 @@ export function InventoryPage() {
       requiresQc: Boolean(item.requiresQc),
       onHand: String(item.onHand),
       reorderPoint: String(item.reorderPoint),
-      unitCost: String(item.unitCost),
+      unitCost: item.unitCost != null ? String(item.unitCost) : '',
       salePrice: item.salePrice != null ? String(item.salePrice) : '',
       preferredSupplierId: item.preferredSupplierId || '',
       location: item.location || '',
@@ -469,7 +473,8 @@ export function InventoryPage() {
         requiresQc: form.requiresQc,
         onHand: Number(form.onHand || 0),
         reorderPoint: Number(form.reorderPoint || 0),
-        unitCost: Number(form.unitCost || 0),
+        // A create's default 0 is not a change; a typed cost needs edit on cost prices.
+        unitCost: costs.edit ? Number(form.unitCost || 0) : 0,
         salePrice: form.salePrice ? Number(form.salePrice) : undefined,
         preferredVendor: selectedSupplier?.name,
         preferredSupplierId: selectedSupplier?.id,
@@ -663,7 +668,7 @@ export function InventoryPage() {
             <CardTitle className="text-sm font-medium">{tr('Stock Value', 'قيمة المخزون')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{amount(stats.inventoryValue)}</div>
+            <div className="text-2xl font-bold">{costs.view ? amount(stats.inventoryValue) : <HiddenValue />}</div>
           </CardContent>
         </Card>
         <Card>
@@ -721,7 +726,7 @@ export function InventoryPage() {
             <CsvImportExport
               exportPath={`/companies/${selectedCompany.id}/inventory-items/export`}
               exportFilename="inventory-items.csv"
-              importPath={`/companies/${selectedCompany.id}/inventory-items/import`}
+              importPath={can('inventory.create') ? `/companies/${selectedCompany.id}/inventory-items/import` : undefined}
               onImported={load}
               labels={{ export: tr('Export', 'تصدير'), import: tr('Import', 'استيراد') }}
             />
@@ -871,16 +876,22 @@ export function InventoryPage() {
               </div>
               <div className="space-y-1">
                 <Label>{tr('Unit Cost', 'تكلفة الوحدة')}</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  disabled={Boolean(editingItem)}
-                  title={editingItem ? tr('Cost follows purchase receipts.', 'تتبع التكلفة إيصالات الشراء.') : undefined}
-                  value={form.unitCost}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, unitCost: event.target.value }))
-                  }
-                />
+                {costs.edit ? (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    disabled={Boolean(editingItem)}
+                    title={editingItem ? tr('Cost follows purchase receipts.', 'تتبع التكلفة إيصالات الشراء.') : undefined}
+                    value={form.unitCost}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, unitCost: event.target.value }))
+                    }
+                  />
+                ) : (
+                  <div className="flex h-10 items-center text-sm">
+                    {costs.view && form.unitCost ? form.unitCost : <HiddenValue />}
+                  </div>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>{tr('Sale Price', 'سعر البيع')}</Label>
@@ -1001,7 +1012,7 @@ export function InventoryPage() {
                     </TableCell>
                     <TableCell className="text-end">{incoming}</TableCell>
                     <TableCell className="text-end">{item.reorderPoint}</TableCell>
-                    <TableCell className="text-end">{amount(item.unitCost)}</TableCell>
+                    <TableCell className="text-end">{item.unitCost == null ? <HiddenValue /> : amount(item.unitCost)}</TableCell>
                     <TableCell>
                       {item.preferredSupplierId
                         ? supplierNameMap.get(item.preferredSupplierId) || item.preferredVendor || tr('Unassigned', 'غير محدد')

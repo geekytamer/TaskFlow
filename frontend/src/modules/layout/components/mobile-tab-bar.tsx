@@ -28,9 +28,9 @@ export function MobileTabBar() {
   const isMobile = useIsMobile();
   const pathname = usePathname() ?? '/';
   const { t, language } = useI18n();
-  const { ready, effectiveRole, canSee, isLocked } = useNavAccess();
+  const { ready, canSee, isLocked } = useNavAccess();
   // Only the phone bar polls; on wider screens the sidebar does.
-  const inboxWaiting = useInboxWaiting(effectiveRole, isMobile);
+  const inboxWaiting = useInboxWaiting(isMobile);
   const teamUnread = useTeamUnread(isMobile);
   const { openMobile, setOpenMobile } = useSidebar();
 

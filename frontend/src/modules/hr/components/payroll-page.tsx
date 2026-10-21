@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/collapsible';
 import { Plus, Trash2, Download, ChevronRight, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,8 +37,11 @@ function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id:
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const { can } = usePermissions();
   const [open, setOpen] = React.useState(false);
   const [downloading, setDownloading] = React.useState(false);
+  // A payslip figure the server left out (salary hidden from this role) says "Hidden".
+  const pay = (n: number | null | undefined) => (n == null ? <HiddenValue /> : money(n));
 
   const confirm = useConfirm();
   const [moving, setMoving] = React.useState(false);
@@ -94,16 +99,18 @@ function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id:
           </CollapsibleTrigger>
           <div className="flex items-center gap-2">
             <Badge variant={run.status === 'paid' ? 'default' : 'secondary'}>{statusLabel(run.status)}</Badge>
-            {run.status === 'draft' && (
+            {run.status === 'draft' && can('payroll.edit') && (
               <Button size="sm" onClick={() => move('approved')} disabled={moving}>{tr('Approve', 'اعتماد')}</Button>
             )}
-            {run.status === 'approved' && (
+            {run.status === 'approved' && can('payroll.edit') && (
               <Button size="sm" onClick={() => move('paid')} disabled={moving}>{tr('Mark paid', 'تحديد كمدفوع')}</Button>
             )}
-            <Button variant="outline" size="sm" onClick={download} disabled={downloading}>
-              <Download className="me-2 h-4 w-4" />{tr('WPS', 'ملف حماية الأجور')}
-            </Button>
-            {run.status !== 'paid' && (
+            {can('payroll.export') && (
+              <Button variant="outline" size="sm" onClick={download} disabled={downloading}>
+                <Download className="me-2 h-4 w-4" />{tr('WPS', 'ملف حماية الأجور')}
+              </Button>
+            )}
+            {run.status !== 'paid' && can('payroll.delete') && (
               <Button variant="ghost" size="icon" aria-label={tr('Delete run', 'حذف المسير')} onClick={() => onDelete(run.id)}><Trash2 className="h-4 w-4" /></Button>
             )}
           </div>
@@ -125,10 +132,10 @@ function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id:
                   {run.payslips.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.employeeName}</TableCell>
-                      <TableCell className="text-end tabular-nums">{money(p.basic)}</TableCell>
-                      <TableCell className="text-end tabular-nums">{money(p.allowances)}</TableCell>
-                      <TableCell className="text-end tabular-nums">{money(p.deductions)}</TableCell>
-                      <TableCell className="text-end tabular-nums font-semibold">{money(p.net)}</TableCell>
+                      <TableCell className="text-end tabular-nums">{pay(p.basic)}</TableCell>
+                      <TableCell className="text-end tabular-nums">{pay(p.allowances)}</TableCell>
+                      <TableCell className="text-end tabular-nums">{pay(p.deductions)}</TableCell>
+                      <TableCell className="text-end tabular-nums font-semibold">{pay(p.net)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -148,6 +155,7 @@ export function PayrollPage() {
   const confirm = useConfirm();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const companyId = selectedCompany?.id;
+  const canRun = usePermissions().can('payroll.create');
 
   const [runs, setRuns] = React.useState<PayrollRun[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -202,9 +210,11 @@ export function PayrollPage() {
           <Label className="text-xs">{tr('Pay period', 'فترة الدفع')}</Label>
           <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} className="w-48" />
         </div>
-        <Button data-tutorial="payroll-run" onClick={run} disabled={running}>
-          <Plus className="me-2 h-4 w-4" />{running ? tr('Running…', 'جارٍ التشغيل…') : tr('Run payroll', 'تشغيل مسير الرواتب')}
-        </Button>
+        {canRun && (
+          <Button data-tutorial="payroll-run" onClick={run} disabled={running}>
+            <Plus className="me-2 h-4 w-4" />{running ? tr('Running…', 'جارٍ التشغيل…') : tr('Run payroll', 'تشغيل مسير الرواتب')}
+          </Button>
+        )}
       </div>
 
       {loading ? (

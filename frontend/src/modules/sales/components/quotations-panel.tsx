@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InvoiceTemplate, Quotation, QuotationStatus } from '@/modules/finance/types';
@@ -71,12 +71,14 @@ const blankForm = (): QuoteForm => ({
  * `opportunityId` is given (the client then comes from the opportunity).
  */
 export function QuotationsPanel({ opportunityId, compact = false }: { opportunityId?: string; compact?: boolean }) {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
   const { toast } = useToast();
   const confirm = useConfirm();
   const { money } = useCompanyCurrency();
-  const canManage = usePermissionOr('sales', 'write', currentRole !== 'Employee');
+  const { can } = usePermissions();
+  const canCreate = can('sales.create');
+  const canManage = can('sales.edit');
   const locale = language === 'ar' ? 'ar-u-nu-latn' : 'en-GB';
   const companyId = selectedCompany?.id || '';
 
@@ -245,7 +247,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
             </Select>
           </>
         )}
-        {canManage && (
+        {canCreate && (
           <Button className="ms-auto" size={compact ? 'sm' : 'default'} onClick={openNew} disabled={!opportunityId && !clients.length}>
             <PlusCircle className="me-2 h-4 w-4" />{t('quotes.new')}
           </Button>

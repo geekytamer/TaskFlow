@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { NOTIFICATIONS_OPENED_EVENT } from '@/modules/academy/academy-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import Link from 'next/link';
 import { Bell, CheckCheck } from 'lucide-react';
 import {
@@ -51,14 +51,10 @@ function timeAgo(date: Date): string {
  * window focus. Clicking an item marks it read and navigates to the record.
  */
 export function NotificationBell() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   // Only people who can read WhatsApp chats get the unread count; polling for
   // everyone else only collected refusals.
-  const canReadChats = usePermissionOr(
-    'whatsapp',
-    'whatsapp.chats.read',
-    currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
-  );
+  const canReadChats = usePermissions().can('whatsapp.view');
   const { t } = useI18n();
   const [notifications, setNotifications] = React.useState<AppNotification[]>([]);
   const [unread, setUnread] = React.useState(0);

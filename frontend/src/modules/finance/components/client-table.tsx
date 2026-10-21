@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { useCompanyCurrency } from '@/lib/currency';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
@@ -44,6 +46,8 @@ import { RecordSupportPanel } from '@/modules/shared/components/record-support-p
 export function ClientTable() {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
+  // Credit limits are client terms, a sensitive field.
+  const clientTerms = usePermissions().field('client_terms');
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { amount, money } = useCompanyCurrency();
   const [clients, setClients] = React.useState<Client[]>([]);
@@ -182,7 +186,7 @@ export function ClientTable() {
         email: form.email,
         phone: form.phone || undefined,
         vatNumber: form.vatNumber || undefined,
-        creditLimit: !form.creditLimit ? undefined : Number(form.creditLimit),
+        creditLimit: !clientTerms.edit || !form.creditLimit ? undefined : Number(form.creditLimit),
         creditNumber: form.creditNumber || undefined,
         paymentMethod: form.paymentMethod || undefined,
         address: form.address,
@@ -366,7 +370,11 @@ export function ClientTable() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-lg border p-4">
                     <p className="text-sm text-muted-foreground">{tr('Credit Limit', 'حد الائتمان')}</p>
-                    <p className="text-xl font-semibold">{selectedClient.creditLimit ? amount(selectedClient.creditLimit) : tr('No limit', 'بلا حد')}</p>
+                    <p className="text-xl font-semibold">
+                      {!clientTerms.view && selectedClient.creditLimit == null
+                        ? <HiddenValue />
+                        : selectedClient.creditLimit ? amount(selectedClient.creditLimit) : tr('No limit', 'بلا حد')}
+                    </p>
                     {(() => {
                       const limit = selectedClient.creditLimit || 0;
                       const owed = selectedClient.creditExposure ?? 0;
@@ -437,13 +445,19 @@ export function ClientTable() {
                   </div>
                   <div className="space-y-1">
                     <Label>{tr('Credit Limit', 'حد الائتمان')}</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={form.creditLimit ?? ''}
-                      onChange={(event) => setForm((prev) => ({ ...prev, creditLimit: event.target.value }))}
-                      disabled={!editing}
-                    />
+                    {clientTerms.edit ? (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={form.creditLimit ?? ''}
+                        onChange={(event) => setForm((prev) => ({ ...prev, creditLimit: event.target.value }))}
+                        disabled={!editing}
+                      />
+                    ) : (
+                      <div className="flex h-10 items-center text-sm">
+                        {clientTerms.view ? (form.creditLimit || '—') : <HiddenValue />}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label>{tr('Credit Number', 'رقم الائتمان')}</Label>

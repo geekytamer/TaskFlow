@@ -18,10 +18,10 @@ import { ShieldCheck, LogOut } from 'lucide-react';
  * Minimal chrome for the super-admin surface. No company switcher, no
  * sidebar, no CRM nav — just a thin header with the logo, language
  * switcher, "Switch to app" button, and a sign-out menu. Gated to
- * users whose global role is "Admin".
+ * the platform administrator (isSuperAdmin).
  */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuthGuard(['Admin']);
+  const { user, loading } = useAuthGuard();
   const { user: liveUser } = useCurrentUser();
   const { t } = useI18n();
   const router = useRouter();
