@@ -118,16 +118,24 @@ PERMISSIONS_ENGINE=legacy    # legacy | shadow | v2
 
 ### Rollout
 
-1. Run `shadow` for a week. Review `GET /admin/authz/divergences` (super admin)
-   or `npm run ops -- authz:compare` and `npm run ops -- authz:status`. Every
-   disagreement is either a v2 bug to fix or an intended difference to accept.
+0. After deploying, run `npm run ops -- authz:repair` once, then review the
+   converted custom roles (Settings → Roles: each needs review before it counts).
+   Check `/root/deploy-pr8.sh` and the crons for removed ops commands
+   (`fga:*`, `authz:extract`, `authz:routemap`, `authz:catalogue`).
+1. Run `shadow` for a week. Daily: `npm run ops -- authz:compare` (the
+   disagreements of the last 7 days from `authz_divergence`, counted by route,
+   permission key and company, newest first; `--days N` for another window)
+   and `npm run ops -- authz:status`, or `GET /admin/authz/divergences` (super
+   admin). Every disagreement is either a v2 bug to fix or an intended
+   difference to accept.
 2. When the week is quiet, set `PERMISSIONS_ENGINE=v2` and restart.
 3. **Rollback is the setting.** Set it back to `legacy` (or `shadow`) and
    restart. There is no data migration to reverse: groups, grants and
    assignments live in SQLite under every engine.
 
-An unset or unknown value is `legacy`; an invalid value stops the server at
-startup. `AUTHZ_ENGINE` and the old `FGA_*` variables are ignored (a warning is
+An unset or empty value is `legacy`. Any other value than `legacy`, `shadow`
+or `v2` (a typo included) stops the server at startup with an error naming the
+allowed values; it never falls back to an engine. `AUTHZ_ENGINE` and the old `FGA_*` variables are ignored (a warning is
 logged if `AUTHZ_ENGINE` is still set) and can be deleted from `.env`.
 
 ## 3. Fresh database
