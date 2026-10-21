@@ -200,6 +200,7 @@ export const LEGACY_HOLDERS: Readonly<Record<string, Row>> = {
   'settings.view': ALL, // GET company, custom fields: company access
   'settings.view_numbering': AM, // GET numbering-settings
   'settings.edit': AM, // PUT company, numbering, custom fields
+  'settings.edit_branding': A, // PUT company with branding: Admin only
   'settings.view_activity': MGMT,
   'settings.view_approvals': MGMT,
   'settings.manage_approvals': A, // PUT approval rules: ADMINISTRATION

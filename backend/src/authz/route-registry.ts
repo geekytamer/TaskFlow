@@ -616,6 +616,20 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PATCH', path: '/conversation-messages/:id', permission: 'per_record', legacyRoles: ALL, note: 'your own notes only, on a visible contact' },
   { method: 'PATCH', path: '/conversation-threads/:id', permission: 'per_record', legacyRoles: ALL, note: 'inbox.send: canUseContacts(write), then the contact must be visible' },
 
+  // Staff chats (teamchat/routes.ts): legacy gate is company access only (no
+  // role list); v2 asks the inbox keys, and membership still decides each chat.
+  { method: 'GET', path: '/companies/:companyId/team-members', permission: 'inbox.view', note: 'colleagues of the company (canAccessCompany), names and avatars only' },
+  { method: 'GET', path: '/companies/:companyId/team-chats', permission: 'inbox.view', note: 'only the chats the person is a member of' },
+  { method: 'GET', path: '/companies/:companyId/team-chats/unread-count', permission: 'inbox.view', note: 'only the chats the person is a member of' },
+  { method: 'POST', path: '/companies/:companyId/team-chats', permission: 'inbox.send', note: 'members must be colleagues of the company' },
+  { method: 'PATCH', path: '/companies/:companyId/team-chats/:chatId', permission: 'inbox.send', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404; renaming and members only by the group starter' },
+  { method: 'POST', path: '/companies/:companyId/team-chats/:chatId/leave', permission: 'inbox.send', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404' },
+  { method: 'GET', path: '/companies/:companyId/team-chats/:chatId/messages', permission: 'inbox.view', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404' },
+  { method: 'POST', path: '/companies/:companyId/team-chats/:chatId/messages', permission: 'inbox.send', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404' },
+  { method: 'PATCH', path: '/companies/:companyId/team-chats/:chatId/messages/:messageId', permission: 'inbox.send', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404; own message within 15 minutes' },
+  { method: 'DELETE', path: '/companies/:companyId/team-chats/:chatId/messages/:messageId', permission: 'inbox.send', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404; own message within 15 minutes' },
+  { method: 'POST', path: '/companies/:companyId/team-chats/:chatId/read', permission: 'inbox.view', note: 'the chat must be one the person is a member of (teamchat/routes.ts memberChat), else 404' },
+
   // ─── whatsapp ──────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/whatsapp/instance', permission: 'whatsapp.view_connection', legacyRoles: A },
   { method: 'PUT', path: '/companies/:companyId/whatsapp/instance', permission: 'whatsapp.manage', legacyRoles: A },
@@ -671,6 +685,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/auth/logout', permission: 'self' },
   { method: 'GET', path: '/auth/me', permission: 'self' },
   { method: 'PUT', path: '/auth/me', permission: 'self' },
+  { method: 'GET', path: '/live', permission: 'self', note: 'SSE stream of topic names only (live/hub.ts), for the companies the person belongs to; screens re-read through gated routes' },
   { method: 'GET', path: '/notifications', permission: 'self' },
   { method: 'GET', path: '/notifications/unread-count', permission: 'self' },
   { method: 'POST', path: '/notifications/read-all', permission: 'self' },
@@ -769,6 +784,7 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
   'tasks.view': 'GET /tasks, /tasks/:id, comments and time entries (requireTaskViewAccess)',
   'tasks.delete_time': "DELETE /time-entries/:id on someone else's entry",
   'inbox.send': 'conversation thread writes, after the contact is found visible',
+  'settings.edit_branding': 'PUT /companies/:id when the body carries branding (routes/admin.ts)',
 };
 
 /**

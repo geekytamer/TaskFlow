@@ -362,6 +362,7 @@ export const CATALOGUE: readonly AreaDef[] = [
       { key: 'view', label: l('See company details and custom fields', 'عرض بيانات الشركة والحقول المخصصة') },
       { key: 'view_numbering', label: l('See document numbering', 'عرض ترقيم المستندات') },
       { key: 'edit', label: l('Change company details, numbering and custom fields', 'تغيير بيانات الشركة والترقيم والحقول المخصصة') },
+      { key: 'edit_branding', label: l('Change the company brand (name, logo and colours)', 'تغيير هوية الشركة (الاسم والشعار والألوان)') },
       { key: 'view_activity', label: l('See the company activity log', 'عرض سجل نشاط الشركة') },
       { key: 'view_approvals', label: l('See approval rules and pending approvals', 'عرض قواعد الاعتماد والاعتمادات المعلقة') },
       { key: 'manage_approvals', label: l('Change approval rules', 'تغيير قواعد الاعتماد') },

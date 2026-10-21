@@ -178,7 +178,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
       }
       // The brand is what every member sees, so only the company's Admins set it.
       if (body.branding !== undefined && !req.user?.isSuperAdmin) {
-        requireCompanyRoles(req, req.params.id, ['Admin']);
+        requireCompanyRoles(req, req.params.id, ['Admin'], 'settings.edit_branding');
       }
       const branding = body.branding !== undefined ? parseBranding(body.branding) : undefined;
       const optionalText = (value: unknown) => (value !== undefined ? String(value || '') : undefined);
