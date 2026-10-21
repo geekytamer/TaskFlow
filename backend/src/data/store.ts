@@ -753,10 +753,12 @@ export class DataStore {
     this.db.pragma('synchronous = NORMAL');
 
     this.onNotificationsCreated = options.onNotificationsCreated;
-    // Built before the migrations: 135 and the legacy group seeding call into
-    // it (it does nothing until 135 has created its tables).
+    // Built before the migrations: 137 and the legacy group seeding call into
+    // it (it does nothing until 137 has created its tables).
     this.authz = new AuthzStore(this.db);
     this.applyMigrations();
+    // Ruling Q: standard roles follow the system templates on every start.
+    this.authz.syncSystemRoles();
     this.portal = new PortalStore(this.db);
     this.catalogue = new PortalCatalogueStore(this.db);
     this.requests = new PortalRequestsStore(this.db);
@@ -6483,16 +6485,18 @@ export class DataStore {
         const target = this.getPermissionGroupByKey(companyId, key);
         if (!target) return;
         // Drop any other *system* group in this company, so a promoted user
-        // does not keep their previous role's grants.
+        // does not keep their previous role's grants. An Owner assignment
+        // (given in the People screen) stands for legacy Admin and stays
+        // while the legacy role is Admin.
         this.db
           .prepare(
             `DELETE FROM user_group_assignments
               WHERE userId = ? AND companyId = ? AND groupId IN (
                 SELECT id FROM permission_groups
-                 WHERE companyId = ? AND isSystem = 1 AND id != ?
+                 WHERE companyId = ? AND isSystem = 1 AND id != ? AND NOT (key = 'owner' AND ? = 'admin')
               )`,
           )
-          .run(userId, companyId, companyId, target.id);
+          .run(userId, companyId, companyId, target.id, key);
         this.db
           .prepare(
             'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',

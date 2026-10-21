@@ -206,6 +206,14 @@ const contentSig = (grants: readonly TemplateGrant[], fields: readonly TemplateF
 const groupManaged = () =>
   new HttpError(403, 'This role is managed by the group. Ask a group administrator to change it.', { code: 'GROUP_ROLE' });
 
+/**
+ * Ruling Q: a company's standard roles (Owner, Admin, Manager, Accountant,
+ * Employee) follow the system templates and are re-synced from them at every
+ * start; a company customises one by duplicating it.
+ */
+const systemRole = () =>
+  new HttpError(403, 'Standard roles cannot be changed or deleted. Duplicate the role to make your own version.', { code: 'SYSTEM_ROLE' });
+
 /** The key of a company's read-only copy of a group role. */
 export const copyKey = (roleKey: string) => `group:${roleKey}`;
 
@@ -367,6 +375,7 @@ export class AuthzStore {
       if (id && !existing) throw new Error('Role not found.');
       if (existing?.holdingGroupId) throw groupManaged();
       if (existing && existing.companyId !== companyId) throw new Error('That role belongs to another company.');
+      if (existing?.isSystem) throw systemRole();
       const before = existing ? this.view(existing) : undefined;
       if (!existing) {
         id = uuid();
@@ -405,7 +414,11 @@ export class AuthzStore {
     this.tx(() => {
       const row = this.roleRow(id);
       if (!row) throw new Error('Role not found.');
+      // Every role a group assignment can resolve to (a group-level role or a
+      // company's copy of one, Ruling H) is refused here, so a key that
+      // holding_group_assignments reference is never deleted from under them.
       if (row.holdingGroupId) throw groupManaged();
+      if (row.isSystem) throw systemRole();
       const members = (this.db.prepare('SELECT COUNT(*) n FROM user_group_assignments WHERE groupId = ?').get(id) as { n: number }).n;
       if (members > 0) throw new Error(`This role is assigned to ${members} person(s); move them first.`);
       const before = this.view(row);
@@ -473,7 +486,11 @@ export class AuthzStore {
         const row = this.roleRow(id);
         if (!row) throw new Error('Role not found.');
         if (row.companyId !== companyId) throw new Error('That role belongs to another company.');
+        if (row.holdingGroupId) throw groupManaged();
         roles.set(id, row);
+      }
+      if (input.mainRoleId && roles.get(input.mainRoleId)?.needsReview) {
+        throw new Error('That role needs review before it can be anyone\'s main role. Review and activate it first.');
       }
       const before = this.assignmentShape(userId, companyId);
       const previous = new Map(
@@ -517,6 +534,10 @@ export class AuthzStore {
       .prepare('SELECT groupId, isMain FROM user_group_assignments WHERE userId = ? AND companyId = ?')
       .all(userId, companyId) as Array<{ groupId: string; isMain: number }>;
     if (!target || !rows.some((r) => r.groupId === target.id)) return false;
+    // An Owner main role stands for legacy Admin (Owner = Admin with group
+    // scope); the legacy sync never demotes it.
+    const owner = this.systemRole(companyId, 'owner');
+    if (legacyKey === 'admin' && owner && rows.some((r) => r.groupId === owner.id && r.isMain)) return false;
     const wrong = rows.some((r) => Boolean(r.isMain) !== (r.groupId === target.id));
     if (!wrong) return false;
     const before = this.assignmentShape(userId, companyId);
@@ -545,7 +566,7 @@ export class AuthzStore {
     return LEGACY_ROLE_KEYS.has(key) ? key : undefined;
   }
 
-  // ── Data migration (135) ───────────────────────────────────────────
+  // ── Data migration (137) ───────────────────────────────────────────
 
   /**
    * Brings one company's roles to v2. System roles get their template's grants
@@ -611,6 +632,92 @@ export class AuthzStore {
     return changed;
   }
 
+  /**
+   * Ruling Q: every company's system roles (Owner, Admin, Manager, Accountant,
+   * Employee) hold exactly their template's grants and fields. Run at every
+   * start and by migrateAll, so a catalogue or template change reaches existing
+   * databases. Only converted roles (convertedAt set) are touched; a role
+   * already equal is left alone (no audit, no version bump). Returns the
+   * number of roles changed.
+   */
+  syncSystemRoles(): number {
+    if (!this.ready()) return 0;
+    return this.tx(() => {
+      const rows = this.db
+        .prepare(`SELECT * FROM permission_groups
+                   WHERE companyId IS NOT NULL AND holdingGroupId IS NULL AND isSystem = 1 AND convertedAt IS NOT NULL
+                   ORDER BY companyId, key`)
+        .all() as RoleRow[];
+      let n = 0;
+      for (const row of rows) {
+        if (!(TEMPLATE_KEYS as readonly string[]).includes(row.key)) continue;
+        const template = TEMPLATES[row.key as TemplateKey];
+        const before = this.view(row);
+        if (contentSig(before.grants, before.fields) === contentSig(template.grants, template.fields)) continue;
+        this.writeGrants(row.id, template.grants, template.fields);
+        if (this.changed({
+          companyId: row.companyId, actorUserId: null, entity: 'role', entityId: row.id,
+          before: this.auditShape(before), after: this.auditShape(this.getRole(row.id)),
+        })) n += 1;
+      }
+      return n;
+    });
+  }
+
+  /**
+   * Review done (Ruling E/G): a converted role that needed review starts to
+   * count. Clears needsReview and activates every assignment of it.
+   */
+  activateRole(id: string, actorId: string | null): RoleView {
+    return this.tx(() => {
+      const row = this.roleRow(id);
+      if (!row) throw new Error('Role not found.');
+      if (row.holdingGroupId) throw groupManaged();
+      if (!row.needsReview) throw new HttpError(409, 'This role does not need review.', { code: 'NOT_PENDING' });
+      const before = { role: this.auditShape(this.view(row)), assignments: this.roleAssignmentShape(id) };
+      this.db.prepare('UPDATE permission_groups SET needsReview = 0 WHERE id = ?').run(id);
+      this.db.prepare('UPDATE user_group_assignments SET isActive = 1 WHERE groupId = ?').run(id);
+      const after = { role: this.auditShape(this.getRole(id)), assignments: this.roleAssignmentShape(id) };
+      this.changed({ companyId: row.companyId, actorUserId: actorId, entity: 'role_review', entityId: id, before, after });
+      return this.getRole(id)!;
+    });
+  }
+
+  private roleAssignmentShape(roleId: string) {
+    return this.db
+      .prepare('SELECT userId, companyId, isMain, isActive, startsAt, endsAt FROM user_group_assignments WHERE groupId = ? ORDER BY userId')
+      .all(roleId);
+  }
+
+  /** Who holds a role directly: one row per assignment. */
+  roleHolders(roleId: string): Array<{ userId: string; isMain: boolean; isActive: boolean; startsAt: string | null; endsAt: string | null }> {
+    const rows = this.db
+      .prepare('SELECT userId, isMain, isActive, startsAt, endsAt FROM user_group_assignments WHERE groupId = ? AND viaHoldingGroupId IS NULL ORDER BY userId')
+      .all(roleId) as Array<{ userId: string; isMain: number; isActive: number; startsAt: string | null; endsAt: string | null }>;
+    return rows.map((r) => ({ userId: r.userId, isMain: Boolean(r.isMain), isActive: Boolean(r.isActive), startsAt: r.startsAt, endsAt: r.endsAt }));
+  }
+
+  /**
+   * The people each role of a company reaches: direct holders, and for a
+   * company's copy of a group role the group-wide people assigned its key.
+   */
+  rolePeopleCounts(companyId: string): Map<string, number> {
+    const out = new Map<string, number>();
+    const direct = this.db
+      .prepare(`SELECT uga.groupId, COUNT(DISTINCT uga.userId) n FROM user_group_assignments uga
+                 JOIN permission_groups pg ON pg.id = uga.groupId
+                WHERE pg.companyId = ? AND uga.viaHoldingGroupId IS NULL GROUP BY uga.groupId`)
+      .all(companyId) as Array<{ groupId: string; n: number }>;
+    direct.forEach((r) => out.set(r.groupId, r.n));
+    const viaGroup = this.db
+      .prepare(`SELECT pg.id, COUNT(DISTINCT hga.userId) n FROM permission_groups pg
+                 JOIN holding_group_assignments hga ON hga.holdingGroupId = pg.holdingGroupId AND 'group:' || hga.roleKey = pg.key
+                WHERE pg.companyId = ? GROUP BY pg.id`)
+      .all(companyId) as Array<{ id: string; n: number }>;
+    viaGroup.forEach((r) => out.set(r.id, (out.get(r.id) ?? 0) + r.n));
+    return out;
+  }
+
   /** Main-role flags for every company a person belongs to. Returns the number of changes. */
   migrateUserAssignments(userId: string): number {
     if (!this.ready()) return 0;
@@ -629,6 +736,7 @@ export class AuthzStore {
         .forEach(({ id }) => { n += this.migrateCompanyRoles(id); });
       (this.db.prepare('SELECT id FROM users ORDER BY id').all() as Array<{ id: string }>)
         .forEach(({ id }) => { n += this.migrateUserAssignments(id); });
+      n += this.syncSystemRoles();
       return n;
     });
   }

@@ -680,6 +680,17 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PUT', path: '/permission-groups/:id/implications', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
   { method: 'GET', path: '/companies/:companyId/users/:userId/groups', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
   { method: 'PUT', path: '/companies/:companyId/users/:userId/groups', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses)' },
+  // Roles and people API (authz/routes.ts); the super admin manages any company.
+  { method: 'GET', path: '/companies/:companyId/roles', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
+  { method: 'POST', path: '/companies/:companyId/roles', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); no higher than me: the role may not give more than the caller holds' },
+  { method: 'GET', path: '/companies/:companyId/roles/:id', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
+  { method: 'PUT', path: '/companies/:companyId/roles/:id', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); standard and group roles are read-only; no higher than me' },
+  { method: 'DELETE', path: '/companies/:companyId/roles/:id', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); standard and group roles cannot be deleted; nor a role someone holds' },
+  { method: 'POST', path: '/companies/:companyId/roles/:id/duplicate', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); no higher than me' },
+  { method: 'POST', path: '/companies/:companyId/roles/:id/activate', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); review of a converted role (Ruling E/G); no higher than me' },
+  { method: 'GET', path: '/companies/:companyId/people', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ; v2: group-wide people listed read-only (Ruling P)' },
+  { method: 'GET', path: '/companies/:companyId/people/:userId', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
+  { method: 'PUT', path: '/companies/:companyId/people/:userId/roles', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); no higher than me (roles given and the person\'s current access); refuses leaving nobody with people.manage_roles' },
 
   // ─── Self: your own account, notifications, phones and training ────────────
   { method: 'POST', path: '/auth/logout', permission: 'self' },
@@ -698,8 +709,9 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/push/devices', permission: 'self' },
   { method: 'POST', path: '/push/devices/:id/test', permission: 'self' },
   { method: 'DELETE', path: '/push/devices/:id', permission: 'self' },
-  { method: 'GET', path: '/permissions/catalogue', permission: 'self', note: 'any signed-in user: the list of grantable permissions' },
+  { method: 'GET', path: '/permissions/catalogue', permission: 'self', note: 'any signed-in user: the catalogue with labels and level presets (authz/routes.ts), plus the legacy module list' },
   { method: 'GET', path: '/auth/permissions', permission: 'self' },
+  { method: 'GET', path: '/me/permissions', permission: 'self', note: 'company reach (membership; v2 also group assignments) or super admin' },
   { method: 'GET', path: '/academy/me', permission: 'self', note: 'your own training' },
   { method: 'GET', path: '/academy/missions', permission: 'self', note: 'your own training' },
   { method: 'POST', path: '/academy/start', permission: 'self', note: 'your own training' },

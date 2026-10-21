@@ -132,6 +132,7 @@ import { createTeamChatRouter } from './teamchat/routes';
 import { LiveHub, topicsFromPath } from './live/hub';
 import { registerAdminRoutes } from './routes/admin';
 import { registerHoldingRoutes } from './authz/holding-routes';
+import { registerAuthzRoutes } from './authz/routes';
 import { registerCustomFieldRoutes } from './routes/custom-fields';
 import { registerWarehouseRoutes } from './routes/warehouses';
 import { registerManufacturingRoutes } from './routes/manufacturing';
@@ -2502,6 +2503,12 @@ export function createServer(options: CreateServerOptions = {}) {
   registerAdminRoutes(app, routeContext);
 
   registerHoldingRoutes(app, routeContext);
+  registerAuthzRoutes(app, routeContext, {
+    // The same locks requireAcademyUnlocked applies, so the UI need not guess.
+    academyLocked: (user, companyId) => (!academyEnforce || user.isSuperAdmin || store.isTrainingCompany(companyId)
+      ? []
+      : academyLockedModules(store, user)),
+  });
 
   registerCustomFieldRoutes(app, routeContext);
 

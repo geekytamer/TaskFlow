@@ -81,7 +81,11 @@ test("a company's own role with the same key does not decide group-wide people",
   store.authz.setHoldingAssignment(group.id, ceo.id, { mainRoleKey: 'admin', addOnRoleKeys: [] }, null);
   // The company strips its own Admin role down to tasks only.
   const own = store.authz.listRoles(acme.id).find((r) => r.key === 'admin');
-  store.authz.saveRole(acme.id, { id: own.id, name: own.name, grants: [{ key: 'tasks.view', scope: 'own' }], fields: [] }, null);
+  // (Standard roles are read-only through saveRole since Ruling Q: strip it in the table.)
+  store.db.prepare("DELETE FROM role_permissions WHERE groupId = ? AND key != 'tasks.view'").run(own.id);
+  store.db.prepare("UPDATE role_permissions SET scope = 'own' WHERE groupId = ?").run(own.id);
+  store.db.prepare('UPDATE authz_version SET version = version + 1 WHERE id = 1').run();
+  assert.deepEqual(store.authz.getRole(own.id).grants, [{ key: 'tasks.view', scope: 'own' }]);
   assert.ok(effective(store, ceo.id).byCompany.get(acme.id).grants.has('finance.view'), 'group copy, not the company role');
 });
 

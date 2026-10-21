@@ -2,8 +2,7 @@ import type { Express, Response } from 'express';
 import type { RecordRuleName } from './record-rules';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
-import { MODULES, isValidPermission } from './catalogue';
-import { ALWAYS_ON_MODULES } from './company-modules';
+import { isValidPermission } from './catalogue';
 import { projectCompanyDelta, syncTuples } from './sync';
 import { tuplesForStore } from './tuples';
 
@@ -140,9 +139,8 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
   };
 
   // ── Catalogue ──────────────────────────────────────────────────────
-  app.get('/permissions/catalogue', authMiddleware as never, handler((_req, res) => {
-    res.json({ modules: MODULES, alwaysOnModules: [...ALWAYS_ON_MODULES] });
-  }));
+  // GET /permissions/catalogue moved to authz/routes.ts (Task 9), which still
+  // sends `modules` and `alwaysOnModules` for today's screens.
 
   // ── The current user's own permissions ─────────────────────────────
   app.get('/auth/permissions', authMiddleware as never, handler((req, res) => {
