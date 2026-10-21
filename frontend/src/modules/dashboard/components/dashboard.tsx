@@ -40,6 +40,7 @@ import {
   Line,
   CartesianGrid,
 } from 'recharts';
+import { useLiveRefresh } from '@/lib/live';
 
 function formatMetricValue(value: number, formatType: string, currencyCode: SupportedCurrencyCode) {
   if (formatType === 'currency') return <CurrencyAmount value={value} currencyCode={currencyCode} />;
@@ -317,6 +318,13 @@ export function Dashboard() {
       active = false;
     };
   }, [selectedCompany]);
+
+  // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
+  useLiveRefresh('*', async () => {
+    if (!selectedCompany) return;
+    const data = await getDashboardPayload(selectedCompany.id).catch(() => null);
+    if (data) setPayload(data);
+  });
 
   const localizedPayload = React.useMemo(() => {
     if (!payload || language !== 'ar') return payload;

@@ -23,6 +23,9 @@ import {
 import { ContextPanel } from './context-panel';
 import { ThreadList } from './thread-list';
 import { ThreadView } from './thread-view';
+import { useLiveRefresh } from '@/lib/live';
+import { InboxModeSwitch } from '@/modules/teamchat/components/inbox-mode-switch';
+import { INBOX_HEIGHT } from '@/modules/teamchat/components/team-chat-page';
 
 const VIEWS: InboxView[] = ['mine', 'unassigned', 'all'];
 const STATES: InboxStateFilter[] = ['waiting_us', 'overdue', 'waiting_them', 'done', 'snoozed'];
@@ -87,6 +90,9 @@ export function InboxPage() {
 
   React.useEffect(() => { setResult(null); }, [companyId]);
 
+  // A client's reply or a colleague's change shows up without reloading.
+  useLiveRefresh(['inbox', 'conversation-threads', 'conversations', 'messages', 'contacts'], load);
+
   React.useEffect(() => {
     const on = () => void load();
     window.addEventListener(DATA_CHANGED_EVENT, on);
@@ -119,6 +125,8 @@ export function InboxPage() {
     return () => window.removeEventListener(DATA_CHANGED_EVENT, on);
   }, [threadId, loadDetail]);
 
+  useLiveRefresh(['inbox', 'conversation-threads', 'conversations', 'messages', 'contacts'], loadDetail, !!threadId);
+
   const select = (id: string | null) => {
     router.replace(id ? `${pathname}?thread=${encodeURIComponent(id)}` : pathname);
   };
@@ -142,11 +150,12 @@ export function InboxPage() {
   ) : null;
 
   return (
-    <div className="flex h-[calc(100dvh-7rem)] min-h-[28rem] w-full min-w-0 overflow-hidden border-y bg-background sm:rounded-lg sm:border">
+    <div className={cn('flex min-h-[24rem] w-full min-w-0 overflow-hidden border-y bg-background sm:rounded-lg sm:border', INBOX_HEIGHT)}>
       {/* List: always on desktop, only without an open thread on phones. */}
       <aside className={cn('flex min-h-0 w-full shrink-0 flex-col border-e lg:w-80', threadId && 'hidden lg:flex')}>
         <div className="space-y-2 border-b p-3">
-          <h1 className="text-base font-semibold">{tr('Inbox', 'صندوق الوارد')}</h1>
+          <h1 className="sr-only">{tr('Inbox', 'صندوق الوارد')}</h1>
+          <InboxModeSwitch mode="clients" />
           <Tabs value={view} onValueChange={(v) => setView(v as InboxView)}>
             <TabsList className="grid h-9 w-full grid-cols-3">
               {VIEWS.map((v) => (

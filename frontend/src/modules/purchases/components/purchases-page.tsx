@@ -60,6 +60,7 @@ import { PackageCheck, Pencil, ShoppingCart, Trash2 } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissionOr } from '@/context/permissions-context';
+import { useLiveRefresh } from '@/lib/live';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
   Draft: 'bg-muted text-foreground/80 border-border',
@@ -138,7 +139,8 @@ export function PurchasesPage() {
     lots: {},
   });
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompany) {
       setOrders([]);
       setItems([]);
@@ -148,7 +150,7 @@ export function PurchasesPage() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [orderData, itemData, supplierData, receiptData, payableData] = await Promise.all([
         getPurchaseOrders(selectedCompany.id),
@@ -163,6 +165,7 @@ export function PurchasesPage() {
       setReceipts(receiptData);
       setPayables(payableData);
     } catch (error: any) {
+      if (quiet) return;
       toast({
         variant: 'destructive',
         title: tr('Purchases unavailable', 'المشتريات غير متاحة'),
@@ -172,6 +175,9 @@ export function PurchasesPage() {
       setLoading(false);
     }
   }, [selectedCompany, toast]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['purchase-orders', 'purchase-receipts', 'purchase-requisitions', 'rfqs', 'vendor-bills', 'bill-matches', 'payables', 'inventory-items', 'contacts'], () => load({ quiet: true }));
 
   React.useEffect(() => {
     load();

@@ -84,6 +84,7 @@ import {
   contactToForm,
   type ContactForm,
 } from './contact-form-fields';
+import { useLiveRefresh } from '@/lib/live';
 
 const LEAD_STATUS_COLORS: Record<LeadStatus, string> = {
   New: 'bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300',
@@ -167,6 +168,9 @@ export function ContactsPage() {
     if (!selectedCompany) return;
     setContacts(await getContacts(selectedCompany.id));
   }, [selectedCompany]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['contacts', 'clients', 'suppliers', 'influencers', 'opportunities'], () => reloadContacts().catch(() => undefined));
 
   React.useEffect(() => {
     if (!selectedCompany) { setCustomFieldDefs([]); return; }

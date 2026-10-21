@@ -9,6 +9,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { NAV_SECTIONS, useInboxWaiting, useNavAccess } from './sidebar-nav';
+import { useTeamUnread } from '@/modules/teamchat/use-team-unread';
 
 /** Most-used screens first; the bar shows the first four this person can open. */
 const TAB_CANDIDATES = ['/', '/inbox', '/tasks', '/sales', '/crm/followups', '/contacts', '/projects'];
@@ -30,6 +31,7 @@ export function MobileTabBar() {
   const { ready, effectiveRole, canSee, isLocked } = useNavAccess();
   // Only the phone bar polls; on wider screens the sidebar does.
   const inboxWaiting = useInboxWaiting(effectiveRole, isMobile);
+  const teamUnread = useTeamUnread(isMobile);
   const { openMobile, setOpenMobile } = useSidebar();
 
   if (!isMobile || !ready) return null;
@@ -49,7 +51,7 @@ export function MobileTabBar() {
           const item = ITEMS.get(href)!;
           const Icon = item.icon;
           const active = isActive(pathname, href) && !openMobile;
-          const badge = href === '/inbox' ? inboxWaiting : 0;
+          const badge = href === '/inbox' ? inboxWaiting + teamUnread : 0;
           return (
             <li key={href}>
               <Link

@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { TaskDetailsSheet } from './task-details-sheet';
+import { useLiveRefresh } from '@/lib/live';
 
 /* ------------------------------------------------------------------ */
 /* Design tokens                                                       */
@@ -380,9 +381,10 @@ export function TaskList({ projectId }: { projectId?: string }) {
     [scopeStorageKey],
   );
 
-  const loadData = React.useCallback(async () => {
+  const loadData = React.useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet === true;
     if (!selectedCompanyId) return;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       const [tasksData, usersData, clientData] = await Promise.all([
         getTasks(),
@@ -395,6 +397,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
       setUsers(usersData);
       setClients(clientData);
     } catch (error: any) {
+      if (quiet) return;
       console.error('Failed to load tasks', error);
       setTasks([]);
       setUsers([]);
@@ -410,6 +413,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
       setLoading(false);
     }
   }, [currentRole, selectedCompanyId, canLoadClients]);
+
+  // Colleagues' changes show up without reloading.
+  useLiveRefresh(['tasks', 'projects', 'time-entries', 'comments'], () => loadData({ quiet: true }));
 
   React.useEffect(() => {
     loadData();

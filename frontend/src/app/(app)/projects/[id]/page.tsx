@@ -23,6 +23,7 @@ import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients, getInvoices } from '@/services/financeService';
 import { getTasks } from '@/services/projectService';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
+import { LIVE_EVENT } from '@/lib/live';
 import type { Client, Invoice, ProjectVisibility, Task } from '@/lib/types';
 import { format } from 'date-fns';
 import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modules/projects/lib/access';
@@ -120,10 +121,17 @@ export default function ProjectDetailsPage() {
         if (taskData) setTasks(taskData.filter((task) => task.companyId === companyId));
       }, 300);
     };
+    // ...and so does a colleague's, through the live stream.
+    const onLive = (e: Event) => {
+      const detail = (e as CustomEvent<{ topics: string[]; all?: boolean }>).detail;
+      if (detail?.all || detail?.topics.some((t) => t === 'tasks' || t === 'projects' || t === 'time-entries' || t === 'comments')) refresh();
+    };
     window.addEventListener(DATA_CHANGED_EVENT, refresh);
+    window.addEventListener(LIVE_EVENT, onLive);
     return () => {
       window.clearTimeout(settle);
       window.removeEventListener(DATA_CHANGED_EVENT, refresh);
+      window.removeEventListener(LIVE_EVENT, onLive);
     };
   }, [id, selectedCompany]);
 

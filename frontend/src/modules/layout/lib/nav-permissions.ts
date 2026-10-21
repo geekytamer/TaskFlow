@@ -11,8 +11,8 @@
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/': 'dashboard:read',
-  // Conversations belong to contacts; the server gates them on contacts:read.
-  '/inbox': 'contacts:read',
+  // /inbox is open to everyone: its Team side (staff chats) is for every member.
+  // Client conversations inside it stay gated on contacts:read (INBOX_PERMISSION).
   '/documents': 'documents:read',
   '/sales': 'sales:read',
   '/purchases': 'purchasing:read',

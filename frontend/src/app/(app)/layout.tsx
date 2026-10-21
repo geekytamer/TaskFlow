@@ -18,6 +18,7 @@ import { useCompany } from '@/context/company-context';
 import { BrandMark } from '@/modules/branding/brand-mark';
 import { useBrand } from '@/modules/branding/brand-context';
 import { EnableNotificationsPrompt } from '@/modules/notifications/components/enable-notifications-prompt';
+import { startLive } from '@/lib/live';
 import { MobileTabBar } from '@/modules/layout/components/mobile-tab-bar';
 import { DrawerPreferences } from '@/modules/layout/components/drawer-preferences';
 import { LanguageSwitcher } from '@/modules/layout/components/language-switcher';
@@ -42,6 +43,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, loading: companyLoading } = useCompany();
   const { t, isRtl } = useI18n();
   const { brandText } = useBrand();
+
+  // One live-update stream for the whole app (lib/live.ts).
+  React.useEffect(() => {
+    if (currentUser) startLive();
+  }, [currentUser]);
 
   // The main loading condition. We wait for auth to resolve AND the company context to load.
   // We also explicitly check if currentUser exists before showing the app.
