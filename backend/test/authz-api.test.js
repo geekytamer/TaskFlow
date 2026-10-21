@@ -308,6 +308,34 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.deepEqual(detail.body.people.map((p) => [p.userId, p.isActive]), [[charlie.id, true]]);
     assert.equal((await as(admin).post(`/companies/1/roles/${clerk}/activate`)).status, 409);
     assert.equal((await as(admin).del(`/companies/1/roles/${clerk}`)).status, 400, 'held by someone');
+
+    // Input checks: a name must be text.
+    assert.equal((await as(admin).post('/companies/1/roles', { name: 42, grants: [], fields: [] })).status, 400);
+    assert.equal((await as(admin).post('/companies/1/roles', { name: { en: 'x' }, grants: [], fields: [] })).status, 400);
+
+    // A copy of a role waiting for review waits too.
+    const pending = store.authz.saveRole('1', { name: 'Pending', grants: [{ key: 'sales.view' }], fields: [] }, null);
+    store.db.prepare('UPDATE permission_groups SET needsReview = 1 WHERE id = ?').run(pending.id);
+    const pendingCopy = await as(admin).post(`/companies/1/roles/${pending.id}/duplicate`, {});
+    assert.equal(pendingCopy.status, 201);
+    assert.equal(pendingCopy.body.needsReview, true);
+
+    // Lock-out on role edits: the only role-manager holds it through a custom
+    // role (a copy of Admin); editing that role to drop it is refused under v2
+    // (under legacy/shadow the legacy Admin role still decides, so it is fine).
+    const adminRole = listed.body.find((r) => r.key === 'admin');
+    const boss = (await as(admin).post(`/companies/1/roles/${adminRole.id}/duplicate`, { name: 'Boss' })).body;
+    assert.equal((await as(root).put(`/companies/1/people/${admin.id}/roles`, { mainRoleId: boss.id, addOnRoleIds: [] })).status, 200);
+    const weaker = boss.grants.filter((g) => g.key !== 'people.manage_roles');
+    const edit = await as(admin).put(`/companies/1/roles/${boss.id}`, { name: 'Boss', grants: weaker, fields: boss.fields });
+    if (engine === 'v2') {
+      assert.equal(edit.status, 409);
+      assert.equal(edit.body.details?.code ?? edit.body.code, 'LOCKOUT');
+      assert.ok(store.authz.getRole(boss.id).grants.some((g) => g.key === 'people.manage_roles'), 'rolled back');
+      assert.equal((await as(admin).get('/companies/1/roles')).status, 200, 'still manages roles');
+    } else {
+      assert.equal(edit.status, 200);
+    }
   });
 
   test(`people API: list with summaries, why, set roles, no higher than me, lock-out, group people (${engine})`, async () => {
@@ -337,6 +365,8 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.equal(tasks.sources[0].kind, 'main');
     assert.ok(tasks.label.en);
     assert.equal(why.body.fields.find((f) => f.key === 'salary').view, false);
+    assert.equal('superAdmin' in why.body, false, 'only a super admin is told who is one');
+    assert.equal((await as(root).get(`/companies/1/people/${charlie.id}`)).body.superAdmin, false);
     assert.equal((await as(samantha).get(`/companies/1/people/${dana.id}`)).status, 404);
 
     // Set roles: main Manager plus a custom add-on. users.companyRoles follows the standard main role.

@@ -187,13 +187,40 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
     });
   }));
 
+  /**
+   * Runs a change to roles or assignments in one transaction and refuses it
+   * (409 LOCKOUT, everything rolled back) when it leaves the company with
+   * nobody (super admins aside) holding people.manage_roles who had someone
+   * before. Users have no disabled/suspended state today, so every member
+   * counts.
+   */
+  const holdersOf = (companyId: string) => store.listUsersByCompany(companyId)
+    .filter((u) => !u.isSuperAdmin && effectiveOf(u.id).byCompany.get(companyId)?.grants.has('people.manage_roles'));
+  const guarded = <T>(companyId: string, fn: () => T): T => {
+    try {
+      return store.transaction(() => {
+        const before = holdersOf(companyId).length;
+        const out = fn();
+        if (before > 0 && holdersOf(companyId).length === 0) {
+          throw new HttpError(409, 'That change would leave this company with nobody able to manage roles.', { code: 'LOCKOUT' });
+        }
+        return out;
+      });
+    } catch (error) {
+      // Answers worked out inside the rolled-back change carry a version
+      // number a later change will reuse: forget them.
+      clearEffectiveCache();
+      throw error;
+    }
+  };
+
   // ── Roles ──────────────────────────────────────────────────────────
 
   const roleInput = (req: AuthedRequest) => {
     const b = body(req);
     if (!Array.isArray(b.grants) || !Array.isArray(b.fields)) throw new HttpError(400, 'grants and fields must be lists.');
     return {
-      name: String(b.name ?? ''),
+      name: optionalText(b.name, 'name') ?? '',
       nameAr: optionalText(b.nameAr, 'nameAr') ?? null,
       description: optionalText(b.description, 'description') ?? null,
       templateKey: optionalText(b.templateKey, 'templateKey'),
@@ -235,7 +262,7 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
     loadRole(companyId, id);
     const input = roleInput(req);
     requireWithin(req, companyId, input.grants, input.fields);
-    res.json(roleOut(run(() => store.authz.saveRole(companyId, { ...input, id }, req.user!.id))));
+    res.json(roleOut(guarded(companyId, () => run(() => store.authz.saveRole(companyId, { ...input, id }, req.user!.id)))));
   }));
 
   app.delete('/companies/:companyId/roles/:id', authMiddleware, handler((req, res) => {
@@ -261,6 +288,8 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
       templateKey,
       grants: source.grants,
       fields: source.fields,
+      // A copy of a role still waiting for review waits too.
+      needsReview: source.needsReview,
     }, req.user!.id));
     res.status(201).json(roleOut(role));
   }));
@@ -350,7 +379,8 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
     const company = effectiveOf(userId).byCompany.get(companyId);
     res.json({
       ...personOf(companyId, userId, context),
-      superAdmin: Boolean(store.getUserById(userId)?.isSuperAdmin),
+      // Only a super admin is told who else is one.
+      ...(req.user!.isSuperAdmin ? { superAdmin: Boolean(store.getUserById(userId)?.isSuperAdmin) } : {}),
       grants: [...(company?.grants ?? new Map()).entries()]
         .map(([key, g]) => ({
           key,
@@ -393,7 +423,7 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
       requireWithin(req, companyId, grantsOut(current), fieldsOut(current));
     }
 
-    const change = () => store.transaction(() => {
+    guarded(companyId, () => {
       // While legacy decides, users.companyRoles follows a standard main role
       // (Owner stands for Admin); a custom main role leaves it as it is.
       const legacyRole = main.isSystem ? LEGACY_ROLE[main.key] : undefined;
@@ -407,21 +437,7 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
         });
       }
       run(() => store.authz.setAssignments(userId, companyId, { mainRoleId, addOnRoleIds }, req.user!.id));
-      // Nobody left to manage roles here: refuse (the whole change rolls back).
-      const holders = store.listUsersByCompany(companyId)
-        .filter((u) => !u.isSuperAdmin && effectiveOf(u.id).byCompany.get(companyId)?.grants.has('people.manage_roles'));
-      if (!holders.length) {
-        throw new HttpError(409, 'That change would leave this company with nobody able to manage roles.', { code: 'LOCKOUT' });
-      }
     });
-    try {
-      change();
-    } catch (error) {
-      // Answers worked out inside the rolled-back change carry a version
-      // number a later change will reuse: forget them.
-      clearEffectiveCache();
-      throw error;
-    }
     res.json(personOf(companyId, userId, peopleContext(companyId)));
   }));
 }

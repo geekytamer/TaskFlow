@@ -58,6 +58,8 @@ export interface RoleInput {
   nameAr?: string | null;
   description?: string | null;
   templateKey?: string | null;
+  /** New roles only: start needing review (a copy of a role that does). */
+  needsReview?: boolean;
   grants: TemplateGrant[];
   fields: TemplateField[];
 }
@@ -384,10 +386,10 @@ export class AuthzStore {
           .prepare(
             `INSERT INTO permission_groups
                (id, companyId, key, name, nameAr, description, isSystem, isActive, createdAt, templateKey, needsReview, convertedAt)
-             VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?, 0, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?)`,
           )
           .run(id, companyId, key, name, input.nameAr ?? null, input.description ?? null,
-            new Date().toISOString(), input.templateKey ?? null, new Date().toISOString());
+            new Date().toISOString(), input.templateKey ?? null, input.needsReview ? 1 : 0, new Date().toISOString());
       } else {
         this.db
           .prepare('UPDATE permission_groups SET name = ?, nameAr = ?, description = ?, templateKey = ? WHERE id = ?')
