@@ -22,6 +22,11 @@ const KNOWN_UNGATED = new Set([
     'POST /auth/login',
     'POST /auth/logout',
     'GET /auth/me',
+    // Password links: public by nature (the one-time token is the credential), rate-limited.
+    'POST /auth/forgot-password',
+    'GET /auth/password-token',
+    'POST /auth/set-password',
+    'PUT /auth/password', // the signed-in person's own password, checked against the current one
     'GET /live', // signals only (topic names); every screen re-reads through gated routes
     'PUT /auth/me',
     'GET /notifications',
@@ -46,6 +51,7 @@ const KNOWN_UNGATED = new Set([
     'POST /companies',
     'POST /users',
     'PUT /users/:id',
+    'POST /users/:id/password-reset', // like PUT /users/:id: USERS_WRITE in every company the person works in
     'DELETE /companies/:id',
     'DELETE /users/:id',
     'GET /positions',

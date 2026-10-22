@@ -11,7 +11,9 @@ import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
 import { sweepShipments } from './logistics/shipments';
-import { sendWelcomeEmail, sendNotificationEmail, sendNotificationDigestEmail } from './email';
+import { sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
+import { makePasswordLinkSender, registerPasswordRoutes } from './routes/password';
+import { unusablePassword } from './auth/password-tokens';
 import type { Notification, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import {
@@ -251,6 +253,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   permissionReader?: FgaReader;
   /** The company the public portals serve. Unset leaves the portal API off. */
   portalCompanyId?: string;
+  /** Sends password links (invitation, reset). Overridden in tests. */
+  sendPasswordEmail?: PasswordEmailSender;
   /** Sends portal invitation emails. Overridden in tests. */
   sendPortalInvite?: PortalInviteSender;
   /** Document renderer for the client portal's invoices, receipts and statements. Tests pass a fake. */
@@ -1846,6 +1850,7 @@ export function createServer(options: CreateServerOptions = {}) {
     store, authzEngine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
   };
+  const sendPasswordLink = makePasswordLinkSender(store, options.sendPasswordEmail ?? sendPasswordEmail, logger);
 
   app.get(
     '/health',
@@ -2273,6 +2278,7 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  registerPasswordRoutes(app, routeContext, { sendLink: sendPasswordLink, limiter: loginRateLimiter });
   registerNotificationRoutes(app, routeContext);
   registerLiveRoutes(app, routeContext, liveHub);
   app.use(createTeamChatRouter(routeContext, { live: liveHub, push }));
@@ -2767,6 +2773,8 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler(async (req, res) => {
       const payload = parseUserPayload(req.body);
+      // Seeds and tools may still pass a password; people added in the app get an invitation instead.
+      const suppliedPassword = asRecord(req.body, 'body').password !== undefined;
       assertNoForeignPractice(null, [...(payload.companyIds ?? []), ...payload.companyRoles!.map((a) => a.companyId)]);
       assertUserManagementPermission(req, payload.companyRoles!);
       assertRolesAvailable(payload.companyRoles!);
@@ -2783,7 +2791,7 @@ export function createServer(options: CreateServerOptions = {}) {
         id: userIdFromBody(asRecord(req.body, 'body').id),
         name: payload.name!,
         email: payload.email!,
-        password: payload.password!,
+        password: suppliedPassword ? payload.password! : unusablePassword(),
         companyIds: payload.companyIds!,
         companyRoles: payload.companyRoles!,
         role: payload.role || payload.companyRoles![0].role,
@@ -2795,13 +2803,16 @@ export function createServer(options: CreateServerOptions = {}) {
         defaultCommissionBasis: payload.defaultCommissionBasis,
         costRatePerHour: payload.costRatePerHour,
       });
-      sendWelcomeEmail({
-        to: user.email,
-        name: user.name,
-        password: payload.password!,
-      }).catch((error) => logger.error('Failed to send welcome email', error));
+      // The new person sets their own password from an emailed link; when the
+      // email cannot go out, the link comes back for the admin to pass on.
+      const invite = suppliedPassword
+        ? { sent: false }
+        : await sendPasswordLink(user.id, 'invite').catch((error) => {
+          logger.error('Failed to send the invitation', error);
+          return { sent: false };
+        });
       await publishAuthzChange(authzBefore);
-      res.status(201).json({ user });
+      res.status(201).json({ user, invite });
     }),
   );
 
@@ -2941,6 +2952,11 @@ export function createServer(options: CreateServerOptions = {}) {
         role: payload.role || targetAssignments[0]?.role || existing.role,
       });
       if (!updated) throw new HttpError(404, 'User not found.');
+      // A new password ends the person's other sign-ins (an admin's change ends all of them).
+      if (payload.password !== undefined) {
+        const here = req.user!.id === updated.id ? (req.headers.authorization ?? '').replace('Bearer ', '').trim() : undefined;
+        store.revokeUserTokens(updated.id, here);
+      }
       await publishAuthzChange(authzBefore);
       res.json(updated);
     }),
