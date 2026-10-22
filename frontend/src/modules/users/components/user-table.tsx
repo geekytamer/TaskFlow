@@ -20,8 +20,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { showPasswordLink } from './password-link-dialog';
 import { MoreHorizontal } from 'lucide-react';
-import { getUsers, getUsersByCompany, deleteUser } from '@/services/userService';
+import { getUsers, getUsersByCompany, deleteUser, sendPasswordReset } from '@/services/userService';
 import { getPositions } from '@/services/companyService';
 import type { User, UserRole } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
@@ -59,6 +60,7 @@ interface UserTableProps {
 }
 
 export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: UserTableProps) {
+
   const { selectedCompany, companies, currentUser } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -70,6 +72,21 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
   const [groupsUser, setGroupsUser] = React.useState<User | null>(null);
   const { toast } = useToast();
 
+  const resetPassword = async (person: User) => {
+    try {
+      const result = await sendPasswordReset(person.id);
+      if (result.sent) {
+        toast({
+          title: tr('Reset link sent', 'تم إرسال الرابط'),
+          description: tr(`${person.name} got an email with a link to set a new password (valid 1 hour).`, `وصل ${person.name} بريد فيه رابط لتعيين كلمة مرور جديدة (صالح لمدة ساعة).`),
+        });
+      } else if (result.link) {
+        showPasswordLink({ name: person.name, link: result.link, purpose: 'reset' });
+      }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not send the link', 'تعذّر إرسال الرابط'), description: error?.message });
+    }
+  };
   const managedCompanyIds = React.useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === 'Admin') {
@@ -299,6 +316,9 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                                 {tr('Permission Groups', 'مجموعات الصلاحيات')}
                               </DropdownMenuItem>
                             )}
+                            <DropdownMenuItem onClick={() => void resetPassword(user)}>
+                              {tr('Send password reset link', 'إرسال رابط إعادة تعيين كلمة المرور')}
+                            </DropdownMenuItem>
                             <AlertDialogTrigger asChild>
                                 <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
                                 {tr('Delete User', 'حذف المستخدم')}

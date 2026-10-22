@@ -31,13 +31,15 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { updateCurrentUser } from '@/services/authService';
 import { useToast } from '@/hooks/use-toast';
+import { ChangePasswordDialog } from './change-password-dialog';
 
 export function UserNav() {
   const router = useRouter();
   const { currentUser: user, loading } = useCompany();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const [profileOpen, setProfileOpen] = React.useState(false);
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
   const [profileName, setProfileName] = React.useState('');
   const [profileAvatar, setProfileAvatar] = React.useState<string | undefined>();
   const [savingProfile, setSavingProfile] = React.useState(false);
@@ -106,7 +108,7 @@ export function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={openProfile}>{t('user.profile')}</DropdownMenuItem>
-          <DropdownMenuItem>{t('user.settings')}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setPasswordOpen(true)}>{language === 'ar' ? 'تغيير كلمة المرور' : 'Change password'}</DropdownMenuItem>
         </DropdownMenuGroup>
         {user.isSuperAdmin && (
           <>
@@ -155,6 +157,7 @@ export function UserNav() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </DropdownMenu>
   );
 }

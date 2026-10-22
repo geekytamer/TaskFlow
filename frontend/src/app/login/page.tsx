@@ -2,6 +2,7 @@
 'use client';
 
 import { Suspense, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +23,7 @@ import { StagingBanner } from '@/modules/layout/components/staging-banner';
 function LoginPageInner() {
   const router = useRouter();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -82,6 +83,9 @@ function LoginPageInner() {
               <div className="grid gap-2">
                 <div className="flex items-center">
                   <Label htmlFor="password">{t('login.password')}</Label>
+                  <Link href="/forgot-password" className="ms-auto text-xs text-primary underline-offset-4 hover:underline">
+                    {language === 'ar' ? 'نسيت كلمة المرور؟' : 'Forgot password?'}
+                  </Link>
                 </div>
                 <Input 
                   id="password" 
