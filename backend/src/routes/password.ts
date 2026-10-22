@@ -54,9 +54,17 @@ export function registerPasswordRoutes(
       // Same rule as changing someone's sign-in details: their password covers every
       // company they work in, so only someone who manages all of them may reset it.
       if (target.isSuperAdmin) throw new HttpError(403, 'Only the super admin can reset this user.');
-      const companies = (target.companyRoles?.length ? target.companyRoles.map((r) => r.companyId) : target.companyIds) ?? [];
-      if (companies.length === 0 || !companies.every((companyId) => allowsRule(req, companyId, 'USERS_WRITE'))) {
+      const assignments = target.companyRoles?.length
+        ? target.companyRoles
+        : (target.companyIds ?? []).map((companyId) => ({ companyId, role: target.role }));
+      if (assignments.length === 0 || !assignments.every((a) => allowsRule(req, a.companyId, 'USERS_WRITE'))) {
         throw new HttpError(403, 'Only someone who manages every company this person works in can reset their password.');
+      }
+      // The same line as adding or editing people: a manager handles employees; an
+      // Admin, Manager or Accountant is reset only by a company admin. Otherwise a
+      // manager could receive an admin's link (when email fails) and take the account.
+      if (assignments.some((a) => a.role !== 'Employee' && !allowsRule(req, a.companyId, 'ADMINISTRATION'))) {
+        throw new HttpError(403, 'Only a company admin can reset the password of an Admin, Manager or Accountant.');
       }
     }
     res.json(await sendLink(target.id, 'reset'));
