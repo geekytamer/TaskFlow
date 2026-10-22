@@ -145,3 +145,27 @@ test('passwords left unscrambled from before hashing are scrambled on start', as
   const { verifyPassword } = require('../dist/password');
   assert.ok(verifyPassword('legacy-plain', row.password), 'the same password still works');
 });
+
+test('a manager resets only the people they may manage: employees, never an admin or manager', async () => {
+  const { app, admin, auth, mail, store } = setup({ mailFails: true });
+  // A company-1 Admin who is not the platform super admin.
+  const boss = await request(app).post('/users').set('Authorization', auth(admin.id))
+    .send({ name: 'Company Admin', email: 'boss@example.om', password: 'Local-Test-2026', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Admin' }] });
+  assert.equal(boss.status, 201);
+  const bossId = boss.body.user.id;
+
+  // user-2 is a Manager of company 1: no link for the company's Admin, and none for another Manager.
+  const toAdmin = await request(app).post(`/users/${bossId}/password-reset`).set('Authorization', auth('user-2'));
+  assert.equal(toAdmin.status, 403);
+  assert.equal(toAdmin.body.link, undefined, 'the link never reaches someone who could take the account over');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM password_tokens WHERE userId = ?').get(bossId).n, 0, 'no link is even made');
+
+  // An employee of their company: allowed.
+  const toEmployee = await request(app).post('/users/user-3/password-reset').set('Authorization', auth('user-2'));
+  assert.equal(toEmployee.status, 200);
+
+  // The company Admin may reset the Manager.
+  assert.equal((await request(app).post('/users/user-2/password-reset').set('Authorization', auth(bossId))).status, 200);
+  assert.ok(Array.isArray(mail));
+});
+
