@@ -49,15 +49,22 @@ export async function getCompanyMembers(companyId: string): Promise<CompanyMembe
   return apiFetch<CompanyMember[]>(`/companies/${companyId}/members`);
 }
 
+/** The emailed link to set a password; `link` is there only when the email could not go out. */
+export interface PasswordLinkResult { sent: boolean; link?: string }
+
+/** Adds a person; they get an emailed link to set their own password. */
 export async function createUser(
   userData: Omit<User, 'id'>,
-): Promise<{ user: User; password: string }> {
-  const password = Math.random().toString(36).slice(-8);
-  const { user } = await apiFetch<{ user: User }>('/users', {
+): Promise<{ user: User; invite: PasswordLinkResult }> {
+  return apiFetch<{ user: User; invite: PasswordLinkResult }>('/users', {
     method: 'POST',
-    body: JSON.stringify({ ...userData, password }),
+    body: JSON.stringify(userData),
   });
-  return { user, password };
+}
+
+/** Emails this person a link to set a new password. */
+export function sendPasswordReset(userId: string): Promise<PasswordLinkResult> {
+  return apiFetch<PasswordLinkResult>(`/users/${encodeURIComponent(userId)}/password-reset`, { method: 'POST' });
 }
 
 export async function createUserWithId(

@@ -73,3 +73,30 @@ export async function updateCurrentUser(input: { name?: string; avatar?: string 
   window.dispatchEvent(new Event('taskflow-token-changed'));
   return user;
 }
+
+/** "Forgot password": always answers the same, whether or not the address has an account. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+}
+
+/** What a set-password link is for and whose it is; throws when it expired or was used. */
+export function checkPasswordLink(token: string) {
+  return apiFetch<{ purpose: 'invite' | 'reset'; name: string; email: string }>(
+    `/auth/password-token?token=${encodeURIComponent(token)}`,
+  );
+}
+
+/** Sets the password from a link and signs in on this device. */
+export async function setPasswordWithLink(token: string, password: string): Promise<AuthResponse> {
+  const data = await apiFetch<AuthResponse>('/auth/set-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  });
+  setStoredToken(data.token);
+  return data;
+}
+
+/** Changes the signed-in person's password; their other devices are signed out. */
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiFetch('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) });
+}

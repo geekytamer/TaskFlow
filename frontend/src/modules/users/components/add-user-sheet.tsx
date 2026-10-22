@@ -37,6 +37,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getPositions } from '@/services/companyService';
+import { showPasswordLink } from './password-link-dialog';
 import { createUser, updateUser } from '@/services/userService';
 import { fetchPermissionGroups, fetchUserGroups, setUserGroups, type PermissionGroup } from '@/services/permissionService';
 import type { Position, User, UserRole } from '@/lib/types';
@@ -432,13 +433,18 @@ export function AddUserSheet({
         } as any);
         const created = result as { user?: { id?: string }; id?: string };
         savedUserId = created.user?.id ?? created.id;
-        toast({
-          title: tr('User Created', 'تم إنشاء المستخدم'),
-          description: tr(
-            `User "${data.name}" has been created. Temporary password: ${result.password}`,
-            `تم إنشاء المستخدم "${data.name}". كلمة المرور المؤقتة: ${result.password}`,
-          ),
-        });
+        // They set their own password from the emailed link; if the email failed, the admin passes the link on.
+        if (result.invite?.sent) {
+          toast({
+            title: tr('User Created', 'تم إنشاء المستخدم'),
+            description: tr(
+              `An email went to ${data.email} with a link to set their password.`,
+              `أُرسل إلى ${data.email} بريد فيه رابط لتعيين كلمة المرور.`,
+            ),
+          });
+        } else if (result.invite?.link) {
+          showPasswordLink({ name: data.name, link: result.invite.link, purpose: 'invite' });
+        }
       }
       await saveGroupSelections(savedUserId, data.companyIds || []);
       onUserAdded();
