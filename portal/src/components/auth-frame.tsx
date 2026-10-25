@@ -3,7 +3,7 @@ import type { Lang } from '@/lib/i18n';
 import type { Branding } from '@/lib/portal';
 import { BrandMark } from './brand-mark';
 import { LanguageSwitch } from './language-switch';
-import { PeakOrbit } from './peak-orbit';
+import { PeakPlanet } from './cosmic';
 
 /**
  * Split layout shared by sign-in, invitation and not-found. The company leads
@@ -30,9 +30,8 @@ export function AuthFrame({
           className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3"
           style={{ background: 'radial-gradient(50% 60% at 50% 100%, rgb(238 113 3 / 0.12), transparent 70%)' }}
         />
-        <PeakOrbit className="w-40 md:w-[min(26rem,80%)]">
-          <BrandMark branding={branding} className="h-auto max-h-full w-full object-contain" />
-        </PeakOrbit>
+        <div className="relative md:hidden"><PeakPlanet size={120} mark={<BrandMark branding={branding} className="h-auto w-[62%] object-contain" />} /></div>
+        <div className="relative hidden md:block"><PeakPlanet size={240} mark={<BrandMark branding={branding} className="h-auto w-[62%] object-contain" />} /></div>
         <p className="rise relative max-w-md text-balance text-[22px] font-extrabold leading-snug tracking-tight md:text-[34px] md:leading-tight" style={{ fontFamily: 'var(--font-display), var(--font-latin), var(--font-arabic), sans-serif', animationDelay: '260ms' }}>
           {tagline}
         </p>

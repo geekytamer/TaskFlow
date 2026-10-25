@@ -13,9 +13,9 @@
   --brand: #ee7103;
   --brand-ink: #0b0703;
 
-  --canvas: #050505;
-  --surface: #0f0e0d;
-  --surface-2: #171513;
+  --canvas: #0a0908;
+  --surface: #141210;
+  --surface-2: #1b1814;
   --ink: #f4f2ef;
   --ink-soft: #a8a197;
   --line: #26231f;
@@ -31,8 +31,10 @@
   --series-2: #d95926;
   --series-3: #199e70;
   --series-4: #c98500;
-  --radius-control: 6px;
-  --radius-panel: 10px;
+  --radius-control: 12px;
+  --radius-panel: 22px;
+  /* Cards are lit from the top corner, like the brief and the main site. */
+  --card: linear-gradient(160deg, #1b1814 0%, #131110 70%);
   --shadow-float: 0 -1px 0 rgb(255 255 255 / 0.04), 0 -12px 32px -12px rgb(0 0 0 / 0.8);
   /* Motion: quick, decelerating arrivals; nothing waits on choreography. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -43,21 +45,7 @@
 
 html { background: var(--canvas); }
 
-/*
- * Peak's warm glow, kept behind the work: one soft light from the top corner.
- * It lives on a fixed layer (html::before), not body's background with
- * background-attachment: fixed, which makes browsers repaint the whole page
- * on every scroll frame.
- */
 body { background: transparent; }
-html::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  pointer-events: none;
-  background: radial-gradient(60rem 32rem at 100% -10%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%);
-}
 
 body {
   margin: 0;
@@ -93,39 +81,39 @@ h1, h2 { font-family: var(--font-display), var(--font-latin), var(--font-arabic)
 [dir='rtl'] h1 { letter-spacing: -0.01em; }
 
 /*
- * The night sky behind the work: two sparse layers of tiny points, fixed to
- * the viewport, so faint they read as texture rather than stars. One layer
- * breathes slowly; nothing moves across the screen.
+ * Peak's sky (components/cosmic.tsx), after peak-creative.agency: a fixed
+ * layer behind everything with twinkling stars that drift, two orange
+ * nebulae floating and a rare shooting star. Transforms and opacity only.
  */
-body::before,
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-}
 body { isolation: isolate; }
-body::before {
-  background-image:
-    radial-gradient(1px 1px at 23px 41px, rgb(255 255 255 / 0.5), transparent 70%),
-    radial-gradient(1px 1px at 141px 97px, rgb(255 255 255 / 0.35), transparent 70%),
-    radial-gradient(1px 1px at 211px 13px, rgb(255 255 255 / 0.45), transparent 70%),
-    radial-gradient(1px 1px at 87px 183px, rgb(255 255 255 / 0.3), transparent 70%),
-    radial-gradient(1.5px 1.5px at 267px 221px, rgb(238 113 3 / 0.55), transparent 70%);
-  background-size: 300px 260px;
-  opacity: 0.35;
-}
-body::after {
-  background-image:
-    radial-gradient(1px 1px at 61px 137px, rgb(255 255 255 / 0.6), transparent 70%),
-    radial-gradient(1px 1px at 331px 59px, rgb(255 255 255 / 0.4), transparent 70%),
-    radial-gradient(1px 1px at 397px 311px, rgb(255 255 255 / 0.5), transparent 70%);
-  background-size: 460px 380px;
-  opacity: 0.25;
-  animation: peak-twinkle 9s ease-in-out infinite alternate;
-}
-@keyframes peak-twinkle { to { opacity: 0.08; } }
+.cosmic-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.cosmic-map { position: absolute; inset: -8%; animation: cosmic-pan 32s ease-in-out infinite alternate; }
+.cosmic-star { position: absolute; border-radius: 50%; background: #fff; opacity: 0.28; box-shadow: 0 0 8px rgb(255 255 255 / 0.75); animation: cosmic-twinkle 3.8s ease-in-out infinite; }
+.cosmic-nebula { position: absolute; border-radius: 50%; animation: cosmic-nebula 16s ease-in-out infinite; }
+.cosmic-shoot { position: absolute; width: 130px; height: 1px; opacity: 0; background: linear-gradient(270deg, transparent, rgb(255 255 255 / 0.8)); animation: cosmic-shoot 14s linear infinite; }
+[dir='rtl'] .cosmic-shoot { animation-name: cosmic-shoot-rtl; }
+.cosmic-sphere { animation: cosmic-float 7s ease-in-out infinite; }
+.cosmic-halo { animation: cosmic-breathe 5.5s ease-in-out infinite; }
+.cosmic-ring-wide { animation: cosmic-ring-wide 12s ease-in-out infinite; }
+.cosmic-ring-tight { animation: cosmic-ring-tight 15s ease-in-out infinite reverse; }
+.cosmic-satellite { animation: cosmic-float-sm 6s ease-in-out infinite; }
+.cosmic-burst { animation: cosmic-burst 4s ease-in-out infinite; }
+@keyframes cosmic-twinkle { 0%, 100% { opacity: 0.18; transform: scale(0.7); } 50% { opacity: 0.95; transform: scale(1.4); } }
+@keyframes cosmic-pan { from { transform: translate(-1%, 0); } to { transform: translate(1.8%, -1.2%); } }
+@keyframes cosmic-nebula { 0%, 100% { transform: translate(0, 0) scale(0.95); } 50% { transform: translate(45px, -30px) scale(1.08); } }
+@keyframes cosmic-shoot { 0%, 70% { opacity: 0; transform: translate(0, 0) rotate(28deg); } 73% { opacity: 1; } 82%, 100% { opacity: 0; transform: translate(-120vw, -40vw) rotate(28deg); } }
+@keyframes cosmic-shoot-rtl { 0%, 70% { opacity: 0; transform: translate(0, 0) rotate(28deg); } 73% { opacity: 1; } 82%, 100% { opacity: 0; transform: translate(-120vw, -40vw) rotate(28deg); } }
+@keyframes cosmic-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-13px); } }
+@keyframes cosmic-float-sm { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes cosmic-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.08); } }
+@keyframes cosmic-ring-wide { 0%, 100% { transform: rotate(16deg) rotateX(58deg) rotate(0deg); } 50% { transform: rotate(12deg) rotateX(63deg) rotate(-180deg); } }
+@keyframes cosmic-ring-tight { 0%, 100% { transform: rotate(-28deg) rotateY(58deg) rotate(0deg); } 50% { transform: rotate(-23deg) rotateY(64deg) rotate(-180deg); } }
+@keyframes cosmic-burst { 0%, 100% { opacity: 0.35; transform: rotate(0) scale(0.75); } 50% { opacity: 1; transform: rotate(28deg) scale(1.18); } }
+
+/* Panels carry the lit card surface, including ones built ad hoc on rounded-panel. */
+.card-surface, .rounded-panel.bg-surface { background-image: var(--card); }
+/* A big orange disc peeking from a card's corner: Peak's accent at scale. */
+.orange-disc { position: absolute; border-radius: 50%; background: var(--accent); pointer-events: none; }
 
 /*
  * Arriving on a page: its blocks rise a few pixels and fade in, a beat apart.
@@ -262,7 +250,9 @@ button:not(:disabled):active { transform: scale(0.97); transition-duration: 60ms
   .dd-panel, .dd-panel.dd-closing { animation: peak-fade 100ms ease-out both; }
   .dd-bar { transition: none; }
   button:not(:disabled):active { transform: none; }
-  body::after, .skeleton, .orbit-spin, .orbit-spin-slow, .orbit-spin-quick, .animate-pulse { animation: none; }
+  .cosmic-map, .cosmic-star, .cosmic-nebula, .cosmic-sphere, .cosmic-halo, .cosmic-ring-wide, .cosmic-ring-tight, .cosmic-satellite, .cosmic-burst { animation: none; }
+  .cosmic-shoot { display: none; }
+  .skeleton, .orbit-spin, .orbit-spin-slow, .orbit-spin-quick, .animate-pulse { animation: none; }
   .orbit-arrive { animation: peak-fade 300ms ease-out both; }
   a.rounded-panel { transition-property: border-color, background-color, box-shadow; }
 }

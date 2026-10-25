@@ -1,4 +1,4 @@
-import { RequestForm } from '@/components/request-form';
+import { RequestWizard } from '@/components/request-wizard';
 import { getCatalogue } from '@/lib/catalogue';
 import { formatCompact, listSep, nicheText } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
@@ -20,9 +20,13 @@ export default async function NewRequestPage({ searchParams }: { searchParams: P
   });
 
   return (
-    <div className="max-w-3xl space-y-10">
-      <PageHeader back={{ href: '/requests', label: t(lang, 'req.back') }} title={t(lang, 'req.new')} subtitle={t(lang, 'req.subtitle')} />
-      <RequestForm lang={lang} currency={catalogue.currency} options={options} platforms={catalogue.facets.platforms} preselected={preselected} />
+    <div className="max-w-3xl space-y-8">
+      <PageHeader back={{ href: '/requests', label: t(lang, 'req.back') }} title={t(lang, 'wiz.pageTitle')} subtitle={t(lang, 'wiz.pageSubtitle')}
+        actions={<span className="inline-flex h-9 items-center gap-2 rounded-full border border-white/[0.16] px-4 text-sm text-ink">
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 text-accent" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5M9 2h6" /></svg>
+          {t(lang, 'wiz.time')}
+        </span>} />
+      <RequestWizard lang={lang} currency={catalogue.currency} options={options} platforms={catalogue.facets.platforms} preselected={preselected} />
     </div>
   );
 }
