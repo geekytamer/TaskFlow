@@ -3,7 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { t, type Key, type Lang } from '@/lib/i18n';
+import Link from 'next/link';
 import { FilePicker, type UploadedFile } from './file-picker';
+import { InfluencerPhoto } from './influencer-photo';
 
 /**
  * Asking for a campaign, in three short steps (after the brief on
@@ -15,7 +17,7 @@ import { FilePicker, type UploadedFile } from './file-picker';
  * it as the expected value of the opportunity).
  */
 
-export interface ShortlistOption { id: string; name: string; detail: string }
+export interface ShortlistOption { id: string; name: string; photoAt: string | null; followers: string; niche: string }
 
 const GOALS: Array<{ id: string; icon: string }> = [
   { id: 'sales', icon: 'M4 19V9m6 10V5m6 14v-7m4 7H2' },
@@ -51,6 +53,9 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
   const [chosenPlatforms, setChosenPlatforms] = useState<Set<string>>(new Set());
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(preselected.filter((id) => options.some((o) => o.id === id))));
   const [filter, setFilter] = useState('');
+  // Most clients do not know the creators: Peak picks unless they came with a shortlist.
+  const [pickMode, setPickMode] = useState<'peak' | 'self'>(() => (preselected.length ? 'self' : 'peak'));
+  const [shown, setShown] = useState(8);
   const [budget, setBudget] = useState<string | null>(null);
   const [exact, setExact] = useState('');
   const [pay, setPay] = useState<'once' | 'flexi'>('once');
@@ -69,7 +74,7 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return q ? options.filter((o) => `${o.name} ${o.detail}`.toLowerCase().includes(q)) : options;
+    return q ? options.filter((o) => `${o.name} ${o.niche}`.toLowerCase().includes(q)) : options;
   }, [filter, options]);
 
   const toggle = (set: Set<string>, value: string) => { const next = new Set(set); if (next.has(value)) next.delete(value); else next.add(value); return next; };
@@ -88,6 +93,9 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
       `${t(lang, 'wiz.sumGoal')}: ${goalLabel}`,
       audience.trim() && `${t(lang, 'wiz.sumAudience')}: ${audience.trim()}`,
       `${t(lang, 'wiz.sumServices')}: ${[...services].map((s) => t(lang, `wiz.svc.${s}` as Key)).join(lang === 'ar' ? '، ' : ', ')}`,
+      services.has('influencers') && `${t(lang, 'wiz.sumCreators')}: ${pickMode === 'peak' || chosen.size === 0
+        ? t(lang, 'wiz.peakPicks')
+        : options.filter((o) => chosen.has(o.id)).map((o) => o.name).join(lang === 'ar' ? '، ' : ', ')}`,
       exactOk ? `${t(lang, 'wiz.sumBudget')}: ${num(exactNumber)} ${currency}` : range && `${t(lang, 'wiz.sumBudget')}: ${rangeLabel(range)}`,
       `${t(lang, 'wiz.sumPay')}: ${t(lang, pay === 'once' ? 'wiz.pay.once' : 'wiz.pay.flexi')}`,
       notes.trim() && `${t(lang, 'wiz.sumNotes')}: ${notes.trim()}`,
@@ -105,7 +113,7 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
           startDate: startDate || null,
           endDate: endDate || null,
           platforms: [...chosenPlatforms],
-          influencerIds: services.has('influencers') ? [...chosen] : [],
+          influencerIds: services.has('influencers') && pickMode === 'self' ? [...chosen] : [],
           fileIds: files.map((f) => f.id),
         }),
       });
@@ -212,25 +220,80 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
                   </fieldset>
                 )}
                 {options.length > 0 && (
-                  <fieldset className="space-y-3">
-                    <legend className="text-sm font-semibold">
-                      {t(lang, 'form.shortlist')}{chosen.size > 0 && <span className="ms-2 rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-accent-ink"><bdi>{chosen.size}</bdi></span>}
-                    </legend>
-                    <label htmlFor="wiz-filter" className="sr-only">{t(lang, 'form.shortlistFilter')}</label>
-                    <input id="wiz-filter" type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t(lang, 'form.shortlistFilter')} className={`${field} h-11`} />
-                    <ul className="max-h-72 divide-y divide-white/[0.07] overflow-y-auto overscroll-contain rounded-2xl border border-white/[0.08]">
-                      {visible.map((o) => (
-                        <li key={o.id}>
-                          <label className="flex min-h-12 cursor-pointer items-center gap-3 px-4 py-3 hover:bg-ink/[0.04]">
-                            <input type="checkbox" checked={chosen.has(o.id)} onChange={() => setChosen(toggle(chosen, o.id))} className="h-5 w-5 accent-[var(--accent)]" />
-                            <span className="min-w-0">
-                              <span className="block truncate font-semibold"><bdi>{o.name}</bdi></span>
-                              {o.detail && <span className="block truncate text-sm text-ink-soft">{o.detail}</span>}
-                            </span>
-                          </label>
-                        </li>
+                  <fieldset className="space-y-4">
+                    <legend className="text-sm font-semibold">{t(lang, 'wiz.pickTitle')}</legend>
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      {(['peak', 'self'] as const).map((m) => (
+                        <button key={m} type="button" aria-pressed={pickMode === m} onClick={() => setPickMode(m)}
+                          className={`flex flex-col items-start gap-0.5 rounded-2xl px-4 py-3.5 ${choice(pickMode === m)}`}>
+                          <span className="text-base font-bold" style={display}>{t(lang, m === 'peak' ? 'wiz.pick.peak' : 'wiz.pick.self')}</span>
+                          <span className="text-sm text-ink-soft">{t(lang, m === 'peak' ? 'wiz.pick.peakHint' : 'wiz.pick.selfHint')}</span>
+                        </button>
                       ))}
-                    </ul>
+                    </div>
+
+                    {pickMode === 'self' && (
+                      <div className="space-y-4">
+                        {/* Who is picked so far, at a glance; each can be taken out. */}
+                        <div className="space-y-2">
+                          <p className="text-sm text-ink-soft">{t(lang, 'wiz.chosen')}{chosen.size > 0 && <>{' '}<bdi className="font-bold text-ink">({chosen.size})</bdi></>}</p>
+                          {chosen.size === 0 ? (
+                            <p className="text-sm text-ink-soft/80">{t(lang, 'wiz.noneChosen')}</p>
+                          ) : (
+                            <ul className="flex flex-wrap gap-2">
+                              {options.filter((o) => chosen.has(o.id)).map((o) => (
+                                <li key={o.id} className="chip-in inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/[0.1] py-1 pe-1.5 ps-1">
+                                  <span className="-m-2.5 scale-[0.6] rounded-full bg-surface"><InfluencerPhoto id={o.id} name={o.name} photoAt={o.photoAt} /></span>
+                                  <bdi className="text-sm font-semibold">{o.name}</bdi>
+                                  <button type="button" onClick={() => setChosen(toggle(chosen, o.id))} aria-label={t(lang, 'wiz.remove').replace('{name}', o.name)}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-ink-soft hover:bg-ink/10 hover:text-ink">
+                                    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7" /></svg>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="relative">
+                          <label htmlFor="wiz-filter" className="sr-only">{t(lang, 'wiz.searchCreators')}</label>
+                          <svg aria-hidden="true" viewBox="0 0 20 20" className="pointer-events-none absolute start-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-ink-soft" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><circle cx="9" cy="9" r="5.5" /><path d="m13.2 13.2 3.3 3.3" /></svg>
+                          <input id="wiz-filter" type="search" value={filter} onChange={(e) => { setFilter(e.target.value); setShown(8); }} placeholder={t(lang, 'wiz.searchCreators')} className={`${field} h-12 ps-10`} />
+                        </div>
+
+                        {/* Small cards: a tap picks or unpicks; picked ones turn orange with a tick. */}
+                        <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                          {visible.slice(0, shown).map((o) => {
+                            const on = chosen.has(o.id);
+                            return (
+                              <li key={o.id}>
+                                <button type="button" aria-pressed={on} onClick={() => setChosen(toggle(chosen, o.id))}
+                                  className={`flex h-full w-full flex-col items-center gap-2 rounded-[18px] px-3 py-4 text-center ${choice(on)}`}>
+                                  <span className="relative">
+                                    <span className={`block rounded-full p-[2px] ${on ? 'bg-accent' : 'bg-transparent'}`}><span className="block rounded-full bg-surface"><InfluencerPhoto id={o.id} name={o.name} photoAt={o.photoAt} /></span></span>
+                                    {on && (
+                                      <span aria-hidden="true" className="absolute -bottom-0.5 -end-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface bg-accent text-accent-ink">
+                                        <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg>
+                                      </span>
+                                    )}
+                                  </span>
+                                  <bdi className="line-clamp-1 text-[15px] font-bold" style={display}>{o.name}</bdi>
+                                  <span className="line-clamp-1 text-xs text-ink-soft">{o.niche || ' '}</span>
+                                  <span className="text-sm"><bdi className="font-bold">{o.followers}</bdi> <span className="text-ink-soft">{t(lang, 'cat.followers')}</span></span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {visible.length === 0 && <p className="text-sm text-ink-soft">{t(lang, 'cat.noMatchTitle')}</p>}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          {shown < visible.length ? (
+                            <button type="button" onClick={() => setShown((n) => n + 8)} className="inline-flex h-11 items-center rounded-control border border-white/[0.16] px-5 text-sm font-bold hover:border-ink/50">{t(lang, 'dir.showMore')}</button>
+                          ) : <span />}
+                          <Link href={`/influencers${chosen.size ? `?${[...chosen].map((id) => `with=${encodeURIComponent(id)}`).join('&')}` : ''}`} className="text-sm font-semibold text-accent underline-offset-4 hover:underline">{t(lang, 'wiz.helpChoose')}</Link>
+                        </div>
+                      </div>
+                    )}
                   </fieldset>
                 )}
               </div>

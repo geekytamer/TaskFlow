@@ -1,6 +1,9 @@
 import { RequestWizard } from '@/components/request-wizard';
 import { getCatalogue } from '@/lib/catalogue';
-import { formatCompact, listSep, nicheText } from '@/lib/format';
+import { formatCompact, listSep } from '@/lib/format';
+import { nicheLabel } from '@/lib/directory-labels';
+import { splitNiches } from '@/lib/directory-match';
+import { isUnavailable } from '@/lib/directory-view';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
@@ -13,11 +16,14 @@ export default async function NewRequestPage({ searchParams }: { searchParams: P
   const preselected = ([] as string[]).concat(params.with ?? []);
   const catalogue = await getCatalogue('');
 
-  const options = catalogue.items.map((entry) => {
-    const top = [...entry.platforms].sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))[0];
-    const detail = [nicheText(entry.niche, lang), top ? `${top.platform} ${formatCompact(top.followers, lang)}` : null].filter(Boolean).join(listSep(lang));
-    return { id: entry.id, name: entry.name, detail };
-  });
+  // Creators marked unavailable cannot be requested, so they are not offered.
+  const options = catalogue.items.filter((entry) => !isUnavailable(entry)).map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    photoAt: entry.photoAt,
+    followers: formatCompact(entry.followers, lang),
+    niche: splitNiches(entry.niche).map((n) => nicheLabel(n, lang)).slice(0, 2).join(listSep(lang)),
+  }));
 
   return (
     <div className="max-w-3xl space-y-8">
