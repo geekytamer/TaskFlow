@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { t, type Lang } from '@/lib/i18n';
-import { isActive, type NavEntry } from '@/lib/nav';
+import { activeHref, isActive, type NavEntry } from '@/lib/nav';
 import { NavIcon } from './nav-icon';
 
 export type Badges = Partial<Record<string, number>>;
@@ -21,16 +21,17 @@ function Count({ n, lang }: { n?: number; lang: Lang }) {
 /** Desktop sidebar links: main pages, then the less frequent ones. */
 export function SidebarNav({ lang, primary, secondary, badges }: { lang: Lang; primary: NavEntry[]; secondary: NavEntry[]; badges: Badges }) {
   const pathname = usePathname();
+  const lit = activeHref([...primary, ...secondary], pathname);
   const item = (e: NavEntry) => {
-    const active = isActive(e.href, pathname);
+    const active = e.href === lit;
     return (
-      <li key={e.href}>
+      <li key={e.href} className={e.sub ? 'relative ms-6 before:absolute before:-top-0.5 before:bottom-1/2 before:start-0 before:w-3 before:rounded-es-[10px] before:border-b before:border-s before:border-white/[0.14]' : undefined}>
         <Link
           href={e.href}
           aria-current={active ? 'page' : undefined}
-          className={`flex min-h-12 items-center gap-3 rounded-[14px] px-3.5 text-[15px] transition-colors ${active ? 'bg-accent/[0.14] font-bold text-accent' : 'font-medium text-ink-soft hover:bg-ink/5 hover:text-ink'}`}
+          className={`flex items-center gap-3 rounded-[14px] transition-colors ${e.sub ? 'ms-4 min-h-11 px-3 text-sm' : 'min-h-12 px-3.5 text-[15px]'} ${active ? 'bg-accent/[0.14] font-bold text-accent' : 'font-medium text-ink-soft hover:bg-ink/5 hover:text-ink'}`}
         >
-          <NavIcon name={e.icon} className="h-5 w-5 shrink-0" />
+          <NavIcon name={e.icon} className={`${e.sub ? 'h-4 w-4' : 'h-5 w-5'} shrink-0`} />
           <span className="truncate">{t(lang, e.label)}</span>
           <Count n={badges[e.href]} lang={lang} />
         </Link>
