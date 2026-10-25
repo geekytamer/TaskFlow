@@ -6,6 +6,7 @@ import { readParams } from '@/lib/directory-view';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
 import { parseShortlist } from '@/lib/shortlist';
+import { CompareProvider, CompareTray } from '@/components/compare-pick';
 import { ShortlistBar, ShortlistProvider } from '@/components/shortlist';
 import { currentLang } from '@/lib/session';
 
@@ -35,10 +36,13 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
         // Keyed on the URL's shortlist: a Back/Forward that restores another
         // page starts from that page's `with`, not the one held in memory.
         <ShortlistProvider key={shortlist.join(',')} initial={shortlist}>
+          <CompareProvider>
           <DirectoryProvider initialValues={readParams(params)} initialView={view}>
             <DirectoryView all={catalogue.items} facets={catalogue.facets} currency={catalogue.currency} lang={lang} markSrc={process.env.PORTAL_MARK_URL || null} />
           </DirectoryProvider>
           <ShortlistBar lang={lang} />
+          <CompareTray lang={lang} />
+          </CompareProvider>
         </ShortlistProvider>
       )}
     </div>

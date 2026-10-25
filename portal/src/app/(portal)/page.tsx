@@ -57,6 +57,6 @@ export default async function Home() {
   const balances = owed.map((b) => ({ currency: b.currency, outstanding: b.amount, overdue: late.find((l) => l.currency === b.currency)?.amount ?? 0 }));
   const lastTeamMessage = [...messages].reverse().find((m) => m.author.kind === 'team') ?? null;
   return (
-    <ClientHome lang={lang} firstName={me.user.name.split(/\s+/)[0]} items={items} campaigns={campaigns} balances={balances} lastTeamMessage={lastTeamMessage} />
+    <ClientHome lang={lang} firstName={me.user.name.split(/\s+/)[0]} items={items} campaigns={campaigns} balances={balances} lastTeamMessage={lastTeamMessage} markSrc={process.env.PORTAL_MARK_URL || null} />
   );
 }

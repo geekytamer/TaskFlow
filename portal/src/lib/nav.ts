@@ -4,14 +4,16 @@ import type { Key } from './i18n';
 /** Browser safe: the shell's client components read this. */
 export type NavIcon =
   | 'home' | 'campaigns' | 'creators' | 'requests' | 'messages' | 'billing' | 'analytics' | 'games' | 'referrals'
-  | 'assignments' | 'payouts' | 'profile' | 'deals' | 'contacts' | 'calendar' | 'money' | 'mediaKit' | 'connections' | 'discover';
+  | 'assignments' | 'payouts' | 'profile' | 'deals' | 'contacts' | 'calendar' | 'money' | 'mediaKit' | 'connections' | 'discover' | 'compare';
 
-export interface NavEntry { href: string; label: Key; icon: NavIcon }
+/** `sub` entries sit indented under the entry before them (Compare under Influencers). */
+export interface NavEntry { href: string; label: Key; icon: NavIcon; sub?: boolean }
 
 const ITEMS: Record<string, NavEntry> = {
   home: { href: '/', label: 'nav.overview', icon: 'home' },
   campaigns: { href: '/campaigns', label: 'nav.campaigns', icon: 'campaigns' },
   creators: { href: '/influencers', label: 'nav.influencers', icon: 'creators' },
+  compare: { href: '/influencers/compare', label: 'nav.compare', icon: 'compare', sub: true },
   discover: { href: '/discover', label: 'nav.discover', icon: 'discover' },
   requests: { href: '/requests', label: 'nav.requests', icon: 'requests' },
   messages: { href: '/messages', label: 'nav.messages', icon: 'messages' },
@@ -37,7 +39,7 @@ export function navFor(audience: Audience): { primary: NavEntry[]; secondary: Na
   const i = ITEMS;
   return audience === 'client'
     ? {
-      primary: [i.home, i.campaigns, i.creators, i.requests, i.messages],
+      primary: [i.home, i.campaigns, i.creators, i.compare, i.requests, i.messages],
       secondary: [i.billing, i.analytics, i.games, i.referrals],
       bar: [i.home, i.campaigns, i.creators, i.messages],
     }
@@ -50,3 +52,9 @@ export function navFor(audience: Audience): { primary: NavEntry[]; secondary: Na
 
 export const isActive = (href: string, pathname: string) =>
   href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
+
+/** The one entry to light: the most specific match, so Compare lights alone, not Influencers too. */
+export function activeHref(entries: NavEntry[], pathname: string): string | null {
+  const hits = entries.filter((e) => isActive(e.href, pathname)).sort((a, b) => b.href.length - a.href.length);
+  return hits[0]?.href ?? null;
+}

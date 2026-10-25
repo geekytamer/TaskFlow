@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Cairo, IBM_Plex_Sans_Arabic, Manrope } from 'next/font/google';
 import './globals.css';
+import { CosmicSky } from '@/components/cosmic';
 import { PwaRegister } from '@/components/pwa-register';
 import { getHost } from '@/lib/audience';
 import { dirFor } from '@/lib/i18n';
@@ -47,7 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const lang = await currentLang();
   return (
     <html lang={lang} dir={dirFor(lang)} className={`${latin.variable} ${arabic.variable} ${display.variable}`}>
-      <body className="min-h-[100dvh] font-sans"><PwaRegister />{children}</body>
+      <body className="min-h-[100dvh] font-sans"><CosmicSky /><PwaRegister />{children}</body>
     </html>
   );
 }
