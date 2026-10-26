@@ -133,6 +133,28 @@ export function beyond(
   return [...new Set(out)];
 }
 
+/** Someone's access in a company as grants (with scope and limit), for beyond(). */
+export const grantsOut = (company: CompanyEffective | undefined) =>
+  [...(company?.grants ?? new Map()).entries()]
+    .map(([key, g]) => ({ key, ...(g.scope ? { scope: g.scope } : {}), ...(g.limit !== undefined ? { limit: g.limit } : {}) }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+
+/** Someone's sensitive-field switches in a company, for beyond(). */
+export const fieldsOut = (company: CompanyEffective | undefined) =>
+  SENSITIVE_FIELDS.map(({ key }) => {
+    const f = company?.fields.get(key);
+    return { key, view: Boolean(f?.view), edit: Boolean(f?.edit) };
+  });
+
+/**
+ * No higher than me, for a person: what `target` holds in a company that
+ * `actor` does not (empty when the actor holds all of it). The People API's
+ * check on "the person's current access".
+ */
+export function beyondPerson(actor: CompanyEffective | undefined, target: CompanyEffective | undefined): string[] {
+  return beyond(actor, grantsOut(target), fieldsOut(target));
+}
+
 /** A permission name for people: the action's or the field's English label. */
 export function permissionLabel(name: string): Label {
   if (name.startsWith('field:')) {

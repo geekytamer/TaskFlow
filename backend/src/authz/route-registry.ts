@@ -672,6 +672,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/users', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'ungated in the matrix; handler: USERS_WRITE in every company of the assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles)' },
   { method: 'PUT', path: '/users/:id', permission: 'per_record', note: 'self (own profile), or USERS_WRITE (people.manage) in every company of the target and of the new assignments; giving Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles)' },
   { method: 'DELETE', path: '/users/:id', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'ungated in the matrix; handler: USERS_WRITE in every company of the target (a super admin target needs the super admin)' },
+  { method: 'POST', path: '/users/:id/password-reset', permission: 'people.manage', legacyRoles: AM, legacyOverride: true, note: 'routes/password.ts; ungated in the matrix; handler: USERS_WRITE in every company of the target, and resetting an Admin/Manager/Accountant also needs ADMINISTRATION (people.manage_roles), so a Manager resets only Employees; v2 also: no higher than me (the target may hold nothing the caller lacks in each of their companies); the super admin (platform admin panel) resets anyone' },
   // Roles and people API (authz/routes.ts); the super admin manages any company.
   { method: 'GET', path: '/companies/:companyId/roles', permission: 'people.view_roles', legacyRoles: MGMT, note: 'GROUPS_READ (super admin bypasses)' },
   { method: 'POST', path: '/companies/:companyId/roles', permission: 'people.manage_roles', legacyRoles: A, note: 'ADMINISTRATION (super admin bypasses); no higher than me: the role may not give more than the caller holds' },
@@ -703,6 +704,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'DELETE', path: '/push/devices/:id', permission: 'self' },
   { method: 'GET', path: '/permissions/catalogue', permission: 'self', note: 'any signed-in user: the catalogue with labels and level presets (authz/routes.ts), plus the legacy module list' },
   { method: 'GET', path: '/auth/permissions', permission: 'self' },
+  { method: 'PUT', path: '/auth/password', permission: 'self', note: 'routes/password.ts: your own password, checked against the current one' },
   { method: 'GET', path: '/me/permissions', permission: 'self', note: 'company reach (membership; v2 also group assignments) or super admin' },
   { method: 'GET', path: '/academy/me', permission: 'self', note: 'your own training' },
   { method: 'GET', path: '/academy/missions', permission: 'self', note: 'your own training' },
@@ -720,6 +722,9 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/public/deliveries/:id', permission: 'public', note: 'unguessable share link' },
   { method: 'GET', path: '/public/vendor-bills/:id', permission: 'public', note: 'unguessable share link' },
   { method: 'POST', path: '/auth/login', permission: 'public' },
+  { method: 'POST', path: '/auth/forgot-password', permission: 'public', note: 'routes/password.ts: rate-limited; same answer whether or not the address has an account' },
+  { method: 'GET', path: '/auth/password-token', permission: 'public', note: 'routes/password.ts: the one-time token is the credential; rate-limited' },
+  { method: 'POST', path: '/auth/set-password', permission: 'public', note: 'routes/password.ts: the one-time token is the credential; rate-limited' },
   { method: 'GET', path: '/public/documents/:id', permission: 'public', note: 'unguessable share link' },
   { method: 'POST', path: '/whatsapp/webhook/:webhookToken', permission: 'public', note: 'Green API webhook: the secret token in the path identifies the company' },
   { method: 'GET', path: '/push/public-key', permission: 'public' },
@@ -803,8 +808,8 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
  */
 export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
   // Action rules
-  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 1 } },
-  USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5 } },
+  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 1, 'src/routes/password.ts': 1 } },
+  USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5, 'src/routes/password.ts': 1 } },
   GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },
   PORTAL_ACCESS_MANAGE: { becomes: 'portal.* / influencers.review (portal staff router gate)', sites: { 'src/server.ts': 1 } },

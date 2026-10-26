@@ -31,7 +31,7 @@ import type { SanitizedUser, UserRole } from '../types';
 import { CATALOGUE, SCOPES, SENSITIVE_FIELDS, permissionKey } from './catalogue';
 import { clearEffectiveCache, effective, effectiveLegacy, type CompanyEffective, type Effective } from './evaluate';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant } from './templates';
-import { SCOPE_LABELS, beyond, levelPresets, permissionLabel, summaryLines } from './describe';
+import { SCOPE_LABELS, beyond, fieldsOut, grantsOut, levelPresets, permissionLabel, summaryLines } from './describe';
 import { validateRole, type RoleView } from './authz-store';
 import { MODULES } from '../permissions/catalogue';
 import { ALWAYS_ON_MODULES } from '../permissions/company-modules';
@@ -78,17 +78,6 @@ const stringList = (value: unknown, name: string): string[] => {
   if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) throw new HttpError(400, `${name} must be a list of text.`);
   return value as string[];
 };
-
-const grantsOut = (company: CompanyEffective | undefined) =>
-  [...(company?.grants ?? new Map()).entries()]
-    .map(([key, g]) => ({ key, ...(g.scope ? { scope: g.scope } : {}), ...(g.limit !== undefined ? { limit: g.limit } : {}) }))
-    .sort((a, b) => a.key.localeCompare(b.key));
-
-const fieldsOut = (company: CompanyEffective | undefined) =>
-  SENSITIVE_FIELDS.map(({ key }) => {
-    const f = company?.fields.get(key);
-    return { key, view: Boolean(f?.view), edit: Boolean(f?.edit) };
-  });
 
 export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: AuthzRouteExtras): void {
   const { store, authMiddleware, permissionsEngine: engine, requireCompanyRoles, accessibleCompanyIds, viewerOf } = ctx;
