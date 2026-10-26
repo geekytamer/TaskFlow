@@ -127,7 +127,10 @@ PERMISSIONS_ENGINE=legacy    # legacy | shadow | v2
    permission key and company, newest first; `--days N` for another window)
    and `npm run ops -- authz:status`, or `GET /admin/authz/divergences` (super
    admin). Every disagreement is either a v2 bug to fix or an intended
-   difference to accept.
+   difference to accept. Rows of kind `scope` are read filters (lists,
+   searches, exports) where v2 would show a different set: they carry the
+   legacy and the v2 scope (for example a "Team manager" sees the company
+   today and only their line under v2).
 2. When the week is quiet, set `PERMISSIONS_ENGINE=v2` and restart.
 3. **Rollback is the setting.** Set it back to `legacy` (or `shadow`) and
    restart. There is no data migration to reverse: groups, grants and

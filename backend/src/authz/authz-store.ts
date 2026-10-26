@@ -33,6 +33,7 @@ import { v4 as uuid } from 'uuid';
 import { CATALOGUE, SCOPES, SENSITIVE_FIELDS, findAction, type Scope } from './catalogue';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant, type TemplateKey } from './templates';
 import { OLD_RULE_SCOPES, OLD_TO_FIELDS, OLD_TO_NEW } from './legacy-map';
+import { DEFAULT_TIME_ZONE, boundaryOf, windowHolds } from './dates';
 import { HttpError } from '../http';
 
 export interface RoleView {
@@ -226,13 +227,9 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]
 /** A strict ISO 8601 date or date-time (no loose strings such as "next week" or "3/4/2026"). */
 export const isIsoDate = (value: string): boolean => ISO_DATE_RE.test(value) && !Number.isNaN(Date.parse(value));
 
-/** Whether a start/end window holds now; an unparseable date makes it inactive (as in evaluate.ts). */
-const activeNow = (startsAt: string | null, endsAt: string | null, now: number): boolean => {
-  const start = startsAt ? Date.parse(startsAt) : null;
-  const end = endsAt ? Date.parse(endsAt) : null;
-  if (Number.isNaN(start) || Number.isNaN(end)) return false;
-  return (start === null || start <= now) && (end === null || now < end);
-};
+/** Whether a start/end window holds now in the company's zone; an unparseable date makes it inactive (as in evaluate.ts). */
+const activeNow = (startsAt: string | null, endsAt: string | null, now: number, timeZone?: string | null): boolean =>
+  windowHolds(startsAt, endsAt, now, timeZone);
 
 export interface HoldingTemplateView {
   key: string;
@@ -251,7 +248,11 @@ export interface PushReportRow { companyId: string; roleId: string; roleKey: str
 export class AuthzStore {
   private isReady = false;
 
-  constructor(private readonly db: Database.Database) {}
+  /**
+   * `actor`: who is acting when a caller passes no actor (store.runAsActor),
+   * so every audit row names the person behind it (M-9).
+   */
+  constructor(private readonly db: Database.Database, private readonly actor: () => string | null = () => null) {}
 
   /** Whether migration 137 has created the v2 tables (false while older migrations run). */
   ready(): boolean {
@@ -278,7 +279,7 @@ export class AuthzStore {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        entry.companyId ?? null, entry.holdingGroupId ?? null, entry.actorUserId, entry.entity, entry.entityId,
+        entry.companyId ?? null, entry.holdingGroupId ?? null, entry.actorUserId ?? this.actor(), entry.entity, entry.entityId,
         entry.before === null || entry.before === undefined ? null : JSON.stringify(entry.before),
         entry.after === null || entry.after === undefined ? null : JSON.stringify(entry.after),
         new Date().toISOString(),
@@ -521,6 +522,30 @@ export class AuthzStore {
   }
 
   /**
+   * M-9: a person is being deleted. Writes what they held, per company and
+   * per group, to the audit before the rows go (the caller deletes them).
+   */
+  recordUserRemoval(userId: string, actorId: string | null): void {
+    if (!this.ready()) return;
+    const companies = (this.db.prepare('SELECT DISTINCT companyId FROM user_group_assignments WHERE userId = ?').all(userId) as Array<{ companyId: string }>)
+      .map((r) => r.companyId);
+    for (const companyId of companies) {
+      this.writeAudit({ companyId, actorUserId: actorId, entity: 'assignments', entityId: userId, before: this.assignmentShape(userId, companyId), after: null });
+    }
+    const groups = (this.db.prepare(
+      `SELECT holdingGroupId FROM holding_group_assignments WHERE userId = ?
+       UNION SELECT holdingGroupId FROM holding_group_admins WHERE userId = ?`,
+    ).all(userId, userId) as Array<{ holdingGroupId: string }>).map((r) => r.holdingGroupId);
+    for (const holdingGroupId of groups) {
+      const before = this.holdingAssignments(holdingGroupId).filter((r) => r.userId === userId);
+      this.writeAudit({ holdingGroupId, actorUserId: actorId, entity: 'holding_assignments', entityId: userId, before: { assignments: before, admin: this.isHoldingAdmin(holdingGroupId, userId) }, after: null });
+    }
+    const user = this.db.prepare('SELECT id, name, email, companyRoles FROM users WHERE id = ?').get(userId) as Record<string, unknown> | undefined;
+    if (user) this.writeAudit({ actorUserId: actorId, entity: 'user', entityId: userId, before: user, after: null });
+    this.bump();
+  }
+
+  /**
    * Marks the system role matching the person's legacy role (users.companyRoles)
    * as their main role in that company, and every other assignment as an
    * add-on. Legacy remains the truth during shadow, so the main assignment
@@ -581,9 +606,9 @@ export class AuthzStore {
                   JOIN permission_groups pg ON pg.id = uga.groupId
                  WHERE uga.userId = ? AND uga.companyId = ? AND uga.isMain = 1 AND uga.isActive = 1 AND uga.viaHoldingGroupId IS NULL`)
       .get(userId, companyId) as { key: string; isSystem: number; holdingGroupId: string | null; startsAt: string | null; endsAt: string | null } | undefined;
-    if (direct && activeNow(direct.startsAt, direct.endsAt, now)) return direct.isSystem ? toLegacy(direct.key) : undefined;
+    if (direct && activeNow(direct.startsAt, direct.endsAt, now, this.companyTimeZone(companyId))) return direct.isSystem ? toLegacy(direct.key) : undefined;
     const viaGroup = this.holdingAssignmentsFor(userId)
-      .find((h) => h.isMain && h.companyIds.includes(companyId) && activeNow(h.startsAt, h.endsAt, now));
+      .find((h) => h.isMain && h.companyIds.includes(companyId) && activeNow(h.startsAt, h.endsAt, now, this.companyTimeZone(companyId)));
     return viaGroup ? toLegacy(viaGroup.roleKey) : undefined;
   }
 
@@ -808,11 +833,20 @@ export class AuthzStore {
     const name = String(input.name ?? '').trim();
     if (!name) throw new Error('A group needs a name.');
     return this.tx(() => {
+      this.requireUniqueGroupName(name);
       const row = { id: uuid(), name, nameAr: input.nameAr ?? null, createdAt: new Date().toISOString() };
       this.db.prepare('INSERT INTO holding_groups (id, name, nameAr, createdAt) VALUES (@id, @name, @nameAr, @createdAt)').run(row);
       this.changed({ holdingGroupId: row.id, actorUserId: actorId, entity: 'holding_group', entityId: row.id, before: null, after: row });
       return this.holdingView(row);
     });
+  }
+
+  /** M-3: group names are unique, ignoring case and surrounding spaces. */
+  private requireUniqueGroupName(name: string, exceptId?: string): void {
+    const clash = this.db
+      .prepare('SELECT id FROM holding_groups WHERE lower(trim(name)) = lower(?) AND id IS NOT ?')
+      .get(name.trim(), exceptId ?? null);
+    if (clash) throw new HttpError(409, `A group named "${name}" already exists. Choose another name.`, { code: 'DUPLICATE_NAME' });
   }
 
   /** The group, or undefined. */
@@ -831,6 +865,7 @@ export class AuthzStore {
       const before = this.holdingRow(id);
       const name = input.name === undefined ? before.name : String(input.name).trim();
       if (!name) throw new Error('A group needs a name.');
+      this.requireUniqueGroupName(name, id);
       const nameAr = input.nameAr === undefined ? before.nameAr : input.nameAr;
       this.db.prepare('UPDATE holding_groups SET name = ?, nameAr = ? WHERE id = ?').run(name, nameAr, id);
       const after = this.holdingRow(id);
@@ -858,7 +893,7 @@ export class AuthzStore {
         companyId, holdingGroupId, actorUserId: actorId, entity: 'holding_company', entityId: companyId,
         before: { holdingGroupId: company.holdingGroupId }, after: { holdingGroupId },
       });
-      this.materialise(holdingGroupId);
+      this.materialise(holdingGroupId, actorId);
     });
   }
 
@@ -918,7 +953,7 @@ export class AuthzStore {
     for (const [label, value] of [['start', startsAt], ['end', endsAt]] as const) {
       if (value !== null && !isIsoDate(value)) throw new Error(`The ${label} date must be an ISO date (YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS][Z]).`);
     }
-    if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) throw new Error('The end date must be after the start date.');
+    if (startsAt && endsAt && (boundaryOf(endsAt, 'end') as number) <= (boundaryOf(startsAt, 'start') as number)) throw new Error('The end date must be after the start date.');
     this.tx(() => {
       this.holdingRow(holdingGroupId);
       const keys = [...new Set([input.mainRoleKey, ...input.addOnRoleKeys].filter((x): x is string => Boolean(x)))];
@@ -933,7 +968,7 @@ export class AuthzStore {
       );
       keys.forEach((key) => insert.run(holdingGroupId, userId, key, key === input.mainRoleKey ? 1 : 0, startsAt, endsAt));
       this.changed({ holdingGroupId, actorUserId: actorId, entity: 'holding_assignments', entityId: userId, before, after: shape() });
-      this.materialise(holdingGroupId);
+      this.materialise(holdingGroupId, actorId);
     });
   }
 
@@ -1099,7 +1134,7 @@ export class AuthzStore {
    * group assignment uses, and removes copies nobody uses. A new copy holds
    * the template as it is now; later edits reach copies by push.
    */
-  private materialise(holdingGroupId: string): void {
+  private materialise(holdingGroupId: string, actorId: string | null = null): void {
     const used = new Set((this.db
       .prepare('SELECT DISTINCT roleKey FROM holding_group_assignments WHERE holdingGroupId = ?')
       .all(holdingGroupId) as Array<{ roleKey: string }>).map((r) => r.roleKey));
@@ -1110,7 +1145,7 @@ export class AuthzStore {
         .prepare('SELECT id, key FROM permission_groups WHERE companyId = ? AND holdingGroupId = ?')
         .all(companyId, holdingGroupId) as Array<{ id: string; key: string }>;
       for (const copy of copies) {
-        if (!used.has(copy.key.slice('group:'.length))) this.dropCopy(copy.id, null);
+        if (!used.has(copy.key.slice('group:'.length))) this.dropCopy(copy.id, actorId);
       }
       for (const key of used) {
         if (copies.some((c) => c.key === copyKey(key))) continue;
@@ -1126,7 +1161,7 @@ export class AuthzStore {
           )
           .run(id, companyId, holdingGroupId, copyKey(key), template.name, template.nameAr, template.description, now, now);
         this.writeGrants(id, template.grants, template.fields);
-        this.changed({ companyId, holdingGroupId, actorUserId: null, entity: 'role', entityId: id, before: null, after: this.auditShape(this.getRole(id)) });
+        this.changed({ companyId, holdingGroupId, actorUserId: actorId, entity: 'role', entityId: id, before: null, after: this.auditShape(this.getRole(id)) });
       }
     }
   }
@@ -1219,7 +1254,7 @@ export class AuthzStore {
   holdingCompanyIds(userId: string, now: number = Date.now()): string[] {
     const ids = new Set<string>();
     for (const h of this.holdingAssignmentsFor(userId)) {
-      if (activeNow(h.startsAt, h.endsAt, now)) h.companyIds.forEach((id) => ids.add(id));
+      h.companyIds.forEach((id) => { if (activeNow(h.startsAt, h.endsAt, now, this.companyTimeZone(id))) ids.add(id); });
     }
     return [...ids].sort();
   }
@@ -1234,7 +1269,21 @@ export class AuthzStore {
           WHERE c.id = ?`,
       )
       .all(companyId) as Array<{ userId: string; startsAt: string | null; endsAt: string | null }>;
-    return [...new Set(rows.filter((r) => activeNow(r.startsAt, r.endsAt, now)).map((r) => r.userId))].sort();
+    const zone = this.companyTimeZone(companyId);
+    return [...new Set(rows.filter((r) => activeNow(r.startsAt, r.endsAt, now, zone)).map((r) => r.userId))].sort();
+  }
+
+  /**
+   * The company's time zone (conversation settings), default Asia/Muscat: an
+   * assignment's date-only end runs through the end of that day there (M-1).
+   */
+  companyTimeZone(companyId: string): string {
+    try {
+      const row = this.db.prepare('SELECT timeZone FROM conversation_settings WHERE companyId = ?').get(companyId) as { timeZone?: string } | undefined;
+      return row?.timeZone || DEFAULT_TIME_ZONE;
+    } catch {
+      return DEFAULT_TIME_ZONE;
+    }
   }
 
   /** Whether a person belongs (users.companyRoles / companyIds) to any company of the group. */

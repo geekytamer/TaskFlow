@@ -114,12 +114,22 @@ export function rolesGranting(store: DataStore, companyId: string, key: string):
   const grants = (r: (typeof roles)[number]) => (field
     ? r.fields.some((f) => f.key === field && f.edit)
     : r.grants.some((g) => g.key === key));
+  // M-6: only roles someone holds; a group copy and a role of the same name once.
+  const counts = store.authz.rolePeopleCounts(companyId);
   const granting = roles
-    .filter((r) => r.isActive && !r.needsReview && grants(r))
-    .sort((a, b) => rank(a.key) - rank(b.key) || a.name.localeCompare(b.name));
-  const named = granting.filter((r) => r.key !== 'owner');
-  return (named.length ? named : granting).map((r) => r.name);
+    .filter((r) => r.isActive && !r.needsReview && grants(r) && (counts.get(r.id) ?? 0) > 0)
+    .sort((a, b) => rank(a.key.replace(/^group:/, '')) - rank(b.key.replace(/^group:/, '')) || a.name.localeCompare(b.name));
+  const named = granting.filter((r) => r.key !== 'owner' && r.key !== 'group:owner');
+  const names = [...new Set((named.length ? named : granting).map((r) => r.name))];
+  if (names.length <= MAX_ASK) return names;
+  // At most three names, then "or an Admin".
+  const admin = roles.find((r) => r.isSystem && r.key === 'admin')?.name ?? 'Admin';
+  const shown = names.filter((n) => n !== admin).slice(0, MAX_ASK);
+  return [...shown, admin];
 }
+
+/** How many role names a refusal lists before "or an Admin" (M-6). */
+const MAX_ASK = 3;
 
 /** 'field:<sensitive field>' — the permission named when a sensitive-field write is refused. */
 const isFieldKey = (key: string) => key.startsWith('field:') && SENSITIVE_FIELDS.some((f) => `field:${f.key}` === key);
@@ -129,11 +139,12 @@ const LEGACY_FORBIDDEN = 'You do not have permission to perform this action.';
 /** "Ask an Admin or Manager." — who in the company can grant a refused permission. */
 export function askSentence(roleNames: readonly string[]): string {
   if (roleNames.length === 0) return 'Nobody in this company has this permission yet. Ask an administrator to grant it.';
-  const list = roleNames.length === 1
-    ? roleNames[0]
-    : `${roleNames.slice(0, -1).join(', ')} or ${roleNames[roleNames.length - 1]}`;
-  const article = /^[aeiou]/i.test(roleNames[0]) ? 'an' : 'a';
-  return `Ask ${article} ${list}.`;
+  const article = (name: string) => (/^[aeiou]/i.test(name) ? 'an' : 'a');
+  const last = roleNames[roleNames.length - 1];
+  // Past three names the last is "an Admin", said with its own article (M-6).
+  const tail = roleNames.length > MAX_ASK ? `${article(last)} ${last}` : last;
+  const list = roleNames.length === 1 ? roleNames[0] : `${roleNames.slice(0, -1).join(', ')} or ${tail}`;
+  return `Ask ${article(roleNames[0])} ${list}.`;
 }
 
 /**
@@ -172,13 +183,17 @@ const seen = new WeakMap<DataStore, Map<string, number>>();
  */
 export function recordShadowDivergence(
   store: DataStore,
-  entry: { userId: string; companyId: string; key: string; route: string; legacyAllowed: boolean; newAllowed: boolean },
+  entry: {
+    userId: string; companyId: string; key: string; route: string; legacyAllowed: boolean; newAllowed: boolean;
+    /** 'scope': a read filter (visible()) would show a different set: both scopes are logged. */
+    kind?: 'access' | 'scope'; legacyScope?: Scope | null; newScope?: Scope | null;
+  },
   now = Date.now(),
 ): void {
-  if (entry.legacyAllowed === entry.newAllowed) return;
+  if (entry.kind === 'scope' ? entry.legacyScope === entry.newScope : entry.legacyAllowed === entry.newAllowed) return;
   let recent = seen.get(store);
   if (!recent) seen.set(store, (recent = new Map()));
-  const id = `${entry.userId}|${entry.companyId}|${entry.route}|${entry.key}|${entry.legacyAllowed}`;
+  const id = `${entry.kind ?? 'access'}|${entry.userId}|${entry.companyId}|${entry.route}|${entry.key}|${entry.legacyAllowed}|${entry.legacyScope ?? ''}|${entry.newScope ?? ''}`;
   const at = recent.get(id);
   if (at !== undefined && now - at < DEDUPE_MS) return;
   // Oldest first (Map keeps insertion order; a refreshed entry moves to the end).
@@ -192,5 +207,6 @@ export function recordShadowDivergence(
     route: entry.route,
     legacyAllowed: entry.legacyAllowed,
     newAllowed: entry.newAllowed,
+    ...(entry.kind === 'scope' ? { kind: 'scope' as const, legacyScope: entry.legacyScope ?? null, newScope: entry.newScope ?? null } : {}),
   });
 }

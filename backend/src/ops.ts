@@ -179,18 +179,23 @@ async function authzCompare() {
       console.log('Divergences: 0 (no authz_divergence table yet)');
       return;
     }
+    // I-5: read-scope differences (kind 'scope') count too; older tables have no kind column.
+    const hasKind = (db.prepare('PRAGMA table_info(authz_divergence)').all() as Array<{ name: string }>).some((c) => c.name === 'kind');
     const rows = db
-      .prepare(`SELECT userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt
+      .prepare(`SELECT userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt,
+                       ${hasKind ? 'kind, legacyScope, newScope' : `'access' AS kind, NULL AS legacyScope, NULL AS newScope`}
                   FROM authz_divergence WHERE observedAt >= ? ORDER BY observedAt DESC, id DESC`)
       .all(since) as Array<{
         userId: string; companyId: string; module: string; action: string; route: string;
         legacyAllowed: number; openfgaAllowed: number; observedAt: string;
+        kind: string; legacyScope: string | null; newScope: string | null;
       }>;
     console.log(`Divergences: ${rows.length}`);
     if (!rows.length) return;
     const keyOf = (r: { module: string; action: string }) => (r.module === 'field' ? `field:${r.action}` : `${r.module}.${r.action}`);
-    const answer = (r: { legacyAllowed: number; openfgaAllowed: number }) =>
-      `legacy ${r.legacyAllowed ? 'allow' : 'deny'}, v2 ${r.openfgaAllowed ? 'allow' : 'deny'}`;
+    const answer = (r: (typeof rows)[number]) => (r.kind === 'scope'
+      ? `scope: legacy ${r.legacyScope ?? 'none'}, v2 ${r.newScope ?? 'none'}`
+      : `legacy ${r.legacyAllowed ? 'allow' : 'deny'}, v2 ${r.openfgaAllowed ? 'allow' : 'deny'}`);
     const section = (title: string, label: (r: (typeof rows)[number]) => string) => {
       const counts = new Map<string, number>();
       rows.forEach((r) => counts.set(label(r), (counts.get(label(r)) ?? 0) + 1));
@@ -198,6 +203,7 @@ async function authzCompare() {
       [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .forEach(([name, n]) => console.log(`  ${String(n).padStart(6)}  ${name}`));
     };
+    section('kind', (r) => r.kind);
     section('route', (r) => r.route);
     section('permission key', keyOf);
     section('company', (r) => r.companyId);

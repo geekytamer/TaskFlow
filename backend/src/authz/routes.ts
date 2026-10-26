@@ -28,11 +28,12 @@ import { HttpError } from '../http';
 import type { RouteContext } from '../routes/context';
 import { handler, type AuthedRequest } from '../routes/shared';
 import type { SanitizedUser, UserRole } from '../types';
-import { CATALOGUE, SCOPES, SENSITIVE_FIELDS, permissionKey } from './catalogue';
-import { clearEffectiveCache, effective, effectiveLegacy, type CompanyEffective, type Effective } from './evaluate';
+import { CATALOGUE, SCOPES, SENSITIVE_FIELDS, isPermissionKey, permissionKey } from './catalogue';
+import { rolesGranting } from './engine';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant } from './templates';
-import { SCOPE_LABELS, beyond, fieldsOut, grantsOut, levelPresets, permissionLabel, summaryLines } from './describe';
+import { SCOPE_LABELS, fieldsOut, grantsOut, levelPresets, permissionLabel, summaryLines } from './describe';
 import { validateRole, type RoleView } from './authz-store';
+import { roleGuards } from './guards';
 import { MODULES } from '../permissions/catalogue';
 import { ALWAYS_ON_MODULES } from '../permissions/company-modules';
 
@@ -82,9 +83,9 @@ const stringList = (value: unknown, name: string): string[] => {
 export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: AuthzRouteExtras): void {
   const { store, authMiddleware, permissionsEngine: engine, requireCompanyRoles, accessibleCompanyIds, viewerOf } = ctx;
 
+  const guards = roleGuards(store, engine);
   /** The Effective that answers for someone else, by the same rule as viewerOf (Ruling D). */
-  const effectiveOf = (userId: string): Effective =>
-    engine === 'v2' ? effective(store, userId) : effectiveLegacy(store, userId);
+  const { effectiveOf, guarded } = guards;
 
   const requireCompany = (companyId: string) => {
     if (!store.getCompanyById(companyId)) throw new HttpError(404, 'Company not found.');
@@ -103,13 +104,7 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
   const requireWithin = (req: AuthedRequest, companyId: string, grants: readonly TemplateGrant[], fields: readonly TemplateField[]) => {
     run(() => validateRole(grants, fields));
     if (req.user!.isSuperAdmin) return;
-    const missing = beyond(viewerOf(req).byCompany.get(companyId), grants, fields);
-    if (!missing.length) return;
-    throw new HttpError(
-      403,
-      `You can't give permissions you don't have yourself: ${missing.map((k) => permissionLabel(k).en).join('; ')}.`,
-      { code: 'HIGHER_THAN_YOU', permission: missing[0], missing },
-    );
+    guards.requireWithin(viewerOf(req).byCompany.get(companyId), grants, fields);
   };
 
   const loadRole = (companyId: string, id: string): RoleView => {
@@ -151,6 +146,22 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
     });
   }));
 
+  /**
+   * M-10: who in the company grants a permission, for a page the person was
+   * turned away from (the same names a 403 carries under v2).
+   */
+  app.get('/me/permissions/ask', authMiddleware, handler((req, res) => {
+    const user = req.user!;
+    const companyId = typeof req.query.companyId === 'string' ? req.query.companyId : '';
+    const key = typeof req.query.key === 'string' ? req.query.key : '';
+    if (!companyId || !key) throw new HttpError(400, 'companyId and key are required.');
+    if (!accessibleCompanyIds(user).includes(companyId) && !user.isSuperAdmin) {
+      throw new HttpError(403, 'You do not have access to this company.', { code: 'NO_COMPANY_ACCESS' });
+    }
+    requireCompany(companyId);
+    res.json({ key, roles: isPermissionKey(key) ? rolesGranting(store, companyId, key) : [] });
+  }));
+
   app.get('/permissions/catalogue', authMiddleware, handler((_req, res) => {
     res.json({
       scopes: SCOPES.map((key) => ({ key, label: SCOPE_LABELS[key] })),
@@ -179,32 +190,8 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
     });
   }));
 
-  /**
-   * Runs a change to roles or assignments in one transaction and refuses it
-   * (409 LOCKOUT, everything rolled back) when it leaves the company with
-   * nobody (super admins aside) holding people.manage_roles who had someone
-   * before. Users have no disabled/suspended state today, so every member
-   * counts.
-   */
-  const holdersOf = (companyId: string) => store.listUsersByCompany(companyId)
-    .filter((u) => !u.isSuperAdmin && effectiveOf(u.id).byCompany.get(companyId)?.grants.has('people.manage_roles'));
-  const guarded = <T>(companyId: string, fn: () => T): T => {
-    try {
-      return store.transaction(() => {
-        const before = holdersOf(companyId).length;
-        const out = fn();
-        if (before > 0 && holdersOf(companyId).length === 0) {
-          throw new HttpError(409, 'That change would leave this company with nobody able to manage roles.', { code: 'LOCKOUT' });
-        }
-        return out;
-      });
-    } catch (error) {
-      // Answers worked out inside the rolled-back change carry a version
-      // number a later change will reuse: forget them.
-      clearEffectiveCache();
-      throw error;
-    }
-  };
+  // guarded(): the lock-out guard (authz/guards.ts). Users have no
+  // disabled/suspended state today, so every member counts.
 
   // ── Roles ──────────────────────────────────────────────────────────
 
@@ -304,12 +291,12 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
   /** Group-wide roles reaching this company, per person (Ruling H/M). */
   const groupRolesIn = (companyId: string) => {
     const group = store.authz.holdingGroups().find((g) => g.companyIds.includes(companyId));
-    const byUser = new Map<string, Array<{ holdingGroupId: string; groupName: string; key: string; name: string; isMain: boolean; startsAt: string | null; endsAt: string | null }>>();
+    const byUser = new Map<string, Array<{ holdingGroupId: string; groupName: string; key: string; name: string; nameAr: string | null; isMain: boolean; startsAt: string | null; endsAt: string | null }>>();
     if (!group) return { group: undefined, byUser };
     for (const a of store.authz.holdingAssignments(group.id)) {
       const t = store.authz.holdingTemplate(group.id, a.roleKey);
       const list = byUser.get(a.userId) ?? [];
-      list.push({ holdingGroupId: group.id, groupName: group.name, key: a.roleKey, name: t?.name ?? a.roleKey, isMain: a.isMain, startsAt: a.startsAt, endsAt: a.endsAt });
+      list.push({ holdingGroupId: group.id, groupName: group.name, key: a.roleKey, name: t?.name ?? a.roleKey, nameAr: t?.nameAr ?? null, isMain: a.isMain, startsAt: a.startsAt, endsAt: a.endsAt });
       byUser.set(a.userId, list);
     }
     return { group, byUser };
@@ -339,7 +326,7 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
       viaGroup: member ? null : (context.groups.group ? { id: context.groups.group.id, name: context.groups.group.name } : null),
       readOnly: !member,
       linkedToHr: context.linked.has(userId),
-      summary: summaryLines(company),
+      summary: summaryLines(company, { currency: store.getCompanyFinanceSettings(companyId)?.currencyCode || undefined }),
     };
   };
 

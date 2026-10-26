@@ -274,7 +274,11 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     // Group-wide person.
     assert.equal((await as(dana).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'nope' })).status, 400);
     assert.equal((await as(dana).put(`/holding-groups/${g}/assignments/missing-user`, { roleKey: 'owner' })).status, 404);
-    const assigned = await as(dana).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'owner', addOnKeys: [] });
+    // C-2: a group admin gives only what they hold in every company of the group (Owner is beyond Dana).
+    const beyondDana = await as(dana).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'owner', addOnKeys: [] });
+    assert.equal(beyondDana.status, 403);
+    assert.equal(beyondDana.body.code, 'HIGHER_THAN_YOU');
+    const assigned = await as(root).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'owner', addOnKeys: [] });
     assert.equal(assigned.status, 200);
     assert.deepEqual(assigned.body.assignments.map((a) => [a.userId, a.roleKey, a.isMain]), [[charlie.id, 'owner', true]]);
     assert.ok(effective(store, charlie.id).byCompany.get('2').grants.has('finance.view'));
@@ -287,7 +291,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.equal((await as(root).put(`/holding-groups/${g}/assignments/${outsider.id}`, { roleKey: 'employee' })).status, 200, 'super admin unrestricted');
     assert.equal((await as(root).put(`/holding-groups/${g}/assignments/${outsider.id}`, {})).status, 200);
     // M5: strict ISO dates.
-    assert.equal((await as(dana).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'owner', endsAt: 'next week' })).status, 400);
+    assert.equal((await as(root).put(`/holding-groups/${g}/assignments/${charlie.id}`, { roleKey: 'owner', endsAt: 'next week' })).status, 400);
 
     // Ruling M: charlie is not a member of company 3. Attached later, the
     // group-wide Owner reaches it at once under v2 (legacy: membership only).
@@ -313,14 +317,17 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
 
     // Templates: read, edit, push.
     const tpl = await as(dana).get(`/holding-groups/${g}/templates/owner`);
+    // C-2: Dana may read it, but not save or push what is beyond her.
+    assert.equal((await as(dana).put(`/holding-groups/${g}/templates/owner`, { name: 'Owner', grants: tpl.body.grants, fields: tpl.body.fields })).status, 403);
+    assert.equal((await as(dana).post(`/holding-groups/${g}/templates/owner/push`)).status, 403);
     assert.equal(tpl.status, 200);
     assert.equal(tpl.body.source, 'system');
     const slimmer = tpl.body.grants.filter((x) => x.key !== 'finance.view');
-    const saved = await as(dana).put(`/holding-groups/${g}/templates/owner`, { name: 'Owner', grants: slimmer, fields: tpl.body.fields });
+    const saved = await as(root).put(`/holding-groups/${g}/templates/owner`, { name: 'Owner', grants: slimmer, fields: tpl.body.fields });
     assert.equal(saved.status, 200);
     assert.equal(saved.body.source, 'group');
     assert.equal((await as(dana).put(`/holding-groups/${g}/templates/owner`, { name: 'Owner', grants: [{ key: 'no.such' }], fields: [] })).status, 400);
-    const pushed = await as(dana).post(`/holding-groups/${g}/templates/owner/push`);
+    const pushed = await as(root).post(`/holding-groups/${g}/templates/owner/push`);
     assert.equal(pushed.status, 200);
     assert.ok(pushed.body.updated.some((r) => r.companyId === '1' && r.roleKey === 'group:owner'));
     // Ruling N: the companies' own Owner roles are reported, never changed.

@@ -760,7 +760,7 @@ export class DataStore {
     this.onNotificationsCreated = options.onNotificationsCreated;
     // Built before the migrations: 137 and the legacy group seeding call into
     // it (it does nothing until 137 has created its tables).
-    this.authz = new AuthzStore(this.db);
+    this.authz = new AuthzStore(this.db, () => this.currentActor?.userId ?? null);
     this.applyMigrations();
     // Ruling Q: standard roles follow the system templates on every start.
     this.authz.syncSystemRoles();
@@ -5427,6 +5427,16 @@ export class DataStore {
           this.db.exec('CREATE INDEX IF NOT EXISTS idx_authz_divergence_observed ON authz_divergence (observedAt)');
         },
       },
+      {
+        // I-5: shadow also logs read-scope differences (kind 'scope', with both scopes).
+        id: '142_authz_divergence_kind',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(authz_divergence)').all() as Array<{ name: string }>).map((c) => c.name);
+          if (!cols.includes('kind')) this.db.exec(`ALTER TABLE authz_divergence ADD COLUMN kind TEXT NOT NULL DEFAULT 'access'`);
+          if (!cols.includes('legacyScope')) this.db.exec('ALTER TABLE authz_divergence ADD COLUMN legacyScope TEXT');
+          if (!cols.includes('newScope')) this.db.exec('ALTER TABLE authz_divergence ADD COLUMN newScope TEXT');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6885,12 +6895,15 @@ export class DataStore {
     route: string;
     legacyAllowed: boolean;
     newAllowed: boolean;
+    kind?: 'access' | 'scope';
+    legacyScope?: string | null;
+    newScope?: string | null;
   }): void {
     this.db
       .prepare(
         `INSERT INTO authz_divergence
-           (userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt, kind, legacyScope, newScope)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.userId,
@@ -6901,6 +6914,9 @@ export class DataStore {
         entry.legacyAllowed ? 1 : 0,
         entry.newAllowed ? 1 : 0,
         new Date().toISOString(),
+        entry.kind ?? 'access',
+        entry.legacyScope ?? null,
+        entry.newScope ?? null,
       );
   }
 
@@ -7181,6 +7197,7 @@ export class DataStore {
       throw new Error(`This user owns ${privateTasks} private task(s). Reassign them or make them visible before deleting the user.`);
     }
     const trx = this.db.transaction(() => {
+      this.authz.recordUserRemoval(userId, this.currentActor?.userId ?? null);
       this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ?').run(userId);
       this.db.prepare('DELETE FROM holding_group_admins WHERE userId = ?').run(userId);
       this.db.prepare('DELETE FROM holding_group_assignments WHERE userId = ?').run(userId);
@@ -8069,13 +8086,17 @@ export class DataStore {
     }
   }
 
-  addContactRole(contactId: string, companyId: string, role: ContactRoleType, source: ContactRoleSource = 'Manual'): void {
+  /**
+   * `keepVisibility`: the role is a side effect of linking the contact to a
+   * campaign, which is no reason to show a private contact to everyone (I-4).
+   */
+  addContactRole(contactId: string, companyId: string, role: ContactRoleType, source: ContactRoleSource = 'Manual', options: { keepVisibility?: boolean } = {}): void {
     this.db.prepare(
       `INSERT OR IGNORE INTO contact_roles (id, contactId, companyId, role, source, createdAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(uuid(), contactId, companyId, role, source, new Date().toISOString());
     // When a real business relationship is established, auto-promote to Public
-    if (['Client', 'Vendor', 'Partner'].includes(role)) {
+    if (!options.keepVisibility && ['Client', 'Vendor', 'Partner'].includes(role)) {
       this.db.prepare(`UPDATE contacts SET visibility = 'Public', updatedAt = ? WHERE id = ?`)
         .run(new Date().toISOString(), contactId);
     }
@@ -11231,7 +11252,7 @@ export class DataStore {
 		          (@id, @companyId, @campaignId, @contactId, @role, @agreedRate, @status, @notes, @createdAt, @updatedAt)`,
 		      )
 		      .run(this.serializeCampaignAssignment(assignment));
-		    this.addContactRole(input.contactId, input.companyId, input.role, 'Manual');
+		    this.addContactRole(input.contactId, input.companyId, input.role, 'Manual', { keepVisibility: true });
 		    return assignment;
 		  }
 

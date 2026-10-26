@@ -107,6 +107,7 @@ const contactRule = (a: string, owner: string, shared: VisibleSql, reach: Reach)
 /** The reach a person has with `key` in a company, or null for none. */
 function reachOf(eff: Effective, key: string, companyId: string, noGrant: 'own' | 'none'): Reach | null {
   const scope: Scope | null = scopeOf(eff, key, companyId);
+  eff.onScope?.(key, companyId, scope);
   if (scope === null && noGrant === 'none') return null;
   const effective: Scope = scope ?? 'own';
   if (effective === 'company' || effective === 'group') return { all: true, people: [], me: eff.userId, companyId };

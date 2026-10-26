@@ -27,7 +27,8 @@ import {
 import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
 import { visible, type VisibleArea, type VisibleOptions } from './authz/visible';
 import { can, scopeOf } from './authz/can';
-import { beyond, permissionLabel } from './authz/describe';
+import { beyondDetail, fieldsOut, grantsOut } from './authz/describe';
+import { higherThanYou, roleGuards } from './authz/guards';
 import { canEditField, canViewField, fieldsWritten, mask, maskActivity, type MaskEntity, type MaskOptions, type SensitiveField } from './authz/mask';
 import type { FieldOpts } from './routes/context';
 import { routeDecl, type RouteDecl } from './authz/route-registry';
@@ -1039,8 +1040,50 @@ export function createServer(options: CreateServerOptions = {}) {
   const viewerOf = (req: AuthedRequest): Effective => {
     if (engine === 'v2') return effectiveFor(req);
     const r = req as AuthedRequest & { authzLegacyEffective?: Effective };
-    r.authzLegacyEffective ??= effectiveLegacy(store, req.user!.id);
+    if (!r.authzLegacyEffective) {
+      const legacy = effectiveLegacy(store, req.user!.id);
+      // I-5: under shadow every read filter compares its scope with v2's and
+      // logs a difference (kind 'scope'); a scope comparison, deduped hourly.
+      r.authzLegacyEffective = engine === 'shadow'
+        ? {
+          ...legacy,
+          onScope: (key, companyId, legacyScope) => {
+            try {
+              const newScope = scopeOf(effectiveFor(req), key, companyId);
+              if (newScope === legacyScope) return;
+              recordShadowDivergence(store, {
+                userId: req.user!.id, companyId, key, route: `scope ${req.method} ${routePathOf(req) ?? req.path}`,
+                legacyAllowed: legacyScope !== null, newAllowed: newScope !== null, kind: 'scope', legacyScope, newScope,
+              });
+            } catch (error) {
+              logger.warn(`[authz] shadow scope comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          },
+        }
+        : legacy;
+    }
     return r.authzLegacyEffective;
+  };
+
+  /** No higher than me and the lock-out guard, as the People API applies them (authz/guards.ts). */
+  const userGuards = roleGuards(store, engine);
+  /**
+   * C-1: changing or removing someone's role in a company. v2: the actor must
+   * hold everything the person holds there now (the new role is checked by
+   * assertRolesWithin). Every engine: the change is lock-out guarded.
+   */
+  const requireTargetWithin = (req: AuthedRequest, targetId: string, companyIds: readonly string[]) => {
+    if (engine !== 'v2' || req.user!.isSuperAdmin) return;
+    const target = userGuards.effectiveOf(targetId);
+    for (const companyId of companyIds) {
+      const current = target.byCompany.get(companyId);
+      const excess = beyondDetail(viewerOf(req).byCompany.get(companyId), grantsOut(current), fieldsOut(current));
+      if (excess.length) {
+        throw new HttpError(403, 'They have access you don\'t, so you can\'t change their roles. Ask an Admin.', {
+          code: 'HIGHER_THAN_YOU', target: true, permission: excess[0].key, missing: excess.map((e) => e.key), excess,
+        });
+      }
+    }
   };
 
   /** One record of a scoped area, by the same rule as its list. */
@@ -1818,14 +1861,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const role = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
       if (!role) continue;
       const content = store.authz.roleContent(role.id);
-      const missing = beyond(viewerOf(req).byCompany.get(assignment.companyId), content.grants, content.fields);
-      if (missing.length) {
-        throw new HttpError(
-          403,
-          `You can't give permissions you don't have yourself: ${missing.map((k) => permissionLabel(k).en).join('; ')}.`,
-          { code: 'HIGHER_THAN_YOU', permission: missing[0], missing },
-        );
-      }
+      const excess = beyondDetail(viewerOf(req).byCompany.get(assignment.companyId), content.grants, content.fields);
+      if (excess.length) throw higherThanYou(excess);
     }
   };
 
@@ -3032,7 +3069,7 @@ export function createServer(options: CreateServerOptions = {}) {
         payload.isSuperAdmin === true && req.user?.isSuperAdmin === true
           ? true
           : false;
-      const user = store.createUser({
+      const user = withActor(req, () => store.createUser({
         id: userIdFromBody(asRecord(req.body, 'body').id),
         name: payload.name!,
         email: payload.email!,
@@ -3047,7 +3084,7 @@ export function createServer(options: CreateServerOptions = {}) {
         defaultCommissionRate: payload.defaultCommissionRate,
         defaultCommissionBasis: payload.defaultCommissionBasis,
         costRatePerHour: payload.costRatePerHour,
-      });
+      }));
       // The new person sets their own password from an emailed link; when the
       // email cannot go out, the link comes back for the admin to pass on.
       const invite = suppliedPassword
@@ -3185,6 +3222,12 @@ export function createServer(options: CreateServerOptions = {}) {
         (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
       );
       assertRolesWithin(req, roleChanges);
+      // C-1: companies whose role for this person changes or goes.
+      const touched = [...new Set([
+        ...roleChanges.map((a) => a.companyId).filter((id) => existingRoleByCompany.has(id)),
+        ...existingAssignments.filter((a) => !targetAssignments.some((t) => t.companyId === a.companyId)).map((a) => a.companyId),
+      ])];
+      requireTargetWithin(req, existing.id, touched);
       const write = () => store.updateUser(req.params.id, {
         ...safePayload,
         companyIds: req.user!.isSuperAdmin && payload.companyIds
@@ -3196,7 +3239,7 @@ export function createServer(options: CreateServerOptions = {}) {
       // v2: a role given here is the person's main role in that company (a
       // custom main role is replaced; add-ons stay), and companyRoles, written
       // above, matches it. Legacy and shadow keep the legacy sync's answer.
-      const updated = engine === 'v2'
+      const updated = withActor(req, () => userGuards.guarded(touched, () => (engine === 'v2'
         ? store.transaction(() => {
           const prior = new Map(roleChanges.map((a) => [a.companyId, store.authz.assignments(existing.id, a.companyId)]));
           const out = write();
@@ -3211,7 +3254,7 @@ export function createServer(options: CreateServerOptions = {}) {
           }
           return store.getUserById(existing.id) ?? out;
         })
-        : write();
+        : write())));
       if (!updated) throw new HttpError(404, 'User not found.');
       // A new password ends the person's other sign-ins (an admin's change ends all of them).
       if (payload.password !== undefined) {
@@ -3237,7 +3280,14 @@ export function createServer(options: CreateServerOptions = {}) {
         }));
       if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.', { code: 'SUPER_ADMIN_ONLY' });
       assertUserManagementPermission(req, targetAssignments);
-      store.deleteUser(req.params.id);
+      const companyIds = targetAssignments.map((a) => a.companyId);
+      requireTargetWithin(req, existing.id, companyIds);
+      try {
+        withActor(req, () => userGuards.guarded(companyIds, () => store.deleteUser(req.params.id)));
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(400, error instanceof Error ? error.message : 'Could not delete the user.');
+      }
       res.json({ success: true });
     }),
   );
@@ -4734,7 +4784,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		      );
 		      // Auto-assign 'Client' role to the contact when linked to a campaign
 		      if (contactId) {
-		        store.addContactRole(contactId, req.params.companyId, 'Client', 'Manual');
+		        store.addContactRole(contactId, req.params.companyId, 'Client', 'Manual', { keepVisibility: true });
 		      }
 		      res.status(201).json(campaign);
 		    }),
@@ -4987,7 +5037,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        }),
 		      );
 		      // Auto-assign the assignment role to the contact's roles
-		      store.addContactRole(assignment.contactId, campaign.companyId, assignment.role, 'Manual');
+		      store.addContactRole(assignment.contactId, campaign.companyId, assignment.role, 'Manual', { keepVisibility: true });
 		      res.status(201).json(assignment);
 		    }),
 		  );
@@ -6348,6 +6398,26 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /**
+   * I-2: an approval limit on purchasing.approve holds on the server. v2: an
+   * amount above the person's limit is refused, naming the limit; shadow
+   * logs the difference; legacy has no limits (templates carry none).
+   */
+  const requireApprovalLimit = (req: AuthedRequest, companyId: string, amount: number, what: { en: string }) => {
+    if (engine === 'legacy' || req.user!.isSuperAdmin) return;
+    const key = 'purchasing.approve';
+    const allowed = decideAccess(req, companyId, () => true, (eff) => can(eff, key, { companyId, amount }).allowed, () => key, 'limit @ ');
+    if (allowed || engine !== 'v2') return;
+    const limit = effectiveFor(req).byCompany.get(companyId)?.grants.get(key)?.limit ?? 0;
+    const currency = store.getCompanyFinanceSettings(companyId)?.currencyCode || 'USD';
+    const fmt = (n: number) => `${n.toLocaleString('en-US', { maximumFractionDigits: 3 })} ${currency}`;
+    throw new HttpError(
+      403,
+      `You can approve ${what.en} up to ${fmt(limit)}; this one is ${fmt(amount)}. Ask someone with a higher approval limit.`,
+      { code: 'OVER_LIMIT', permission: key, limit, amount, currency },
+    );
+  };
+
   app.post(
     '/purchase-orders/:id/approve',
     authMiddleware,
@@ -6355,6 +6425,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getPurchaseOrderById(req.params.id);
       if (!existing) throw new HttpError(404, 'Purchase order not found.');
       requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      requireApprovalLimit(req, existing.companyId, Number(existing.totalAmount) || 0, { en: 'purchase orders' });
       const approverName = req.user?.name || req.user?.email || 'Approver';
       if (store.approvals.steps('purchase_order', existing.id).length) {
         return res.json(decideDocument(req, 'purchase_order', existing.id, existing.companyId, 'approve'));
@@ -6708,7 +6779,12 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   requisitionAction('submit', companyManagementRoles, (id) => store.submitPurchaseRequisition(id));
-  requisitionAction('approve', ['Admin', 'Manager'], (id) => store.approvePurchaseRequisition(id));
+  requisitionAction('approve', ['Admin', 'Manager'], (id, req) => {
+    const requisition = store.getPurchaseRequisitionById(id)!;
+    const total = requisition.items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.estimatedUnitCost) || 0), 0);
+    requireApprovalLimit(req, requisition.companyId, total, { en: 'requisitions' });
+    return store.approvePurchaseRequisition(id);
+  });
   requisitionAction('reject', ['Admin', 'Manager'], (id, req) =>
     store.rejectPurchaseRequisition(id, optionalString(asRecord(req.body, 'body').reason)),
   );

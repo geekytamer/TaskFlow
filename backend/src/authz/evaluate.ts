@@ -42,6 +42,7 @@ import { ROUTES } from './route-registry';
 import { lookupRoutePermission } from './legacy-routes';
 import { TEMPLATES, TEMPLATE_KEYS, type TemplateField, type TemplateGrant, type TemplateKey } from './templates';
 import { teamOf } from './team';
+import { boundaryOf } from './dates';
 
 export interface Source {
   kind: 'main' | 'addon' | 'holding' | 'temporary';
@@ -63,6 +64,11 @@ export interface Effective {
   byCompany: Map<string, CompanyEffective>;
   /** The person's team line in a company (always read fresh from team.ts' own cache). */
   team(companyId: string): ReadonlySet<string>;
+  /**
+   * Shadow only (I-5): told the scope each read filter (visible.ts) used, so
+   * the server can log where v2 would show a different set.
+   */
+  onScope?: (key: string, companyId: string, scope: Scope | null) => void;
 }
 
 /**
@@ -137,10 +143,9 @@ export function clearEffectiveCache(): void {
 
 const rank = (scope: Scope) => SCOPES.indexOf(scope);
 /** null = open end; an unparseable date makes the assignment inactive (fails closed). */
-const time = (iso: string | null): number | null | 'bad' => {
-  if (iso === null || iso === undefined || iso === '') return null;
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? 'bad' : t;
+const time = (iso: string | null, kind: 'start' | 'end', timeZone: string): number | null | 'bad' => {
+  const t = boundaryOf(iso, kind, timeZone);
+  return t !== null && Number.isNaN(t) ? 'bad' : t;
 };
 
 class Builder {
@@ -214,16 +219,18 @@ export function effective(store: DataStore, userId: string, options: { now?: Dat
   const builder = new Builder();
   let validUntil = Infinity;
   // Only the window decides; a boundary still ahead ends the cache entry.
-  const inWindow = (startsAt: string | null, endsAt: string | null) => {
-    const start = time(startsAt);
-    const end = time(endsAt);
+  // M-1: a date-only end runs through the end of that day in the company's zone.
+  const inWindow = (startsAt: string | null, endsAt: string | null, companyId: string) => {
+    const zone = store.authz.companyTimeZone(companyId);
+    const start = time(startsAt, 'start', zone);
+    const end = time(endsAt, 'end', zone);
     if (start === 'bad' || end === 'bad') return false;
     for (const t of [start, end]) if (t !== null && t > now) validUntil = Math.min(validUntil, t);
     return (start === null || start <= now) && (end === null || now < end);
   };
 
   for (const a of store.authz.directAssignmentsFor(userId)) {
-    if (!inWindow(a.startsAt, a.endsAt)) continue;
+    if (!inWindow(a.startsAt, a.endsAt, a.companyId)) continue;
     const source: Source = a.endsAt
       ? { kind: 'temporary', roleId: a.roleId, roleName: a.roleName, until: a.endsAt }
       : { kind: a.isMain ? 'main' : 'addon', roleId: a.roleId, roleName: a.roleName };
@@ -232,8 +239,8 @@ export function effective(store: DataStore, userId: string, options: { now?: Dat
   }
 
   for (const h of store.authz.holdingAssignmentsFor(userId)) {
-    if (!inWindow(h.startsAt, h.endsAt)) continue;
     for (const companyId of h.companyIds) {
+      if (!inWindow(h.startsAt, h.endsAt, companyId)) continue;
       const role = store.authz.holdingRoleFor(companyId, h.holdingGroupId, h.roleKey);
       let content: { grants: readonly TemplateGrant[]; fields: readonly TemplateField[] };
       let source: Source;

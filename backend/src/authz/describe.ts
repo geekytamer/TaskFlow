@@ -60,8 +60,26 @@ const scopePhrase: Readonly<Record<Scope, Label>> = {
   group: { en: ' (every company of the group)', ar: ' (كل شركات المجموعة)' },
 };
 
-/** First letter only: the catalogue's own capitals stay ("employees and HR"), and so does a leading acronym ("ID numbers"). */
-const lower = (s: string) => (/^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
+/**
+ * First letter only: the catalogue's own capitals stay ("employees and HR"),
+ * and so do a leading acronym ("ID numbers") and a brand with an inner
+ * capital ("WhatsApp", K-4).
+ */
+const lower = (s: string) => (/^[A-Z]{2}/.test(s) || /^[A-Z][a-z]+[A-Z]/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
+
+/** M-4: an area whose actions have different scopes says each: "Sees own contacts; edits company contacts". */
+const SCOPE_ADJ: Readonly<Record<Scope, Label>> = {
+  own: { en: 'own', ar: 'الخاصة به' },
+  team: { en: 'team', ar: 'الخاصة بفريقه' },
+  company: { en: 'company', ar: 'في كامل الشركة' },
+  group: { en: 'group-wide', ar: 'في كامل المجموعة' },
+};
+const ACTION_VERB: Readonly<Record<string, Label>> = {
+  view: { en: 'sees', ar: 'يطّلع على' },
+  edit: { en: 'edits', ar: 'يعدّل' },
+  delete: { en: 'deletes', ar: 'يحذف' },
+};
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const LEVEL_PHRASE: Readonly<Record<'view' | 'edit' | 'full' | 'custom', (area: Label) => Label>> = {
   view: (a) => ({ en: `Sees ${lower(a.en)}`, ar: `يطّلع على ${a.ar}` }),
@@ -77,7 +95,7 @@ const LEVEL_PHRASE: Readonly<Record<'view' | 'edit' | 'full' | 'custom', (area: 
  * approve-style action ("Approve ... up to 5000"), then one line naming the
  * sensitive information they cannot see. English and Arabic side by side.
  */
-export function summaryLines(company: CompanyEffective | undefined): Label[] {
+export function summaryLines(company: CompanyEffective | undefined, options: { currency?: string } = {}): Label[] {
   const grants = company?.grants ?? new Map();
   const held = new Set(grants.keys());
   const lines: Label[] = [];
@@ -90,12 +108,30 @@ export function summaryLines(company: CompanyEffective | undefined): Label[] {
       .map((a) => grants.get(permissionKey(area.key, a.key))?.scope as Scope | undefined)
       .filter((s): s is Scope => Boolean(s));
     const widest = scopes.length ? scopes.reduce((a, b) => (SCOPES.indexOf(b) > SCOPES.indexOf(a) ? b : a)) : 'company';
-    const line = LEVEL_PHRASE[level](area.label);
-    lines.push({ en: line.en + scopePhrase[widest].en, ar: line.ar + scopePhrase[widest].ar });
+    if (new Set(scopes).size > 1) {
+      // M-4: different scopes in one area are said, not hidden behind the widest.
+      const parts = area.actions
+        .filter((a) => a.scoped && grants.get(permissionKey(area.key, a.key))?.scope)
+        .map((a) => {
+          const scope = grants.get(permissionKey(area.key, a.key))!.scope as Scope;
+          const verb = ACTION_VERB[a.key] ?? { en: lower(a.label.en), ar: a.label.ar };
+          return {
+            en: `${verb.en} ${SCOPE_ADJ[scope].en} ${lower(area.label.en)}`,
+            ar: `${verb.ar} ${area.label.ar} ${SCOPE_ADJ[scope].ar}`,
+          };
+        });
+      lines.push({ en: capital(parts.map((p) => p.en).join('; ')), ar: parts.map((p) => p.ar).join('؛ ') });
+    } else {
+      const line = LEVEL_PHRASE[level](area.label);
+      lines.push({ en: line.en + scopePhrase[widest].en, ar: line.ar + scopePhrase[widest].ar });
+    }
     for (const action of area.actions) {
       const grant = grants.get(permissionKey(area.key, action.key));
       if (!action.limit || grant?.limit === undefined) continue;
-      const amount = action.limit === 'percent' ? `${grant.limit}%` : String(grant.limit);
+      // K-5: amounts formatted, in the company's currency.
+      const amount = action.limit === 'percent'
+        ? `${grant.limit}%`
+        : `${grant.limit.toLocaleString('en-US')}${options.currency ? ` ${options.currency}` : ''}`;
       lines.push({ en: `${action.label.en} up to ${amount}`, ar: `${action.label.ar} حتى ${amount}` });
     }
   }
@@ -119,18 +155,53 @@ export function beyond(
   grants: readonly TemplateGrant[],
   fields: readonly TemplateField[],
 ): string[] {
-  const out: string[] = [];
+  return [...new Set(beyondDetail(actor, grants, fields).map((m) => m.key))];
+}
+
+/** One permission given beyond the actor, with what exceeds: the scope given, or the limit given (null = none). */
+export interface Excess { key: string; scope?: Scope; limit?: number | null }
+
+/** beyond(), saying for each permission the scope or limit that exceeds the actor (M-7). */
+export function beyondDetail(
+  actor: CompanyEffective | undefined,
+  grants: readonly TemplateGrant[],
+  fields: readonly TemplateField[],
+): Excess[] {
+  const out = new Map<string, Excess>();
   for (const g of grants) {
+    if (out.has(g.key)) continue;
     const mine = actor?.grants.get(g.key);
-    if (!mine) { out.push(g.key); continue; }
-    if (g.scope && SCOPES.indexOf(g.scope) > SCOPES.indexOf(mine.scope ?? 'company')) { out.push(g.key); continue; }
-    if (mine.limit !== undefined && (g.limit === undefined || g.limit === null || g.limit > mine.limit)) out.push(g.key);
+    const scope = g.scope && g.scope !== 'company' ? { scope: g.scope } : {};
+    if (!mine) { out.set(g.key, { key: g.key, ...scope }); continue; }
+    if (g.scope && SCOPES.indexOf(g.scope) > SCOPES.indexOf(mine.scope ?? 'company')) { out.set(g.key, { key: g.key, scope: g.scope }); continue; }
+    if (mine.limit !== undefined && (g.limit === undefined || g.limit === null || g.limit > mine.limit)) {
+      out.set(g.key, { key: g.key, limit: g.limit ?? null });
+    }
   }
   for (const f of fields) {
     const mine = actor?.fields.get(f.key);
-    if ((f.view && !mine?.view) || (f.edit && !mine?.edit)) out.push(`field:${f.key}`);
+    if ((f.view && !mine?.view) || (f.edit && !mine?.edit)) out.set(`field:${f.key}`, { key: `field:${f.key}` });
   }
-  return [...new Set(out)];
+  return [...out.values()];
+}
+
+/** "See opportunities (every company of the group)", "Approve purchase orders (no limit)". */
+export function excessLabel(e: Excess): Label {
+  const base = permissionLabel(e.key);
+  if (e.scope) return { en: base.en + scopePhrase[e.scope].en, ar: base.ar + scopePhrase[e.scope].ar };
+  if (e.limit === null) return { en: `${base.en} (no limit)`, ar: `${base.ar} (بلا حد)` };
+  if (e.limit !== undefined) return { en: `${base.en} (up to ${e.limit.toLocaleString('en-US')})`, ar: `${base.ar} (حتى ${e.limit.toLocaleString('en-US')})` };
+  return base;
+}
+
+/** At most three names, then "and N more" (M-7). */
+export function excessList(excess: readonly Excess[]): Label {
+  const shown = excess.slice(0, 3).map(excessLabel);
+  const more = excess.length - shown.length;
+  return {
+    en: shown.map((l) => l.en).join('; ') + (more > 0 ? `; and ${more} more` : ''),
+    ar: shown.map((l) => l.ar).join('؛ ') + (more > 0 ? `؛ و${more} أخرى` : ''),
+  };
 }
 
 /** Someone's access in a company as grants (with scope and limit), for beyond(). */
