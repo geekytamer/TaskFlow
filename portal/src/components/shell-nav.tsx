@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { t, type Lang } from '@/lib/i18n';
-import { isActive, type NavEntry } from '@/lib/nav';
+import { activeHref, isActive, type NavEntry } from '@/lib/nav';
 import { NavIcon } from './nav-icon';
 
 export type Badges = Partial<Record<string, number>>;
@@ -21,16 +21,17 @@ function Count({ n, lang }: { n?: number; lang: Lang }) {
 /** Desktop sidebar links: main pages, then the less frequent ones. */
 export function SidebarNav({ lang, primary, secondary, badges }: { lang: Lang; primary: NavEntry[]; secondary: NavEntry[]; badges: Badges }) {
   const pathname = usePathname();
+  const lit = activeHref([...primary, ...secondary], pathname);
   const item = (e: NavEntry) => {
-    const active = isActive(e.href, pathname);
+    const active = e.href === lit;
     return (
-      <li key={e.href}>
+      <li key={e.href} className={e.sub ? 'relative ms-6 before:absolute before:-top-0.5 before:bottom-1/2 before:start-0 before:w-3 before:rounded-es-[10px] before:border-b before:border-s before:border-white/[0.14]' : undefined}>
         <Link
           href={e.href}
           aria-current={active ? 'page' : undefined}
-          className={`flex min-h-10 items-center gap-3 rounded-control px-3 text-[15px] font-medium transition-colors ${active ? 'bg-accent/10 text-accent' : 'text-ink-soft hover:bg-ink/5 hover:text-ink'}`}
+          className={`flex items-center gap-3 rounded-[14px] transition-colors ${e.sub ? 'ms-4 min-h-11 px-3 text-sm' : 'min-h-12 px-3.5 text-[15px]'} ${active ? 'bg-accent/[0.14] font-bold text-accent' : 'font-medium text-ink-soft hover:bg-ink/5 hover:text-ink'}`}
         >
-          <NavIcon name={e.icon} className="h-5 w-5 shrink-0" />
+          <NavIcon name={e.icon} className={`${e.sub ? 'h-4 w-4' : 'h-5 w-5'} shrink-0`} />
           <span className="truncate">{t(lang, e.label)}</span>
           <Count n={badges[e.href]} lang={lang} />
         </Link>
@@ -61,14 +62,14 @@ export function BottomBar({ lang, bar, more, badges, account }: { lang: Lang; ba
   const tab = 'flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors';
   return (
     <>
-      <nav aria-label={t(lang, 'nav.label')} className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] shadow-float lg:hidden">
+      <nav aria-label={t(lang, 'nav.label')} className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.07] bg-[rgb(14_13_12/0.92)] pb-[env(safe-area-inset-bottom)] shadow-float backdrop-blur-md lg:hidden">
         <ul className="mx-auto flex max-w-xl">
           {bar.map((e) => {
             const active = isActive(e.href, pathname);
             return (
               <li key={e.href} className="flex flex-1">
                 <Link href={e.href} aria-current={active ? 'page' : undefined} className={`${tab} relative ${active ? 'text-accent' : 'text-ink-soft'}`}>
-                  <NavIcon name={e.icon} className="h-6 w-6" />
+                  <span className={`inline-flex h-8 items-center justify-center rounded-full transition-colors ${active ? 'w-14 bg-accent/[0.16]' : 'w-8'}`}><NavIcon name={e.icon} className="h-6 w-6" /></span>
                   <span className={active ? 'font-semibold' : ''}>{t(lang, e.label)}</span>
                   {badges[e.href] ? (
                     <span className="absolute top-1.5 ms-6 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-4 text-accent-ink">
@@ -95,7 +96,7 @@ export function BottomBar({ lang, bar, more, badges, account }: { lang: Lang; ba
         onCancel={() => setOpen(false)}
         onClick={(e) => { if (e.target === sheet.current) sheet.current?.close(); }}
         onToggle={() => setOpen(Boolean(sheet.current?.open))}
-        className="m-0 mt-auto w-full max-w-none rounded-t-[16px] bg-surface p-0 text-ink backdrop:bg-ink/40 open:flex open:flex-col lg:hidden"
+        className="m-0 mt-auto w-full max-w-none rounded-t-[22px] bg-surface p-0 text-ink backdrop:bg-ink/40 open:flex open:flex-col lg:hidden"
       >
         <div className="max-h-[80dvh] overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
           <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-line" aria-hidden="true" />

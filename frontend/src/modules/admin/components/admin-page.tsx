@@ -26,7 +26,8 @@ import {
 } from '@/services/adminService';
 import { getStoredToken } from '@/lib/api-client';
 import { createCompany, deleteCompany, getCompanyById } from '@/services/companyService';
-import { getUserById, deleteUser } from '@/services/userService';
+import { getUserById, deleteUser, sendPasswordReset } from '@/services/userService';
+import { PasswordLinkDialogHost, showPasswordLink } from '@/modules/users/components/password-link-dialog';
 import type { User } from '@/lib/types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { AddUserSheet } from '@/modules/users/components/add-user-sheet';
@@ -57,6 +58,7 @@ import {
   LogIn,
   MessageSquare,
   Pencil,
+  KeyRound,
   PlayCircle,
   RefreshCw,
   Server,
@@ -388,6 +390,7 @@ export function AdminPage() {
 
         {/* ── Users ── */}
         <TabsContent value="users" className="space-y-3 pt-4">
+          <PasswordLinkDialogHost />
           <div className="flex justify-end">
             <Button size="sm" onClick={() => setCreateUserOpen(true)}>
               <PlusCircle className="me-1.5 h-3.5 w-3.5" />
@@ -473,6 +476,32 @@ export function AdminPage() {
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          title={language === 'ar' ? 'إرسال رابط إعادة تعيين كلمة المرور' : 'Send password reset link'}
+                          aria-label={language === 'ar' ? 'إرسال رابط إعادة تعيين كلمة المرور' : 'Send password reset link'}
+                          onClick={async () => {
+                            try {
+                              const result = await sendPasswordReset(u.id);
+                              if (result.sent) {
+                                toast({
+                                  title: language === 'ar' ? 'تم إرسال الرابط' : 'Reset link sent',
+                                  description: language === 'ar'
+                                    ? `وصل ${u.name} بريد فيه رابط لتعيين كلمة مرور جديدة (صالح لمدة ساعة).`
+                                    : `${u.name} got an email with a link to set a new password (valid 1 hour).`,
+                                });
+                              } else if (result.link) {
+                                showPasswordLink({ name: u.name, link: result.link, purpose: 'reset' });
+                              }
+                            } catch (e: any) {
+                              toast({ variant: 'destructive', title: t('common.error'), description: e?.message });
+                            }
+                          }}
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           size="sm"

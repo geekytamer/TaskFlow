@@ -1,6 +1,6 @@
 /**
  * store.authz: roles, assignments, holding groups, record shares and the
- * permission audit, in TaskFlow's own database (migration 137_authz_v2).
+ * permission audit, in TaskFlow's own database (migration 139_authz_v2).
  *
  * Tables (spec §4 "Data"):
  * - permission_groups = roles. v2 adds templateKey, holdingGroupId (non-null =

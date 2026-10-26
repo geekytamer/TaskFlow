@@ -20,8 +20,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { showPasswordLink } from './password-link-dialog';
 import { MoreHorizontal } from 'lucide-react';
-import { getUsers, getUsersByCompany, deleteUser } from '@/services/userService';
+import { getUsers, getUsersByCompany, deleteUser, sendPasswordReset } from '@/services/userService';
 import { getPositions } from '@/services/companyService';
 import type { User } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
@@ -63,6 +64,22 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
   const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
   const { toast } = useToast();
   const router = useRouter();
+
+  const resetPassword = async (person: User) => {
+    try {
+      const result = await sendPasswordReset(person.id);
+      if (result.sent) {
+        toast({
+          title: tr('Reset link sent', 'تم إرسال الرابط'),
+          description: tr(`${person.name} got an email with a link to set a new password (valid 1 hour).`, `وصل ${person.name} بريد فيه رابط لتعيين كلمة مرور جديدة (صالح لمدة ساعة).`),
+        });
+      } else if (result.link) {
+        showPasswordLink({ name: person.name, link: result.link, purpose: 'reset' });
+      }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not send the link', 'تعذّر إرسال الرابط'), description: error?.message });
+    }
+  };
 
   // In the selected company: managing users (profile, position, sign-in) is
   // people.manage. Roles are not changed here any more: they live in
@@ -325,6 +342,11 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
                             {canSeeRolesHere && selectedCompany && (
                               <DropdownMenuItem onClick={() => router.push(`/settings/people/${encodeURIComponent(user.id)}`)}>
                                 {tr('Roles and access', 'الأدوار والوصول')}
+                              </DropdownMenuItem>
+                            )}
+                            {isManageable && (
+                              <DropdownMenuItem onClick={() => void resetPassword(user)}>
+                                {tr('Send password reset link', 'إرسال رابط إعادة تعيين كلمة المرور')}
                               </DropdownMenuItem>
                             )}
                             {isManageable && (

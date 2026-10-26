@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
  * button, panel and heading. Controls are 44px tall: phones come first.
  */
 
-const base = 'inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-control px-4 text-[15px] font-semibold transition-[background-color,border-color,color,transform,box-shadow] duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
+const base = 'inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-control px-5 text-[15px] font-bold transition-[background-color,border-color,color,transform,box-shadow] duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60';
 
 export const button = {
   primary: `${base} bg-accent text-accent-ink hover:bg-accent/90 hover:shadow-[0_8px_20px_-10px_rgb(238_113_3/0.7)]`,
@@ -18,7 +18,7 @@ export const button = {
 /** A text link with a full 44px touch target. */
 export const textLink = 'inline-flex min-h-11 items-center text-sm font-semibold text-accent underline-offset-4 hover:underline';
 
-export const panel = 'rounded-panel border border-line bg-surface';
+export const panel = 'rounded-panel border border-white/[0.07] bg-surface card-surface shadow-[0_24px_48px_-28px_rgb(0_0_0/0.9)]';
 
 export function PageHeader({ title, subtitle, actions, back }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; back?: { href: string; label: string } }) {
   return (
@@ -30,8 +30,8 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
       )}
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 max-w-2xl">
-          <h1 className="text-[28px] font-extrabold leading-tight tracking-tight sm:text-[32px]">{title}</h1>
-          {subtitle && <div className="mt-1.5 text-[15px] leading-relaxed text-ink-soft">{subtitle}</div>}
+          <h1 className="text-[32px] font-extrabold leading-[1.2] tracking-tight sm:text-[40px] lg:text-[44px]">{title}</h1>
+          {subtitle && <div className="mt-3 max-w-xl text-base leading-relaxed text-ink-soft sm:text-[17px]">{subtitle}</div>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
@@ -42,7 +42,7 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
 export function SectionTitle({ id, children, aside }: { id?: string; children: ReactNode; aside?: ReactNode }) {
   return (
     <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <h2 id={id} className="text-base font-semibold">{children}</h2>
+      <h2 id={id} className="text-xl font-extrabold">{children}</h2>
       {aside}
     </div>
   );

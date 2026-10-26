@@ -7,6 +7,7 @@ import { BudgetPlanner } from './budget-planner';
 import { FilterBar, ResultsHeader, ResultsPane, useDirectory } from './directory-filters';
 import { InfluencerPhoto } from './influencer-photo';
 import { PriceTag } from './price-tag';
+import { CompareButton } from './compare-pick';
 import { ChooseButton, ShortlistItem } from './shortlist';
 import { EmptyState, button, list, panel } from './ui';
 import { VerifiedMark } from './verified-mark';
@@ -78,7 +79,10 @@ export const InfluencerCard = memo(function InfluencerCard({ entry, lang }: { en
       <Stats entry={entry} lang={lang} />
       <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <PriceTag price={entry.price} lang={lang} />
-        <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
+        <span className="flex items-center gap-2">
+          <CompareButton id={entry.id} name={entry.name} lang={lang} />
+          <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
+        </span>
       </div>
     </ShortlistItem>
   );
@@ -98,7 +102,10 @@ export const InfluencerRow = memo(function InfluencerRow({ entry, lang }: { entr
       </Link>
       <Stats entry={entry} lang={lang} />
       <div className="md:text-end"><PriceTag price={entry.price} lang={lang} /></div>
-      <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
+      <span className="flex items-center gap-2">
+        <CompareButton id={entry.id} name={entry.name} lang={lang} />
+        <ChooseButton id={entry.id} name={entry.name} lang={lang} unavailable={isUnavailable(entry)} />
+      </span>
     </ShortlistItem>
   );
 });

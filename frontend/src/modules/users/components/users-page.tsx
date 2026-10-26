@@ -5,6 +5,7 @@ import { UserTable } from '@/modules/users/components/user-table';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { AddUserSheet } from './add-user-sheet';
+import { PasswordLinkDialogHost } from './password-link-dialog';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
@@ -47,6 +48,7 @@ export function UsersPage() {
         onUserUpdated={handleUsersChanged}
         refreshToken={refreshToken}
       />
+      <PasswordLinkDialogHost />
     </div>
   );
 }

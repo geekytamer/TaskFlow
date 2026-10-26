@@ -50,7 +50,7 @@ const snapshot = (dbPath) => {
  * Builds a database shaped as production is today (migration 134): four
  * system groups per company with legacy grants, a custom group with old keys,
  * users whose legacy role lives in companyRoles. Then rewinds every v2 trace so
- * reopening the store runs migration 137 against it for real.
+ * reopening the store runs migration 139 against it for real.
  */
 const legacyShapedDb = () => {
   const dbPath = freshPath();
@@ -87,7 +87,7 @@ const legacyShapedDb = () => {
     DELETE FROM permission_groups WHERE key = 'owner';
     UPDATE permission_groups SET templateKey = NULL, needsReview = 0, convertedAt = NULL;
     UPDATE user_group_assignments SET isMain = 0, isActive = 1;
-    DELETE FROM schema_migrations WHERE id = '137_authz_v2';
+    DELETE FROM schema_migrations WHERE id = '139_authz_v2';
   `);
   const versionBefore = db.prepare('SELECT version FROM authz_version').get().version;
   db.close();
@@ -95,7 +95,7 @@ const legacyShapedDb = () => {
   return { dbPath, acme, beta, admin, clerk, boss, custom, legacyBefore, versionBefore };
 };
 
-test('migration 137 creates the v2 tables and columns', () => {
+test('migration 139 creates the v2 tables and columns', () => {
   const dbPath = freshPath();
   new DataStore({ dbPath, seedOnEmpty: false });
   const db = new Database(dbPath, { readonly: true });
@@ -333,4 +333,44 @@ test('the seeded demo database carries main assignments for every membership', (
       assert.equal(mains.length, 1, `${user.email} in ${companyId}`);
     }
   }
+});
+
+test('a database that ran the authz migrations under their old ids (137-139) upgrades cleanly', () => {
+  // Before merging master's 137/138 (password links, hashing), this branch
+  // numbered its migrations 137_authz_v2, 138_team_version and
+  // 139_authz_divergence_observed. A database migrated then has those ids and
+  // none of master's: reopening runs master's two and re-runs ours under the
+  // new ids, which must change nothing.
+  const dbPath = freshPath();
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const acme = store.createCompany({ name: 'Acme', website: '', address: '' });
+  const admin = makeUser(store, [acme.id], 'Admin', 'admin@acme.test');
+  const clerk = makeUser(store, [acme.id], 'Employee', 'clerk@acme.test');
+  const custom = store.authz.saveRole(acme.id, { key: 'billing', name: 'Billing', grants: [{ key: 'invoices.view' }], fields: [] }, admin.id);
+  store.authz.setAssignments(clerk.id, acme.id, { mainRoleId: store.authz.systemRole(acme.id, 'employee').id, addOnRoleIds: [custom.id] }, admin.id);
+  const db = new Database(dbPath);
+  db.exec(`
+    DELETE FROM schema_migrations WHERE id IN ('137_password_links_and_session_age', '138_hash_plain_passwords', '139_authz_v2', '140_team_version', '141_authz_divergence_observed');
+    INSERT INTO schema_migrations (id, appliedAt) VALUES ('137_authz_v2', '2026-10-20T00:00:00.000Z'), ('138_team_version', '2026-10-20T00:00:00.000Z'), ('139_authz_divergence_observed', '2026-10-20T00:00:00.000Z');
+    DROP TABLE password_tokens;
+    ALTER TABLE tokens DROP COLUMN createdAt;
+    ALTER TABLE tokens DROP COLUMN lastUsedAt;
+  `);
+  db.close();
+  const before = snapshot(dbPath);
+
+  const reopened = new DataStore({ dbPath, seedOnEmpty: false });
+  assert.deepEqual(snapshot(dbPath), before, 're-running the authz migrations changes nothing');
+  const check = new Database(dbPath, { readonly: true });
+  const applied = new Set(check.prepare('SELECT id FROM schema_migrations').all().map((r) => r.id));
+  const tokenCols = new Set(check.prepare('PRAGMA table_info(tokens)').all().map((c) => c.name));
+  const tables = new Set(check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name));
+  check.close();
+  for (const id of ['137_password_links_and_session_age', '138_hash_plain_passwords', '139_authz_v2', '140_team_version', '141_authz_divergence_observed']) {
+    assert.ok(applied.has(id), `${id} applied`);
+  }
+  assert.ok(tokenCols.has('createdAt') && tokenCols.has('lastUsedAt'), 'master 137 ran');
+  assert.ok(tables.has('password_tokens'));
+  const roles = reopened.authz.assignments(clerk.id, acme.id).map((a) => a.roleId).sort();
+  assert.deepEqual(roles, [store.authz.systemRole(acme.id, 'employee').id, custom.id].sort());
 });

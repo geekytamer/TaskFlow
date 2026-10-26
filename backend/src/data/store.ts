@@ -31,6 +31,7 @@ import { PushStore } from '../push/push-store';
 import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
+import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
@@ -263,6 +264,9 @@ import {
   normalizeNotificationPrefs,
 } from '../notifications';
 import { hashPassword, isHashed } from '../password';
+
+/** How long a sign-in may sit unused before it ends. */
+const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 
 type CreateUserInput = Omit<User, 'id'> & { id?: string };
 type CreateTaskInput = Omit<Task, 'id' | 'createdAt'> & { createdAt?: Date | string };
@@ -727,6 +731,7 @@ export class DataStore {
   readonly mediaKits: MediaKitStore;
   readonly push: PushStore;
   readonly teamChats: TeamChatStore;
+  readonly passwordTokens: PasswordTokenStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -781,6 +786,7 @@ export class DataStore {
     this.mediaKits = new MediaKitStore(this.db);
     this.push = new PushStore(this.db);
     this.teamChats = new TeamChatStore(this.db);
+    this.passwordTokens = new PasswordTokenStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5239,12 +5245,34 @@ export class DataStore {
         },
       },
       {
+        // Password links (auth/password-tokens.ts), and sign-ins that know when
+        // they were last used so an idle one can end.
+        id: '137_password_links_and_session_age',
+        run: () => {
+          this.db.exec(PASSWORD_TOKEN_SCHEMA);
+          this.db.exec(`ALTER TABLE tokens ADD COLUMN createdAt TEXT;`);
+          this.db.exec(`ALTER TABLE tokens ADD COLUMN lastUsedAt TEXT;`);
+        },
+      },
+      {
+        // Accounts from before hashing kept their password as typed until their
+        // next sign-in; some never signed in again. Scramble them now (same password).
+        id: '138_hash_plain_passwords',
+        run: () => {
+          const rows = this.db.prepare('SELECT id, password FROM users').all() as Array<{ id: string; password: string | null }>;
+          const update = this.db.prepare('UPDATE users SET password = ? WHERE id = ?');
+          for (const row of rows) {
+            if (row.password && !isHashed(row.password)) update.run(hashPassword(row.password), row.id);
+          }
+        },
+      },
+      {
         // Permissions v2 (spec 2026-10-16 §4 "Data"): roles with catalogue
         // grants, scopes and sensitive fields; main + add-on assignments;
         // holding groups; record shares; the permission audit. Legacy
         // group_permissions rows stay untouched for today's readers. The data
         // migration itself is store.authz.migrateAll() (idempotent).
-        id: '137_authz_v2',
+        id: '139_authz_v2',
         run: () => {
           const columns = (table: string) =>
             new Set((this.db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name));
@@ -5366,7 +5394,7 @@ export class DataStore {
         // they are, who manages them, their status or their company (a
         // WHEN guard skips no-op rewrites such as a name edit), so every
         // writer is covered (raw SQL included) and every process sees it.
-        id: '138_team_version',
+        id: '140_team_version',
         run: () => {
           this.db.exec(`
             CREATE TABLE IF NOT EXISTS team_versions (
@@ -5394,7 +5422,7 @@ export class DataStore {
       },
       {
         // Shadow-mode disagreements are pruned by age (store.pruneAuthzDivergences).
-        id: '139_authz_divergence_observed',
+        id: '141_authz_divergence_observed',
         run: () => {
           this.db.exec('CREATE INDEX IF NOT EXISTS idx_authz_divergence_observed ON authz_divergence (observedAt)');
         },
@@ -5844,10 +5872,17 @@ export class DataStore {
   // Token helpers
   issueToken(userId: string) {
     const token = uuid();
+    const now = new Date().toISOString();
     this.db
-      .prepare('INSERT INTO tokens (token, userId) VALUES (?, ?)')
-      .run(token, userId);
+      .prepare('INSERT INTO tokens (token, userId, createdAt, lastUsedAt) VALUES (?, ?, ?, ?)')
+      .run(token, userId, now, now);
     return token;
+  }
+
+  /** Signs a person out everywhere, or everywhere but `keepToken` (the device they are on). */
+  revokeUserTokens(userId: string, keepToken?: string) {
+    if (keepToken) this.db.prepare('DELETE FROM tokens WHERE userId = ? AND token <> ?').run(userId, keepToken);
+    else this.db.prepare('DELETE FROM tokens WHERE userId = ?').run(userId);
   }
 
   // ─── Admin / system-wide ─────────────────────────────────────────────────
@@ -6068,8 +6103,20 @@ export class DataStore {
   }
 
   getUserByToken(token: string): SanitizedUser | undefined {
-    const row = this.db.prepare('SELECT userId FROM tokens WHERE token = ?').get(token) as { userId?: string } | undefined;
+    const row = this.db.prepare('SELECT userId, lastUsedAt FROM tokens WHERE token = ?').get(token) as
+      | { userId?: string; lastUsedAt?: string | null }
+      | undefined;
     if (!row?.userId) return undefined;
+    const now = Date.now();
+    const last = row.lastUsedAt ? Date.parse(row.lastUsedAt) : NaN;
+    // A sign-in unused for 30 days ends; one in use is refreshed at most hourly.
+    if (Number.isFinite(last) && now - last > SESSION_IDLE_MS) {
+      this.revokeToken(token);
+      return undefined;
+    }
+    if (!Number.isFinite(last) || now - last > 60 * 60 * 1000) {
+      this.db.prepare('UPDATE tokens SET lastUsedAt = ? WHERE token = ?').run(new Date(now).toISOString(), token);
+    }
     return this.getUserById(row.userId);
   }
 
