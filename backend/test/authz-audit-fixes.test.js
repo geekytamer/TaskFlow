@@ -338,7 +338,146 @@ test('M-10: /me/permissions/ask names who grants a permission, for members only'
     const employee = user('Employee');
     const res = await as(employee).get(`/me/permissions/ask?companyId=${acme.id}&key=finance.view`);
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body.roles, ['Admin', 'Accountant']);
+    // v2: the roles people hold; legacy: the standard roles that hold the key (N-6).
+    assert.deepEqual(res.body.roles, engine === 'v2' ? ['Admin', 'Accountant'] : ['Admin', 'Manager', 'Accountant']);
     assert.equal((await as(employee).get(`/me/permissions/ask?companyId=${beta.id}&key=finance.view`)).status, 403);
   }
+});
+
+// ── Review round (N-1 … N-7, M-6 leftovers) ──────────────────────────
+
+/** Acme + Beta in one group; Aisha a Manager in both and its group admin; Holder a group-wide Owner (by the super admin). */
+async function groupSetup(engine = 'v2') {
+  const ctx = build(engine);
+  const { acme, beta, user, root, as } = ctx;
+  const aisha = user('Manager', [acme.id, beta.id], 'Aisha');
+  const holder = user('Employee', [acme.id], 'Holder');
+  const emp = user('Employee', [beta.id], 'Emp');
+  const group = (await as(root).post('/holding-groups', { name: `G${seq}` })).body;
+  await as(root).post(`/holding-groups/${group.id}/companies`, { companyId: acme.id });
+  await as(root).post(`/holding-groups/${group.id}/companies`, { companyId: beta.id });
+  await as(root).put(`/holding-groups/${group.id}/admins`, { userIds: [aisha.id] });
+  assert.equal((await as(root).put(`/holding-groups/${group.id}/assignments/${holder.id}`, { roleKey: 'owner' })).status, 200);
+  return { ...ctx, aisha, holder, emp, group };
+}
+
+test('N-1: a group role is checked against the copy each company really holds, not the saved template', async () => {
+  const { store, acme, aisha, emp, group, as } = await groupSetup();
+  // Aisha saves the Owner template down to something within her, and does not push.
+  const saved = await as(aisha).put(`/holding-groups/${group.id}/templates/owner`, { name: 'Owner', grants: [{ key: 'tasks.view', scope: 'own' }], fields: [] });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  // The companies still hold the full Owner copy: giving it would give all of that.
+  const give = await as(aisha).put(`/holding-groups/${group.id}/assignments/${emp.id}`, { roleKey: 'owner' });
+  assert.equal(give.status, 403, JSON.stringify(give.body));
+  assert.equal(give.body.code, 'HIGHER_THAN_YOU');
+  clearEffectiveCache();
+  assert.ok(!effective(store, emp.id).byCompany.get(acme.id)?.grants.has('people.manage_roles'));
+});
+
+test('N-2: a group admin cannot remove or demote someone above them, nor push a template down onto them', async () => {
+  const { aisha, holder, group, as } = await groupSetup();
+  assert.equal((await as(aisha).put(`/holding-groups/${group.id}/assignments/${holder.id}`, { roleKey: null, addOnKeys: [] })).status, 403, 'remove');
+  assert.equal((await as(aisha).put(`/holding-groups/${group.id}/assignments/${holder.id}`, { roleKey: 'employee' })).status, 403, 'demote');
+  assert.equal((await as(aisha).put(`/holding-groups/${group.id}/templates/owner`, { name: 'Owner', grants: [{ key: 'tasks.view', scope: 'own' }], fields: [] })).status, 200);
+  const push = await as(aisha).post(`/holding-groups/${group.id}/templates/owner/push`);
+  assert.equal(push.status, 403, JSON.stringify(push.body));
+  assert.match(push.body.message, /hold more than you/);
+});
+
+test('N-2: group writes are lock-out guarded (the last manage_roles holder via the group)', async () => {
+  const { store, acme, holder, group, root, as } = await groupSetup();
+  // Holder is the only member of Acme who manages roles (through the group Owner).
+  const manages = store.listUsersByCompany(acme.id).filter((u) => !u.isSuperAdmin && effective(store, u.id).byCompany.get(acme.id)?.grants.has('people.manage_roles'));
+  assert.deepEqual(manages.map((u) => u.id), [holder.id]);
+  const res = await as(root).put(`/holding-groups/${group.id}/assignments/${holder.id}`, { roleKey: null, addOnKeys: [] });
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.equal(res.body.code, 'LOCKOUT');
+});
+
+for (const engine of ENGINES) {
+  test(`N-3: the super admin transfers Admin then demotes the old one; deleting a company is unaffected (${engine})`, async () => {
+    const { store, acme, beta, user, root, as } = build(engine);
+    const oldAdmin = user('Admin');
+    const next = user('Employee');
+    assert.equal((await as(root).put(`/users/${next.id}`, { companyRoles: [{ companyId: acme.id, role: 'Admin' }] })).status, 200);
+    assert.equal((await as(root).put(`/users/${oldAdmin.id}`, { companyRoles: [{ companyId: acme.id, role: 'Employee' }] })).status, 200);
+    const betaAdmin = user('Admin', [beta.id]);
+    assert.equal((await as(root).del(`/companies/${beta.id}`)).status, 200);
+    assert.ok(!store.getCompanyById(beta.id));
+    assert.ok(betaAdmin);
+  });
+}
+
+test('N-4: DELETE /users leaves errors to the global handler (a fault stays 500, a rule stays 400)', async () => {
+  const { store, user, root, as } = build('v2');
+  user('Admin');
+  const person = user('Employee');
+  const original = store.deleteUser.bind(store);
+  store.deleteUser = () => { throw new TypeError('boom'); };
+  const fault = await as(root).del(`/users/${person.id}`);
+  assert.equal(fault.status, 500, JSON.stringify(fault.body));
+  store.deleteUser = original;
+  assert.equal((await as(root).del(`/users/${person.id}`)).status, 200);
+});
+
+test('N-5: an approval-chain decision respects the purchasing.approve limit under v2', async () => {
+  const { store, acme, user, as } = build('v2');
+  user('Admin');
+  const manager = user('Manager');
+  store.approvals.setRules(acme.id, 'purchase_order', [{ minAmount: 1000, approverRole: 'Manager' }]);
+  const role = store.authz.saveRole(acme.id, { name: 'Step ≤1000', grants: [{ key: 'purchasing.view' }, { key: 'purchasing.approve_step' }, { key: 'purchasing.approve', limit: 1000 }], fields: [] }, null);
+  store.authz.setAssignments(manager.id, acme.id, { mainRoleId: role.id, addOnRoleIds: [] }, null);
+  const big = store.createPurchaseOrder({ companyId: acme.id, supplierName: 'Dates Co', status: 'Draft', orderDate: new Date(), items: [{ description: 'Dates', quantity: 1, unitCost: 15000 }] });
+  assert.equal(big.approvalStatus, 'pending');
+  const res = await as(manager).post(`/approvals/purchase_order/${big.id}/decision`, { decision: 'approve' });
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body.code, 'OVER_LIMIT');
+});
+
+test('N-6: under legacy, who to ask names the legacy roles', async () => {
+  for (const engine of ['legacy', 'shadow']) {
+    const { store, acme, user, as } = build(engine);
+    user('Admin');
+    user('Accountant');
+    const employee = user('Employee');
+    const odd = store.authz.saveRole(acme.id, { name: 'Ledger reader', grants: [{ key: 'finance.view' }], fields: [] }, null);
+    const holder = user('Employee');
+    const main = store.authz.assignments(holder.id, acme.id).find((a) => a.isMain).roleId;
+    store.authz.setAssignments(holder.id, acme.id, { mainRoleId: main, addOnRoleIds: [odd.id] }, null);
+    const res = await as(employee).get(`/me/permissions/ask?companyId=${acme.id}&key=finance.view`);
+    // The legacy gate's roles, not the custom role someone holds (v2 would name it).
+    assert.deepEqual(res.body.roles, ['Admin', 'Manager', 'Accountant'], engine);
+  }
+});
+
+test('N-7: dropping a membership through companyIds alone is lock-out guarded', async () => {
+  const { store, acme, beta, user, root, as } = build('legacy');
+  const admin = user('Admin', [acme.id, beta.id]);
+  const res = await as(root).put(`/users/${admin.id}`, { companyIds: [beta.id] });
+  // Either refused by the guard, or the membership (kept by companyRoles) stays: Acme keeps its Admin.
+  assert.ok([200, 409].includes(res.status), JSON.stringify(res.body));
+  const after = store.getUserById(admin.id);
+  assert.ok(after.companyIds.includes(acme.id));
+  assert.equal(after.companyRoles.find((r) => r.companyId === acme.id)?.role, 'Admin');
+});
+
+test('M-6: only active holders count, and "an Admin" only when someone is one', async () => {
+  const { store, acme, user, as } = build('v2');
+  const employee = user('Employee');
+  user('Manager');
+  const names = ['Alpha desk', 'Beta desk', 'Gamma desk', 'Delta desk'];
+  for (const name of names) {
+    const role = store.authz.saveRole(acme.id, { name, grants: [{ key: 'sales.view' }], fields: [] }, null);
+    const holder = user('Employee');
+    const main = store.authz.assignments(holder.id, acme.id).find((a) => a.isMain).roleId;
+    store.authz.setAssignments(holder.id, acme.id, { mainRoleId: main, addOnRoleIds: [role.id] }, null);
+  }
+  // An expired temporary holder does not count.
+  const ghost = store.authz.saveRole(acme.id, { name: 'Expired desk', grants: [{ key: 'sales.view' }], fields: [] }, null);
+  store.db.prepare('INSERT INTO user_group_assignments (userId, companyId, groupId, isMain, isActive, startsAt, endsAt) VALUES (?, ?, ?, 0, 1, NULL, ?)').run(employee.id, acme.id, ghost.id, '2020-01-01T00:00:00Z');
+  const res = await as(employee).get(`/companies/${acme.id}/sales-orders`);
+  assert.equal(res.status, 403);
+  assert.ok(!res.body.roles.includes('Expired desk'), JSON.stringify(res.body.roles));
+  assert.ok(!res.body.roles.includes('Admin'), 'nobody is an Admin here');
+  assert.ok(res.body.roles.length <= 3, JSON.stringify(res.body.roles));
 });

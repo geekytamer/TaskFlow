@@ -31,6 +31,7 @@ import type { CompanyEffective } from './evaluate';
 import { SCOPES, SENSITIVE_FIELDS } from './catalogue';
 import { boundaryOf } from './dates';
 import { roleGuards } from './guards';
+import { beyondDetail, fieldsOut, grantsOut } from './describe';
 import { validateRole } from './authz-store';
 
 /** Store validation errors (plain Error) become 400; HttpErrors keep their status. */
@@ -74,6 +75,40 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const eff = viewerOf(req);
     for (const companyId of loadGroup(groupId).companyIds) {
       guards.requireWithin(eff.byCompany.get(companyId), grants, fields, store.getCompanyById(companyId)?.name ?? companyId);
+    }
+  };
+
+  /**
+   * N-1: group roles checked against what they give in EACH company (the
+   * company's existing copy, else the template), against the actor there.
+   */
+  const requireKeysWithin = (req: AuthedRequest, groupId: string, keys: readonly string[]) => {
+    if (req.user!.isSuperAdmin) return;
+    const eff = viewerOf(req);
+    for (const key of keys) {
+      for (const companyId of loadGroup(groupId).companyIds) {
+        const content = store.authz.holdingContentIn(companyId, groupId, key);
+        if (!content) throw new HttpError(400, `Unknown group role: ${key}`);
+        guards.requireWithin(eff.byCompany.get(companyId), content.grants, content.fields, store.getCompanyById(companyId)?.name ?? companyId);
+      }
+    }
+  };
+
+  /** N-2: nobody below someone changes what that person holds (their access in each group company). */
+  const requirePeopleWithin = (req: AuthedRequest, groupId: string, userIds: readonly string[], message: string) => {
+    if (req.user!.isSuperAdmin) return;
+    const eff = viewerOf(req);
+    for (const userId of new Set(userIds)) {
+      const target = guards.effectiveOf(userId);
+      for (const companyId of loadGroup(groupId).companyIds) {
+        const theirs = target.byCompany.get(companyId);
+        const excess = beyondDetail(eff.byCompany.get(companyId), grantsOut(theirs), fieldsOut(theirs));
+        if (excess.length) {
+          throw new HttpError(403, message, {
+            code: 'HIGHER_THAN_YOU', target: true, permission: excess[0].key, missing: excess.map((e) => e.key), excess,
+          });
+        }
+      }
     }
   };
 
@@ -237,10 +272,16 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     if (!req.user!.isSuperAdmin && req.params.userId === req.user!.id) {
       throw new HttpError(403, 'You can\'t change your own group-wide roles. Ask the platform administrator.', { code: 'SELF_ASSIGN' });
     }
-    for (const key of [...new Set([roleKey, ...addOnKeys].filter((k): k is string => Boolean(k)))]) {
-      const template = store.authz.holdingTemplate(req.params.id, key);
-      if (!template) throw new HttpError(400, `Unknown group role: ${key}`);
-      requireWithinGroup(req, req.params.id, template.grants, template.fields);
+    const keys = [...new Set([roleKey, ...addOnKeys].filter((k): k is string => Boolean(k)))];
+    for (const key of keys) {
+      if (!store.authz.holdingTemplate(req.params.id, key)) throw new HttpError(400, `Unknown group role: ${key}`);
+    }
+    requireKeysWithin(req, req.params.id, keys);
+    // N-2 (overrules "removing is always allowed"): changing or removing
+    // someone's group-wide roles needs all they hold to be within yours.
+    const current = store.authz.holdingAssignments(req.params.id).filter((a) => a.userId === req.params.userId);
+    if (current.length) {
+      requirePeopleWithin(req, req.params.id, [req.params.userId], 'They have access you don\'t, so you can\'t change their group-wide roles. Ask the platform administrator.');
     }
     // M-2: an end date already past would leave the person with nothing, silently.
     const endsAt = optionalText(b.endsAt, 'endsAt') ?? null;
@@ -251,12 +292,13 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
         throw new HttpError(400, 'The end date is in the past. Choose today or a later date.', { code: 'PAST_DATE' });
       }
     }
-    run(() => store.authz.setHoldingAssignment(req.params.id, req.params.userId, {
+    // Lock-out guard in every company of the group (super admin included).
+    guards.guarded(loadGroup(req.params.id).companyIds, () => run(() => store.authz.setHoldingAssignment(req.params.id, req.params.userId, {
       mainRoleKey: roleKey,
       addOnRoleKeys: addOnKeys,
       startsAt: optionalText(b.startsAt, 'startsAt') ?? null,
       endsAt: optionalText(b.endsAt, 'endsAt') ?? null,
-    }, req.user!.id));
+    }, req.user!.id)));
     res.json(detail(req.params.id, req));
   }));
 
@@ -287,6 +329,16 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const template = store.authz.holdingTemplate(req.params.id, req.params.key);
     if (!template) throw new HttpError(404, 'Template not found.');
     requireWithinGroup(req, req.params.id, template.grants, template.fields);
-    res.json(run(() => store.authz.pushHoldingTemplate(req.params.id, req.params.key, req.user!.id)));
+    // N-2: a push changes the copies and the company roles started from the
+    // template; it may not change the roles of people who hold more than me.
+    const group = loadGroup(req.params.id);
+    const holders = [
+      ...store.authz.holdingAssignments(group.id).filter((a) => a.roleKey === req.params.key).map((a) => a.userId),
+      ...group.companyIds.flatMap((companyId) => store.authz.listRoles(companyId)
+        .filter((r) => !r.isSystem && !r.holdingGroupId && r.templateKey === req.params.key)
+        .flatMap((r) => store.authz.roleHolders(r.id).map((h) => h.userId))),
+    ].filter((id) => id !== req.user!.id);
+    requirePeopleWithin(req, group.id, holders, 'This push would change the roles of people who hold more than you. Ask the platform administrator to push it.');
+    res.json(guards.guarded(group.companyIds, () => run(() => store.authz.pushHoldingTemplate(req.params.id, req.params.key, req.user!.id))));
   }));
 }

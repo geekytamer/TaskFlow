@@ -767,8 +767,38 @@ export class AuthzStore {
    * The people each role of a company reaches: direct holders, and for a
    * company's copy of a group role the group-wide people assigned its key.
    */
-  rolePeopleCounts(companyId: string): Map<string, number> {
+  /**
+   * People per role in a company. `activeOnly` (who-to-ask, M-6): only
+   * assignments that count now (active, inside their window).
+   */
+  rolePeopleCounts(companyId: string, options: { activeOnly?: boolean } = {}): Map<string, number> {
     const out = new Map<string, number>();
+    if (options.activeOnly) {
+      const now = Date.now();
+      const zone = this.companyTimeZone(companyId);
+      const people = new Map<string, Set<string>>();
+      const add = (roleId: string, userId: string) => {
+        const set = people.get(roleId) ?? new Set<string>();
+        set.add(userId);
+        people.set(roleId, set);
+      };
+      (this.db
+        .prepare(`SELECT uga.groupId, uga.userId, uga.startsAt, uga.endsAt FROM user_group_assignments uga
+                   JOIN permission_groups pg ON pg.id = uga.groupId
+                  WHERE pg.companyId = ? AND uga.viaHoldingGroupId IS NULL AND uga.isActive = 1 AND pg.needsReview = 0`)
+        .all(companyId) as Array<{ groupId: string; userId: string; startsAt: string | null; endsAt: string | null }>)
+        .filter((r) => windowHolds(r.startsAt, r.endsAt, now, zone))
+        .forEach((r) => add(r.groupId, r.userId));
+      (this.db
+        .prepare(`SELECT pg.id, hga.userId, hga.startsAt, hga.endsAt FROM permission_groups pg
+                   JOIN holding_group_assignments hga ON hga.holdingGroupId = pg.holdingGroupId AND 'group:' || hga.roleKey = pg.key
+                  WHERE pg.companyId = ? AND pg.needsReview = 0`)
+        .all(companyId) as Array<{ id: string; userId: string; startsAt: string | null; endsAt: string | null }>)
+        .filter((r) => windowHolds(r.startsAt, r.endsAt, now, zone))
+        .forEach((r) => add(r.id, r.userId));
+      people.forEach((set, id) => out.set(id, set.size));
+      return out;
+    }
     const direct = this.db
       .prepare(`SELECT uga.groupId, COUNT(DISTINCT uga.userId) n FROM user_group_assignments uga
                  JOIN permission_groups pg ON pg.id = uga.groupId
@@ -1316,6 +1346,19 @@ export class AuthzStore {
     if (!row) return null;
     if (row.needsReview) return 'needs_review';
     return { id: row.id, name: row.name };
+  }
+
+  /**
+   * What a group role gives in one company right now (N-1): the company's
+   * copy when it has one (copies keep their content until a push), else the
+   * group's template (a new copy is made from it).
+   */
+  holdingContentIn(companyId: string, holdingGroupId: string, roleKey: string): { grants: TemplateGrant[]; fields: TemplateField[] } | null {
+    const copy = this.db.prepare('SELECT id FROM permission_groups WHERE companyId = ? AND holdingGroupId = ? AND key = ?')
+      .get(companyId, holdingGroupId, copyKey(roleKey)) as { id: string } | undefined;
+    if (copy) return this.roleContent(copy.id);
+    const template = this.holdingTemplate(holdingGroupId, roleKey);
+    return template ? { grants: template.grants, fields: template.fields } : null;
   }
 
   /** A role's v2 grants and sensitive-field switches. */

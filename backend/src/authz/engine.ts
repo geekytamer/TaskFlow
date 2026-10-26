@@ -115,17 +115,18 @@ export function rolesGranting(store: DataStore, companyId: string, key: string):
     ? r.fields.some((f) => f.key === field && f.edit)
     : r.grants.some((g) => g.key === key));
   // M-6: only roles someone holds; a group copy and a role of the same name once.
-  const counts = store.authz.rolePeopleCounts(companyId);
+  const counts = store.authz.rolePeopleCounts(companyId, { activeOnly: true });
   const granting = roles
     .filter((r) => r.isActive && !r.needsReview && grants(r) && (counts.get(r.id) ?? 0) > 0)
     .sort((a, b) => rank(a.key.replace(/^group:/, '')) - rank(b.key.replace(/^group:/, '')) || a.name.localeCompare(b.name));
   const named = granting.filter((r) => r.key !== 'owner' && r.key !== 'group:owner');
   const names = [...new Set((named.length ? named : granting).map((r) => r.name))];
   if (names.length <= MAX_ASK) return names;
-  // At most three names, then "or an Admin".
-  const admin = roles.find((r) => r.isSystem && r.key === 'admin')?.name ?? 'Admin';
-  const shown = names.filter((n) => n !== admin).slice(0, MAX_ASK);
-  return [...shown, admin];
+  // At most three names, then "or an Admin" — only when someone is one and it grants the key.
+  const adminRole = granting.find((r) => r.isSystem && r.key === 'admin');
+  if (!adminRole) return names.slice(0, MAX_ASK);
+  const shown = names.filter((n) => n !== adminRole.name).slice(0, MAX_ASK);
+  return [...shown, adminRole.name];
 }
 
 /** How many role names a refusal lists before "or an Admin" (M-6). */

@@ -3223,9 +3223,15 @@ export function createServer(options: CreateServerOptions = {}) {
       );
       assertRolesWithin(req, roleChanges);
       // C-1: companies whose role for this person changes or goes.
+      // The membership kept is what write() stores in companyIds (the super
+      // admin may send companyIds alone): a company dropped there counts too (N-7).
+      const keptCompanyIds = new Set(req.user!.isSuperAdmin && payload.companyIds
+        ? payload.companyIds
+        : targetAssignments.map((a) => a.companyId));
       const touched = [...new Set([
         ...roleChanges.map((a) => a.companyId).filter((id) => existingRoleByCompany.has(id)),
         ...existingAssignments.filter((a) => !targetAssignments.some((t) => t.companyId === a.companyId)).map((a) => a.companyId),
+        ...[...new Set([...existing.companyIds, ...existingAssignments.map((a) => a.companyId)])].filter((id) => !keptCompanyIds.has(id)),
       ])];
       requireTargetWithin(req, existing.id, touched);
       const write = () => store.updateUser(req.params.id, {
@@ -3282,12 +3288,8 @@ export function createServer(options: CreateServerOptions = {}) {
       assertUserManagementPermission(req, targetAssignments);
       const companyIds = targetAssignments.map((a) => a.companyId);
       requireTargetWithin(req, existing.id, companyIds);
-      try {
-        withActor(req, () => userGuards.guarded(companyIds, () => store.deleteUser(req.params.id)));
-      } catch (error) {
-        if (error instanceof HttpError) throw error;
-        throw new HttpError(400, error instanceof Error ? error.message : 'Could not delete the user.');
-      }
+      // Errors go to the global handler: a data rule is a 400 there, a fault a 500 (N-4).
+      withActor(req, () => userGuards.guarded(companyIds, () => store.deleteUser(req.params.id)));
       res.json({ success: true });
     }),
   );
@@ -6406,7 +6408,11 @@ export function createServer(options: CreateServerOptions = {}) {
   const requireApprovalLimit = (req: AuthedRequest, companyId: string, amount: number, what: { en: string }) => {
     if (engine === 'legacy' || req.user!.isSuperAdmin) return;
     const key = 'purchasing.approve';
-    const allowed = decideAccess(req, companyId, () => true, (eff) => can(eff, key, { companyId, amount }).allowed, () => key, 'limit @ ');
+    // Only a limit the person holds is checked here; holding the key at all is the route's (or chain step's) question.
+    const allowed = decideAccess(req, companyId, () => true, (eff) => {
+      const grant = eff.byCompany.get(companyId)?.grants.get(key);
+      return !grant || grant.limit === undefined || can(eff, key, { companyId, amount }).allowed;
+    }, () => key, 'limit @ ');
     if (allowed || engine !== 'v2') return;
     const limit = effectiveFor(req).byCompany.get(companyId)?.grants.get(key)?.limit ?? 0;
     const currency = store.getCompanyFinanceSettings(companyId)?.currencyCode || 'USD';
@@ -6879,6 +6885,12 @@ export function createServer(options: CreateServerOptions = {}) {
   /** One person's decision on a document's chain; when the chain finishes, the document follows. */
   const decideDocument = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => {
     const user = req.user!;
+    // N-5: an approval-chain step on a purchase order also respects the
+    // purchasing.approve limit (POs are in the company currency).
+    if (docType === 'purchase_order' && decision === 'approve') {
+      const order = store.getPurchaseOrderById(docId);
+      if (order) requireApprovalLimit(req, companyId, Number(order.totalAmount) || 0, { en: 'purchase orders' });
+    }
     let outcome;
     try {
       outcome = decide(store.approvals, docType, docId, { id: user.id, name: user.name || user.email, companyRole: getEffectiveRole(user, companyId) ?? undefined }, decision, note);

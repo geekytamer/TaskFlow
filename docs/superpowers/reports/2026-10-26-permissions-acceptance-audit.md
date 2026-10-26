@@ -291,3 +291,18 @@ Verification: backend suite 946/946 under `legacy`, `shadow` and `v2` (equivalen
 | K-6 | Edit / Push links named "Edit <template>" / "Push update of <template>". | f1d3026 | Code. |
 
 Notes: under legacy and shadow a group admin's "own access" is their legacy role (group roles count only under v2), so a group admin with no role in a group company can give nothing there until v2. The PUT `/users` LOCKOUT under legacy carries `lastAdmin: true` so the app says "no Admin" instead of "Manage roles".
+
+### Review round (N-1 … N-7, M-6 leftovers)
+
+Commit: see `fix(authz): group assignment checks real copies, bounded removals, review items` (the commit after 5ba55f1). Tests appended to `backend/test/authz-audit-fixes.test.js` (now 31). Red first: N-1, both N-2 tests, N-4, N-5, N-6 and M-6 failed before the fix; N-3 and N-7 passed already and stay as regression guards. Backend suite 957/957 under legacy, shadow and v2 (one shadow run hit the known timing flake in `portal-alerts.test.js`, unrelated; the file and a full shadow rerun pass).
+
+| Item | Fix | Evidence |
+|---|---|---|
+| N-1 | A group role is checked against what it gives in each company: the company's existing copy (copies keep their content until a push), else the template (`authz.holdingContentIn`). | Test: template saved down, not pushed, assign Owner → 403 HIGHER_THAN_YOU; the reviewer's probe: "assign after save 403", employee gets nothing. |
+| N-2 | Ruling O amended: changing or removing someone's group-wide roles needs their access within the group admin's in every group company (403, "They have access you don't…"); a push may not change the roles of people above the group admin (403 "This push would change the roles of people who hold more than you…"); group assignment writes and pushes run the lock-out guard per company (super admin included). Spec §4 updated. | Tests: Manager-level group admin removing / demoting a super-admin-assigned Owner → 403; pushing a saved-down Owner → 403; super admin removing the last `people.manage_roles` holder (via the group) → 409 LOCKOUT. |
+| N-3 | Tests added: super admin promotes a new Admin then demotes the old one (200, every engine); DELETE `/companies/:id` unaffected (200). Spec §6 item 12: the super admin removes a company's last Admin only by deleting the company. | Tests. |
+| N-4 | DELETE `/users` no longer maps every error to 400; the global handler decides (data rule 400, fault 500); the guard's HttpErrors stay. | Test: a TypeError → 500. |
+| N-5 | The `purchasing.approve` limit is checked in `decideDocument`, so the approval-chain decision route respects it too (only a limit the person holds is checked). POs have no own currency (company currency): limitation written in spec §5. | Test: chain step with approve ≤1000 on a 15,000 PO → 403 OVER_LIMIT; approval-chain suite green. |
+| N-6 | `GET /me/permissions/ask` under legacy/shadow names the standard roles holding the key (the legacy gate), not v2 holders. | Test: legacy/shadow → Admin, Manager, Accountant (custom "Ledger reader" not named). |
+| N-7 | PUT `/users`: companies dropped through `companyIds` are in `touched`. In practice `companyRoles` keeps the membership, so nothing is lost; the guard is defensive. | Test: Acme keeps its Admin. |
+| M-6 | Who-to-ask counts only active holders (isActive, inside the window, not needing review; `rolePeopleCounts(…, { activeOnly })`) and appends the Admin role only when someone holds it and it grants the key. | Test: expired holder not named, no "Admin" when nobody is one. |

@@ -159,7 +159,17 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
       throw new HttpError(403, 'You do not have access to this company.', { code: 'NO_COMPANY_ACCESS' });
     }
     requireCompany(companyId);
-    res.json({ key, roles: isPermissionKey(key) ? rolesGranting(store, companyId, key) : [] });
+    if (!isPermissionKey(key)) {
+      res.json({ key, roles: [] });
+      return;
+    }
+    // N-6: while legacy decides (legacy, shadow) the standard roles that hold
+    // the key decide, so those are named (Owner stands for Admin there).
+    const roles = engine === 'v2'
+      ? rolesGranting(store, companyId, key)
+      : TEMPLATE_KEYS.filter((k) => k !== 'owner' && TEMPLATES[k].grants.some((g) => g.key === key))
+        .map((k) => store.authz.systemRole(companyId, k)?.name ?? TEMPLATES[k].label.en);
+    res.json({ key, roles });
   }));
 
   app.get('/permissions/catalogue', authMiddleware, handler((_req, res) => {
