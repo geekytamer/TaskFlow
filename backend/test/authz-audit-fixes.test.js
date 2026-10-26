@@ -481,3 +481,29 @@ test('M-6: only active holders count, and "an Admin" only when someone is one', 
   assert.ok(!res.body.roles.includes('Admin'), 'nobody is an Admin here');
   assert.ok(res.body.roles.length <= 3, JSON.stringify(res.body.roles));
 });
+
+// ── Re-review follow-ups ─────────────────────────────────────────────
+
+test('follow-up 1: a lower group admin cannot remove a scheduled (not yet started) group role', async () => {
+  const { aisha, emp, group, root, as } = await groupSetup();
+  const inThreeDays = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  assert.equal((await as(root).put(`/holding-groups/${group.id}/assignments/${emp.id}`, { roleKey: 'owner', startsAt: inThreeDays })).status, 200);
+  const res = await as(aisha).put(`/holding-groups/${group.id}/assignments/${emp.id}`, { roleKey: null, addOnKeys: [] });
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+});
+
+test('follow-up 2: the lock-out guard counts people who reach the company through the group (v2)', async () => {
+  const { store, acme, beta, user, root, as } = build('v2');
+  user('Admin', [acme.id]); // Acme keeps a member Admin
+  user('Employee', [beta.id]); // Beta's members manage nothing
+  const remote = user('Employee', [acme.id], 'Remote');
+  const group = (await as(root).post('/holding-groups', { name: 'Reach' })).body;
+  await as(root).post(`/holding-groups/${group.id}/companies`, { companyId: acme.id });
+  await as(root).post(`/holding-groups/${group.id}/companies`, { companyId: beta.id });
+  assert.equal((await as(root).put(`/holding-groups/${group.id}/assignments/${remote.id}`, { roleKey: 'owner' })).status, 200);
+  clearEffectiveCache();
+  assert.ok(effective(store, remote.id).byCompany.get(beta.id)?.grants.has('people.manage_roles'), 'Remote manages Beta through the group');
+  const res = await as(root).put(`/holding-groups/${group.id}/assignments/${remote.id}`, { roleKey: null, addOnKeys: [] });
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.equal(res.body.code, 'LOCKOUT');
+});

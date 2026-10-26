@@ -46,11 +46,14 @@ export function roleGuards(store: DataStore, engine: PermissionsEngine) {
   };
 
   /** Who keeps the company manageable: people.manage_roles holders (v2), else its Admins (legacy decides). */
-  const holdersOf = (companyId: string) => store.listUsersByCompany(companyId).filter((u) => {
-    if (u.isSuperAdmin) return false;
-    if (engine === 'v2') return Boolean(effectiveOf(u.id).byCompany.get(companyId)?.grants.has('people.manage_roles'));
-    return getEffectiveRole(u, companyId) === 'Admin';
-  });
+  const holdersOf = (companyId: string) => {
+    const members = store.listUsersByCompany(companyId);
+    if (engine !== 'v2') return members.filter((u) => !u.isSuperAdmin && getEffectiveRole(u, companyId) === 'Admin');
+    // v2: people reaching the company through a group assignment count too.
+    const ids = [...new Set([...members.map((u) => u.id), ...store.authz.holdingUserIds(companyId)])];
+    return ids.filter((id) => !store.getUserById(id)?.isSuperAdmin
+      && Boolean(effectiveOf(id).byCompany.get(companyId)?.grants.has('people.manage_roles')));
+  };
 
   /**
    * Runs a change in one transaction and refuses it (409 LOCKOUT, rolled

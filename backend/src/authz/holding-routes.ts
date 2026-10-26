@@ -282,6 +282,8 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const current = store.authz.holdingAssignments(req.params.id).filter((a) => a.userId === req.params.userId);
     if (current.length) {
       requirePeopleWithin(req, req.params.id, [req.params.userId], 'They have access you don\'t, so you can\'t change their group-wide roles. Ask the platform administrator.');
+      // Also what their group assignments give, scheduled ones included (not counted in their access yet).
+      requireKeysWithin(req, req.params.id, [...new Set(current.map((a) => a.roleKey))]);
     }
     // M-2: an end date already past would leave the person with nothing, silently.
     const endsAt = optionalText(b.endsAt, 'endsAt') ?? null;
