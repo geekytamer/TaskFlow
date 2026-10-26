@@ -40,6 +40,7 @@ import {
   errorText,
   roleLabel,
   shortDate,
+  useGroupBase,
   useMyHoldingGroups,
   useTr,
   type Tr,
@@ -66,11 +67,14 @@ export function groupPeople(detail: HoldingGroupDetail): GroupPerson[] {
 }
 
 export function GroupPage() {
-  const { tr } = useTr();
+  const { tr, lang } = useTr();
   const { groups, loading } = useMyHoldingGroups();
   const [groupId, setGroupId] = React.useState<string | null>(null);
   React.useEffect(() => {
-    if (!groupId && groups.length) setGroupId(groups[0].id);
+    if (groupId || !groups.length) return;
+    // ?group=<id> (the platform admin's "Open group page") picks that group.
+    const wanted = new URLSearchParams(window.location.search).get('group');
+    setGroupId(groups.find((g) => g.id === wanted)?.id ?? groups[0].id);
   }, [groups, groupId]);
 
   return (
@@ -85,7 +89,7 @@ export function GroupPage() {
           <Select value={groupId ?? ''} onValueChange={setGroupId}>
             <SelectTrigger className="w-56" aria-label={tr('Group', 'المجموعة')}><SelectValue /></SelectTrigger>
             <SelectContent>
-              {groups.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+              {groups.map((g) => <SelectItem key={g.id} value={g.id}>{roleLabel(g, lang)}</SelectItem>)}
             </SelectContent>
           </Select>
         ) : undefined}
@@ -245,6 +249,7 @@ function TemplateRow({ groupId, template, companyName }: { groupId: string; temp
   const { tr, lang } = useTr();
   const { toast } = useToast();
   const confirm = useConfirm();
+  const base = useGroupBase();
   const [pushing, setPushing] = React.useState(false);
   const [result, setResult] = React.useState<PushResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -283,7 +288,7 @@ function TemplateRow({ groupId, template, companyName }: { groupId: string; temp
         </div>
         <div className="flex shrink-0 gap-1">
           <Button asChild size="sm" variant="ghost" className="gap-1.5">
-            <Link href={`/settings/group/${encodeURIComponent(groupId)}/templates/${encodeURIComponent(template.key)}`}>
+            <Link href={`${base}/${encodeURIComponent(groupId)}/templates/${encodeURIComponent(template.key)}`}>
               <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
               {tr('Edit', 'تعديل')}
             </Link>

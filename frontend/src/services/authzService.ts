@@ -205,3 +205,15 @@ export const saveHoldingTemplate = (id: string, key: string, input: RoleInput) =
   apiFetch<HoldingTemplate>(`${holding(id)}/templates/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(input), ...INLINE });
 export const pushHoldingTemplate = (id: string, key: string) =>
   apiFetch<PushResult>(`${holding(id)}/templates/${encodeURIComponent(key)}/push`, { method: 'POST', ...INLINE });
+
+// Platform administrator only (POST/PUT /holding-groups, companies).
+export const createHoldingGroup = (body: { name: string; nameAr?: string | null }) =>
+  apiFetch<HoldingGroup>('/holding-groups', { method: 'POST', body: JSON.stringify(body), ...INLINE });
+export const renameHoldingGroup = (id: string, body: { name: string; nameAr?: string | null }) =>
+  apiFetch<HoldingGroup>(holding(id), { method: 'PUT', body: JSON.stringify(body), ...INLINE });
+export const attachHoldingCompany = (id: string, companyId: string) =>
+  apiFetch<HoldingGroupDetail>(`${holding(id)}/companies`, { method: 'POST', body: JSON.stringify({ companyId }), ...INLINE });
+export const detachHoldingCompany = (id: string, companyId: string) =>
+  apiFetch<HoldingGroupDetail>(`${holding(id)}/companies/${encodeURIComponent(companyId)}`, { method: 'DELETE', ...INLINE });
+export const setHoldingAdmins = (id: string, userIds: string[]) =>
+  apiFetch<HoldingGroupDetail>(`${holding(id)}/admins`, { method: 'PUT', body: JSON.stringify({ userIds }), ...INLINE });

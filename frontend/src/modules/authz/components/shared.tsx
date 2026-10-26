@@ -160,6 +160,11 @@ export function useCatalogue() {
 
 const groupsCache = new Map<string, Promise<HoldingGroup[]>>();
 
+/** Drop the cached group list (after the platform admin creates or changes a group). */
+export function forgetHoldingGroups() {
+  groupsCache.clear();
+}
+
 /** The groups I administer (all of them for the super admin). Empty for everyone else. */
 export function useMyHoldingGroups() {
   const { currentUser } = useCompany();
@@ -177,6 +182,15 @@ export function useMyHoldingGroups() {
 
 // ── Layout ───────────────────────────────────────────────────────────
 
+/**
+ * Where the Group screens live: '/settings/group' in a company, '/admin/groups'
+ * in the platform admin panel (the super admin never enters the company app).
+ * Links between the Group page and its templates follow it.
+ */
+const GroupBase = React.createContext('/settings/group');
+export const GroupBaseProvider = GroupBase.Provider;
+export const useGroupBase = () => React.useContext(GroupBase);
+
 const TABS = [
   { href: '/settings/people', en: 'People', ar: 'الأشخاص' },
   { href: '/settings/roles', en: 'Roles', ar: 'الأدوار' },
@@ -189,7 +203,9 @@ export function AccessHeader({ title, description, actions }: { title: string; d
   const pathname = usePathname() ?? '';
   const { canAdmin } = usePermissions();
   const { groups } = useMyHoldingGroups();
-  const tabs = TABS.filter((t) => (t.href === '/settings/group' ? groups.length > 0 : canAdmin('people.view_roles')));
+  const inCompany = useGroupBase() === '/settings/group';
+  // The section tabs lead into the company app: none in the platform admin panel.
+  const tabs = inCompany ? TABS.filter((t) => (t.href === '/settings/group' ? groups.length > 0 : canAdmin('people.view_roles'))) : [];
   return (
     <header className="space-y-4 pb-5">
       <div className="flex flex-wrap items-start justify-between gap-3">

@@ -44,6 +44,7 @@ import { PlusCircle } from 'lucide-react';
 import { EditCompanyDialog } from '@/modules/companies/components/edit-company-dialog';
 import { CompanyModulesField } from '@/modules/companies/components/company-modules-field';
 import { CompanyMark } from '@/modules/companies/components/company-mark';
+import { HoldingGroupsTab } from './admin-groups';
 import type { Company } from '@/modules/companies/types';
 import {
   Activity,
@@ -117,6 +118,11 @@ export function AdminPage() {
   const [health, setHealth] = React.useState<AdminHealth | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [tab, setTab] = React.useState('overview');
+  // ?tab=groups: back from the Group page hosted at /admin/groups.
+  React.useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (wanted === 'groups') setTab('groups');
+  }, []);
   const [createUserOpen, setCreateUserOpen] = React.useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = React.useState(false);
   const [companyForm, setCompanyForm] = React.useState({ name: '', website: '', address: '', disabledModules: [] as string[] });
@@ -192,10 +198,13 @@ export function AdminPage() {
         </Button>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+      {/* Radix Tabs default to dir="ltr", which turned every tab left-to-right in Arabic. */}
+      <Tabs value={tab} onValueChange={setTab} dir={language === 'ar' ? 'rtl' : 'ltr'}>
+        {/* Seven tabs are wider than a phone: the strip scrolls, not the page. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">{t('admin.tabOverview')}</TabsTrigger>
           <TabsTrigger value="companies">{t('admin.tabCompanies')}</TabsTrigger>
+          <TabsTrigger value="groups">{tr('Groups', 'المجموعات')}</TabsTrigger>
           <TabsTrigger value="users">{t('admin.tabUsers')}</TabsTrigger>
           <TabsTrigger value="activity">{t('admin.tabActivity')}</TabsTrigger>
           <TabsTrigger value="health">{t('admin.tabHealth')}</TabsTrigger>
@@ -386,6 +395,11 @@ export function AdminPage() {
               </TableBody>
             </Table>
           </div>
+        </TabsContent>
+
+        {/* ── Holding groups ── */}
+        <TabsContent value="groups" className="pt-4">
+          <HoldingGroupsTab companies={adminCompanies} users={users} loading={loading} />
         </TabsContent>
 
         {/* ── Users ── */}

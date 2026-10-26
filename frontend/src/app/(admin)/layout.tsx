@@ -50,9 +50,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <StagingBanner />
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-card/95 px-4 backdrop-blur sm:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex items-baseline gap-2">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b bg-card/95 px-4 backdrop-blur sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-baseline gap-2">
             <BrandMark logoClassName="h-6 w-6" nameClassName="font-headline text-lg font-bold tracking-tight text-primary" />
             <span className="hidden items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-900 dark:text-amber-300 sm:inline-flex">
               <ShieldCheck className="h-3 w-3" />
@@ -60,7 +60,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <ThemeSwitcher />
             <LanguageSwitcher />
           <div className="hidden items-center gap-2 sm:flex">

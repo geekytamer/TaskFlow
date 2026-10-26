@@ -14,12 +14,13 @@ import { getHoldingTemplate, saveHoldingTemplate, type HoldingTemplate } from '@
 import { draftFrom, editorReducer, initialEditor, isDirty, toInput } from '../lib/role-draft';
 import { RoleForm } from './role-form';
 import { SaveBar } from './role-editor';
-import { AccessHeader, ErrorState, ListSkeleton, errorText, roleLabel, useCatalogue, useLeaveGuard, useTr } from './shared';
+import { AccessHeader, ErrorState, ListSkeleton, errorText, roleLabel, useCatalogue, useGroupBase, useLeaveGuard, useTr } from './shared';
 
 export function TemplatePage({ groupId, templateKey }: { groupId: string; templateKey: string }) {
   const { tr, lang } = useTr();
   const { isRtl } = useI18n();
   const { toast } = useToast();
+  const base = useGroupBase();
   const { catalogue, error: catalogueError, retry } = useCatalogue();
   const [template, setTemplate] = React.useState<HoldingTemplate | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -71,7 +72,7 @@ export function TemplatePage({ groupId, templateKey }: { groupId: string; templa
   const Back = isRtl ? ArrowRight : ArrowLeft;
   return (
     <div className="mx-auto w-full max-w-4xl">
-      <Link href="/settings/group" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Link href={`${base}?group=${encodeURIComponent(groupId)}`} className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Back className="h-4 w-4" aria-hidden="true" />
         {tr('Group', 'المجموعة')}
       </Link>
