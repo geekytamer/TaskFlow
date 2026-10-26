@@ -252,3 +252,42 @@ See C-1 … K-6 above. Also observed: `GET /opportunities/:id` and `GET /campaig
 - Converted roles from a real `authz:repair` run. `needsReview` was simulated with SQL.
 - Production-mode build (`next build`): the frontend ran in `next dev`. The 3-second refetch loop is attributed to the browser pane's visibility events and was not confirmed in a real browser.
 - Impact preview, View as, temporary access UI and maker-checker (1b by spec).
+
+---
+
+## Fixes (2026-10-26)
+
+Commits: **3daf42c** (server) and **f1d3026** (staff app). New tests: `backend/test/authz-audit-fixes.test.js` (20 tests), plus additions to `frontend/src/lib/forbidden-message.test.ts`, `modules/authz/lib/role-draft.test.ts`, `modules/authz/lib/beyond.test.ts` and the new `modules/layout/lib/nav-permissions.test.ts`. Red first: on `436fc27` the new backend tests failed 18/19 (the 19th pins "legacy unchanged") and the new frontend tests failed 5/32.
+
+Verification: backend suite 946/946 under `legacy`, `shadow` and `v2` (equivalence test green); frontend `npm test` 98/98, `tsc` clean, eslint on changed files 0 errors (1 old warning), production build OK; portal `npm test` 93/93. Re-run of the repros on a throwaway `v2` stack (copy of the audit DB, API :4178, web :9178; only those PIDs stopped).
+
+| Finding | Fix | Commit | Re-verified (evidence) |
+|---|---|---|---|
+| C-1 | PUT/DELETE `/users`: lock-out guard everywhere (v2: `people.manage_roles` holders; legacy/shadow: last Admin, spec §6 item 12) and, under v2, the actor must hold the person's current access (`authz/guards.ts`, shared with the People API). Spec §10 item ticked. | 3daf42c | **PASS.** GIG: Manager demotes the only Admin → `403 HIGHER_THAN_YOU`; Manager deletes → `403`; the Admin demotes themself → `409 LOCKOUT`; Admin unchanged. Tests for every engine. |
+| C-2 | Only the super admin sets group admins; a group admin gives roles, saves and pushes templates only within their access in every group company (`403 HIGHER_THAN_YOU … in GIG`), never their own (`403 SELF_ASSIGN`). Group page and template editor disable what is beyond (reasons shown); Admin → Groups says only the platform admin appoints. | 3daf42c, f1d3026 | **PASS.** Aisha appoints empB.gig → `403 Super-admin access required`; gives empB.gig Owner → `403 … in GIG`; gives herself Owner → `403 SELF_ASSIGN`; empB.gig self-grant → `403`; Owner template edit → `403`. UI: every role option "— beyond your own access" (disabled), push buttons disabled with "It gives more than you hold in some company of the group." |
+| I-1 | Refusal hold drops a following generic ("An error occurred" / "حدث خطأ") or echo toast; `TOAST_LIMIT` 3. Influencer Edit shown only with `contacts.manage`. | f1d3026 | **PASS.** Employee A → Influencers: no Edit button. Unit test of the hold (en/ar generic, raw server message, news still shown). Refusal toast in the app: "You need the permission … — ask a Manager, Accountant, Peak Bookkeeper or an Admin." |
+| I-2 | `purchasing.approve` limit enforced on PO and requisition approve under v2 (`403 OVER_LIMIT`, limit and amount in company currency); shadow logs `limit @`; legacy unchanged. | 3daf42c | **PASS.** Accountant (≤1000): PO 800 → `200 approved`; PO 5,000 → `403` "You can approve purchase orders up to 1,000 USD; this one is 5,000 USD." |
+| I-3 | `GET /holding-groups/:id/people` (group admins of that group); the dialog uses it and leaves out the admin. | 3daf42c, f1d3026 | **PASS.** Aisha (Peak only): 15 people, 8 from GIG incl. empB.gig; non-admin `403`. UI picker lists GIG and Peak people, not Aisha. |
+| I-4 | Campaign create and campaign assignment add the role without promoting visibility (legacy too; spec §6 item 13). | 3daf42c | **PASS.** PROBE-PRIV-2: Private → campaign 201 → still Private (role Client), colleague empB does not see it. |
+| I-5 | Shadow: each `visible()` scope compared with v2's, logged as kind `scope` with both scopes, deduped hourly (migration 142). `authz:compare` counts by kind; spec §10 and DEPLOY §2b updated. | 3daf42c | **PASS.** Mazin (Team manager) lists twice each → 5 rows, e.g. `contacts.view scope GET /companies/:companyId/contacts legacy=company v2=team`; `authz:compare`: "By kind: 5 scope, 3 access". |
+| M-1 | Date-only end runs through the end of that day in the company zone (conversation settings, default Asia/Muscat); start at that day's start. | 3daf42c | Test: on until-today, 23:59 Muscat in, midnight out. |
+| M-2 | Past end date → 400 in the API; `min` on the date input; client check. | 3daf42c, f1d3026 | Test (`2020-01-01` → 400). |
+| M-3 | Group names unique ignoring case (409). | 3daf42c | Test (create and rename). |
+| M-4 | Mixed scopes in an area say each ("Sees own contacts; edits company contacts"), en/ar. | 3daf42c | Test. |
+| M-5 | Scope picker shows "Mixed"; choosing sets all, then "Every action here now uses this scope." | f1d3026 | Test (`areaScopeMixed`). |
+| M-6 | Who to ask: roles someone holds, once by name, at most three then "or an Admin". | 3daf42c, f1d3026 | Test: "Ask a Manager, Accountant, Sales desk or an Admin."; live: "Ask a Manager, Accountant, Peak Bookkeeper or an Admin." |
+| M-7 | HIGHER_THAN_YOU names only what exceeds, with scope or limit, at most three then "and N more". | 3daf42c, f1d3026 | Test ("See opportunities (every company of the group)"). |
+| M-8 | "Takes effect at switch-over" also on add-ons and group roles (People list and person page) while legacy decides. | f1d3026 | Code + build. |
+| M-9 | Store audit rows fall back to the request's actor; POST/PUT/DELETE `/users` run under it; group copies carry the actor; deletion writes per-company `assignments`, group and `user` rows. | 3daf42c | Tests (POST/DELETE actor, group copy actor). |
+| M-10 | Page denial asks `GET /me/permissions/ask` and shows the refusal sentence. | 3daf42c, f1d3026 | **PASS** (live): `/finance` as Employee → "Access Denied — You need the permission "See accounts, journals, bank, budgets, assets and reports" — ask a Manager, Accountant, Peak Bookkeeper or an Admin." (ar likewise). |
+| M-11 | Not genuinely open to all: every standard role holds `projects.view`, and without it no project is visible, so `/projects` now needs `projects.view` (no change for standard roles). `/tasks` stays open (own tasks always visible). | f1d3026 | Test. |
+| M-12 | Left as is (pre-existing: super admin outside a company gets NO_COMPANY_ACCESS until added). | — | — |
+| M-13 | Deferred to 1b; added to spec §4 known limits. | 3daf42c | — |
+| K-1 | A later success clears the inline add/remove error. | f1d3026 | Code. |
+| K-2 | Group role chip and lists use the Arabic template name. | 3daf42c, f1d3026 | Code (server sends `nameAr`). |
+| K-3 | Toast exit and swipe go toward the toast's own edge in RTL. | f1d3026 | Open toast inside the screen in RTL at 671 px (x 16–655) and 375 px (16–359). Exit animation could not be watched: the browser pane freezes CSS animations. |
+| K-4 | "WhatsApp" keeps its capital. | 3daf42c | Test. |
+| K-5 | Limits formatted with the company currency ("up to 1,000 USD"). | 3daf42c | Test. |
+| K-6 | Edit / Push links named "Edit <template>" / "Push update of <template>". | f1d3026 | Code. |
+
+Notes: under legacy and shadow a group admin's "own access" is their legacy role (group roles count only under v2), so a group admin with no role in a group company can give nothing there until v2. The PUT `/users` LOCKOUT under legacy carries `lastAdmin: true` so the app says "no Admin" instead of "Manage roles".
