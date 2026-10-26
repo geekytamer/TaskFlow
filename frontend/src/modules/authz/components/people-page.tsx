@@ -196,7 +196,7 @@ function PersonRoles({ person, roles, legacy, tr, lang }: { person: Person; role
     const main = person.groupRoles.find((g) => g.isMain) ?? person.groupRoles[0];
     return (
       <>
-        {main && <span className="text-sm">{main.name}</span>}
+        {main && <span className="text-sm">{roleLabel(main, lang)}</span>}
         <Chip tone="info">{tr(`Via group ${person.viaGroup?.name ?? ''}`, `عبر المجموعة ${person.viaGroup?.name ?? ''}`).trim()}</Chip>
       </>
     );
@@ -210,6 +210,8 @@ function PersonRoles({ person, roles, legacy, tr, lang }: { person: Person; role
       {person.addOns.map((a) => (
         <Chip key={a.id}><Plus className="h-3 w-3" aria-hidden="true" />{roleLabel(a, lang)}</Chip>
       ))}
+      {/* M-8: add-ons and group roles grant nothing while the old engine decides. */}
+      {legacy && (person.addOns.length > 0 || person.groupRoles.length > 0) && <SwitchOverChip tr={tr} />}
       {person.temporary.map((t) => (
         <Chip key={`${t.id}-${t.endsAt}`} title={t.reason ?? undefined}>
           <Clock className="h-3 w-3" aria-hidden="true" />
@@ -217,7 +219,7 @@ function PersonRoles({ person, roles, legacy, tr, lang }: { person: Person; role
         </Chip>
       ))}
       {person.groupRoles.length > 0 && (
-        <Chip tone="info">{tr(`Group: ${person.groupRoles.map((g) => g.name).join(', ')}`, `المجموعة: ${person.groupRoles.map((g) => g.name).join('، ')}`)}</Chip>
+        <Chip tone="info">{tr(`Group: ${person.groupRoles.map((g) => g.name).join(', ')}`, `المجموعة: ${person.groupRoles.map((g) => roleLabel(g, 'ar')).join('، ')}`)}</Chip>
       )}
     </>
   );

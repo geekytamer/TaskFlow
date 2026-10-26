@@ -8,6 +8,9 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissionsOptional } from '@/context/permissions-context';
 import { guardDecision } from '@/lib/guard-decision';
+import { apiFetch } from '@/lib/api-client';
+import { forbiddenSentence, labelsFromCatalogue } from '@/lib/forbidden-message';
+import { fetchCatalogue } from '@/services/permissionService';
 
 /**
  * Signs the person in, and with `permission` (a catalogue key such as
@@ -21,7 +24,7 @@ import { guardDecision } from '@/lib/guard-decision';
 export function useAuthGuard(permission?: string) {
   const router = useRouter();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { user, loading } = useCurrentUser();
   const { selectedCompany, loading: companyLoading } = useCompany();
   const effectiveRole =
@@ -54,12 +57,21 @@ export function useAuthGuard(permission?: string) {
     if (!denied || actedRef.current) return;
     actedRef.current = true;
     console.warn(`User lacks ${permission} and was refused this page`);
-    toast({
-      variant: 'destructive',
-      title: t('common.accessDenied'),
-      description: t('auth.guardDenied'),
-    });
     router.push('/'); // Redirect to a safe default page
+    // M-10: say what is missing and who to ask (the page's key → refusal sentence).
+    const lang = language === 'ar' ? 'ar' : 'en';
+    const companyId = selectedCompany?.id;
+    const tell = (description: string) => toast({ variant: 'destructive', title: t('common.accessDenied'), description });
+    if (!permission || !companyId) {
+      tell(t('auth.guardDenied'));
+      return;
+    }
+    Promise.all([
+      apiFetch<{ roles: string[] }>(`/me/permissions/ask?companyId=${encodeURIComponent(companyId)}&key=${encodeURIComponent(permission)}`),
+      fetchCatalogue().then(labelsFromCatalogue).catch(() => null),
+    ])
+      .then(([ask, labels]) => tell(forbiddenSentence({ code: 'FORBIDDEN', permission, roles: ask.roles }, labels, lang)))
+      .catch(() => tell(t('auth.guardDenied')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, loading, companyLoading, denied, permission]);
 

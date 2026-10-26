@@ -10,7 +10,8 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
-import { getHoldingTemplate, saveHoldingTemplate, type HoldingTemplate } from '@/services/authzService';
+import { getHoldingGroup, getHoldingTemplate, saveHoldingTemplate, type HoldingGroupDetail, type HoldingTemplate } from '@/services/authzService';
+import { holderFromFloor } from '../lib/beyond';
 import { draftFrom, editorReducer, initialEditor, isDirty, toInput } from '../lib/role-draft';
 import { RoleForm } from './role-form';
 import { SaveBar } from './role-editor';
@@ -23,6 +24,8 @@ export function TemplatePage({ groupId, templateKey }: { groupId: string; templa
   const base = useGroupBase();
   const { catalogue, error: catalogueError, retry } = useCatalogue();
   const [template, setTemplate] = React.useState<HoldingTemplate | null>(null);
+  // C-2: what I hold in every company of the group bounds what the template may give.
+  const [me, setMe] = React.useState<HoldingGroupDetail['me'] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [nonce, setNonce] = React.useState(0);
   const [state, dispatch] = React.useReducer(editorReducer, undefined, () => initialEditor());
@@ -35,10 +38,11 @@ export function TemplatePage({ groupId, templateKey }: { groupId: string; templa
     if (!catalogue) return;
     let active = true;
     setError(null);
-    getHoldingTemplate(groupId, templateKey)
-      .then((t) => {
+    Promise.all([getHoldingTemplate(groupId, templateKey), getHoldingGroup(groupId)])
+      .then(([t, group]) => {
         if (!active) return;
         setTemplate(t);
+        setMe(group.me ?? null);
         dispatch({ type: 'load', draft: draftFrom(t, fieldKeys) });
       })
       .catch((e: unknown) => { if (active) setError(errorText(e, tr('Could not load the template.', 'تعذّر تحميل القالب.'))); });
@@ -92,10 +96,11 @@ export function TemplatePage({ groupId, templateKey }: { groupId: string; templa
             state={state}
             dispatch={dispatch}
             readOnly={false}
-            // Limits apply in each company's own currency; group admins are not bound by a company's grants.
+            // Limits apply in each company's own currency. A group admin gives
+            // only what they hold in every company of the group (C-2).
             currency={tr('in each company\'s currency', 'بعملة كل شركة')}
             nameError={nameError}
-            me={null}
+            me={holderFromFloor(me?.access)}
             groupScope
           />
           <SaveBar

@@ -165,7 +165,8 @@ function InfluencerCard({
   /** When the stored Instagram photo was taken; absent for initials. */
   photoAt?: string | null;
   money: (value: number) => string;
-  onEdit: () => void;
+  /** Absent when the person may not save an influencer (PUT /contacts/:id needs contacts.manage): no Edit button. */
+  onEdit?: () => void;
   /** Rate cards are negotiated pricing — the API withholds them from staff too. */
   showPricing: boolean;
 }) {
@@ -257,12 +258,14 @@ function InfluencerCard({
         </div>
       ) : null}
 
-      <div className="mt-auto flex items-center justify-end pt-1">
-        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={onEdit}>
-          <Pencil className="h-3 w-3" />
-          {t('influencers.edit')}
-        </Button>
-      </div>
+      {onEdit && (
+        <div className="mt-auto flex items-center justify-end pt-1">
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={onEdit}>
+            <Pencil className="h-3 w-3" />
+            {t('influencers.edit')}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -553,7 +556,7 @@ export function InfluencersPage() {
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((c) => (
-              <InfluencerCard key={c.id} c={c} money={money} onEdit={() => setEditing(c)} showPricing={showPricing} photoAt={photos?.[c.id] ?? null} />
+              <InfluencerCard key={c.id} c={c} money={money} onEdit={can('contacts.manage') ? () => setEditing(c) : undefined} showPricing={showPricing} photoAt={photos?.[c.id] ?? null} />
             ))}
           </div>
         </>

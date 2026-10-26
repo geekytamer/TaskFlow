@@ -265,6 +265,9 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
   }
 
   const changed = (d: HoldingGroupDetail) => {
+    // A later success clears an earlier inline refusal (K-1).
+    setAddError(null);
+    setRowError(null);
     setDetail(d);
     setAdmins(d.adminUserIds);
     onChanged();
@@ -406,8 +409,8 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
           <h3 id="admin-group-admins" className="text-sm font-semibold text-muted-foreground">{tr('Group administrators', 'مسؤولو المجموعة')}</h3>
           <p className="mt-0.5 max-w-prose text-sm text-muted-foreground">
             {tr(
-              'They give people group-wide roles and edit the group\'s role templates. Choose from the people of the group\'s companies.',
-              'يمنحون الأشخاص أدوارًا على مستوى المجموعة ويعدّلون قوالب أدوارها. اختر من أشخاص شركات المجموعة.',
+              'They give people group-wide roles and edit the group\'s role templates, never beyond what they hold themselves in every company of the group, and never their own. Only you (the platform administrator) appoint or remove them. Choose from the people of the group\'s companies.',
+              'يمنحون الأشخاص أدوارًا على مستوى المجموعة ويعدّلون قوالب أدوارها، دون تجاوز ما يملكونه هم في كل شركات المجموعة، ودون تغيير أدوارهم. أنت وحدك (مسؤول المنصة) تعيّنهم أو تزيلهم. اختر من أشخاص شركات المجموعة.',
             )}
           </p>
         </div>

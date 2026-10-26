@@ -51,3 +51,19 @@ export function beyondMe(
 
 /** One grant (or field switch) within what I hold. */
 export const within = (me: Holder | null, grant: Pick<RoleGrant, 'key' | 'scope' | 'limit'>) => beyondMe(me, [grant]).length === 0;
+
+/** A Holder from the group detail's `me.access` (C-2): what someone holds in every company of the group. */
+export function holderFromFloor(
+  access: { grants: ReadonlyArray<Pick<RoleGrant, 'key' | 'scope' | 'limit'>>; fields: ReadonlyArray<Pick<RoleField, 'key' | 'view' | 'edit'>> } | null | undefined,
+): Holder | null {
+  if (!access) return null;
+  const grants = new Map(access.grants.map((g) => [g.key, g]));
+  const fields = new Map(access.fields.map((f) => [f.key, f]));
+  return {
+    grant: (key) => {
+      const g = grants.get(key);
+      return g ? { scope: g.scope ?? undefined, limit: g.limit ?? undefined } : undefined;
+    },
+    field: (key) => ({ view: Boolean(fields.get(key)?.view), edit: Boolean(fields.get(key)?.edit) }),
+  };
+}

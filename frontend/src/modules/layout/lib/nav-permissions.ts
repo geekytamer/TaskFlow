@@ -4,12 +4,16 @@
  *
  * Single source of truth for the sidebar, the phone tab bar, the command
  * palette, the section links and the page guards. A destination absent from
- * this map is open to every member: /projects and /tasks decide visibility per
- * record, /inbox lists what each person may see (staff chats are for everyone),
+ * this map is open to every member: /tasks decides visibility per record (a
+ * person always sees their own tasks), /inbox lists what each person may see (staff chats are for everyone),
  * /academy and /diagram are for everyone.
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/': 'dashboard.view',
+  // Every standard role holds projects.view (own or wider), so this changes
+  // nothing for them; a role with Projects = None sees no project at all, so
+  // the menu entry goes too (M-11).
+  '/projects': 'projects.view',
   '/documents': 'documents.view',
   '/sales': 'sales.view',
   '/purchases': 'purchasing.view',

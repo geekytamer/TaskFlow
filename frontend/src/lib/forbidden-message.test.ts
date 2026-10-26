@@ -94,3 +94,28 @@ test('the refusal hold drops only the echo of the same failure', async () => {
   assert.equal(isRefusalEcho({ title: 'Saved' }), false);
   assert.equal(isRefusalEcho({ description: 'You need the permission "X" — ask an Admin.' }, Date.now() + 10_000), false, 'the hold ends');
 });
+
+test('I-1: a generic error toast right after a refusal is dropped; a toast with news still shows', async () => {
+  const { isRefusalEcho, showRefusalToast } = await import('@/hooks/use-toast');
+  showRefusalToast({ variant: 'destructive', title: 'Not allowed', description: 'You need the permission "Edit contacts" — ask an Admin.' }, 2500, 'Ask an Admin.');
+  assert.equal(isRefusalEcho({ variant: 'destructive', title: 'An error occurred' }), true, 'common.error (en)');
+  assert.equal(isRefusalEcho({ variant: 'destructive', title: 'حدث خطأ' }), true, 'common.error (ar)');
+  assert.equal(isRefusalEcho({ variant: 'destructive', title: 'An error occurred', description: 'Ask an Admin.' }), true, 'the raw server message');
+  assert.equal(isRefusalEcho({ variant: 'destructive', title: 'Could not save', description: 'The file is too large.' }), false, 'news');
+  assert.equal(isRefusalEcho({ title: 'An error occurred' }), false, 'only destructive toasts');
+});
+
+test('M-6 / M-7: who to ask past three names, and what exceeds with its scope', () => {
+  const labels = { permissions: { 'crm.view': { en: 'See opportunities', ar: 'عرض الفرص' } }, fields: {} };
+  assert.equal(
+    refusalSentence({ code: 'FORBIDDEN', permission: 'crm.view', roles: ['Manager', 'Accountant', 'Sales desk', 'Admin'] }, labels, 'en'),
+    'You need the permission "See opportunities" — ask a Manager, Accountant, Sales desk or an Admin.',
+  );
+  assert.deepEqual(rolesToAsk('Ask a Manager, Accountant, Sales desk or an Admin.'), ['Manager', 'Accountant', 'Sales desk', 'Admin']);
+  const excess = [{ key: 'crm.view', scope: 'group' }, { key: 'b' }, { key: 'c' }, { key: 'd' }, { key: 'e' }];
+  assert.equal(
+    refusalSentence({ code: 'HIGHER_THAN_YOU', excess, where: 'GIG' } as never, labels, 'en'),
+    "You can't give permissions you don't have yourself in GIG: See opportunities (every company of the group); b; c; and 2 more.",
+  );
+  assert.match(refusalSentence({ code: 'OVER_LIMIT', limit: 1000, amount: 5000, currency: 'USD' } as never, labels, 'en') ?? '', /1,000 USD and this is 5,000 USD/);
+});

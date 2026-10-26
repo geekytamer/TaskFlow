@@ -98,7 +98,7 @@ export interface Person {
   mainRole: RoleRef | null;
   addOns: Array<RoleRef & { isActive: boolean }>;
   temporary: Array<RoleRef & { isActive: boolean; startsAt: string | null; endsAt: string | null; delegatedBy: string | null; reason: string | null }>;
-  groupRoles: Array<{ holdingGroupId: string; groupName: string; key: string; name: string; isMain: boolean; startsAt: string | null; endsAt: string | null }>;
+  groupRoles: Array<{ holdingGroupId: string; groupName: string; key: string; name: string; nameAr?: string | null; isMain: boolean; startsAt: string | null; endsAt: string | null }>;
   viaGroup: { id: string; name: string } | null;
   readOnly: boolean;
   linkedToHr: boolean;
@@ -185,7 +185,20 @@ export interface HoldingGroupDetail extends HoldingGroup {
   admins: HoldingPerson[];
   assignments: HoldingAssignment[];
   templates: HoldingTemplate[];
+  /**
+   * The requester (C-2): only the super admin appoints group admins; `access`
+   * is what they hold in every company of the group (null = unbounded).
+   */
+  me?: {
+    userId: string;
+    superAdmin: boolean;
+    canManageAdmins: boolean;
+    access: { grants: Array<Pick<RoleGrant, 'key' | 'scope' | 'limit'>>; fields: Array<Pick<RoleField, 'key' | 'view' | 'edit'>> } | null;
+  };
 }
+
+/** Someone who belongs to a company of the group (GET /holding-groups/:id/people, I-3). */
+export interface HoldingMember extends HoldingPerson { companies: Array<{ id: string; name: string | null }> }
 
 export interface PushRow { companyId: string; roleId: string; roleKey: string; roleName: string; message?: string }
 export interface PushResult { updated: PushRow[]; customised: PushRow[]; standard: PushRow[] }
@@ -194,6 +207,7 @@ const holding = (id: string) => `/holding-groups/${encodeURIComponent(id)}`;
 
 export const listHoldingGroups = () => apiFetch<HoldingGroup[]>('/holding-groups');
 export const getHoldingGroup = (id: string) => apiFetch<HoldingGroupDetail>(holding(id));
+export const getHoldingGroupPeople = (id: string) => apiFetch<HoldingMember[]>(`${holding(id)}/people`);
 export const setHoldingAssignment = (
   id: string,
   userId: string,

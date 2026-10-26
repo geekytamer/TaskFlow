@@ -6,10 +6,10 @@
  * with a level: None / View / Edit / Full are the catalogue's presets for the
  * area (backend authz/describe.ts levelPresets); anything else is Custom.
  *
- * Scope: one picker per area. It shows the widest scope the area's scoped
- * grants hold, and changing it sets every scoped grant of the area. A role
- * whose scoped grants differ inside one area keeps them as they are until the
- * picker is changed.
+ * Scope: one picker per area. It shows the scope the area's scoped grants
+ * hold, or "Mixed" when they differ (areaScopeMixed), and changing it sets
+ * every scoped grant of the area. A role whose scoped grants differ inside
+ * one area keeps them as they are until the picker is changed.
  */
 import type { CatalogueArea, Level, RoleField, RoleGrant, RoleInput, Scope } from '@/services/authzService';
 
@@ -87,6 +87,17 @@ export function areaScope(draft: RoleDraft, area: CatalogueArea): Scope | undefi
     .map((a) => draft.grants[a.key]?.scope)
     .filter((s): s is Scope => Boolean(s));
   return widest(held) ?? (area.scopes.includes('company') ? 'company' : widest([...area.scopes]));
+}
+
+/**
+ * M-5: the area's scoped grants hold different scopes (say, sees own, edits
+ * company). The picker then shows "Mixed" instead of the widest; choosing a
+ * scope sets them all.
+ */
+export function areaScopeMixed(draft: RoleDraft, area: CatalogueArea): boolean {
+  if (!areaHasScope(area)) return false;
+  const held = area.actions.filter((a) => a.scoped).map((a) => draft.grants[a.key]?.scope).filter((s): s is Scope => Boolean(s));
+  return new Set(held).size > 1;
 }
 
 function grantFor(area: CatalogueArea, key: string, scope: Scope | undefined, previous?: GrantDraft): GrantDraft {

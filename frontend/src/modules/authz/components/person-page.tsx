@@ -224,6 +224,7 @@ export function PersonPage({ userId }: { userId: string }) {
                     )}
                   </p>
                   <GroupRoles person={person} tr={tr} lang={lang} />
+                  {legacy && person.groupRoles.length > 0 && <div><SwitchOverChip tr={tr} /></div>}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -251,6 +252,8 @@ export function PersonPage({ userId }: { userId: string }) {
                   <fieldset className="space-y-2">
                     <legend className="text-sm font-medium">{tr('Add-ons', 'الإضافات')}</legend>
                     <p className="text-xs text-muted-foreground">{tr('Extra access on top of the main role. Nothing is taken away.', 'وصول إضافي فوق الدور الأساسي. لا يُنتزع شيء.')}</p>
+                    {/* M-8: while the old engine decides, add-ons grant nothing yet. */}
+                    {legacy && <div><SwitchOverChip tr={tr} /></div>}
                     <div className="space-y-1.5">
                       {assignable.filter((r) => r.id !== mainRoleId).map((r) => {
                         const id = `addon-${r.id}`;
@@ -287,6 +290,7 @@ export function PersonPage({ userId }: { userId: string }) {
                     </div>
                   )}
                   <GroupRoles person={person} tr={tr} lang={lang} />
+                  {legacy && person.groupRoles.length > 0 && <div><SwitchOverChip tr={tr} /></div>}
 
                   {canManage && aboveMe && (
                     <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
@@ -330,7 +334,7 @@ function GroupRoles({ person, tr, lang }: { person: PersonDetail; tr: Tr; lang: 
       <ul className="space-y-0.5 text-sm text-muted-foreground">
         {person.groupRoles.map((g) => (
           <li key={`${g.holdingGroupId}-${g.key}`}>
-            {g.name}
+            {roleLabel(g, lang)}
             {g.isMain ? ` · ${tr('main', 'أساسي')}` : ` · ${tr('add-on', 'إضافة')}`}
             {g.endsAt ? ` · ${tr('until', 'حتى')} ${shortDate(g.endsAt, lang)}` : ''}
           </li>

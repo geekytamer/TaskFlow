@@ -42,7 +42,33 @@ export function isForbiddenBody(value: unknown): value is ForbiddenBody {
 export function rolesToAsk(message: string | undefined): string[] | null {
   const match = /^Ask an? (.+)\.$/.exec((message ?? '').trim());
   if (!match) return null;
-  return match[1].split(/, | or /).map((r) => r.trim()).filter(Boolean);
+  return match[1].split(/, | or /).map((r) => r.trim().replace(/^an? /, '')).filter(Boolean);
+}
+
+/** One permission given beyond the actor (backend authz/describe.ts Excess). */
+interface Excess { key: string; scope?: string; limit?: number | null }
+
+const SCOPE_PHRASE: Record<string, Label> = {
+  own: { en: ' (own records)', ar: ' (سجلاته فقط)' },
+  team: { en: ' (own and team)', ar: ' (سجلاته وسجلات فريقه)' },
+  group: { en: ' (every company of the group)', ar: ' (كل شركات المجموعة)' },
+};
+
+/** M-7: what exceeds, with its scope or limit; at most three, then "and N more". */
+function excessText(excess: Excess[], labels: CatalogueLabels | null, lang: Lang): string {
+  const ar = lang === 'ar';
+  const one = (e: Excess) => {
+    const name = e.key.startsWith('field:')
+      ? labels?.fields[e.key.slice(6)]?.[lang] ?? e.key
+      : labels?.permissions[e.key]?.[lang] ?? e.key;
+    if (e.scope && SCOPE_PHRASE[e.scope]) return name + SCOPE_PHRASE[e.scope][lang];
+    if (e.limit === null) return `${name} ${ar ? '(بلا حد)' : '(no limit)'}`;
+    if (typeof e.limit === 'number') return `${name} ${ar ? `(حتى ${e.limit.toLocaleString('en-US')})` : `(up to ${e.limit.toLocaleString('en-US')})`}`;
+    return name;
+  };
+  const shown = excess.slice(0, 3).map(one);
+  const more = excess.length - shown.length;
+  return shown.join(ar ? '؛ ' : '; ') + (more > 0 ? (ar ? `؛ و${more} أخرى` : `; and ${more} more`) : '');
 }
 
 function joinList(items: string[], lang: Lang): string {
@@ -57,8 +83,12 @@ function whoToAsk(body: ForbiddenBody, lang: Lang): string {
   const roles = Array.isArray(body.roles) ? body.roles : rolesToAsk(message);
   if (roles && roles.length) {
     if (lang === 'ar') return `اطلبها من ${joinList(roles.map((r) => ROLE_AR[r] ?? r), 'ar')}`;
-    const article = /^[aeiou]/i.test(roles[0]) ? 'an' : 'a';
-    return `ask ${article} ${joinList(roles, 'en')}`;
+    const article = (name: string) => (/^[aeiou]/i.test(name) ? 'an' : 'a');
+    // Past three names the server ends with "an Admin" (M-6): its own article.
+    const named = roles.length > 3
+      ? [...roles.slice(0, -1), `${article(roles[roles.length - 1])} ${roles[roles.length - 1]}`]
+      : roles;
+    return `ask ${article(roles[0])} ${joinList(named, 'en')}`;
   }
   if ((roles && roles.length === 0) || /^Nobody in this company/i.test(message ?? '')) {
     return lang === 'ar' ? 'لا أحد في هذه الشركة يملكها بعد، فاطلبها من مسؤول المنصة' : 'nobody in this company has it yet, so ask the platform administrator';
@@ -103,9 +133,6 @@ export function labelsFromCatalogue(catalogue: {
   return { permissions, fields };
 }
 
-const permissionLabel = (key: string, labels: CatalogueLabels | null, lang: Lang) =>
-  labels?.permissions[key]?.[lang] ?? key;
-
 /**
  * One sentence for any coded refusal the staff app can meet, or null for a
  * code it does not know (the server's message is kept then).
@@ -116,17 +143,42 @@ export function refusalSentence(body: ForbiddenBody & { code?: string; missing?:
     case 'FORBIDDEN':
       return forbiddenSentence(body, labels, lang);
     case 'HIGHER_THAN_YOU': {
-      const missing = Array.isArray(body.missing) ? body.missing.filter((k): k is string => typeof k === 'string') : [];
-      const list = missing.map((k) => permissionLabel(k, labels, lang)).join(ar ? '؛ ' : '; ');
+      if ((body as { target?: unknown }).target === true) {
+        return ar
+          ? 'لديه صلاحيات لا تملكها، لذا لا يمكنك تغيير أدواره — اطلب ذلك من مدير النظام.'
+          : "They have access you don't, so you can't change their roles — ask an Admin.";
+      }
+      const raw = (body as { excess?: unknown }).excess;
+      const excess: Excess[] = Array.isArray(raw)
+        ? raw.filter((e): e is Excess => Boolean(e) && typeof (e as Excess).key === 'string')
+        : (Array.isArray(body.missing) ? body.missing.filter((k): k is string => typeof k === 'string').map((key) => ({ key })) : []);
+      const list = excessText(excess, labels, lang);
+      const where = typeof (body as { where?: unknown }).where === 'string' ? (body as { where: string }).where : '';
       return ar
-        ? `لا يمكنك منح صلاحيات لا تملكها بنفسك${list ? `: ${list}` : ''}.`
-        : `You can't give permissions you don't have yourself${list ? `: ${list}` : ''}.`;
+        ? `لا يمكنك منح صلاحيات لا تملكها بنفسك${where ? ` في ${where}` : ''}${list ? `: ${list}` : ''}.`
+        : `You can't give permissions you don't have yourself${where ? ` in ${where}` : ''}${list ? `: ${list}` : ''}.`;
     }
+    case 'OVER_LIMIT': {
+      const b = body as { limit?: unknown; amount?: unknown; currency?: unknown };
+      const money = (n: unknown) => `${typeof n === 'number' ? n.toLocaleString('en-US') : '?'}${typeof b.currency === 'string' ? ` ${b.currency}` : ''}`;
+      return ar
+        ? `حدّ موافقتك ${money(b.limit)} وهذا المبلغ ${money(b.amount)} — اطلب الموافقة ممن لديه حدّ أعلى.`
+        : `Your approval limit is ${money(b.limit)} and this is ${money(b.amount)} — ask someone with a higher limit.`;
+    }
+    case 'SELF_ASSIGN':
+      return ar
+        ? 'لا يمكنك تغيير أدوارك على مستوى المجموعة — اطلب ذلك من مسؤول المنصة.'
+        : "You can't change your own group-wide roles — ask the platform administrator.";
     case 'NO_COMPANY_ACCESS':
       return ar
         ? 'ليس لديك وصول إلى هذه الشركة — اطلب من مسؤولها إضافتك.'
         : "You don't have access to this company — ask its administrator to add you.";
     case 'LOCKOUT':
+      if ((body as { lastAdmin?: unknown }).lastAdmin === true) {
+        return ar
+          ? 'هذا التغيير يترك الشركة بلا مدير نظام — اجعل شخصًا آخر مدير نظام أولًا.'
+          : 'This change would leave the company with no Admin — make someone else Admin first.';
+      }
       return ar
         ? 'هذا التغيير يترك الشركة بلا أحد يدير الأدوار — أبقِ شخصًا واحدًا على الأقل يملك «إدارة الأدوار».'
         : 'This change would leave nobody who can manage roles — keep at least one person with "Manage roles".';

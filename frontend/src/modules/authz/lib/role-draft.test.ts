@@ -7,6 +7,8 @@ import type { CatalogueArea } from '@/services/authzService';
 import {
   applyLevel,
   areaScope,
+  areaScopeMixed,
+  setAreaScope,
   draftFrom,
   editorReducer,
   heldKeys,
@@ -216,4 +218,14 @@ test('Ruling S: an area with a limit reads Custom; a preset clears the limits', 
   state = editorReducer(state, { type: 'limit', key: 'purchasing.approve', limit: 10 });
   state = editorReducer(state, { type: 'collapse', area: purchasing });
   assert.equal(shownLevel(state, purchasing), 'custom');
+});
+
+test('M-5: an area whose actions hold different scopes is Mixed until one scope is chosen', () => {
+  const contacts = area('contacts');
+  const draft = draftFrom({ name: 'Acct', grants: [{ key: 'contacts.view', scope: 'own' }, { key: 'contacts.edit', scope: 'company' }], fields: [] }, FIELD_KEYS);
+  assert.equal(areaScopeMixed(draft, contacts), true);
+  const unified = setAreaScope(draft, contacts, 'team');
+  assert.equal(areaScopeMixed(unified, contacts), false);
+  assert.equal(unified.grants['contacts.view'].scope, 'team');
+  assert.equal(unified.grants['contacts.edit'].scope, 'team');
 });

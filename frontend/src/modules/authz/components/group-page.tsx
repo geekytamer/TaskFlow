@@ -20,9 +20,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getUsersByCompany } from '@/services/userService';
 import {
   getHoldingGroup,
+  getHoldingGroupPeople,
   pushHoldingTemplate,
   setHoldingAssignment,
   type HoldingGroupDetail,
@@ -45,6 +45,16 @@ import {
   useTr,
   type Tr,
 } from './shared';
+import { beyondMe, holderFromFloor, type Holder } from '../lib/beyond';
+
+/** Today as YYYY-MM-DD in the browser's zone: the earliest end date offered (M-2). */
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** Whether a template is within what I hold in every company of the group (C-2; null holder = unbounded). */
+const withinMe = (holder: Holder | null, t: HoldingTemplate) => beyondMe(holder, t.grants, t.fields).length === 0;
 
 interface GroupPerson {
   user: HoldingPerson;
@@ -128,6 +138,10 @@ function GroupDetail({ groupId }: { groupId: string }) {
   if (!detail) return <ListSkeleton rows={4} />;
 
   const people = groupPeople(detail);
+  const holder = holderFromFloor(detail.me?.access);
+  // C-2: a group admin never changes their own group-wide roles.
+  const isMe = (id: string) => Boolean(detail.me && !detail.me.superAdmin && detail.me.userId === id);
+  const selfReason = tr('You can\'t change your own group-wide roles. Ask the platform administrator.', 'لا يمكنك تغيير أدوارك على مستوى المجموعة. اطلب ذلك من مسؤول المنصة.');
   const templateName = (key: string) => {
     const t = detail.templates.find((x) => x.key === key);
     return t ? roleLabel(t, lang) : key;
@@ -176,6 +190,11 @@ function GroupDetail({ groupId }: { groupId: string }) {
             {detail.admins.map((a) => a.name ?? a.email).join(lang === 'ar' ? '، ' : ', ')}
           </p>
         )}
+        {detail.me && !detail.me.canManageAdmins && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {tr('Only the platform administrator appoints or removes group administrators.', 'مسؤول المنصة وحده يعيّن مسؤولي المجموعة أو يزيلهم.')}
+          </p>
+        )}
       </section>
 
       <section aria-labelledby="group-people-heading">
@@ -202,13 +221,14 @@ function GroupDetail({ groupId }: { groupId: string }) {
                     {p.endsAt && <Chip>{tr('until', 'حتى')} {shortDate(p.endsAt, lang)}</Chip>}
                   </div>
                   {rowError?.id === p.user.id && <InlineError message={rowError.message} className="mt-1" />}
+                  {isMe(p.user.id) && <p className="mt-1 text-xs text-muted-foreground">{selfReason}</p>}
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(p)} className="gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(p)} disabled={isMe(p.user.id)} title={isMe(p.user.id) ? selfReason : undefined} className="gap-1.5">
                     <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                     {tr('Change', 'تغيير')}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => remove(p)} className="gap-1.5 text-destructive hover:text-destructive">
+                  <Button size="sm" variant="ghost" onClick={() => remove(p)} disabled={isMe(p.user.id)} title={isMe(p.user.id) ? selfReason : undefined} className="gap-1.5 text-destructive hover:text-destructive">
                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                     {tr('Remove', 'إزالة')}
                   </Button>
@@ -229,7 +249,7 @@ function GroupDetail({ groupId }: { groupId: string }) {
         </p>
         <ul className="divide-y rounded-lg border">
           {detail.templates.map((t) => (
-            <TemplateRow key={t.key} groupId={groupId} template={t} companyName={companyName} />
+            <TemplateRow key={t.key} groupId={groupId} template={t} companyName={companyName} within={withinMe(holder, t)} />
           ))}
         </ul>
       </section>
@@ -237,6 +257,7 @@ function GroupDetail({ groupId }: { groupId: string }) {
       <AssignDialog
         groupId={groupId}
         detail={detail}
+        holder={holder}
         editing={editing}
         onClose={() => setEditing(null)}
         onSaved={(d) => { setDetail(d); setEditing(null); }}
@@ -245,7 +266,7 @@ function GroupDetail({ groupId }: { groupId: string }) {
   );
 }
 
-function TemplateRow({ groupId, template, companyName }: { groupId: string; template: HoldingTemplate; companyName: (id: string) => string }) {
+function TemplateRow({ groupId, template, companyName, within }: { groupId: string; template: HoldingTemplate; companyName: (id: string) => string; within: boolean }) {
   const { tr, lang } = useTr();
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -288,22 +309,40 @@ function TemplateRow({ groupId, template, companyName }: { groupId: string; temp
         </div>
         <div className="flex shrink-0 gap-1">
           <Button asChild size="sm" variant="ghost" className="gap-1.5">
-            <Link href={`${base}/${encodeURIComponent(groupId)}/templates/${encodeURIComponent(template.key)}`}>
+            <Link
+              href={`${base}/${encodeURIComponent(groupId)}/templates/${encodeURIComponent(template.key)}`}
+              aria-label={tr(`Edit ${roleLabel(template, lang)}`, `تعديل ${roleLabel(template, lang)}`)}
+            >
               <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
               {tr('Edit', 'تعديل')}
             </Link>
           </Button>
-          <Button size="sm" variant="outline" onClick={push} disabled={pushing} className="gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={push}
+            disabled={pushing || !within}
+            title={within ? undefined : beyondReason(tr)}
+            aria-label={tr(`Push update of ${roleLabel(template, lang)}`, `نشر تحديث ${roleLabel(template, lang)}`)}
+            className="gap-1.5"
+          >
             {pushing ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Send className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />}
             {tr('Push update', 'نشر التحديث')}
           </Button>
         </div>
       </div>
+      {!within && <p className="mt-1 text-xs text-muted-foreground">{beyondReason(tr)}</p>}
       <InlineError message={error} className="mt-2" />
       {result && <PushReport result={result} companyName={companyName} tr={tr} />}
     </li>
   );
 }
+
+/** Why a group role or template is disabled for a group admin (C-2). */
+const beyondReason = (tr: Tr) => tr(
+  'It gives more than you hold in some company of the group.',
+  'يمنح أكثر مما تملكه في إحدى شركات المجموعة.',
+);
 
 function PushReport({ result, companyName, tr }: { result: PushResult; companyName: (id: string) => string; tr: Tr }) {
   const groups = [
@@ -332,9 +371,10 @@ function PushReport({ result, companyName, tr }: { result: PushResult; companyNa
   );
 }
 
-function AssignDialog({ groupId, detail, editing, onClose, onSaved }: {
+function AssignDialog({ groupId, detail, holder, editing, onClose, onSaved }: {
   groupId: string;
   detail: HoldingGroupDetail;
+  holder: Holder | null;
   editing: GroupPerson | 'new' | null;
   onClose: () => void;
   onSaved: (detail: HoldingGroupDetail) => void;
@@ -358,24 +398,32 @@ function AssignDialog({ groupId, detail, editing, onClose, onSaved }: {
     setEndsAt(existing?.endsAt ? existing.endsAt.slice(0, 10) : '');
     setError(null);
     if (existing) return;
-    // People who belong to a company of the group (Ruling O).
+    // People who belong to a company of the group (Ruling O), every company
+    // of it, whatever companies I belong to myself (I-3); never myself (C-2).
     let active = true;
     setCandidates(null);
-    Promise.all(detail.companies.map((c) => getUsersByCompany(c.id).catch(() => [])))
-      .then((lists) => {
+    getHoldingGroupPeople(groupId)
+      .catch(() => [])
+      .then((people) => {
         if (!active) return;
         const taken = new Set(detail.assignments.map((a) => a.userId));
-        const seen = new Map<string, HoldingPerson>();
-        for (const u of lists.flat()) if (!taken.has(u.id) && !seen.has(u.id)) seen.set(u.id, { id: u.id, name: u.name, email: u.email });
-        setCandidates([...seen.values()].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')));
+        const me = detail.me && !detail.me.superAdmin ? detail.me.userId : null;
+        setCandidates(people
+          .filter((u) => !taken.has(u.id) && u.id !== me)
+          .map((u) => ({ id: u.id, name: u.name, email: u.email }))
+          .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')));
       });
     return () => { active = false; };
-  }, [open, existing, detail]);
+  }, [open, existing, detail, groupId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !mainKey) {
       setError(tr('Choose a person and a main role.', 'اختر شخصًا ودورًا أساسيًا.'));
+      return;
+    }
+    if (endsAt && endsAt < todayIso()) {
+      setError(tr('The end date is in the past. Choose today or a later date.', 'تاريخ الانتهاء في الماضي. اختر اليوم أو تاريخًا لاحقًا.'));
       return;
     }
     setSaving(true);
@@ -430,7 +478,11 @@ function AssignDialog({ groupId, detail, editing, onClose, onSaved }: {
             <Select value={mainKey} onValueChange={setMainKey}>
               <SelectTrigger id="group-main-role"><SelectValue placeholder={tr('Choose a role', 'اختر دورًا')} /></SelectTrigger>
               <SelectContent>
-                {detail.templates.map((t) => <SelectItem key={t.key} value={t.key}>{roleLabel(t, lang)}</SelectItem>)}
+                {detail.templates.map((t) => (
+                  <SelectItem key={t.key} value={t.key} disabled={!withinMe(holder, t)}>
+                    {roleLabel(t, lang)}{withinMe(holder, t) ? '' : ` — ${tr('beyond your own access', 'خارج صلاحياتك')}`}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -443,19 +495,28 @@ function AssignDialog({ groupId, detail, editing, onClose, onSaved }: {
                 <div key={t.key} className="flex items-center gap-2">
                   <Checkbox
                     id={id}
+                    disabled={!withinMe(holder, t) && !addOnKeys.includes(t.key)}
                     checked={addOnKeys.includes(t.key)}
                     onCheckedChange={(on) => setAddOnKeys((keys) => (on === true ? [...keys, t.key] : keys.filter((k) => k !== t.key)))}
                   />
-                  <Label htmlFor={id} className="text-sm font-normal">{roleLabel(t, lang)}</Label>
+                  <Label htmlFor={id} className="text-sm font-normal">
+                    {roleLabel(t, lang)}
+                    {!withinMe(holder, t) && <span className="text-muted-foreground"> — {tr('beyond your own access', 'خارج صلاحياتك')}</span>}
+                  </Label>
                 </div>
               );
             })}
+            {detail.templates.some((t) => !withinMe(holder, t)) && (
+              <p className="text-xs text-muted-foreground">{beyondReason(tr)}</p>
+            )}
           </fieldset>
 
           <div className="space-y-1.5">
             <Label htmlFor="group-ends">{tr('End date (optional)', 'تاريخ الانتهاء (اختياري)')}</Label>
-            <Input id="group-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="w-full sm:w-48" />
-            <p className="text-xs text-muted-foreground">{tr('Leave empty for access with no end.', 'اتركه فارغًا لوصول بلا نهاية.')}</p>
+            <Input id="group-ends" type="date" min={todayIso()} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="w-full sm:w-48" />
+            <p className="text-xs text-muted-foreground">
+              {tr('Access lasts through the end of that day. Leave empty for access with no end.', 'يستمر الوصول حتى نهاية ذلك اليوم. اتركه فارغًا لوصول بلا نهاية.')}
+            </p>
           </div>
 
           <InlineError message={error} />

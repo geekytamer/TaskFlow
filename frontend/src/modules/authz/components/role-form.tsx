@@ -18,6 +18,7 @@ import type { AreaGroup, Catalogue, CatalogueArea, Scope } from '@/services/auth
 import {
   areaHasScope,
   areaScope,
+  areaScopeMixed,
   limitedActions,
   shownLevel,
   type EditorAction,
@@ -214,6 +215,9 @@ function AreaRow({ area, state, dispatch, readOnly, currency, me, groupScope, no
   const name = pick(area.label, lang);
   const held = area.actions.filter((a) => a.key in state.draft.grants).length;
   const scope = areaScope(state.draft, area);
+  const mixed = areaScopeMixed(state.draft, area);
+  // After a Mixed area is set to one scope, say once that every action follows it (M-5).
+  const [unified, setUnified] = React.useState(false);
   const showScope = areaHasScope(area) && level !== 'none' && area.actions.some((a) => a.scoped && a.key in state.draft.grants);
   const limited = limitedActions(state.draft, area);
   const unitOf = (limit: 'amount' | 'percent' | null) => (limit === 'percent' ? '%' : currency);
@@ -294,13 +298,22 @@ function AreaRow({ area, state, dispatch, readOnly, currency, me, groupScope, no
           <Label htmlFor={`scope-${area.key}`} className="shrink-0 text-xs text-muted-foreground">
             {tr('Whose records', 'سجلات من')}
           </Label>
-          <Select value={scope} onValueChange={(v) => dispatch({ type: 'scope', area, scope: v as Scope })} disabled={readOnly}>
+          <Select
+            value={mixed ? 'mixed' : scope}
+            onValueChange={(v) => {
+              if (v === 'mixed') return;
+              setUnified(mixed);
+              dispatch({ type: 'scope', area, scope: v as Scope });
+            }}
+            disabled={readOnly}
+          >
             <SelectTrigger id={`scope-${area.key}`} className="h-8 w-full text-xs sm:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              {mixed && <SelectItem value="mixed" disabled className="text-xs">{tr('Mixed', 'مختلط')}</SelectItem>}
               {scopes.map((sc) => {
-                const ok = sc === scope || scopeWithin(sc);
+                const ok = (!mixed && sc === scope) || scopeWithin(sc);
                 return (
                   <SelectItem key={sc} value={sc} disabled={!ok} className="text-xs">
                     {scopeName(sc, tr)}{ok ? '' : ` — ${tr('beyond your own', 'أوسع مما لديك')}`}
@@ -309,7 +322,13 @@ function AreaRow({ area, state, dispatch, readOnly, currency, me, groupScope, no
               })}
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">{scopeHelp(scope, area, tr, lang)}</p>
+          <p className="text-xs text-muted-foreground">
+            {mixed
+              ? tr('Its actions reach different records. Choosing one sets them all.', 'إجراءاته تصل إلى سجلات مختلفة. اختيار نطاق واحد يطبّقه عليها كلها.')
+              : unified
+                ? tr('Every action here now uses this scope.', 'كل الإجراءات هنا تستخدم هذا النطاق الآن.')
+                : scopeHelp(scope, area, tr, lang)}
+          </p>
         </div>
       )}
 

@@ -9,7 +9,8 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
+// More than one, so a screen's own toast never replaces a refusal sentence (I-1).
+const TOAST_LIMIT = 3
 const TOAST_REMOVE_DELAY = 1000000
 
 type ToasterToast = Omit<ToastProps, "title" | "description"> & {
@@ -147,26 +148,37 @@ type Toast = Omit<ToasterToast, "id">
 
 /**
  * A permission refusal toast (lib/forbidden-message.ts) was just shown. The
- * screen that made the call often follows with its own error toast carrying
- * the same sentence (error.message), which would replace it (one toast at a
- * time). For a moment, only that echo of the same failure is dropped; any
- * other toast shows as usual.
+ * screen that made the call often follows with its own error toast: the same
+ * sentence (error.message), the server's raw message, or a bare "An error
+ * occurred" (I-1). For a moment those echoes of the same failure are dropped,
+ * so the person reads who to ask; a toast that says something new still shows.
  */
-let refusalEcho: { text: string; until: number } | null = null
-export function showRefusalToast(props: Toast, holdMs = 2500) {
+let refusalEcho: { texts: string[]; until: number } | null = null
+export function showRefusalToast(props: Toast, holdMs = 2500, serverMessage?: string) {
   refusalEcho = null
   const shown = toast(props)
-  if (typeof props.description === "string") {
-    refusalEcho = { text: props.description, until: Date.now() + holdMs }
-  }
+  const texts = [props.description, serverMessage].filter((t): t is string => typeof t === "string" && t.length > 0)
+  if (texts.length) refusalEcho = { texts, until: Date.now() + holdMs }
   return shown
 }
 
+/** The app's generic failure words (common.error and friends), en and ar. */
+const GENERIC_ERRORS = new Set([
+  "an error occurred", "error", "something went wrong", "request failed", "حدث خطأ", "خطأ", "حدث خطأ ما",
+])
+const isGeneric = (text: string) => GENERIC_ERRORS.has(text.trim().replace(/[.!]+$/, "").toLowerCase())
+  || /^Request failed with status \d+$/.test(text.trim())
+
 /** Whether a toast only repeats the refusal just shown. */
-export function isRefusalEcho(props: Pick<Toast, "title" | "description">, now = Date.now()): boolean {
+export function isRefusalEcho(props: Pick<Toast, "title" | "description" | "variant">, now = Date.now()): boolean {
   if (!refusalEcho || now >= refusalEcho.until) return false
-  const text = refusalEcho.text
-  return [props.title, props.description].some((v) => typeof v === "string" && v.includes(text))
+  const texts = refusalEcho.texts
+  const echoes = (v: unknown) => typeof v === "string" && texts.some((t) => v.includes(t))
+  if ([props.title, props.description].some(echoes)) return true
+  // A destructive toast with nothing beyond generic words (or the refusal's own text).
+  if (props.variant !== "destructive") return false
+  const parts = [props.title, props.description].filter((v) => v !== undefined && v !== null && v !== "")
+  return parts.length > 0 && parts.every((v) => typeof v === "string" && (isGeneric(v) || echoes(v)))
 }
 
 function toast({ ...props }: Toast) {

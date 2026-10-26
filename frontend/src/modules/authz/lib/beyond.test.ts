@@ -3,7 +3,7 @@ import test from 'node:test';
 import { beyond as serverBeyond } from '../../../../../backend/src/authz/describe';
 import { buildAccess, type MyPermissions } from '@/lib/permissions';
 import type { Scope } from '@/services/authzService';
-import { beyondMe, holderFromAccess, within, type Holder } from './beyond';
+import { beyondMe, holderFromFloor, holderFromAccess, within, type Holder } from './beyond';
 
 type G = { key: string; scope?: Scope; limit?: number };
 type F = { key: string; view: boolean; edit: boolean };
@@ -59,4 +59,11 @@ test('the super admin is exempt; a closed answer holds nothing', () => {
   assert.deepEqual(beyondMe(null, [{ key: 'people.manage_roles' }]), []);
   const closed = holderFromAccess(buildAccess(null))!;
   assert.deepEqual(beyondMe(closed, [{ key: 'dashboard.view' }]), ['dashboard.view']);
+});
+
+test('C-2: the group floor bounds a group admin; null is unbounded', () => {
+  const floor = holderFromFloor({ grants: [{ key: 'crm.view', scope: 'company' }], fields: [{ key: 'salary', view: true, edit: false }] });
+  assert.deepEqual(beyondMe(floor, [{ key: 'crm.view', scope: 'group' }, { key: 'sales.view' }], [{ key: 'salary', view: true, edit: true }]), ['crm.view', 'sales.view', 'field:salary']);
+  assert.deepEqual(beyondMe(floor, [{ key: 'crm.view', scope: 'own' }]), []);
+  assert.equal(holderFromFloor(null), null);
 });

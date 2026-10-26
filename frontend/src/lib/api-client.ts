@@ -48,7 +48,8 @@ export function setCreditLimitPrompt(prompt: typeof creditLimitPrompt) {
  */
 export interface ForbiddenHandler {
   describe: (body: { code: string; [key: string]: unknown }) => string | null;
-  notify: (sentence: string) => void;
+  /** `serverMessage`: the server's own words, which a screen may echo in its error toast. */
+  notify: (sentence: string, serverMessage?: string) => void;
 }
 let forbiddenHandler: ForbiddenHandler | null = null;
 export function setForbiddenHandler(handler: ForbiddenHandler | null) {
@@ -151,11 +152,12 @@ export async function apiFetch<T>(
     if ((response.status === 403 || response.status === 409) && typeof coded?.code === 'string' && forbiddenHandler) {
       const sentence = forbiddenHandler.describe({ ...(details as Record<string, unknown>), code: coded.code });
       if (sentence) {
+        const serverMessage = message;
         message = sentence;
         // An action the person tried: say so at once. A refused read stays quiet
         // (the screen hides what it cannot show) but carries the same sentence.
         const method = (options.method || 'GET').toUpperCase();
-        if (method !== 'GET' && method !== 'HEAD' && refusalMode !== 'inline') forbiddenHandler.notify(sentence);
+        if (method !== 'GET' && method !== 'HEAD' && refusalMode !== 'inline') forbiddenHandler.notify(sentence, serverMessage);
       }
     }
     throw new ApiError(response.status, message, details);

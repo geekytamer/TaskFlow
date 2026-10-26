@@ -41,12 +41,12 @@ export function ForbiddenBridge() {
     const lang = language === 'ar' ? 'ar' : 'en';
     setForbiddenHandler({
       describe: (body) => refusalSentence(body, labels.current, lang),
-      notify: (sentence) => {
+      notify: (sentence, serverMessage) => {
         showRefusalToast({
           variant: 'destructive',
           title: lang === 'ar' ? 'غير مسموح' : 'Not allowed',
           description: sentence,
-        });
+        }, undefined, serverMessage);
       },
     });
     return () => setForbiddenHandler(null);
