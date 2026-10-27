@@ -120,6 +120,27 @@ export function registerProjectPlanRoutes(
     });
   }));
 
+  /** Move the whole project to a new start; unfinished work moves with it. */
+  app.post('/projects/:id/postpone', authMiddleware, handler((req, res) => {
+    const found = store.getProjectById(req.params.id);
+    if (found) requireCompanyRoles(req, found.companyId, ['Admin', 'Manager']);
+    const project = managedProject(req, req.params.id);
+    const raw = optionalDateInput(asRecord(req.body, 'body').startDate);
+    if (!raw) throw new HttpError(400, 'Pick the new start date.');
+    const result = withActor(req, () => store.postponeProject(project.id, new Date(raw)))!;
+    res.json({ ...result, companyId: project.companyId });
+  }));
+
+  /** Mark done, optionally closing the tasks still open. */
+  app.post('/projects/:id/complete', authMiddleware, handler((req, res) => {
+    const found = store.getProjectById(req.params.id);
+    if (found) requireCompanyRoles(req, found.companyId, ['Admin', 'Manager']);
+    const project = managedProject(req, req.params.id);
+    const closeOpenTasks = asRecord(req.body ?? {}, 'body').closeOpenTasks === true;
+    const result = withActor(req, () => store.completeProject(project.id, closeOpenTasks))!;
+    res.json({ ...result, companyId: project.companyId });
+  }));
+
   app.get('/companies/:companyId/project-templates', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
     res.json(store.projectPlan.templates(req.params.companyId).map((t) => ({

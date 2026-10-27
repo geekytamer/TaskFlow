@@ -229,8 +229,11 @@ export interface Project {
   visibility: ProjectVisibility;
   memberIds?: string[];
   clientId?: string;
-  /** Planning, Active, On Hold or Done (projects/project-plan.ts). */
+  /** Planning, Active, On Hold, Done or Archived (projects/project-plan.ts). */
   status?: import('./projects/project-plan').ProjectStatus;
+  priority?: import('./projects/project-plan').ProjectPriority;
+  /** The first planned start, once the project was moved to another date. */
+  postponedFrom?: string;
   /** ISO dates; null on an update clears them. */
   startDate?: string | null;
   endDate?: string | null;
@@ -1788,6 +1791,7 @@ export type NotificationType =
   | 'task_start'
   | 'task_behind'
   | 'project_budget'
+  | 'project_postponed'
   | 'task_completed'
   | 'task_comment'
   | 'task_due'

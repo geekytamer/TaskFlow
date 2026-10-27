@@ -185,3 +185,68 @@ test('templates: save a project with its stages, tasks, steps and people, then s
   assert.equal((await as(admin.id).del(`/project-templates/${saved.body.id}`)).status, 200);
   assert.deepEqual((await as(admin.id).get('/companies/1/project-templates')).body.map((x) => x.name), ['Early']);
 });
+
+test('priority and archive: a project has a priority; an archived project stops reminding', async () => {
+  const { store, as, admin, newProject, newTask } = setup();
+  const p = await newProject({ priority: 'Urgent' });
+  assert.equal(p.priority, 'Urgent');
+  assert.equal((await newProject({ name: 'Default' })).priority, 'Medium');
+  assert.equal((await as(admin.id).put(`/projects/${p.id}`, { priority: 'Someday' })).status, 400);
+
+  const late = await newTask(p.id, { dueDate: new Date(Date.now() - DAY).toISOString() });
+  const reminders = () => store.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE type = 'task_due' AND entityId = ?").get(late.id).n;
+  store.sweepTaskDueReminders();
+  assert.ok(reminders() > 0, 'an open overdue task reminds');
+  store.db.prepare("DELETE FROM notifications WHERE type = 'task_due'").run();
+  assert.equal((await as(admin.id).put(`/projects/${p.id}`, { status: 'Archived' })).body.status, 'Archived');
+  store.sweepTaskDueReminders();
+  assert.equal(reminders(), 0, 'archived: quiet');
+});
+
+test('postpone: the project, its stages and its unfinished tasks move together; finished work stays; people hear', async () => {
+  const { store, as, admin, newProject, newTask } = setup();
+  const p = await newProject({ startDate: new Date(2026, 10, 1, 9).toISOString(), endDate: new Date(2026, 10, 20, 9).toISOString(), status: 'Active' });
+  const stage = (await as(admin.id).post(`/projects/${p.id}/milestones`, { name: 'Filming', dueDate: new Date(2026, 10, 10, 9).toISOString() })).body;
+  const open = await newTask(p.id, { startDate: new Date(2026, 10, 3, 9).toISOString(), dueDate: new Date(2026, 10, 5, 9).toISOString() });
+  const done = await newTask(p.id, { title: 'Brief', dueDate: new Date(2026, 10, 2, 9).toISOString() });
+  await as(admin.id).put(`/tasks/${done.id}`, { status: 'Done' });
+
+  assert.equal((await as('user-3').post(`/projects/${p.id}/postpone`, { startDate: new Date(2026, 11, 1, 9).toISOString() })).status, 403);
+  assert.equal((await as(admin.id).post(`/projects/${p.id}/postpone`, {})).status, 400);
+  const res = await as(admin.id).post(`/projects/${p.id}/postpone`, { startDate: new Date(2026, 11, 1, 9).toISOString() });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.days, 30);
+  assert.equal(res.body.project.status, 'Planning', 'a later start is planning again');
+  assert.equal(new Date(res.body.project.postponedFrom).getDate(), 1);
+  assert.deepEqual([new Date(res.body.project.endDate).getMonth(), new Date(res.body.project.endDate).getDate()], [11, 20]);
+  assert.equal(new Date(store.projectPlan.milestone(stage.id).dueDate).getDate(), 10);
+  assert.equal(new Date(store.projectPlan.milestone(stage.id).dueDate).getMonth(), 11);
+  const moved = store.getTaskById(open.id);
+  assert.deepEqual([moved.startDate.getMonth(), moved.startDate.getDate(), moved.dueDate.getDate()], [11, 3, 5]);
+  assert.equal(store.getTaskById(done.id).dueDate.getMonth(), 10, 'finished work keeps its date');
+  const told = store.db.prepare("SELECT userId FROM notifications WHERE type = 'project_postponed'").all().map((r) => r.userId);
+  assert.ok(told.includes('user-3'));
+
+  // Moving again keeps the very first planned start.
+  const again = (await as(admin.id).post(`/projects/${p.id}/postpone`, { startDate: new Date(2027, 0, 5, 9).toISOString() })).body;
+  assert.equal(new Date(again.project.postponedFrom).getMonth(), 10);
+});
+
+test('complete: marks the project done, and closes its open tasks only when asked, without new rounds', async () => {
+  const { store, as, admin, newProject, newTask } = setup();
+  const p = await newProject();
+  await newTask(p.id, { assignedUserIds: ['user-3', 'user-5'], recurrence: 'weekly', dueDate: new Date().toISOString() });
+  await newTask(p.id, { title: 'Two' });
+
+  assert.equal((await as('user-3').post(`/projects/${p.id}/complete`, {})).status, 403);
+  const keep = (await as(admin.id).post(`/projects/${p.id}/complete`, { closeOpenTasks: false })).body;
+  assert.deepEqual([keep.project.status, keep.closed], ['Done', 0]);
+  assert.equal(store.listTasks().filter((t) => t.projectId === p.id && t.status !== 'Done').length, 2);
+
+  const close = (await as(admin.id).post(`/projects/${p.id}/complete`, { closeOpenTasks: true })).body;
+  assert.equal(close.closed, 2);
+  const tasks = store.listTasks().filter((t) => t.projectId === p.id);
+  assert.equal(tasks.length, 2, 'no next round of the repeating task');
+  assert.ok(tasks.every((t) => t.status === 'Done'));
+  assert.ok(tasks[0].parts.every((part) => part.status === 'Done') || tasks[1].parts.every((part) => part.status === 'Done'));
+});

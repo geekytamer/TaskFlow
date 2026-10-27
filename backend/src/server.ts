@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { CreditLimitError, DataStore, OpportunityInUseError, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
 import { taskRecurrences } from './tasks/task-recurrence';
-import { projectStatuses } from './projects/project-plan';
+import { projectPriorities, projectStatuses } from './projects/project-plan';
 import { registerProjectPlanRoutes } from './routes/project-plan';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
@@ -1694,6 +1694,7 @@ export function createServer(options: CreateServerOptions = {}) {
       memberIds: record.memberIds !== undefined ? stringArray(record.memberIds, 'memberIds') : undefined,
       clientId: record.clientId !== undefined ? optionalString(record.clientId) : undefined,
       status: record.status !== undefined ? enumValue(record.status, 'status', projectStatuses) : undefined,
+      priority: record.priority !== undefined ? enumValue(record.priority, 'priority', projectPriorities) : undefined,
       // null or '' clears; undefined keeps.
       startDate: record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate) ?? null,
       endDate: record.endDate === undefined ? undefined : record.endDate === null || record.endDate === '' ? null : optionalDateInput(record.endDate) ?? null,
@@ -3071,6 +3072,7 @@ export function createServer(options: CreateServerOptions = {}) {
           memberIds: payload.memberIds || [],
           clientId: payload.clientId,
           status: payload.status,
+          priority: payload.priority,
           startDate: payload.startDate ?? undefined,
           endDate: payload.endDate ?? undefined,
           budget: payload.budget ?? undefined,

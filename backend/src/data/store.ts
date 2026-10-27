@@ -391,6 +391,8 @@ type CreatePurchaseRequisitionInput = {
   notes?: string;
   preferredSupplierId?: string;
 };
+/** Tasks of an archived project are put away: no reminders or alerts for them. */
+const NOT_ARCHIVED = "(projectId IS NULL OR projectId = '' OR projectId NOT IN (SELECT id FROM projects WHERE status = 'Archived'))";
 type CreateExpenseInput = {
   companyId: string;
   expenseDate?: Date | string;
@@ -5304,6 +5306,14 @@ export class DataStore {
           this.db.exec(PROJECT_PLAN_SCHEMA);
         },
       },
+      {
+        // Project priority, and the first planned start of a project moved to a later date.
+        id: '144_project_priority_postpone',
+        run: () => {
+          this.db.exec("ALTER TABLE projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'Medium'");
+          this.db.exec('ALTER TABLE projects ADD COLUMN postponedFrom TEXT');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7192,6 +7202,8 @@ export class DataStore {
       memberIds: this.parseJson<string[]>(row.memberIds) || [],
       clientId: row.clientId || undefined,
       status: row.status || 'Active',
+      priority: row.priority || 'Medium',
+      postponedFrom: row.postponedFrom || undefined,
       startDate: row.startDate || undefined,
       endDate: row.endDate || undefined,
       budget: row.budget ?? undefined,
@@ -7209,10 +7221,11 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId, status, startDate, endDate, budget) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId, @status, @startDate, @endDate, @budget)',
+        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId, status, priority, startDate, endDate, budget) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId, @status, @priority, @startDate, @endDate, @budget)',
       )
       .run({
         status: newProject.status ?? 'Active',
+        priority: newProject.priority ?? 'Medium',
         startDate: newProject.startDate ?? null,
         endDate: newProject.endDate ?? null,
         budget: newProject.budget ?? null,
@@ -7266,13 +7279,14 @@ export class DataStore {
       color: updates.color ?? existing.color ?? null,
       // null clears a date or the budget; undefined (not sent) keeps it.
       status: changes.status ?? existing.status ?? 'Active',
+      priority: changes.priority ?? existing.priority ?? 'Medium',
       startDate: changes.startDate !== undefined ? changes.startDate ?? null : existing.startDate ?? null,
       endDate: changes.endDate !== undefined ? changes.endDate ?? null : existing.endDate ?? null,
       budget: changes.budget !== undefined ? changes.budget ?? null : existing.budget ?? null,
     };
     this.db
       .prepare(
-        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId, status=@status, startDate=@startDate, endDate=@endDate, budget=@budget WHERE id=@id',
+        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId, status=@status, priority=@priority, startDate=@startDate, endDate=@endDate, budget=@budget WHERE id=@id',
       )
       .run(updated);
     // A changed budget is judged afresh by the next budget sweep.
@@ -7775,11 +7789,98 @@ export class DataStore {
   }
 
   /**
+   * Move a project to a later (or earlier) start: its end, its stages and the
+   * dates of every unfinished task move by the same number of days. The first
+   * planned start is kept, so the project shows it was moved. People with open
+   * tasks in it are told.
+   */
+  postponeProject(id: string, newStart: Date): { project: Project; days: number; moved: number } | undefined {
+    const project = this.getProjectById(id);
+    if (!project) return undefined;
+    const open = this.listTasks().filter((t) => t.projectId === id && t.status !== 'Done');
+    const stages = this.projectPlan.milestones(id);
+    const dated = [
+      ...(project.startDate ? [new Date(project.startDate).getTime()] : []),
+      ...open.flatMap((t) => [t.startDate, t.dueDate]).filter(Boolean).map((d) => new Date(d as Date).getTime()),
+      ...stages.map((m) => m.dueDate).filter(Boolean).map((d) => new Date(d as string).getTime()),
+    ];
+    const oldStart = project.startDate ? new Date(project.startDate) : dated.length ? new Date(Math.min(...dated)) : newStart;
+    const days = dayOffset(oldStart, newStart) ?? 0;
+    const move = (d: Date | string | null | undefined) => (d ? shiftDays(new Date(d), days) : undefined);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE projects SET startDate = ?, endDate = ?, postponedFrom = COALESCE(postponedFrom, ?), status = ? WHERE id = ?').run(
+        newStart.toISOString(),
+        project.endDate ? move(project.endDate)!.toISOString() : null,
+        oldStart.toISOString(),
+        newStart.getTime() > today.getTime() + 86_400_000 - 1 && project.status === 'Active' ? 'Planning' : project.status ?? 'Active',
+        id,
+      );
+      for (const m of stages) if (m.dueDate) this.projectPlan.updateMilestone(m.id, { dueDate: move(m.dueDate)!.toISOString() });
+      for (const t of open) {
+        if (!t.startDate && !t.dueDate) continue;
+        this.updateTask(t.id, { ...(t.startDate ? { startDate: move(t.startDate) } : {}), ...(t.dueDate ? { dueDate: move(t.dueDate) } : {}) });
+      }
+    })();
+    const people = [...new Set([...open.flatMap((t) => t.assignedUserIds ?? []), ...(project.memberIds ?? [])])];
+    const when = newStart.toISOString().slice(0, 10);
+    this.notify({
+      companyId: project.companyId,
+      userIds: people,
+      type: 'project_postponed',
+      title: `Moved: ${project.name}`,
+      body: `Now starts ${when}; its task dates moved ${days} day(s).`,
+      data: { tKey: 'notif.projectPostponed.t', bKey: 'notif.projectPostponed.b', title: project.name, date: when, days },
+      link: `/projects/${id}`,
+      entityType: 'project',
+      entityId: id,
+    });
+    this.createActivityEvent({
+      companyId: project.companyId,
+      entityType: 'project',
+      entityId: id,
+      action: 'updated',
+      summary: `Project ${project.name} moved ${days} day(s) to start ${when}.`,
+      metadata: { days, from: oldStart.toISOString(), to: newStart.toISOString() },
+    });
+    return { project: this.getProjectById(id)!, days, moved: open.length };
+  }
+
+  /**
+   * Mark a project done; with closeOpenTasks its unfinished tasks are closed
+   * too (every part done). A repeating task closed this way makes no next round.
+   */
+  completeProject(id: string, closeOpenTasks: boolean): { project: Project; closed: number } | undefined {
+    const project = this.getProjectById(id);
+    if (!project) return undefined;
+    const open = this.listTasks().filter((t) => t.projectId === id && t.status !== 'Done');
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE projects SET status = 'Done' WHERE id = ?").run(id);
+      if (closeOpenTasks) {
+        for (const t of open) {
+          this.db.prepare("UPDATE tasks SET status = 'Done' WHERE id = ?").run(t.id);
+          this.taskParts.setAll(t.id, 'Done');
+        }
+      }
+    })();
+    this.createActivityEvent({
+      companyId: project.companyId,
+      entityType: 'project',
+      entityId: id,
+      action: 'updated',
+      summary: `Project ${project.name} marked done${closeOpenTasks && open.length ? `, ${open.length} open task(s) closed` : ''}.`,
+      metadata: { status: 'Done', closed: closeOpenTasks ? open.length : 0 },
+    });
+    return { project: this.getProjectById(id)!, closed: closeOpenTasks ? open.length : 0 };
+  }
+
+  /**
    * Budget watch: company admins and managers hear once when a project's spend
    * (logged time + expenses) reaches 80% of its budget, and once when it goes over.
    */
   sweepProjectBudgetAlerts(): number {
-    const rows = this.db.prepare('SELECT * FROM projects WHERE budget IS NOT NULL AND budget > 0').all() as any[];
+    const rows = this.db.prepare("SELECT * FROM projects WHERE budget IS NOT NULL AND budget > 0 AND status != 'Archived'").all() as any[];
     let count = 0;
     for (const row of rows) {
       const spent = this.projectPlan.spent(row.id).total;
@@ -20848,7 +20949,7 @@ export class DataStore {
     const now = Date.now();
     const horizon = new Date(now + 24 * 60 * 60 * 1000).toISOString();
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND dueDate IS NOT NULL AND dueDate <= ?")
+      .prepare(`SELECT * FROM tasks WHERE status != 'Done' AND dueDate IS NOT NULL AND dueDate <= ? AND ${NOT_ARCHIVED}`)
       .all(horizon) as any[];
     let count = 0;
     for (const row of rows) {
@@ -20885,7 +20986,7 @@ export class DataStore {
     const nowIso = now.toISOString();
     let count = 0;
     const starting = this.db
-      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND startDate <= ? AND startNotifiedAt IS NULL")
+      .prepare(`SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND startDate <= ? AND startNotifiedAt IS NULL AND ${NOT_ARCHIVED}`)
       .all(nowIso) as any[];
     for (const row of starting) {
       const task = this.decodeTask(row);
@@ -20904,7 +21005,7 @@ export class DataStore {
       }).length;
     }
     const running = this.db
-      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND dueDate IS NOT NULL AND behindNotifiedAt IS NULL AND ownerId IS NOT NULL")
+      .prepare(`SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND dueDate IS NOT NULL AND behindNotifiedAt IS NULL AND ownerId IS NOT NULL AND ${NOT_ARCHIVED}`)
       .all() as any[];
     for (const row of running) {
       const task = this.decodeTask(row);
