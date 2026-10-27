@@ -7790,9 +7790,11 @@ export class DataStore {
 
   /**
    * Move a project to a later (or earlier) start: its end, its stages and the
-   * dates of every unfinished task move by the same number of days. The first
-   * planned start is kept, so the project shows it was moved. People with open
-   * tasks in it are told.
+   * dates of every unfinished task move by the same number of days. Work that
+   * would still sit before the new start (it was already late) is brought up to
+   * the new start, keeping its length, so nothing is overdue straight after a
+   * move. The first planned start is kept, so the project shows it was moved.
+   * People with open tasks in it are told.
    */
   postponeProject(id: string, newStart: Date): { project: Project; days: number; moved: number } | undefined {
     const project = this.getProjectById(id);
@@ -7807,6 +7809,11 @@ export class DataStore {
     const oldStart = project.startDate ? new Date(project.startDate) : dated.length ? new Date(Math.min(...dated)) : newStart;
     const days = dayOffset(oldStart, newStart) ?? 0;
     const move = (d: Date | string | null | undefined) => (d ? shiftDays(new Date(d), days) : undefined);
+    /** Extra days to bring a moved item up to the new start, when it would land before it. */
+    const catchUp = (earliest: Date | undefined) => {
+      const behind = earliest ? dayOffset(earliest, newStart) ?? 0 : 0;
+      return behind > 0 ? behind : 0;
+    };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     this.db.transaction(() => {
@@ -7817,10 +7824,20 @@ export class DataStore {
         newStart.getTime() > today.getTime() + 86_400_000 - 1 && project.status === 'Active' ? 'Planning' : project.status ?? 'Active',
         id,
       );
-      for (const m of stages) if (m.dueDate) this.projectPlan.updateMilestone(m.id, { dueDate: move(m.dueDate)!.toISOString() });
+      for (const m of stages) {
+        if (!m.dueDate) continue;
+        const due = move(m.dueDate)!;
+        this.projectPlan.updateMilestone(m.id, { dueDate: shiftDays(due, catchUp(due))!.toISOString() });
+      }
       for (const t of open) {
         if (!t.startDate && !t.dueDate) continue;
-        this.updateTask(t.id, { ...(t.startDate ? { startDate: move(t.startDate) } : {}), ...(t.dueDate ? { dueDate: move(t.dueDate) } : {}) });
+        const start = move(t.startDate);
+        const due = move(t.dueDate);
+        const extra = catchUp(start ?? due);
+        this.updateTask(t.id, {
+          ...(start ? { startDate: shiftDays(start, extra) } : {}),
+          ...(due ? { dueDate: shiftDays(due, extra) } : {}),
+        });
       }
     })();
     const people = [...new Set([...open.flatMap((t) => t.assignedUserIds ?? []), ...(project.memberIds ?? [])])];

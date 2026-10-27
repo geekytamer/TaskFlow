@@ -33,6 +33,9 @@ export interface Project {
   memberIds?: string[];
   clientId?: string;
   status?: ProjectStatus;
+  priority?: ProjectPriority;
+  /** The first planned start, once the project was moved to another date. */
+  postponedFrom?: string;
   /** ISO dates; null clears on update. */
   startDate?: string | null;
   endDate?: string | null;
@@ -40,8 +43,10 @@ export interface Project {
   budget?: number | null;
 }
 
-export const projectStatuses = ['Planning', 'Active', 'On Hold', 'Done'] as const;
+export const projectStatuses = ['Planning', 'Active', 'On Hold', 'Done', 'Archived'] as const;
 export type ProjectStatus = (typeof projectStatuses)[number];
+export const projectPriorities = ['Low', 'Medium', 'High', 'Urgent'] as const;
+export type ProjectPriority = (typeof projectPriorities)[number];
 
 /** A stage of a project, with how many of its tasks are done. */
 export interface ProjectMilestone {

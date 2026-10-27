@@ -235,3 +235,11 @@ export async function createProjectFromTemplate(templateId: string, data: { name
 export async function deleteProjectTemplate(templateId: string): Promise<void> {
   await apiFetch(`/project-templates/${templateId}`, { method: 'DELETE' });
 }
+
+export async function postponeProject(projectId: string, startDate: string): Promise<{ project: Project; days: number; moved: number }> {
+  return apiFetch(`/projects/${projectId}/postpone`, { method: 'POST', body: JSON.stringify({ startDate }) });
+}
+
+export async function completeProject(projectId: string, closeOpenTasks: boolean): Promise<{ project: Project; closed: number }> {
+  return apiFetch(`/projects/${projectId}/complete`, { method: 'POST', body: JSON.stringify({ closeOpenTasks }) });
+}

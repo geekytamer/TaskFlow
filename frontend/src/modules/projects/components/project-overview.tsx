@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { BookmarkPlus, CalendarRange, Flag, Plus, Trash2, Wallet } from 'lucide-react';
+import { CalendarRange, Flag, Plus, Trash2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,6 @@ import {
   addMilestone,
   deleteMilestone,
   getProjectSummary,
-  saveProjectAsTemplate,
   updateMilestone,
 } from '@/services/projectService';
 import type { Project, ProjectMilestone, ProjectSummary } from '../types';
@@ -61,8 +60,6 @@ export function ProjectOverview({ project, canManage }: { project: Project; canM
   const [summary, setSummary] = React.useState<ProjectSummary | null>(null);
   const [newStage, setNewStage] = React.useState<{ name: string; due: Date | null }>({ name: '', due: null });
   const [renaming, setRenaming] = React.useState<{ id: string; name: string } | null>(null);
-  const [templateName, setTemplateName] = React.useState('');
-  const [templateOpen, setTemplateOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setSummary(await getProjectSummary(project.id).catch(() => null));
@@ -97,7 +94,7 @@ export function ProjectOverview({ project, canManage }: { project: Project; canM
   };
 
   return (
-    <section className="grid gap-4 lg:grid-cols-3" aria-label={tr('Project plan', 'خطة المشروع')}>
+    <section className={cn('grid gap-4', summary.budget ? 'lg:grid-cols-3' : 'lg:grid-cols-2')} aria-label={tr('Project plan', 'خطة المشروع')}>
       {/* Progress and time */}
       <div className="space-y-3 rounded-xl border bg-card p-4">
         <div className="flex items-center justify-between">
@@ -138,7 +135,8 @@ export function ProjectOverview({ project, canManage }: { project: Project; canM
         </div>
       </div>
 
-      {/* Budget */}
+      {/* Budget — only when the project has one; many projects are just a group of tasks. */}
+      {summary.budget && (
       <div className="space-y-3 rounded-xl border bg-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold"><Wallet className="h-4 w-4" />{tr('Budget', 'الميزانية')}</h2>
@@ -176,33 +174,8 @@ export function ProjectOverview({ project, canManage }: { project: Project; canM
               : tr('No budget to show.', 'لا توجد ميزانية لعرضها.')}
           </p>
         )}
-        {canManage && (
-          <Popover open={templateOpen} onOpenChange={(o) => { setTemplateOpen(o); if (o) setTemplateName(project.name); }}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="w-full">
-                <BookmarkPlus className="me-1 h-4 w-4" />{tr('Save as template', 'حفظ كقالب')}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 space-y-2" align="end">
-              <p className="text-xs text-muted-foreground">
-                {tr('Keeps the stages, tasks, people and checklist steps, with dates counted from the start.', 'يحفظ المراحل والمهام والأشخاص وقوائم التحقق، والتواريخ محسوبة من بداية المشروع.')}
-              </p>
-              <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder={tr('Template name', 'اسم القالب')} />
-              <Button
-                size="sm"
-                className="w-full"
-                disabled={!templateName.trim()}
-                onClick={() => {
-                  setTemplateOpen(false);
-                  void run(() => saveProjectAsTemplate(project.id, templateName.trim()), tr('Template saved', 'تم حفظ القالب'));
-                }}
-              >
-                {tr('Save', 'حفظ')}
-              </Button>
-            </PopoverContent>
-          </Popover>
-        )}
       </div>
+      )}
 
       {/* Stages */}
       <div className="space-y-3 rounded-xl border bg-card p-4">

@@ -227,6 +227,16 @@ test('postpone: the project, its stages and its unfinished tasks move together; 
   const told = store.db.prepare("SELECT userId FROM notifications WHERE type = 'project_postponed'").all().map((r) => r.userId);
   assert.ok(told.includes('user-3'));
 
+  // Work that was already late is brought up to the new start (keeping its length), never left overdue.
+  const late = await newProject({ name: 'Behind', startDate: new Date(2026, 6, 1, 9).toISOString() });
+  const old = await newTask(late.id, { startDate: new Date(2026, 5, 25, 9).toISOString(), dueDate: new Date(2026, 5, 27, 9).toISOString() });
+  const lateStage = (await as(admin.id).post(`/projects/${late.id}/milestones`, { name: 'Old', dueDate: new Date(2026, 5, 20, 9).toISOString() })).body;
+  await as(admin.id).post(`/projects/${late.id}/postpone`, { startDate: new Date(2026, 6, 10, 9).toISOString() });
+  const caught = store.getTaskById(old.id);
+  assert.deepEqual([caught.startDate.getMonth(), caught.startDate.getDate(), caught.dueDate.getDate()], [6, 10, 12]);
+  const st = new Date(store.projectPlan.milestone(lateStage.id).dueDate);
+  assert.deepEqual([st.getMonth(), st.getDate()], [6, 10], 'a stage before the start lands on it');
+
   // Moving again keeps the very first planned start.
   const again = (await as(admin.id).post(`/projects/${p.id}/postpone`, { startDate: new Date(2027, 0, 5, 9).toISOString() })).body;
   assert.equal(new Date(again.project.postponedFrom).getMonth(), 10);

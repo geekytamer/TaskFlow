@@ -16,7 +16,17 @@ import type { Task } from '@/modules/projects/types';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 import { usePermissionOr } from '@/context/permissions-context';
 import { getCurrentLocale } from '@/lib/locale';
-import { PROJECT_STATUS_STYLE, projectIsLate, projectStatusName } from '@/modules/projects/lib/project-meta';
+import {
+  PROJECT_PRIORITY_STYLE,
+  PROJECT_PRIORITY_WEIGHT,
+  PROJECT_STATUS_STYLE,
+  projectIsLate,
+  projectPriorityName,
+  projectStatusName,
+  projectTab,
+  type ProjectTab,
+} from '@/modules/projects/lib/project-meta';
+import { cn } from '@/lib/utils';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();
@@ -26,6 +36,7 @@ export function ProjectList() {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [clients, setClients] = React.useState<Client[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [tab, setTab] = React.useState<ProjectTab>('current');
 
   React.useEffect(() => {
     let cancelled = false;
@@ -58,16 +69,33 @@ export function ProjectList() {
     };
   }, [currentRole, selectedCompany, canLoadClients]);
 
-  const visibleProjects = React.useMemo(() => {
+  const companyProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];
-    return projects
-      .filter(
-        (p) =>
-          p.companyId === selectedCompany.id &&
-          canViewProject(p, currentUser.id, currentRole, seesAllProjects),
-      )
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return projects.filter(
+      (p) =>
+        p.companyId === selectedCompany.id &&
+        canViewProject(p, currentUser.id, currentRole, seesAllProjects),
+    );
   }, [projects, currentUser, currentRole, selectedCompany, seesAllProjects]);
+
+  const tabCounts = React.useMemo(() => {
+    const counts: Record<ProjectTab, number> = { current: 0, done: 0, archived: 0, all: companyProjects.length };
+    for (const p of companyProjects) counts[projectTab(p.status)]++;
+    return counts;
+  }, [companyProjects]);
+
+  // Most urgent first, then the one ending soonest, then by name.
+  const visibleProjects = React.useMemo(() => {
+    const end = (p: (typeof companyProjects)[number]) => (p.endDate ? new Date(p.endDate).getTime() : Infinity);
+    return companyProjects
+      .filter((p) => tab === 'all' || projectTab(p.status) === tab)
+      .sort(
+        (a, b) =>
+          PROJECT_PRIORITY_WEIGHT[a.priority ?? 'Medium'] - PROJECT_PRIORITY_WEIGHT[b.priority ?? 'Medium'] ||
+          end(a) - end(b) ||
+          a.name.localeCompare(b.name),
+      );
+  }, [companyProjects, tab]);
 
   const statsByProject = React.useMemo(() => {
     const todayStart = new Date();
@@ -96,8 +124,44 @@ export function ProjectList() {
     );
   }
 
+  const tabs: Array<{ key: ProjectTab; label: string }> = [
+    { key: 'current', label: tr('Current', 'الجارية') },
+    { key: 'done', label: tr('Done', 'المكتملة') },
+    { key: 'archived', label: tr('Archived', 'المؤرشفة') },
+    { key: 'all', label: tr('All', 'الكل') },
+  ];
+
   return (
-    <div>
+    <div className="space-y-3">
+      <div className="flex items-center gap-1 self-start rounded-lg border bg-card p-1 text-sm w-fit" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              'rounded-md px-3 py-1 font-medium transition-colors',
+              tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {t.label}
+            <span className="ms-1.5 text-xs opacity-70 tabular-nums">{tabCounts[t.key]}</span>
+          </button>
+        ))}
+      </div>
+      {visibleProjects.length === 0 && (
+        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {tab === 'current'
+            ? tr('No current projects.', 'لا توجد مشاريع جارية.')
+            : tab === 'done'
+              ? tr('No finished projects yet.', 'لا توجد مشاريع مكتملة بعد.')
+              : tab === 'archived'
+                ? tr('Nothing archived.', 'لا يوجد شيء في الأرشيف.')
+                : tr('No projects yet.', 'لا توجد مشاريع بعد.')}
+        </p>
+      )}
       <ScrollArea className="w-full whitespace-nowrap">
         <div className="flex w-max gap-4 pb-4">
           {visibleProjects.map((project) => {
@@ -155,6 +219,16 @@ export function ProjectList() {
                       <Badge variant="outline" className={PROJECT_STATUS_STYLE[project.status ?? 'Active']}>
                         {late ? tr('Late', 'متأخر') : projectStatusName(project.status, language)}
                       </Badge>
+                      {(project.priority === 'High' || project.priority === 'Urgent') && (
+                        <Badge variant="outline" className={PROJECT_PRIORITY_STYLE[project.priority]}>
+                          {projectPriorityName(project.priority, language)}
+                        </Badge>
+                      )}
+                      {project.postponedFrom && (
+                        <Badge variant="outline" className="border-sky-300 text-sky-700 dark:border-sky-500/40 dark:text-sky-300">
+                          {tr('Moved', 'مرحّل')}
+                        </Badge>
+                      )}
                       <Badge
                         variant={project.visibility === 'Private' ? 'secondary' : 'outline'}
                         className="gap-1"
