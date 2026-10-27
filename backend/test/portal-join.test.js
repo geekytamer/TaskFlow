@@ -7,7 +7,7 @@ const { buildWorkspace } = require('./helpers/workspace');
 
 const valid = {
   company: 'Sidr Coffee', name: 'Salim Al Harthy', phone: '+968 9123 4567', email: 'salim@sidr.test',
-  industry: 'Food', city: 'Muscat', budget: 'b2', notes: 'Opening a second branch.\nWant a launch campaign.',
+  industry: 'Food', city: 'Muscat', role: 'marketing', notes: 'Opening a second branch.\nWant a launch campaign.',
 };
 
 test('a request becomes a lead, an opportunity and a follow-up, and admins and managers are told', async () => {
@@ -22,7 +22,7 @@ test('a request becomes a lead, an opportunity and a follow-up, and admins and m
   assert.equal(lead.leadSource, 'Website');
   assert.equal(lead.contactPerson, 'Salim Al Harthy');
   assert.equal(lead.phone, '+968 9123 4567');
-  assert.match(lead.notes, /500 to 1,500 a month/);
+  assert.match(lead.notes, /Role: Marketing team/);
   assert.match(lead.notes, /Opening a second branch\.\nWant a launch campaign\./);
 
   const opp = ctx.store.listOpportunities(ctx.company.id).find((o) => o.contactId === lead.id);
@@ -43,7 +43,8 @@ test('missing or malformed fields are refused and nothing is created', async () 
     { ...valid, name: undefined },
     { ...valid, phone: 'call me' },
     { ...valid, email: 'not-an-email' },
-    { ...valid, budget: 'lots' },
+    { ...valid, role: 'boss' },
+    { ...valid, role: 'constructor' },
     { ...valid, company: 'x'.repeat(121) },
     { ...valid, notes: 'x'.repeat(1001) },
     { ...valid, company: { $gt: '' } },

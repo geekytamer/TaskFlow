@@ -16,12 +16,10 @@ const INDUSTRIES: Array<{ key: Key; en: string }> = [
   { key: 'join.ind.education', en: 'Education' },
   { key: 'join.ind.other', en: 'Other' },
 ];
-const BUDGETS: Array<{ value: string; label: Key }> = [
-  { value: 'b1', label: 'join.bud.b1' },
-  { value: 'b2', label: 'join.bud.b2' },
-  { value: 'b3', label: 'join.bud.b3' },
-  { value: 'b4', label: 'join.bud.b4' },
-  { value: 'b0', label: 'join.bud.b0' },
+const ROLES: Array<{ value: string; label: Key }> = [
+  { value: 'owner', label: 'join.role.owner' },
+  { value: 'marketing', label: 'join.role.marketing' },
+  { value: 'other', label: 'join.role.other' },
 ];
 
 const label = 'mb-2 block text-sm font-semibold text-ink';
@@ -30,7 +28,7 @@ const input = `${control} h-12 bg-canvas/60`;
 export function JoinForm({ lang }: { lang: Lang }) {
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [budget, setBudget] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [sent, setSent] = useState<{ name: string; phone: string } | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -50,7 +48,7 @@ export function JoinForm({ lang }: { lang: Lang }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company: get('company'), name: get('name'), phone: get('phone'), email: get('email') || null,
-          industry: industry?.en ?? null, city: get('city') || null, budget, notes: get('notes') || null, website: get('website'),
+          industry: industry?.en ?? null, city: get('city') || null, role, notes: get('notes') || null, website: get('website'),
         }),
       });
       if (response.ok) {
@@ -107,12 +105,12 @@ export function JoinForm({ lang }: { lang: Lang }) {
         <input id="j-city" name="city" maxLength={60} autoComplete="address-level2" className={input} />
       </div>
       <fieldset className="sm:col-span-2">
-        <legend className={label}>{t(lang, 'join.budget')}</legend>
+        <legend className={label}>{t(lang, 'join.role')}</legend>
         <div className="flex flex-wrap gap-2">
-          {BUDGETS.map((b) => (
-            <button key={b.value} type="button" aria-pressed={budget === b.value} onClick={() => setBudget(budget === b.value ? null : b.value)}
-              className={`inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-semibold transition-colors ${budget === b.value ? 'border-accent bg-accent text-accent-ink' : 'border-white/[0.16] text-ink-soft hover:border-ink/50 hover:text-ink'}`}>
-              {t(lang, b.label)}
+          {ROLES.map((r) => (
+            <button key={r.value} type="button" aria-pressed={role === r.value} onClick={() => setRole(role === r.value ? null : r.value)}
+              className={`inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-semibold transition-colors ${role === r.value ? 'border-accent bg-accent text-accent-ink' : 'border-white/[0.16] text-ink-soft hover:border-ink/50 hover:text-ink'}`}>
+              {t(lang, r.label)}
             </button>
           ))}
         </div>

@@ -16,8 +16,8 @@ import { raiseFollowup } from './common';
  * whole endpoint, and short, plain fields only.
  */
 
-const BUDGETS = { b1: 'Under 500 a month', b2: '500 to 1,500 a month', b3: '1,500 to 5,000 a month', b4: 'Over 5,000 a month', b0: 'Not sure yet' } as const;
-type BudgetKey = keyof typeof BUDGETS;
+const ROLES = { owner: 'Business owner', marketing: 'Marketing team', other: 'Other' } as const;
+type RoleKey = keyof typeof ROLES;
 
 export interface JoinRequest {
   company: string;
@@ -26,7 +26,7 @@ export interface JoinRequest {
   email: string | null;
   industry: string | null;
   city: string | null;
-  budget: BudgetKey | null;
+  role: RoleKey | null;
   notes: string | null;
 }
 
@@ -48,8 +48,8 @@ export function parseJoin(input: unknown): JoinRequest {
   if (!/^\+?[\d\s()-]{6,30}$/.test(phone) || phone.replace(/\D/g, '').length < 6) throw new HttpError(400, 'phone is not a phone number.');
   const email = text(body, 'email', 160);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'email is not an email address.');
-  const budget = text(body, 'budget', 4);
-  if (budget && !(budget in BUDGETS)) throw new HttpError(400, 'budget is not one of the choices.');
+  const role = text(body, 'role', 12);
+  if (role && !Object.prototype.hasOwnProperty.call(ROLES, role)) throw new HttpError(400, 'role is not one of the choices.');
   // Notes keep their line breaks; everything else is one line.
   const rawNotes = typeof body.notes === 'string' ? body.notes.trim() : '';
   if (rawNotes.length > 1000) throw new HttpError(400, 'notes is too long.');
@@ -60,7 +60,7 @@ export function parseJoin(input: unknown): JoinRequest {
     email,
     industry: text(body, 'industry', 60),
     city: text(body, 'city', 60),
-    budget: (budget as BudgetKey | null) ?? null,
+    role: (role as RoleKey | null) ?? null,
     notes: rawNotes || null,
   };
 }
@@ -74,7 +74,7 @@ export function joinNotes(join: JoinRequest): string {
     join.email && `Email: ${join.email}`,
     join.industry && `Industry: ${join.industry}`,
     join.city && `City: ${join.city}`,
-    join.budget && `Monthly marketing budget: ${BUDGETS[join.budget]}`,
+    join.role && `Role: ${ROLES[join.role]}`,
     join.notes && `Notes:\n${join.notes}`,
   ].filter(Boolean).join('\n');
 }
