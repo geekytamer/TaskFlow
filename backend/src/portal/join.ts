@@ -6,10 +6,11 @@ import { asRecord } from '../validation';
 import { raiseFollowup } from './common';
 
 /**
- * "Register your company" from the public join page. Each request becomes a
- * Lead contact, an opportunity and a high-priority follow-up, and the
- * company's admins and managers are told. Nothing is created for the sender:
- * staff check the lead and send the portal invitation themselves.
+ * A Peak Flexi application from the public join page (run campaigns now, pay
+ * part up front and the rest in instalments). Each request becomes a Lead
+ * contact, an opportunity and a high-priority follow-up, and the company's
+ * admins and managers are told. Nothing is granted here: staff ask for the
+ * bank statement and papers, decide the limit, and send the portal invitation.
  *
  * Abuse guards: a hidden `website` field that people never fill (a filled one
  * is accepted silently and dropped), a cap of 30 requests an hour for the
@@ -18,6 +19,10 @@ import { raiseFollowup } from './common';
 
 const ROLES = { owner: 'Business owner', marketing: 'Marketing team', other: 'Other' } as const;
 type RoleKey = keyof typeof ROLES;
+const SERVICES = {
+  influencers: 'Influencer campaigns', ads: 'Paid ads', content: 'Content production', social: 'Social media management', events: 'Events', design: 'Design and branding',
+} as const;
+type ServiceKey = keyof typeof SERVICES;
 
 export interface JoinRequest {
   company: string;
@@ -27,6 +32,8 @@ export interface JoinRequest {
   industry: string | null;
   city: string | null;
   role: RoleKey | null;
+  crNumber: string | null;
+  services: ServiceKey[];
   notes: string | null;
 }
 
@@ -50,6 +57,11 @@ export function parseJoin(input: unknown): JoinRequest {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'email is not an email address.');
   const role = text(body, 'role', 12);
   if (role && !Object.prototype.hasOwnProperty.call(ROLES, role)) throw new HttpError(400, 'role is not one of the choices.');
+  const rawServices = body.services ?? [];
+  if (!Array.isArray(rawServices) || rawServices.length > 6
+    || rawServices.some((v) => typeof v !== 'string' || !Object.prototype.hasOwnProperty.call(SERVICES, v))) {
+    throw new HttpError(400, 'services are not among the choices.');
+  }
   // Notes keep their line breaks; everything else is one line.
   const rawNotes = typeof body.notes === 'string' ? body.notes.trim() : '';
   if (rawNotes.length > 1000) throw new HttpError(400, 'notes is too long.');
@@ -61,13 +73,15 @@ export function parseJoin(input: unknown): JoinRequest {
     industry: text(body, 'industry', 60),
     city: text(body, 'city', 60),
     role: (role as RoleKey | null) ?? null,
+    crNumber: text(body, 'crNumber', 40),
+    services: [...new Set(rawServices as ServiceKey[])],
     notes: rawNotes || null,
   };
 }
 
 export function joinNotes(join: JoinRequest): string {
   return [
-    'Registration request from the portal join page.',
+    'Peak Flexi application from the portal join page.',
     `Company: ${join.company}`,
     `Contact person: ${join.name}`,
     `Phone / WhatsApp: ${join.phone}`,
@@ -75,6 +89,8 @@ export function joinNotes(join: JoinRequest): string {
     join.industry && `Industry: ${join.industry}`,
     join.city && `City: ${join.city}`,
     join.role && `Role: ${ROLES[join.role]}`,
+    join.crNumber && `Commercial registration: ${join.crNumber}`,
+    join.services.length > 0 && `Services wanted: ${join.services.map((s) => SERVICES[s]).join(', ')}`,
     join.notes && `Notes:\n${join.notes}`,
   ].filter(Boolean).join('\n');
 }
@@ -108,14 +124,14 @@ export function createPublicJoinRouter(store: DataStore, companyId: string, opti
           leadStatus: 'New',
           leadSource: 'Website',
           priority: 'High',
-          tags: ['portal-signup'],
+          tags: ['portal-signup', 'peak-flexi'],
           notes,
         });
         const opportunity = store.createOpportunity({
           companyId,
           contactId: contact.id,
-          title: `Portal sign-up: ${join.company}`,
-          serviceType: 'Portal sign-up',
+          title: `Peak Flexi application: ${join.company}`,
+          serviceType: 'Peak Flexi',
           stage: 'New',
           expectedRevenue: 0,
           probability: 0,
@@ -123,7 +139,7 @@ export function createPublicJoinRouter(store: DataStore, companyId: string, opti
         });
         const followup = raiseFollowup(store, {
           companyId, entityType: 'opportunity', entityId: opportunity.id,
-          title: `Call ${join.company} about their portal registration`, priority: 'high', dueDays: 1,
+          title: `Review the Peak Flexi application from ${join.company}: ask for the bank statement and papers`, priority: 'high', dueDays: 1,
           notes: `${join.name}, ${join.phone}`, sourceTrigger: 'portal_signup', sourceType: 'portal_join_request', sourceId: contact.id,
         });
         if (staff.length) {
@@ -131,9 +147,9 @@ export function createPublicJoinRouter(store: DataStore, companyId: string, opti
             companyId,
             userIds: staff.map((u) => u.id),
             type: 'followup_assigned',
-            title: `New portal registration: ${join.company}`,
+            title: `New Peak Flexi application: ${join.company}`,
             body: `${join.name}, ${join.phone}`,
-            data: { tKey: 'notif.followupAssigned.t', name: `New portal registration: ${join.company}` },
+            data: { tKey: 'notif.followupAssigned.t', name: `New Peak Flexi application: ${join.company}` },
             link: `/contacts/${contact.id}`,
             entityType: 'follow_up',
             entityId: followup.id,

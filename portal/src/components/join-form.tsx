@@ -16,6 +16,15 @@ const INDUSTRIES: Array<{ key: Key; en: string }> = [
   { key: 'join.ind.education', en: 'Education' },
   { key: 'join.ind.other', en: 'Other' },
 ];
+/** What they would like to run with Peak Flexi: shown translated, sent as keys. */
+const SERVICES: Array<{ value: string; label: Key }> = [
+  { value: 'influencers', label: 'join.svc.influencers' },
+  { value: 'ads', label: 'join.svc.ads' },
+  { value: 'content', label: 'join.svc.content' },
+  { value: 'social', label: 'join.svc.social' },
+  { value: 'events', label: 'join.svc.events' },
+  { value: 'design', label: 'join.svc.design' },
+];
 const ROLES: Array<{ value: string; label: Key }> = [
   { value: 'owner', label: 'join.role.owner' },
   { value: 'marketing', label: 'join.role.marketing' },
@@ -29,6 +38,7 @@ export function JoinForm({ lang }: { lang: Lang }) {
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [services, setServices] = useState<string[]>([]);
   const [sent, setSent] = useState<{ name: string; phone: string } | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -48,7 +58,7 @@ export function JoinForm({ lang }: { lang: Lang }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company: get('company'), name: get('name'), phone: get('phone'), email: get('email') || null,
-          industry: industry?.en ?? null, city: get('city') || null, role, notes: get('notes') || null, website: get('website'),
+          industry: industry?.en ?? null, city: get('city') || null, role, crNumber: get('crNumber') || null, services, notes: get('notes') || null, website: get('website'),
         }),
       });
       if (response.ok) {
@@ -104,6 +114,24 @@ export function JoinForm({ lang }: { lang: Lang }) {
         <label htmlFor="j-city" className={label}>{t(lang, 'join.city')}</label>
         <input id="j-city" name="city" maxLength={60} autoComplete="address-level2" className={input} />
       </div>
+      <div>
+        <label htmlFor="j-cr" className={label}>{t(lang, 'join.cr')}</label>
+        <input id="j-cr" name="crNumber" maxLength={40} inputMode="numeric" dir="ltr" className={`${input} text-start`} />
+      </div>
+      <fieldset className="sm:col-span-2">
+        <legend className={label}>{t(lang, 'join.services')}</legend>
+        <div className="flex flex-wrap gap-2">
+          {SERVICES.map((v) => {
+            const on = services.includes(v.value);
+            return (
+              <button key={v.value} type="button" aria-pressed={on} onClick={() => setServices(on ? services.filter((x) => x !== v.value) : [...services, v.value])}
+                className={`inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-semibold transition-colors ${on ? 'border-accent bg-accent text-accent-ink' : 'border-white/[0.16] text-ink-soft hover:border-ink/50 hover:text-ink'}`}>
+                {t(lang, v.label)}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
       <fieldset className="sm:col-span-2">
         <legend className={label}>{t(lang, 'join.role')}</legend>
         <div className="flex flex-wrap gap-2">
