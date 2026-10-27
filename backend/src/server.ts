@@ -13,6 +13,7 @@ import { ApprovalError, decide, type ApprovalDocType } from './approvals/approva
 import { sweepShipments } from './logistics/shipments';
 import { sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
 import { makePasswordLinkSender, registerPasswordRoutes } from './routes/password';
+import { registerTaskPartRoutes } from './routes/task-parts';
 import { unusablePassword } from './auth/password-tokens';
 import type { Notification, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
@@ -100,6 +101,8 @@ import {
 		  campaignAssignmentStatuses,
 		  campaignExpenseStatuses,
 		  campaignFulfillments,
+		  taskStatuses,
+		  taskPriorities,
 		} from './types';
 import {
   HttpError,
@@ -1700,11 +1703,11 @@ export function createServer(options: CreateServerOptions = {}) {
       description: record.description !== undefined ? optionalString(record.description) : undefined,
       status:
         record.status !== undefined
-          ? enumValue(record.status, 'status', ['To Do', 'In Progress', 'Done'])
+          ? enumValue(record.status, 'status', taskStatuses)
           : undefined,
       priority:
         record.priority !== undefined
-          ? enumValue(record.priority, 'priority', ['Low', 'Medium', 'High'])
+          ? enumValue(record.priority, 'priority', taskPriorities)
           : undefined,
       createdAt: record.createdAt !== undefined ? requiredDateInput(record.createdAt, 'createdAt') : undefined,
       dueDate: record.dueDate !== undefined ? optionalDateInput(record.dueDate) : undefined,
@@ -2278,6 +2281,7 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  registerTaskPartRoutes(app, routeContext);
   registerPasswordRoutes(app, routeContext, { sendLink: sendPasswordLink, limiter: loginRateLimiter });
   registerNotificationRoutes(app, routeContext);
   registerLiveRoutes(app, routeContext, liveHub);

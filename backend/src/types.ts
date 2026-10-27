@@ -214,8 +214,10 @@ export interface Contribution {
   updatedAt: Date;
 }
 
-export type TaskStatus = 'To Do' | 'In Progress' | 'Done';
-export type TaskPriority = 'Low' | 'Medium' | 'High';
+export type TaskStatus = 'To Do' | 'In Progress' | 'Waiting' | 'In Review' | 'Done';
+export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'];
+export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+export const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High', 'Urgent'];
 export type ProjectVisibility = 'Public' | 'Private';
 
 export interface Project {
@@ -245,6 +247,8 @@ export interface TimeEntry {
 
 export interface Task {
   id: string;
+  /** One per person when two or more share the task (tasks/task-parts.ts); empty otherwise. */
+  parts?: import('./tasks/task-parts').TaskPart[];
   title: string;
   description: string;
   status: TaskStatus;
@@ -1762,6 +1766,8 @@ export type NotificationPriority = 'critical' | 'normal';
 export type NotificationType =
   | 'task_assigned'
   | 'task_status'
+  | 'task_part_done'
+  | 'task_completed'
   | 'task_comment'
   | 'task_due'
   | 'invoice_overdue'

@@ -31,6 +31,7 @@ import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
+import { TaskPartStore, TASK_PARTS_SCHEMA, partStatusFor, taskStatusFromParts, type PartStatus, type TaskPart } from '../tasks/task-parts';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
@@ -715,6 +716,7 @@ export class DataStore {
   readonly push: PushStore;
   readonly teamChats: TeamChatStore;
   readonly passwordTokens: PasswordTokenStore;
+  readonly taskParts: TaskPartStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -764,6 +766,7 @@ export class DataStore {
     this.push = new PushStore(this.db);
     this.teamChats = new TeamChatStore(this.db);
     this.passwordTokens = new PasswordTokenStore(this.db);
+    this.taskParts = new TaskPartStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5243,6 +5246,20 @@ export class DataStore {
           }
         },
       },
+      {
+        // A task shared by several people gets a part each, in the state the task is in.
+        id: '139_task_parts',
+        run: () => {
+          this.db.exec(TASK_PARTS_SCHEMA);
+          // Migrations run before the store's helpers exist, so this one makes its own.
+          const parts = new TaskPartStore(this.db);
+          const tasks = this.db.prepare('SELECT id, status, assignedUserIds FROM tasks').all() as Array<{ id: string; status: string; assignedUserIds: string | null }>;
+          for (const task of tasks) {
+            const people = this.parseJson<string[]>(task.assignedUserIds) || [];
+            if (people.length >= 2) parts.sync(task.id, people, partStatusFor(task.status));
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7245,6 +7262,7 @@ export class DataStore {
     this.db.prepare('DELETE FROM time_entries WHERE taskId = ?').run(taskId);
     this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(taskId);
     this.db.prepare("DELETE FROM contributions WHERE sourceType = 'task' AND sourceId = ?").run(taskId);
+    this.taskParts.removeTask(taskId);
     this.db.prepare('UPDATE inventory_issues SET taskId = NULL WHERE taskId = ?').run(taskId);
     this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(taskId);
     this.scrubIdFromJsonArray('tasks', 'dependencies', taskId);
@@ -7268,7 +7286,8 @@ export class DataStore {
 
   listTasks(): Task[] {
     const rows = this.db.prepare('SELECT * FROM tasks').all() as any[];
-    return rows.map((r) => this.decodeTask(r));
+    const parts = this.taskParts.byTask();
+    return rows.map((r) => this.decodeTask(r, parts));
   }
 
   getTaskById(id: string): Task | undefined {
@@ -7289,9 +7308,10 @@ export class DataStore {
     return rows.map((r) => this.decodeTask(r));
   }
 
-  private decodeTask(row: any): Task {
+  private decodeTask(row: any, parts?: Map<string, TaskPart[]>): Task {
     return {
       ...row,
+      parts: parts ? parts.get(row.id) ?? [] : this.taskParts.forTask(row.id),
       createdAt: new Date(row.createdAt),
       dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
       assignedUserIds: this.parseJson<string[]>(row.assignedUserIds) || [],
@@ -7372,7 +7392,8 @@ export class DataStore {
       entityType: 'task',
       entityId: newTask.id,
     });
-    return newTask;
+    this.taskParts.sync(newTask.id, newTask.assignedUserIds ?? [], partStatusFor(newTask.status));
+    return { ...newTask, parts: this.taskParts.forTask(newTask.id) };
   }
 
   updateTask(id: string, updates: UpdateTaskInput) {
@@ -7420,6 +7441,18 @@ export class DataStore {
         'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId WHERE id=@id',
       )
       .run(updated);
+    // Parts follow the people on the task; a whole-task close or reopen moves every part.
+    this.taskParts.sync(id, updatedAssigned, 'To Do');
+    if (updates.status && updates.status !== prevStatus) {
+      if (updates.status === 'Done') this.taskParts.setAll(id, 'Done');
+      else if (prevStatus === 'Done') this.taskParts.setAll(id, 'To Do');
+    } else if (updates.assignedUserIds) {
+      const derived = taskStatusFromParts(this.taskParts.forTask(id), updated.status);
+      if (derived !== updated.status) {
+        this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, id);
+        updated.status = derived;
+      }
+    }
     const result = this.decodeTask({ ...existing, ...updates, ...updated });
     this.createActivityEvent({
       companyId: result.companyId,
@@ -7458,6 +7491,65 @@ export class DataStore {
       });
     }
     return result;
+  }
+
+  /**
+   * One person's part of a shared task: its status and/or label. The task's
+   * status follows the parts; finishing a part tells the others who still have
+   * work (and the owner); finishing the last one tells the owner it is complete.
+   */
+  setTaskPart(taskId: string, userId: string, changes: { status?: PartStatus; label?: string | null }): Task | undefined {
+    const task = this.getTaskById(taskId);
+    if (!task) return undefined;
+    const before = task.parts?.find((p) => p.userId === userId);
+    if (!before) return undefined;
+    if (changes.label !== undefined) this.taskParts.setLabel(taskId, userId, changes.label);
+    if (changes.status && changes.status !== before.status) {
+      this.taskParts.setStatus(taskId, userId, changes.status);
+      const parts = this.taskParts.forTask(taskId);
+      const derived = taskStatusFromParts(parts, task.status);
+      if (derived !== task.status) this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, taskId);
+      const link = taskLink(task.projectId);
+      const who = this.getUserById(userId)?.name ?? '';
+      this.createActivityEvent({
+        companyId: task.companyId,
+        entityType: 'task',
+        entityId: taskId,
+        action: 'updated',
+        summary: `${who}: part ${changes.status}.`,
+        metadata: { projectId: task.projectId, part: userId, status: changes.status },
+      });
+      if (changes.status === 'Done') {
+        const stillWorking = parts.filter((p) => p.status !== 'Done').map((p) => p.userId);
+        const audience = [...stillWorking, ...(task.ownerId ? [task.ownerId] : [])];
+        if (derived === 'Done') {
+          this.notify({
+            companyId: task.companyId,
+            userIds: task.ownerId ? [task.ownerId] : [],
+            type: 'task_completed',
+            title: `Task complete: ${task.title}`,
+            body: 'Everyone finished their part.',
+            data: { tKey: 'notif.taskCompleted.t', bKey: 'notif.taskCompleted.b', title: task.title },
+            link,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        } else {
+          this.notify({
+            companyId: task.companyId,
+            userIds: audience.filter((uid) => uid !== userId),
+            type: 'task_part_done',
+            title: `${who} finished their part of ${task.title}`,
+            body: `${stillWorking.length} part(s) still open.`,
+            data: { tKey: 'notif.taskPartDone.t', bKey: 'notif.taskPartDone.b', title: task.title, name: who, open: stillWorking.length },
+            link,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        }
+      }
+    }
+    return this.getTaskById(taskId);
   }
 
   markTasksAsInvoiced(taskIds: string[], invoiceId: string) {
