@@ -1,0 +1,63 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const request = require('supertest');
+const { buildWorkspace } = require('./helpers/workspace');
+
+/** The public "register your company" form: a lead for staff, nothing for the sender. */
+
+const valid = {
+  company: 'Sidr Coffee', name: 'Salim Al Harthy', phone: '+968 9123 4567', email: 'salim@sidr.test',
+  industry: 'Food', city: 'Muscat', budget: 'b2', notes: 'Opening a second branch.\nWant a launch campaign.',
+};
+
+test('a request becomes a lead, an opportunity and a follow-up, and admins and managers are told', async () => {
+  const ctx = buildWorkspace();
+  const res = await request(ctx.server).post('/public-api/join').send(valid);
+  assert.equal(res.status, 201);
+  assert.deepEqual(res.body, { ok: true });
+
+  const lead = ctx.store.listContacts(ctx.company.id).find((c) => c.name === 'Sidr Coffee');
+  assert.ok(lead, 'lead contact created');
+  assert.deepEqual(lead.roles, ['Lead']);
+  assert.equal(lead.leadSource, 'Website');
+  assert.equal(lead.contactPerson, 'Salim Al Harthy');
+  assert.equal(lead.phone, '+968 9123 4567');
+  assert.match(lead.notes, /500 to 1,500 a month/);
+  assert.match(lead.notes, /Opening a second branch\.\nWant a launch campaign\./);
+
+  const opp = ctx.store.listOpportunities(ctx.company.id).find((o) => o.contactId === lead.id);
+  assert.equal(opp.title, 'Portal sign-up: Sidr Coffee');
+
+  const told = (user) => ctx.store.listNotifications(user.id).some((n) => n.title === 'New portal registration: Sidr Coffee');
+  assert.equal(told(ctx.users.admin), true);
+  assert.equal(told(ctx.users.manager), true);
+  assert.equal(told(ctx.users.employee), false);
+  assert.equal(told(ctx.users.accountant), false);
+});
+
+test('missing or malformed fields are refused and nothing is created', async () => {
+  const ctx = buildWorkspace();
+  const before = ctx.store.listContacts(ctx.company.id).length;
+  for (const body of [
+    { ...valid, company: '  ' },
+    { ...valid, name: undefined },
+    { ...valid, phone: 'call me' },
+    { ...valid, email: 'not-an-email' },
+    { ...valid, budget: 'lots' },
+    { ...valid, company: 'x'.repeat(121) },
+    { ...valid, notes: 'x'.repeat(1001) },
+    { ...valid, company: { $gt: '' } },
+  ]) {
+    const res = await request(ctx.server).post('/public-api/join').send(body);
+    assert.equal(res.status, 400, JSON.stringify(body).slice(0, 60));
+  }
+  assert.equal(ctx.store.listContacts(ctx.company.id).length, before);
+});
+
+test('a filled hidden field (a bot) is accepted quietly and dropped', async () => {
+  const ctx = buildWorkspace();
+  const before = ctx.store.listContacts(ctx.company.id).length;
+  const res = await request(ctx.server).post('/public-api/join').send({ ...valid, website: 'http://spam.test' });
+  assert.equal(res.status, 201);
+  assert.equal(ctx.store.listContacts(ctx.company.id).length, before);
+});
