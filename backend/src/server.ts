@@ -7,6 +7,7 @@ import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
 import { CreditLimitError, DataStore, OpportunityInUseError, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
+import { taskRecurrences } from './tasks/task-recurrence';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
@@ -1727,6 +1728,12 @@ export function createServer(options: CreateServerOptions = {}) {
         record.dependencies !== undefined ? stringArray(record.dependencies, 'dependencies') : undefined,
       parentTaskId: record.parentTaskId !== undefined ? optionalString(record.parentTaskId) : undefined,
       isPrivate: record.isPrivate !== undefined ? optionalBoolean(record.isPrivate) : undefined,
+      recurrence:
+        record.recurrence === undefined
+          ? undefined
+          : record.recurrence === null || record.recurrence === ''
+            ? null
+            : enumValue(record.recurrence, 'recurrence', taskRecurrences),
       invoiceImage: record.invoiceImage !== undefined ? optionalString(record.invoiceImage) : undefined,
       invoiceVendor: record.invoiceVendor !== undefined ? optionalString(record.invoiceVendor) : undefined,
       invoiceNumber: record.invoiceNumber !== undefined ? optionalString(record.invoiceNumber) : undefined,
@@ -3178,6 +3185,7 @@ export function createServer(options: CreateServerOptions = {}) {
           // The creator owns the task; used to scope private tasks.
           ownerId: req.user!.id,
           isPrivate: payload.isPrivate ?? false,
+          recurrence: payload.recurrence ?? undefined,
           invoiceImage: payload.invoiceImage,
           invoiceVendor: payload.invoiceVendor,
           invoiceNumber: payload.invoiceNumber,

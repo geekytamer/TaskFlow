@@ -35,8 +35,8 @@ import {
 import { getCompanyMembers } from '@/services/userService';
 import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
-import { taskPriorities } from '@/modules/projects/types';
-import { priorityName } from '@/modules/projects/lib/task-meta';
+import { taskPriorities, taskRecurrences } from '@/modules/projects/types';
+import { priorityName, recurrenceName } from '@/modules/projects/lib/task-meta';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -71,6 +71,7 @@ const createTaskSchema = z.object({
   color: z.string().optional(),
   parentTaskId: z.string().optional(),
   isPrivate: z.boolean().optional(),
+  recurrence: z.enum(['none', 'daily', 'weekly', 'monthly']).optional(),
 });
 
 type CreateTaskFormValues = z.infer<typeof createTaskSchema>;
@@ -103,6 +104,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         color: '#cccccc',
         parentTaskId: 'none',
         isPrivate: false,
+        recurrence: 'none',
     },
   });
 
@@ -187,6 +189,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
             projectId: data.projectId && data.projectId !== NO_PROJECT ? data.projectId : '',
             tags: data.tags || [],
             parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
+            recurrence: data.recurrence && data.recurrence !== 'none' ? data.recurrence : undefined,
         });
         toast({
         title: tr('Task Created', 'تم إنشاء المهمة'),
@@ -423,6 +426,29 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                           </Select>
                           <FormMessage />
                         </div>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="recurrence"
+                  render={({ field }) => (
+                    <FormItem className="grid grid-cols-4 items-center gap-4">
+                      <FormLabel className="text-end">{tr('Repeat', 'التكرار')}</FormLabel>
+                      <div className="col-span-3">
+                        <Select onValueChange={field.onChange} value={field.value ?? 'none'}>
+                          <FormControl>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">{tr('Does not repeat', 'لا تتكرر')}</SelectItem>
+                            {taskRecurrences.map((r) => (
+                              <SelectItem key={r} value={r}>{recurrenceName(r, language)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1 text-xs text-muted-foreground">{tr('When it is done, the next one is made for you.', 'عند إنجازها تُنشأ المهمة التالية تلقائياً.')}</p>
+                      </div>
                     </FormItem>
                   )}
                 />

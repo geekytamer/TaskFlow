@@ -12,13 +12,15 @@ import {
   Inbox,
   Lock,
   CheckCircle2,
+  ListChecks,
+  Repeat,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask, updateTaskPart } from '@/services/projectService';
-import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, partsProgress, statusFor, statusName } from '@/modules/projects/lib/task-meta';
+import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, partsProgress, recurrenceName, statusFor, statusName } from '@/modules/projects/lib/task-meta';
 import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients } from '@/services/financeService';
 import {
@@ -236,6 +238,18 @@ function TaskRow({
               {partsProgress(task).done}/{partsProgress(task).total}
             </span>
           )}
+          {task.recurrence && (
+            <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={recurrenceName(task.recurrence, language)} />
+          )}
+          {(task.checklist?.total ?? 0) > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground no-underline"
+              title={tr('Checklist', 'قائمة التحقق')}
+            >
+              <ListChecks className="h-3 w-3" />
+              {task.checklist!.done}/{task.checklist!.total}
+            </span>
+          )}
         </div>
         {showProject && (
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -343,7 +357,8 @@ function TaskGroup({
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
-type Scope = 'mine' | 'all' | 'unassigned';
+// 'today' is My Day: my open work that is overdue, due today, already started, or urgent.
+type Scope = 'today' | 'mine' | 'all' | 'unassigned';
 
 export function TaskList({ projectId }: { projectId?: string }) {
   const { selectedCompany, projects, currentRole, currentUser } = useCompany();
@@ -383,7 +398,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     if (!scopeStorageKey) return;
     try {
       const stored = localStorage.getItem(scopeStorageKey) as Scope | null;
-      setScope(stored && ['mine', 'all', 'unassigned'].includes(stored) ? stored : 'mine');
+      setScope(stored && ['today', 'mine', 'all', 'unassigned'].includes(stored) ? stored : 'mine');
     } catch {
       setScope('mine');
     }
@@ -458,14 +473,21 @@ export function TaskList({ projectId }: { projectId?: string }) {
       if (scope === 'all') return true;
       const assignees = t.assignedUserIds ?? [];
       if (scope === 'unassigned') return assignees.length === 0;
-      return currentUserId ? assignees.includes(currentUserId) : false;
+      if (!currentUserId || !assignees.includes(currentUserId)) return false;
+      if (scope === 'mine') return true;
+      const status = statusFor(t, currentUserId);
+      if (status === 'Done') return false;
+      const dueSoon = t.dueDate && startOfDay(new Date(t.dueDate)) <= todayStart;
+      return Boolean(dueSoon) || status !== 'To Do' || t.priority === 'Urgent';
     });
-  }, [scopedTasks, scope, currentUserId]);
+  }, [scopedTasks, scope, currentUserId, todayStart]);
+
+  const personal = scope === 'mine' || scope === 'today';
 
   // In "My tasks" a shared task shows this person's own part; elsewhere the whole task.
   const viewStatus = React.useCallback(
-    (t: Task) => (scope === 'mine' ? statusFor(t, currentUserId) : t.status),
-    [scope, currentUserId],
+    (t: Task) => (personal ? statusFor(t, currentUserId) : t.status),
+    [personal, currentUserId],
   );
 
   const counts = React.useMemo(() => {
@@ -561,7 +583,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     const client = clients.find((c) => c.id === project?.clientId);
     const assignees = users.filter((u) => task.assignedUserIds?.includes(u.id));
     const status = viewStatus(task);
-    const ownPart = scope === 'mine' && !!myPart(task, currentUserId);
+    const ownPart = personal && !!myPart(task, currentUserId);
     const overdue =
       !!task.dueDate &&
       startOfDay(new Date(task.dueDate)) < todayStart &&
@@ -617,7 +639,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     <div className="flex flex-col gap-5">
       {/* Scope: My tasks / All / Unassigned */}
       <div className="flex items-center gap-1 self-start rounded-lg border bg-card p-1 text-sm">
-        {(['mine', 'all', 'unassigned'] as Scope[]).map((s) => (
+        {(['today', 'mine', 'all', 'unassigned'] as Scope[]).map((s) => (
           <button
             key={s}
             type="button"
@@ -629,7 +651,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {s === 'mine'
+            {s === 'today'
+              ? tr('My Day', 'يومي')
+              : s === 'mine'
               ? tr('My tasks', 'مهامي')
               : s === 'all'
                 ? tr('All tasks', 'كل المهام')
@@ -687,7 +711,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-center">
           <Inbox className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            {tr('No tasks to show.', 'لا توجد مهام لعرضها.')}
+            {scope === 'today'
+              ? tr('Nothing due today. Nice.', 'لا شيء مستحق اليوم. أحسنت.')
+              : tr('No tasks to show.', 'لا توجد مهام لعرضها.')}
           </p>
         </div>
       ) : (

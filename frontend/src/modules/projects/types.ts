@@ -53,6 +53,9 @@ export interface Task {
   ownerId?: string;
   // A private task is visible only to its owner and assignees.
   isPrivate?: boolean;
+  /** Repeats when done: the next round is made with a later due date. */
+  recurrence?: TaskRecurrence | null;
+  recurrenceNextId?: string;
   // Invoice related fields
   invoiceImage?: string;
   invoiceVendor?: string;
@@ -62,6 +65,8 @@ export interface Task {
   generatedInvoiceId?: string; // To track if this task-invoice is already on a system invoice
   /** One per person when two or more share the task; empty otherwise. */
   parts?: TaskPart[];
+  /** Checklist steps ticked out of all. */
+  checklist?: { done: number; total: number };
 }
 
 export interface Comment {
@@ -84,3 +89,6 @@ export interface TimeEntry {
     cost?: number;
     createdAt: Date;
 }
+
+export const taskRecurrences = ['daily', 'weekly', 'monthly'] as const;
+export type TaskRecurrence = (typeof taskRecurrences)[number];

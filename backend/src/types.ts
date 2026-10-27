@@ -270,6 +270,10 @@ export interface Task {
   // A private task is visible only to its owner and assignees — it overrides
   // the role-based (Manager/Admin sees all) default and the project cascade.
   isPrivate?: boolean;
+  /** Repeats on completion (tasks/task-recurrence.ts); null on an update stops it. */
+  recurrence?: import('./tasks/task-recurrence').TaskRecurrence | null;
+  /** The next round, once this one was finished. */
+  recurrenceNextId?: string;
   invoiceImage?: string;
   invoiceVendor?: string;
   invoiceNumber?: string;

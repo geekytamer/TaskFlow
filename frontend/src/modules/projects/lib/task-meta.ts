@@ -1,4 +1,4 @@
-import type { PartStatus, Task, TaskPart, TaskPriority, TaskStatus } from '../types';
+import type { PartStatus, Task, TaskPart, TaskPriority, TaskRecurrence, TaskStatus } from '../types';
 
 /** Names and colours for task statuses and priorities, in one place for every view. */
 const STATUS_NAMES: Record<TaskStatus, { en: string; ar: string }> = {
@@ -52,3 +52,10 @@ export const partsProgress = (task: Task) => {
   const parts = task.parts ?? [];
   return { done: parts.filter((p) => p.status === 'Done').length, total: parts.length };
 };
+
+const RECURRENCE_NAMES: Record<TaskRecurrence, [string, string]> = {
+  daily: ['Every day', 'كل يوم'],
+  weekly: ['Every week', 'كل أسبوع'],
+  monthly: ['Every month', 'كل شهر'],
+};
+export const recurrenceName = (r: TaskRecurrence, language: string) => RECURRENCE_NAMES[r][language === 'ar' ? 1 : 0];

@@ -31,6 +31,7 @@ import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
+import { nextDueDate } from '../tasks/task-recurrence';
 import { TaskChecklistStore, TASK_CHECKLIST_SCHEMA } from '../tasks/task-checklist';
 import { TaskPartStore, TASK_PARTS_SCHEMA, partStatusFor, taskStatusFromParts, type PartStatus, type TaskPart } from '../tasks/task-parts';
 import { PortalAlertsStore } from '../portal/alerts';
@@ -5270,6 +5271,14 @@ export class DataStore {
           this.db.exec(TASK_CHECKLIST_SCHEMA);
         },
       },
+      {
+        // Repeating tasks (tasks/task-recurrence.ts): the period, and the next round once made.
+        id: '141_task_recurrence',
+        run: () => {
+          this.db.exec('ALTER TABLE tasks ADD COLUMN recurrence TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN recurrenceNextId TEXT');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7333,6 +7342,8 @@ export class DataStore {
       parentTaskId: row.parentTaskId || undefined,
       ownerId: row.ownerId || undefined,
       isPrivate: Boolean(row.isPrivate),
+      recurrence: row.recurrence || undefined,
+      recurrenceNextId: row.recurrenceNextId || undefined,
       invoiceDate: row.invoiceDate ? new Date(row.invoiceDate) : undefined,
     };
   }
@@ -7346,7 +7357,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId)',
+        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence)',
       )
       .run({
         id: newTask.id,
@@ -7371,6 +7382,7 @@ export class DataStore {
         invoiceAmount: newTask.invoiceAmount ?? null,
         invoiceDate: newTask.invoiceDate ? new Date(newTask.invoiceDate).toISOString() : null,
         generatedInvoiceId: newTask.generatedInvoiceId ?? null,
+        recurrence: newTask.recurrence ?? null,
       });
     // Auto-seed Contributor rows for each assignee (split evenly).
     if (newTask.assignedUserIds && newTask.assignedUserIds.length > 0) {
@@ -7447,11 +7459,13 @@ export class DataStore {
       invoiceDate: updates.invoiceDate
         ? new Date(updates.invoiceDate).toISOString()
         : existing.invoiceDate,
+      // null stops the repeat; undefined keeps it.
+      recurrence: updates.recurrence !== undefined ? updates.recurrence ?? null : existing.recurrence ?? null,
     };
 
     this.db
       .prepare(
-        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId WHERE id=@id',
+        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence WHERE id=@id',
       )
       .run(updated);
     // Parts follow the people on the task; a whole-task close or reopen moves every part.
@@ -7466,7 +7480,8 @@ export class DataStore {
         updated.status = derived;
       }
     }
-    const result = this.decodeTask({ ...existing, ...updates, ...updated });
+    if (updated.status === 'Done' && prevStatus !== 'Done') this.spawnNextRound(id);
+    const result = this.decodeTask({ ...existing, ...updates, ...updated, recurrenceNextId: this.taskNextRoundId(id) });
     this.createActivityEvent({
       companyId: result.companyId,
       entityType: 'task',
@@ -7522,6 +7537,7 @@ export class DataStore {
       const parts = this.taskParts.forTask(taskId);
       const derived = taskStatusFromParts(parts, task.status);
       if (derived !== task.status) this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, taskId);
+      if (derived === 'Done' && task.status !== 'Done') this.spawnNextRound(taskId);
       const link = taskLink(task.projectId);
       const who = this.getUserById(userId)?.name ?? '';
       this.createActivityEvent({
@@ -7563,6 +7579,38 @@ export class DataStore {
       }
     }
     return this.getTaskById(taskId);
+  }
+
+  private taskNextRoundId(id: string): string | undefined {
+    const row = this.db.prepare('SELECT recurrenceNextId FROM tasks WHERE id = ?').get(id) as { recurrenceNextId: string | null } | undefined;
+    return row?.recurrenceNextId ?? undefined;
+  }
+
+  /** A finished repeating task makes its next round once: same people, part labels and steps, unticked. */
+  private spawnNextRound(id: string): Task | undefined {
+    const task = this.getTaskById(id);
+    if (!task?.recurrence || task.recurrenceNextId) return undefined;
+    const next = this.createTask({
+      title: task.title,
+      description: task.description,
+      status: 'To Do',
+      priority: task.priority,
+      dueDate: nextDueDate(task.recurrence, task.dueDate),
+      assignedUserIds: task.assignedUserIds ?? [],
+      tags: task.tags,
+      companyId: task.companyId,
+      projectId: task.projectId,
+      color: task.color,
+      dependencies: [],
+      parentTaskId: task.parentTaskId,
+      ownerId: task.ownerId,
+      isPrivate: task.isPrivate,
+      recurrence: task.recurrence,
+    });
+    for (const part of task.parts ?? []) if (part.label) this.taskParts.setLabel(next.id, part.userId, part.label);
+    this.taskChecklist.copy(id, next.id, task.ownerId ?? '');
+    this.db.prepare('UPDATE tasks SET recurrenceNextId = ? WHERE id = ?').run(next.id, id);
+    return next;
   }
 
   markTasksAsInvoiced(taskIds: string[], invoiceId: string) {

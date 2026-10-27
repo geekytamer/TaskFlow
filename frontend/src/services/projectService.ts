@@ -127,7 +127,7 @@ export async function getCommentsByTaskId(taskId: string): Promise<Comment[]> {
 }
 
 export async function createComment(
-  commentData: Omit<Comment, 'id' | 'createdAt'>,
+  commentData: Omit<Comment, 'id' | 'createdAt'> & { mentionIds?: string[] },
 ): Promise<Comment> {
   const comment = await apiFetch<Comment>(`/tasks/${commentData.taskId}/comments`, {
     method: 'POST',
@@ -176,3 +176,26 @@ export async function updateTaskPart(
   });
   return mapTask(task);
 }
+
+/** One step of a task's checklist (backend tasks/task-checklist.ts). */
+export interface ChecklistItem {
+  id: string;
+  taskId: string;
+  text: string;
+  done: boolean;
+  position: number;
+  doneBy: string | null;
+  doneAt: string | null;
+}
+
+export const getChecklist = (taskId: string) =>
+  apiFetch<ChecklistItem[]>(`/tasks/${encodeURIComponent(taskId)}/checklist`);
+
+export const addChecklistItem = (taskId: string, text: string) =>
+  apiFetch<ChecklistItem>(`/tasks/${encodeURIComponent(taskId)}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
+
+export const updateChecklistItem = (taskId: string, itemId: string, changes: { text?: string; done?: boolean }) =>
+  apiFetch<ChecklistItem>(`/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify(changes) });
+
+export const deleteChecklistItem = (taskId: string, itemId: string) =>
+  apiFetch<{ success: boolean }>(`/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, { method: 'DELETE' });

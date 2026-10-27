@@ -10,7 +10,7 @@ import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, ListChecks } from 'lucide-react';
 import { PRIORITY_DOT, partsProgress, priorityName, statusName } from '@/modules/projects/lib/task-meta';
 
 
@@ -68,6 +68,12 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                         <Badge variant="outline" className="gap-1 font-medium" title={tr('Parts finished', 'الأجزاء المنجزة')}>
                             <CheckCircle2 className="h-3 w-3" />
                             {progress.done}/{progress.total}
+                        </Badge>
+                    )}
+                    {(task.checklist?.total ?? 0) > 0 && (
+                        <Badge variant="outline" className="gap-1 font-medium" title={tr('Checklist', 'قائمة التحقق')}>
+                            <ListChecks className="h-3 w-3" />
+                            {task.checklist!.done}/{task.checklist!.total}
                         </Badge>
                     )}
                     {task.tags.map(tag => (
