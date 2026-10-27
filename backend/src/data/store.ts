@@ -5279,6 +5279,15 @@ export class DataStore {
           this.db.exec('ALTER TABLE tasks ADD COLUMN recurrenceNextId TEXT');
         },
       },
+      {
+        // Tasks that take several days: a start date, and when its two alerts went out.
+        id: '142_task_start_date',
+        run: () => {
+          this.db.exec('ALTER TABLE tasks ADD COLUMN startDate TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN startNotifiedAt TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN behindNotifiedAt TEXT');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7336,6 +7345,7 @@ export class DataStore {
       checklist: checklists ? checklists.get(row.id) ?? { done: 0, total: 0 } : this.taskChecklist.countFor(row.id),
       createdAt: new Date(row.createdAt),
       dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
+      startDate: row.startDate ? new Date(row.startDate) : undefined,
       assignedUserIds: this.parseJson<string[]>(row.assignedUserIds) || [],
       tags: this.parseJson<string[]>(row.tags) || [],
       dependencies: this.parseJson<string[]>(row.dependencies) || [],
@@ -7357,7 +7367,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence)',
+        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence, startDate, startNotifiedAt) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence, @startDate, @startNotifiedAt)',
       )
       .run({
         id: newTask.id,
@@ -7383,6 +7393,9 @@ export class DataStore {
         invoiceDate: newTask.invoiceDate ? new Date(newTask.invoiceDate).toISOString() : null,
         generatedInvoiceId: newTask.generatedInvoiceId ?? null,
         recurrence: newTask.recurrence ?? null,
+        startDate: newTask.startDate ? new Date(newTask.startDate).toISOString() : null,
+        // Already started when made: the assignment notice says it all.
+        startNotifiedAt: newTask.startDate && new Date(newTask.startDate).getTime() <= Date.now() ? new Date().toISOString() : null,
       });
     // Auto-seed Contributor rows for each assignee (split evenly).
     if (newTask.assignedUserIds && newTask.assignedUserIds.length > 0) {
@@ -7461,11 +7474,22 @@ export class DataStore {
         : existing.invoiceDate,
       // null stops the repeat; undefined keeps it.
       recurrence: updates.recurrence !== undefined ? updates.recurrence ?? null : existing.recurrence ?? null,
+      // null clears the start; undefined keeps it.
+      startDate:
+        updates.startDate !== undefined
+          ? updates.startDate ? new Date(updates.startDate).toISOString() : null
+          : existing.startDate ?? null,
     };
+    // A moved start date earns fresh start and behind-schedule alerts.
+    const startMoved = (updated.startDate ?? null) !== (existing.startDate ?? null);
+    updated.startNotifiedAt = startMoved
+      ? updated.startDate && Date.parse(updated.startDate) <= Date.now() ? new Date().toISOString() : null
+      : existing.startNotifiedAt ?? null;
+    updated.behindNotifiedAt = startMoved ? null : existing.behindNotifiedAt ?? null;
 
     this.db
       .prepare(
-        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence WHERE id=@id',
+        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence, startDate=@startDate, startNotifiedAt=@startNotifiedAt, behindNotifiedAt=@behindNotifiedAt WHERE id=@id',
       )
       .run(updated);
     // Parts follow the people on the task; a whole-task close or reopen moves every part.
@@ -7590,12 +7614,16 @@ export class DataStore {
   private spawnNextRound(id: string): Task | undefined {
     const task = this.getTaskById(id);
     if (!task?.recurrence || task.recurrenceNextId) return undefined;
+    const dueDate = nextDueDate(task.recurrence, task.dueDate);
+    // A task that spans days keeps its length in the next round.
+    const span = task.startDate && task.dueDate ? task.dueDate.getTime() - task.startDate.getTime() : undefined;
     const next = this.createTask({
       title: task.title,
       description: task.description,
       status: 'To Do',
       priority: task.priority,
-      dueDate: nextDueDate(task.recurrence, task.dueDate),
+      dueDate,
+      startDate: span !== undefined && span >= 0 ? new Date(dueDate.getTime() - span) : undefined,
       assignedUserIds: task.assignedUserIds ?? [],
       tags: task.tags,
       companyId: task.companyId,
@@ -20681,6 +20709,62 @@ export class DataStore {
         entityType: 'task',
         entityId: task.id,
         dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
+  }
+
+  /**
+   * Tasks that span days: tell the people on it the day it starts, and tell the
+   * owner once half the time has gone while someone has not started. Each alert
+   * goes out once per start date.
+   */
+  sweepTaskStartAlerts(now = new Date()): number {
+    const nowIso = now.toISOString();
+    let count = 0;
+    const starting = this.db
+      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND startDate <= ? AND startNotifiedAt IS NULL")
+      .all(nowIso) as any[];
+    for (const row of starting) {
+      const task = this.decodeTask(row);
+      this.db.prepare('UPDATE tasks SET startNotifiedAt = ? WHERE id = ?').run(nowIso, task.id);
+      const people = task.parts?.length ? task.parts.filter((p) => p.status !== 'Done').map((p) => p.userId) : task.assignedUserIds ?? [];
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: people,
+        type: 'task_start',
+        title: `Starts today: ${task.title}`,
+        body: task.dueDate ? `Due ${task.dueDate.toISOString().slice(0, 10)}.` : undefined,
+        data: { tKey: 'notif.taskStart.t', title: task.title, ...(task.dueDate ? { bKey: 'notif.taskDue.b', due: task.dueDate.toISOString().slice(0, 10) } : {}) },
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
+      }).length;
+    }
+    const running = this.db
+      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND dueDate IS NOT NULL AND behindNotifiedAt IS NULL AND ownerId IS NOT NULL")
+      .all() as any[];
+    for (const row of running) {
+      const task = this.decodeTask(row);
+      const start = task.startDate!.getTime();
+      const halfway = start + (task.dueDate!.getTime() - start) / 2;
+      if (task.dueDate!.getTime() <= start || now.getTime() < halfway) continue;
+      const notStarted = task.parts?.length
+        ? task.parts.filter((p) => p.status === 'To Do').map((p) => p.userId)
+        : task.status === 'To Do' ? task.assignedUserIds ?? [] : [];
+      if (notStarted.length === 0) continue;
+      this.db.prepare('UPDATE tasks SET behindNotifiedAt = ? WHERE id = ?').run(nowIso, task.id);
+      const names = notStarted.map((id) => this.getUserById(id)?.name).filter(Boolean).join(', ');
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: [task.ownerId!],
+        type: 'task_behind',
+        title: `Behind schedule: ${task.title}`,
+        body: `Half the time has gone and ${names || 'nobody'} has not started.`,
+        data: { tKey: 'notif.taskBehind.t', bKey: 'notif.taskBehind.b', title: task.title, names },
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
       }).length;
     }
     return count;

@@ -35,6 +35,7 @@ import { taskStatuses, taskPriorities, taskRecurrences } from '@/modules/project
 import { priorityName, recurrenceName, statusName } from '@/modules/projects/lib/task-meta';
 import { TaskPartsPanel } from './task-parts-panel';
 import { TaskChecklistPanel } from './task-checklist-panel';
+import { TaskDatesPicker } from './task-dates-picker';
 import { MentionTextarea, useMentions } from './mention-textarea';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -378,29 +379,12 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                       </SelectContent>
                     </Select>
                   </DetailRow>
-                  <DetailRow icon={CalendarIcon} label={tr('Due Date', 'تاريخ الاستحقاق')}>
-                      <Popover>
-                          <PopoverTrigger asChild>
-                          <Button
-                              variant={'outline'}
-                              className={cn(
-                              'w-[180px] justify-start text-start font-normal',
-                              !editableTask.dueDate && 'text-muted-foreground'
-                              )}
-                          >
-                              <CalendarIcon className="me-2 h-4 w-4" />
-                              {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
-                          </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0">
-                          <Calendar
-                              mode="single"
-                              selected={editableTask.dueDate}
-                              onSelect={(date) => handleFieldChange('dueDate', date)}
-                              initialFocus
-                          />
-                          </PopoverContent>
-                      </Popover>
+                  <DetailRow icon={CalendarIcon} label={tr('Dates', 'التاريخ')}>
+                      <TaskDatesPicker
+                          className="w-[230px]"
+                          value={{ startDate: editableTask.startDate, dueDate: editableTask.dueDate }}
+                          onChange={(next) => setEditableTask((prev) => ({ ...prev, startDate: next.startDate ?? null, dueDate: next.dueDate }))}
+                      />
                   </DetailRow>
                     <DetailRow icon={Tag} label={tr('Priority', 'الأولوية')}>
                         <Select

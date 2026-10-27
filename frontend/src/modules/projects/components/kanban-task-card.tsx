@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { CheckCircle2, ListChecks } from 'lucide-react';
-import { PRIORITY_DOT, partsProgress, priorityName, statusName } from '@/modules/projects/lib/task-meta';
+import { PRIORITY_DOT, formatTaskDates, partsProgress, priorityName, statusName, taskSpanDays } from '@/modules/projects/lib/task-meta';
 
 
 interface KanbanTaskCardProps {
@@ -82,7 +82,12 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                 </div>
                 <div className="flex justify-between items-center">
                     <p className="text-xs text-muted-foreground">
-                        {task.dueDate ? tr(`Due: ${new Date(task.dueDate).toLocaleDateString(getCurrentLocale())}`, `الاستحقاق: ${new Date(task.dueDate).toLocaleDateString(getCurrentLocale())}`) : ''}
+                        {task.dueDate && (
+                            <bdi>
+                                {formatTaskDates(task, getCurrentLocale())}
+                                {taskSpanDays(task) > 1 && ` · ${tr(`${taskSpanDays(task)} days`, `${taskSpanDays(task)} أيام`)}`}
+                            </bdi>
+                        )}
                     </p>
                     <div className="flex -space-x-2 rtl:space-x-reverse">
                         {users.map(user => (

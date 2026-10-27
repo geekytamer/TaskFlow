@@ -37,11 +37,9 @@ import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
 import { taskPriorities, taskRecurrences } from '@/modules/projects/types';
 import { priorityName, recurrenceName } from '@/modules/projects/lib/task-meta';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
-import { Calendar } from '@/components/ui/calendar';
+import { TaskDatesPicker } from './task-dates-picker';
+import { PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 // AI tag suggestion removed; fallback heuristic in component
@@ -67,6 +65,7 @@ const createTaskSchema = z.object({
   assignedUserIds: z.array(z.string()).optional(),
   priority: z.enum(priorityValues),
   dueDate: z.date().optional(),
+  startDate: z.date().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
   parentTaskId: z.string().optional(),
@@ -480,28 +479,17 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="dueDate"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-end">{tr('Due Date', 'تاريخ الاستحقاق')}</FormLabel>
+                        <FormLabel className="text-end">{tr('Dates', 'التاريخ')}</FormLabel>
                         <div className="col-span-3">
-                        <Popover>
-                            <PopoverTrigger asChild>
-                               <FormControl>
-                                <Button
-                                    variant={'outline'}
-                                    className={cn(
-                                    'w-full justify-start text-start font-normal',
-                                    !field.value && 'text-muted-foreground'
-                                    )}
-                                >
-                                    <CalendarIcon className="me-2 h-4 w-4" />
-                                    {field.value ? format(field.value, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
-                                </Button>
-                               </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                            </PopoverContent>
-                        </Popover>
-                        <FormMessage />
+                          <TaskDatesPicker
+                            className="w-full"
+                            value={{ startDate: form.watch('startDate'), dueDate: field.value }}
+                            onChange={(next) => {
+                              form.setValue('startDate', next.startDate ?? undefined);
+                              field.onChange(next.dueDate);
+                            }}
+                          />
+                          <FormMessage />
                         </div>
                     </FormItem>
                   )}

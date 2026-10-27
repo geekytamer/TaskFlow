@@ -42,6 +42,8 @@ export interface Task {
   priority: TaskPriority;
   createdAt: Date;
   dueDate?: Date;
+  /** First day of a task that takes several days; dueDate is the last. */
+  startDate?: Date | null;
   assignedUserIds?: string[];
   tags: string[];
   companyId: string;

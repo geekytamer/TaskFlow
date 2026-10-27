@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { format, isToday, isThisWeek, startOfDay } from 'date-fns';
+import { isToday, isThisWeek, startOfDay } from 'date-fns';
 import {
   CheckSquare,
   ListTodo,
@@ -20,7 +20,7 @@ import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask, updateTaskPart } from '@/services/projectService';
-import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, partsProgress, recurrenceName, statusFor, statusName } from '@/modules/projects/lib/task-meta';
+import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, formatTaskDates, partsProgress, recurrenceName, spanDayToday, statusFor, statusName, taskSpanDays } from '@/modules/projects/lib/task-meta';
 import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients } from '@/services/financeService';
 import {
@@ -44,6 +44,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { getCurrentLocale } from '@/lib/locale';
 import { TaskDetailsSheet } from './task-details-sheet';
 import { useLiveRefresh } from '@/lib/live';
 
@@ -282,7 +283,12 @@ function TaskRow({
           )}
         >
           <CalendarClock className="h-3.5 w-3.5" />
-          {format(new Date(task.dueDate), 'MMM d')}
+          <bdi>{formatTaskDates(task, getCurrentLocale())}</bdi>
+          {spanDayToday(task) !== undefined && (
+            <span className="rounded bg-primary/10 px-1 text-primary">
+              {tr(`day ${spanDayToday(task)}/${taskSpanDays(task)}`, `اليوم ${spanDayToday(task)} من ${taskSpanDays(task)}`)}
+            </span>
+          )}
         </div>
       )}
 
@@ -478,7 +484,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
       const status = statusFor(t, currentUserId);
       if (status === 'Done') return false;
       const dueSoon = t.dueDate && startOfDay(new Date(t.dueDate)) <= todayStart;
-      return Boolean(dueSoon) || status !== 'To Do' || t.priority === 'Urgent';
+      return Boolean(dueSoon) || spanDayToday(t) !== undefined || status !== 'To Do' || t.priority === 'Urgent';
     });
   }, [scopedTasks, scope, currentUserId, todayStart]);
 

@@ -274,6 +274,8 @@ export interface Task {
   recurrence?: import('./tasks/task-recurrence').TaskRecurrence | null;
   /** The next round, once this one was finished. */
   recurrenceNextId?: string;
+  /** First day of a task that spans days; dueDate is the last. null on an update clears it. */
+  startDate?: Date | null;
   invoiceImage?: string;
   invoiceVendor?: string;
   invoiceNumber?: string;
@@ -1774,6 +1776,8 @@ export type NotificationType =
   | 'task_status'
   | 'task_part_done'
   | 'task_mention'
+  | 'task_start'
+  | 'task_behind'
   | 'task_completed'
   | 'task_comment'
   | 'task_due'

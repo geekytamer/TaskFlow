@@ -837,7 +837,7 @@ export function createServer(options: CreateServerOptions = {}) {
     const runReminders = () => {
       try {
         store.sweepSnoozedFollowups(); // wake snoozed follow-ups before reminding
-        const tasks = store.sweepTaskDueReminders();
+        const tasks = store.sweepTaskDueReminders() + store.sweepTaskStartAlerts();
         const followups = store.sweepFollowupDueReminders();
         const overdue = store.sweepOverdueInvoiceNotifications();
         const lowStock = store.sweepLowStockNotifications();
@@ -1713,6 +1713,8 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       createdAt: record.createdAt !== undefined ? requiredDateInput(record.createdAt, 'createdAt') : undefined,
       dueDate: record.dueDate !== undefined ? optionalDateInput(record.dueDate) : undefined,
+      startDate:
+        record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate),
       assignedUserIds:
         record.assignedUserIds !== undefined
           ? stringArray(record.assignedUserIds, 'assignedUserIds')
@@ -1745,6 +1747,9 @@ export function createServer(options: CreateServerOptions = {}) {
     };
     if (!partial && (!payload.title || !payload.priority || !payload.companyId)) {
       throw new HttpError(400, 'title, priority, and companyId are required.');
+    }
+    if (payload.startDate && payload.dueDate && Date.parse(payload.startDate) > Date.parse(payload.dueDate)) {
+      throw new HttpError(400, 'The start date must be on or before the due date.');
     }
     return payload;
   };
@@ -3175,6 +3180,7 @@ export function createServer(options: CreateServerOptions = {}) {
           priority: payload.priority!,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date(),
           dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+          startDate: payload.startDate ? new Date(payload.startDate) : undefined,
           assignedUserIds: payload.assignedUserIds || [],
           tags: payload.tags || [],
           companyId: payload.companyId!,
@@ -3208,6 +3214,12 @@ export function createServer(options: CreateServerOptions = {}) {
       // Manager/Admin/Accountant) may mutate it — mirrors GET isolation.
       requireTaskViewAccess(req, existing);
       const payload = parseTaskPayload(req.body, { partial: true });
+      // A partial edit of one date is checked against the other one already on the task.
+      const effStart = payload.startDate === null ? undefined : payload.startDate ?? existing.startDate;
+      const effDue = payload.dueDate ?? existing.dueDate;
+      if (effStart && effDue && new Date(effStart).getTime() > new Date(effDue).getTime()) {
+        throw new HttpError(400, 'The start date must be on or before the due date.');
+      }
       const targetCompanyId = payload.companyId || existing.companyId;
       const targetProjectId = payload.projectId || existing.projectId;
       if (targetCompanyId !== existing.companyId) {
@@ -3229,6 +3241,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ...payload,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
           dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+          startDate: payload.startDate === null ? null : payload.startDate ? new Date(payload.startDate) : undefined,
           invoiceDate: payload.invoiceDate ? new Date(payload.invoiceDate) : undefined,
         }),
       );
