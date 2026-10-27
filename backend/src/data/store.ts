@@ -31,6 +31,9 @@ import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
+import { nextDueDate } from '../tasks/task-recurrence';
+import { TaskChecklistStore, TASK_CHECKLIST_SCHEMA } from '../tasks/task-checklist';
+import { TaskPartStore, TASK_PARTS_SCHEMA, partStatusFor, taskStatusFromParts, type PartStatus, type TaskPart } from '../tasks/task-parts';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
@@ -715,6 +718,8 @@ export class DataStore {
   readonly push: PushStore;
   readonly teamChats: TeamChatStore;
   readonly passwordTokens: PasswordTokenStore;
+  readonly taskParts: TaskPartStore;
+  readonly taskChecklist: TaskChecklistStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -764,6 +769,8 @@ export class DataStore {
     this.push = new PushStore(this.db);
     this.teamChats = new TeamChatStore(this.db);
     this.passwordTokens = new PasswordTokenStore(this.db);
+    this.taskParts = new TaskPartStore(this.db);
+    this.taskChecklist = new TaskChecklistStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5243,6 +5250,44 @@ export class DataStore {
           }
         },
       },
+      {
+        // A task shared by several people gets a part each, in the state the task is in.
+        id: '139_task_parts',
+        run: () => {
+          this.db.exec(TASK_PARTS_SCHEMA);
+          // Migrations run before the store's helpers exist, so this one makes its own.
+          const parts = new TaskPartStore(this.db);
+          const tasks = this.db.prepare('SELECT id, status, assignedUserIds FROM tasks').all() as Array<{ id: string; status: string; assignedUserIds: string | null }>;
+          for (const task of tasks) {
+            const people = this.parseJson<string[]>(task.assignedUserIds) || [];
+            if (people.length >= 2) parts.sync(task.id, people, partStatusFor(task.status));
+          }
+        },
+      },
+      {
+        // Checklists inside tasks (tasks/task-checklist.ts).
+        id: '140_task_checklists',
+        run: () => {
+          this.db.exec(TASK_CHECKLIST_SCHEMA);
+        },
+      },
+      {
+        // Repeating tasks (tasks/task-recurrence.ts): the period, and the next round once made.
+        id: '141_task_recurrence',
+        run: () => {
+          this.db.exec('ALTER TABLE tasks ADD COLUMN recurrence TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN recurrenceNextId TEXT');
+        },
+      },
+      {
+        // Tasks that take several days: a start date, and when its two alerts went out.
+        id: '142_task_start_date',
+        run: () => {
+          this.db.exec('ALTER TABLE tasks ADD COLUMN startDate TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN startNotifiedAt TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN behindNotifiedAt TEXT');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7245,6 +7290,8 @@ export class DataStore {
     this.db.prepare('DELETE FROM time_entries WHERE taskId = ?').run(taskId);
     this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(taskId);
     this.db.prepare("DELETE FROM contributions WHERE sourceType = 'task' AND sourceId = ?").run(taskId);
+    this.taskParts.removeTask(taskId);
+    this.taskChecklist.removeTask(taskId);
     this.db.prepare('UPDATE inventory_issues SET taskId = NULL WHERE taskId = ?').run(taskId);
     this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(taskId);
     this.scrubIdFromJsonArray('tasks', 'dependencies', taskId);
@@ -7268,7 +7315,9 @@ export class DataStore {
 
   listTasks(): Task[] {
     const rows = this.db.prepare('SELECT * FROM tasks').all() as any[];
-    return rows.map((r) => this.decodeTask(r));
+    const parts = this.taskParts.byTask();
+    const checklists = this.taskChecklist.counts();
+    return rows.map((r) => this.decodeTask(r, parts, checklists));
   }
 
   getTaskById(id: string): Task | undefined {
@@ -7289,17 +7338,22 @@ export class DataStore {
     return rows.map((r) => this.decodeTask(r));
   }
 
-  private decodeTask(row: any): Task {
+  private decodeTask(row: any, parts?: Map<string, TaskPart[]>, checklists?: Map<string, { done: number; total: number }>): Task {
     return {
       ...row,
+      parts: parts ? parts.get(row.id) ?? [] : this.taskParts.forTask(row.id),
+      checklist: checklists ? checklists.get(row.id) ?? { done: 0, total: 0 } : this.taskChecklist.countFor(row.id),
       createdAt: new Date(row.createdAt),
       dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
+      startDate: row.startDate ? new Date(row.startDate) : undefined,
       assignedUserIds: this.parseJson<string[]>(row.assignedUserIds) || [],
       tags: this.parseJson<string[]>(row.tags) || [],
       dependencies: this.parseJson<string[]>(row.dependencies) || [],
       parentTaskId: row.parentTaskId || undefined,
       ownerId: row.ownerId || undefined,
       isPrivate: Boolean(row.isPrivate),
+      recurrence: row.recurrence || undefined,
+      recurrenceNextId: row.recurrenceNextId || undefined,
       invoiceDate: row.invoiceDate ? new Date(row.invoiceDate) : undefined,
     };
   }
@@ -7313,7 +7367,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId)',
+        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence, startDate, startNotifiedAt) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence, @startDate, @startNotifiedAt)',
       )
       .run({
         id: newTask.id,
@@ -7338,6 +7392,10 @@ export class DataStore {
         invoiceAmount: newTask.invoiceAmount ?? null,
         invoiceDate: newTask.invoiceDate ? new Date(newTask.invoiceDate).toISOString() : null,
         generatedInvoiceId: newTask.generatedInvoiceId ?? null,
+        recurrence: newTask.recurrence ?? null,
+        startDate: newTask.startDate ? new Date(newTask.startDate).toISOString() : null,
+        // Already started when made: the assignment notice says it all.
+        startNotifiedAt: newTask.startDate && new Date(newTask.startDate).getTime() <= Date.now() ? new Date().toISOString() : null,
       });
     // Auto-seed Contributor rows for each assignee (split evenly).
     if (newTask.assignedUserIds && newTask.assignedUserIds.length > 0) {
@@ -7372,7 +7430,8 @@ export class DataStore {
       entityType: 'task',
       entityId: newTask.id,
     });
-    return newTask;
+    this.taskParts.sync(newTask.id, newTask.assignedUserIds ?? [], partStatusFor(newTask.status));
+    return { ...newTask, parts: this.taskParts.forTask(newTask.id) };
   }
 
   updateTask(id: string, updates: UpdateTaskInput) {
@@ -7413,14 +7472,40 @@ export class DataStore {
       invoiceDate: updates.invoiceDate
         ? new Date(updates.invoiceDate).toISOString()
         : existing.invoiceDate,
+      // null stops the repeat; undefined keeps it.
+      recurrence: updates.recurrence !== undefined ? updates.recurrence ?? null : existing.recurrence ?? null,
+      // null clears the start; undefined keeps it.
+      startDate:
+        updates.startDate !== undefined
+          ? updates.startDate ? new Date(updates.startDate).toISOString() : null
+          : existing.startDate ?? null,
     };
+    // A moved start date earns fresh start and behind-schedule alerts.
+    const startMoved = (updated.startDate ?? null) !== (existing.startDate ?? null);
+    updated.startNotifiedAt = startMoved
+      ? updated.startDate && Date.parse(updated.startDate) <= Date.now() ? new Date().toISOString() : null
+      : existing.startNotifiedAt ?? null;
+    updated.behindNotifiedAt = startMoved ? null : existing.behindNotifiedAt ?? null;
 
     this.db
       .prepare(
-        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId WHERE id=@id',
+        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence, startDate=@startDate, startNotifiedAt=@startNotifiedAt, behindNotifiedAt=@behindNotifiedAt WHERE id=@id',
       )
       .run(updated);
-    const result = this.decodeTask({ ...existing, ...updates, ...updated });
+    // Parts follow the people on the task; a whole-task close or reopen moves every part.
+    this.taskParts.sync(id, updatedAssigned, 'To Do');
+    if (updates.status && updates.status !== prevStatus) {
+      if (updates.status === 'Done') this.taskParts.setAll(id, 'Done');
+      else if (prevStatus === 'Done') this.taskParts.setAll(id, 'To Do');
+    } else if (updates.assignedUserIds) {
+      const derived = taskStatusFromParts(this.taskParts.forTask(id), updated.status);
+      if (derived !== updated.status) {
+        this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, id);
+        updated.status = derived;
+      }
+    }
+    if (updated.status === 'Done' && prevStatus !== 'Done') this.spawnNextRound(id);
+    const result = this.decodeTask({ ...existing, ...updates, ...updated, recurrenceNextId: this.taskNextRoundId(id) });
     this.createActivityEvent({
       companyId: result.companyId,
       entityType: 'task',
@@ -7458,6 +7543,102 @@ export class DataStore {
       });
     }
     return result;
+  }
+
+  /**
+   * One person's part of a shared task: its status and/or label. The task's
+   * status follows the parts; finishing a part tells the others who still have
+   * work (and the owner); finishing the last one tells the owner it is complete.
+   */
+  setTaskPart(taskId: string, userId: string, changes: { status?: PartStatus; label?: string | null }): Task | undefined {
+    const task = this.getTaskById(taskId);
+    if (!task) return undefined;
+    const before = task.parts?.find((p) => p.userId === userId);
+    if (!before) return undefined;
+    if (changes.label !== undefined) this.taskParts.setLabel(taskId, userId, changes.label);
+    if (changes.status && changes.status !== before.status) {
+      this.taskParts.setStatus(taskId, userId, changes.status);
+      const parts = this.taskParts.forTask(taskId);
+      const derived = taskStatusFromParts(parts, task.status);
+      if (derived !== task.status) this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, taskId);
+      if (derived === 'Done' && task.status !== 'Done') this.spawnNextRound(taskId);
+      const link = taskLink(task.projectId);
+      const who = this.getUserById(userId)?.name ?? '';
+      this.createActivityEvent({
+        companyId: task.companyId,
+        entityType: 'task',
+        entityId: taskId,
+        action: 'updated',
+        summary: `${who}: part ${changes.status}.`,
+        metadata: { projectId: task.projectId, part: userId, status: changes.status },
+      });
+      if (changes.status === 'Done') {
+        const stillWorking = parts.filter((p) => p.status !== 'Done').map((p) => p.userId);
+        const audience = [...stillWorking, ...(task.ownerId ? [task.ownerId] : [])];
+        if (derived === 'Done') {
+          this.notify({
+            companyId: task.companyId,
+            userIds: task.ownerId ? [task.ownerId] : [],
+            type: 'task_completed',
+            title: `Task complete: ${task.title}`,
+            body: 'Everyone finished their part.',
+            data: { tKey: 'notif.taskCompleted.t', bKey: 'notif.taskCompleted.b', title: task.title },
+            link,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        } else {
+          this.notify({
+            companyId: task.companyId,
+            userIds: audience.filter((uid) => uid !== userId),
+            type: 'task_part_done',
+            title: `${who} finished their part of ${task.title}`,
+            body: `${stillWorking.length} part(s) still open.`,
+            data: { tKey: 'notif.taskPartDone.t', bKey: 'notif.taskPartDone.b', title: task.title, name: who, open: stillWorking.length },
+            link,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        }
+      }
+    }
+    return this.getTaskById(taskId);
+  }
+
+  private taskNextRoundId(id: string): string | undefined {
+    const row = this.db.prepare('SELECT recurrenceNextId FROM tasks WHERE id = ?').get(id) as { recurrenceNextId: string | null } | undefined;
+    return row?.recurrenceNextId ?? undefined;
+  }
+
+  /** A finished repeating task makes its next round once: same people, part labels and steps, unticked. */
+  private spawnNextRound(id: string): Task | undefined {
+    const task = this.getTaskById(id);
+    if (!task?.recurrence || task.recurrenceNextId) return undefined;
+    const dueDate = nextDueDate(task.recurrence, task.dueDate);
+    // A task that spans days keeps its length in the next round.
+    const span = task.startDate && task.dueDate ? task.dueDate.getTime() - task.startDate.getTime() : undefined;
+    const next = this.createTask({
+      title: task.title,
+      description: task.description,
+      status: 'To Do',
+      priority: task.priority,
+      dueDate,
+      startDate: span !== undefined && span >= 0 ? new Date(dueDate.getTime() - span) : undefined,
+      assignedUserIds: task.assignedUserIds ?? [],
+      tags: task.tags,
+      companyId: task.companyId,
+      projectId: task.projectId,
+      color: task.color,
+      dependencies: [],
+      parentTaskId: task.parentTaskId,
+      ownerId: task.ownerId,
+      isPrivate: task.isPrivate,
+      recurrence: task.recurrence,
+    });
+    for (const part of task.parts ?? []) if (part.label) this.taskParts.setLabel(next.id, part.userId, part.label);
+    this.taskChecklist.copy(id, next.id, task.ownerId ?? '');
+    this.db.prepare('UPDATE tasks SET recurrenceNextId = ? WHERE id = ?').run(next.id, id);
+    return next;
   }
 
   markTasksAsInvoiced(taskIds: string[], invoiceId: string) {
@@ -20528,6 +20709,62 @@ export class DataStore {
         entityType: 'task',
         entityId: task.id,
         dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
+  }
+
+  /**
+   * Tasks that span days: tell the people on it the day it starts, and tell the
+   * owner once half the time has gone while someone has not started. Each alert
+   * goes out once per start date.
+   */
+  sweepTaskStartAlerts(now = new Date()): number {
+    const nowIso = now.toISOString();
+    let count = 0;
+    const starting = this.db
+      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND startDate <= ? AND startNotifiedAt IS NULL")
+      .all(nowIso) as any[];
+    for (const row of starting) {
+      const task = this.decodeTask(row);
+      this.db.prepare('UPDATE tasks SET startNotifiedAt = ? WHERE id = ?').run(nowIso, task.id);
+      const people = task.parts?.length ? task.parts.filter((p) => p.status !== 'Done').map((p) => p.userId) : task.assignedUserIds ?? [];
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: people,
+        type: 'task_start',
+        title: `Starts today: ${task.title}`,
+        body: task.dueDate ? `Due ${task.dueDate.toISOString().slice(0, 10)}.` : undefined,
+        data: { tKey: 'notif.taskStart.t', title: task.title, ...(task.dueDate ? { bKey: 'notif.taskDue.b', due: task.dueDate.toISOString().slice(0, 10) } : {}) },
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
+      }).length;
+    }
+    const running = this.db
+      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND dueDate IS NOT NULL AND behindNotifiedAt IS NULL AND ownerId IS NOT NULL")
+      .all() as any[];
+    for (const row of running) {
+      const task = this.decodeTask(row);
+      const start = task.startDate!.getTime();
+      const halfway = start + (task.dueDate!.getTime() - start) / 2;
+      if (task.dueDate!.getTime() <= start || now.getTime() < halfway) continue;
+      const notStarted = task.parts?.length
+        ? task.parts.filter((p) => p.status === 'To Do').map((p) => p.userId)
+        : task.status === 'To Do' ? task.assignedUserIds ?? [] : [];
+      if (notStarted.length === 0) continue;
+      this.db.prepare('UPDATE tasks SET behindNotifiedAt = ? WHERE id = ?').run(nowIso, task.id);
+      const names = notStarted.map((id) => this.getUserById(id)?.name).filter(Boolean).join(', ');
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: [task.ownerId!],
+        type: 'task_behind',
+        title: `Behind schedule: ${task.title}`,
+        body: `Half the time has gone and ${names || 'nobody'} has not started.`,
+        data: { tKey: 'notif.taskBehind.t', bKey: 'notif.taskBehind.b', title: task.title, names },
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
       }).length;
     }
     return count;

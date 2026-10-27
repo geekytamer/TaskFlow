@@ -35,12 +35,11 @@ import {
 import { getCompanyMembers } from '@/services/userService';
 import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
-import { taskPriorities } from '@/modules/projects/types';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
-import { Calendar } from '@/components/ui/calendar';
+import { taskPriorities, taskRecurrences } from '@/modules/projects/types';
+import { priorityName, recurrenceName } from '@/modules/projects/lib/task-meta';
+import { TaskDatesPicker } from './task-dates-picker';
+import { PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 // AI tag suggestion removed; fallback heuristic in component
@@ -54,7 +53,7 @@ import { useRouter } from 'next/navigation';
 import type { Task } from '@/modules/projects/types';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 
-const priorityValues = ['Low', 'Medium', 'High'] as const;
+const priorityValues = ['Low', 'Medium', 'High', 'Urgent'] as const;
 
 // Sentinel for the "No project" option — Radix Select items can't use an empty value.
 const NO_PROJECT = 'none';
@@ -66,10 +65,12 @@ const createTaskSchema = z.object({
   assignedUserIds: z.array(z.string()).optional(),
   priority: z.enum(priorityValues),
   dueDate: z.date().optional(),
+  startDate: z.date().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
   parentTaskId: z.string().optional(),
   isPrivate: z.boolean().optional(),
+  recurrence: z.enum(['none', 'daily', 'weekly', 'monthly']).optional(),
 });
 
 type CreateTaskFormValues = z.infer<typeof createTaskSchema>;
@@ -102,6 +103,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         color: '#cccccc',
         parentTaskId: 'none',
         isPrivate: false,
+        recurrence: 'none',
     },
   });
 
@@ -186,6 +188,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
             projectId: data.projectId && data.projectId !== NO_PROJECT ? data.projectId : '',
             tags: data.tags || [],
             parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
+            recurrence: data.recurrence && data.recurrence !== 'none' ? data.recurrence : undefined,
         });
         toast({
         title: tr('Task Created', 'تم إنشاء المهمة'),
@@ -415,13 +418,36 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                             <SelectContent>
                               {taskPriorities.map((priority) => (
                                 <SelectItem key={priority} value={priority}>
-                                  {priority}
+                                  {priorityName(priority, language)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                           <FormMessage />
                         </div>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="recurrence"
+                  render={({ field }) => (
+                    <FormItem className="grid grid-cols-4 items-center gap-4">
+                      <FormLabel className="text-end">{tr('Repeat', 'التكرار')}</FormLabel>
+                      <div className="col-span-3">
+                        <Select onValueChange={field.onChange} value={field.value ?? 'none'}>
+                          <FormControl>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">{tr('Does not repeat', 'لا تتكرر')}</SelectItem>
+                            {taskRecurrences.map((r) => (
+                              <SelectItem key={r} value={r}>{recurrenceName(r, language)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1 text-xs text-muted-foreground">{tr('When it is done, the next one is made for you.', 'عند إنجازها تُنشأ المهمة التالية تلقائياً.')}</p>
+                      </div>
                     </FormItem>
                   )}
                 />
@@ -453,28 +479,17 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                   name="dueDate"
                   render={({ field }) => (
                      <FormItem className="grid grid-cols-4 items-center gap-4">
-                        <FormLabel className="text-end">{tr('Due Date', 'تاريخ الاستحقاق')}</FormLabel>
+                        <FormLabel className="text-end">{tr('Dates', 'التاريخ')}</FormLabel>
                         <div className="col-span-3">
-                        <Popover>
-                            <PopoverTrigger asChild>
-                               <FormControl>
-                                <Button
-                                    variant={'outline'}
-                                    className={cn(
-                                    'w-full justify-start text-start font-normal',
-                                    !field.value && 'text-muted-foreground'
-                                    )}
-                                >
-                                    <CalendarIcon className="me-2 h-4 w-4" />
-                                    {field.value ? format(field.value, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
-                                </Button>
-                               </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                            </PopoverContent>
-                        </Popover>
-                        <FormMessage />
+                          <TaskDatesPicker
+                            className="w-full"
+                            value={{ startDate: form.watch('startDate'), dueDate: field.value }}
+                            onChange={(next) => {
+                              form.setValue('startDate', next.startDate ?? undefined);
+                              field.onChange(next.dueDate);
+                            }}
+                          />
+                          <FormMessage />
                         </div>
                     </FormItem>
                   )}

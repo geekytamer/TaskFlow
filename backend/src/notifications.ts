@@ -16,6 +16,11 @@ export const NOTIFICATION_META: Record<
 > = {
   task_assigned: { category: 'tasks', priority: 'normal' },
   task_status: { category: 'tasks', priority: 'normal' },
+  task_part_done: { category: 'tasks', priority: 'normal' },
+  task_mention: { category: 'tasks', priority: 'normal' },
+  task_start: { category: 'tasks', priority: 'normal' },
+  task_behind: { category: 'tasks', priority: 'normal' },
+  task_completed: { category: 'tasks', priority: 'normal' },
   task_comment: { category: 'tasks', priority: 'normal' },
   task_due: { category: 'tasks', priority: 'critical' },
   invoice_overdue: { category: 'finance', priority: 'critical' },
@@ -46,6 +51,11 @@ export const NOTIFICATION_META: Record<
 export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   task_assigned: 'tasks',
   task_status: 'tasks',
+  task_part_done: 'tasks',
+  task_mention: 'tasks',
+  task_start: 'tasks',
+  task_behind: 'tasks',
+  task_completed: 'tasks',
   task_comment: 'tasks',
   task_due: 'tasks',
   invoice_overdue: 'invoices',

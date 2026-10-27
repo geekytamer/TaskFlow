@@ -30,17 +30,8 @@ const getNodesAndEdges = (companyId: string) => {
   const initialNodes: Node<Task>[] = [];
   const initialEdges: Edge[] = [];
 
-  const statusColumns: Record<string, number> = {
-    'To Do': 0,
-    'In Progress': 1,
-    'Done': 2,
-  };
-
-  const tasksByStatus: Record<string, Task[]> = {
-    'To Do': [],
-    'In Progress': [],
-    'Done': [],
-  };
+  const statusColumns: Record<string, number> = Object.fromEntries(taskStatuses.map((s, i) => [s, i]));
+  const tasksByStatus: Record<string, Task[]> = Object.fromEntries(taskStatuses.map((s) => [s, [] as Task[]]));
 
   const companyTasks = placeholderTasks.filter(task => task.companyId === companyId);
 

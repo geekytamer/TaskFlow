@@ -34,17 +34,9 @@ const getNodesAndEdges = (companyTasks: Task[]) => {
   const initialEdges: Edge[] = [];
   const taskMap = new Map(companyTasks.map((t) => [t.id, t]));
 
-  const statusColumns: Record<string, number> = {
-    'To Do': 0,
-    'In Progress': 1,
-    'Done': 2,
-  };
-
-  const tasksByStatus: Record<string, Task[]> = {
-    'To Do': [],
-    'In Progress': [],
-    'Done': [],
-  };
+  // One column per status, in the order statuses run.
+  const statusColumns: Record<string, number> = Object.fromEntries(taskStatuses.map((s, i) => [s, i]));
+  const tasksByStatus: Record<string, Task[]> = Object.fromEntries(taskStatuses.map((s) => [s, [] as Task[]]));
 
   companyTasks.forEach(task => {
     if (task.status in tasksByStatus) {

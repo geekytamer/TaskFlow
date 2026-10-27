@@ -214,8 +214,10 @@ export interface Contribution {
   updatedAt: Date;
 }
 
-export type TaskStatus = 'To Do' | 'In Progress' | 'Done';
-export type TaskPriority = 'Low' | 'Medium' | 'High';
+export type TaskStatus = 'To Do' | 'In Progress' | 'Waiting' | 'In Review' | 'Done';
+export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'];
+export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+export const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High', 'Urgent'];
 export type ProjectVisibility = 'Public' | 'Private';
 
 export interface Project {
@@ -245,6 +247,10 @@ export interface TimeEntry {
 
 export interface Task {
   id: string;
+  /** One per person when two or more share the task (tasks/task-parts.ts); empty otherwise. */
+  parts?: import('./tasks/task-parts').TaskPart[];
+  /** Checklist steps ticked out of all (tasks/task-checklist.ts). */
+  checklist?: { done: number; total: number };
   title: string;
   description: string;
   status: TaskStatus;
@@ -264,6 +270,12 @@ export interface Task {
   // A private task is visible only to its owner and assignees — it overrides
   // the role-based (Manager/Admin sees all) default and the project cascade.
   isPrivate?: boolean;
+  /** Repeats on completion (tasks/task-recurrence.ts); null on an update stops it. */
+  recurrence?: import('./tasks/task-recurrence').TaskRecurrence | null;
+  /** The next round, once this one was finished. */
+  recurrenceNextId?: string;
+  /** First day of a task that spans days; dueDate is the last. null on an update clears it. */
+  startDate?: Date | null;
   invoiceImage?: string;
   invoiceVendor?: string;
   invoiceNumber?: string;
@@ -1762,6 +1774,11 @@ export type NotificationPriority = 'critical' | 'normal';
 export type NotificationType =
   | 'task_assigned'
   | 'task_status'
+  | 'task_part_done'
+  | 'task_mention'
+  | 'task_start'
+  | 'task_behind'
+  | 'task_completed'
   | 'task_comment'
   | 'task_due'
   | 'invoice_overdue'
