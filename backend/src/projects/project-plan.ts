@@ -5,8 +5,12 @@ import { v4 as uuid } from 'uuid';
  * A project's plan: its stages (milestones) and reusable templates. Status,
  * dates and budget live on the projects row itself (migration 143).
  */
-export const projectStatuses = ['Planning', 'Active', 'On Hold', 'Done'] as const;
+/** Archived: put away (finished long ago, or cancelled); its tasks leave everyone's lists. */
+export const projectStatuses = ['Planning', 'Active', 'On Hold', 'Done', 'Archived'] as const;
 export type ProjectStatus = (typeof projectStatuses)[number];
+
+export const projectPriorities = ['Low', 'Medium', 'High', 'Urgent'] as const;
+export type ProjectPriority = (typeof projectPriorities)[number];
 
 export interface ProjectMilestone {
   id: string;

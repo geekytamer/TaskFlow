@@ -5,23 +5,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useI18n } from '@/context/i18n-context';
-import { projectStatusName } from '../lib/project-meta';
-import { projectStatuses, type ProjectStatus } from '../types';
+import { projectPriorityName, projectStatusName } from '../lib/project-meta';
+import { projectPriorities, projectStatuses, type ProjectPriority, type ProjectStatus } from '../types';
 import { TaskDatesPicker } from './task-dates-picker';
 
 export type ProjectPlanValue = {
   status: ProjectStatus;
+  priority: ProjectPriority;
   startDate: Date | null;
   endDate: Date | null;
   /** As typed; '' means no budget. */
   budget: string;
 };
 
-export const emptyProjectPlan = (): ProjectPlanValue => ({ status: 'Active', startDate: null, endDate: null, budget: '' });
+export const emptyProjectPlan = (): ProjectPlanValue => ({ status: 'Active', priority: 'Medium', startDate: null, endDate: null, budget: '' });
 
-export function projectPlanFrom(p: { status?: ProjectStatus; startDate?: string | null; endDate?: string | null; budget?: number | null }): ProjectPlanValue {
+export function projectPlanFrom(p: { status?: ProjectStatus; priority?: ProjectPriority; startDate?: string | null; endDate?: string | null; budget?: number | null }): ProjectPlanValue {
   return {
     status: p.status ?? 'Active',
+    priority: p.priority ?? 'Medium',
     startDate: p.startDate ? new Date(p.startDate) : null,
     endDate: p.endDate ? new Date(p.endDate) : null,
     budget: p.budget != null ? String(p.budget) : '',
@@ -33,6 +35,7 @@ export function projectPlanPayload(v: ProjectPlanValue) {
   const budget = v.budget.trim() === '' ? null : Number(v.budget);
   return {
     status: v.status,
+    priority: v.priority,
     startDate: v.startDate ? v.startDate.toISOString() : null,
     endDate: v.endDate ? v.endDate.toISOString() : null,
     budget: budget !== null && Number.isFinite(budget) ? budget : null,
@@ -57,6 +60,17 @@ export function ProjectPlanFields({ value, onChange, showBudget = true }: { valu
         </Select>
       </div>
       <div className="space-y-2">
+        <Label>{tr('Priority', 'الأولوية')}</Label>
+        <Select value={value.priority} onValueChange={(p) => onChange({ ...value, priority: p as ProjectPriority })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {projectPriorities.map((p) => (
+              <SelectItem key={p} value={p}>{projectPriorityName(p, language)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
         <Label>{tr('Dates', 'المدة')}</Label>
         <TaskDatesPicker
           className="w-full"
@@ -76,7 +90,7 @@ export function ProjectPlanFields({ value, onChange, showBudget = true }: { valu
             step="any"
             value={value.budget}
             onChange={(e) => onChange({ ...value, budget: e.target.value })}
-            placeholder={tr('Optional — you get an alert at 80% and when it is passed', 'اختياري — يصلك تنبيه عند 80% وعند تجاوزها')}
+            placeholder={tr('Optional — leave empty if this project is just a group of tasks', 'اختياري — اتركها فارغة لو المشروع مجرد مجموعة مهام')}
           />
         </div>
       )}

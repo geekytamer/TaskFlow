@@ -461,13 +461,21 @@ export function TaskList({ projectId }: { projectId?: string }) {
     loadData();
   }, [loadData]);
 
+  // An archived project's tasks are put away; they stay on the project's own page.
+  const archivedProjectIds = React.useMemo(
+    () => new Set(projects.filter((p) => p.status === 'Archived').map((p) => p.id)),
+    [projects],
+  );
+
   // Company / project scoped.
   const scopedTasks = React.useMemo(
     () =>
       tasks.filter((t) =>
-        projectId ? t.projectId === projectId : t.companyId === selectedCompanyId,
+        projectId
+          ? t.projectId === projectId
+          : t.companyId === selectedCompanyId && !archivedProjectIds.has(t.projectId),
       ),
-    [tasks, projectId, selectedCompanyId],
+    [tasks, projectId, selectedCompanyId, archivedProjectIds],
   );
 
   const todayStart = React.useMemo(() => startOfDay(new Date()), []);
