@@ -30,6 +30,9 @@ import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modu
 import { usePermissionOr } from '@/context/permissions-context';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
+import { ProjectPlanFields, emptyProjectPlan, projectPlanFrom, projectPlanPayload } from '@/modules/projects/components/project-plan-fields';
+import { ProjectOverview } from '@/modules/projects/components/project-overview';
+import { PROJECT_STATUS_STYLE, projectIsLate, projectStatusName } from '@/modules/projects/lib/project-meta';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -58,6 +61,7 @@ export default function ProjectDetailsPage() {
   const [editDescription, setEditDescription] = React.useState('');
   const [editVisibility, setEditVisibility] = React.useState<ProjectVisibility>('Public');
   const [editClient, setEditClient] = React.useState<string | undefined>();
+  const [editPlan, setEditPlan] = React.useState(emptyProjectPlan);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = React.useState<string | undefined>();
   const [editOpen, setEditOpen] = React.useState(false);
   const [financeOpen, setFinanceOpen] = React.useState(false);
@@ -90,6 +94,7 @@ export default function ProjectDetailsPage() {
       setEditDescription(projectData.description || '');
       setEditVisibility(projectData.visibility);
       setEditClient(projectData.clientId);
+      setEditPlan(projectPlanFrom(projectData));
 
       const [companyUsers, clientData, taskData, invoiceData] = await Promise.all([
         // Optional extras fail soft: a refused list must not leave the project blank.
@@ -158,6 +163,7 @@ export default function ProjectDetailsPage() {
         description: editDescription,
         visibility: editVisibility,
         clientId: editClient && editClient !== 'none' ? editClient : undefined,
+        ...projectPlanPayload(editPlan),
       });
       setProject(updated);
       toast({ title: tr('Project updated', 'تم تحديث المشروع') });
@@ -238,6 +244,8 @@ export default function ProjectDetailsPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+            <Badge variant="outline" className={PROJECT_STATUS_STYLE[project.status ?? 'Active']}>{projectStatusName(project.status, language)}</Badge>
+            {projectIsLate(project) && <Badge variant="destructive">{tr('Late', 'متأخر')}</Badge>}
             <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
               {project.visibility === 'Private' ? <Lock className="me-1 h-3 w-3" /> : <Globe className="me-1 h-3 w-3" />}
               {project.visibility === 'Private' ? tr('Private', 'خاص') : tr('Public', 'عام')}
@@ -274,6 +282,7 @@ export default function ProjectDetailsPage() {
                     <Label>{tr('Description', 'الوصف')}</Label>
                     <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder={tr('Description', 'الوصف')} />
                   </div>
+                  <ProjectPlanFields value={editPlan} onChange={setEditPlan} />
                   <div className="space-y-2">
                     <Label>{tr('Visibility', 'الظهور')}</Label>
                     <Select value={editVisibility} onValueChange={(v) => setEditVisibility(v as ProjectVisibility)}>
@@ -341,6 +350,9 @@ export default function ProjectDetailsPage() {
           <CreateTaskSheet lockedProjectId={project.id} />
         </div>
       </div>
+
+      {/* ── Plan: progress, stages, budget ──────────────────────────────── */}
+      <ProjectOverview project={project} canManage={isManager} />
 
       {/* ── Tasks — PRIMARY CONTENT ────────────────────────────────────── */}
       <ProjectTaskViews project={project} />

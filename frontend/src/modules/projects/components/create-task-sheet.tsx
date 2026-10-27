@@ -38,6 +38,7 @@ import type { Project } from '@/lib/types';
 import { taskPriorities, taskRecurrences } from '@/modules/projects/types';
 import { priorityName, recurrenceName } from '@/modules/projects/lib/task-meta';
 import { TaskDatesPicker } from './task-dates-picker';
+import { StageSelect, useProjectStages } from './stage-select';
 import { PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -66,6 +67,7 @@ const createTaskSchema = z.object({
   priority: z.enum(priorityValues),
   dueDate: z.date().optional(),
   startDate: z.date().optional(),
+  milestoneId: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   color: z.string().optional(),
   parentTaskId: z.string().optional(),
@@ -139,6 +141,10 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
   React.useEffect(() => {
     if (open && lockedProjectId) form.setValue('projectId', lockedProjectId);
   }, [open, lockedProjectId, form]);
+  const watchedProject = form.watch('projectId');
+  const stages = useProjectStages(open && watchedProject && watchedProject !== NO_PROJECT ? watchedProject : null);
+  // A stage belongs to one project: choosing another project lets go of it.
+  React.useEffect(() => { form.setValue('milestoneId', null); }, [watchedProject, form]);
 
   const descriptionValue = form.watch('description') || '';
   const tagsValue = form.watch('tags') || [];
@@ -189,6 +195,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
             tags: data.tags || [],
             parentTaskId: data.parentTaskId && data.parentTaskId !== 'none' ? data.parentTaskId : undefined,
             recurrence: data.recurrence && data.recurrence !== 'none' ? data.recurrence : undefined,
+            milestoneId: data.milestoneId || undefined,
         });
         toast({
         title: tr('Task Created', 'تم إنشاء المهمة'),
@@ -474,6 +481,14 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                     </FormItem>
                   )}
                 />
+                {stages.length > 0 && (
+                  <FormItem className="grid grid-cols-4 items-center gap-4">
+                    <FormLabel className="text-end">{tr('Stage', 'المرحلة')}</FormLabel>
+                    <div className="col-span-3">
+                      <StageSelect stages={stages} value={form.watch('milestoneId')} onChange={(id) => form.setValue('milestoneId', id)} />
+                    </div>
+                  </FormItem>
+                )}
                 <FormField
                   control={form.control}
                   name="dueDate"

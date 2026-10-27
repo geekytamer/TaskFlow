@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { CreateProjectSheet } from '@/modules/projects/components/create-project-sheet';
+import { ProjectFromTemplateSheet } from '@/modules/projects/components/project-from-template-sheet';
 import { ActivityFeed } from '@/modules/operations/components/activity-feed';
 import { TaskList } from '@/modules/projects/components/task-list';
 import { ProjectList } from '@/modules/projects/components/project-list';
@@ -28,6 +29,7 @@ export function ProjectsPage() {
         </div>
         {user && canCreateProjects && (
            <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
+              <ProjectFromTemplateSheet />
               <CreateProjectSheet />
           </div>
         )}

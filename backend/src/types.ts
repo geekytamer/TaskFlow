@@ -229,6 +229,13 @@ export interface Project {
   visibility: ProjectVisibility;
   memberIds?: string[];
   clientId?: string;
+  /** Planning, Active, On Hold or Done (projects/project-plan.ts). */
+  status?: import('./projects/project-plan').ProjectStatus;
+  /** ISO dates; null on an update clears them. */
+  startDate?: string | null;
+  endDate?: string | null;
+  /** Planned spend in the company currency; null on an update clears it. */
+  budget?: number | null;
 }
 
 export interface TimeEntry {
@@ -274,6 +281,8 @@ export interface Task {
   recurrence?: import('./tasks/task-recurrence').TaskRecurrence | null;
   /** The next round, once this one was finished. */
   recurrenceNextId?: string;
+  /** The project stage this task belongs to (project_milestones). null on an update clears it. */
+  milestoneId?: string | null;
   /** First day of a task that spans days; dueDate is the last. null on an update clears it. */
   startDate?: Date | null;
   invoiceImage?: string;
@@ -1778,6 +1787,7 @@ export type NotificationType =
   | 'task_mention'
   | 'task_start'
   | 'task_behind'
+  | 'project_budget'
   | 'task_completed'
   | 'task_comment'
   | 'task_due'

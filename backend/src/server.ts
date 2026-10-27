@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { CreditLimitError, DataStore, OpportunityInUseError, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
 import { taskRecurrences } from './tasks/task-recurrence';
+import { projectStatuses } from './projects/project-plan';
+import { registerProjectPlanRoutes } from './routes/project-plan';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
@@ -838,6 +840,7 @@ export function createServer(options: CreateServerOptions = {}) {
       try {
         store.sweepSnoozedFollowups(); // wake snoozed follow-ups before reminding
         const tasks = store.sweepTaskDueReminders() + store.sweepTaskStartAlerts();
+        store.sweepProjectBudgetAlerts();
         const followups = store.sweepFollowupDueReminders();
         const overdue = store.sweepOverdueInvoiceNotifications();
         const lowStock = store.sweepLowStockNotifications();
@@ -1690,11 +1693,26 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       memberIds: record.memberIds !== undefined ? stringArray(record.memberIds, 'memberIds') : undefined,
       clientId: record.clientId !== undefined ? optionalString(record.clientId) : undefined,
+      status: record.status !== undefined ? enumValue(record.status, 'status', projectStatuses) : undefined,
+      // null or '' clears; undefined keeps.
+      startDate: record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate) ?? null,
+      endDate: record.endDate === undefined ? undefined : record.endDate === null || record.endDate === '' ? null : optionalDateInput(record.endDate) ?? null,
+      budget: record.budget === undefined ? undefined : record.budget === null || record.budget === '' ? null : optionalNumber(record.budget) ?? null,
     };
     if (!partial && (!payload.name || !payload.companyId || !payload.visibility)) {
       throw new HttpError(400, 'name, companyId, and visibility are required.');
     }
+    if (payload.budget !== undefined && payload.budget !== null && payload.budget < 0) {
+      throw new HttpError(400, 'The budget can not be negative.');
+    }
     return payload;
+  };
+
+  /** A task's stage must be one of its own project's stages. */
+  const ensureMilestoneInProject = (milestoneId: string | null | undefined, projectId: string | null | undefined) => {
+    if (!milestoneId) return;
+    const stage = store.projectPlan.milestone(milestoneId);
+    if (!stage || stage.projectId !== projectId) throw new HttpError(400, 'That stage is not in this project.');
   };
 
   const parseTaskPayload = (body: unknown, options: { partial?: boolean } = {}) => {
@@ -1715,6 +1733,8 @@ export function createServer(options: CreateServerOptions = {}) {
       dueDate: record.dueDate !== undefined ? optionalDateInput(record.dueDate) : undefined,
       startDate:
         record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate),
+      milestoneId:
+        record.milestoneId === undefined ? undefined : record.milestoneId === null || record.milestoneId === '' ? null : optionalString(record.milestoneId),
       assignedUserIds:
         record.assignedUserIds !== undefined
           ? stringArray(record.assignedUserIds, 'assignedUserIds')
@@ -2296,6 +2316,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   registerTaskPartRoutes(app, routeContext);
   registerTaskChecklistRoutes(app, routeContext);
+  registerProjectPlanRoutes(app, routeContext);
   registerPasswordRoutes(app, routeContext, { sendLink: sendPasswordLink, limiter: loginRateLimiter });
   registerNotificationRoutes(app, routeContext);
   registerLiveRoutes(app, routeContext, liveHub);
@@ -3049,6 +3070,10 @@ export function createServer(options: CreateServerOptions = {}) {
           visibility: payload.visibility!,
           memberIds: payload.memberIds || [],
           clientId: payload.clientId,
+          status: payload.status,
+          startDate: payload.startDate ?? undefined,
+          endDate: payload.endDate ?? undefined,
+          budget: payload.budget ?? undefined,
         }),
       );
       res.status(201).json(project);
@@ -3071,6 +3096,11 @@ export function createServer(options: CreateServerOptions = {}) {
       const targetClientId = payload.clientId !== undefined ? payload.clientId : existing.clientId;
       ensureUsersBelongToCompany(targetMemberIds, targetCompanyId, 'memberIds');
       ensureClientBelongsToCompany(targetClientId, targetCompanyId);
+      const effStart = payload.startDate === null ? null : payload.startDate ?? existing.startDate;
+      const effEnd = payload.endDate === null ? null : payload.endDate ?? existing.endDate;
+      if (effStart && effEnd && Date.parse(effStart) > Date.parse(effEnd)) {
+        throw new HttpError(400, 'The project must start on or before its end date.');
+      }
       const project = withActor(req, () => store.updateProject(req.params.id, payload));
       if (!project) throw new HttpError(404, 'Project not found.');
       res.json(project);
@@ -3172,6 +3202,7 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       ensureUsersBelongToCompany(payload.assignedUserIds || [], payload.companyId!, 'assignedUserIds');
       ensureTaskIdsBelongToCompany(payload.dependencies || [], payload.companyId!);
+      ensureMilestoneInProject(payload.milestoneId, payload.projectId);
       const task = withActor(req, () =>
         store.createTask({
           title: payload.title!,
@@ -3181,6 +3212,7 @@ export function createServer(options: CreateServerOptions = {}) {
           createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date(),
           dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
           startDate: payload.startDate ? new Date(payload.startDate) : undefined,
+          milestoneId: payload.milestoneId ?? undefined,
           assignedUserIds: payload.assignedUserIds || [],
           tags: payload.tags || [],
           companyId: payload.companyId!,
@@ -3236,6 +3268,7 @@ export function createServer(options: CreateServerOptions = {}) {
         'assignedUserIds',
       );
       ensureTaskIdsBelongToCompany(targetDependencies, targetCompanyId);
+      ensureMilestoneInProject(payload.milestoneId, targetProjectId);
       const task = withActor(req, () =>
         store.updateTask(req.params.id, {
           ...payload,
