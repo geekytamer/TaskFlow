@@ -31,6 +31,7 @@ import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
+import { TaskChecklistStore, TASK_CHECKLIST_SCHEMA } from '../tasks/task-checklist';
 import { TaskPartStore, TASK_PARTS_SCHEMA, partStatusFor, taskStatusFromParts, type PartStatus, type TaskPart } from '../tasks/task-parts';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
@@ -717,6 +718,7 @@ export class DataStore {
   readonly teamChats: TeamChatStore;
   readonly passwordTokens: PasswordTokenStore;
   readonly taskParts: TaskPartStore;
+  readonly taskChecklist: TaskChecklistStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -767,6 +769,7 @@ export class DataStore {
     this.teamChats = new TeamChatStore(this.db);
     this.passwordTokens = new PasswordTokenStore(this.db);
     this.taskParts = new TaskPartStore(this.db);
+    this.taskChecklist = new TaskChecklistStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5260,6 +5263,13 @@ export class DataStore {
           }
         },
       },
+      {
+        // Checklists inside tasks (tasks/task-checklist.ts).
+        id: '140_task_checklists',
+        run: () => {
+          this.db.exec(TASK_CHECKLIST_SCHEMA);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7263,6 +7273,7 @@ export class DataStore {
     this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(taskId);
     this.db.prepare("DELETE FROM contributions WHERE sourceType = 'task' AND sourceId = ?").run(taskId);
     this.taskParts.removeTask(taskId);
+    this.taskChecklist.removeTask(taskId);
     this.db.prepare('UPDATE inventory_issues SET taskId = NULL WHERE taskId = ?').run(taskId);
     this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(taskId);
     this.scrubIdFromJsonArray('tasks', 'dependencies', taskId);
@@ -7287,7 +7298,8 @@ export class DataStore {
   listTasks(): Task[] {
     const rows = this.db.prepare('SELECT * FROM tasks').all() as any[];
     const parts = this.taskParts.byTask();
-    return rows.map((r) => this.decodeTask(r, parts));
+    const checklists = this.taskChecklist.counts();
+    return rows.map((r) => this.decodeTask(r, parts, checklists));
   }
 
   getTaskById(id: string): Task | undefined {
@@ -7308,10 +7320,11 @@ export class DataStore {
     return rows.map((r) => this.decodeTask(r));
   }
 
-  private decodeTask(row: any, parts?: Map<string, TaskPart[]>): Task {
+  private decodeTask(row: any, parts?: Map<string, TaskPart[]>, checklists?: Map<string, { done: number; total: number }>): Task {
     return {
       ...row,
       parts: parts ? parts.get(row.id) ?? [] : this.taskParts.forTask(row.id),
+      checklist: checklists ? checklists.get(row.id) ?? { done: 0, total: 0 } : this.taskChecklist.countFor(row.id),
       createdAt: new Date(row.createdAt),
       dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
       assignedUserIds: this.parseJson<string[]>(row.assignedUserIds) || [],

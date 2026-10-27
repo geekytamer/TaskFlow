@@ -249,6 +249,8 @@ export interface Task {
   id: string;
   /** One per person when two or more share the task (tasks/task-parts.ts); empty otherwise. */
   parts?: import('./tasks/task-parts').TaskPart[];
+  /** Checklist steps ticked out of all (tasks/task-checklist.ts). */
+  checklist?: { done: number; total: number };
   title: string;
   description: string;
   status: TaskStatus;
@@ -1767,6 +1769,7 @@ export type NotificationType =
   | 'task_assigned'
   | 'task_status'
   | 'task_part_done'
+  | 'task_mention'
   | 'task_completed'
   | 'task_comment'
   | 'task_due'

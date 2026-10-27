@@ -14,6 +14,7 @@ import { sweepShipments } from './logistics/shipments';
 import { sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
 import { makePasswordLinkSender, registerPasswordRoutes } from './routes/password';
 import { registerTaskPartRoutes } from './routes/task-parts';
+import { registerTaskChecklistRoutes } from './routes/task-checklist';
 import { unusablePassword } from './auth/password-tokens';
 import type { Notification, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
@@ -2282,6 +2283,7 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   registerTaskPartRoutes(app, routeContext);
+  registerTaskChecklistRoutes(app, routeContext);
   registerPasswordRoutes(app, routeContext, { sendLink: sendPasswordLink, limiter: loginRateLimiter });
   registerNotificationRoutes(app, routeContext);
   registerLiveRoutes(app, routeContext, liveHub);
@@ -3273,11 +3275,33 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!task) throw new HttpError(404, 'Task not found.');
       requireTaskViewAccess(req, task);
       const body = asRecord(req.body, 'body');
-      const comment = store.createComment({
+      const comment = withActor(req, () => store.createComment({
         taskId: req.params.taskId,
         userId: req.user!.id,
         content: requiredString(body.content, 'content', { min: 1 }),
-      });
+      }));
+      // @mentions: tell each person named, but only colleagues who can see the
+      // task (a private task's title must not reach anyone else). Assignees
+      // already hear about every comment.
+      const named = Array.isArray(body.mentionIds) ? body.mentionIds.filter((id): id is string => typeof id === 'string') : [];
+      const mentioned = [...new Set(named)]
+        .map((id) => store.getUserById(id))
+        .filter((u): u is NonNullable<typeof u> => !!u && u.id !== req.user!.id && canAccessCompany(u, task.companyId))
+        .filter((u) => !(task.assignedUserIds ?? []).includes(u.id))
+        .filter((u) => canViewTask({ user: u } as AuthedRequest, task));
+      if (mentioned.length > 0) {
+        withActor(req, () => store.notify({
+          companyId: task.companyId,
+          userIds: mentioned.map((u) => u.id),
+          type: 'task_mention',
+          title: `${req.user!.name} mentioned you on ${task.title}`,
+          body: comment.content.slice(0, 140),
+          data: { tKey: 'notif.taskMention.t', bKey: 'notif.taskMention.b', title: task.title, name: req.user!.name },
+          link: task.projectId ? `/projects/${task.projectId}` : '/tasks',
+          entityType: 'task',
+          entityId: task.id,
+        }));
+      }
       res.status(201).json(comment);
     }),
   );
