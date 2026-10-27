@@ -163,3 +163,16 @@ export async function logTime(
 export async function deleteTimeEntry(id: string): Promise<void> {
   await apiFetch(`/time-entries/${id}`, { method: 'DELETE' });
 }
+
+/** One person's part of a shared task: their status, or (for whoever runs the task) its label. */
+export async function updateTaskPart(
+  taskId: string,
+  userId: string,
+  changes: { status?: 'To Do' | 'In Progress' | 'Done'; label?: string | null },
+): Promise<Task> {
+  const task = await apiFetch<Task>(`/tasks/${encodeURIComponent(taskId)}/parts/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  });
+  return mapTask(task);
+}

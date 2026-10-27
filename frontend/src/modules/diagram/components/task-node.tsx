@@ -10,6 +10,7 @@ import type { Project } from '@/modules/projects/types';
 import { useI18n } from '@/context/i18n-context';
 
 const priorityColors: Record<Task['priority'], string> = {
+  Urgent: 'bg-red-600',
   High: 'bg-red-500',
   Medium: 'bg-yellow-500',
   Low: 'bg-green-500',

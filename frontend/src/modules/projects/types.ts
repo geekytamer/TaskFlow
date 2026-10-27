@@ -1,10 +1,24 @@
-export type TaskStatus = 'To Do' | 'In Progress' | 'Done';
+export type TaskStatus = 'To Do' | 'In Progress' | 'Waiting' | 'In Review' | 'Done';
 
-export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Done'];
+export const taskStatuses: TaskStatus[] = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'];
 
-export type TaskPriority = 'Low' | 'Medium' | 'High';
+/** A person's part of a shared task moves through these only. */
+export type PartStatus = 'To Do' | 'In Progress' | 'Done';
+export const partStatuses: PartStatus[] = ['To Do', 'In Progress', 'Done'];
 
-export const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
+/** One person's part of a task shared by two or more (backend tasks/task-parts.ts). */
+export interface TaskPart {
+  taskId: string;
+  userId: string;
+  label: string | null;
+  status: PartStatus;
+  doneAt: string | null;
+  updatedAt: string;
+}
+
+export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+
+export const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High', 'Urgent'];
 
 export type ProjectVisibility = 'Public' | 'Private';
 export const projectVisibilities: ProjectVisibility[] = ['Public', 'Private'];
@@ -46,6 +60,8 @@ export interface Task {
   invoiceAmount?: number;
   invoiceDate?: Date;
   generatedInvoiceId?: string; // To track if this task-invoice is already on a system invoice
+  /** One per person when two or more share the task; empty otherwise. */
+  parts?: TaskPart[];
 }
 
 export interface Comment {

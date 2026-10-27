@@ -32,6 +32,8 @@ import { TaskTimePanel } from './task-time-panel';
 import { getCompanyMembers, type CompanyMember } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
 import { taskStatuses, taskPriorities } from '@/modules/projects/types';
+import { priorityName, statusName } from '@/modules/projects/lib/task-meta';
+import { TaskPartsPanel } from './task-parts-panel';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { add, format, formatDistanceToNow } from 'date-fns';
@@ -325,7 +327,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           </SelectTrigger>
                           <SelectContent>
                               {taskStatuses.map(status => (
-                                  <SelectItem key={status} value={status}>{status}</SelectItem>
+                                  <SelectItem key={status} value={status}>{statusName(status, language)}</SelectItem>
                               ))}
                           </SelectContent>
                       </Select>
@@ -339,6 +341,17 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           className="max-w-xs"
                       />
                   </DetailRow>
+                  <TaskPartsPanel
+                    task={editableTask}
+                    people={allUsers.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar }))}
+                    currentUserId={currentUser?.id}
+                    runsTask={Boolean(currentUser?.isSuperAdmin || editableTask.ownerId === currentUser?.id || currentRole === 'Admin' || currentRole === 'Manager')}
+                    onChanged={(saved) => {
+                      // Parts save at once; the task's status follows them on the server.
+                      setEditableTask((prev) => ({ ...prev, parts: saved.parts, status: saved.status }));
+                      onTaskUpdate();
+                    }}
+                  />
                   <DetailRow icon={UserIcon} label={tr('Parent Task', 'المهمة الأصل')}>
                     <Select
                       value={editableTask.parentTaskId || 'none'}
@@ -393,7 +406,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                             </SelectTrigger>
                             <SelectContent>
                                 {taskPriorities.map(priority => (
-                                    <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                                    <SelectItem key={priority} value={priority}>{priorityName(priority, language)}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>

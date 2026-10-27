@@ -55,8 +55,10 @@ export function OverviewChart() {
         tasksToDisplay = allTasks.filter(t => t.companyId === selectedCompany.id);
       }
       
+      // Waiting and In Review count as work in progress here.
       const taskCounts = tasksToDisplay.reduce((acc, task) => {
-        acc[task.status] = (acc[task.status] || 0) + 1;
+        const bucket = task.status === 'To Do' || task.status === 'Done' ? task.status : 'In Progress';
+        acc[bucket] = (acc[bucket] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
 

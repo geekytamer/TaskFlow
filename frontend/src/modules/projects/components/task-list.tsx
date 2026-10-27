@@ -11,16 +11,20 @@ import {
   CalendarClock,
   Inbox,
   Lock,
+  CheckCircle2,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
-import { getTasks, updateTask } from '@/services/projectService';
+import { getTasks, updateTask, updateTaskPart } from '@/services/projectService';
+import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, partsProgress, statusFor, statusName } from '@/modules/projects/lib/task-meta';
 import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients } from '@/services/financeService';
 import {
+  partStatuses,
   taskStatuses,
+  type PartStatus,
   type Task,
   type TaskStatus,
 } from '@/modules/projects/types';
@@ -45,25 +49,14 @@ import { useLiveRefresh } from '@/lib/live';
 /* Design tokens                                                       */
 /* ------------------------------------------------------------------ */
 
-const PRIORITY_DOT: Record<Task['priority'], string> = {
-  High: 'bg-red-500',
-  Medium: 'bg-amber-500',
-  Low: 'bg-emerald-500',
-};
-
-const STATUS_STYLE: Record<TaskStatus, { dot: string; text: string }> = {
-  'To Do': { dot: 'bg-slate-400', text: 'text-muted-foreground' },
-  'In Progress': { dot: 'bg-blue-500', text: 'text-blue-600 dark:text-blue-400' },
-  Done: { dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-};
 
 type StatFilter = 'all' | TaskStatus | 'overdue';
 
 /** Time-horizon triage bucket, Asana "My Tasks" style. */
 type BucketKey = 'overdue' | 'today' | 'week' | 'later' | 'none' | 'done';
 
-function bucketFor(task: Task, todayStart: Date): BucketKey {
-  if (task.status === 'Done') return 'done';
+function bucketFor(task: Task, status: TaskStatus, todayStart: Date): BucketKey {
+  if (status === 'Done') return 'done';
   if (!task.dueDate) return 'none';
   const due = new Date(task.dueDate);
   if (startOfDay(due) < todayStart) return 'overdue';
@@ -119,10 +112,16 @@ function StatCard({
 function StatusControl({
   status,
   onChange,
+  options = taskStatuses,
+  title,
 }: {
   status: TaskStatus;
   onChange: (next: TaskStatus) => void;
+  /** A person's own part offers fewer states than the whole task. */
+  options?: readonly TaskStatus[];
+  title?: string;
 }) {
+  const { language } = useI18n();
   const [open, setOpen] = React.useState(false);
   const s = STATUS_STYLE[status];
   return (
@@ -138,7 +137,7 @@ function StatusControl({
           )}
         >
           <span className={cn('h-2 w-2 rounded-full', s.dot)} />
-          {status}
+          {title ? `${title}: ` : ''}{statusName(status, language)}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -146,7 +145,7 @@ function StatusControl({
         className="w-40 p-1"
         onClick={(e) => e.stopPropagation()}
       >
-        {taskStatuses.map((option) => {
+        {options.map((option) => {
           const os = STATUS_STYLE[option];
           return (
             <button
@@ -163,7 +162,7 @@ function StatusControl({
               )}
             >
               <span className={cn('h-2 w-2 rounded-full', os.dot)} />
-              {option}
+              {statusName(option, language)}
             </button>
           );
         })}
@@ -186,8 +185,14 @@ function TaskRow({
   showProject,
   onOpen,
   onStatusChange,
+  viewStatus,
+  ownPart,
 }: {
   task: Task;
+  /** What this person sees: their own part's state on a shared task. */
+  viewStatus: TaskStatus;
+  /** True when the status control changes this person's own part. */
+  ownPart: boolean;
   projectName?: string;
   projectColor?: string;
   clientName?: string;
@@ -212,7 +217,7 @@ function TaskRow({
         <div
           className={cn(
             'flex items-center gap-1.5 truncate text-sm font-medium',
-            task.status === 'Done' && 'text-muted-foreground line-through',
+            viewStatus === 'Done' && 'text-muted-foreground line-through',
           )}
         >
           {task.isPrivate && (
@@ -222,6 +227,15 @@ function TaskRow({
             />
           )}
           <span className="truncate">{task.title}</span>
+          {(task.parts?.length ?? 0) > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground no-underline"
+              title={tr('Parts finished', 'الأجزاء المنجزة')}
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              {partsProgress(task).done}/{partsProgress(task).total}
+            </span>
+          )}
         </div>
         {showProject && (
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -277,7 +291,12 @@ function TaskRow({
       )}
 
       <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-        <StatusControl status={task.status} onChange={onStatusChange} />
+        <StatusControl
+          status={viewStatus}
+          onChange={onStatusChange}
+          options={ownPart ? partStatuses : taskStatuses}
+          title={ownPart ? tr('My part', 'جزئي') : undefined}
+        />
       </div>
     </div>
   );
@@ -443,29 +462,39 @@ export function TaskList({ projectId }: { projectId?: string }) {
     });
   }, [scopedTasks, scope, currentUserId]);
 
+  // In "My tasks" a shared task shows this person's own part; elsewhere the whole task.
+  const viewStatus = React.useCallback(
+    (t: Task) => (scope === 'mine' ? statusFor(t, currentUserId) : t.status),
+    [scope, currentUserId],
+  );
+
   const counts = React.useMemo(() => {
     let todo = 0,
       inProgress = 0,
       done = 0,
       overdue = 0;
     for (const t of scopeFiltered) {
-      if (t.status === 'To Do') todo++;
-      else if (t.status === 'In Progress') inProgress++;
-      else if (t.status === 'Done') done++;
-      if (t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && t.status !== 'Done')
+      const status = viewStatus(t);
+      if (status === 'To Do') todo++;
+      else if (status === 'Done') done++;
+      else inProgress++;
+      if (t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && status !== 'Done')
         overdue++;
     }
     return { todo, inProgress, done, overdue };
-  }, [scopeFiltered, todayStart]);
+  }, [scopeFiltered, todayStart, viewStatus]);
 
   const filteredTasks = React.useMemo(() => {
     return scopeFiltered.filter((t) => {
+      const status = viewStatus(t);
       if (filter === 'all') return true;
       if (filter === 'overdue')
-        return t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && t.status !== 'Done';
-      return t.status === filter;
+        return t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && status !== 'Done';
+      // The "In Progress" card also covers Waiting and In Review.
+      if (filter === 'In Progress') return status !== 'To Do' && status !== 'Done';
+      return status === filter;
     });
-  }, [scopeFiltered, filter, todayStart]);
+  }, [scopeFiltered, filter, todayStart, viewStatus]);
 
   const grouped = React.useMemo(() => {
     const buckets: Record<BucketKey, Task[]> = {
@@ -476,9 +505,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
       none: [],
       done: [],
     };
-    for (const t of filteredTasks) buckets[bucketFor(t, todayStart)].push(t);
+    for (const t of filteredTasks) buckets[bucketFor(t, viewStatus(t), todayStart)].push(t);
     // Sort each active bucket by due date then priority weight.
-    const prioWeight: Record<Task['priority'], number> = { High: 0, Medium: 1, Low: 2 };
+    const prioWeight = PRIORITY_WEIGHT;
     for (const key of Object.keys(buckets) as BucketKey[]) {
       buckets[key].sort((a, b) => {
         const ad = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
@@ -488,16 +517,31 @@ export function TaskList({ projectId }: { projectId?: string }) {
       });
     }
     return buckets;
-  }, [filteredTasks, todayStart]);
+  }, [filteredTasks, todayStart, viewStatus]);
 
   const handleStatusChange = React.useCallback(
-    async (task: Task, next: TaskStatus) => {
+    async (task: Task, next: TaskStatus, ownPart: boolean) => {
+      // On a shared task, this person moves their own part; the task follows on the server.
+      if (ownPart && currentUserId) {
+        try {
+          const saved = await updateTaskPart(task.id, currentUserId, { status: next as PartStatus });
+          setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
+        } catch {
+          toastRef.current({
+            variant: 'destructive',
+            title: trRef.current('Error', 'خطأ'),
+            description: trRef.current('Could not update your part.', 'تعذر تحديث جزئك.'),
+          });
+        }
+        return;
+      }
       // Optimistic.
       setTasks((prev) =>
         prev.map((t) => (t.id === task.id ? { ...t, status: next } : t)),
       );
       try {
-        await updateTask(task.id, { status: next });
+        const saved = await updateTask(task.id, { status: next });
+        setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
       } catch {
         setTasks((prev) =>
           prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t)),
@@ -509,17 +553,19 @@ export function TaskList({ projectId }: { projectId?: string }) {
         });
       }
     },
-    [],
+    [currentUserId],
   );
 
   const renderRow = (task: Task) => {
     const project = projects.find((p) => p.id === task.projectId);
     const client = clients.find((c) => c.id === project?.clientId);
     const assignees = users.filter((u) => task.assignedUserIds?.includes(u.id));
+    const status = viewStatus(task);
+    const ownPart = scope === 'mine' && !!myPart(task, currentUserId);
     const overdue =
       !!task.dueDate &&
       startOfDay(new Date(task.dueDate)) < todayStart &&
-      task.status !== 'Done';
+      status !== 'Done';
     return (
       <TaskRow
         key={task.id}
@@ -531,7 +577,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
         overdue={overdue}
         showProject={!projectId}
         onOpen={() => setSelectedTask(task)}
-        onStatusChange={(next) => handleStatusChange(task, next)}
+        onStatusChange={(next) => handleStatusChange(task, next, ownPart)}
+        viewStatus={status}
+        ownPart={ownPart}
       />
     );
   };

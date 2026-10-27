@@ -36,6 +36,7 @@ import { getCompanyMembers } from '@/services/userService';
 import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
 import { taskPriorities } from '@/modules/projects/types';
+import { priorityName } from '@/modules/projects/lib/task-meta';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, PlusCircle, Sparkles, User, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -54,7 +55,7 @@ import { useRouter } from 'next/navigation';
 import type { Task } from '@/modules/projects/types';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 
-const priorityValues = ['Low', 'Medium', 'High'] as const;
+const priorityValues = ['Low', 'Medium', 'High', 'Urgent'] as const;
 
 // Sentinel for the "No project" option — Radix Select items can't use an empty value.
 const NO_PROJECT = 'none';
@@ -415,7 +416,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                             <SelectContent>
                               {taskPriorities.map((priority) => (
                                 <SelectItem key={priority} value={priority}>
-                                  {priority}
+                                  {priorityName(priority, language)}
                                 </SelectItem>
                               ))}
                             </SelectContent>

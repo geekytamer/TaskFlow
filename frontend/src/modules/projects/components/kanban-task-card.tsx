@@ -10,18 +10,9 @@ import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { CheckCircle2 } from 'lucide-react';
+import { PRIORITY_DOT, partsProgress, priorityName, statusName } from '@/modules/projects/lib/task-meta';
 
-const priorityLabels: Record<Task['priority'], { en: string; ar: string }> = {
-  High: { en: 'High', ar: 'عالية' },
-  Medium: { en: 'Medium', ar: 'متوسطة' },
-  Low: { en: 'Low', ar: 'منخفضة' },
-};
-
-const priorityColors: Record<Task['priority'], string> = {
-  High: 'bg-red-500',
-  Medium: 'bg-yellow-500',
-  Low: 'bg-green-500',
-};
 
 interface KanbanTaskCardProps {
     task: Task;
@@ -32,6 +23,8 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
     const { selectedCompany } = useCompany();
     const { language } = useI18n();
     const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+    const progress = partsProgress(task);
+    const partOf = (userId: string) => task.parts?.find((p) => p.userId === userId);
 
     React.useEffect(() => {
         async function loadUsers() {
@@ -60,10 +53,10 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                      <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger>
-                                <div className={`h-3 w-3 rounded-full ${priorityColors[task.priority]}`} />
+                                <div className={`h-3 w-3 rounded-full ${PRIORITY_DOT[task.priority]}`} />
                             </TooltipTrigger>
                             <TooltipContent>
-                                <p>{tr(`${priorityLabels[task.priority].en} priority`, `أولوية ${priorityLabels[task.priority].ar}`)}</p>
+                                <p>{tr(`${priorityName(task.priority, 'en')} priority`, `أولوية ${priorityName(task.priority, 'ar')}`)}</p>
                             </TooltipContent>
                         </Tooltip>
                      </TooltipProvider>
@@ -71,6 +64,12 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
             </CardHeader>
             <CardContent className="p-3 pt-0">
                 <div className="flex flex-wrap gap-1 mb-3">
+                    {progress.total > 0 && (
+                        <Badge variant="outline" className="gap-1 font-medium" title={tr('Parts finished', 'الأجزاء المنجزة')}>
+                            <CheckCircle2 className="h-3 w-3" />
+                            {progress.done}/{progress.total}
+                        </Badge>
+                    )}
                     {task.tags.map(tag => (
                         <Badge key={tag} variant="secondary">{tag}</Badge>
                     ))}
@@ -83,14 +82,17 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                         {users.map(user => (
                              <TooltipProvider key={user.id}>
                                 <Tooltip>
-                                    <TooltipTrigger>
+                                    <TooltipTrigger className="relative">
                                         <Avatar className="h-6 w-6 border-2 border-background">
                                             <AvatarImage src={user.avatar} />
                                             <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
                                         </Avatar>
+                                        {partOf(user.id)?.status === 'Done' && (
+                                            <CheckCircle2 className="absolute -bottom-1 -end-1 h-3.5 w-3.5 rounded-full bg-background text-emerald-500" aria-label={tr('Part done', 'أنهى جزءه')} />
+                                        )}
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>{user.name}</p>
+                                        <p>{user.name}{partOf(user.id)?.label ? ` · ${partOf(user.id)!.label}` : ''}{partOf(user.id) ? ` · ${statusName(partOf(user.id)!.status, language)}` : ''}</p>
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
