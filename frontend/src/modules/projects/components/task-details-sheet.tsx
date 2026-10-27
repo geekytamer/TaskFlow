@@ -36,11 +36,12 @@ import { priorityName, recurrenceName, statusName } from '@/modules/projects/lib
 import { TaskPartsPanel } from './task-parts-panel';
 import { TaskChecklistPanel } from './task-checklist-panel';
 import { TaskDatesPicker } from './task-dates-picker';
+import { StageSelect, useProjectStages } from './stage-select';
 import { MentionTextarea, useMentions } from './mention-textarea';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { add, format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2, Lock, Repeat } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2, Lock, Repeat, Flag } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
@@ -87,6 +88,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [allTasks, setAllTasks] = React.useState<Task[]>([]);
   const [newComment, setNewComment] = React.useState('');
   const mentions = useMentions(newComment);
+  const stages = useProjectStages(open ? task?.projectId : null);
   const [loading, setLoading] = React.useState(true);
   const [invoicePreview, setInvoicePreview] = React.useState<string | null>(task.invoiceImage || null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -386,6 +388,11 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           onChange={(next) => setEditableTask((prev) => ({ ...prev, startDate: next.startDate ?? null, dueDate: next.dueDate }))}
                       />
                   </DetailRow>
+                  {stages.length > 0 && (
+                    <DetailRow icon={Flag} label={tr('Stage', 'المرحلة')}>
+                        <StageSelect className="w-[230px]" stages={stages} value={editableTask.milestoneId} onChange={(id) => setEditableTask((prev) => ({ ...prev, milestoneId: id }))} />
+                    </DetailRow>
+                  )}
                     <DetailRow icon={Tag} label={tr('Priority', 'الأولوية')}>
                         <Select
                             value={editableTask.priority}

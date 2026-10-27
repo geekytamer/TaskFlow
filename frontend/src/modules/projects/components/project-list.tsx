@@ -15,6 +15,8 @@ import type { Client } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 import { usePermissionOr } from '@/context/permissions-context';
+import { getCurrentLocale } from '@/lib/locale';
+import { PROJECT_STATUS_STYLE, projectIsLate, projectStatusName } from '@/modules/projects/lib/project-meta';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();
@@ -107,11 +109,13 @@ export function ProjectList() {
             };
             const pct = stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
             const memberCount = project.memberIds?.length ?? 0;
-            const hasOverdue = stats.overdue > 0;
+            const late = projectIsLate(project);
+            const hasOverdue = stats.overdue > 0 || late;
+            const day = (d: string) => new Date(d).toLocaleDateString(getCurrentLocale(), { day: 'numeric', month: 'short' });
             return (
               <a href={`/projects/${project.id}`} key={project.id}>
                 <Card
-                  className="w-[280px] h-[168px] cursor-pointer hover:border-primary hover:shadow-sm transition-all flex flex-col border-s-4"
+                  className="w-[280px] min-h-[168px] h-full cursor-pointer hover:border-primary hover:shadow-sm transition-all flex flex-col border-s-4"
                   style={{
                     borderInlineStartColor: hasOverdue ? 'hsl(var(--destructive))' : project.color,
                   }}
@@ -135,6 +139,11 @@ export function ProjectList() {
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">
                           {stats.done}/{stats.total} {tr('done', 'مكتملة')}
+                          {project.endDate && (
+                            <span className={late ? 'ms-1 font-medium text-destructive' : 'ms-1'}>
+                              · <bdi>{project.startDate && project.startDate.slice(0, 10) !== project.endDate.slice(0, 10) ? `${day(project.startDate)} – ${day(project.endDate)}` : day(project.endDate)}</bdi>
+                            </span>
+                          )}
                         </span>
                         <span className="font-medium tabular-nums">{pct}%</span>
                       </div>
@@ -143,6 +152,9 @@ export function ProjectList() {
 
                     {/* Meta */}
                     <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className={PROJECT_STATUS_STYLE[project.status ?? 'Active']}>
+                        {late ? tr('Late', 'متأخر') : projectStatusName(project.status, language)}
+                      </Badge>
                       <Badge
                         variant={project.visibility === 'Private' ? 'secondary' : 'outline'}
                         className="gap-1"

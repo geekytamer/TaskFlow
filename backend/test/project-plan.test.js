@@ -173,6 +173,15 @@ test('templates: save a project with its stages, tasks, steps and people, then s
   assert.deepEqual(copy.parts.map((x) => [x.userId, x.label ?? null]), [['user-3', 'Camera'], ['user-5', null]]);
   assert.deepEqual(store.taskChecklist.forTask(copy.id).map((i) => [i.text, i.done]), [['Book the studio', false]]);
 
+  // A task due before the project's official start keeps its place before it, never in the past.
+  const early = await newProject({ name: 'Early', startDate: new Date(2026, 9, 10, 9).toISOString(), endDate: new Date(2026, 9, 15, 9).toISOString() });
+  await newTask(early.id, { title: 'Brief', dueDate: new Date(2026, 9, 7, 9).toISOString() });
+  const earlyTpl = (await as(admin.id).post(`/projects/${early.id}/template`, { name: 'Early' })).body;
+  const fresh = (await as(admin.id).post(`/project-templates/${earlyTpl.id}/projects`, { name: 'Fresh', startDate: new Date(2026, 11, 1, 9).toISOString() })).body;
+  const brief = store.listTasks().find((x) => x.projectId === fresh.id);
+  assert.deepEqual([brief.dueDate.getMonth(), brief.dueDate.getDate()], [11, 1], 'the brief lands on the first day');
+  assert.deepEqual([new Date(fresh.startDate).getDate(), new Date(fresh.endDate).getDate()], [4, 9], 'the project keeps its 3-day lead and its length');
+
   assert.equal((await as(admin.id).del(`/project-templates/${saved.body.id}`)).status, 200);
-  assert.equal((await as(admin.id).get('/companies/1/project-templates')).body.length, 0);
+  assert.deepEqual((await as(admin.id).get('/companies/1/project-templates')).body.map((x) => x.name), ['Early']);
 });

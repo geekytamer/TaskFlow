@@ -18,7 +18,10 @@ export interface ProjectMilestone {
   createdAt: string;
 }
 
-/** A project saved for reuse: everything dated is kept as days after the project's start. */
+/**
+ * A project saved for reuse: everything dated is kept as days after its first
+ * day (the earliest of the project start and any task or stage date).
+ */
 export interface TemplateBody {
   description: string;
   color: string;
@@ -27,6 +30,8 @@ export interface TemplateBody {
   budget: number | null;
   /** Days from start to end, when the project had both. */
   lengthDays: number | null;
+  /** Days from the first day to the project's own start (older templates: 0). */
+  startOffset?: number | null;
   milestones: Array<{ name: string; dueOffset: number | null }>;
   tasks: Array<{
     title: string;

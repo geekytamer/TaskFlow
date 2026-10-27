@@ -17,7 +17,7 @@ export type TaskDates = { startDate?: Date | null; dueDate?: Date };
  * One picker for a task's dates: tap one day for a due date, or a first and a
  * last day for a task that takes several days.
  */
-export function TaskDatesPicker({ value, onChange, className }: { value: TaskDates; onChange: (next: TaskDates) => void; className?: string }) {
+export function TaskDatesPicker({ value, onChange, className, hint }: { value: TaskDates; onChange: (next: TaskDates) => void; className?: string; hint?: string }) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const due = value.dueDate ? new Date(value.dueDate) : undefined;
@@ -51,7 +51,7 @@ export function TaskDatesPicker({ value, onChange, className }: { value: TaskDat
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar mode="range" selected={selected} onSelect={pick} defaultMonth={start ?? due} initialFocus />
         <div className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
-          <span>{tr('One day = due date. Two days = from and to.', 'يوم واحد = الاستحقاق. يومان = من وإلى.')}</span>
+          <span>{hint ?? tr('One day = due date. Two days = from and to.', 'يوم واحد = الاستحقاق. يومان = من وإلى.')}</span>
           {due && (
             <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => onChange({ startDate: null, dueDate: undefined })}>
               <X className="me-1 h-3.5 w-3.5" />

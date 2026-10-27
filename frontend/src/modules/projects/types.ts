@@ -32,6 +32,47 @@ export interface Project {
   visibility: ProjectVisibility;
   memberIds?: string[];
   clientId?: string;
+  status?: ProjectStatus;
+  /** ISO dates; null clears on update. */
+  startDate?: string | null;
+  endDate?: string | null;
+  /** Planned spend in the company currency; null clears on update. */
+  budget?: number | null;
+}
+
+export const projectStatuses = ['Planning', 'Active', 'On Hold', 'Done'] as const;
+export type ProjectStatus = (typeof projectStatuses)[number];
+
+/** A stage of a project, with how many of its tasks are done. */
+export interface ProjectMilestone {
+  id: string;
+  companyId: string;
+  projectId: string;
+  name: string;
+  dueDate: string | null;
+  position: number;
+  done: number;
+  total: number;
+}
+
+export interface ProjectSummary {
+  projectId: string;
+  companyId: string;
+  progress: { done: number; total: number; pct: number };
+  overdueTasks: number;
+  late: boolean;
+  milestones: ProjectMilestone[];
+  /** Only for admins, managers and accountants, and only with a budget set. */
+  budget: { budget: number; labor: number; expenses: number; total: number; pct: number } | null;
+}
+
+export interface ProjectTemplateSummary {
+  id: string;
+  companyId: string;
+  name: string;
+  tasks: number;
+  milestones: number;
+  lengthDays: number | null;
 }
 
 export interface Task {
@@ -42,6 +83,8 @@ export interface Task {
   priority: TaskPriority;
   createdAt: Date;
   dueDate?: Date;
+  /** The project stage this task belongs to. */
+  milestoneId?: string | null;
   /** First day of a task that takes several days; dueDate is the last. */
   startDate?: Date | null;
   assignedUserIds?: string[];

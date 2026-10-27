@@ -7688,8 +7688,9 @@ export class DataStore {
 
   /**
    * A project as a reusable recipe: its stages and tasks (people, part labels,
-   * checklist steps, repeat) with every date kept as days after the start.
-   * The start is the project's own, else its earliest dated item, else today.
+   * checklist steps, repeat) with every date kept as days after its first day:
+   * the earliest of the project start and its dated items, else today. So a
+   * task due before the project officially started never lands in the past.
    */
   templateFromProject(projectId: string): TemplateBody | undefined {
     const project = this.getProjectById(projectId);
@@ -7700,7 +7701,8 @@ export class DataStore {
       ...tasks.flatMap((t) => [t.startDate, t.dueDate]),
       ...milestones.map((m) => m.dueDate),
     ].filter(Boolean).map((d) => new Date(d as Date | string).getTime());
-    const anchor = project.startDate ? new Date(project.startDate) : dated.length ? new Date(Math.min(...dated)) : new Date();
+    if (project.startDate) dated.push(new Date(project.startDate).getTime());
+    const anchor = dated.length ? new Date(Math.min(...dated)) : new Date();
     const milestoneIndex = new Map(milestones.map((m, i) => [m.id, i]));
     return {
       description: project.description ?? '',
@@ -7709,6 +7711,7 @@ export class DataStore {
       memberIds: project.memberIds ?? [],
       budget: project.budget ?? null,
       lengthDays: project.startDate && project.endDate ? dayOffset(project.startDate, project.endDate) : null,
+      startOffset: project.startDate ? dayOffset(anchor, project.startDate) : null,
       milestones: milestones.map((m) => ({ name: m.name, dueOffset: dayOffset(anchor, m.dueDate) })),
       tasks: tasks.map((t) => ({
         title: t.title,
@@ -7732,6 +7735,7 @@ export class DataStore {
     const staff = new Set(this.listUserIdsByCompanyRoles(template.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']));
     const keep = (ids: string[]) => ids.filter((id) => staff.has(id));
     const start = input.startDate;
+    const projectStart = shiftDays(start, body.startOffset ?? 0)!;
     const project = this.createProject({
       name: input.name,
       description: body.description,
@@ -7741,8 +7745,8 @@ export class DataStore {
       memberIds: keep(body.memberIds),
       clientId: input.clientId,
       status: 'Planning',
-      startDate: start.toISOString(),
-      endDate: body.lengthDays !== null ? shiftDays(start, body.lengthDays)!.toISOString() : undefined,
+      startDate: projectStart.toISOString(),
+      endDate: body.lengthDays !== null ? shiftDays(projectStart, body.lengthDays)!.toISOString() : undefined,
       budget: body.budget ?? undefined,
     });
     const stageIds = body.milestones.map((m) => this.projectPlan.addMilestone(project, m.name, shiftDays(start, m.dueOffset)?.toISOString() ?? null).id);
