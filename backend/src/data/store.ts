@@ -32,6 +32,7 @@ import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
 import { nextDueDate } from '../tasks/task-recurrence';
+import { ProjectPlanStore, PROJECT_PLAN_SCHEMA, dayOffset, shiftDays, type ProjectTemplate, type TemplateBody } from '../projects/project-plan';
 import { TaskChecklistStore, TASK_CHECKLIST_SCHEMA } from '../tasks/task-checklist';
 import { TaskPartStore, TASK_PARTS_SCHEMA, partStatusFor, taskStatusFromParts, type PartStatus, type TaskPart } from '../tasks/task-parts';
 import { PortalAlertsStore } from '../portal/alerts';
@@ -720,6 +721,7 @@ export class DataStore {
   readonly passwordTokens: PasswordTokenStore;
   readonly taskParts: TaskPartStore;
   readonly taskChecklist: TaskChecklistStore;
+  readonly projectPlan: ProjectPlanStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -771,6 +773,7 @@ export class DataStore {
     this.passwordTokens = new PasswordTokenStore(this.db);
     this.taskParts = new TaskPartStore(this.db);
     this.taskChecklist = new TaskChecklistStore(this.db);
+    this.projectPlan = new ProjectPlanStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5288,6 +5291,19 @@ export class DataStore {
           this.db.exec('ALTER TABLE tasks ADD COLUMN behindNotifiedAt TEXT');
         },
       },
+      {
+        // Project status, dates and budget; stages (milestones) and templates (projects/project-plan.ts).
+        id: '143_project_plan',
+        run: () => {
+          this.db.exec("ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'Active'");
+          this.db.exec('ALTER TABLE projects ADD COLUMN startDate TEXT');
+          this.db.exec('ALTER TABLE projects ADD COLUMN endDate TEXT');
+          this.db.exec('ALTER TABLE projects ADD COLUMN budget REAL');
+          this.db.exec('ALTER TABLE projects ADD COLUMN budgetAlertLevel INTEGER NOT NULL DEFAULT 0');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN milestoneId TEXT');
+          this.db.exec(PROJECT_PLAN_SCHEMA);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7160,17 +7176,26 @@ export class DataStore {
 
   listProjects(): Project[] {
     const rows = this.db.prepare('SELECT * FROM projects').all() as any[];
-    return rows.map((r) => ({
-      ...r,
-      memberIds: this.parseJson<string[]>(r.memberIds) || [],
-      clientId: r.clientId || undefined,
-    }));
+    return rows.map((r) => this.decodeProject(r));
   }
 
   getProjectById(id: string): Project | undefined {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as any;
     if (!row) return undefined;
-    return { ...row, memberIds: this.parseJson<string[]>(row.memberIds) || [], clientId: row.clientId || undefined };
+    return this.decodeProject(row);
+  }
+
+  private decodeProject(row: any): Project {
+    const { budgetAlertLevel: _alert, ...rest } = row;
+    return {
+      ...rest,
+      memberIds: this.parseJson<string[]>(row.memberIds) || [],
+      clientId: row.clientId || undefined,
+      status: row.status || 'Active',
+      startDate: row.startDate || undefined,
+      endDate: row.endDate || undefined,
+      budget: row.budget ?? undefined,
+    };
   }
 
   createProject(project: Omit<Project, 'id'>): Project {
@@ -7184,9 +7209,13 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId)',
+        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId, status, startDate, endDate, budget) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId, @status, @startDate, @endDate, @budget)',
       )
       .run({
+        status: newProject.status ?? 'Active',
+        startDate: newProject.startDate ?? null,
+        endDate: newProject.endDate ?? null,
+        budget: newProject.budget ?? null,
         id: newProject.id,
         name: newProject.name,
         description: newProject.description,
@@ -7218,7 +7247,7 @@ export class DataStore {
       summary: `Project ${newProject.name} created${newProject.clientId ? ' with linked client' : ''}.`,
       metadata: { visibility: newProject.visibility, clientId: newProject.clientId },
     });
-    return newProject;
+    return this.getProjectById(newProject.id)!;
   }
 
   updateProject(id: string, changes: Partial<Omit<Project, 'id'>>) {
@@ -7235,12 +7264,19 @@ export class DataStore {
       clientId: updates.clientId ?? existing.clientId ?? undefined,
       description: updates.description ?? existing.description ?? null,
       color: updates.color ?? existing.color ?? null,
+      // null clears a date or the budget; undefined (not sent) keeps it.
+      status: changes.status ?? existing.status ?? 'Active',
+      startDate: changes.startDate !== undefined ? changes.startDate ?? null : existing.startDate ?? null,
+      endDate: changes.endDate !== undefined ? changes.endDate ?? null : existing.endDate ?? null,
+      budget: changes.budget !== undefined ? changes.budget ?? null : existing.budget ?? null,
     };
     this.db
       .prepare(
-        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId WHERE id=@id',
+        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId, status=@status, startDate=@startDate, endDate=@endDate, budget=@budget WHERE id=@id',
       )
       .run(updated);
+    // A changed budget is judged afresh by the next budget sweep.
+    if (changes.budget !== undefined) this.db.prepare('UPDATE projects SET budgetAlertLevel = 0 WHERE id = ?').run(id);
     const result = {
       ...existing,
       ...updates,
@@ -7279,6 +7315,7 @@ export class DataStore {
       this.db.prepare('UPDATE crm_campaigns SET projectId = NULL WHERE projectId = ?').run(id);
       this.db.prepare('UPDATE inventory_issues SET projectId = NULL WHERE projectId = ?').run(id);
       this.deleteRecordAttachmentsFor('project', id);
+      this.projectPlan.removeProject(id);
       this.db.prepare('DELETE FROM tasks WHERE projectId = ?').run(id);
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
     });
@@ -7346,6 +7383,7 @@ export class DataStore {
       createdAt: new Date(row.createdAt),
       dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
       startDate: row.startDate ? new Date(row.startDate) : undefined,
+      milestoneId: row.milestoneId || undefined,
       assignedUserIds: this.parseJson<string[]>(row.assignedUserIds) || [],
       tags: this.parseJson<string[]>(row.tags) || [],
       dependencies: this.parseJson<string[]>(row.dependencies) || [],
@@ -7367,7 +7405,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence, startDate, startNotifiedAt) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence, @startDate, @startNotifiedAt)',
+        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence, startDate, startNotifiedAt, milestoneId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence, @startDate, @startNotifiedAt, @milestoneId)',
       )
       .run({
         id: newTask.id,
@@ -7396,6 +7434,7 @@ export class DataStore {
         startDate: newTask.startDate ? new Date(newTask.startDate).toISOString() : null,
         // Already started when made: the assignment notice says it all.
         startNotifiedAt: newTask.startDate && new Date(newTask.startDate).getTime() <= Date.now() ? new Date().toISOString() : null,
+        milestoneId: newTask.milestoneId ?? null,
       });
     // Auto-seed Contributor rows for each assignee (split evenly).
     if (newTask.assignedUserIds && newTask.assignedUserIds.length > 0) {
@@ -7474,6 +7513,11 @@ export class DataStore {
         : existing.invoiceDate,
       // null stops the repeat; undefined keeps it.
       recurrence: updates.recurrence !== undefined ? updates.recurrence ?? null : existing.recurrence ?? null,
+      // A stage belongs to one project: moving the task to another project lets go of it.
+      milestoneId:
+        updates.milestoneId !== undefined
+          ? updates.milestoneId ?? null
+          : (updates.projectId !== undefined && updates.projectId !== existing.projectId) ? null : existing.milestoneId ?? null,
       // null clears the start; undefined keeps it.
       startDate:
         updates.startDate !== undefined
@@ -7489,7 +7533,7 @@ export class DataStore {
 
     this.db
       .prepare(
-        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence, startDate=@startDate, startNotifiedAt=@startNotifiedAt, behindNotifiedAt=@behindNotifiedAt WHERE id=@id',
+        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence, milestoneId=@milestoneId, startDate=@startDate, startNotifiedAt=@startNotifiedAt, behindNotifiedAt=@behindNotifiedAt WHERE id=@id',
       )
       .run(updated);
     // Parts follow the people on the task; a whole-task close or reopen moves every part.
@@ -7624,6 +7668,7 @@ export class DataStore {
       priority: task.priority,
       dueDate,
       startDate: span !== undefined && span >= 0 ? new Date(dueDate.getTime() - span) : undefined,
+      milestoneId: task.milestoneId,
       assignedUserIds: task.assignedUserIds ?? [],
       tags: task.tags,
       companyId: task.companyId,
@@ -7639,6 +7684,119 @@ export class DataStore {
     this.taskChecklist.copy(id, next.id, task.ownerId ?? '');
     this.db.prepare('UPDATE tasks SET recurrenceNextId = ? WHERE id = ?').run(next.id, id);
     return next;
+  }
+
+  /**
+   * A project as a reusable recipe: its stages and tasks (people, part labels,
+   * checklist steps, repeat) with every date kept as days after the start.
+   * The start is the project's own, else its earliest dated item, else today.
+   */
+  templateFromProject(projectId: string): TemplateBody | undefined {
+    const project = this.getProjectById(projectId);
+    if (!project) return undefined;
+    const tasks = this.listTasks().filter((t) => t.projectId === projectId);
+    const milestones = this.projectPlan.milestones(projectId);
+    const dated = [
+      ...tasks.flatMap((t) => [t.startDate, t.dueDate]),
+      ...milestones.map((m) => m.dueDate),
+    ].filter(Boolean).map((d) => new Date(d as Date | string).getTime());
+    const anchor = project.startDate ? new Date(project.startDate) : dated.length ? new Date(Math.min(...dated)) : new Date();
+    const milestoneIndex = new Map(milestones.map((m, i) => [m.id, i]));
+    return {
+      description: project.description ?? '',
+      color: project.color ?? '',
+      visibility: project.visibility,
+      memberIds: project.memberIds ?? [],
+      budget: project.budget ?? null,
+      lengthDays: project.startDate && project.endDate ? dayOffset(project.startDate, project.endDate) : null,
+      milestones: milestones.map((m) => ({ name: m.name, dueOffset: dayOffset(anchor, m.dueDate) })),
+      tasks: tasks.map((t) => ({
+        title: t.title,
+        description: t.description ?? '',
+        priority: t.priority,
+        assignedUserIds: t.assignedUserIds ?? [],
+        tags: t.tags ?? [],
+        startOffset: dayOffset(anchor, t.startDate),
+        dueOffset: dayOffset(anchor, t.dueDate),
+        milestoneIndex: t.milestoneId ? milestoneIndex.get(t.milestoneId) ?? null : null,
+        recurrence: t.recurrence ?? null,
+        checklist: this.taskChecklist.forTask(t.id).map((i) => i.text),
+        partLabels: Object.fromEntries((t.parts ?? []).filter((p) => p.label).map((p) => [p.userId, p.label as string])),
+      })),
+    };
+  }
+
+  /** A new project from a template, every date laid out from the chosen start. People who left the company are dropped. */
+  createProjectFromTemplate(template: ProjectTemplate, input: { name: string; startDate: Date; clientId?: string; ownerId: string }): Project {
+    const body = template.body;
+    const staff = new Set(this.listUserIdsByCompanyRoles(template.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']));
+    const keep = (ids: string[]) => ids.filter((id) => staff.has(id));
+    const start = input.startDate;
+    const project = this.createProject({
+      name: input.name,
+      description: body.description,
+      color: body.color,
+      companyId: template.companyId,
+      visibility: body.visibility,
+      memberIds: keep(body.memberIds),
+      clientId: input.clientId,
+      status: 'Planning',
+      startDate: start.toISOString(),
+      endDate: body.lengthDays !== null ? shiftDays(start, body.lengthDays)!.toISOString() : undefined,
+      budget: body.budget ?? undefined,
+    });
+    const stageIds = body.milestones.map((m) => this.projectPlan.addMilestone(project, m.name, shiftDays(start, m.dueOffset)?.toISOString() ?? null).id);
+    for (const t of body.tasks) {
+      const task = this.createTask({
+        title: t.title,
+        description: t.description,
+        status: 'To Do',
+        priority: t.priority as Task['priority'],
+        startDate: shiftDays(start, t.startOffset),
+        dueDate: shiftDays(start, t.dueOffset),
+        assignedUserIds: keep(t.assignedUserIds),
+        tags: t.tags,
+        companyId: template.companyId,
+        projectId: project.id,
+        dependencies: [],
+        ownerId: input.ownerId,
+        isPrivate: false,
+        recurrence: (t.recurrence as Task['recurrence']) ?? undefined,
+        milestoneId: t.milestoneIndex !== null ? stageIds[t.milestoneIndex] : undefined,
+      });
+      for (const text of t.checklist) this.taskChecklist.add(task.id, text, input.ownerId);
+      for (const [userId, label] of Object.entries(t.partLabels)) this.taskParts.setLabel(task.id, userId, label);
+    }
+    return this.getProjectById(project.id)!;
+  }
+
+  /**
+   * Budget watch: company admins and managers hear once when a project's spend
+   * (logged time + expenses) reaches 80% of its budget, and once when it goes over.
+   */
+  sweepProjectBudgetAlerts(): number {
+    const rows = this.db.prepare('SELECT * FROM projects WHERE budget IS NOT NULL AND budget > 0').all() as any[];
+    let count = 0;
+    for (const row of rows) {
+      const spent = this.projectPlan.spent(row.id).total;
+      const level = spent >= row.budget ? 100 : spent >= row.budget * 0.8 ? 80 : 0;
+      if (level === row.budgetAlertLevel) continue;
+      this.db.prepare('UPDATE projects SET budgetAlertLevel = ? WHERE id = ?').run(level, row.id);
+      if (level < row.budgetAlertLevel || level === 0) continue;
+      const pct = Math.round((spent / row.budget) * 100);
+      count += this.notify({
+        companyId: row.companyId,
+        userIds: this.listUserIdsByCompanyRoles(row.companyId, ['Admin', 'Manager']),
+        type: 'project_budget',
+        title: level === 100 ? `Over budget: ${row.name}` : `Budget at ${pct}%: ${row.name}`,
+        body: `Spent ${spent} of ${row.budget}.`,
+        data: { tKey: level === 100 ? 'notif.projectOverBudget.t' : 'notif.projectBudget80.t', bKey: 'notif.projectBudget.b', title: row.name, pct, spent, budget: row.budget },
+        link: `/projects/${row.id}`,
+        entityType: 'project',
+        entityId: row.id,
+      }).length;
+    }
+    return count;
   }
 
   markTasksAsInvoiced(taskIds: string[], invoiceId: string) {
