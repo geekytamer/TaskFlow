@@ -28,6 +28,7 @@ const PAINS: Array<[Key, Key]> = [
 const FAQ: Array<[Key, Key]> = [
   ['join.q1', 'join.a1'],
   ['join.q2', 'join.a2'],
+  ['join.q5', 'join.a5'],
   ['join.q3', 'join.a3'],
   ['join.q4', 'join.a4'],
 ];
@@ -223,7 +224,7 @@ function Line({ items, lang }: { items: Array<{ tag: Key; title: Key; body: Key;
 function Reassure({ lang }: { lang: Lang }) {
   return (
     <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-ink-soft">
-      {(['join.r1', 'join.r2', 'join.r3'] as const).map((k) => (
+      {(['join.r1', 'join.r4', 'join.r3', 'join.r2'] as const).map((k) => (
         <li key={k} className="inline-flex items-center gap-1.5">
           <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 text-accent" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m4.5 10.5 3.5 3.5 7.5-8" /></svg>
           {t(lang, k)}

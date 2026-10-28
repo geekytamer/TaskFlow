@@ -74,7 +74,10 @@ export function FlexiCalculator({ lang }: { lang: Lang }) {
             <dd className="text-[36px] font-extrabold leading-tight text-accent tabular-nums"><bdi>{omr(plan.monthly)}</bdi></dd>
           </div>
         </dl>
-        <p className="relative mt-4 border-t border-white/[0.08] pt-4 text-sm font-semibold">{t(lang, 'flexi.campaignStarts')}</p>
+        <div className="relative mt-4 space-y-1.5 border-t border-white/[0.08] pt-4 text-sm font-semibold">
+          <p className="text-accent">{t(lang, 'flexi.noFees')}</p>
+          <p>{t(lang, 'flexi.campaignStarts')}</p>
+        </div>
       </div>
       <p className="text-xs leading-relaxed text-ink-soft lg:col-span-2">{t(lang, 'flexi.note')}</p>
     </div>
