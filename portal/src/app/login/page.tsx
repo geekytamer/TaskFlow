@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { AuthFrame } from '@/components/auth-frame';
 import { LoginForm } from '@/components/login-form';
@@ -26,7 +27,11 @@ export default async function LoginPage() {
           unavailable: t(lang, 'signIn.unavailable'),
         }}
       />
-      <p className="mt-8 text-sm text-ink-soft">{t(lang, 'signIn.help')}</p>
+      {audience === 'client' ? (
+        <p className="mt-8 text-sm text-ink-soft">
+          {t(lang, 'signIn.noAccount')} <Link href="/join" className="font-bold text-accent underline-offset-4 hover:underline">{t(lang, 'signIn.register')}</Link>
+        </p>
+      ) : <p className="mt-8 text-sm text-ink-soft">{t(lang, 'signIn.help')}</p>}
     </AuthFrame>
   );
 }
