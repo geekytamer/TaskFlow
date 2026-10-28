@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { format, isToday, isThisWeek, startOfDay } from 'date-fns';
+import { isToday, isThisWeek, startOfDay } from 'date-fns';
 import {
   CheckSquare,
   ListTodo,
@@ -11,16 +11,22 @@ import {
   CalendarClock,
   Inbox,
   Lock,
+  CheckCircle2,
+  ListChecks,
+  Repeat,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { usePermissionOr } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
-import { getTasks, updateTask } from '@/services/projectService';
+import { getTasks, updateTask, updateTaskPart } from '@/services/projectService';
+import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, formatTaskDates, partsProgress, recurrenceName, spanDayToday, statusFor, statusName, taskSpanDays } from '@/modules/projects/lib/task-meta';
 import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients } from '@/services/financeService';
 import {
+  partStatuses,
   taskStatuses,
+  type PartStatus,
   type Task,
   type TaskStatus,
 } from '@/modules/projects/types';
@@ -38,6 +44,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { getCurrentLocale } from '@/lib/locale';
 import { TaskDetailsSheet } from './task-details-sheet';
 import { useLiveRefresh } from '@/lib/live';
 
@@ -45,25 +52,14 @@ import { useLiveRefresh } from '@/lib/live';
 /* Design tokens                                                       */
 /* ------------------------------------------------------------------ */
 
-const PRIORITY_DOT: Record<Task['priority'], string> = {
-  High: 'bg-red-500',
-  Medium: 'bg-amber-500',
-  Low: 'bg-emerald-500',
-};
-
-const STATUS_STYLE: Record<TaskStatus, { dot: string; text: string }> = {
-  'To Do': { dot: 'bg-slate-400', text: 'text-muted-foreground' },
-  'In Progress': { dot: 'bg-blue-500', text: 'text-blue-600 dark:text-blue-400' },
-  Done: { dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-};
 
 type StatFilter = 'all' | TaskStatus | 'overdue';
 
 /** Time-horizon triage bucket, Asana "My Tasks" style. */
 type BucketKey = 'overdue' | 'today' | 'week' | 'later' | 'none' | 'done';
 
-function bucketFor(task: Task, todayStart: Date): BucketKey {
-  if (task.status === 'Done') return 'done';
+function bucketFor(task: Task, status: TaskStatus, todayStart: Date): BucketKey {
+  if (status === 'Done') return 'done';
   if (!task.dueDate) return 'none';
   const due = new Date(task.dueDate);
   if (startOfDay(due) < todayStart) return 'overdue';
@@ -119,10 +115,16 @@ function StatCard({
 function StatusControl({
   status,
   onChange,
+  options = taskStatuses,
+  title,
 }: {
   status: TaskStatus;
   onChange: (next: TaskStatus) => void;
+  /** A person's own part offers fewer states than the whole task. */
+  options?: readonly TaskStatus[];
+  title?: string;
 }) {
+  const { language } = useI18n();
   const [open, setOpen] = React.useState(false);
   const s = STATUS_STYLE[status];
   return (
@@ -138,7 +140,7 @@ function StatusControl({
           )}
         >
           <span className={cn('h-2 w-2 rounded-full', s.dot)} />
-          {status}
+          {title ? `${title}: ` : ''}{statusName(status, language)}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -146,7 +148,7 @@ function StatusControl({
         className="w-40 p-1"
         onClick={(e) => e.stopPropagation()}
       >
-        {taskStatuses.map((option) => {
+        {options.map((option) => {
           const os = STATUS_STYLE[option];
           return (
             <button
@@ -163,7 +165,7 @@ function StatusControl({
               )}
             >
               <span className={cn('h-2 w-2 rounded-full', os.dot)} />
-              {option}
+              {statusName(option, language)}
             </button>
           );
         })}
@@ -186,8 +188,14 @@ function TaskRow({
   showProject,
   onOpen,
   onStatusChange,
+  viewStatus,
+  ownPart,
 }: {
   task: Task;
+  /** What this person sees: their own part's state on a shared task. */
+  viewStatus: TaskStatus;
+  /** True when the status control changes this person's own part. */
+  ownPart: boolean;
   projectName?: string;
   projectColor?: string;
   clientName?: string;
@@ -212,7 +220,7 @@ function TaskRow({
         <div
           className={cn(
             'flex items-center gap-1.5 truncate text-sm font-medium',
-            task.status === 'Done' && 'text-muted-foreground line-through',
+            viewStatus === 'Done' && 'text-muted-foreground line-through',
           )}
         >
           {task.isPrivate && (
@@ -222,6 +230,27 @@ function TaskRow({
             />
           )}
           <span className="truncate">{task.title}</span>
+          {(task.parts?.length ?? 0) > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground no-underline"
+              title={tr('Parts finished', 'الأجزاء المنجزة')}
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              {partsProgress(task).done}/{partsProgress(task).total}
+            </span>
+          )}
+          {task.recurrence && (
+            <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={recurrenceName(task.recurrence, language)} />
+          )}
+          {(task.checklist?.total ?? 0) > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground no-underline"
+              title={tr('Checklist', 'قائمة التحقق')}
+            >
+              <ListChecks className="h-3 w-3" />
+              {task.checklist!.done}/{task.checklist!.total}
+            </span>
+          )}
         </div>
         {showProject && (
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -254,7 +283,12 @@ function TaskRow({
           )}
         >
           <CalendarClock className="h-3.5 w-3.5" />
-          {format(new Date(task.dueDate), 'MMM d')}
+          <bdi>{formatTaskDates(task, getCurrentLocale())}</bdi>
+          {spanDayToday(task) !== undefined && (
+            <span className="rounded bg-primary/10 px-1 text-primary">
+              {tr(`day ${spanDayToday(task)}/${taskSpanDays(task)}`, `اليوم ${spanDayToday(task)} من ${taskSpanDays(task)}`)}
+            </span>
+          )}
         </div>
       )}
 
@@ -277,7 +311,12 @@ function TaskRow({
       )}
 
       <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-        <StatusControl status={task.status} onChange={onStatusChange} />
+        <StatusControl
+          status={viewStatus}
+          onChange={onStatusChange}
+          options={ownPart ? partStatuses : taskStatuses}
+          title={ownPart ? tr('My part', 'جزئي') : undefined}
+        />
       </div>
     </div>
   );
@@ -324,7 +363,8 @@ function TaskGroup({
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
-type Scope = 'mine' | 'all' | 'unassigned';
+// 'today' is My Day: my open work that is overdue, due today, already started, or urgent.
+type Scope = 'today' | 'mine' | 'all' | 'unassigned';
 
 export function TaskList({ projectId }: { projectId?: string }) {
   const { selectedCompany, projects, currentRole, currentUser } = useCompany();
@@ -364,7 +404,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     if (!scopeStorageKey) return;
     try {
       const stored = localStorage.getItem(scopeStorageKey) as Scope | null;
-      setScope(stored && ['mine', 'all', 'unassigned'].includes(stored) ? stored : 'mine');
+      setScope(stored && ['today', 'mine', 'all', 'unassigned'].includes(stored) ? stored : 'mine');
     } catch {
       setScope('mine');
     }
@@ -421,13 +461,21 @@ export function TaskList({ projectId }: { projectId?: string }) {
     loadData();
   }, [loadData]);
 
+  // An archived project's tasks are put away; they stay on the project's own page.
+  const archivedProjectIds = React.useMemo(
+    () => new Set(projects.filter((p) => p.status === 'Archived').map((p) => p.id)),
+    [projects],
+  );
+
   // Company / project scoped.
   const scopedTasks = React.useMemo(
     () =>
       tasks.filter((t) =>
-        projectId ? t.projectId === projectId : t.companyId === selectedCompanyId,
+        projectId
+          ? t.projectId === projectId
+          : t.companyId === selectedCompanyId && !archivedProjectIds.has(t.projectId),
       ),
-    [tasks, projectId, selectedCompanyId],
+    [tasks, projectId, selectedCompanyId, archivedProjectIds],
   );
 
   const todayStart = React.useMemo(() => startOfDay(new Date()), []);
@@ -439,9 +487,22 @@ export function TaskList({ projectId }: { projectId?: string }) {
       if (scope === 'all') return true;
       const assignees = t.assignedUserIds ?? [];
       if (scope === 'unassigned') return assignees.length === 0;
-      return currentUserId ? assignees.includes(currentUserId) : false;
+      if (!currentUserId || !assignees.includes(currentUserId)) return false;
+      if (scope === 'mine') return true;
+      const status = statusFor(t, currentUserId);
+      if (status === 'Done') return false;
+      const dueSoon = t.dueDate && startOfDay(new Date(t.dueDate)) <= todayStart;
+      return Boolean(dueSoon) || spanDayToday(t) !== undefined || status !== 'To Do' || t.priority === 'Urgent';
     });
-  }, [scopedTasks, scope, currentUserId]);
+  }, [scopedTasks, scope, currentUserId, todayStart]);
+
+  const personal = scope === 'mine' || scope === 'today';
+
+  // In "My tasks" a shared task shows this person's own part; elsewhere the whole task.
+  const viewStatus = React.useCallback(
+    (t: Task) => (personal ? statusFor(t, currentUserId) : t.status),
+    [personal, currentUserId],
+  );
 
   const counts = React.useMemo(() => {
     let todo = 0,
@@ -449,23 +510,27 @@ export function TaskList({ projectId }: { projectId?: string }) {
       done = 0,
       overdue = 0;
     for (const t of scopeFiltered) {
-      if (t.status === 'To Do') todo++;
-      else if (t.status === 'In Progress') inProgress++;
-      else if (t.status === 'Done') done++;
-      if (t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && t.status !== 'Done')
+      const status = viewStatus(t);
+      if (status === 'To Do') todo++;
+      else if (status === 'Done') done++;
+      else inProgress++;
+      if (t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && status !== 'Done')
         overdue++;
     }
     return { todo, inProgress, done, overdue };
-  }, [scopeFiltered, todayStart]);
+  }, [scopeFiltered, todayStart, viewStatus]);
 
   const filteredTasks = React.useMemo(() => {
     return scopeFiltered.filter((t) => {
+      const status = viewStatus(t);
       if (filter === 'all') return true;
       if (filter === 'overdue')
-        return t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && t.status !== 'Done';
-      return t.status === filter;
+        return t.dueDate && startOfDay(new Date(t.dueDate)) < todayStart && status !== 'Done';
+      // The "In Progress" card also covers Waiting and In Review.
+      if (filter === 'In Progress') return status !== 'To Do' && status !== 'Done';
+      return status === filter;
     });
-  }, [scopeFiltered, filter, todayStart]);
+  }, [scopeFiltered, filter, todayStart, viewStatus]);
 
   const grouped = React.useMemo(() => {
     const buckets: Record<BucketKey, Task[]> = {
@@ -476,9 +541,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
       none: [],
       done: [],
     };
-    for (const t of filteredTasks) buckets[bucketFor(t, todayStart)].push(t);
+    for (const t of filteredTasks) buckets[bucketFor(t, viewStatus(t), todayStart)].push(t);
     // Sort each active bucket by due date then priority weight.
-    const prioWeight: Record<Task['priority'], number> = { High: 0, Medium: 1, Low: 2 };
+    const prioWeight = PRIORITY_WEIGHT;
     for (const key of Object.keys(buckets) as BucketKey[]) {
       buckets[key].sort((a, b) => {
         const ad = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
@@ -488,16 +553,31 @@ export function TaskList({ projectId }: { projectId?: string }) {
       });
     }
     return buckets;
-  }, [filteredTasks, todayStart]);
+  }, [filteredTasks, todayStart, viewStatus]);
 
   const handleStatusChange = React.useCallback(
-    async (task: Task, next: TaskStatus) => {
+    async (task: Task, next: TaskStatus, ownPart: boolean) => {
+      // On a shared task, this person moves their own part; the task follows on the server.
+      if (ownPart && currentUserId) {
+        try {
+          const saved = await updateTaskPart(task.id, currentUserId, { status: next as PartStatus });
+          setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
+        } catch {
+          toastRef.current({
+            variant: 'destructive',
+            title: trRef.current('Error', 'خطأ'),
+            description: trRef.current('Could not update your part.', 'تعذر تحديث جزئك.'),
+          });
+        }
+        return;
+      }
       // Optimistic.
       setTasks((prev) =>
         prev.map((t) => (t.id === task.id ? { ...t, status: next } : t)),
       );
       try {
-        await updateTask(task.id, { status: next });
+        const saved = await updateTask(task.id, { status: next });
+        setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
       } catch {
         setTasks((prev) =>
           prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t)),
@@ -509,17 +589,19 @@ export function TaskList({ projectId }: { projectId?: string }) {
         });
       }
     },
-    [],
+    [currentUserId],
   );
 
   const renderRow = (task: Task) => {
     const project = projects.find((p) => p.id === task.projectId);
     const client = clients.find((c) => c.id === project?.clientId);
     const assignees = users.filter((u) => task.assignedUserIds?.includes(u.id));
+    const status = viewStatus(task);
+    const ownPart = personal && !!myPart(task, currentUserId);
     const overdue =
       !!task.dueDate &&
       startOfDay(new Date(task.dueDate)) < todayStart &&
-      task.status !== 'Done';
+      status !== 'Done';
     return (
       <TaskRow
         key={task.id}
@@ -531,7 +613,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
         overdue={overdue}
         showProject={!projectId}
         onOpen={() => setSelectedTask(task)}
-        onStatusChange={(next) => handleStatusChange(task, next)}
+        onStatusChange={(next) => handleStatusChange(task, next, ownPart)}
+        viewStatus={status}
+        ownPart={ownPart}
       />
     );
   };
@@ -569,7 +653,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     <div className="flex flex-col gap-5">
       {/* Scope: My tasks / All / Unassigned */}
       <div className="flex items-center gap-1 self-start rounded-lg border bg-card p-1 text-sm">
-        {(['mine', 'all', 'unassigned'] as Scope[]).map((s) => (
+        {(['today', 'mine', 'all', 'unassigned'] as Scope[]).map((s) => (
           <button
             key={s}
             type="button"
@@ -581,7 +665,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {s === 'mine'
+            {s === 'today'
+              ? tr('My Day', 'يومي')
+              : s === 'mine'
               ? tr('My tasks', 'مهامي')
               : s === 'all'
                 ? tr('All tasks', 'كل المهام')
@@ -639,7 +725,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-center">
           <Inbox className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            {tr('No tasks to show.', 'لا توجد مهام لعرضها.')}
+            {scope === 'today'
+              ? tr('Nothing due today. Nice.', 'لا شيء مستحق اليوم. أحسنت.')
+              : tr('No tasks to show.', 'لا توجد مهام لعرضها.')}
           </p>
         </div>
       ) : (

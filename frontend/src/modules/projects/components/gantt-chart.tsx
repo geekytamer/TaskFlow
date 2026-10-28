@@ -171,7 +171,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
     .filter(task => task.createdAt && task.dueDate) // Ensure dates are present
     .map(task => {
         const endDate = startOfDay(task.dueDate!);
-        const startDate = startOfDay(task.createdAt!);
+        // A task that spans days starts on its own start date, not the day it was written down.
+        const startDate = startOfDay(task.startDate ?? task.createdAt!);
         const duration = Math.max(1, differenceInDays(endDate, startDate) + 1);
         const project = projects.find(p => p.id === task.projectId);
 

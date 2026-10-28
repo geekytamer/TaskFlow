@@ -30,13 +30,18 @@ import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modu
 import { usePermissionOr } from '@/context/permissions-context';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
+import { ProjectPlanFields, emptyProjectPlan, projectPlanFrom, projectPlanPayload } from '@/modules/projects/components/project-plan-fields';
+import { ProjectOverview } from '@/modules/projects/components/project-overview';
+import { PROJECT_PRIORITY_STYLE, PROJECT_STATUS_STYLE, projectIsLate, projectPriorityName, projectStatusName } from '@/modules/projects/lib/project-meta';
+import { ProjectActions } from '@/modules/projects/components/project-actions';
+import { getCurrentLocale } from '@/lib/locale';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
 
-  const { selectedCompany, currentUser, currentRole } = useCompany();
+  const { selectedCompany, currentUser, currentRole, refreshProjects } = useCompany();
   const seesAllProjects = useSeesAllProjects(currentRole);
   const isManager = useCanManageProjects(currentRole);
   // What this page may load follows the permission each request needs; the
@@ -58,6 +63,7 @@ export default function ProjectDetailsPage() {
   const [editDescription, setEditDescription] = React.useState('');
   const [editVisibility, setEditVisibility] = React.useState<ProjectVisibility>('Public');
   const [editClient, setEditClient] = React.useState<string | undefined>();
+  const [editPlan, setEditPlan] = React.useState(emptyProjectPlan);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = React.useState<string | undefined>();
   const [editOpen, setEditOpen] = React.useState(false);
   const [financeOpen, setFinanceOpen] = React.useState(false);
@@ -90,6 +96,7 @@ export default function ProjectDetailsPage() {
       setEditDescription(projectData.description || '');
       setEditVisibility(projectData.visibility);
       setEditClient(projectData.clientId);
+      setEditPlan(projectPlanFrom(projectData));
 
       const [companyUsers, clientData, taskData, invoiceData] = await Promise.all([
         // Optional extras fail soft: a refused list must not leave the project blank.
@@ -158,6 +165,7 @@ export default function ProjectDetailsPage() {
         description: editDescription,
         visibility: editVisibility,
         clientId: editClient && editClient !== 'none' ? editClient : undefined,
+        ...projectPlanPayload(editPlan),
       });
       setProject(updated);
       toast({ title: tr('Project updated', 'تم تحديث المشروع') });
@@ -234,10 +242,20 @@ export default function ProjectDetailsPage() {
     <div className="flex h-full flex-col gap-6">
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-[320px]">
+          <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2 [&>*]:whitespace-nowrap">
+            <Badge variant="outline" className={PROJECT_STATUS_STYLE[project.status ?? 'Active']}>{projectStatusName(project.status, language)}</Badge>
+            {projectIsLate(project) && <Badge variant="destructive">{tr('Late', 'متأخر')}</Badge>}
+            <Badge variant="outline" className={PROJECT_PRIORITY_STYLE[project.priority ?? 'Medium']}>
+              {tr('Priority', 'الأولوية')}: {projectPriorityName(project.priority, language)}
+            </Badge>
+            {project.postponedFrom && (
+              <Badge variant="outline" className="border-sky-300 text-sky-700 dark:border-sky-500/40 dark:text-sky-300">
+                {tr('Moved from', 'مرحّل من')} {new Date(project.postponedFrom).toLocaleDateString(getCurrentLocale(), { day: 'numeric', month: 'long' })}
+              </Badge>
+            )}
             <Badge variant={project.visibility === 'Private' ? 'secondary' : 'outline'}>
               {project.visibility === 'Private' ? <Lock className="me-1 h-3 w-3" /> : <Globe className="me-1 h-3 w-3" />}
               {project.visibility === 'Private' ? tr('Private', 'خاص') : tr('Public', 'عام')}
@@ -252,7 +270,19 @@ export default function ProjectDetailsPage() {
             )}
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {isManager && (
+            <ProjectActions
+              project={project}
+              openTasks={projectTasks.filter((t) => t.status !== 'Done').length}
+              onChanged={(p) => {
+                setProject(p);
+                setEditPlan(projectPlanFrom(p));
+                // The project list and everyone's task lists follow the new status.
+                refreshProjects();
+              }}
+            />
+          )}
           {isManager && (
             <Sheet open={editOpen} onOpenChange={setEditOpen}>
               <SheetTrigger asChild>
@@ -274,6 +304,7 @@ export default function ProjectDetailsPage() {
                     <Label>{tr('Description', 'الوصف')}</Label>
                     <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder={tr('Description', 'الوصف')} />
                   </div>
+                  <ProjectPlanFields value={editPlan} onChange={setEditPlan} />
                   <div className="space-y-2">
                     <Label>{tr('Visibility', 'الظهور')}</Label>
                     <Select value={editVisibility} onValueChange={(v) => setEditVisibility(v as ProjectVisibility)}>
@@ -341,6 +372,9 @@ export default function ProjectDetailsPage() {
           <CreateTaskSheet lockedProjectId={project.id} />
         </div>
       </div>
+
+      {/* ── Plan: progress, stages, budget ──────────────────────────────── */}
+      <ProjectOverview project={project} canManage={isManager} />
 
       {/* ── Tasks — PRIMARY CONTENT ────────────────────────────────────── */}
       <ProjectTaskViews project={project} />

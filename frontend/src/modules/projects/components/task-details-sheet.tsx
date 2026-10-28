@@ -31,11 +31,17 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { TaskTimePanel } from './task-time-panel';
 import { getCompanyMembers, type CompanyMember } from '@/services/userService';
 import type { Task, Comment, TaskStatus, TaskPriority, Project } from '@/modules/projects/types';
-import { taskStatuses, taskPriorities } from '@/modules/projects/types';
+import { taskStatuses, taskPriorities, taskRecurrences } from '@/modules/projects/types';
+import { priorityName, recurrenceName, statusName } from '@/modules/projects/lib/task-meta';
+import { TaskPartsPanel } from './task-parts-panel';
+import { TaskChecklistPanel } from './task-checklist-panel';
+import { TaskDatesPicker } from './task-dates-picker';
+import { StageSelect, useProjectStages } from './stage-select';
+import { MentionTextarea, useMentions } from './mention-textarea';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { add, format, formatDistanceToNow } from 'date-fns';
-import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2, Lock } from 'lucide-react';
+import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2, Lock, Repeat, Flag } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
 import { useCompany } from '@/context/company-context';
@@ -81,6 +87,8 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [allUsers, setAllUsers] = React.useState<CompanyMember[]>([]);
   const [allTasks, setAllTasks] = React.useState<Task[]>([]);
   const [newComment, setNewComment] = React.useState('');
+  const mentions = useMentions(newComment);
+  const stages = useProjectStages(open ? task?.projectId : null);
   const [loading, setLoading] = React.useState(true);
   const [invoicePreview, setInvoicePreview] = React.useState<string | null>(task.invoiceImage || null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -263,9 +271,11 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
             taskId: task.id,
             userId: currentUser.id,
             content: newComment,
+            mentionIds: mentions.mentionIds,
         });
         setComments(prevComments => [...prevComments, newCommentObject]);
         setNewComment('');
+        mentions.reset();
     } catch {
          toast({
             variant: 'destructive',
@@ -325,7 +335,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           </SelectTrigger>
                           <SelectContent>
                               {taskStatuses.map(status => (
-                                  <SelectItem key={status} value={status}>{status}</SelectItem>
+                                  <SelectItem key={status} value={status}>{statusName(status, language)}</SelectItem>
                               ))}
                           </SelectContent>
                       </Select>
@@ -339,6 +349,18 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                           className="max-w-xs"
                       />
                   </DetailRow>
+                  <TaskPartsPanel
+                    task={editableTask}
+                    people={allUsers.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar }))}
+                    currentUserId={currentUser?.id}
+                    runsTask={Boolean(currentUser?.isSuperAdmin || editableTask.ownerId === currentUser?.id || currentRole === 'Admin' || currentRole === 'Manager')}
+                    onChanged={(saved) => {
+                      // Parts save at once; the task's status follows them on the server.
+                      // The list behind refreshes live; onTaskUpdate would close this sheet.
+                      setEditableTask((prev) => ({ ...prev, parts: saved.parts, status: saved.status }));
+                    }}
+                  />
+                  <TaskChecklistPanel taskId={editableTask.id} />
                   <DetailRow icon={UserIcon} label={tr('Parent Task', 'المهمة الأصل')}>
                     <Select
                       value={editableTask.parentTaskId || 'none'}
@@ -359,30 +381,18 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                       </SelectContent>
                     </Select>
                   </DetailRow>
-                  <DetailRow icon={CalendarIcon} label={tr('Due Date', 'تاريخ الاستحقاق')}>
-                      <Popover>
-                          <PopoverTrigger asChild>
-                          <Button
-                              variant={'outline'}
-                              className={cn(
-                              'w-[180px] justify-start text-start font-normal',
-                              !editableTask.dueDate && 'text-muted-foreground'
-                              )}
-                          >
-                              <CalendarIcon className="me-2 h-4 w-4" />
-                              {editableTask.dueDate ? format(editableTask.dueDate, 'PPP') : <span>{tr('Pick a date', 'اختر تاريخاً')}</span>}
-                          </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0">
-                          <Calendar
-                              mode="single"
-                              selected={editableTask.dueDate}
-                              onSelect={(date) => handleFieldChange('dueDate', date)}
-                              initialFocus
-                          />
-                          </PopoverContent>
-                      </Popover>
+                  <DetailRow icon={CalendarIcon} label={tr('Dates', 'التاريخ')}>
+                      <TaskDatesPicker
+                          className="w-[230px]"
+                          value={{ startDate: editableTask.startDate, dueDate: editableTask.dueDate }}
+                          onChange={(next) => setEditableTask((prev) => ({ ...prev, startDate: next.startDate ?? null, dueDate: next.dueDate }))}
+                      />
                   </DetailRow>
+                  {stages.length > 0 && (
+                    <DetailRow icon={Flag} label={tr('Stage', 'المرحلة')}>
+                        <StageSelect className="w-[230px]" stages={stages} value={editableTask.milestoneId} onChange={(id) => setEditableTask((prev) => ({ ...prev, milestoneId: id }))} />
+                    </DetailRow>
+                  )}
                     <DetailRow icon={Tag} label={tr('Priority', 'الأولوية')}>
                         <Select
                             value={editableTask.priority}
@@ -393,7 +403,23 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                             </SelectTrigger>
                             <SelectContent>
                                 {taskPriorities.map(priority => (
-                                    <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                                    <SelectItem key={priority} value={priority}>{priorityName(priority, language)}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </DetailRow>
+                    <DetailRow icon={Repeat} label={tr('Repeat', 'التكرار')}>
+                        <Select
+                            value={editableTask.recurrence ?? 'none'}
+                            onValueChange={(value) => handleFieldChange('recurrence', value === 'none' ? null : value)}
+                        >
+                            <SelectTrigger className="w-[180px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">{tr('Does not repeat', 'لا تتكرر')}</SelectItem>
+                                {taskRecurrences.map((r) => (
+                                    <SelectItem key={r} value={r}>{recurrenceName(r, language)}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
@@ -569,11 +595,13 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                 <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 space-y-2">
-                                <Textarea
-                                    placeholder={tr('Write a comment...', 'اكتب تعليقاً...')}
+                                <MentionTextarea
+                                    placeholder={tr('Write a comment… (@ to mention a colleague)', 'اكتب تعليقاً… (@ للإشارة لزميل)')}
                                     className="text-sm"
                                     value={newComment}
-                                    onChange={(e) => setNewComment(e.target.value)}
+                                    onChange={setNewComment}
+                                    people={allUsers.filter((u) => u.id !== currentUser.id).map((u) => ({ id: u.id, name: u.name }))}
+                                    onPick={(person) => mentions.setPicked((p) => ({ ...p, [person.id]: person.name }))}
                                 />
                                 <div className="flex justify-end gap-2">
                                     <Button size="sm" onClick={handlePostComment} disabled={!newComment.trim()}>{tr('Post Comment', 'نشر التعليق')}</Button>

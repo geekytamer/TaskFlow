@@ -1,5 +1,5 @@
 import { apiFetch, isApiError } from '@/lib/api-client';
-import type { Task, Project, Comment, TimeEntry } from '@/modules/projects/types';
+import type { Task, Project, Comment, TimeEntry, ProjectMilestone, ProjectSummary, ProjectTemplateSummary } from '@/modules/projects/types';
 
 const toDate = (value: any) => (value ? new Date(value) : undefined);
 
@@ -127,7 +127,7 @@ export async function getCommentsByTaskId(taskId: string): Promise<Comment[]> {
 }
 
 export async function createComment(
-  commentData: Omit<Comment, 'id' | 'createdAt'>,
+  commentData: Omit<Comment, 'id' | 'createdAt'> & { mentionIds?: string[] },
 ): Promise<Comment> {
   const comment = await apiFetch<Comment>(`/tasks/${commentData.taskId}/comments`, {
     method: 'POST',
@@ -162,4 +162,84 @@ export async function logTime(
 
 export async function deleteTimeEntry(id: string): Promise<void> {
   await apiFetch(`/time-entries/${id}`, { method: 'DELETE' });
+}
+
+/** One person's part of a shared task: their status, or (for whoever runs the task) its label. */
+export async function updateTaskPart(
+  taskId: string,
+  userId: string,
+  changes: { status?: 'To Do' | 'In Progress' | 'Done'; label?: string | null },
+): Promise<Task> {
+  const task = await apiFetch<Task>(`/tasks/${encodeURIComponent(taskId)}/parts/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  });
+  return mapTask(task);
+}
+
+/** One step of a task's checklist (backend tasks/task-checklist.ts). */
+export interface ChecklistItem {
+  id: string;
+  taskId: string;
+  text: string;
+  done: boolean;
+  position: number;
+  doneBy: string | null;
+  doneAt: string | null;
+}
+
+export const getChecklist = (taskId: string) =>
+  apiFetch<ChecklistItem[]>(`/tasks/${encodeURIComponent(taskId)}/checklist`);
+
+export const addChecklistItem = (taskId: string, text: string) =>
+  apiFetch<ChecklistItem>(`/tasks/${encodeURIComponent(taskId)}/checklist`, { method: 'POST', body: JSON.stringify({ text }) });
+
+export const updateChecklistItem = (taskId: string, itemId: string, changes: { text?: string; done?: boolean }) =>
+  apiFetch<ChecklistItem>(`/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify(changes) });
+
+export const deleteChecklistItem = (taskId: string, itemId: string) =>
+  apiFetch<{ success: boolean }>(`/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+
+export async function getProjectSummary(projectId: string): Promise<ProjectSummary> {
+  return apiFetch<ProjectSummary>(`/projects/${projectId}/summary`);
+}
+
+export async function getMilestones(projectId: string): Promise<ProjectMilestone[]> {
+  return apiFetch<ProjectMilestone[]>(`/projects/${projectId}/milestones`);
+}
+
+export async function addMilestone(projectId: string, data: { name: string; dueDate?: string | null }): Promise<ProjectMilestone> {
+  return apiFetch<ProjectMilestone>(`/projects/${projectId}/milestones`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateMilestone(projectId: string, milestoneId: string, data: { name?: string; dueDate?: string | null }): Promise<ProjectMilestone> {
+  return apiFetch<ProjectMilestone>(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export async function deleteMilestone(projectId: string, milestoneId: string): Promise<void> {
+  await apiFetch(`/projects/${projectId}/milestones/${milestoneId}`, { method: 'DELETE' });
+}
+
+export async function getProjectTemplates(companyId: string): Promise<ProjectTemplateSummary[]> {
+  return apiFetch<ProjectTemplateSummary[]>(`/companies/${companyId}/project-templates`);
+}
+
+export async function saveProjectAsTemplate(projectId: string, name: string): Promise<ProjectTemplateSummary> {
+  return apiFetch<ProjectTemplateSummary>(`/projects/${projectId}/template`, { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+export async function createProjectFromTemplate(templateId: string, data: { name: string; startDate: string; clientId?: string }): Promise<Project> {
+  return apiFetch<Project>(`/project-templates/${templateId}/projects`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function deleteProjectTemplate(templateId: string): Promise<void> {
+  await apiFetch(`/project-templates/${templateId}`, { method: 'DELETE' });
+}
+
+export async function postponeProject(projectId: string, startDate: string): Promise<{ project: Project; days: number; moved: number }> {
+  return apiFetch(`/projects/${projectId}/postpone`, { method: 'POST', body: JSON.stringify({ startDate }) });
+}
+
+export async function completeProject(projectId: string, closeOpenTasks: boolean): Promise<{ project: Project; closed: number }> {
+  return apiFetch(`/projects/${projectId}/complete`, { method: 'POST', body: JSON.stringify({ closeOpenTasks }) });
 }
