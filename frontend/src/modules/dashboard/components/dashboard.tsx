@@ -23,7 +23,9 @@ const METRIC_ROUTES: Record<string, string> = {
 };
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { getDashboardPayload } from '@/services/dashboardService';
+import { getDashboardPayload, getGroupDashboardPayload } from '@/services/dashboardService';
+import { useGroupScope } from '@/context/group-scope-context';
+import { GroupCompanyFilter } from '@/modules/groups/components/group-company-filter';
 import type { DashboardPayload, DashboardChart } from '@/modules/dashboard/types';
 import { CurrencyAmount, useCompanyCurrency, type SupportedCurrencyCode } from '@/lib/currency';
 import {
@@ -291,22 +293,38 @@ export function Dashboard() {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { currencyCode } = useCompanyCurrency();
+  const { group, companyIds } = useGroupScope();
   const [payload, setPayload] = React.useState<DashboardPayload | null>(null);
+  const [missing, setMissing] = React.useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = React.useState(true);
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
+  // In a group the figures are every company of it, narrowed by the filter.
+  const groupId = group?.id ?? null;
+  const filterKey = companyIds.join(',');
 
   React.useEffect(() => {
     let active = true;
     async function load() {
-      if (!selectedCompany) {
+      if (!groupId && !selectedCompany) {
         setPayload(null);
         setLoading(false);
         return;
       }
       setLoading(true);
       try {
-        const data = await getDashboardPayload(selectedCompany.id);
-        if (active) setPayload(data);
+        if (groupId) {
+          const rolled = await getGroupDashboardPayload(groupId, companyIds);
+          if (active) {
+            setPayload(rolled?.payload ?? null);
+            setMissing(rolled?.missing ?? []);
+          }
+        } else {
+          const data = await getDashboardPayload(selectedCompany!.id);
+          if (active) {
+            setPayload(data);
+            setMissing([]);
+          }
+        }
       } catch {
         if (active) setPayload(null);
       } finally {
@@ -317,10 +335,19 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, [selectedCompany]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCompany, groupId, filterKey]);
 
   // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
   useLiveRefresh('*', async () => {
+    if (groupId) {
+      const rolled = await getGroupDashboardPayload(groupId, companyIds).catch(() => null);
+      if (rolled) {
+        setPayload(rolled.payload);
+        setMissing(rolled.missing);
+      }
+      return;
+    }
     if (!selectedCompany) return;
     const data = await getDashboardPayload(selectedCompany.id).catch(() => null);
     if (data) setPayload(data);
@@ -402,11 +429,21 @@ export function Dashboard() {
       <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground tracking-tight capitalize">
-            {scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
+            {group
+              ? tr('Group Overview', 'نظرة عامة على المجموعة')
+              : scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1 capitalize">
-            {tr('Role View', 'عرض الدور')}: {localizeRole(role, language)}
+          <p className="text-sm text-muted-foreground mt-1">
+            {group
+              ? tr(
+                  `${companyIds.length} ${companyIds.length === 1 ? 'company' : 'companies'} together`,
+                  `${companyIds.length} ${companyIds.length === 1 ? 'شركة' : 'شركات'} معًا`,
+                )
+              : `${tr('Role View', 'عرض الدور')}: ${localizeRole(role, language)}`}
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <GroupCompanyFilter />
         </div>
         {quickActions.length > 0 && (
           // On a phone the shortcuts scroll sideways in one row instead of squeezing the title.
@@ -421,7 +458,17 @@ export function Dashboard() {
         )}
       </div>
 
-      <OnboardingChecklist />
+      {/* A company whose figures are not in these totals is named, not dropped. */}
+      {group && missing.length > 0 && (
+        <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
+          {tr(
+            `Not counted: ${missing.map((c) => c.name).join(', ')} — you don't have a company-wide view there.`,
+            `غير محتسب: ${missing.map((c) => c.name).join('، ')} — ليس لديك عرض على مستوى الشركة هناك.`,
+          )}
+        </p>
+      )}
+
+      {!group && <OnboardingChecklist />}
 
       {metrics.length > 0 && (
         <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-primary/15 via-primary/5 to-primary/20" data-tutorial="dash-primary-metric">

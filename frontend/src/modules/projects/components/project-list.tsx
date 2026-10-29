@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useCompany } from '@/context/company-context';
+import { useGroupScope } from '@/context/group-scope-context';
 import { useI18n } from '@/context/i18n-context';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -18,6 +19,7 @@ import { usePermissions } from '@/context/permissions-context';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, loading } = useCompany();
+  const { group, companyIds: groupCompanyIds, companyName } = useGroupScope();
   const seesAllProjects = useSeesAllProjects();
   const canLoadClients = usePermissions().can('contacts.view_details');
   const { language } = useI18n();
@@ -57,15 +59,17 @@ export function ProjectList() {
   }, [selectedCompany, canLoadClients]);
 
   const visibleProjects = React.useMemo(() => {
-    if (!currentUser || !selectedCompany) return [];
+    if (!currentUser || (!selectedCompany && !group)) return [];
+    // In a group: every company of it that the filter leaves in.
+    const inScope = (companyId: string) =>
+      group ? groupCompanyIds.includes(companyId) : companyId === selectedCompany?.id;
     return projects
-      .filter(
-        (p) =>
-          p.companyId === selectedCompany.id &&
-          canViewProject(p, currentUser.id, seesAllProjects),
-      )
+      .filter((p) => inScope(p.companyId) && canViewProject(p, currentUser.id, seesAllProjects))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [projects, currentUser, selectedCompany, seesAllProjects]);
+  }, [projects, currentUser, selectedCompany, seesAllProjects, group, groupCompanyIds]);
+
+  /** Which company a project belongs to — shown only when several are in view. */
+  const showCompany = group !== null && new Set(visibleProjects.map((p) => p.companyId)).size > 1;
 
   const statsByProject = React.useMemo(() => {
     const todayStart = new Date();
@@ -124,6 +128,9 @@ export function ProjectList() {
                       />
                       <CardTitle className="truncate text-lg">{project.name}</CardTitle>
                     </div>
+                    {showCompany && (
+                      <p className="text-xs text-muted-foreground">{companyName(project.companyId)}</p>
+                    )}
                     <CardDescription className="line-clamp-2 h-10 whitespace-normal">
                       {project.description}
                     </CardDescription>

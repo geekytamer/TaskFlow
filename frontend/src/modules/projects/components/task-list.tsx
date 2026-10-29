@@ -13,6 +13,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
+import { useGroupScope } from '@/context/group-scope-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
@@ -184,6 +185,7 @@ function TaskRow({
   assignees,
   overdue,
   showProject,
+  companyName,
   onOpen,
   onStatusChange,
 }: {
@@ -194,6 +196,8 @@ function TaskRow({
   assignees: PersonSummary[];
   overdue: boolean;
   showProject: boolean;
+  /** Which company the task belongs to; only passed when several are in view. */
+  companyName?: string;
   onOpen: () => void;
   onStatusChange: (next: TaskStatus) => void;
 }) {
@@ -223,6 +227,9 @@ function TaskRow({
           )}
           <span className="truncate">{task.title}</span>
         </div>
+        {companyName && (
+          <div className="mt-0.5 text-xs font-medium text-muted-foreground">{companyName}</div>
+        )}
         {showProject && (
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             {projectName ? (
@@ -328,6 +335,7 @@ type Scope = 'mine' | 'all' | 'unassigned';
 
 export function TaskList({ projectId }: { projectId?: string }) {
   const { selectedCompany, projects, currentUser } = useCompany();
+  const { group, companyIds: groupCompanyIds, companyName } = useGroupScope();
   const { language } = useI18n();
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
@@ -423,10 +431,22 @@ export function TaskList({ projectId }: { projectId?: string }) {
   // Company / project scoped.
   const scopedTasks = React.useMemo(
     () =>
-      tasks.filter((t) =>
-        projectId ? t.projectId === projectId : t.companyId === selectedCompanyId,
-      ),
-    [tasks, projectId, selectedCompanyId],
+      tasks.filter((t) => {
+        if (projectId) return t.projectId === projectId;
+        // In a group: every company of it that the filter leaves in.
+        if (group) return groupCompanyIds.includes(t.companyId);
+        return t.companyId === selectedCompanyId;
+      }),
+    [tasks, projectId, selectedCompanyId, group, groupCompanyIds],
+  );
+
+  /** In a group spanning several companies, each task says which one it is in. */
+  const companyNameOf = companyName;
+
+  /** Say which company a task is in only when the view holds more than one. */
+  const showCompany = React.useMemo(
+    () => group !== null && new Set(scopedTasks.map((t) => t.companyId)).size > 1,
+    [group, scopedTasks],
   );
 
   const todayStart = React.useMemo(() => startOfDay(new Date()), []);
@@ -529,6 +549,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
         assignees={assignees}
         overdue={overdue}
         showProject={!projectId}
+        companyName={showCompany ? companyNameOf(task.companyId) : undefined}
         onOpen={() => setSelectedTask(task)}
         onStatusChange={(next) => handleStatusChange(task, next)}
       />

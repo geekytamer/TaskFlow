@@ -8,10 +8,13 @@ import { ProjectList } from '@/modules/projects/components/project-list';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
+import { GroupCompanyFilter } from '@/modules/groups/components/group-company-filter';
+import { useGroupScope } from '@/context/group-scope-context';
 
 export function ProjectsPage() {
   const { user } = useAuthGuard();
   const { t } = useI18n();
+  const { group } = useGroupScope();
   const canCreateProjects = usePermissions().can('projects.create');
 
   return (
@@ -23,11 +26,14 @@ export function ProjectsPage() {
             {t('projects.subtitle')}
           </p>
         </div>
-        {user && canCreateProjects && (
-           <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
+        <div className="flex items-center gap-2">
+          <GroupCompanyFilter />
+          {user && canCreateProjects && !group && (
+            <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
               <CreateProjectSheet />
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div data-tutorial="projects-list"><ProjectList /></div>

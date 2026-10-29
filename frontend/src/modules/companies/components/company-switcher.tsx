@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { ChevronsUpDown, Check, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,7 +20,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { roleLabel, useMyHoldingGroups } from '@/modules/authz/components/shared';
+import { useGroupScope } from '@/context/group-scope-context';
+import { roleLabel } from '@/modules/authz/components/shared';
 import { CompanyMark } from './company-mark';
 
 /**
@@ -35,32 +36,27 @@ export function CompanySwitcher() {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const { groups } = useMyHoldingGroups();
-
-  // On a group's own page the switcher names the group, not the company
-  // underneath: it says which scope you are in.
-  const onGroupPage = pathname?.startsWith('/settings/group') ?? false;
-  const openGroupId = searchParams.get('group');
-  const currentGroup = onGroupPage
-    ? groups.find((g) => g.id === openGroupId) ?? groups[0] ?? null
-    : null;
+  const { groups, group: currentGroup, enterGroup, leaveGroup } = useGroupScope();
 
   if (!selectedCompany) {
     return null;
   }
 
-  const goToGroup = (id: string) => {
+  // Entering a group puts the whole app in the group's scope; its pages show
+  // every company at once. The dashboard is where that starts.
+  const goToGroup = (next: (typeof groups)[number]) => {
+    enterGroup(next);
     setOpen(false);
-    router.push(`/settings/group?group=${encodeURIComponent(id)}`);
+    router.push('/');
   };
 
   const goToCompany = (company: typeof selectedCompany) => {
     setSelectedCompany(company);
     setOpen(false);
-    // Leaving a group's page for a company means leaving the group's scope.
-    if (onGroupPage) router.push('/');
+    if (currentGroup) {
+      leaveGroup();
+      router.push('/');
+    }
   };
   
   return (
@@ -108,7 +104,7 @@ export function CompanySwitcher() {
                   <CommandItem
                     key={group.id}
                     value={`${group.name} ${group.nameAr ?? ''}`}
-                    onSelect={() => goToGroup(group.id)}
+                    onSelect={() => goToGroup(group)}
                   >
                     <Check className={cn('me-2 h-4 w-4', currentGroup?.id === group.id ? 'opacity-100' : 'opacity-0')} />
                     <span className="me-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-muted">

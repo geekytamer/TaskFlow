@@ -772,6 +772,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/holding-groups', permission: 'per_record', note: 'the groups the person administers; super admin sees all' },
   { method: 'GET', path: '/holding-groups/:id', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
   { method: 'PUT', path: '/holding-groups/:id/admins', permission: 'super_admin' },
+  { method: 'GET', path: '/holding-groups/:id/dashboard', permission: 'per_record', note: 'the group rolled up; each company still decided by its own dashboard rules' },
   { method: 'GET', path: '/holding-groups/:id/people', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
   { method: 'PUT', path: '/holding-groups/:id/assignments/:userId', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
   { method: 'GET', path: '/holding-groups/:id/templates/:key', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },

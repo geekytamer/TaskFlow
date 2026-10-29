@@ -3,7 +3,7 @@ import type { DashboardPayload } from '@/modules/dashboard/types';
 
 const toDate = (value: unknown) => (value ? new Date(String(value)) : undefined);
 
-const mapDashboardPayload = (payload: any): DashboardPayload => ({
+export const mapDashboardPayload = (payload: any): DashboardPayload => ({
   companyId: String(payload.companyId || ''),
   role: payload.role,
   scope: payload.scope === 'personal' ? 'personal' : 'company',
@@ -76,6 +76,22 @@ const mapDashboardPayload = (payload: any): DashboardPayload => ({
       }))
     : [],
 });
+
+/** A whole group's companies in one dashboard; `companyIds` narrows it. */
+export async function getGroupDashboardPayload(
+  groupId: string,
+  companyIds: string[] = [],
+): Promise<{ payload: DashboardPayload; companies: Array<{ id: string; name: string }>; missing: Array<{ id: string; name: string }> } | null> {
+  if (!groupId) return null;
+  const query = companyIds.length ? `?companyIds=${encodeURIComponent(companyIds.join(','))}` : '';
+  const raw = await apiFetch<any>(`/holding-groups/${encodeURIComponent(groupId)}/dashboard${query}`);
+  return {
+    // A group has no single role or company: it reads as a company-wide view.
+    payload: mapDashboardPayload({ ...raw, companyId: '', role: 'Admin', scope: 'company' }),
+    companies: Array.isArray(raw.companies) ? raw.companies : [],
+    missing: Array.isArray(raw.missing) ? raw.missing : [],
+  };
+}
 
 export async function getDashboardPayload(
   companyId: string,

@@ -36,7 +36,7 @@ records at once, and filter by company.
 
 ## Phases
 
-- [ ] **Phase 1 — the scope works.** Scope state and the company filter;
+- [x] **Phase 1 — the scope works.** Scope state and the company filter;
   dashboard roll-up; Tasks and Projects in group scope with a company column;
   the sidebar shows only group-aware pages while in a group.
 - [ ] **Phase 2 — money.** Invoices, payables and the finance overview through
@@ -52,3 +52,29 @@ records at once, and filter by company.
   which company first (Phase 2 onwards; Phase 1 hides creation in group scope).
 - **The Academy lock** applies per company today. A group view is read-only
   roll-up, so it is not gated; the underlying company pages still are.
+
+## Phase 1, as built (2026-10-29)
+
+- `GET /holding-groups/:id/dashboard?companyIds=` rolls the group up:
+  figures summed, a percentage averaged, charts added per month and series,
+  alerts and activity labelled with their company, shortcuts deduped. A company
+  the viewer has no company-wide view in is named in `missing`, never counted
+  (`authz/holding-rollup.ts`, 4 tests).
+- `GroupScopeProvider` holds the scope: the group, the company filter
+  (remembered per group), and the group's own company names — a group
+  administrator need not belong to every company in it.
+- The switcher enters and leaves the scope. In a group the menu offers only
+  Dashboard, Tasks, Projects and the group's own page; creating stays company
+  work and is hidden.
+- Tasks and Projects show every company of the group, each row naming its
+  company once more than one is in view. The filter sits on all three pages.
+
+Verified in a browser as a group administrator: Group Overview reading
+"3 companies together"; the filter naming all three companies and narrowing to
+one; the roll-up matching the sum of the company dashboards (4 + 1 + 0 = 5 open
+tasks); a company without a company-wide view named as not counted; leaving the
+group restoring the full menu. Backend 963 tests, frontend 98, lint and build
+clean.
+
+Phase 2 (money) and Phase 3 (the rest, and opening a record in its company)
+are still open.

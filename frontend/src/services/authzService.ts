@@ -206,6 +206,7 @@ export interface PushResult { updated: PushRow[]; customised: PushRow[]; standar
 const holding = (id: string) => `/holding-groups/${encodeURIComponent(id)}`;
 
 export const listHoldingGroups = () => apiFetch<HoldingGroup[]>('/holding-groups');
+
 export const getHoldingGroup = (id: string) => apiFetch<HoldingGroupDetail>(holding(id));
 export const getHoldingGroupPeople = (id: string) => apiFetch<HoldingMember[]>(`${holding(id)}/people`);
 export const setHoldingAssignment = (

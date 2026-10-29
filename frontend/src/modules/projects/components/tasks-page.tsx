@@ -4,9 +4,12 @@ import * as React from 'react';
 import { useI18n } from '@/context/i18n-context';
 import { TaskList } from './task-list';
 import { CreateTaskSheet } from './create-task-sheet';
+import { GroupCompanyFilter } from '@/modules/groups/components/group-company-filter';
+import { useGroupScope } from '@/context/group-scope-context';
 
 export function TasksPage() {
   const { t } = useI18n();
+  const { group } = useGroupScope();
 
   return (
     <div className="flex flex-col gap-6">
@@ -16,7 +19,10 @@ export function TasksPage() {
           <h1 className="text-3xl font-bold font-headline">{t('tasksPage.title')}</h1>
           <p className="text-muted-foreground mt-1">{t('tasksPage.subtitle')}</p>
         </div>
-        <CreateTaskSheet />
+        <div className="flex items-center gap-2">
+          <GroupCompanyFilter />
+          {!group && <CreateTaskSheet />}
+        </div>
       </div>
 
       <TaskList />

@@ -33,6 +33,7 @@ import { boundaryOf } from './dates';
 import { roleGuards } from './guards';
 import { beyondDetail, fieldsOut, grantsOut } from './describe';
 import { validateRole } from './authz-store';
+import { rollUpDashboard, type GroupCompany } from './holding-rollup';
 
 /** Store validation errors (plain Error) become 400; HttpErrors keep their status. */
 function run<T>(fn: () => T): T {
@@ -66,7 +67,7 @@ const stringList = (value: unknown, name: string): string[] => {
 };
 
 export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireSuperAdmin, viewerOf, permissionsEngine } = ctx;
+  const { store, authMiddleware, requireSuperAdmin, viewerOf, permissionsEngine, allowsRule } = ctx;
   const guards = roleGuards(store, permissionsEngine);
 
   /** C-2: content within the actor's own access in every company of the group (super admin exempt). */
@@ -236,6 +237,46 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     if (missing) throw new HttpError(400, `User ${missing} not found.`);
     run(() => store.authz.setHoldingAdmins(req.params.id, userIds, req.user!.id));
     res.json(detail(req.params.id, req));
+  }));
+
+  /**
+   * The group as one place to work: every company's dashboard, rolled up.
+   *
+   * Each company is built by the same code that builds it alone, and only for
+   * companies this person may see a dashboard in — the rest are named in
+   * `missing` rather than quietly left out of the totals. `?companyIds=` is
+   * the company filter; it can only narrow the group.
+   */
+  app.get('/holding-groups/:id/dashboard', authMiddleware, handler((req, res) => {
+    const group = requireGroupAdmin(req, req.params.id);
+    const asked = typeof req.query.companyIds === 'string' && req.query.companyIds.trim()
+      ? new Set(req.query.companyIds.split(',').map((id) => id.trim()).filter(Boolean))
+      : null;
+    const wanted = group.companyIds.filter((id) => !asked || asked.has(id));
+
+    const parts: Array<{ company: GroupCompany; payload: ReturnType<typeof store.getDashboardPayload> }> = [];
+    const missing: GroupCompany[] = [];
+    for (const companyId of wanted) {
+      const company: GroupCompany = { id: companyId, name: store.getCompanyById(companyId)?.name ?? companyId };
+      const operations = allowsRule(req, companyId, 'DASHBOARD_OPERATIONS_READ');
+      const finance = allowsRule(req, companyId, 'DASHBOARD_FINANCE_READ');
+      // The personal variant is one person's own tasks; it says nothing about
+      // a company, so a group roll-up leaves that company out.
+      if (!operations && !finance) {
+        missing.push(company);
+        continue;
+      }
+      parts.push({
+        company,
+        payload: store.getDashboardPayload(companyId, {
+          userId: req.user!.id,
+          role: operations && finance ? 'Admin' : operations ? 'Manager' : 'Accountant',
+          companyRole: store.authz.mainLegacyRole(req.user!.id, companyId),
+          visibleTo: viewerOf(req),
+        }),
+      });
+    }
+    res.json(rollUpDashboard(group.id, parts, missing));
   }));
 
   /**
