@@ -43,9 +43,22 @@ export function adminCandidates(users: UserLike[], group: Pick<GroupLike, 'compa
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** True when two admin selections differ (order does not matter). */
-export function adminsChanged(before: string[], after: string[]): boolean {
-  if (before.length !== after.length) return true;
-  const set = new Set(before);
-  return after.some((id) => !set.has(id));
+/**
+ * People offered by the "Add administrator" search: candidates who are not
+ * already administrators, matched on name or email. An empty query offers the
+ * first few, so the box is useful before anything is typed.
+ */
+export function searchCandidates(
+  candidates: AdminCandidate[],
+  query: string,
+  adminUserIds: string[],
+  limit = 8,
+): AdminCandidate[] {
+  const admins = new Set(adminUserIds);
+  const pool = candidates.filter((c) => !admins.has(c.id));
+  const q = query.trim().toLowerCase();
+  if (!q) return pool.slice(0, limit);
+  return pool
+    .filter((c) => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q))
+    .slice(0, limit);
 }

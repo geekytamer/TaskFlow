@@ -115,7 +115,12 @@ export function GroupPage() {
   );
 }
 
-function GroupDetail({ groupId }: { groupId: string }) {
+/**
+ * One group's substance: its companies, the people with group-wide roles and
+ * the role templates. `hideCompanies` is for the platform admin panel, which
+ * shows its own editable companies list above this.
+ */
+export function GroupDetail({ groupId, hideCompanies = false }: { groupId: string; hideCompanies?: boolean }) {
   const { tr, lang } = useTr();
   const confirm = useConfirm();
   const [detail, setDetail] = React.useState<HoldingGroupDetail | null>(null);
@@ -170,6 +175,7 @@ function GroupDetail({ groupId }: { groupId: string }) {
 
   return (
     <div className="space-y-8">
+      {!hideCompanies && (
       <section aria-labelledby="companies-heading">
         <h2 id="companies-heading" className="mb-2 text-sm font-semibold text-muted-foreground">{tr('Companies', 'الشركات')}</h2>
         {detail.companies.length === 0 ? (
@@ -196,6 +202,7 @@ function GroupDetail({ groupId }: { groupId: string }) {
           </p>
         )}
       </section>
+      )}
 
       <section aria-labelledby="group-people-heading">
         <div className="mb-2 flex items-center justify-between gap-2">

@@ -1,9 +1,18 @@
 'use client';
 
-import { AdminGroupFrame } from '@/modules/admin/components/admin-group-frame';
-import { GroupPage } from '@/modules/authz/components/group-page';
+/**
+ * The group's own page used to live here, beside Admin → Groups. Both are one
+ * page now, so this route only forwards — old links and the template page's
+ * back link still land on the right group.
+ */
+import * as React from 'react';
+import { useRouter } from 'next/navigation';
 
-// The company-side Group page, for the platform administrator (?group=<id> picks the group).
 export default function AdminGroupRoute() {
-  return <AdminGroupFrame><GroupPage /></AdminGroupFrame>;
+  const router = useRouter();
+  React.useEffect(() => {
+    const group = new URLSearchParams(window.location.search).get('group');
+    router.replace(`/admin?tab=groups${group ? `&group=${encodeURIComponent(group)}` : ''}`);
+  }, [router]);
+  return null;
 }

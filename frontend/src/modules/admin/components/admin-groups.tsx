@@ -9,10 +9,8 @@
  * screen at /admin/groups for the super admin, who never enters the company app).
  */
 import * as React from 'react';
-import Link from 'next/link';
-import { ArrowLeft, ExternalLink, Loader2, Pencil, PlusCircle, Settings2, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Pencil, PlusCircle, Settings2, Trash2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -42,8 +40,10 @@ import {
   forgetHoldingGroups,
   roleLabel,
   useTr,
+  GroupBaseProvider,
 } from '@/modules/authz/components/shared';
-import { adminCandidates, adminsChanged, companyChoices } from '../lib/holding-groups';
+import { adminCandidates, companyChoices, searchCandidates } from '../lib/holding-groups';
+import { GroupDetail } from '@/modules/authz/components/group-page';
 
 type NameTarget = { mode: 'new' } | { mode: 'rename'; group: HoldingGroup };
 
@@ -58,6 +58,25 @@ export function HoldingGroupsTab({ companies, users, loading: rowsLoading }: {
   const [nonce, setNonce] = React.useState(0);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [naming, setNaming] = React.useState<NameTarget | null>(null);
+
+  /**
+   * The open group lives in ?group=, so a template page (and a bookmark) comes
+   * back to the group itself rather than to the list.
+   */
+  const openGroup = React.useCallback((id: string | null) => {
+    setOpenId(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'groups');
+    if (id) url.searchParams.set('group', id);
+    else url.searchParams.delete('group');
+    window.history.replaceState(null, '', url.toString());
+  }, []);
+
+  React.useEffect(() => {
+    if (openId || !groups?.length) return;
+    const wanted = new URLSearchParams(window.location.search).get('group');
+    if (wanted && groups.some((g) => g.id === wanted)) setOpenId(wanted);
+  }, [groups, openId]);
 
   // Loads again after the panel's Refresh (rowsLoading true → false) and after each change here.
   React.useEffect(() => {
@@ -87,7 +106,7 @@ export function HoldingGroupsTab({ companies, users, loading: rowsLoading }: {
       onSaved={(group, mode) => {
         setNaming(null);
         refresh();
-        if (mode === 'new') setOpenId(group.id);
+        if (mode === 'new') openGroup(group.id);
       }}
     />
   );
@@ -101,7 +120,7 @@ export function HoldingGroupsTab({ companies, users, loading: rowsLoading }: {
           groups={groups}
           companies={companies}
           users={users}
-          onBack={() => setOpenId(null)}
+          onBack={() => openGroup(null)}
           onRename={() => setNaming({ mode: 'rename', group: open })}
           onChanged={refresh}
         />
@@ -167,7 +186,7 @@ export function HoldingGroupsTab({ companies, users, loading: rowsLoading }: {
                   </TableCell>
                   <TableCell className="text-end">
                     <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="outline" onClick={() => setOpenId(g.id)} aria-label={tr(`Manage ${g.name}`, `إدارة ${roleLabel(g, lang)}`)}>
+                      <Button size="sm" variant="outline" onClick={() => openGroup(g.id)} aria-label={tr(`Manage ${g.name}`, `إدارة ${roleLabel(g, lang)}`)}>
                         <Settings2 className="h-3.5 w-3.5 sm:me-1" aria-hidden="true" />
                         {/* Icon only on a phone, so the row fits without scrolling. */}
                         <span className="hidden sm:inline">{tr('Manage', 'إدارة')}</span>
@@ -209,15 +228,15 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
   const [addId, setAddId] = React.useState('');
   const [adding, setAdding] = React.useState(false);
   const [addError, setAddError] = React.useState<string | null>(null);
-  const [admins, setAdmins] = React.useState<string[]>([]);
-  const [savingAdmins, setSavingAdmins] = React.useState(false);
+  const [adminQuery, setAdminQuery] = React.useState('');
+  const [busyAdmin, setBusyAdmin] = React.useState<string | null>(null);
   const [adminError, setAdminError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let active = true;
     setError(null);
     getHoldingGroup(group.id)
-      .then((d) => { if (active) { setDetail(d); setAdmins(d.adminUserIds); } })
+      .then((d) => { if (active) setDetail(d); })
       .catch((e: unknown) => { if (active) setError(errorText(e, tr('Could not load the group.', 'تعذّر تحميل المجموعة.'))); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -241,12 +260,6 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
             <Pencil className="me-1 h-3.5 w-3.5" aria-hidden="true" />
             {tr('Rename', 'إعادة تسمية')}
           </Button>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/admin/groups?group=${encodeURIComponent(group.id)}`}>
-              <ExternalLink className="me-1 h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
-              {tr('Open group page', 'فتح صفحة المجموعة')}
-            </Link>
-          </Button>
         </div>
       </div>
     </div>
@@ -269,7 +282,6 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
     setAddError(null);
     setRowError(null);
     setDetail(d);
-    setAdmins(d.adminUserIds);
     onChanged();
   };
 
@@ -281,7 +293,8 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
   );
   const free = choices.filter((c) => !c.inGroup);
   const candidates = adminCandidates(users, { companyIds: detail.companyIds, adminUserIds: detail.adminUserIds });
-  const adminsDirty = adminsChanged(detail.adminUserIds, admins);
+  const memberIds = new Set(candidates.filter((c) => c.member).map((c) => c.id));
+  const matches = searchCandidates(candidates, adminQuery, detail.adminUserIds);
 
   const remove = async (company: { id: string; name: string | null }) => {
     const companyName = company.name ?? company.id;
@@ -329,16 +342,43 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
     }
   };
 
-  const saveAdmins = async () => {
-    setSavingAdmins(true);
+  // Appointing and removing apply at once, like adding and removing a company
+  // above: one page, one way of working.
+  const appoint = async (person: { id: string; name: string; email: string }) => {
+    setBusyAdmin(person.id);
     setAdminError(null);
     try {
-      changed(await setHoldingAdmins(detail.id, admins));
-      toast({ title: tr('Administrators saved', 'تم حفظ المسؤولين') });
+      changed(await setHoldingAdmins(detail.id, [...detail.adminUserIds, person.id]));
+      setAdminQuery('');
+      toast({ title: tr(`${person.name} administers ${name}`, `${person.name} يدير ${name}`) });
     } catch (err) {
-      setAdminError(errorText(err, tr('Could not save the administrators.', 'تعذّر حفظ المسؤولين.')));
+      setAdminError(errorText(err, tr('Could not appoint them.', 'تعذّر تعيينه.')));
     } finally {
-      setSavingAdmins(false);
+      setBusyAdmin(null);
+    }
+  };
+
+  const stepDown = async (person: { id: string; name: string | null; email: string | null }) => {
+    const who = person.name ?? person.email ?? person.id;
+    const ok = await confirm({
+      title: tr(`Remove ${who} as an administrator?`, `إزالة ${who} من مسؤولي المجموعة؟`),
+      description: tr(
+        'They keep whatever their own companies give them, and the group-wide roles they handed out stay.',
+        'يبقى له ما تمنحه شركاته، وتبقى الأدوار التي منحها على مستوى المجموعة.',
+      ),
+      confirmText: tr('Remove', 'إزالة'),
+      cancelText: tr('Cancel', 'إلغاء'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyAdmin(person.id);
+    setAdminError(null);
+    try {
+      changed(await setHoldingAdmins(detail.id, detail.adminUserIds.filter((id) => id !== person.id)));
+    } catch (err) {
+      setAdminError(errorText(err, tr('Could not remove them.', 'تعذّرت إزالته.')));
+    } finally {
+      setBusyAdmin(null);
     }
   };
 
@@ -346,44 +386,52 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
     <div className="space-y-8">
       {header}
 
-      <section aria-labelledby="admin-group-companies" className="max-w-3xl space-y-3">
-        <h3 id="admin-group-companies" className="text-sm font-semibold text-muted-foreground">
-          {tr('Companies', 'الشركات')} <span className="font-normal tabular-nums">({detail.companies.length})</span>
-        </h3>
-        {detail.companies.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{tr('No companies in this group yet.', 'لا توجد شركات في هذه المجموعة بعد.')}</p>
-        ) : (
-          <ul className="divide-y rounded-xl border bg-card">
-            {detail.companies.map((c) => (
-              <li key={c.id} className="px-4 py-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 break-words text-sm font-medium">{c.name ?? c.id}</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    disabled={removing === c.id}
-                    onClick={() => remove(c)}
-                    aria-label={tr(`Remove ${c.name ?? c.id}`, `إزالة ${c.name ?? c.id}`)}
-                  >
-                    {removing === c.id
-                      ? <Loader2 className="me-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                      : <Trash2 className="me-1 h-3.5 w-3.5" aria-hidden="true" />}
-                    {tr('Remove', 'إزالة')}
-                  </Button>
-                </div>
-                {rowError?.id === c.id && <InlineError message={rowError.message} className="mt-1" />}
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* Membership: what only the platform administrator decides. */}
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <section aria-labelledby="admin-group-companies" className="space-y-3">
+          <div>
+            <h3 id="admin-group-companies" className="text-sm font-semibold text-muted-foreground">
+              {tr('Companies', 'الشركات')} <span className="font-normal tabular-nums">({detail.companies.length})</span>
+            </h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {tr('A company belongs to one group only. Removing it ends group-wide access there at once.', 'لا تنتمي الشركة إلا لمجموعة واحدة. وإزالتها تنهي وصول المجموعة إليها فورًا.')}
+            </p>
+          </div>
+          {detail.companies.length === 0 ? (
+            <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+              {tr('No companies in this group yet.', 'لا توجد شركات في هذه المجموعة بعد.')}
+            </p>
+          ) : (
+            <ul className="divide-y rounded-xl border bg-card">
+              {detail.companies.map((c) => (
+                <li key={c.id} className="px-4 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 break-words text-sm font-medium">{c.name ?? c.id}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      disabled={removing === c.id}
+                      onClick={() => remove(c)}
+                      aria-label={tr(`Remove ${c.name ?? c.id}`, `إزالة ${c.name ?? c.id}`)}
+                    >
+                      {removing === c.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        : <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+                      <span className="sr-only sm:not-sr-only sm:ms-1">{tr('Remove', 'إزالة')}</span>
+                    </Button>
+                  </div>
+                  {rowError?.id === c.id && <InlineError message={rowError.message} className="mt-1" />}
+                </li>
+              ))}
+            </ul>
+          )}
 
-        <form onSubmit={add} className="space-y-2">
-          <Label htmlFor="admin-group-add-company">{tr('Add company', 'إضافة شركة')}</Label>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <form onSubmit={add} className="flex flex-col gap-2 sm:flex-row">
+            <Label htmlFor="admin-group-add-company" className="sr-only">{tr('Add company', 'إضافة شركة')}</Label>
             <Select value={addId} onValueChange={(v) => { setAddId(v); setAddError(null); }} disabled={choices.length === 0}>
-              <SelectTrigger id="admin-group-add-company" className="w-full sm:w-80">
-                <SelectValue placeholder={free.length ? tr('Choose a company', 'اختر شركة') : tr('No company is free to add', 'لا توجد شركة متاحة للإضافة')} />
+              <SelectTrigger id="admin-group-add-company" className="w-full">
+                <SelectValue placeholder={free.length ? tr('Add a company…', 'إضافة شركة…') : tr('No company is free to add', 'لا توجد شركة متاحة للإضافة')} />
               </SelectTrigger>
               <SelectContent>
                 {choices.map((c) => (
@@ -394,70 +442,113 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
                 ))}
               </SelectContent>
             </Select>
-            <Button type="submit" size="sm" variant="outline" className="h-10 self-start sm:self-auto" disabled={adding || free.length === 0}>
+            <Button type="submit" size="sm" variant="outline" className="h-10 shrink-0" disabled={adding || free.length === 0}>
               {adding ? <Loader2 className="me-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <PlusCircle className="me-1 h-3.5 w-3.5" aria-hidden="true" />}
               {tr('Add', 'إضافة')}
             </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">{tr('A company can belong to one group only.', 'لا يمكن أن تنتمي الشركة إلا لمجموعة واحدة.')}</p>
+          </form>
           <InlineError message={addError} />
-        </form>
-      </section>
+        </section>
 
-      <section aria-labelledby="admin-group-admins" className="max-w-3xl space-y-3">
-        <div>
-          <h3 id="admin-group-admins" className="text-sm font-semibold text-muted-foreground">{tr('Group administrators', 'مسؤولو المجموعة')}</h3>
-          <p className="mt-0.5 max-w-prose text-sm text-muted-foreground">
-            {tr(
-              'They give people group-wide roles and edit the group\'s role templates, never beyond what they hold themselves in every company of the group, and never their own. Only you (the platform administrator) appoint or remove them. Choose from the people of the group\'s companies.',
-              'يمنحون الأشخاص أدوارًا على مستوى المجموعة ويعدّلون قوالب أدوارها، دون تجاوز ما يملكونه هم في كل شركات المجموعة، ودون تغيير أدوارهم. أنت وحدك (مسؤول المنصة) تعيّنهم أو تزيلهم. اختر من أشخاص شركات المجموعة.',
-            )}
-          </p>
-        </div>
-        {candidates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {detail.companies.length === 0
-              ? tr('Add a company first: administrators come from the group\'s companies.', 'أضف شركة أولًا: يُختار المسؤولون من شركات المجموعة.')
-              : tr('Nobody belongs to the group\'s companies yet.', 'لا أحد ينتمي إلى شركات المجموعة بعد.')}
-          </p>
-        ) : (
-          <fieldset className="space-y-3">
-            <legend className="sr-only">{tr('Group administrators', 'مسؤولو المجموعة')}</legend>
-            <ul className="max-h-80 divide-y overflow-y-auto rounded-xl border bg-card">
-              {candidates.map((u) => {
-                const id = `admin-group-admin-${u.id}`;
-                return (
-                  <li key={u.id} className="flex items-start gap-3 px-4 py-2.5">
-                    <Checkbox
-                      id={id}
-                      className="mt-0.5"
-                      checked={admins.includes(u.id)}
-                      onCheckedChange={(on) => setAdmins((list) => (on === true ? [...list, u.id] : list.filter((x) => x !== u.id)))}
-                    />
-                    <Label htmlFor={id} className="min-w-0 flex-1 cursor-pointer font-normal">
-                      <span className="block break-words text-sm font-medium">{u.name}</span>
-                      <span className="block break-all text-xs text-muted-foreground">{u.email}</span>
-                    </Label>
-                    {!u.member && <Chip tone="warn">{tr('Not in a group company', 'ليس في شركة من المجموعة')}</Chip>}
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={saveAdmins} disabled={!adminsDirty || savingAdmins}>
-                {savingAdmins && <Loader2 className="me-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                {tr('Save administrators', 'حفظ المسؤولين')}
-              </Button>
-              {adminsDirty && (
-                <Button size="sm" variant="ghost" onClick={() => { setAdmins(detail.adminUserIds); setAdminError(null); }}>
-                  {tr('Undo changes', 'تراجع عن التغييرات')}
-                </Button>
+        <section aria-labelledby="admin-group-admins" className="space-y-3">
+          <div>
+            <h3 id="admin-group-admins" className="text-sm font-semibold text-muted-foreground">
+              {tr('Administrators', 'المسؤولون')} <span className="font-normal tabular-nums">({detail.admins.length})</span>
+            </h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {tr(
+                'They give people group-wide roles and edit the role templates, never beyond what they hold in every company of the group, and never their own. Only you appoint them.',
+                'يمنحون أدوارًا على مستوى المجموعة ويعدّلون قوالب الأدوار، دون تجاوز ما يملكونه في كل شركات المجموعة، ودون تغيير أدوارهم. وأنت وحدك تعيّنهم.',
               )}
+            </p>
+          </div>
+
+          {detail.admins.length === 0 ? (
+            <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+              {tr('Nobody administers this group yet.', 'لا أحد يدير هذه المجموعة بعد.')}
+            </p>
+          ) : (
+            <ul className="divide-y rounded-xl border bg-card">
+              {detail.admins.map((a) => (
+                <li key={a.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <span className="block break-words text-sm font-medium">{a.name ?? a.email ?? a.id}</span>
+                    {a.email && <span className="block break-all text-xs text-muted-foreground">{a.email}</span>}
+                  </div>
+                  {!memberIds.has(a.id) && <Chip tone="warn">{tr('Not in a group company', 'ليس في شركة من المجموعة')}</Chip>}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                    disabled={busyAdmin === a.id}
+                    onClick={() => stepDown(a)}
+                    aria-label={tr(`Remove ${a.name ?? a.email ?? a.id}`, `إزالة ${a.name ?? a.email ?? a.id}`)}
+                  >
+                    {busyAdmin === a.id
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      : <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+                    <span className="sr-only sm:not-sr-only sm:ms-1">{tr('Remove', 'إزالة')}</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Appointing is a search, not a list of everyone: a group's companies hold hundreds of people. */}
+          {candidates.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {detail.companies.length === 0
+                ? tr('Add a company first: administrators come from the group\'s companies.', 'أضف شركة أولًا: يُختار المسؤولون من شركات المجموعة.')
+                : tr('Nobody belongs to the group\'s companies yet.', 'لا أحد ينتمي إلى شركات المجموعة بعد.')}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="admin-group-admin-search">{tr('Appoint an administrator', 'تعيين مسؤول')}</Label>
+              <Input
+                id="admin-group-admin-search"
+                value={adminQuery}
+                onChange={(e) => { setAdminQuery(e.target.value); setAdminError(null); }}
+                placeholder={tr('Search by name or email', 'ابحث بالاسم أو البريد')}
+                autoComplete="off"
+              />
+              {matches.length > 0 ? (
+                <ul className="divide-y rounded-xl border bg-card">
+                  {matches.map((u) => (
+                    <li key={u.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-start hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                        disabled={busyAdmin === u.id}
+                        onClick={() => appoint(u)}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="block break-words text-sm font-medium">{u.name}</span>
+                          <span className="block break-all text-xs text-muted-foreground">{u.email}</span>
+                        </div>
+                        {busyAdmin === u.id
+                          ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                          : <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {adminQuery.trim()
+                    ? tr('Nobody in the group\'s companies matches.', 'لا أحد في شركات المجموعة يطابق البحث.')
+                    : tr('Everyone available already administers this group.', 'كل المتاحين يديرون هذه المجموعة بالفعل.')}
+                </p>
+              )}
+              <InlineError message={adminError} />
             </div>
-            <InlineError message={adminError} />
-          </fieldset>
-        )}
-      </section>
+          )}
+        </section>
+      </div>
+
+      {/* The group's own screens, on the same page: no jump to see its people and roles. */}
+      <GroupBaseProvider value="/admin/groups">
+        <GroupDetail key={detail.id} groupId={detail.id} hideCompanies />
+      </GroupBaseProvider>
     </div>
   );
 }

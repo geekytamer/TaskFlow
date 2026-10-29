@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { adminCandidates, adminsChanged, companyChoices } from './holding-groups';
+import { adminCandidates, companyChoices, searchCandidates } from './holding-groups';
 
 const groups = [
   { id: 'g1', name: 'North', companyIds: ['c1'], adminUserIds: [] },
@@ -37,8 +37,16 @@ test('adminCandidates keeps members of the group companies and current admins ou
   assert.deepEqual(got.map((u) => [u.id, u.member]), [['u4', true], ['u2', false], ['u1', true]]);
 });
 
-test('adminsChanged ignores order', () => {
-  assert.equal(adminsChanged(['a', 'b'], ['b', 'a']), false);
-  assert.equal(adminsChanged(['a'], ['a', 'b']), true);
-  assert.equal(adminsChanged(['a', 'b'], ['a', 'c']), true);
+test('searchCandidates matches name or email, and never offers a current administrator', () => {
+  const people = [
+    { id: 'u1', name: 'Sara Qasim', email: 'sara@x.om', companyIds: ['c1'], member: true },
+    { id: 'u2', name: 'Omar Said', email: 'omar@x.om', companyIds: ['c1'], member: true },
+    { id: 'u3', name: 'Huda Ali', email: 'h.ali@y.om', companyIds: ['c1'], member: true },
+  ];
+  assert.deepEqual(searchCandidates(people, 'sara', []).map((p) => p.id), ['u1']);
+  assert.deepEqual(searchCandidates(people, 'X.OM', []).map((p) => p.id), ['u1', 'u2'], 'email matches, case-insensitive');
+  assert.deepEqual(searchCandidates(people, 'ali', []).map((p) => p.id), ['u3']);
+  assert.deepEqual(searchCandidates(people, '', ['u1']).map((p) => p.id), ['u2', 'u3'], 'no query lists the rest');
+  assert.deepEqual(searchCandidates(people, 'omar', ['u2']), [], 'a current administrator is not offered again');
+  assert.equal(searchCandidates(people, '', [], 2).length, 2, 'the list is capped');
 });
