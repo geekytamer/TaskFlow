@@ -19748,7 +19748,7 @@ export class DataStore {
           ? [
               {
                 id: 'manager-overdue-tasks',
-                title: `${overdueTasks.length} overdue tasks`,
+                title: `${overdueTasks.length} overdue task${overdueTasks.length === 1 ? '' : 's'}`,
                 detail: 'Delivery recovery is needed across active projects.',
                 severity: 'critical' as const,
                 route: '/projects',
@@ -20003,7 +20003,7 @@ export class DataStore {
         ? [
             {
               id: 'admin-overdue-tasks',
-              title: `${overdueTasks.length} overdue tasks`,
+              title: `${overdueTasks.length} overdue task${overdueTasks.length === 1 ? '' : 's'}`,
               detail: 'Delivery work has slipped past due dates.',
               severity: 'critical' as const,
               route: '/projects',

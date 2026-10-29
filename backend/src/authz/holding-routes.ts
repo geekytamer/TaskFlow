@@ -257,7 +257,11 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const parts: Array<{ company: GroupCompany; payload: ReturnType<typeof store.getDashboardPayload> }> = [];
     const missing: GroupCompany[] = [];
     for (const companyId of wanted) {
-      const company: GroupCompany = { id: companyId, name: store.getCompanyById(companyId)?.name ?? companyId };
+      const company: GroupCompany = {
+        id: companyId,
+        name: store.getCompanyById(companyId)?.name ?? companyId,
+        currencyCode: store.getCompanyFinanceSettings(companyId).currencyCode,
+      };
       const operations = allowsRule(req, companyId, 'DASHBOARD_OPERATIONS_READ');
       const finance = allowsRule(req, companyId, 'DASHBOARD_FINANCE_READ');
       // The personal variant is one person's own tasks; it says nothing about

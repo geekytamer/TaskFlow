@@ -130,3 +130,104 @@ test('only an administrator of the group may roll it up', async () => {
   assert.equal((await as(outsider).get(`/holding-groups/${g}/dashboard`)).status, 403);
   assert.equal((await as(root).get(`/holding-groups/${g}/dashboard`)).status, 200);
 });
+
+test('money is kept per currency, never added across them', () => {
+  const money = (currencyCode) => ({ id: 'c', name: 'c', currencyCode });
+  const payload = (receivables) => ({
+    companyId: 'x', role: 'Admin', scope: 'company',
+    metrics: [{ id: 'open-receivables', label: 'Open Receivables', value: receivables, format: 'currency' }],
+    charts: [], alerts: [], activity: [], quickActions: [],
+  });
+  const rolled = rollUpDashboard('g', [
+    { company: { ...money('OMR'), id: '1', name: 'Oman Co' }, payload: payload(100) },
+    { company: { ...money('USD'), id: '2', name: 'US Co' }, payload: payload(40) },
+    { company: { ...money('OMR'), id: '3', name: 'Muscat Co' }, payload: payload(20) },
+  ], []);
+
+  const receivables = rolled.money.find((m) => m.metricId === 'open-receivables');
+  assert.deepEqual(
+    receivables.byCurrency.map((row) => [row.currencyCode, row.value]),
+    [['OMR', 120], ['USD', 40]],
+    'each currency has its own total, biggest first',
+  );
+  assert.deepEqual(receivables.byCurrency[0].companyIds, ['1', '3'], 'each line names the companies behind it');
+});
+
+test('a total never adds two currencies together', () => {
+  const payload = (receivables) => ({
+    companyId: 'x', role: 'Admin', scope: 'company',
+    metrics: [
+      { id: 'open-receivables', label: 'Open Receivables', value: receivables, format: 'currency' },
+      { id: 'open-tasks', label: 'Open Tasks', value: 2, format: 'number' },
+    ],
+    charts: [], alerts: [], activity: [], quickActions: [],
+  });
+
+  const mixed = rollUpDashboard('g', [
+    { company: { id: '1', name: 'Oman Co', currencyCode: 'OMR' }, payload: payload(2000) },
+    { company: { id: '2', name: 'US Co', currencyCode: 'USD' }, payload: payload(4000) },
+  ], []);
+  assert.equal(mixed.metrics.find((m) => m.id === 'open-receivables'), undefined, 'no mixed-currency total is offered');
+  assert.equal(mixed.metrics.find((m) => m.id === 'open-tasks').value, 4, 'counts still add up');
+  assert.deepEqual(
+    mixed.money.find((m) => m.metricId === 'open-receivables').byCurrency.map((r) => [r.currencyCode, r.value]),
+    [['USD', 4000], ['OMR', 2000]],
+  );
+
+  const same = rollUpDashboard('g', [
+    { company: { id: '1', name: 'A', currencyCode: 'USD' }, payload: payload(2000) },
+    { company: { id: '2', name: 'B', currencyCode: 'USD' }, payload: payload(4000) },
+  ], []);
+  assert.equal(same.metrics.find((m) => m.id === 'open-receivables').value, 6000, 'one currency still totals');
+});
+
+test('each company keeps its own figures, so they can be compared', () => {
+  const payload = (open) => ({
+    companyId: 'x', role: 'Admin', scope: 'company',
+    metrics: [{ id: 'open-tasks', label: 'Open Tasks', value: open, format: 'number' }],
+    charts: [], alerts: [], activity: [], quickActions: [],
+  });
+  const rolled = rollUpDashboard('g', [
+    { company: { id: '1', name: 'Acme', currencyCode: 'USD' }, payload: payload(2) },
+    { company: { id: '2', name: 'Beta', currencyCode: 'USD' }, payload: payload(7) },
+  ], []);
+  assert.deepEqual(
+    rolled.perCompany.map((c) => [c.name, c.metrics.find((m) => m.id === 'open-tasks').value]),
+    [['Acme', 2], ['Beta', 7]],
+  );
+  assert.equal(rolled.metrics.find((m) => m.id === 'open-tasks').value, 9, 'the total is still there');
+});
+
+test('observations name the company carrying the group, and stay quiet when they would mislead', () => {
+  const build = (id, name, currencyCode, receivables, overdue) => ({
+    company: { id, name, currencyCode },
+    payload: {
+      companyId: id, role: 'Admin', scope: 'company',
+      metrics: [
+        { id: 'open-receivables', label: 'Open Receivables', value: receivables, format: 'currency' },
+        { id: 'overdue-tasks', label: 'Overdue', value: overdue, format: 'number' },
+        { id: 'open-tasks', label: 'Open Tasks', value: overdue, format: 'number' },
+      ],
+      charts: [], alerts: [], activity: [], quickActions: [],
+    },
+  });
+
+  const same = rollUpDashboard('g', [
+    build('1', 'Heavy Co', 'USD', 900, 9),
+    build('2', 'Light Co', 'USD', 100, 1),
+  ], []);
+  assert.ok(same.observations.some((o) => /Heavy Co holds 90% of the group's unpaid invoices/.test(o.text)));
+  assert.ok(same.observations.some((o) => /Heavy Co carries 9 of the group's 10 overdue tasks/.test(o.text)));
+
+  const mixed = rollUpDashboard('g', [
+    build('1', 'Oman Co', 'OMR', 900, 0),
+    build('2', 'US Co', 'USD', 100, 0),
+  ], []);
+  assert.ok(
+    !mixed.observations.some((o) => /% of the group/.test(o.text)),
+    'a share of a total that cannot be added is not claimed',
+  );
+
+  const alone = rollUpDashboard('g', [build('1', 'Only Co', 'USD', 900, 9)], []);
+  assert.deepEqual(alone.observations, [], 'one company is not compared with itself');
+});

@@ -23,9 +23,9 @@ const METRIC_ROUTES: Record<string, string> = {
 };
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { getDashboardPayload, getGroupDashboardPayload } from '@/services/dashboardService';
+import { getDashboardPayload } from '@/services/dashboardService';
 import { useGroupScope } from '@/context/group-scope-context';
-import { GroupCompanyFilter } from '@/modules/groups/components/group-company-filter';
+import { GroupOverview } from '@/modules/groups/components/group-overview';
 import type { DashboardPayload, DashboardChart } from '@/modules/dashboard/types';
 import { CurrencyAmount, useCompanyCurrency, type SupportedCurrencyCode } from '@/lib/currency';
 import {
@@ -293,38 +293,27 @@ export function Dashboard() {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { currencyCode } = useCompanyCurrency();
-  const { group, companyIds } = useGroupScope();
+  const { group } = useGroupScope();
   const [payload, setPayload] = React.useState<DashboardPayload | null>(null);
-  const [missing, setMissing] = React.useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = React.useState(true);
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
-  // In a group the figures are every company of it, narrowed by the filter.
-  const groupId = group?.id ?? null;
-  const filterKey = companyIds.join(',');
+
+  // A group is not a big company: it gets its own screen.
+  const inGroup = Boolean(group);
 
   React.useEffect(() => {
     let active = true;
     async function load() {
-      if (!groupId && !selectedCompany) {
+      // A group has its own screen (GroupOverview); this is the company one.
+      if (group || !selectedCompany) {
         setPayload(null);
         setLoading(false);
         return;
       }
       setLoading(true);
       try {
-        if (groupId) {
-          const rolled = await getGroupDashboardPayload(groupId, companyIds);
-          if (active) {
-            setPayload(rolled?.payload ?? null);
-            setMissing(rolled?.missing ?? []);
-          }
-        } else {
-          const data = await getDashboardPayload(selectedCompany!.id);
-          if (active) {
-            setPayload(data);
-            setMissing([]);
-          }
-        }
+        const data = await getDashboardPayload(selectedCompany.id);
+        if (active) setPayload(data);
       } catch {
         if (active) setPayload(null);
       } finally {
@@ -335,20 +324,11 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCompany, groupId, filterKey]);
+  }, [selectedCompany, group]);
 
   // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
   useLiveRefresh('*', async () => {
-    if (groupId) {
-      const rolled = await getGroupDashboardPayload(groupId, companyIds).catch(() => null);
-      if (rolled) {
-        setPayload(rolled.payload);
-        setMissing(rolled.missing);
-      }
-      return;
-    }
-    if (!selectedCompany) return;
+    if (group || !selectedCompany) return;
     const data = await getDashboardPayload(selectedCompany.id).catch(() => null);
     if (data) setPayload(data);
   });
@@ -402,6 +382,8 @@ export function Dashboard() {
     );
   }
 
+  if (inGroup) return <GroupOverview />;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px] text-muted-foreground animate-pulse">
@@ -429,21 +411,11 @@ export function Dashboard() {
       <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground tracking-tight capitalize">
-            {group
-              ? tr('Group Overview', 'نظرة عامة على المجموعة')
-              : scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
+            {scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {group
-              ? tr(
-                  `${companyIds.length} ${companyIds.length === 1 ? 'company' : 'companies'} together`,
-                  `${companyIds.length} ${companyIds.length === 1 ? 'شركة' : 'شركات'} معًا`,
-                )
-              : `${tr('Role View', 'عرض الدور')}: ${localizeRole(role, language)}`}
+          <p className="text-sm text-muted-foreground mt-1 capitalize">
+            {tr('Role View', 'عرض الدور')}: {localizeRole(role, language)}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <GroupCompanyFilter />
         </div>
         {quickActions.length > 0 && (
           // On a phone the shortcuts scroll sideways in one row instead of squeezing the title.
@@ -458,17 +430,7 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* A company whose figures are not in these totals is named, not dropped. */}
-      {group && missing.length > 0 && (
-        <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
-          {tr(
-            `Not counted: ${missing.map((c) => c.name).join(', ')} — you don't have a company-wide view there.`,
-            `غير محتسب: ${missing.map((c) => c.name).join('، ')} — ليس لديك عرض على مستوى الشركة هناك.`,
-          )}
-        </p>
-      )}
-
-      {!group && <OnboardingChecklist />}
+      <OnboardingChecklist />
 
       {metrics.length > 0 && (
         <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-primary/15 via-primary/5 to-primary/20" data-tutorial="dash-primary-metric">

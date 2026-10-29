@@ -77,11 +77,35 @@ export const mapDashboardPayload = (payload: any): DashboardPayload => ({
     : [],
 });
 
+export interface GroupCompanyFigures {
+  id: string;
+  name: string;
+  currencyCode?: string;
+  metrics: DashboardPayload['metrics'];
+}
+
+export interface GroupMoney {
+  metricId: string;
+  label: string;
+  byCurrency: Array<{ currencyCode: string; value: number; companyIds: string[] }>;
+}
+
+export interface GroupDashboard {
+  payload: DashboardPayload;
+  companies: Array<{ id: string; name: string; currencyCode?: string }>;
+  missing: Array<{ id: string; name: string }>;
+  /** Each company on its own, for comparing them. */
+  perCompany: GroupCompanyFigures[];
+  /** Money per currency; a group may run companies in several. */
+  money: GroupMoney[];
+  observations: Array<{ id: string; text: string; companyId?: string }>;
+}
+
 /** A whole group's companies in one dashboard; `companyIds` narrows it. */
 export async function getGroupDashboardPayload(
   groupId: string,
   companyIds: string[] = [],
-): Promise<{ payload: DashboardPayload; companies: Array<{ id: string; name: string }>; missing: Array<{ id: string; name: string }> } | null> {
+): Promise<GroupDashboard | null> {
   if (!groupId) return null;
   const query = companyIds.length ? `?companyIds=${encodeURIComponent(companyIds.join(','))}` : '';
   const raw = await apiFetch<any>(`/holding-groups/${encodeURIComponent(groupId)}/dashboard${query}`);
@@ -90,6 +114,9 @@ export async function getGroupDashboardPayload(
     payload: mapDashboardPayload({ ...raw, companyId: '', role: 'Admin', scope: 'company' }),
     companies: Array.isArray(raw.companies) ? raw.companies : [],
     missing: Array.isArray(raw.missing) ? raw.missing : [],
+    perCompany: Array.isArray(raw.perCompany) ? raw.perCompany : [],
+    money: Array.isArray(raw.money) ? raw.money : [],
+    observations: Array.isArray(raw.observations) ? raw.observations : [],
   };
 }
 

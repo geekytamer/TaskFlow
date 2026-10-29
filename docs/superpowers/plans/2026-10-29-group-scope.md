@@ -78,3 +78,28 @@ clean.
 
 Phase 2 (money) and Phase 3 (the rest, and opening a record in its company)
 are still open.
+
+## The portfolio rebuild (2026-10-29, after review)
+
+The first cut summed the companies and called it a group view. An owner of
+several companies asks comparative questions, so the screen was rebuilt around
+them, and two things it said turned out to be untrue.
+
+- **Money is per currency.** Companies carry their own currency, and the first
+  roll-up added them. Totals now leave money out whenever a group spans more
+  than one currency, and a `money` block carries one line per currency, naming
+  the companies behind it. A share-of-group observation is not made across
+  currencies either.
+- **Companies are compared, not merged.** `perCompany` returns each company's
+  figures; the screen ranks them in a sortable table with a share bar per cell.
+  On a money column the rows cluster under their currency and rank inside it —
+  4,000 USD is never ranked above 2,000 OMR.
+- **Observations**: short statements a reader would make — concentration of
+  unpaid invoices, who carries the overdue work, who has nothing in flight.
+- **Needs attention**: every company's alerts in one list, worst first, each
+  naming its company and opening it.
+- **Open a company** sets it as the current company, leaves the group and goes
+  to its page: you are working in that company now, and the switcher says so.
+
+Found while building: clicking a company only re-rendered the group (the scope
+was never left), and the dashboards said "1 overdue tasks".
