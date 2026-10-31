@@ -279,3 +279,78 @@ export const closePortalRequest = (companyId: string, id: string, reason: string
 
 export const reopenPortalRequest = (companyId: string, id: string) =>
   apiFetch<StaffPortalRequestDetail>(`/companies/${companyId}/portal-requests/${encodeURIComponent(id)}/reopen`, { method: 'POST' });
+
+// ─── Peak Flexi ────────────────────────────────────────────────────────────
+
+export type FlexiKind = 'activation' | 'increase';
+export type FlexiStatus = 'new' | 'approved' | 'rejected' | 'withdrawn';
+
+export interface FlexiBalance {
+  enabled: boolean;
+  balance: number;
+  used: number;
+  available: number;
+  upfrontPct: number;
+  maxMonths: number;
+  clientId: string | null;
+}
+
+export interface StaffFlexiApplication {
+  id: string;
+  companyId: string;
+  contactId: string;
+  contactName: string;
+  currency: string;
+  kind: FlexiKind;
+  status: FlexiStatus;
+  crNumber: string | null;
+  requestedAmount: number | null;
+  approvedAmount: number | null;
+  upfrontPct: number | null;
+  maxMonths: number | null;
+  note: string | null;
+  reviewNote: string | null;
+  reviewerName: string | null;
+  currentBalance: number;
+  createdAt: string;
+  reviewedAt: string | null;
+  files: PortalFile[];
+}
+
+const flexiBase = (companyId: string) => `/companies/${companyId}/flexi-applications`;
+
+export const listFlexiApplications = (companyId: string, status?: FlexiStatus) =>
+  apiFetch<StaffFlexiApplication[]>(`${flexiBase(companyId)}${status ? `?status=${status}` : ''}`);
+
+export const getFlexiApplication = (companyId: string, id: string) =>
+  apiFetch<StaffFlexiApplication>(`${flexiBase(companyId)}/${encodeURIComponent(id)}`);
+
+export const approveFlexiApplication = (companyId: string, id: string, body: { amount: number; upfrontPct: number; maxMonths: number; reviewNote?: string }) =>
+  apiFetch<StaffFlexiApplication>(`${flexiBase(companyId)}/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify(body) });
+
+export const rejectFlexiApplication = (companyId: string, id: string, reviewNote: string) =>
+  apiFetch<StaffFlexiApplication>(`${flexiBase(companyId)}/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({ reviewNote }) });
+
+export const getContactFlexi = (companyId: string, contactId: string) =>
+  apiFetch<{ balance: FlexiBalance; currency: string; applications: StaffFlexiApplication[] }>(`/companies/${companyId}/contacts/${encodeURIComponent(contactId)}/flexi`);
+
+/** Papers on an application, through the reviewer-gated route (Accountants review but do not manage portal access). */
+export async function downloadFlexiFile(companyId: string, applicationId: string, file: Pick<PortalFile, 'id' | 'fileName'>) {
+  const token = getStoredToken();
+  const response = await fetch(`${API_BASE_URL}${flexiBase(companyId)}/${applicationId}/files/${file.id}/content`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
+  const url = URL.createObjectURL(await response.blob());
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.fileName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}

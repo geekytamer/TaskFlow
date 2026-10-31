@@ -33,6 +33,7 @@ export function registerStaffFlexiRoutes(
   const dto = (app: FlexiApplication) => ({
     ...app,
     contactName: store.getContactById(app.contactId)?.name ?? '',
+    currency: companyCurrency(store, app.companyId),
     reviewerName: app.reviewedBy ? store.getUserById(app.reviewedBy)?.name ?? null : null,
     currentBalance: store.flexi.balanceOf(app.contactId).balance,
     files: store.thread.filesOf('flexi_application', app.id).map(fileDto),
