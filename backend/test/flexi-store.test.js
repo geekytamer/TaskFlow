@@ -170,3 +170,13 @@ test('approval and rejection are recorded on the contact activity', () => {
   assert.ok(actions.includes('flexi_approved'));
   assert.ok(actions.includes('flexi_rejected'));
 });
+
+test('existing companies get the Flexi review permission on their Admin, Manager and Accountant groups', () => {
+  const { store, dbPath } = setup();
+  const grants = (s) => s.db.prepare("SELECT g.key FROM group_permissions gp JOIN permission_groups g ON g.id = gp.groupId WHERE gp.module = 'invoices' AND gp.action = 'flexi.review' AND g.companyId = '1' ORDER BY g.key").all().map((r) => r.key);
+  // A company from before this release: no grants, and the backfill not yet run.
+  store.db.prepare("DELETE FROM group_permissions WHERE module = 'invoices' AND action = 'flexi.review'").run();
+  store.db.prepare("DELETE FROM schema_migrations WHERE id = '146_flexi_review_grants'").run();
+  const reopened = new DataStore({ dbPath, seedOnEmpty: false });
+  assert.deepEqual(grants(reopened), ['accountant', 'admin', 'manager']);
+});

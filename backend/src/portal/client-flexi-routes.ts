@@ -2,7 +2,7 @@ import type { RequestHandler, Response, Router } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { asRecord } from '../validation';
-import { FlexiError, type FlexiApplication } from '../finance/flexi';
+import { FLEXI_REVIEW_TRIGGER, FlexiError, type FlexiApplication } from '../finance/flexi';
 import { companyCurrency, raiseFollowup, type SessionRequest } from './common';
 import { fileDto, parseFileIds } from './thread';
 
@@ -63,7 +63,7 @@ export function registerClientFlexiRoutes(
       const followup = raiseFollowup(store, {
         companyId, entityType: 'contact', entityId: contact.id,
         title: `Review the ${what} from ${contact.name}`, priority: 'high', dueDays: 1, ownerUserId: contact.ownerUserId,
-        notes: `${session.name}`, sourceTrigger: 'portal_flexi', sourceType: 'flexi_application', sourceId: created.id,
+        notes: `${session.name}`, sourceTrigger: FLEXI_REVIEW_TRIGGER, sourceType: 'flexi_application', sourceId: created.id,
       });
       if (staff.length) {
         store.notify({

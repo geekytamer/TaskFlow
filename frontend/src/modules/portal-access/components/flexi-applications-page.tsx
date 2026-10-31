@@ -166,7 +166,8 @@ function ApplicationSheet({ id, onClose, onChanged, tr }: { id: string | null; o
     getFlexiApplication(selectedCompany.id, id).then((a) => {
       setApp(a);
       setAmount(String(a.kind === 'activation' ? FLEXI_STANDARD : a.requestedAmount ?? ''));
-      setUpfront('40');
+      // An increase keeps the client's down payment unless the reviewer changes it.
+      setUpfront(String(a.currentTerms?.upfrontPct ?? 40));
       setMonths(a.kind === 'activation' ? '6' : '12');
       setNote('');
       setReason('');
@@ -241,7 +242,7 @@ function ApplicationSheet({ id, onClose, onChanged, tr }: { id: string | null; o
                     <div className="space-y-1"><Label htmlFor="fx-months">{tr('Max months', 'أقصى مدة')}</Label><Input id="fx-months" type="number" min={1} max={36} value={months} onChange={(e) => setMonths(e.target.value)} /></div>
                   </div>
                   <Textarea placeholder={tr('Internal note (optional)', 'ملاحظة داخلية (اختياري)')} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
-                  <Button disabled={busy || !(Number(amount) > 0)} onClick={() => decide('approve')}>{tr('Approve balance', 'اعتمد الرصيد')}</Button>
+                  <Button disabled={busy || !(Number(amount) > 0) || upfront.trim() === '' || months.trim() === ''} onClick={() => decide('approve')}>{tr('Approve balance', 'اعتمد الرصيد')}</Button>
                 </div>
                 <div className="space-y-3">
                   <p className="font-semibold">{tr('Reject', 'رفض')}</p>

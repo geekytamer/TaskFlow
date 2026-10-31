@@ -86,7 +86,12 @@ export interface FlexiDeps {
   exposure(clientId: string): number;
   attach(fileIds: string[], parent: { type: 'flexi_application'; id: string }, owner: { companyId: string; contactId: string; uploader: { kind: 'portal'; portalUserId: string } }): void;
   recordActivity(input: { companyId: string; contactId: string; actorUserId: string; action: string; summary: string }): void;
+  /** Completes the review follow-up raised when the application arrived. */
+  closeReview(app: FlexiApplication, userId?: string): void;
 }
+
+/** The follow-up trigger the portal raises for a new application; closed when it is decided or withdrawn. */
+export const FLEXI_REVIEW_TRIGGER = 'portal_flexi';
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const MAX_NOTE = 1000;
@@ -189,8 +194,11 @@ export class FlexiStore {
     const app = this.get(id);
     if (!app || app.contactId !== contactId) throw new FlexiError(404, 'Application not found.');
     this.openOrThrow(id);
-    this.db.prepare("UPDATE flexi_applications SET status = 'withdrawn', reviewedAt = ? WHERE id = ?").run(new Date().toISOString(), id);
-    return this.get(id)!;
+    return this.db.transaction(() => {
+      this.db.prepare("UPDATE flexi_applications SET status = 'withdrawn', reviewedAt = ? WHERE id = ?").run(new Date().toISOString(), id);
+      this.deps.closeReview(app);
+      return this.get(id)!;
+    })();
   }
 
   approve(id: string, input: { amount: unknown; upfrontPct?: unknown; maxMonths?: unknown; reviewNote?: unknown; reviewerId: string }): FlexiApplication {
@@ -199,10 +207,15 @@ export class FlexiStore {
       const amount = typeof input.amount === 'number' ? input.amount : Number.NaN;
       if (!Number.isFinite(amount) || amount <= 0) throw new FlexiError(400, 'Enter a balance above zero.');
       const current = this.balanceOf(app.contactId);
-      const upfrontPct = input.upfrontPct === undefined || input.upfrontPct === null ? current.enabled ? current.upfrontPct : FLEXI_DEFAULT_UPFRONT : Number(input.upfrontPct);
+      // Omitted terms keep the client's current ones; anything sent must be a real number, so a blank field never becomes 0%.
+      const given = (v: unknown) => v !== undefined && v !== null;
+      if ((given(input.upfrontPct) && typeof input.upfrontPct !== 'number') || (given(input.maxMonths) && typeof input.maxMonths !== 'number')) {
+        throw new FlexiError(400, 'Terms must be numbers.');
+      }
+      const upfrontPct = given(input.upfrontPct) ? input.upfrontPct as number : current.enabled ? current.upfrontPct : FLEXI_DEFAULT_UPFRONT;
       if (!Number.isFinite(upfrontPct) || upfrontPct < 0 || upfrontPct > 100) throw new FlexiError(400, 'The down payment must be between 0% and 100%.');
       const defaultMonths = app.kind === 'increase' ? FLEXI_INCREASE_MONTHS : FLEXI_DEFAULT_MONTHS;
-      const maxMonths = input.maxMonths === undefined || input.maxMonths === null ? defaultMonths : Number(input.maxMonths);
+      const maxMonths = given(input.maxMonths) ? input.maxMonths as number : defaultMonths;
       if (!Number.isInteger(maxMonths) || maxMonths < 1 || maxMonths > 36) throw new FlexiError(400, 'Months must be a whole number from 1 to 36.');
       const reviewNote = typeof input.reviewNote === 'string' && input.reviewNote.trim() ? input.reviewNote.trim().slice(0, MAX_NOTE) : null;
 
@@ -216,6 +229,7 @@ export class FlexiStore {
         companyId: app.companyId, contactId: app.contactId, actorUserId: input.reviewerId, action: 'flexi_approved',
         summary: `Peak Flexi ${app.kind} approved: balance ${r3(amount)}, ${upfrontPct}% down, up to ${maxMonths} months.`,
       });
+      this.deps.closeReview(app, input.reviewerId);
       return this.get(id)!;
     })();
   }
@@ -231,6 +245,7 @@ export class FlexiStore {
         companyId: app.companyId, contactId: app.contactId, actorUserId: input.reviewerId, action: 'flexi_rejected',
         summary: `Peak Flexi ${app.kind} rejected: ${reviewNote}`,
       });
+      this.deps.closeReview(app, input.reviewerId);
       return this.get(id)!;
     })();
   }

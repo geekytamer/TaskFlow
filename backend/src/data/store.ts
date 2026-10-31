@@ -2,7 +2,7 @@ import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
-import { FLEXI_SCHEMA, FlexiStore } from '../finance/flexi';
+import { FLEXI_REVIEW_TRIGGER, FLEXI_SCHEMA, FlexiStore } from '../finance/flexi';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
@@ -771,6 +771,11 @@ export class DataStore {
       attach: (fileIds, parent, owner) => this.thread.attach(fileIds, parent, owner),
       recordActivity: ({ companyId, contactId, actorUserId, action, summary }) => {
         this.createActivityEvent({ companyId, actorUserId, actorName: this.getUserById(actorUserId)?.name, entityType: 'contact', entityId: contactId, action, summary });
+      },
+      closeReview: (app, userId) => {
+        this.listFollowupEntities(app.companyId, { status: 'active', entityType: 'contact', entityId: app.contactId })
+          .filter((f) => f.sourceTrigger === FLEXI_REVIEW_TRIGGER && f.sourceId === app.id)
+          .forEach((f) => this.completeFollowup(f.id, { outcome: 'done', completedByUserId: userId }));
       },
     });
     this.quality = new QualityStore(this.db);
@@ -5357,6 +5362,20 @@ export class DataStore {
             CREATE INDEX IF NOT EXISTS idx_portal_files_contact ON portal_files (companyId, contactId);
             CREATE INDEX IF NOT EXISTS idx_portal_files_parent ON portal_files (parentType, parentId);
           `);
+        },
+      },
+      {
+        // Existing companies' built-in groups get FLEXI_REVIEW, as 126 did for DISCOVER_MANAGE.
+        id: '146_flexi_review_grants',
+        run: () => {
+          const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
+          const rule = RECORD_RULES.FLEXI_REVIEW;
+          const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+          (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
+            .forEach((group) => {
+              const role = roleByKey[group.key];
+              if (role && (rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
+            });
         },
       },
     ];

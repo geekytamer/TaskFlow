@@ -30,14 +30,19 @@ export function registerStaffFlexiRoutes(
     }
   };
 
-  const dto = (app: FlexiApplication) => ({
+  const dto = (app: FlexiApplication) => {
+    const balance = store.flexi.balanceOf(app.contactId);
+    return {
     ...app,
     contactName: store.getContactById(app.contactId)?.name ?? '',
     currency: companyCurrency(store, app.companyId),
     reviewerName: app.reviewedBy ? store.getUserById(app.reviewedBy)?.name ?? null : null,
-    currentBalance: store.flexi.balanceOf(app.contactId).balance,
+    currentBalance: balance.balance,
+    /** The terms the client has today, so a reviewer can keep them on an increase. */
+    currentTerms: balance.enabled ? { upfrontPct: balance.upfrontPct, maxMonths: balance.maxMonths } : null,
     files: store.thread.filesOf('flexi_application', app.id).map(fileDto),
-  });
+    };
+  };
 
   const load = (companyId: string, id: string) => {
     const app = store.flexi.get(id);

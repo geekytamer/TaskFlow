@@ -312,6 +312,7 @@ export interface StaffFlexiApplication {
   reviewNote: string | null;
   reviewerName: string | null;
   currentBalance: number;
+  currentTerms: { upfrontPct: number; maxMonths: number } | null;
   createdAt: string;
   reviewedAt: string | null;
   files: PortalFile[];
