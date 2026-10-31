@@ -24,6 +24,7 @@ function portalMaySee(file: PortalFileMeta, session: PortalSession, store: DataS
     return !!message && !!thread && thread.contactId === session.contactId && canSeeMessage(message, portalViewer(session));
   }
   if (file.parentType === 'request' && file.parentId) return true;
+  if (file.parentType === 'flexi_application' && file.parentId) return true;
   return !file.parentId && file.uploaderKind === 'portal' && file.portalUserId === session.portalUserId;
 }
 
