@@ -319,6 +319,9 @@ export interface Client {
   paymentMethod?: string;
   status?: 'Lead' | 'Active' | 'At Risk' | 'Inactive';
   notes?: string;
+  flexiEnabled?: boolean;
+  flexiUpfrontPct?: number | null;
+  flexiMaxMonths?: number | null;
 }
 
 export interface Supplier {
