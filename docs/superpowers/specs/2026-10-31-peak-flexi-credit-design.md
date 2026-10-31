@@ -46,7 +46,7 @@ Rules enforced in the store (`backend/src/finance/flexi.ts`, `FlexiStore`, expos
 - Approve (activation): resolve or create the finance client for the contact (link `contacts.clientId`), set `creditLimit = approvedAmount` (default suggestion 850), `flexiEnabled = 1`, terms from the reviewer (defaults 40% / 6 months).
 - Approve (increase): set `creditLimit = approvedAmount` (may be below requested, must be above 0), terms from the reviewer (default max months becomes 12).
 - Reject: status only, with a reason shown to the client.
-- Every approval or rejection writes the audit log and notifies the applicant's portal account.
+- Every approval or rejection writes the audit log and tells the applicant (see TaskFlow section).
 - Manual edits to a client's balance from the client form keep using today's credit fields and permissions.
 
 ## TaskFlow (staff)
@@ -54,7 +54,8 @@ Rules enforced in the store (`backend/src/finance/flexi.ts`, `FlexiStore`, expos
 - **Peak Flexi applications** page under CRM (`/crm/flexi`), nav entry next to Client requests. The list shows company, kind, requested amount, current balance, age and status, with filters for new and closed applications. Opening one shows the papers, which download through the existing file endpoints. Approve offers an amount (prefilled with 850 or the requested amount), the down-payment % and max months. Reject takes a reason.
 - **Contact detail:** a "Peak Flexi" section with the balance, used, available, terms and application history, plus a link to review an open application.
 - New applications notify company Admins and Managers and raise a follow-up on the contact.
-- Permissions: new action `finance:flexi.review` (catalogue, gate matrix, regenerated route map); read for the section follows `contacts:contacts.read`.
+- Permissions: new record rule `FLEXI_REVIEW` = `invoices:flexi.review` (Admin, Manager, Accountant), next to `INVOICES_CREDIT_OVERRIDE`. It gates the review routes and the contact section (balances are commercial data).
+- When staff decide, the client hears about it as a message from the reviewer in their portal thread, which the existing portal push picks up.
 
 ## Client portal
 
