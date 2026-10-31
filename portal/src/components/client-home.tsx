@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { CampaignSummary } from '@/lib/campaigns';
 import { PeakPlanet, type Satellite } from './cosmic';
 import { PeakOrbit } from './peak-orbit';
@@ -33,7 +34,7 @@ const display = { fontFamily: 'var(--font-display), var(--font-latin), var(--fon
  * the Peak planet with the client's own figures circling it, the one next
  * step on a lit card, then campaigns, money and the latest word from the team.
  */
-export function ClientHome({ lang, firstName, items, campaigns, balances, lastTeamMessage, markSrc = null }: {
+export function ClientHome({ lang, firstName, items, campaigns, balances, lastTeamMessage, markSrc = null, flexi = null }: {
   lang: Lang;
   firstName: string;
   items: NeedsYouItem[];
@@ -41,6 +42,8 @@ export function ClientHome({ lang, firstName, items, campaigns, balances, lastTe
   balances: Array<{ currency: string; outstanding: number; overdue: number }>;
   lastTeamMessage: Message | null;
   markSrc?: string | null;
+  /** The Peak Flexi card, shown right under the greeting. */
+  flexi?: ReactNode;
 }) {
   const [top, ...rest] = items;
   const live = campaigns.filter((c) => c.status === 'active' || c.status === 'planned' || c.status === 'on_hold');
@@ -98,6 +101,8 @@ export function ClientHome({ lang, firstName, items, campaigns, balances, lastTe
           <PeakPlanet size={260} mark={mark} satellites={satellites} />
         </div>
       </section>
+
+      {flexi}
 
       {top ? (
         <section aria-labelledby="needs-title" className="space-y-3">

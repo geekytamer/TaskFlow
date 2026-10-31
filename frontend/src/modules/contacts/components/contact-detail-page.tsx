@@ -22,6 +22,8 @@ import { usePermissionOr } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
+import { FlexiSection } from './flexi-section';
+import { useCanReviewFlexi } from '@/modules/portal-access/lib/use-can-review-flexi';
 import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/components/influencer-avatar';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
@@ -80,6 +82,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
     currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
   );
   const canSeeWorkspace = usePermissionOr('contacts', 'contacts.workspace.read', currentRole === 'Admin' || currentRole === 'Manager');
+  const canReviewFlexi = useCanReviewFlexi();
   const canManagePortal = useCanManagePortal();
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -317,6 +320,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
       {(c.roles || []).includes('Influencer') && canSeeWorkspace && (
         <WorkspaceSection contactId={c.id} />
       )}
+
+      {/* Peak Flexi balance and applications: reviewers only (the API enforces it too). */}
+      {(c.roles || []).includes('Client') && canReviewFlexi && <FlexiSection contactId={c.id} />}
 
       {/* Detailed sections */}
       <RecordTable

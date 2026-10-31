@@ -2,6 +2,7 @@ import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import { FLEXI_REVIEW_TRIGGER, FLEXI_SCHEMA, FlexiStore } from '../finance/flexi';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
@@ -711,6 +712,7 @@ export class DataStore {
   readonly recurring: RecurringStore;
   readonly bank: BankReconciliationStore;
   readonly assets: FixedAssetStore;
+  readonly flexi: FlexiStore;
   readonly quality: QualityStore;
   readonly coldChain: ColdChainStore;
   readonly shipments: ShipmentStore;
@@ -763,6 +765,19 @@ export class DataStore {
     this.recurring = new RecurringStore(this.db);
     this.bank = new BankReconciliationStore(this.db);
     this.assets = new FixedAssetStore(this.db);
+    this.flexi = new FlexiStore(this.db, {
+      ensureClientFor: (contactId) => this.ensureClientRowForContact(contactId),
+      exposure: (clientId) => this.clientCreditExposure(clientId),
+      attach: (fileIds, parent, owner) => this.thread.attach(fileIds, parent, owner),
+      recordActivity: ({ companyId, contactId, actorUserId, action, summary }) => {
+        this.createActivityEvent({ companyId, actorUserId, actorName: this.getUserById(actorUserId)?.name, entityType: 'contact', entityId: contactId, action, summary });
+      },
+      closeReview: (app, userId) => {
+        this.listFollowupEntities(app.companyId, { status: 'active', entityType: 'contact', entityId: app.contactId })
+          .filter((f) => f.sourceTrigger === FLEXI_REVIEW_TRIGGER && f.sourceId === app.id)
+          .forEach((f) => this.completeFollowup(f.id, { outcome: 'done', completedByUserId: userId }));
+      },
+    });
     this.quality = new QualityStore(this.db);
     this.coldChain = new ColdChainStore(this.db);
     this.shipments = new ShipmentStore(this.db);
@@ -5312,6 +5327,55 @@ export class DataStore {
         run: () => {
           this.db.exec("ALTER TABLE projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'Medium'");
           this.db.exec('ALTER TABLE projects ADD COLUMN postponedFrom TEXT');
+        },
+      },
+      {
+        // Peak Flexi: the balance is clients.creditLimit; applications and their papers.
+        id: '145_peak_flexi_credit',
+        run: () => {
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiEnabled INTEGER NOT NULL DEFAULT 0');
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiUpfrontPct REAL');
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiMaxMonths INTEGER');
+          this.db.exec(FLEXI_SCHEMA);
+          this.db.exec(`
+            CREATE TABLE portal_files_new (
+              id           TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL,
+              contactId    TEXT NOT NULL,
+              uploaderKind TEXT NOT NULL,
+              portalUserId TEXT,
+              userId       TEXT,
+              fileName     TEXT NOT NULL,
+              mimeType     TEXT NOT NULL,
+              sizeBytes    INTEGER NOT NULL,
+              content      BLOB NOT NULL,
+              parentType   TEXT,
+              parentId     TEXT,
+              createdAt    TEXT NOT NULL,
+              CHECK (uploaderKind IN ('portal', 'staff')),
+              CHECK (mimeType IN ('application/pdf', 'image/png', 'image/jpeg', 'image/webp')),
+              CHECK (parentType IS NULL OR parentType IN ('message', 'request', 'flexi_application'))
+            );
+            INSERT INTO portal_files_new SELECT id, companyId, contactId, uploaderKind, portalUserId, userId, fileName, mimeType, sizeBytes, content, parentType, parentId, createdAt FROM portal_files;
+            DROP TABLE portal_files;
+            ALTER TABLE portal_files_new RENAME TO portal_files;
+            CREATE INDEX IF NOT EXISTS idx_portal_files_contact ON portal_files (companyId, contactId);
+            CREATE INDEX IF NOT EXISTS idx_portal_files_parent ON portal_files (parentType, parentId);
+          `);
+        },
+      },
+      {
+        // Existing companies' built-in groups get FLEXI_REVIEW, as 126 did for DISCOVER_MANAGE.
+        id: '146_flexi_review_grants',
+        run: () => {
+          const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
+          const rule = RECORD_RULES.FLEXI_REVIEW;
+          const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+          (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
+            .forEach((group) => {
+              const role = roleByKey[group.key];
+              if (role && (rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
+            });
         },
       },
     ];
@@ -13530,6 +13594,24 @@ export class DataStore {
       )
       .run(setting.nextNumber + 1, new Date().toISOString(), companyId, entityType);
     return value;
+  }
+
+  /**
+   * The finance client row behind a contact, created if missing. Invoices for
+   * a contact without one are keyed by the contact id, so the new row takes
+   * that id and everything already owed still counts against the balance.
+   */
+  ensureClientRowForContact(contactId: string): string {
+    const contact = this.getContactById(contactId);
+    if (!contact) throw new Error('Contact not found.');
+    const id = contact.clientId || contact.id;
+    if (!this.db.prepare('SELECT 1 FROM clients WHERE id = ?').get(id)) {
+      this.db.prepare(
+        "INSERT INTO clients (id, reference, name, email, address, companyId, contactName, phone, vatNumber, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')",
+      ).run(id, this.nextClientReference(contact.companyId), contact.name, contact.email ?? '', contact.address ?? '', contact.companyId, contact.contactPerson ?? null, contact.phone ?? null, contact.taxNumber ?? null);
+    }
+    if (!contact.clientId) this.db.prepare('UPDATE contacts SET clientId = ? WHERE id = ?').run(id, contact.id);
+    return id;
   }
 
   private nextClientReference(companyId: string) {
@@ -22001,6 +22083,9 @@ export class DataStore {
       paymentMethod: row.paymentMethod ?? undefined,
       status: row.status ?? 'Active',
       notes: row.notes ?? undefined,
+      flexiEnabled: !!row.flexiEnabled,
+      flexiUpfrontPct: row.flexiUpfrontPct ?? null,
+      flexiMaxMonths: row.flexiMaxMonths ?? null,
     };
   }
 

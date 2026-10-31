@@ -6,6 +6,7 @@ import type { DataStore } from '../data/store';
 import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './client-catalogue-routes';
 import { registerClientCampaignRoutes } from './client-campaigns-routes';
 import { registerClientRequestRoutes } from './client-requests-routes';
+import { registerClientFlexiRoutes } from './client-flexi-routes';
 import { registerClientDiscoverRoutes } from '../discover/client-routes';
 import { registerClientDirectoryRoutes } from './directory';
 import { companyCurrency } from './common';
@@ -157,6 +158,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
   }
   if (options.requestsStore) {
     registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
+    registerClientFlexiRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerClientDiscoverRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     const directoryStore = options.requestsStore;
     registerClientDirectoryRoutes(router, { store: directoryStore, companyId, currency: () => companyCurrency(directoryStore, companyId) }, requireSessionFor('client'));

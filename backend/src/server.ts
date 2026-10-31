@@ -8222,6 +8222,7 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
+      canReviewFlexi: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'FLEXI_REVIEW'),
       seesPrivate: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,

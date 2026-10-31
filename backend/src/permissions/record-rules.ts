@@ -63,6 +63,10 @@ export const RECORD_RULES = {
     module: 'campaigns', action: 'discover.manage', roles: ['Admin', 'Manager'],
     description: 'Run the influencer directory clients see in the portal: approve, edit and remove profiles, add handles, refresh and discover.',
   },
+  FLEXI_REVIEW: {
+    module: 'invoices', action: 'flexi.review', roles: ['Admin', 'Manager', 'Accountant'],
+    description: 'Review Peak Flexi applications, set client balances and see them.',
+  },
   INVOICES_CREDIT_OVERRIDE: {
     module: 'invoices', action: 'credit.override', roles: ['Admin', 'Accountant'],
     description: "Issue an invoice or confirm an order that takes a client past their credit limit.",

@@ -120,6 +120,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
       { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
       { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox, roles: ['Admin', 'Manager'] },
+      { href: '/crm/flexi', labelKey: 'nav.flexi', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'] },
       { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-vendor-requests' },
       { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], tutorial: 'nav-performance' },
     ],
