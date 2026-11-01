@@ -46,7 +46,14 @@ export function FlexiApplyForm({ lang, kind, balance, currency, terms }: { lang:
         router.refresh();
         return;
       }
-      const body = await response.json().catch(() => ({})) as { message?: string };
+      const body = await response.json().catch(() => ({})) as { message?: string; code?: string };
+      if (body.code === 'TERMS_CHANGED') {
+        // The terms were edited while the form was open: load the new text and ask again.
+        setAccepted(false);
+        setError(t(lang, 'fx.termsChanged'));
+        router.refresh();
+        return;
+      }
       setError(response.status === 400 || response.status === 409 ? body.message ?? t(lang, 'fx.failed') : t(lang, 'fx.failed'));
     } catch {
       setError(t(lang, 'fx.failed'));

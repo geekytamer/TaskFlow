@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { adjustFlexiAccount, getFlexiAccount, setFlexiAccountState, type FlexiEvent } from '@/services/flexiService';
 import { useCanManageFlexi } from '@/modules/flexi/lib/use-can-manage-flexi';
 import { FlexiStatusBadge, flexiKindLabel } from './flexi-applications-page';
-import { money, shortDate, StateBadge, UsageBar, useCompanyLoad, useTr, type Tr } from './flexi-ui';
+import { money, RequestLink, shortDate, StateBadge, UsageBar, useCompanyLoad, useTr, type Tr } from './flexi-ui';
 
 type Action = 'adjust' | 'freeze' | 'unfreeze' | 'close';
 
@@ -125,7 +125,7 @@ export function FlexiAccountFilePage() {
               {requests.length === 0 ? <p className="text-sm text-muted-foreground">{tr('None.', 'لا يوجد.')}</p> : (
                 <ul className="divide-y text-sm">
                   {requests.map((r) => (
-                    <li key={r.id}><Link href={`/crm/client-requests?open=${r.id}`} className="flex justify-between gap-2 py-2 hover:text-primary"><span className="truncate">{r.title}</span><span className="shrink-0 tabular-nums">{m(r.budget)}</span></Link></li>
+                    <li key={r.id}><RequestLink id={r.id} className="flex justify-between gap-2 py-2 hover:text-primary"><span className="truncate">{r.title}</span><span className="shrink-0 tabular-nums">{m(r.budget)}</span></RequestLink></li>
                   ))}
                 </ul>
               )}

@@ -278,3 +278,30 @@ test('existing companies get the Flexi manage permission on their Admin and Acco
   store.db.prepare("DELETE FROM schema_migrations WHERE id = '148_flexi_manage_grants'").run();
   assert.deepEqual(grants(new DataStore({ dbPath, seedOnEmpty: false })), ['accountant', 'admin']);
 });
+
+test('approving an increase on a frozen account keeps it frozen', () => {
+  const { store, manager, contact, enable, increase } = setup();
+  enable();
+  const pending = increase();
+  store.flexi.freeze(contact.id, { reason: 'Late', userId: manager.id });
+  store.flexi.approve(pending.id, { amount: 3000, reviewerId: manager.id });
+  const b = store.flexi.balanceOf(contact.id);
+  assert.deepEqual([b.state, b.balance, b.available], ['frozen', 3000, 0]);
+});
+
+test('closing an account rejects its open application, so the client can activate again', () => {
+  const { store, manager, contact, enable, increase, activate } = setup();
+  enable();
+  const pending = increase();
+  store.flexi.close(contact.id, { reason: 'Client asked', userId: manager.id });
+  assert.equal(store.flexi.get(pending.id).status, 'rejected');
+  assert.equal(status(() => store.flexi.approve(pending.id, { amount: 3000, reviewerId: manager.id })), 409);
+  assert.equal(store.flexi.balanceOf(contact.id).state, 'closed');
+  assert.ok(activate().id, 'a new activation is accepted');
+});
+
+test('a stale terms version carries a stable code', () => {
+  const { store, manager, activate } = setup();
+  store.flexi.saveSettings('1', { termsAr: 'جديدة' }, manager.id);
+  try { activate({ termsVersion: 1 }); assert.fail('expected an error'); } catch (err) { assert.equal(err.code, 'TERMS_CHANGED'); }
+});

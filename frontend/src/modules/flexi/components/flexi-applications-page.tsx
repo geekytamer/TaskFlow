@@ -15,6 +15,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
+import { getFlexiSettings } from '@/services/flexiService';
 import {
   approveFlexiApplication,
   downloadFlexiFile,
@@ -28,7 +29,18 @@ import {
 type Tr = (en: string, ar: string) => string;
 type Tab = 'new' | 'closed' | 'all';
 
+/** Shown until the company's settings load; the settings value is what reviewers use. */
 const FLEXI_STANDARD = 850;
+
+/** The company's standard balance from Peak Flexi settings. */
+function useStandardAmount(companyId: string | undefined): number {
+  const [standard, setStandard] = React.useState(FLEXI_STANDARD);
+  React.useEffect(() => {
+    if (!companyId) return;
+    getFlexiSettings(companyId).then((s) => setStandard(s.standardAmount)).catch(() => undefined);
+  }, [companyId]);
+  return standard;
+}
 
 const STATUS_STYLE: Record<FlexiStatus, string> = {
   new: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
@@ -64,6 +76,7 @@ export function FlexiApplicationsPage() {
   const { language } = useI18n();
   const tr: Tr = React.useCallback((en, ar) => (language === 'ar' ? ar : en), [language]);
   const { selectedCompany } = useCompany();
+  const standard = useStandardAmount(selectedCompany?.id);
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -130,7 +143,7 @@ export function FlexiApplicationsPage() {
                 </span>
                 <span className="text-sm">
                   <span className="block text-muted-foreground">{tr('Asked', 'المطلوب')}</span>
-                  <span className="font-medium">{a.kind === 'activation' ? fmtMoney(FLEXI_STANDARD, a.currency, language) : fmtMoney(a.requestedAmount, a.currency, language)}</span>
+                  <span className="font-medium">{a.kind === 'activation' ? fmtMoney(standard, a.currency, language) : fmtMoney(a.requestedAmount, a.currency, language)}</span>
                 </span>
                 <span className="text-sm">
                   <span className="block text-muted-foreground">{tr('Current balance', 'الرصيد الحالي')}</span>
@@ -151,6 +164,7 @@ export function FlexiApplicationsPage() {
 function ApplicationSheet({ id, onClose, onChanged, tr }: { id: string | null; onClose: () => void; onChanged: () => void; tr: Tr }) {
   const { language } = useI18n();
   const { selectedCompany } = useCompany();
+  const standard = useStandardAmount(selectedCompany?.id);
   const { toast } = useToast();
   const [app, setApp] = React.useState<StaffFlexiApplication | null>(null);
   const [amount, setAmount] = React.useState('');
@@ -165,14 +179,14 @@ function ApplicationSheet({ id, onClose, onChanged, tr }: { id: string | null; o
     if (!id || !selectedCompany) return;
     getFlexiApplication(selectedCompany.id, id).then((a) => {
       setApp(a);
-      setAmount(String(a.kind === 'activation' ? FLEXI_STANDARD : a.requestedAmount ?? ''));
+      setAmount(String(a.kind === 'activation' ? standard : a.requestedAmount ?? ''));
       // An increase keeps the client's down payment unless the reviewer changes it.
       setUpfront(String(a.currentTerms?.upfrontPct ?? 40));
       setMonths(a.kind === 'activation' ? '6' : '12');
       setNote('');
       setReason('');
     }).catch((error) => toast({ title: error instanceof Error ? error.message : tr('Could not open it', 'تعذّر فتحه'), variant: 'destructive' }));
-  }, [id, selectedCompany, toast, tr]);
+  }, [id, selectedCompany, toast, tr, standard]);
 
   async function decide(kind: 'approve' | 'reject') {
     if (!app || !selectedCompany) return;

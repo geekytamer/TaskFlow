@@ -182,7 +182,8 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) {
-      res.status(error.status).json({ message: error.message });
+      // A machine-readable code may ride along (e.g. TERMS_CHANGED), as on the staff API.
+      res.status(error.status).json({ message: error.message, ...(typeof error.details?.code === 'string' ? { code: error.details.code } : {}) });
       return;
     }
     options.logger?.error('[portal] unexpected error', error);

@@ -154,6 +154,7 @@ test('GET shows the terms to accept and the account state; a stale terms version
   const stale = await ctx.activate(omar);
   assert.equal(stale.status, 400);
   assert.match(stale.body.message, /terms changed/i);
+  assert.equal(stale.body.code, 'TERMS_CHANGED');
   const fresh = await request(ctx.server).post('/portal-api/client/flexi/applications').set(omar)
     .send({ kind: 'activation', crNumber: '1234567', fileIds: [await ctx.upload(omar)], termsVersion: 2 });
   assert.equal(fresh.status, 201, JSON.stringify(fresh.body));

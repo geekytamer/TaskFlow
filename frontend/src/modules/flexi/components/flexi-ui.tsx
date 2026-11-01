@@ -1,7 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { useI18n } from '@/context/i18n-context';
 import type { FlexiState } from '@/services/flexiService';
 
@@ -77,4 +79,15 @@ export function useCompanyLoad<T>(companyId: string | undefined, load: (companyI
   }, [companyId]);
   React.useEffect(reload, [reload]);
   return { data, failed, reload, setData };
+}
+
+/**
+ * A link to a campaign request's sheet in Client requests, which needs portal
+ * management. Reviewers without it (Accountants) get the same row, not a link.
+ */
+export function RequestLink({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  const canOpen = useCanManagePortal();
+  return canOpen
+    ? <Link href={`/crm/client-requests?open=${encodeURIComponent(id)}`} className={className}>{children}</Link>
+    : <div className={className}>{children}</div>;
 }

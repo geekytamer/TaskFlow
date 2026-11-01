@@ -34,7 +34,7 @@ export function registerStaffFlexiSectionRoutes(
     try {
       return fn();
     } catch (error) {
-      if (error instanceof FlexiError) throw new HttpError(error.status, error.message);
+      if (error instanceof FlexiError) throw new HttpError(error.status, error.message, error.code ? { code: error.code } : undefined);
       throw error;
     }
   };

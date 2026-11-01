@@ -100,7 +100,8 @@ export const FLEXI_INCREASE_MONTHS = 12;
 export const FLEXI_ALLOWED_MONTHS = [3, 6, 12];
 
 export class FlexiError extends Error {
-  constructor(readonly status: 400 | 404 | 409, message: string) {
+  /** `code` is stable for clients to act on (e.g. TERMS_CHANGED: reload the terms). */
+  constructor(readonly status: 400 | 404 | 409, message: string, readonly code?: string) {
     super(message);
   }
 }
@@ -358,6 +359,9 @@ export class FlexiStore {
       const note = reasonOf(input.reason);
       if (to === 'closed') {
         this.db.prepare("UPDATE clients SET creditLimit = 0, flexiEnabled = 0, flexiState = 'closed' WHERE id = ?").run(current.clientId);
+        // An open request must not bring a closed account back; the client starts again with an activation.
+        const open = this.openFor(contactId);
+        if (open) this.reject(open.id, { reviewNote: 'The Peak Flexi account was closed.', reviewerId: input.userId });
       } else {
         this.db.prepare('UPDATE clients SET flexiState = ? WHERE id = ?').run(to, current.clientId);
       }
@@ -374,7 +378,7 @@ export class FlexiStore {
     return this.db.transaction(() => {
       if (input.kind !== 'activation' && input.kind !== 'increase') throw new FlexiError(400, 'Choose activation or increase.');
       const termsVersion = this.settings(input.companyId).termsVersion;
-      if (input.termsVersion !== termsVersion) throw new FlexiError(400, 'The terms changed. Please read and accept them again.');
+      if (input.termsVersion !== termsVersion) throw new FlexiError(400, 'The terms changed. Please read and accept them again.', 'TERMS_CHANGED');
       if (this.openFor(input.contactId)) throw new FlexiError(409, 'You already have a request under review.');
       const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null;
       if (note && note.length > MAX_NOTE) throw new FlexiError(400, 'The note is too long.');
@@ -453,7 +457,7 @@ export class FlexiStore {
       const reviewNote = typeof input.reviewNote === 'string' && input.reviewNote.trim() ? input.reviewNote.trim().slice(0, MAX_NOTE) : null;
 
       const clientId = this.deps.ensureClientFor(app.contactId);
-      this.db.prepare("UPDATE clients SET creditLimit = ?, flexiEnabled = 1, flexiState = 'active', flexiUpfrontPct = ?, flexiMaxMonths = ? WHERE id = ?")
+      this.db.prepare("UPDATE clients SET creditLimit = ?, flexiEnabled = 1, flexiState = CASE WHEN flexiState = 'frozen' THEN 'frozen' ELSE 'active' END, flexiUpfrontPct = ?, flexiMaxMonths = ? WHERE id = ?")
         .run(r3(amount), upfrontPct, maxMonths, clientId);
       this.db.prepare(
         "UPDATE flexi_applications SET status = 'approved', clientId = ?, approvedAmount = ?, upfrontPct = ?, maxMonths = ?, reviewNote = ?, reviewedBy = ?, reviewedAt = ? WHERE id = ?",

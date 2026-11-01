@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { getFlexiOverview } from '@/services/flexiService';
-import { money, PageTitle, shortDate, UsageBar, useCompanyLoad, useTr } from './flexi-ui';
+import { money, PageTitle, RequestLink, shortDate, UsageBar, useCompanyLoad, useTr } from './flexi-ui';
 
 /** Peak Flexi at a glance: what is lent out, what is left, and what needs someone today. */
 export function FlexiOverviewPage() {
@@ -71,7 +71,12 @@ export function FlexiOverviewPage() {
           {alerts.overBudgetRequests.length > 0 && (
             <Alert icon={Megaphone} title={tr('Requests above the available balance', 'طلبات أكبر من الرصيد المتاح')}>
               {alerts.overBudgetRequests.map((r) => (
-                <Row key={r.id} href={`/crm/client-requests?open=${r.id}`} left={`${r.clientName} · ${r.title}`} right={`${money(r.budget, currency, language)} / ${money(r.available, currency, language)}`} />
+                <li key={r.id}>
+                  <RequestLink id={r.id} className="flex items-center justify-between gap-3 py-2 hover:text-primary">
+                    <span className="min-w-0 truncate">{`${r.clientName} · ${r.title}`}</span>
+                    <span className="shrink-0 text-muted-foreground tabular-nums">{`${money(r.budget, currency, language)} / ${money(r.available, currency, language)}`}</span>
+                  </RequestLink>
+                </li>
               ))}
             </Alert>
           )}

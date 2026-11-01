@@ -1,12 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { Megaphone } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { listFlexiRequests } from '@/services/flexiService';
-import { EmptyState, money, PageTitle, shortDate, StateBadge, useCompanyLoad, useTr } from './flexi-ui';
+import { EmptyState, money, PageTitle, RequestLink, shortDate, StateBadge, useCompanyLoad, useTr } from './flexi-ui';
 
 /** Open campaign requests from Flexi clients, each against what the client has left to spend. */
 export function FlexiRequestsPage() {
@@ -26,7 +25,7 @@ export function FlexiRequestsPage() {
         <ul className="divide-y rounded-xl border bg-card">
           {data.map((r) => (
             <li key={r.id}>
-              <Link href={`/crm/client-requests?open=${r.id}`} className="grid gap-2 px-4 py-4 transition-colors hover:bg-muted/50 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center md:gap-6">
+              <RequestLink id={r.id} className="grid gap-2 px-4 py-4 transition-colors hover:bg-muted/50 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center md:gap-6">
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="truncate font-semibold">{r.title}</span>
@@ -41,7 +40,7 @@ export function FlexiRequestsPage() {
                   <Badge variant="secondary">{r.payWith === 'flexi' ? tr('From balance', 'من الرصيد') : tr('In full', 'دفع كامل')}</Badge>
                   <StateBadge state={r.accountState} tr={tr} />
                 </span>
-              </Link>
+              </RequestLink>
             </li>
           ))}
         </ul>
