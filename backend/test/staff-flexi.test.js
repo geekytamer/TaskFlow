@@ -38,7 +38,7 @@ const build = () => {
   const file = (name = 'cr.pdf') => store.thread.addFile({
     companyId: company.id, contactId: client.id, uploader: { kind: 'portal', portalUserId: 'pu-1' }, fileName: name, mimeType: 'application/pdf', content: PDF,
   }).id;
-  const apply = () => store.flexi.submit({ companyId: company.id, contactId: client.id, kind: 'activation', crNumber: '1234567', fileIds: [file()], createdBy: 'pu-1' });
+  const apply = () => store.flexi.submit({ companyId: company.id, contactId: client.id, kind: 'activation', crNumber: '1234567', fileIds: [file()], createdBy: 'pu-1', termsVersion: 1 });
   const base = `/companies/${company.id}/flexi-applications`;
   return { server, store, company, manager, accountant, employee, outsider, client, as, apply, file, base };
 };
@@ -143,13 +143,13 @@ test('a decision or a withdrawal closes the review follow-up', async () => {
   const omar = await omarSession();
   const fileId = (await request(ctx.server).post('/portal-api/client/files').set(omar).send({ fileName: 'cr.pdf', contentBase64: Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF').toString('base64') })).body.id;
   const active = () => ctx.store.listFollowupEntities(ctx.company.id, { status: 'active', entityType: 'contact', entityId: ctx.client.id });
-  const first = (await request(ctx.server).post('/portal-api/client/flexi/applications').set(omar).send({ kind: 'activation', crNumber: '1', fileIds: [fileId] })).body;
+  const first = (await request(ctx.server).post('/portal-api/client/flexi/applications').set(omar).send({ kind: 'activation', crNumber: '1', fileIds: [fileId], termsVersion: 1 })).body;
   assert.equal(active().length, 1);
   await request(ctx.server).post(`/portal-api/client/flexi/applications/${first.id}/withdraw`).set(omar);
   assert.equal(active().length, 0, 'withdrawn');
 
   const fileId2 = (await request(ctx.server).post('/portal-api/client/files').set(omar).send({ fileName: 'cr2.pdf', contentBase64: Buffer.from('%PDF-1.4\n%%EOF').toString('base64') })).body.id;
-  const second = (await request(ctx.server).post('/portal-api/client/flexi/applications').set(omar).send({ kind: 'activation', crNumber: '1', fileIds: [fileId2] })).body;
+  const second = (await request(ctx.server).post('/portal-api/client/flexi/applications').set(omar).send({ kind: 'activation', crNumber: '1', fileIds: [fileId2], termsVersion: 1 })).body;
   assert.equal(active().length, 1);
   await request(ctx.server).post(`${ctx.base}/${second.id}/approve`).set(ctx.as(ctx.manager)).send({ amount: 850 });
   assert.equal(active().length, 0, 'approved');
@@ -169,7 +169,7 @@ test('an application carries the client current terms, so an increase can keep t
   const ctx = build();
   const first = ctx.apply();
   await request(ctx.server).post(`${ctx.base}/${first.id}/approve`).set(ctx.as(ctx.manager)).send({ amount: 850, upfrontPct: 35, maxMonths: 6 });
-  const inc = ctx.store.flexi.submit({ companyId: ctx.company.id, contactId: ctx.client.id, kind: 'increase', requestedAmount: 3000, fileIds: [ctx.file('s.pdf'), ctx.file('v.pdf')], createdBy: 'pu-1' });
+  const inc = ctx.store.flexi.submit({ companyId: ctx.company.id, contactId: ctx.client.id, kind: 'increase', requestedAmount: 3000, fileIds: [ctx.file('s.pdf'), ctx.file('v.pdf')], createdBy: 'pu-1', termsVersion: 1 });
   const res = await request(ctx.server).get(`${ctx.base}/${inc.id}`).set(ctx.as(ctx.manager));
   assert.deepEqual(res.body.currentTerms, { upfrontPct: 35, maxMonths: 6 });
   await request(ctx.server).post(`${ctx.base}/${inc.id}/approve`).set(ctx.as(ctx.manager)).send({ amount: 3000 });

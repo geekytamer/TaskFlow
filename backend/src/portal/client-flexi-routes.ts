@@ -57,7 +57,7 @@ export function registerClientFlexiRoutes(
     const app = guard(() => store.transaction(() => store.runAsActor({ name: `Portal: ${session.name} (${contact.name})` }, () => {
       const created = store.flexi.submit({
         companyId, contactId: contact.id, kind: body.kind as never, crNumber: body.crNumber, requestedAmount: body.requestedAmount,
-        note: body.note, fileIds, createdBy: session.portalUserId,
+        note: body.note, fileIds, createdBy: session.portalUserId, termsVersion: body.termsVersion,
       });
       const what = created.kind === 'activation' ? 'Peak Flexi application' : 'Peak Flexi increase request';
       const followup = raiseFollowup(store, {

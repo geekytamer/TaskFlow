@@ -52,7 +52,7 @@ const build = () => {
     return res.body.id;
   };
   const activate = async (auth) => request(server).post('/portal-api/client/flexi/applications').set(auth)
-    .send({ kind: 'activation', crNumber: '1234567', fileIds: [await upload(auth)] });
+    .send({ kind: 'activation', crNumber: '1234567', fileIds: [await upload(auth)], termsVersion: 1 });
 
   return { server, store, company, manager, admin, employee, client, rival, lina, session, upload, activate };
 };
