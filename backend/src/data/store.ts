@@ -19839,6 +19839,28 @@ export class DataStore {
    * The dashboard, without anything from a module the company switched off:
    * its metrics, charts, alerts, shortcuts and activity are left out.
    */
+  /** Every invoice payment of a company, for the dashboard's period figures. */
+  listCompanyPayments(companyId: string): Array<{ invoiceId: string; amount: number; paidAt: Date }> {
+    return (this.db.prepare('SELECT p.invoiceId, p.amount, p.paidAt FROM payments p JOIN invoices i ON i.id = p.invoiceId WHERE i.companyId = ?').all(companyId) as any[])
+      .map((r) => ({ invoiceId: r.invoiceId, amount: Number(r.amount) || 0, paidAt: new Date(r.paidAt) }));
+  }
+
+  /** Every vendor bill payment of a company. */
+  listCompanyVendorPayments(companyId: string): Array<{ billId: string; amount: number; paidAt: Date }> {
+    return (this.db.prepare('SELECT p.billId, p.amount, p.paidAt FROM vendor_bill_payments p JOIN vendor_bills b ON b.id = p.billId WHERE b.companyId = ?').all(companyId) as any[])
+      .map((r) => ({ billId: r.billId, amount: Number(r.amount) || 0, paidAt: new Date(r.paidAt) }));
+  }
+
+  /** When each task was last marked Done, read from its activity trail. */
+  taskCompletionTimes(companyId: string): Map<string, Date> {
+    const rows = this.db.prepare(
+      `SELECT entityId, MAX(createdAt) AS doneAt FROM activity_events
+        WHERE companyId = ? AND entityType = 'task' AND json_valid(metadata) AND json_extract(metadata, '$.status') = 'Done'
+        GROUP BY entityId`,
+    ).all(companyId) as Array<{ entityId: string; doneAt: string }>;
+    return new Map(rows.map((r) => [r.entityId, new Date(r.doneAt)]));
+  }
+
   getDashboardPayload(
     companyId: string,
     viewer: { userId: string; role: UserRole; companyRole?: string },
