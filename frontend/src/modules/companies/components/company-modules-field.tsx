@@ -51,7 +51,14 @@ export function CompanyModulesField({
   return (
     <div className="space-y-3" data-testid="company-modules">
       <div>
-        <Label>{tr('Modules', 'الوحدات')}</Label>
+        <div className="flex items-baseline justify-between gap-2">
+          <Label>{tr('Modules', 'الوحدات')}</Label>
+          {catalogue && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {tr(`${total - value.length} of ${total} on`, `${total - value.length} من ${total} مفعّلة`)}
+            </span>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground">
           {tr(
             'Pick what this company does. A module switched off is hidden and refused for everyone in this company, admins included. Group permissions are kept for when it is switched back on.',
@@ -87,9 +94,6 @@ export function CompanyModulesField({
                 {t('modules.preset.custom')}
               </span>
             )}
-            <span className="ms-auto text-xs tabular-nums text-muted-foreground">
-              {tr(`${total - value.length} of ${total} on`, `${total - value.length} من ${total} مفعّلة`)}
-            </span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {catalogue.areas.map((area) => {
