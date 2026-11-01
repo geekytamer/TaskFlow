@@ -8,6 +8,7 @@ import { downloadHeaders, readUpload } from './files';
 import { registerStaffReferralRoutes } from './staff-referral-routes';
 import { registerStaffRequestRoutes } from './staff-request-routes';
 import { registerStaffFlexiRoutes } from './staff-flexi-routes';
+import { registerStaffFlexiSectionRoutes } from './staff-flexi-section-routes';
 import { registerStaffInfluencerRoutes } from './staff-influencer-routes';
 import { fileDto } from './thread';
 import type { PortalFileMeta } from './thread-store';
@@ -24,6 +25,8 @@ export interface PortalStaffDeps {
   canManagePortal(req: StaffRequest, companyId: string): boolean;
   /** Whether the request user may review Peak Flexi applications and see balances (FLEXI_REVIEW). */
   canReviewFlexi(req: StaffRequest, companyId: string): boolean;
+  /** Whether the request user may change Peak Flexi accounts and settings (FLEXI_MANAGE). */
+  canManageFlexi(req: StaffRequest, companyId: string): boolean;
   /** Whether the request user may read private contacts of others (CONTACTS_PRIVATE_READ). */
   seesPrivate(req: StaffRequest, companyId: string): boolean;
   inviteLink(audience: PortalAudience, token: string): string;
@@ -244,12 +247,20 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
 
   registerStaffReferralRoutes(router, store, authMiddleware, authorize, wrap);
   registerStaffRequestRoutes(router, store, authMiddleware, authorize, wrap);
-  registerStaffFlexiRoutes(router, store, authMiddleware, (req) => {
+  const authorizeFlexi = (req: StaffRequest) => {
     const { companyId } = req.params;
     deps.requireCompanyAccess(req, companyId);
     if (!deps.canReviewFlexi(req, companyId)) throw new HttpError(403, 'You do not have permission to review Peak Flexi.');
     return companyId;
-  }, wrap);
+  };
+  const authorizeFlexiManage = (req: StaffRequest) => {
+    const { companyId } = req.params;
+    deps.requireCompanyAccess(req, companyId);
+    if (!deps.canManageFlexi(req, companyId)) throw new HttpError(403, 'You do not have permission to manage Peak Flexi accounts.');
+    return companyId;
+  };
+  registerStaffFlexiRoutes(router, store, authMiddleware, authorizeFlexi, wrap);
+  registerStaffFlexiSectionRoutes(router, store, { authMiddleware, authorize: authorizeFlexi, authorizeManage: authorizeFlexiManage, wrap, deliver });
   registerStaffInfluencerRoutes(router, store, authMiddleware, authorize, wrap);
 
   return router;

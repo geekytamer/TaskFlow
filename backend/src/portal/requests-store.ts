@@ -9,6 +9,8 @@ export interface CampaignRequestRecord {
   title: string;
   objective: string;
   budget: number | null;
+  /** How the client wants to pay: in full, or from their Peak Flexi balance. */
+  payWith: 'full' | 'flexi';
   startDate: string | null;
   endDate: string | null;
   platforms: string[];
@@ -35,17 +37,17 @@ type RequestRow = Omit<CampaignRequestRecord, 'platforms' | 'influencerIds'> & {
 export class PortalRequestsStore {
   constructor(private readonly db: Database.Database) {}
 
-  create(input: Omit<CampaignRequestRecord, 'id' | 'createdAt'>): CampaignRequestRecord {
+  create(input: Omit<CampaignRequestRecord, 'id' | 'createdAt' | 'payWith'> & { payWith?: 'full' | 'flexi' }): CampaignRequestRecord {
     const id = uuid();
     const createdAt = new Date().toISOString();
     this.db.transaction(() => {
       this.db
         .prepare(
           `INSERT INTO portal_campaign_requests
-             (id, companyId, contactId, portalUserId, title, objective, budget, startDate, endDate, platforms, opportunityId, createdAt)
-           VALUES (@id, @companyId, @contactId, @portalUserId, @title, @objective, @budget, @startDate, @endDate, @platforms, @opportunityId, @createdAt)`,
+             (id, companyId, contactId, portalUserId, title, objective, budget, payWith, startDate, endDate, platforms, opportunityId, createdAt)
+           VALUES (@id, @companyId, @contactId, @portalUserId, @title, @objective, @budget, @payWith, @startDate, @endDate, @platforms, @opportunityId, @createdAt)`,
         )
-        .run({ ...input, id, createdAt, platforms: JSON.stringify(input.platforms) });
+        .run({ ...input, payWith: input.payWith ?? 'full', id, createdAt, platforms: JSON.stringify(input.platforms) });
       const insert = this.db.prepare('INSERT INTO portal_request_influencers (requestId, contactId, position) VALUES (?, ?, ?)');
       input.influencerIds.forEach((contactId, position) => insert.run(id, contactId, position));
     })();

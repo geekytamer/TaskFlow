@@ -240,6 +240,20 @@ export class FlexiStore {
     return { enabled, state: state ?? 'active', balance, used, available, upfrontPct, maxMonths, clientId: client.id };
   }
 
+  /** Contacts with a Peak Flexi account in any state (active, frozen or closed). */
+  accountContactIds(companyId: string): string[] {
+    return (this.db.prepare(
+      `SELECT c.id FROM contacts c JOIN clients cl ON cl.id = COALESCE(c.clientId, c.id)
+       WHERE c.companyId = ? AND cl.flexiState IS NOT NULL ORDER BY c.name COLLATE NOCASE`,
+    ).all(companyId) as Array<{ id: string }>).map((r) => r.id);
+  }
+
+  /** When the account first opened: its first approval. */
+  since(contactId: string): string | null {
+    const row = this.db.prepare("SELECT MIN(createdAt) AS at FROM flexi_events WHERE contactId = ? AND kind = 'approved'").get(contactId) as { at: string | null };
+    return row.at;
+  }
+
   // ─── Settings ─────────────────────────────────────────────────────────
 
   settings(companyId: string): FlexiSettings {
