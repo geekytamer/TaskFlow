@@ -1,3 +1,4 @@
+import { dashboardInsights, INSIGHT_PERIODS } from './dashboard/insights';
 import { redactUrl } from './log-redact';
 import path from 'node:path';
 import express, { NextFunction, Request, RequestHandler, Response } from 'express';
@@ -7637,6 +7638,26 @@ export function createServer(options: CreateServerOptions = {}) {
         ? 'Admin'
         : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
       res.json(store.getDashboardPayload(req.params.companyId, { userId: req.user!.id, role: variant, companyRole: getEffectiveRole(req.user!, req.params.companyId) ?? undefined }));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/dashboard/insights',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyAccess(req, req.params.companyId);
+      if (!getEffectiveRole(req.user!, req.params.companyId)) {
+        throw new HttpError(403, 'You do not have a role in this company.');
+      }
+      const days = req.query.days === undefined ? 30 : Number(req.query.days);
+      if (!(INSIGHT_PERIODS as readonly number[]).includes(days)) throw new HttpError(400, 'days must be 30, 90 or 365.');
+      // The same variant as the dashboard itself.
+      const operations = allowsRule(req, req.params.companyId, 'DASHBOARD_OPERATIONS_READ');
+      const finance = allowsRule(req, req.params.companyId, 'DASHBOARD_FINANCE_READ');
+      const variant: UserRole = operations && finance
+        ? 'Admin'
+        : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
+      res.json(dashboardInsights(store, req.params.companyId, { userId: req.user!.id, variant }, days));
     }),
   );
 

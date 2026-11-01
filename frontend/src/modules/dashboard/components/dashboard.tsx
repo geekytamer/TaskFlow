@@ -3,7 +3,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { getCurrentLocale } from '@/lib/locale';
-import { AlertTriangle, Activity, Zap, Inbox } from 'lucide-react';
+import { AlertTriangle, Activity, Zap, Inbox, ChevronDown } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DashboardInsightsView, DashboardSkeleton } from './dashboard-insights';
 import { OnboardingChecklist } from './onboarding-checklist';
 
 const METRIC_ROUTES: Record<string, string> = {
@@ -23,7 +25,7 @@ const METRIC_ROUTES: Record<string, string> = {
 };
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { getDashboardPayload } from '@/services/dashboardService';
+import { getDashboardInsights, getDashboardPayload, type DashboardInsights, type InsightPeriod } from '@/services/dashboardService';
 import type { DashboardPayload, DashboardChart } from '@/modules/dashboard/types';
 import { CurrencyAmount, useCompanyCurrency, type SupportedCurrencyCode } from '@/lib/currency';
 import {
@@ -288,8 +290,13 @@ function ChartRenderer({ chart, tr }: { chart: DashboardChart; tr: (en: string, 
 }
 
 export function Dashboard() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const { language } = useI18n();
+  const [days, setDays] = React.useState<InsightPeriod>(30);
+  const [insights, setInsights] = React.useState<DashboardInsights | null>(null);
+  const [pulse, setPulse] = React.useState(0);
+  // Only the latest request for the current company and period may land.
+  const insightsRequest = React.useRef(0);
   const { currencyCode } = useCompanyCurrency();
   const [payload, setPayload] = React.useState<DashboardPayload | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -319,11 +326,27 @@ export function Dashboard() {
     };
   }, [selectedCompany]);
 
+  // The period figures load on their own, so switching the period does not reload the page.
+  React.useEffect(() => {
+    const ticket = ++insightsRequest.current;
+    if (!selectedCompany) { setInsights(null); return; }
+    setInsights((current) => (current && current.companyId === selectedCompany.id ? current : null));
+    getDashboardInsights(selectedCompany.id, days)
+      .then((data) => { if (ticket === insightsRequest.current) setInsights(data); })
+      .catch(() => { if (ticket === insightsRequest.current) setInsights(null); });
+  }, [selectedCompany, days]);
+
   // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
   useLiveRefresh('*', async () => {
     if (!selectedCompany) return;
-    const data = await getDashboardPayload(selectedCompany.id).catch(() => null);
-    if (data) setPayload(data);
+    const ticket = ++insightsRequest.current;
+    const [data, fresh] = await Promise.all([
+      getDashboardPayload(selectedCompany.id).catch(() => null),
+      getDashboardInsights(selectedCompany.id, days).catch(() => null),
+    ]);
+    if (data && data.companyId === selectedCompany.id) setPayload(data);
+    if (fresh && ticket === insightsRequest.current) setInsights(fresh);
+    if (data || fresh) setPulse((n) => n + 1);
   });
 
   const localizedPayload = React.useMemo(() => {
@@ -377,8 +400,9 @@ export function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] text-muted-foreground animate-pulse">
-        {tr('Loading dashboard data...', 'جاري تحميل بيانات لوحة التحكم...')}
+      <div className="p-0 sm:p-4 lg:p-8">
+        <span className="sr-only">{tr('Loading dashboard data...', 'جاري تحميل بيانات لوحة التحكم...')}</span>
+        <DashboardSkeleton />
       </div>
     );
   }
@@ -394,156 +418,157 @@ export function Dashboard() {
   }
 
   const { role, scope, metrics, charts, alerts, activity, quickActions } = localizedPayload;
-  const primaryMetric = metrics.length > 0 ? metrics[0] : null;
-  const secondaryMetrics = metrics.length > 1 ? metrics.slice(1) : [];
+  const hour = new Date().getHours();
+  const firstName = currentUser?.name?.split(' ')[0] ?? '';
+  const greeting = hour < 12 ? tr('Good morning', 'صباح الخير') : hour < 18 ? tr('Good afternoon', 'مساء الخير') : tr('Good evening', 'مساء النور');
+  const today = new Date().toLocaleDateString(language === 'ar' ? 'ar-OM-u-nu-latn' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const severityChip: Record<string, string> = {
+    critical: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300',
+    warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+    info: 'border-border bg-card text-foreground',
+  };
 
   return (
     <div className="min-h-screen bg-background p-0 sm:p-4 lg:p-8 font-sans text-foreground space-y-6">
-      <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="tf-rise flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-foreground tracking-tight capitalize">
-            {scope === 'company' ? tr('Company Overview', 'نظرة عامة على الشركة') : tr('Personal Dashboard', 'لوحة التحكم الشخصية')}
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {firstName ? `${greeting}${language === 'ar' ? '، ' : ', '}${firstName}` : greeting}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1 capitalize">
-            {tr('Role View', 'عرض الدور')}: {localizeRole(role, language)}
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+            <span>{today}</span>
+            <span aria-hidden="true">·</span>
+            <span>{scope === 'company' ? tr('Company view', 'عرض الشركة') : tr('Your work', 'شغلك')} ({localizeRole(role, language)})</span>
+            <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400" title={tr('Figures update by themselves', 'الأرقام تتحدث بنفسها')}>
+              <span className="relative flex h-2 w-2">
+                <span key={pulse} className={`absolute inline-flex h-full w-full rounded-full bg-emerald-500 ${pulse ? 'tf-ping' : ''}`} />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              {tr('Live', 'مباشر')}
+            </span>
           </p>
         </div>
-        {quickActions.length > 0 && (
-          // On a phone the shortcuts scroll sideways in one row instead of squeezing the title.
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:gap-3 sm:overflow-visible sm:pb-0" data-tutorial="dash-quick-actions">
-            {quickActions.map((action) => (
-              <Link key={action.id} href={action.route} className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary shadow-sm transition-colors hover:bg-muted/50">
-                <Zap className="w-4 h-4" />
-                {action.label}
-              </Link>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Tabs value={String(days)} onValueChange={(v) => setDays(Number(v) as InsightPeriod)}>
+            <TabsList>
+              <TabsTrigger value="30">{tr('30 days', '30 يوم')}</TabsTrigger>
+              <TabsTrigger value="90">{tr('90 days', '90 يوم')}</TabsTrigger>
+              <TabsTrigger value="365">{tr('Year', 'سنة')}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {quickActions.length > 0 && (
+            // On a phone the shortcuts scroll sideways in one row instead of squeezing the title.
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:pb-0" data-tutorial="dash-quick-actions">
+              {quickActions.map((action) => (
+                <Link key={action.id} href={action.route} className="tf-lift flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold text-primary hover:bg-muted/50">
+                  <Zap className="h-4 w-4" />
+                  {action.label}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      <OnboardingChecklist />
-
-      {metrics.length > 0 && (
-        <div className="relative w-full rounded-[28px] overflow-hidden shadow-sm p-8 lg:p-10 bg-gradient-to-br from-primary/15 via-primary/5 to-primary/20" data-tutorial="dash-primary-metric">
-          <div className="absolute inset-0 opacity-40 dark:opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, hsl(var(--primary) / 0.45) 0%, transparent 40%), radial-gradient(circle at 100% 80%, hsl(var(--primary) / 0.3) 0%, transparent 40%)' }} />
-
-          <div className="relative z-10 flex flex-col xl:flex-row items-center gap-8">
-            {primaryMetric && (() => {
-              const primaryHref = METRIC_ROUTES[primaryMetric.id];
-              const inner = (
-                <>
-                  <h2 className="text-xl font-bold text-foreground mb-1">{primaryMetric.label}</h2>
-                  <p className="text-sm text-muted-foreground mb-6">{primaryMetric.detail || tr('Primary Indicator', 'المؤشر الرئيسي')}</p>
-                  <div className={`text-5xl font-extrabold mb-2 ${TONE_COLORS[primaryMetric.tone || 'default'] || TONE_COLORS.default}`}>
-                    {formatMetricValue(primaryMetric.value, primaryMetric.format, currencyCode)}
-                  </div>
-                </>
-              );
-              return primaryHref ? (
-                <Link href={primaryHref} className="block w-full xl:w-1/4 rounded-2xl transition hover:bg-card/30 focus:outline-none focus:ring-2 focus:ring-ring/40 p-2 -m-2">
-                  {inner}
-                </Link>
-              ) : (
-                <div className="w-full xl:w-1/4">{inner}</div>
-              );
-            })()}
-
-            {secondaryMetrics.length > 0 && (
-              <div className="w-full xl:w-3/4 grid grid-cols-2 md:grid-cols-3 gap-4" data-tutorial="dash-secondary-metrics">
-                {secondaryMetrics.map((item) => {
-                  const href = METRIC_ROUTES[item.id];
-                  const inner = (
-                    <>
-                      <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-2">{item.label}</p>
-                      <div className={`text-2xl font-bold ${TONE_COLORS[item.tone || 'default'] || TONE_COLORS.default}`}>
-                        {formatMetricValue(item.value, item.format, currencyCode)}
-                      </div>
-                      {item.detail && <p className="text-[11px] text-muted-foreground/70 mt-1 font-medium">{item.detail}</p>}
-                    </>
-                  );
-                  const cls =
-                    'bg-card/90 backdrop-blur-md rounded-2xl p-5 shadow-sm flex flex-col justify-center border border-white/60 dark:border-white/10 transition';
-                  return href ? (
-                    <Link
-                      key={item.id}
-                      href={href}
-                      className={`${cls} hover:bg-card hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring/40`}
-                    >
-                      {inner}
-                    </Link>
-                  ) : (
-                    <div key={item.id} className={cls}>
-                      {inner}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {charts.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-tutorial="dash-charts">
-          {charts.map((chart) => (
-            <div key={chart.id} className="bg-card rounded-[24px] p-6 shadow-sm flex flex-col">
-              <div className="mb-4">
-                <h3 className="font-bold text-foreground text-lg">{chart.title}</h3>
-                {chart.description && <p className="text-sm text-muted-foreground mt-1">{chart.description}</p>}
-              </div>
-              <ChartRenderer chart={chart} tr={tr} />
-            </div>
+      {alerts.length > 0 && (
+        <div className="tf-rise -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" style={{ animationDelay: '40ms' }} data-tutorial="dash-alerts">
+          <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-500" /> {tr('Needs you today', 'يحتاجك اليوم')}
+          </span>
+          {alerts.slice(0, 8).map((alert) => (
+            <a key={alert.id} href={alert.route || '#'} title={alert.detail} className={`tf-lift shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium ${severityChip[alert.severity] ?? severityChip.info}`}>
+              {alert.title}
+              {alert.detail && <span className="ms-1.5 hidden max-w-[16rem] truncate align-bottom font-normal opacity-80 sm:inline-block">{alert.detail}</span>}
+            </a>
           ))}
         </div>
       )}
 
-      {(alerts.length > 0 || activity.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {alerts.length > 0 && (
-            <div className="lg:col-span-1 bg-card rounded-[24px] p-6 shadow-sm flex flex-col" data-tutorial="dash-alerts">
-              <h3 className="font-bold text-foreground text-lg mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" /> {tr('Action Required', 'إجراء مطلوب')}
-              </h3>
-              <div className="space-y-4">
-                {alerts.slice(0, 5).map((alert) => (
-                  <a key={alert.id} href={alert.route || '#'} className="block p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors">
-                    <h4 className="font-bold text-sm text-foreground">{alert.title}</h4>
-                    <p className="text-xs text-muted-foreground mt-1">{alert.detail}</p>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
+      <OnboardingChecklist />
 
-          {activity.length > 0 && (
-            <div className={alerts.length > 0 ? 'lg:col-span-2 bg-card rounded-[24px] p-6 shadow-sm flex flex-col' : 'lg:col-span-3 bg-card rounded-[24px] p-6 shadow-sm flex flex-col'}>
-              <h3 className="font-bold text-foreground text-lg mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-primary" /> {tr('Recent Activity', 'النشاط الأخير')}
-              </h3>
-              <div className="space-y-3">
-                {activity.slice(0, 5).map((item) => (
-                  <div key={item.id} className="flex items-start justify-between py-3 border-b border-border last:border-0">
-                    <div>
-                      <h4 className="font-semibold text-sm text-foreground">{item.title}</h4>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {item.detail} {item.actorName && `• ${tr('by', 'بواسطة')} ${item.actorName}`}
-                      </p>
-                    </div>
-                    <time className="text-xs text-muted-foreground/70 font-medium whitespace-nowrap ms-4">
-                      {new Date(item.createdAt).toLocaleString(getCurrentLocale(), {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </time>
+      {insights && insights.companyId === selectedCompany.id && <DashboardInsightsView data={insights} tr={tr} language={language} />}
+
+      {metrics.length > 0 && (
+        <section className="tf-rise space-y-2" style={{ animationDelay: '320ms' }} data-tutorial="dash-primary-metric">
+          <h2 className="text-sm font-semibold text-muted-foreground">{tr('Right now', 'الحين')}</h2>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-tutorial="dash-secondary-metrics">
+            {metrics.map((item) => {
+              const href = METRIC_ROUTES[item.id];
+              const inner = (
+                <>
+                  <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+                  <div className={`mt-1 text-xl font-bold tabular-nums ${TONE_COLORS[item.tone || 'default'] || TONE_COLORS.default}`}>
+                    {formatMetricValue(item.value, item.format, currencyCode)}
                   </div>
-                ))}
+                  {item.detail && <p className="mt-1 text-[11px] text-muted-foreground/80">{item.detail}</p>}
+                </>
+              );
+              const cls = 'rounded-2xl border border-border bg-card p-4';
+              return href ? (
+                <Link key={item.id} href={href} className={`${cls} tf-lift focus:outline-none focus:ring-2 focus:ring-ring/40`}>{inner}</Link>
+              ) : (
+                <div key={item.id} className={cls}>{inner}</div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {activity.length > 0 && (
+        <section className="tf-rise rounded-2xl border border-border bg-card p-5" style={{ animationDelay: '380ms' }}>
+          <h3 className="mb-3 flex items-center gap-2 text-base font-semibold text-foreground">
+            <Activity className="h-5 w-5 text-primary" /> {tr('Recent activity', 'النشاط الأخير')}
+          </h3>
+          <ol className="relative space-y-4 border-s border-border ps-5">
+            {activity.slice(0, 6).map((item) => (
+              <li key={item.id} className="relative">
+                <span className="absolute -start-[25px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" aria-hidden="true" />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="truncate text-sm font-semibold text-foreground">{item.title}</h4>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {item.detail} {item.actorName && `• ${tr('by', 'بواسطة')} ${item.actorName}`}
+                    </p>
+                  </div>
+                  <time className="shrink-0 text-xs font-medium text-muted-foreground/80">{relativeTime(item.createdAt, language)}</time>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {charts.length > 0 && (
+        <details className="group rounded-2xl border border-border bg-card" data-tutorial="dash-charts">
+          <summary className="flex cursor-pointer list-none items-center justify-between p-5 text-base font-semibold text-foreground">
+            {tr('More details', 'تفاصيل أكثر')}
+            <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="grid grid-cols-1 gap-6 px-5 pb-5 lg:grid-cols-2">
+            {charts.map((chart) => (
+              <div key={chart.id} className="flex flex-col rounded-xl bg-muted/30 p-5">
+                <div className="mb-4">
+                  <h3 className="text-base font-bold text-foreground">{chart.title}</h3>
+                  {chart.description && <p className="mt-1 text-sm text-muted-foreground">{chart.description}</p>}
+                </div>
+                <ChartRenderer chart={chart} tr={tr} />
               </div>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );
+}
+
+/** "5 min ago", "yesterday", or the date, in the reader's language. */
+function relativeTime(at: Date, language: 'en' | 'ar') {
+  const seconds = Math.round((new Date(at).getTime() - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(language === 'ar' ? 'ar-OM-u-nu-latn' : 'en', { numeric: 'auto' });
+  const abs = Math.abs(seconds);
+  if (abs < 60) return rtf.format(seconds, 'second');
+  if (abs < 3600) return rtf.format(Math.round(seconds / 60), 'minute');
+  if (abs < 86400) return rtf.format(Math.round(seconds / 3600), 'hour');
+  if (abs < 7 * 86400) return rtf.format(Math.round(seconds / 86400), 'day');
+  return new Date(at).toLocaleDateString(getCurrentLocale(), { month: 'short', day: 'numeric' });
 }

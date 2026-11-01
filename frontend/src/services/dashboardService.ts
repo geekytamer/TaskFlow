@@ -84,3 +84,35 @@ export async function getDashboardPayload(
   const payload = await apiFetch<DashboardPayload>(`/companies/${companyId}/dashboard`);
   return mapDashboardPayload(payload);
 }
+
+export type InsightPeriod = 30 | 90 | 365;
+
+export interface InsightKpi {
+  id: 'revenue' | 'collected' | 'net-cash' | 'receivables' | 'won-deals' | 'tasks-done' | 'on-time';
+  /** null when there is nothing to measure yet. */
+  value: number | null;
+  previous: number | null;
+  format: 'currency' | 'number' | 'percent' | 'days';
+  spark?: number[];
+  sub?: { kind: 'dso' | 'winRate' | 'count'; value: number | null };
+}
+
+export interface DashboardInsights {
+  companyId: string;
+  days: InsightPeriod;
+  currency: string;
+  variant: 'Admin' | 'Manager' | 'Accountant' | 'Employee';
+  kpis: InsightKpi[];
+  cashflow?: Array<{ month: string; billed: number; collected: number; spent: number }>;
+  forecast?: { weeks: Array<{ from: string; incoming: number; outgoing: number }>; overdueIncoming: number; overdueOutgoing: number };
+  topClients?: Array<{ clientId: string; name: string; billed: number; share: number }>;
+  pipeline?: Array<{ stage: 'New' | 'Qualified' | 'Proposal' | 'Negotiation'; count: number; value: number; weighted: number }>;
+  staleDeals?: number;
+  throughput?: Array<{ week: string; created: number; completed: number }>;
+  team?: Array<{ userId: string; name: string; open: number; overdue: number }>;
+}
+
+/** The dashboard's period figures, each against the window before. */
+export async function getDashboardInsights(companyId: string, days: InsightPeriod): Promise<DashboardInsights> {
+  return apiFetch<DashboardInsights>(`/companies/${companyId}/dashboard/insights?days=${days}`);
+}
