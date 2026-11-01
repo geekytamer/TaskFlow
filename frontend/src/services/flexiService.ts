@@ -46,7 +46,29 @@ export interface FlexiRequest {
   createdAt: string;
 }
 
+export type FlexiPeriod = 30 | 90 | 365;
+interface Compared { value: number; previous: number }
+
 export interface FlexiOverview {
+  days: FlexiPeriod;
+  kpis: {
+    balance: Compared;
+    used: Compared;
+    utilisation: Compared;
+    available: { value: number };
+    accounts: { active: number; frozen: number };
+    overdue: { amount: number; invoices: number; clients: number };
+    approvalRate: Compared & { approved: number; decided: number };
+    avgDecisionDays: { value: number | null; previous: number | null };
+    waiting: number;
+  };
+  trend: Array<{ month: string; approved: number; used: number }>;
+  applicationsByMonth: Array<{ month: string; approved: number; rejected: number; withdrawn: number; pending: number }>;
+  utilisation: Array<{ bucket: '0-25' | '25-50' | '50-80' | '80-100' | 'over-100'; count: number }>;
+  funnel: { website: number; invited: number; applied: number; activated: number };
+  topClients: Array<{ contactId: string; name: string; balance: number; used: number; usedPct: number }>;
+  concentration: { contactId: string; name: string; share: number } | null;
+  recentEvents: Array<FlexiEvent & { contactId: string; contactName: string }>;
   currency: string;
   totals: { balance: number; used: number; available: number; active: number; frozen: number; waiting: number };
   alerts: {
@@ -93,7 +115,7 @@ export interface FlexiSettings {
 const base = (companyId: string) => `/companies/${companyId}/flexi`;
 const post = <T>(path: string, body: unknown) => apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) });
 
-export const getFlexiOverview = (companyId: string) => apiFetch<FlexiOverview>(`${base(companyId)}/overview`);
+export const getFlexiOverview = (companyId: string, days: FlexiPeriod = 30) => apiFetch<FlexiOverview>(`${base(companyId)}/overview?days=${days}`);
 export const listFlexiAccounts = (companyId: string, state?: FlexiState) =>
   apiFetch<FlexiAccount[]>(`${base(companyId)}/accounts${state ? `?state=${state}` : ''}`);
 export const getFlexiAccount = (companyId: string, contactId: string) =>

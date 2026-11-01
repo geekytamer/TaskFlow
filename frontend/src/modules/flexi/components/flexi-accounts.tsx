@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Wallet } from 'lucide-react';
+import { Download, Wallet } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { downloadAccountsCsv } from './flexi-csv';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompany } from '@/context/company-context';
@@ -26,7 +28,8 @@ export function FlexiAccountsPage() {
 
   return (
     <div className="space-y-6">
-      <PageTitle title={tr('Peak Flexi accounts', 'حسابات بيك فلكسي')} subtitle={tr('Every client with a balance, and how much of it they use.', 'كل عميل عنده رصيد، وكم مستخدم منه.')} />
+      <PageTitle title={tr('Peak Flexi accounts', 'حسابات بيك فلكسي')} subtitle={tr('Every client with a balance, and how much of it they use.', 'كل عميل عنده رصيد، وكم مستخدم منه.')}
+        actions={data && data.length > 0 ? <Button variant="outline" size="sm" onClick={() => downloadAccountsCsv(shown, language)}><Download className="me-1 h-4 w-4" />{tr('Export CSV', 'صدّر CSV')}</Button> : undefined} />
       <div className="flex flex-wrap items-center gap-3">
         <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
           <TabsList>
