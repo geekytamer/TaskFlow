@@ -12,39 +12,7 @@ import {
   SidebarGroupContent,
   useSidebar,
 } from '@/components/ui/sidebar';
-import {
-  LayoutDashboard,
-  Users,
-  Network,
-  FolderKanban,
-  Settings,
-  Banknote,
-  ReceiptText,
-  Package,
-  ShoppingCart,
-  Handshake,
-  Truck,
-  BookUser,
-  CalendarClock,
-  ChartNoAxesCombined,
-  BarChart3,
-  Megaphone,
-  UserRoundSearch,
-  BadgeDollarSign,
-  CheckSquare,
-  MessageSquare,
-  Sparkles,
-  Contact2,
-  CalendarOff,
-  CalendarCheck,
-  Wallet,
-  ClipboardCheck,
-  FileQuestion,
-  Scale,
-  Factory,
-  Building2,
-  FileText,
-  ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare } from 'lucide-react';
+import { LayoutDashboard, Users, Network, FolderKanban, Settings, Banknote, ReceiptText, Package, ShoppingCart, Handshake, Truck, BookUser, CalendarClock, ChartNoAxesCombined, BarChart3, Megaphone, UserRoundSearch, BadgeDollarSign, CheckSquare, MessageSquare, Sparkles, Contact2, CalendarOff, CalendarCheck, Wallet, ClipboardCheck, FileQuestion, Scale, Factory, Building2, FileText, ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare, Gauge, FileCheck, UserPlus, Settings2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
@@ -119,10 +87,19 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-opportunities' },
       { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-campaigns' },
       { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, roles: ['Admin', 'Manager', 'Employee'], tutorial: 'nav-followups' },
-      { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox, roles: ['Admin', 'Manager'] },
-      { href: '/crm/flexi', labelKey: 'nav.flexi', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'] },
       { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, roles: ['Admin', 'Manager', 'Employee', 'Accountant'], tutorial: 'nav-vendor-requests' },
       { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, roles: ['Admin', 'Manager'], tutorial: 'nav-performance' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.flexi',
+    items: [
+      { href: '/flexi', labelKey: 'nav.flexiOverview', icon: Gauge, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/flexi/applications', labelKey: 'nav.flexiApplications', icon: FileCheck, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/flexi/accounts', labelKey: 'nav.flexiAccounts', icon: Wallet, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/flexi/requests', labelKey: 'nav.clientRequests', icon: Inbox, roles: ['Admin', 'Manager'] },
+      { href: '/flexi/leads', labelKey: 'nav.flexiLeads', icon: UserPlus, roles: ['Admin', 'Manager', 'Accountant'] },
+      { href: '/flexi/settings', labelKey: 'nav.flexiSettings', icon: Settings2, roles: ['Admin', 'Manager', 'Accountant'] },
     ],
   },
   {
@@ -320,9 +297,11 @@ export function SidebarNav() {
               <SidebarMenu>
                 {visible.map((item) => {
                   const Icon = item.icon;
+                  // A section's own landing page (/, /flexi) is active only on itself, not on its sub-pages.
+                  const hasChildren = visible.some((o) => o.href !== item.href && o.href.startsWith(`${item.href}/`));
                   const isActive =
-                    item.href === '/'
-                      ? pathname === '/'
+                    item.href === '/' || hasChildren
+                      ? pathname === item.href
                       : pathname.startsWith(item.href);
                   const badge = badges[item.href] || 0;
                   return (

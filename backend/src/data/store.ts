@@ -2,7 +2,7 @@ import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
-import { FLEXI_REVIEW_TRIGGER, FLEXI_SCHEMA, FlexiStore } from '../finance/flexi';
+import { FLEXI_REVIEW_TRIGGER, FLEXI_SCHEMA, FLEXI_SECTION_SCHEMA, FlexiStore } from '../finance/flexi';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
@@ -777,6 +777,7 @@ export class DataStore {
           .filter((f) => f.sourceTrigger === FLEXI_REVIEW_TRIGGER && f.sourceId === app.id)
           .forEach((f) => this.completeFollowup(f.id, { outcome: 'done', completedByUserId: userId }));
       },
+      userName: (userId) => this.getUserById(userId)?.name,
     });
     this.quality = new QualityStore(this.db);
     this.coldChain = new ColdChainStore(this.db);
@@ -5367,16 +5368,35 @@ export class DataStore {
       {
         // Existing companies' built-in groups get FLEXI_REVIEW, as 126 did for DISCOVER_MANAGE.
         id: '146_flexi_review_grants',
+        run: () => this.grantRuleToSystemGroups(RECORD_RULES.FLEXI_REVIEW),
+      },
+      {
+        // The Peak Flexi section: settings, the account timeline, account state, terms acceptance, the pay choice on requests.
+        id: '147_peak_flexi_section',
         run: () => {
-          const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
-          const rule = RECORD_RULES.FLEXI_REVIEW;
-          const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
-          (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
-            .forEach((group) => {
-              const role = roleByKey[group.key];
-              if (role && (rule.roles as readonly string[]).includes(role)) insert.run(group.id, rule.module, rule.action);
-            });
+          this.db.exec(FLEXI_SECTION_SCHEMA);
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiState TEXT');
+          this.db.exec("UPDATE clients SET flexiState = 'active' WHERE flexiEnabled = 1");
+          this.db.exec('ALTER TABLE flexi_applications ADD COLUMN termsVersion INTEGER');
+          this.db.exec('ALTER TABLE flexi_applications ADD COLUMN termsAcceptedAt TEXT');
+          this.db.exec("ALTER TABLE portal_campaign_requests ADD COLUMN payWith TEXT NOT NULL DEFAULT 'full'");
+          // The timeline starts with what phase 1 already recorded.
+          const insert = this.db.prepare(
+            `INSERT INTO flexi_events (id, companyId, contactId, kind, amountBefore, amountAfter, upfrontPct, maxMonths, note, actorUserId, actorPortalUserId, applicationId, createdAt)
+             VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          );
+          (this.db.prepare('SELECT * FROM flexi_applications ORDER BY createdAt').all() as any[]).forEach((a) => {
+            insert.run(uuid(), a.companyId, a.contactId, 'applied', a.requestedAmount, null, null, null, null, a.createdBy, a.id, a.createdAt);
+            if (a.status !== 'new' && a.reviewedAt) {
+              const staff = a.status === 'withdrawn' ? null : a.reviewedBy;
+              insert.run(uuid(), a.companyId, a.contactId, a.status, a.status === 'approved' ? a.approvedAmount : null, a.upfrontPct, a.maxMonths, a.reviewNote, staff, a.status === 'withdrawn' ? a.createdBy : null, a.id, a.reviewedAt);
+            }
+          });
         },
+      },
+      {
+        id: '148_flexi_manage_grants',
+        run: () => this.grantRuleToSystemGroups(RECORD_RULES.FLEXI_MANAGE),
       },
     ];
 
@@ -13601,6 +13621,17 @@ export class DataStore {
    * a contact without one are keyed by the contact id, so the new row takes
    * that id and everything already owed still counts against the balance.
    */
+  /** Grants a record rule to every company's built-in groups whose role the rule names (for rules added after companies exist). */
+  private grantRuleToSystemGroups(rule: { module: string; action: string; roles: readonly string[] }): void {
+    const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
+    const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+    (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
+      .forEach((group) => {
+        const role = roleByKey[group.key];
+        if (role && rule.roles.includes(role)) insert.run(group.id, rule.module, rule.action);
+      });
+  }
+
   ensureClientRowForContact(contactId: string): string {
     const contact = this.getContactById(contactId);
     if (!contact) throw new Error('Contact not found.');
@@ -22086,6 +22117,7 @@ export class DataStore {
       flexiEnabled: !!row.flexiEnabled,
       flexiUpfrontPct: row.flexiUpfrontPct ?? null,
       flexiMaxMonths: row.flexiMaxMonths ?? null,
+      flexiState: row.flexiState ?? null,
     };
   }
 

@@ -20,7 +20,7 @@ export function registerClientFlexiRoutes(
     try {
       return fn();
     } catch (error) {
-      if (error instanceof FlexiError) throw new HttpError(error.status, error.message);
+      if (error instanceof FlexiError) throw new HttpError(error.status, error.message, error.code ? { code: error.code } : undefined);
       throw error;
     }
   };
@@ -43,7 +43,12 @@ export function registerClientFlexiRoutes(
     const { clientId: _clientId, ...balance } = store.flexi.balanceOf(session.contactId);
     const open = store.flexi.openFor(session.contactId);
     const last = store.flexi.latestFor(session.contactId);
-    res.json({ balance, currency: companyCurrency(store, companyId), open: open ? dto(open) : null, last: last ? dto(last) : null });
+    const settings = store.flexi.settings(companyId);
+    res.json({
+      balance, currency: companyCurrency(store, companyId), open: open ? dto(open) : null, last: last ? dto(last) : null,
+      terms: { version: settings.termsVersion, ar: settings.termsAr, en: settings.termsEn },
+      standardAmount: settings.standardAmount,
+    });
   });
 
   router.post('/client/flexi/applications', requireClientSession, (req: SessionRequest, res: Response) => {
@@ -57,7 +62,7 @@ export function registerClientFlexiRoutes(
     const app = guard(() => store.transaction(() => store.runAsActor({ name: `Portal: ${session.name} (${contact.name})` }, () => {
       const created = store.flexi.submit({
         companyId, contactId: contact.id, kind: body.kind as never, crNumber: body.crNumber, requestedAmount: body.requestedAmount,
-        note: body.note, fileIds, createdBy: session.portalUserId,
+        note: body.note, fileIds, createdBy: session.portalUserId, termsVersion: body.termsVersion,
       });
       const what = created.kind === 'activation' ? 'Peak Flexi application' : 'Peak Flexi increase request';
       const followup = raiseFollowup(store, {

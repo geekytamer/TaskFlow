@@ -36,7 +36,7 @@ export function FlexiCard({ lang, data, state }: { lang: Lang; data: FlexiData; 
 
         {state === 'none' && (
           <>
-            <h2 id="flexi-title" className="text-[24px] font-extrabold leading-tight">{t(lang, 'fx.noneTitle')}</h2>
+            <h2 id="flexi-title" className="text-[24px] font-extrabold leading-tight">{t(lang, 'fx.noneTitle').replace('850', String(data.standardAmount))}</h2>
             <p className="max-w-xl text-ink-soft">{t(lang, 'fx.noneBody')}</p>
             <Link href="/flexi/activate" className={`${button} bg-accent text-accent-ink hover:bg-accent/90`}>{t(lang, 'fx.activate')}</Link>
           </>
@@ -55,6 +55,14 @@ export function FlexiCard({ lang, data, state }: { lang: Lang; data: FlexiData; 
             <h2 id="flexi-title" className="text-[24px] font-extrabold leading-tight">{t(lang, 'fx.rejectedTitle')}</h2>
             {data.last?.reviewNote && <p className="max-w-xl whitespace-pre-wrap rounded-[14px] bg-white/[0.04] p-4 text-ink-soft">{data.last.reviewNote}</p>}
             <Link href="/flexi/activate" className={`${button} bg-accent text-accent-ink hover:bg-accent/90`}>{t(lang, 'fx.tryAgain')}</Link>
+          </>
+        )}
+
+        {state === 'frozen' && (
+          <>
+            <h2 id="flexi-title" className="text-[24px] font-extrabold leading-tight">{t(lang, 'fx.frozenTitle')}</h2>
+            <p className="max-w-xl text-ink-soft">{t(lang, 'fx.frozenBody')}</p>
+            <Link href="/messages" className={`${button} border border-white/[0.16] hover:border-ink/50`}>{t(lang, 'nav.messages')}</Link>
           </>
         )}
 

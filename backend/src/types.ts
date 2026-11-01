@@ -322,6 +322,7 @@ export interface Client {
   flexiEnabled?: boolean;
   flexiUpfrontPct?: number | null;
   flexiMaxMonths?: number | null;
+  flexiState?: 'active' | 'frozen' | 'closed' | null;
 }
 
 export interface Supplier {

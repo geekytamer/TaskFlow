@@ -23,7 +23,7 @@ import { getContactSummary, type ContactSummary } from '@/services/contactServic
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
 import { FlexiSection } from './flexi-section';
-import { useCanReviewFlexi } from '@/modules/portal-access/lib/use-can-review-flexi';
+import { useCanReviewFlexi } from '@/modules/flexi/lib/use-can-review-flexi';
 import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/components/influencer-avatar';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';

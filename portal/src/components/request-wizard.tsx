@@ -97,7 +97,6 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
         ? t(lang, 'wiz.peakPicks')
         : options.filter((o) => chosen.has(o.id)).map((o) => o.name).join(lang === 'ar' ? '، ' : ', ')}`,
       exactOk ? `${t(lang, 'wiz.sumBudget')}: ${num(exactNumber)} ${currency}` : range && `${t(lang, 'wiz.sumBudget')}: ${rangeLabel(range)}`,
-      `${t(lang, 'wiz.sumPay')}: ${t(lang, pay === 'once' ? 'wiz.pay.once' : 'wiz.pay.flexi')}`,
       notes.trim() && `${t(lang, 'wiz.sumNotes')}: ${notes.trim()}`,
     ].filter(Boolean).join('\n');
     setBusy(true);
@@ -110,6 +109,7 @@ export function RequestWizard({ lang, currency, options, platforms, preselected 
           title: title.length >= 3 ? title : `${title} ${t(lang, 'wiz.campaign')}`,
           objective: lines.slice(0, 4000),
           budget: exactOk ? exactNumber : range ? range.estimate : null,
+          payWith: pay === 'flexi' ? 'flexi' : 'full',
           startDate: startDate || null,
           endDate: endDate || null,
           platforms: [...chosenPlatforms],

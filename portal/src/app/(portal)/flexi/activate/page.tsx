@@ -15,7 +15,7 @@ export default async function FlexiActivatePage() {
   return (
     <div className="max-w-2xl space-y-8">
       <PageHeader back={{ href: '/', label: t(lang, 'fx.back') }} title={t(lang, 'fx.activateTitle')} subtitle={t(lang, 'fx.activateSubtitle')} />
-      <FlexiApplyForm lang={lang} kind="activation" balance={data.balance.balance} currency={data.currency} />
+      <FlexiApplyForm lang={lang} kind="activation" balance={data.balance.balance} currency={data.currency} terms={data.terms} />
     </div>
   );
 }

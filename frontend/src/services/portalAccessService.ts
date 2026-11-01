@@ -249,6 +249,9 @@ export interface StaffPortalRequest {
   requester: { name: string; email: string } | null;
   createdAt: string;
   budget: number | null;
+  /** In full, or from the client's Peak Flexi balance, with the balance check. */
+  payWith: 'full' | 'flexi';
+  flexi: { state: 'active' | 'frozen' | 'closed' | null; available: number; flag: 'over_budget' | 'no_account' | null };
   currency: string;
   startDate: string | null;
   endDate: string | null;
@@ -287,6 +290,7 @@ export type FlexiStatus = 'new' | 'approved' | 'rejected' | 'withdrawn';
 
 export interface FlexiBalance {
   enabled: boolean;
+  state: 'active' | 'frozen' | 'closed' | null;
   balance: number;
   used: number;
   available: number;

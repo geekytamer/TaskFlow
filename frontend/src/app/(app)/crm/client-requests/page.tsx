@@ -1,33 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { useI18n } from '@/context/i18n-context';
-import { useAuthGuard } from '@/hooks/use-auth-guard';
-import { ClientRequestsPage } from '@/modules/portal-access/components/client-requests-page';
-import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function ClientRequestsRoute() {
-  const { user, loading } = useAuthGuard();
-  const canManage = useCanManagePortal();
-  const { t } = useI18n();
+/** Client requests moved into the Peak Flexi section; old links (notifications) still land on the request. */
+function Redirect() {
+  const router = useRouter();
+  const open = useSearchParams().get('open');
+  React.useEffect(() => {
+    router.replace(open ? `/flexi/requests?open=${encodeURIComponent(open)}` : '/flexi/requests');
+  }, [open, router]);
+  return null;
+}
 
-  if (loading || !user) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground">{t('common.loading')}</p>
-      </div>
-    );
-  }
-  if (!canManage) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground">{t('auth.operationsOnly')}</p>
-      </div>
-    );
-  }
-  return (
-    <React.Suspense fallback={null}>
-      <ClientRequestsPage />
-    </React.Suspense>
-  );
+export default function OldClientRequestsRoute() {
+  return <React.Suspense fallback={null}><Redirect /></React.Suspense>;
 }

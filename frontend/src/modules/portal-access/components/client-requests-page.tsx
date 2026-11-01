@@ -28,7 +28,7 @@ import {
 } from '@/services/portalAccessService';
 
 type Tr = (en: string, ar: string) => string;
-type Tab = 'open' | PortalRequestStatus | 'all';
+type Tab = 'open' | PortalRequestStatus | 'flexi' | 'all';
 
 const STATUS_STYLE: Record<PortalRequestStatus, string> = {
   in_review: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
@@ -98,7 +98,7 @@ export function ClientRequestsPage() {
     return () => window.removeEventListener(DATA_CHANGED_EVENT, refresh);
   }, [load]);
 
-  const setOpen = (id: string | null) => router.replace(id ? `/crm/client-requests?open=${encodeURIComponent(id)}` : '/crm/client-requests', { scroll: false });
+  const setOpen = (id: string | null) => router.replace(id ? `/flexi/requests?open=${encodeURIComponent(id)}` : '/flexi/requests', { scroll: false });
 
   const count = (t: Tab) => (requests ?? []).filter((r) => matches(r, t)).length;
   const shown = (requests ?? []).filter((r) => matches(r, tab));
@@ -117,6 +117,7 @@ export function ClientRequestsPage() {
           <TabsTrigger value="proposal_ready">{statusLabel('proposal_ready', tr)} ({count('proposal_ready')})</TabsTrigger>
           <TabsTrigger value="accepted">{statusLabel('accepted', tr)} ({count('accepted')})</TabsTrigger>
           <TabsTrigger value="closed">{statusLabel('closed', tr)} ({count('closed')})</TabsTrigger>
+          <TabsTrigger value="flexi">{tr('Peak Flexi', 'بيك فلكسي')} ({count('flexi')})</TabsTrigger>
           <TabsTrigger value="all">{tr('All', 'الكل')} ({count('all')})</TabsTrigger>
         </TabsList>
       </Tabs>
@@ -138,6 +139,9 @@ export function ClientRequestsPage() {
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="truncate font-semibold">{r.title}</span>
                     <StatusBadge status={r.status} tr={tr} />
+                    {r.payWith === 'flexi' && <Badge variant="secondary">{tr('From balance', 'من الرصيد')}</Badge>}
+                    {r.flexi.flag === 'over_budget' && <Badge variant="outline" className="border-transparent bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">{tr('Above available balance', 'أكبر من الرصيد المتاح')}</Badge>}
+                    {r.flexi.flag === 'no_account' && <Badge variant="outline" className="border-transparent bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">{tr('No active balance', 'ما عنده رصيد نشط')}</Badge>}
                   </span>
                   <span className="block truncate text-sm text-muted-foreground">
                     {r.client?.name ?? tr('Unknown client', 'عميل غير معروف')}{r.requester ? ` · ${r.requester.name}` : ''} · {ago(r.createdAt, language)}
@@ -145,6 +149,7 @@ export function ClientRequestsPage() {
                 </span>
                 <span className="text-sm">
                   <span className="block font-medium">{fmtMoney(r.budget, r.currency, language) ?? tr('No budget given', 'لم تُحدَّد ميزانية')}</span>
+                  {r.flexi.state && <span className="block text-xs text-muted-foreground">{tr('Balance available', 'الرصيد المتاح')}: {fmtMoney(r.flexi.available, r.currency, language)}</span>}
                   <span className="block text-muted-foreground">
                     {r.startDate || r.endDate ? `${fmtDate(r.startDate, language) ?? '…'} – ${fmtDate(r.endDate, language) ?? '…'}` : tr('Dates open', 'تواريخ مفتوحة')}
                   </span>
@@ -168,6 +173,8 @@ export function ClientRequestsPage() {
 
 function matches(r: StaffPortalRequest, tab: Tab) {
   if (tab === 'all') return true;
+  // Open requests from Flexi clients, or asking to pay from a balance.
+  if (tab === 'flexi') return (r.payWith === 'flexi' || r.flexi.state !== null) && (r.status === 'in_review' || r.status === 'proposal_ready');
   if (tab === 'open') return r.status === 'in_review' || r.status === 'proposal_ready';
   return r.status === tab;
 }
