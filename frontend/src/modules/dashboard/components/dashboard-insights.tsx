@@ -10,6 +10,8 @@ type Tr = (en: string, ar: string) => string;
 
 // Fixed series colours (charts cannot read CSS variables).
 const C = { billed: '#2a78d6', collected: '#1baf7a', spent: '#eb6834', created: '#b4b2a9', done: '#2a78d6', late: '#e34948', grid: 'hsl(var(--border))', tick: 'hsl(var(--muted-foreground))' };
+// Tooltips follow the theme (recharts paints a white box by default).
+const TOOLTIP = { borderRadius: 10, fontSize: 12, background: 'hsl(var(--popover))', color: 'hsl(var(--popover-foreground))', border: '1px solid hsl(var(--border))' };
 const STAGE_COLOURS = ['#b5d4f4', '#85b7eb', '#378add', '#185fa5'];
 
 const locale = (lang: string) => (lang === 'ar' ? 'ar-OM-u-nu-latn' : 'en-US');
@@ -91,14 +93,14 @@ function kpiLabel(id: InsightKpi['id'], tr: Tr) {
 }
 
 function KpiCard({ kpi, data, tr, language, index }: { kpi: InsightKpi; data: DashboardInsights; tr: Tr; language: string; index: number }) {
-  const shown = useCountUp(kpi.value);
-  const text = kpi.format === 'currency'
+  const shown = useCountUp(kpi.value ?? 0);
+  const text = kpi.value === null ? '—' : kpi.format === 'currency'
     ? money(shown, data.currency, language)
     : kpi.format === 'percent' ? `${Math.round(shown)}%` : Math.round(shown).toLocaleString(locale(language));
 
   // A change against the window before: percent for amounts and counts, points for a rate.
   let delta: { text: string; good: boolean | null } | null = null;
-  if (kpi.previous !== null) {
+  if (kpi.previous !== null && kpi.value !== null) {
     if (kpi.format === 'percent') {
       const d = Math.round(kpi.value - kpi.previous);
       delta = { text: tr(`${d >= 0 ? '+' : ''}${d} pts`, `${d >= 0 ? '+' : ''}${d} نقطة`), good: d === 0 ? null : d > 0 };
@@ -116,7 +118,7 @@ function KpiCard({ kpi, data, tr, language, index }: { kpi: InsightKpi; data: Da
   if (kpi.sub?.kind === 'winRate') sub = kpi.sub.value === null ? tr('No deals closed yet', 'ما انقفلت صفقات لسا') : tr(`Win rate ${kpi.sub.value}%`, `نسبة الفوز ${kpi.sub.value}%`);
   if (kpi.sub?.kind === 'count') sub = tr(`${kpi.sub.value} tasks with a due date`, `${kpi.sub.value} مهمة لها موعد`);
 
-  const negative = kpi.id === 'net-cash' && kpi.value < 0;
+  const negative = kpi.id === 'net-cash' && (kpi.value ?? 0) < 0;
   const sparkColour = delta?.good === false ? C.late : C.collected;
   const Icon = delta?.good === null || !delta ? Minus : delta.good ? ArrowUpRight : ArrowDownRight;
 
@@ -192,7 +194,7 @@ export function DashboardInsightsView({ data, tr, language }: { data: DashboardI
                 <CartesianGrid vertical={false} stroke={C.grid} />
                 <XAxis dataKey="label" {...axis} reversed={rtl} />
                 <YAxis {...axis} width={48} orientation={rtl ? 'right' : 'left'} tickFormatter={(v) => compact(v, language)} />
-                <Tooltip formatter={(v: number) => m(v)} contentStyle={{ borderRadius: 10, fontSize: 12 }} />
+                <Tooltip formatter={(v: number) => m(v)} contentStyle={TOOLTIP} />
                 <Area type="monotone" dataKey="billed" name={tr('Billed', 'مفوتر')} stroke={C.billed} fill="none" strokeWidth={2} animationDuration={900} />
                 <Area type="monotone" dataKey="collected" name={tr('Collected', 'محصّل')} stroke={C.collected} fill="url(#tfCollected)" strokeWidth={2.5} animationDuration={900} />
                 <Area type="monotone" dataKey="spent" name={tr('Spent', 'مصروف')} stroke={C.spent} fill="none" strokeWidth={2} strokeDasharray="5 4" animationDuration={900} />
@@ -242,7 +244,7 @@ export function DashboardInsightsView({ data, tr, language }: { data: DashboardI
                 <CartesianGrid vertical={false} stroke={C.grid} />
                 <XAxis dataKey="label" {...axis} reversed={rtl} />
                 <YAxis {...axis} width={44} orientation={rtl ? 'right' : 'left'} tickFormatter={(v) => compact(v, language)} />
-                <Tooltip formatter={(v: number) => m(v)} contentStyle={{ borderRadius: 10, fontSize: 12 }} cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} />
+                <Tooltip formatter={(v: number) => m(v)} contentStyle={TOOLTIP} cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} />
                 <Bar dataKey="incoming" name={tr('In', 'داخل')} fill={C.collected} radius={[4, 4, 0, 0]} maxBarSize={22} />
                 <Bar dataKey="outgoing" name={tr('Out', 'خارج')} fill={C.spent} radius={[4, 4, 0, 0]} maxBarSize={22} />
               </BarChart>
@@ -272,7 +274,7 @@ export function DashboardInsightsView({ data, tr, language }: { data: DashboardI
                 <CartesianGrid vertical={false} stroke={C.grid} />
                 <XAxis dataKey="label" {...axis} reversed={rtl} interval="preserveStartEnd" />
                 <YAxis {...axis} allowDecimals={false} width={28} orientation={rtl ? 'right' : 'left'} />
-                <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12 }} cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} />
+                <Tooltip contentStyle={TOOLTIP} cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} />
                 <Bar dataKey="created" name={tr('New', 'جديدة')} fill={C.created} radius={[4, 4, 0, 0]} maxBarSize={16} />
                 <Bar dataKey="completed" name={tr('Finished', 'خلصت')} fill={C.done} radius={[4, 4, 0, 0]} maxBarSize={16} />
               </BarChart>

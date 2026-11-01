@@ -137,3 +137,48 @@ test('the route follows the dashboard variant and checks the period', async () =
   assert.equal((await get(acc, '?days=7')).status, 400);
   assert.equal((await request(app).get('/companies/1/dashboard/insights')).status, 401);
 });
+
+test('a finished task keeps its finishing time through later edits, and a task finished part by part counts', async () => {
+  const { store, mk } = setup();
+  const a = mk('Employee', 'a.done@x.example');
+  const b = mk('Employee', 'b.done@x.example');
+  const project = store.createProject({ name: 'Done P', description: '', color: '#fff', companyId: '1', visibility: 'Public' });
+  const t = store.createTask({ title: 'Edit me', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: '1', projectId: project.id, assignedUserIds: [a.id] });
+  store.updateTask(t.id, { status: 'Done' });
+  const first = store.taskCompletionTimes('1').get(t.id).getTime();
+  await new Promise((r) => setTimeout(r, 15));
+  store.updateTask(t.id, { title: 'Renamed later' });
+  assert.equal(store.taskCompletionTimes('1').get(t.id).getTime(), first, 'a rename is not a second finish');
+  // Reopened and finished again: the new finish counts.
+  await new Promise((r) => setTimeout(r, 15));
+  store.updateTask(t.id, { status: 'In Progress' });
+  store.updateTask(t.id, { status: 'Done' });
+  assert.ok(store.taskCompletionTimes('1').get(t.id).getTime() > first);
+
+  const shared = store.createTask({ title: 'Shared', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: '1', projectId: project.id, assignedUserIds: [a.id, b.id] });
+  store.setTaskPart(shared.id, a.id, { status: 'Done' });
+  assert.ok(!store.taskCompletionTimes('1').has(shared.id), 'one part done is not the task done');
+  store.setTaskPart(shared.id, b.id, { status: 'Done' });
+  assert.ok(store.taskCompletionTimes('1').has(shared.id), 'the last part finishes the task');
+});
+
+test('on time is empty, not 0%, when nothing dated was finished; due today is not overdue; private tasks stay out of team load', () => {
+  const { store, mk } = setup();
+  const sara = mk('Employee', 'sara.edge@x.example');
+  const mine = dashboardInsights(store, '1', { userId: sara.id, variant: 'Employee' }, 30);
+  assert.equal(kpi(mine, 'on-time').value, null);
+
+  const c = store.createContact({ companyId: '1', kind: 'Organization', name: 'Today Co', roles: ['Client'] });
+  const base = dashboardInsights(store, '1', { userId: 'x', variant: 'Accountant' }, 30);
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  invoice(store, c, 250, ago(3), today);
+  const out = dashboardInsights(store, '1', { userId: 'x', variant: 'Accountant' }, 30);
+  assert.equal(out.forecast.overdueIncoming - base.forecast.overdueIncoming, 0, 'due today is not late');
+  assert.equal(out.forecast.weeks[0].incoming - base.forecast.weeks[0].incoming, 250, 'it is in this week');
+  assert.equal(out.forecast.weeks[0].from, today.toISOString().slice(0, 10), 'the first week starts today');
+
+  const project = store.createProject({ name: 'Priv', description: '', color: '#fff', companyId: '1', visibility: 'Public' });
+  store.createTask({ title: 'Private', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: '1', projectId: project.id, assignedUserIds: [sara.id], isPrivate: true, ownerId: sara.id });
+  const team = dashboardInsights(store, '1', { userId: 'x', variant: 'Manager' }, 30).team;
+  assert.ok(!team.some((r) => r.userId === sara.id), 'a private task is not counted for others');
+});

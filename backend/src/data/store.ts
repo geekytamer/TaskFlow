@@ -5398,6 +5398,11 @@ export class DataStore {
         id: '148_flexi_manage_grants',
         run: () => this.grantRuleToSystemGroups(RECORD_RULES.FLEXI_MANAGE),
       },
+      {
+        // The dashboard reads a company's task trail on every refresh.
+        id: '149_activity_entity_index',
+        run: () => this.db.exec('CREATE INDEX IF NOT EXISTS idx_activity_events_company_entity ON activity_events (companyId, entityType, entityId);'),
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -7455,6 +7460,14 @@ export class DataStore {
     return rows.map((r) => this.decodeTask(r, parts, checklists));
   }
 
+  /** One company's tasks, without reading every company's. */
+  listCompanyTasks(companyId: string): Task[] {
+    const rows = this.db.prepare('SELECT * FROM tasks WHERE companyId = ?').all(companyId) as any[];
+    const parts = this.taskParts.byTask();
+    const checklists = this.taskChecklist.counts();
+    return rows.map((r) => this.decodeTask(r, parts, checklists));
+  }
+
   getTaskById(id: string): Task | undefined {
     const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as any;
     if (!row) return undefined;
@@ -7712,7 +7725,7 @@ export class DataStore {
         entityId: taskId,
         action: 'updated',
         summary: `${who}: part ${changes.status}.`,
-        metadata: { projectId: task.projectId, part: userId, status: changes.status },
+        metadata: { projectId: task.projectId, part: userId, status: changes.status, taskStatus: derived },
       });
       if (changes.status === 'Done') {
         const stillWorking = parts.filter((p) => p.status !== 'Done').map((p) => p.userId);
@@ -19851,12 +19864,29 @@ export class DataStore {
       .map((r) => ({ billId: r.billId, amount: Number(r.amount) || 0, paidAt: new Date(r.paidAt) }));
   }
 
-  /** When each task was last marked Done, read from its activity trail. */
+  /**
+   * When each task was finished, read from its activity trail: the first Done
+   * after the last time it was open, so a later rename or reassignment (which
+   * records the status again) does not move it, and a reopened task counts
+   * from its new finish. A part event speaks for the task through taskStatus.
+   * Insert order (rowid) decides, since events can share a millisecond.
+   */
   taskCompletionTimes(companyId: string): Map<string, Date> {
     const rows = this.db.prepare(
-      `SELECT entityId, MAX(createdAt) AS doneAt FROM activity_events
-        WHERE companyId = ? AND entityType = 'task' AND json_valid(metadata) AND json_extract(metadata, '$.status') = 'Done'
-        GROUP BY entityId`,
+      `WITH ev AS (
+         SELECT rowid AS rid, entityId, createdAt,
+                CASE WHEN json_extract(metadata, '$.part') IS NULL THEN json_extract(metadata, '$.status')
+                     ELSE json_extract(metadata, '$.taskStatus') END AS s
+           FROM activity_events
+          WHERE companyId = ? AND entityType = 'task' AND json_valid(metadata)
+       ),
+       lastOpen AS (SELECT entityId, MAX(rid) AS r FROM ev WHERE s IS NOT NULL AND s != 'Done' GROUP BY entityId),
+       firstDone AS (
+         SELECT ev.entityId, MIN(ev.rid) AS r FROM ev LEFT JOIN lastOpen lo ON lo.entityId = ev.entityId
+          WHERE ev.s = 'Done' AND (lo.r IS NULL OR ev.rid > lo.r)
+          GROUP BY ev.entityId
+       )
+       SELECT ev.entityId, ev.createdAt AS doneAt FROM firstDone fd JOIN ev ON ev.rid = fd.r`,
     ).all(companyId) as Array<{ entityId: string; doneAt: string }>;
     return new Map(rows.map((r) => [r.entityId, new Date(r.doneAt)]));
   }

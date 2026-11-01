@@ -20,7 +20,8 @@ const STALE_DAYS = 14;
 
 export interface InsightKpi {
   id: string;
-  value: number;
+  /** null when there is nothing to measure yet (no dated task finished). */
+  value: number | null;
   /** The same figure over the window before; null when it has no meaning. */
   previous: number | null;
   format: 'currency' | 'number' | 'percent' | 'days';
@@ -34,7 +35,8 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const pct = (part: number, whole: number) => (whole > 0 ? r1((part / whole) * 100) : 0);
 const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-const endOfDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + DAY - 1;
+const dayStart = (t: number) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+const endOfDay = (d: Date) => dayStart(d.getTime()) + DAY - 1;
 
 export function dashboardInsights(
   store: DataStore,
@@ -63,7 +65,7 @@ export function dashboardInsights(
   });
 
   const kpis: InsightKpi[] = [];
-  const result: Record<string, unknown> = { days, currency: companyCurrency(store, companyId), variant: viewer.variant };
+  const result: Record<string, unknown> = { companyId, days, currency: companyCurrency(store, companyId), variant: viewer.variant };
 
   if (finance && on('invoices')) {
     const invoices = store.listInvoices(companyId).filter((i) => i.status !== 'Draft');
@@ -110,24 +112,26 @@ export function dashboardInsights(
       { id: 'receivables', value: receivables, previous: null, format: 'currency', sub: { kind: 'dso', value: dso } },
     );
 
-    // The next 30 days, a week at a time: what clients are due to pay and what is due to suppliers.
-    // Anything already overdue is shown apart, not folded into the first week.
+    // The next 30 days from today, a week at a time: what clients are due to pay and what is due to
+    // suppliers. Anything due before today is overdue and shown apart, not folded into the first week.
     const bills = on('vendor-bills') ? store.listVendorBills(companyId).filter((b) => b.status !== 'Draft' && b.status !== 'Paid') : [];
-    const weekStart = (k: number) => nowMs + k * 7 * DAY;
+    const today = dayStart(nowMs);
+    const dayOf = (at: Date | string) => Math.floor((dayStart(new Date(at).getTime()) - today) / DAY);
     const dueIn = (at: Date | string, k: number) => {
-      const t = new Date(at).getTime();
-      return t >= weekStart(k) - DAY && t < (k === 3 ? nowMs + 30 * DAY : weekStart(k + 1) - DAY);
+      const d = dayOf(at);
+      return d >= k * 7 && d < (k === 3 ? 30 : (k + 1) * 7);
     };
+    const late = (at: Date | string) => dayOf(at) < 0;
     const owed = (i: (typeof invoices)[number]) => Math.max(0, i.outstandingAmount ?? 0) * (i.exchangeRate || 1);
     const payable = (b: (typeof bills)[number]) => Math.max(0, b.outstandingAmount ?? b.amount);
     result.forecast = {
       weeks: [0, 1, 2, 3].map((k) => ({
-        from: new Date(weekStart(k)).toISOString().slice(0, 10),
+        from: new Date(today + k * 7 * DAY).toISOString().slice(0, 10),
         incoming: r3(invoices.filter((i) => owed(i) > 0 && dueIn(i.dueDate, k)).reduce((n, i) => n + owed(i), 0)),
         outgoing: r3(bills.filter((b) => payable(b) > 0 && dueIn(b.dueDate, k)).reduce((n, b) => n + payable(b), 0)),
       })),
-      overdueIncoming: r3(invoices.filter((i) => owed(i) > 0 && new Date(i.dueDate).getTime() < nowMs - DAY).reduce((n, i) => n + owed(i), 0)),
-      overdueOutgoing: r3(bills.filter((b) => payable(b) > 0 && new Date(b.dueDate).getTime() < nowMs - DAY).reduce((n, b) => n + payable(b), 0)),
+      overdueIncoming: r3(invoices.filter((i) => owed(i) > 0 && late(i.dueDate)).reduce((n, i) => n + owed(i), 0)),
+      overdueOutgoing: r3(bills.filter((b) => payable(b) > 0 && late(b.dueDate)).reduce((n, b) => n + payable(b), 0)),
     };
 
     // Who brought in the most over the window.
@@ -167,7 +171,7 @@ export function dashboardInsights(
   }
 
   if ((operations || personal) && on('tasks')) {
-    const all = store.listTasks().filter((t) => t.companyId === companyId);
+    const all = store.listCompanyTasks(companyId);
     const tasks = personal ? all.filter((t) => t.assignedUserIds?.includes(viewer.userId)) : all;
     const doneAt = store.taskCompletionTimes(companyId);
     const completedIn = (from: number, to: number) => tasks.filter((t) => {
@@ -182,7 +186,7 @@ export function dashboardInsights(
     const donePrev = completedIn(prevStart, start);
     kpis.push(
       { id: 'tasks-done', value: done.length, previous: donePrev.length, format: 'number', spark: points.map((p) => completedIn(p.from, p.end).length) },
-      { id: 'on-time', value: onTimeRate(done) ?? 0, previous: onTimeRate(donePrev), format: 'percent', sub: { kind: 'count', value: done.filter((t) => t.dueDate).length } },
+      { id: 'on-time', value: onTimeRate(done), previous: onTimeRate(donePrev), format: 'percent', sub: { kind: 'count', value: done.filter((t) => t.dueDate).length } },
     );
 
     // Created against finished, a week at a time over the last 8 weeks.
@@ -197,10 +201,11 @@ export function dashboardInsights(
     });
 
     if (operations) {
-      // Open work per person, and how much of it is late.
+      // Open work per person, and how much of it is late. Private tasks and archived projects stay out.
+      const archived = new Set(store.listProjects().filter((p) => p.companyId === companyId && p.status === 'Archived').map((p) => p.id));
       const load = new Map<string, { open: number; overdue: number }>();
       for (const t of all) {
-        if (t.status === 'Done') continue;
+        if (t.status === 'Done' || t.isPrivate || archived.has(t.projectId)) continue;
         for (const uid of t.assignedUserIds ?? []) {
           const row = load.get(uid) ?? { open: 0, overdue: 0 };
           row.open += 1;

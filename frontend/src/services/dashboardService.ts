@@ -89,7 +89,8 @@ export type InsightPeriod = 30 | 90 | 365;
 
 export interface InsightKpi {
   id: 'revenue' | 'collected' | 'net-cash' | 'receivables' | 'won-deals' | 'tasks-done' | 'on-time';
-  value: number;
+  /** null when there is nothing to measure yet. */
+  value: number | null;
   previous: number | null;
   format: 'currency' | 'number' | 'percent' | 'days';
   spark?: number[];
@@ -97,6 +98,7 @@ export interface InsightKpi {
 }
 
 export interface DashboardInsights {
+  companyId: string;
   days: InsightPeriod;
   currency: string;
   variant: 'Admin' | 'Manager' | 'Accountant' | 'Employee';

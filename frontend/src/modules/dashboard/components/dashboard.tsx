@@ -295,6 +295,8 @@ export function Dashboard() {
   const [days, setDays] = React.useState<InsightPeriod>(30);
   const [insights, setInsights] = React.useState<DashboardInsights | null>(null);
   const [pulse, setPulse] = React.useState(0);
+  // Only the latest request for the current company and period may land.
+  const insightsRequest = React.useRef(0);
   const { currencyCode } = useCompanyCurrency();
   const [payload, setPayload] = React.useState<DashboardPayload | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -326,23 +328,24 @@ export function Dashboard() {
 
   // The period figures load on their own, so switching the period does not reload the page.
   React.useEffect(() => {
+    const ticket = ++insightsRequest.current;
     if (!selectedCompany) { setInsights(null); return; }
-    let active = true;
+    setInsights((current) => (current && current.companyId === selectedCompany.id ? current : null));
     getDashboardInsights(selectedCompany.id, days)
-      .then((data) => { if (active) setInsights(data); })
-      .catch(() => { if (active) setInsights(null); });
-    return () => { active = false; };
+      .then((data) => { if (ticket === insightsRequest.current) setInsights(data); })
+      .catch(() => { if (ticket === insightsRequest.current) setInsights(null); });
   }, [selectedCompany, days]);
 
   // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
   useLiveRefresh('*', async () => {
     if (!selectedCompany) return;
+    const ticket = ++insightsRequest.current;
     const [data, fresh] = await Promise.all([
       getDashboardPayload(selectedCompany.id).catch(() => null),
       getDashboardInsights(selectedCompany.id, days).catch(() => null),
     ]);
-    if (data) setPayload(data);
-    if (fresh) setInsights(fresh);
+    if (data && data.companyId === selectedCompany.id) setPayload(data);
+    if (fresh && ticket === insightsRequest.current) setInsights(fresh);
     if (data || fresh) setPulse((n) => n + 1);
   });
 
@@ -483,7 +486,7 @@ export function Dashboard() {
 
       <OnboardingChecklist />
 
-      {insights && <DashboardInsightsView data={insights} tr={tr} language={language} />}
+      {insights && insights.companyId === selectedCompany.id && <DashboardInsightsView data={insights} tr={tr} language={language} />}
 
       {metrics.length > 0 && (
         <section className="tf-rise space-y-2" style={{ animationDelay: '320ms' }} data-tutorial="dash-primary-metric">
