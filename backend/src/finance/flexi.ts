@@ -334,11 +334,21 @@ export class FlexiStore {
 
   events(contactId: string): FlexiEvent[] {
     return (this.db.prepare('SELECT * FROM flexi_events WHERE contactId = ? ORDER BY createdAt DESC, rowid DESC').all(contactId) as any[])
-      .map((row) => ({
+      .map((row) => this.decodeEvent(row));
+  }
+
+  /** The latest events across the company, for the overview. */
+  recentEvents(companyId: string, limit: number): Array<FlexiEvent & { contactId: string }> {
+    return (this.db.prepare('SELECT * FROM flexi_events WHERE companyId = ? ORDER BY createdAt DESC, rowid DESC LIMIT ?').all(companyId, limit) as any[])
+      .map((row) => ({ ...this.decodeEvent(row), contactId: row.contactId }));
+  }
+
+  private decodeEvent(row: any): FlexiEvent {
+    return ({
         id: row.id, kind: row.kind, amountBefore: row.amountBefore, amountAfter: row.amountAfter, upfrontPct: row.upfrontPct, maxMonths: row.maxMonths,
         note: row.note, actorUserId: row.actorUserId, actorPortalUserId: row.actorPortalUserId,
         actorName: row.actorUserId ? this.deps.userName(row.actorUserId) ?? null : null, applicationId: row.applicationId, createdAt: row.createdAt,
-      }));
+      });
   }
 
   private companyOf(contactId: string): string {

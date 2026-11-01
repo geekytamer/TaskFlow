@@ -205,3 +205,50 @@ test('client requests carry the pay choice and the Flexi balance check', async (
   assert.deepEqual(byTitle['No account'].flexi, { state: null, available: 0, flag: 'no_account' });
   assert.deepEqual([byTitle.Cash.payWith, byTitle.Cash.flexi], ['full', { state: null, available: 0, flag: null }]);
 });
+
+test('overview analytics: KPIs with comparisons, trend, applications by month, utilisation, funnel, top clients, overdue', async () => {
+  const ctx = build();
+  const day = 86_400_000;
+  const a = ctx.client('Al Noor Dates');
+  const b = ctx.client('Sidr Honey');
+  const c = ctx.client('Waves Gym');
+  ctx.enable(a.id, 1000);
+  ctx.enable(b.id, 3000);
+  const rejected = ctx.apply(c.id);
+  ctx.store.flexi.reject(rejected.id, { reviewNote: 'No', reviewerId: ctx.manager.id });
+  // b was approved 120 days ago, so the previous 90-day period already had it.
+  ctx.store.db.prepare("UPDATE flexi_events SET createdAt = ? WHERE contactId = ? AND kind = 'approved'").run(new Date(Date.now() - 120 * day).toISOString(), b.id);
+  ctx.store.db.prepare('UPDATE flexi_applications SET createdAt = ?, reviewedAt = ? WHERE contactId = ?').run(new Date(Date.now() - 121 * day).toISOString(), new Date(Date.now() - 120 * day).toISOString(), b.id);
+
+  // a owes 900 on an invoice that was due 10 days ago.
+  const clientId = ctx.store.getContactById(a.id).clientId;
+  const inv = await request(ctx.server).post('/invoices').set(ctx.as(ctx.admin)).send({
+    companyId: ctx.company.id, clientId, issueDate: new Date(Date.now() - 40 * day).toISOString(), dueDate: new Date(Date.now() - 10 * day).toISOString(),
+    status: 'Sent', taxRate: 0, lineItems: [{ itemType: 'Manual', description: 'Reel', quantity: 1, unitPrice: 900, amount: 900 }],
+  });
+  assert.equal(inv.status, 201, JSON.stringify(inv.body));
+
+  // A website lead that was invited and applied counts through the funnel.
+  ctx.store.createContact({ companyId: ctx.company.id, kind: 'Organization', name: 'Lead Only', email: 'lead@x.test', roles: ['Lead'], tags: ['peak-flexi'] });
+
+  const res = await request(ctx.server).get(`${ctx.base}/overview?days=90`).set(ctx.as(ctx.manager));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const o = res.body;
+  assert.equal(o.days, 90);
+  assert.deepEqual([o.kpis.balance.value, o.kpis.balance.previous], [4000, 3000]);
+  assert.deepEqual([o.kpis.used.value, o.kpis.utilisation.value], [900, 22.5]);
+  assert.deepEqual(o.kpis.overdue, { amount: 900, invoices: 1, clients: 1 });
+  assert.deepEqual([o.kpis.approvalRate.approved, o.kpis.approvalRate.decided, o.kpis.approvalRate.value], [1, 2, 50]);
+  assert.equal(typeof o.kpis.avgDecisionDays.value, 'number');
+  assert.equal(o.trend.length, 6);
+  assert.equal(o.trend.at(-1).approved, 4000);
+  assert.equal(o.trend.at(-1).used, 900);
+  assert.equal(o.applicationsByMonth.at(-1).approved + o.applicationsByMonth.at(-1).rejected, 2);
+  assert.deepEqual(o.utilisation.map((u) => u.count), [1, 0, 0, 1, 0]);
+  assert.deepEqual(o.funnel, { website: 1, invited: 0, applied: 0, activated: 0 });
+  assert.deepEqual(o.topClients.map((t) => t.name), ['Al Noor Dates', 'Sidr Honey']);
+  assert.equal(o.concentration.name, 'Sidr Honey');
+  assert.equal(o.concentration.share, 75);
+  assert.ok(o.recentEvents.length >= 3);
+  assert.equal((await request(ctx.server).get(`${ctx.base}/overview?days=7`).set(ctx.as(ctx.manager))).status, 400);
+});

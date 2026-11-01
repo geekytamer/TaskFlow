@@ -7,6 +7,7 @@ import type { CampaignRequestRecord } from './requests-store';
 import type { StaffRequest } from './staff-routes';
 import type { PortalUser } from './portal-store';
 import { companyCurrency } from './common';
+import { flexiOverview, OVERVIEW_PERIODS } from './flexi-overview';
 
 const STALE_MS = 2 * 86_400_000;
 const NEAR_LIMIT = 0.8;
@@ -83,7 +84,10 @@ export function registerStaffFlexiSectionRoutes(
     const sum = (key: 'balance' | 'used' | 'available') => Math.round(live.reduce((n, a) => n + a[key], 0) * 1000) / 1000;
     const waiting = store.flexi.list(companyId, { status: 'new' });
     const now = Date.now();
+    const days = req.query.days === undefined ? 30 : Number(req.query.days);
+    if (!(OVERVIEW_PERIODS as readonly number[]).includes(days)) throw new HttpError(400, 'days must be 30, 90 or 365.');
     res.json({
+      ...flexiOverview(store, companyId, days, now),
       currency: companyCurrency(store, companyId),
       totals: {
         balance: sum('balance'), used: sum('used'), available: sum('available'),
