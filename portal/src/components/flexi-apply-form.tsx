@@ -11,7 +11,7 @@ import { FilePicker, type UploadedFile } from './file-picker';
  * Asks PEAK for a Peak Flexi balance: activation with the commercial
  * registration, or an increase with a 3-month statement and solvency papers.
  */
-export function FlexiApplyForm({ lang, kind, balance, currency }: { lang: Lang; kind: FlexiKind; balance: number; currency: string }) {
+export function FlexiApplyForm({ lang, kind, balance, currency, terms }: { lang: Lang; kind: FlexiKind; balance: number; currency: string; terms: { version: number; ar: string; en: string } }) {
   const router = useRouter();
   const [crNumber, setCrNumber] = useState('');
   const [amount, setAmount] = useState('');
@@ -19,6 +19,7 @@ export function FlexiApplyForm({ lang, kind, balance, currency }: { lang: Lang; 
   const [crCopy, setCrCopy] = useState<UploadedFile[]>([]);
   const [statement, setStatement] = useState<UploadedFile[]>([]);
   const [solvency, setSolvency] = useState<UploadedFile[]>([]);
+  const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const input = 'h-12 w-full rounded-control border border-white/[0.16] bg-transparent px-4 text-[16px] outline-none focus:border-accent';
@@ -29,6 +30,7 @@ export function FlexiApplyForm({ lang, kind, balance, currency }: { lang: Lang; 
     const wanted = Number(amount);
     if (kind === 'activation' && (!crNumber.trim() || crCopy.length === 0)) return setError(t(lang, 'fx.errCr'));
     if (kind === 'increase' && (!(wanted > balance) || statement.length === 0 || solvency.length === 0)) return setError(t(lang, 'fx.errIncrease'));
+    if (!accepted) return setError(t(lang, 'fx.errTerms'));
     setBusy(true);
     setError(null);
     try {
@@ -36,8 +38,8 @@ export function FlexiApplyForm({ lang, kind, balance, currency }: { lang: Lang; 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(kind === 'activation'
-          ? { kind, crNumber: crNumber.trim(), note: note.trim() || undefined, fileIds: crCopy.map((f) => f.id) }
-          : { kind, requestedAmount: wanted, note: note.trim() || undefined, fileIds: [...statement, ...solvency].map((f) => f.id) }),
+          ? { kind, crNumber: crNumber.trim(), note: note.trim() || undefined, fileIds: crCopy.map((f) => f.id), termsVersion: terms.version }
+          : { kind, requestedAmount: wanted, note: note.trim() || undefined, fileIds: [...statement, ...solvency].map((f) => f.id), termsVersion: terms.version }),
       });
       if (response.ok) {
         router.push('/');
@@ -86,6 +88,18 @@ export function FlexiApplyForm({ lang, kind, balance, currency }: { lang: Lang; 
       <div>
         <label htmlFor="fx-note" className={label}>{t(lang, 'fx.note')}</label>
         <textarea id="fx-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} rows={3} className="w-full rounded-control border border-white/[0.16] bg-transparent px-4 py-3 text-[16px] outline-none focus:border-accent" />
+      </div>
+      <div className="space-y-3 rounded-[18px] border border-white/[0.08] p-4">
+        <details>
+          <summary className="cursor-pointer text-sm font-semibold text-accent">{t(lang, 'fx.termsShow')}</summary>
+          <div className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-[12px] bg-white/[0.03] p-3 text-sm leading-relaxed text-ink-soft" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+            {lang === 'ar' ? terms.ar : terms.en}
+          </div>
+        </details>
+        <label className="flex items-start gap-3 text-sm font-semibold">
+          <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--brand)]" />
+          <span>{t(lang, 'fx.termsAccept')}</span>
+        </label>
       </div>
       {error && <p role="alert" className="text-sm font-semibold text-red-300">{error}</p>}
       <button type="submit" disabled={busy} className="inline-flex h-12 w-full items-center justify-center rounded-control bg-accent px-6 text-[16px] font-bold text-accent-ink transition-colors hover:bg-accent/90 disabled:opacity-60 sm:w-auto">

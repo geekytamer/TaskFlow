@@ -22,19 +22,22 @@ export interface FlexiApplication {
 }
 
 export interface FlexiData {
-  balance: { enabled: boolean; balance: number; used: number; available: number; upfrontPct: number; maxMonths: number };
+  balance: { enabled: boolean; state: 'active' | 'frozen' | 'closed' | null; balance: number; used: number; available: number; upfrontPct: number; maxMonths: number };
   currency: string;
   open: FlexiApplication | null;
   last: FlexiApplication | null;
+  /** The terms the client must accept to apply; the version goes back with the application. */
+  terms: { version: number; ar: string; en: string };
+  standardAmount: number;
 }
 
-export type FlexiCardState = 'none' | 'pending' | 'enabled' | 'rejected';
+export type FlexiCardState = 'none' | 'pending' | 'enabled' | 'frozen' | 'rejected';
 
 export const FLEXI_STANDARD = 850;
 
 /** Which face of the home card to show. An enabled balance always wins; an open increase shows inside it. */
 export function flexiCardState(data: FlexiData): FlexiCardState {
-  if (data.balance.enabled) return 'enabled';
+  if (data.balance.enabled) return data.balance.state === 'frozen' ? 'frozen' : 'enabled';
   if (data.open) return 'pending';
   if (data.last?.status === 'rejected') return 'rejected';
   return 'none';

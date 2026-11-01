@@ -12,10 +12,11 @@ export default async function FlexiIncreasePage() {
   const data = await getFlexi();
   if (data.open) redirect('/');
   if (!data.balance.enabled) redirect('/flexi/activate');
+  if (data.balance.state === 'frozen') redirect('/');
   return (
     <div className="max-w-2xl space-y-8">
       <PageHeader back={{ href: '/', label: t(lang, 'fx.back') }} title={t(lang, 'fx.increaseTitle')} subtitle={t(lang, 'fx.increaseSubtitle')} />
-      <FlexiApplyForm lang={lang} kind="increase" balance={data.balance.balance} currency={data.currency} />
+      <FlexiApplyForm lang={lang} kind="increase" balance={data.balance.balance} currency={data.currency} terms={data.terms} />
     </div>
   );
 }
