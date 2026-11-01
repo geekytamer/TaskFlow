@@ -287,6 +287,7 @@ export type FlexiStatus = 'new' | 'approved' | 'rejected' | 'withdrawn';
 
 export interface FlexiBalance {
   enabled: boolean;
+  state: 'active' | 'frozen' | 'closed' | null;
   balance: number;
   used: number;
   available: number;

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { getContactFlexi, type FlexiBalance, type StaffFlexiApplication } from '@/services/portalAccessService';
-import { FlexiStatusBadge, flexiKindLabel, fmtMoney } from '@/modules/portal-access/components/flexi-applications-page';
+import { FlexiStatusBadge, flexiKindLabel, fmtMoney } from '@/modules/flexi/components/flexi-applications-page';
 
 /** A client's Peak Flexi balance and its application history, for reviewers. */
 export function FlexiSection({ contactId }: { contactId: string }) {
@@ -44,8 +44,13 @@ export function FlexiSection({ contactId }: { contactId: string }) {
           </dl>
         )}
         {open && (
-          <Link href={`/crm/flexi?id=${open.id}`} className="block rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <Link href={`/flexi/applications?id=${open.id}`} className="block rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
             {tr('An application is waiting for review. Open it', 'فيه طلب ينتظر المراجعة. افتحه')}
+          </Link>
+        )}
+        {balance.state && (
+          <Link href={`/flexi/accounts/${contactId}`} className="inline-block text-sm font-medium text-primary underline-offset-4 hover:underline">
+            {tr('Open the Peak Flexi account', 'افتح حساب بيك فلكسي')}
           </Link>
         )}
         <ul className="divide-y rounded-lg border text-sm">

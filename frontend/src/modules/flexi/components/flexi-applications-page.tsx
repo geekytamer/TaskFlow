@@ -88,7 +88,7 @@ export function FlexiApplicationsPage() {
     return () => window.removeEventListener(DATA_CHANGED_EVENT, refresh);
   }, [load]);
 
-  const setOpen = (id: string | null) => router.replace(id ? `/crm/flexi?id=${encodeURIComponent(id)}` : '/crm/flexi', { scroll: false });
+  const setOpen = (id: string | null) => router.replace(id ? `/flexi/applications?id=${encodeURIComponent(id)}` : '/flexi/applications', { scroll: false });
   const matches = (a: StaffFlexiApplication, t: Tab) => t === 'all' || (t === 'new' ? a.status === 'new' : a.status !== 'new');
   const count = (t: Tab) => (apps ?? []).filter((a) => matches(a, t)).length;
   const shown = (apps ?? []).filter((a) => matches(a, tab));

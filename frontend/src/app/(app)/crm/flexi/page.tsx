@@ -1,33 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { useI18n } from '@/context/i18n-context';
-import { useAuthGuard } from '@/hooks/use-auth-guard';
-import { FlexiApplicationsPage } from '@/modules/portal-access/components/flexi-applications-page';
-import { useCanReviewFlexi } from '@/modules/portal-access/lib/use-can-review-flexi';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function FlexiApplicationsRoute() {
-  const { user, loading } = useAuthGuard();
-  const canManage = useCanReviewFlexi();
-  const { t } = useI18n();
+/** The review page moved into the Peak Flexi section; old links (notifications) still land on it. */
+function Redirect() {
+  const router = useRouter();
+  const id = useSearchParams().get('id');
+  React.useEffect(() => {
+    router.replace(id ? `/flexi/applications?id=${encodeURIComponent(id)}` : '/flexi/applications');
+  }, [id, router]);
+  return null;
+}
 
-  if (loading || !user) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground">{t('common.loading')}</p>
-      </div>
-    );
-  }
-  if (!canManage) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <p className="text-muted-foreground">{t('auth.operationsOnly')}</p>
-      </div>
-    );
-  }
-  return (
-    <React.Suspense fallback={null}>
-      <FlexiApplicationsPage />
-    </React.Suspense>
-  );
+export default function OldFlexiRoute() {
+  return <React.Suspense fallback={null}><Redirect /></React.Suspense>;
 }

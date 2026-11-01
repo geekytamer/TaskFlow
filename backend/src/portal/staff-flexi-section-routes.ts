@@ -42,6 +42,7 @@ export function registerStaffFlexiSectionRoutes(
   const accountDto = (contactId: string, balance: FlexiBalance = store.flexi.balanceOf(contactId)) => ({
     contactId,
     name: store.getContactById(contactId)?.name ?? '',
+    currency: companyCurrency(store, store.getContactById(contactId)?.companyId ?? ''),
     balance: balance.balance,
     used: balance.used,
     available: balance.available,
@@ -63,7 +64,7 @@ export function registerStaffFlexiSectionRoutes(
         : null;
     return {
       id: r.id, contactId: r.contactId, clientName: store.getContactById(r.contactId)?.name ?? '', title: r.title, budget: r.budget,
-      payWith: r.payWith, available: balance.available, accountState: balance.state, flag, createdAt: r.createdAt, closed: !!r.closedAt,
+      payWith: r.payWith, currency: companyCurrency(store, companyId), available: balance.available, accountState: balance.state, flag, createdAt: r.createdAt, closed: !!r.closedAt,
     };
   };
 

@@ -89,6 +89,7 @@ test('accounts: list, filter, and the account file', async () => {
   const all = await request(ctx.server).get(`${ctx.base}/accounts`).set(ctx.as(ctx.manager));
   assert.deepEqual(all.body.map((x) => [x.name, x.state, x.balance]).sort(), [['Al Noor Dates', 'active', 1000], ['Sidr Honey', 'frozen', 500]]);
   assert.ok(all.body[0].since);
+  assert.equal(all.body[0].currency, 'USD');
   const frozen = await request(ctx.server).get(`${ctx.base}/accounts?state=frozen`).set(ctx.as(ctx.manager));
   assert.deepEqual(frozen.body.map((x) => x.name), ['Sidr Honey']);
 
