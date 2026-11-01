@@ -3,7 +3,7 @@ import type { RecordRuleName } from './record-rules';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { MODULES, isValidPermission } from './catalogue';
-import { ALWAYS_ON_MODULES } from './company-modules';
+import { ALWAYS_ON_MODULES, FEATURE_MODULES, MODULE_AREAS, MODULE_PRESETS } from './company-modules';
 import { projectCompanyDelta, syncTuples } from './sync';
 import { tuplesForStore } from './tuples';
 
@@ -137,7 +137,15 @@ export function registerPermissionRoutes(deps: PermissionRoutesDeps): void {
 
   // ── Catalogue ──────────────────────────────────────────────────────
   app.get('/permissions/catalogue', authMiddleware as never, handler((_req, res) => {
-    res.json({ modules: MODULES, alwaysOnModules: [...ALWAYS_ON_MODULES] });
+    res.json({
+      modules: MODULES,
+      alwaysOnModules: [...ALWAYS_ON_MODULES],
+      // For choosing a company's modules: features beside the permission
+      // modules, the areas the owner sees them in, and the starting presets.
+      featureModules: FEATURE_MODULES.map((f) => f.key),
+      moduleAreas: MODULE_AREAS,
+      modulePresets: MODULE_PRESETS,
+    });
   }));
 
   // ── The current user's own permissions ─────────────────────────────

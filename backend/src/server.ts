@@ -28,7 +28,7 @@ import {
   type FgaReader,
 } from './permissions/permission-service';
 import { recordShadowCheck, routeToPermission, recordDivergence } from './permissions/shadow';
-import { RECORD_ENTITY_MODULES } from './permissions/company-modules';
+import { featureForRoute, moduleName, RECORD_ENTITY_MODULES } from './permissions/company-modules';
 import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
 import { projectCompanyDelta, type TupleStore } from './permissions/sync';
@@ -991,9 +991,14 @@ export function createServer(options: CreateServerOptions = {}) {
    * for everyone in it, admins included, whatever their groups grant.
    */
   const moduleOff = (module: string) =>
-    new HttpError(403, `The ${module} module is turned off for this company.`);
+    new HttpError(403, `${moduleName(module)} is turned off for this company.`, { code: 'MODULE_OFF', module });
   const requireModuleOn = (companyId: string, module: string) => {
     if (!store.isModuleEnabled(companyId, module)) throw moduleOff(module);
+  };
+  /** A feature with no permissions of its own (the inbox, follow-ups...) is found from the route's path. */
+  const requireFeatureOn = (req: AuthedRequest, companyId: string) => {
+    const feature = featureForRoute(req.route?.path ?? req.path);
+    if (feature) requireModuleOn(companyId, feature);
   };
 
   const authMiddleware = (req: AuthedRequest, _res: Response, next: NextFunction) => {
@@ -1013,6 +1018,8 @@ export function createServer(options: CreateServerOptions = {}) {
     if (routePath && companyParam) {
       const mapping = routeToPermission(req.method, routePath);
       if (mapping && !store.isModuleEnabled(companyParam, mapping.module)) return next(moduleOff(mapping.module));
+      const feature = featureForRoute(routePath);
+      if (feature && !store.isModuleEnabled(companyParam, feature)) return next(moduleOff(feature));
     }
 
     if (authzEngine === 'legacy') return next();
@@ -1066,6 +1073,8 @@ export function createServer(options: CreateServerOptions = {}) {
     if (!req.user || !canAccessCompany(req.user, companyId)) {
       throw new HttpError(403, 'You do not have access to this company.');
     }
+    // Every route block passes here (test: ungated routes), record routes included.
+    requireFeatureOn(req, companyId);
     requireAcademyUnlocked(req, companyId);
   };
 
@@ -1084,6 +1093,8 @@ export function createServer(options: CreateServerOptions = {}) {
     if (req.method === 'GET' || req.method === 'HEAD') return;
     const user = req.user;
     if (!user || user.isSuperAdmin || store.isTrainingCompany(companyId)) return;
+    // A company that switched the Academy off has no training locks.
+    if (!store.isModuleEnabled(companyId, 'academy')) return;
     const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
     if (!mapping) return;
     const cached = req as AuthedRequest & { academyLocked?: Set<string> };
@@ -7935,6 +7946,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerPushActionRoutes(app, {
     store,
     contactsLocked: (user, companyId) => academyEnforce && !user.isSuperAdmin && !store.isTrainingCompany(companyId)
+      && store.isModuleEnabled(companyId, 'academy')
       && academyLockedModules(store, user).includes('contacts'),
   });
 

@@ -95,6 +95,11 @@ test('only the platform administrator switches modules, and only switchable ones
 
   const catalogue = await request(app).get('/permissions/catalogue').set('Authorization', adminAuth);
   assert.deepEqual([...catalogue.body.alwaysOnModules].sort(), ['dashboard', 'settings']);
+
+  // The admin page opens a company to edit its modules, membership or not.
+  const opened = await request(app).get(`/companies/${created.body.id}`).set('Authorization', superAuth);
+  assert.equal(opened.status, 200);
+  assert.deepEqual(opened.body.disabledModules, ['crm']);
 });
 
 for (const engine of ['legacy', 'openfga']) {
@@ -262,4 +267,61 @@ test('the management report leaves out switched-off modules', () => {
   assert.deepEqual(summary.lowStockItems, []);
   assert.equal(summary.purchases.openOrders, 0);
   assert.deepEqual(summary.topSuppliers, []);
+});
+
+test('every switchable module sits in exactly one area, and presets name only switchable modules', async () => {
+  const { app, adminAuth } = build();
+  const { modules, alwaysOnModules, featureModules, moduleAreas, modulePresets } =
+    (await request(app).get('/permissions/catalogue').set('Authorization', adminAuth)).body;
+  const switchable = [...modules.map((m) => m.key).filter((k) => !alwaysOnModules.includes(k)), ...featureModules].sort();
+  assert.deepEqual(moduleAreas.flatMap((a) => a.modules).sort(), switchable);
+  assert.deepEqual(featureModules.sort(), ['academy', 'flexi', 'followups', 'inbox', 'influencers']);
+  assert.deepEqual(modulePresets.map((p) => p.key), ['everything', 'factory', 'agency', 'trading', 'services']);
+  for (const preset of modulePresets) {
+    assert.ok(preset.disabledModules.every((k) => switchable.includes(k)), `${preset.key} names real modules`);
+  }
+});
+
+test('features without permissions of their own are refused by path, record routes included', async () => {
+  const ctx = build();
+  const { app, store, adminAuth, superAuth } = ctx;
+  const get = (url) => request(app).get(url).set('Authorization', adminAuth);
+  const contact = store.createContact({ companyId: COMPANY, kind: 'Organization', name: 'Al Noor', roles: ['Client'] });
+  const followup = await request(app).post(`/companies/${COMPANY}/followups`).set('Authorization', adminAuth)
+    .send({ entityId: contact.id, title: 'Call back', dueAt: new Date(Date.now() + 86400000).toISOString() });
+  assert.equal(followup.status, 201, followup.text);
+
+  const urls = {
+    inbox: `/companies/${COMPANY}/inbox`,
+    teamChats: `/companies/${COMPANY}/team-chats`,
+    followups: `/companies/${COMPANY}/followups`,
+    portalUsers: `/companies/${COMPANY}/portal-users`,
+    flexi: `/companies/${COMPANY}/flexi/overview`,
+  };
+  for (const [name, url] of Object.entries(urls)) {
+    assert.equal((await get(url)).status, 200, `${name} is on to begin with`);
+  }
+
+  const created = await request(app).post('/companies').set('Authorization', superAuth)
+    .send({ name: 'Plain Factory', disabledModules: ['inbox', 'followups', 'influencers', 'flexi'] });
+  assert.equal(created.status, 201, created.text);
+  assert.deepEqual(created.body.disabledModules, ['flexi', 'followups', 'inbox', 'influencers']);
+
+  assert.equal((await switchOff(ctx, ['flexi', 'followups', 'inbox', 'influencers'])).status, 200);
+  for (const [name, url] of Object.entries(urls)) {
+    const res = await get(url);
+    assert.equal(res.status, 403, `${name} is refused`);
+    assert.equal(res.body.code, 'MODULE_OFF');
+  }
+  const refused = await get(urls.followups);
+  assert.equal(refused.body.module, 'followups');
+  assert.match(refused.body.message, /^Follow-ups is turned off for this company\.$/);
+  const record = await request(app).post(`/followups/${followup.body.id}/done`).set('Authorization', adminAuth).send({});
+  assert.equal(record.status, 403, 'a record route finds its company and is refused too');
+  assert.equal((await get(`/companies/${COMPANY}/contacts`)).status, 200, 'the rest of the company is untouched');
+
+  assert.equal((await switchOff(ctx, [])).status, 200);
+  for (const [name, url] of Object.entries(urls)) {
+    assert.equal((await get(url)).status, 200, `${name} is back on`);
+  }
 });

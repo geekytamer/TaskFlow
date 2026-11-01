@@ -138,7 +138,8 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
     '/companies/:id',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyAccess(req, req.params.id);
+      // Super admins see every company in the list, so they may open any of them too.
+      if (!req.user!.isSuperAdmin) requireCompanyAccess(req, req.params.id);
       const company = store.getCompanyById(req.params.id);
       if (!company) throw new HttpError(404, 'Company not found.');
       res.json(company);

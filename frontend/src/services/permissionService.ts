@@ -9,6 +9,18 @@ export interface PermissionModule {
   actions: string[];
 }
 
+/** A business area of company modules, as the owner chooses them. */
+export interface ModuleArea {
+  key: string;
+  modules: string[];
+}
+
+/** A starting set of modules for a kind of company, as the modules it leaves off. */
+export interface ModulePreset {
+  key: string;
+  disabledModules: string[];
+}
+
 export interface PermissionGroup {
   id: string;
   companyId: string;
@@ -38,7 +50,13 @@ export function fetchMyPermissions(companyId: string) {
 }
 
 export function fetchCatalogue() {
-  return apiFetch<{ modules: PermissionModule[]; alwaysOnModules?: string[] }>('/permissions/catalogue');
+  return apiFetch<{
+    modules: PermissionModule[];
+    alwaysOnModules?: string[];
+    featureModules?: string[];
+    moduleAreas?: ModuleArea[];
+    modulePresets?: ModulePreset[];
+  }>('/permissions/catalogue');
 }
 
 export function fetchPermissionGroups(companyId: string) {

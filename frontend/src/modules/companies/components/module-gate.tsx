@@ -6,7 +6,7 @@ import { PowerOff } from 'lucide-react';
 import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { moduleLabel } from '@/modules/permissions/lib/labels';
-import { moduleForPath } from '../lib/company-modules';
+import { modulesForPath } from '../lib/company-modules';
 
 /**
  * Stands in for a page whose module the company has switched off. The server
@@ -16,8 +16,8 @@ export function ModuleGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { moduleOn } = usePermissions();
   const { t, language } = useI18n();
-  const pageModule = pathname ? moduleForPath(pathname) : undefined;
-  if (!pageModule || moduleOn(pageModule)) return <>{children}</>;
+  const pageModule = pathname ? modulesForPath(pathname).find((m) => !moduleOn(m)) : undefined;
+  if (!pageModule) return <>{children}</>;
   const name = moduleLabel(pageModule, t);
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-24 text-center" data-testid="module-off">

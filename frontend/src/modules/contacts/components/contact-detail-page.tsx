@@ -18,7 +18,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissionOr, usePermissions } from '@/context/permissions-context';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
@@ -81,7 +81,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
     'pricing.read',
     currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant',
   );
-  const canSeeWorkspace = usePermissionOr('contacts', 'contacts.workspace.read', currentRole === 'Admin' || currentRole === 'Manager');
+  const { moduleOn } = usePermissions();
+  const canSeeWorkspace = usePermissionOr('contacts', 'contacts.workspace.read', currentRole === 'Admin' || currentRole === 'Manager')
+    && moduleOn('influencers');
   const canReviewFlexi = useCanReviewFlexi();
   const canManagePortal = useCanManagePortal();
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
@@ -301,7 +303,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         </Card>
       )}
 
-      {selectedCompany?.id && <ContactConversation companyId={selectedCompany.id} contactId={c.id} />}
+      {selectedCompany?.id && moduleOn('inbox') && <ContactConversation companyId={selectedCompany.id} contactId={c.id} />}
 
       {/* Portal access: invite this contact to the influencer or client portal, where staff look for it first. */}
       {canManagePortal && (['Influencer', 'Client'] as const).filter((r) => (c.roles || []).includes(r)).map((r) => (
