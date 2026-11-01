@@ -45,6 +45,8 @@ export function registerStaffRequestRoutes(
       requester: requester ? { name: requester.name, email: requester.email } : null,
       createdAt: record.createdAt,
       budget: record.budget,
+      payWith: record.payWith,
+      flexi: store.flexi.requestCheck(record.contactId, record.payWith, record.budget),
       currency: companyCurrency(store, record.companyId),
       startDate: record.startDate,
       endDate: record.endDate,

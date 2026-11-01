@@ -57,14 +57,10 @@ export function registerStaffFlexiSectionRoutes(
 
   /** A campaign request as the section sees it: against the client's balance. */
   const requestDto = (companyId: string, r: CampaignRequestRecord) => {
-    const balance = store.flexi.balanceOf(r.contactId);
-    const hasAccount = balance.enabled;
-    const flag = r.payWith === 'flexi' && !hasAccount ? 'no_account' as const
-      : hasAccount && r.budget !== null && r.budget > balance.available ? 'over_budget' as const
-        : null;
+    const { state, available, flag } = store.flexi.requestCheck(r.contactId, r.payWith, r.budget);
     return {
       id: r.id, contactId: r.contactId, clientName: store.getContactById(r.contactId)?.name ?? '', title: r.title, budget: r.budget,
-      payWith: r.payWith, currency: companyCurrency(store, companyId), available: balance.available, accountState: balance.state, flag, createdAt: r.createdAt, closed: !!r.closedAt,
+      payWith: r.payWith, currency: companyCurrency(store, companyId), available, accountState: state, flag, createdAt: r.createdAt, closed: !!r.closedAt,
     };
   };
 

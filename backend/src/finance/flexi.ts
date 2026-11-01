@@ -241,6 +241,19 @@ export class FlexiStore {
     return { enabled, state: state ?? 'active', balance, used, available, upfrontPct, maxMonths, clientId: client.id };
   }
 
+  /**
+   * A campaign request against the client's balance: over_budget when an
+   * account holder asks for more than is available, no_account when someone
+   * without an active balance chose to pay from one.
+   */
+  requestCheck(contactId: string, payWith: 'full' | 'flexi', budget: number | null): { state: FlexiState | null; available: number; flag: 'over_budget' | 'no_account' | null } {
+    const balance = this.balanceOf(contactId);
+    const flag = payWith === 'flexi' && !balance.enabled ? 'no_account'
+      : balance.enabled && budget !== null && budget > balance.available ? 'over_budget'
+        : null;
+    return { state: balance.state, available: balance.available, flag };
+  }
+
   /** Contacts with a Peak Flexi account in any state (active, frozen or closed). */
   accountContactIds(companyId: string): string[] {
     return (this.db.prepare(

@@ -88,6 +88,6 @@ export function useCompanyLoad<T>(companyId: string | undefined, load: (companyI
 export function RequestLink({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
   const canOpen = useCanManagePortal();
   return canOpen
-    ? <Link href={`/crm/client-requests?open=${encodeURIComponent(id)}`} className={className}>{children}</Link>
+    ? <Link href={`/flexi/requests?open=${encodeURIComponent(id)}`} className={className}>{children}</Link>
     : <div className={className}>{children}</div>;
 }

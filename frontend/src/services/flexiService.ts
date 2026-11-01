@@ -102,7 +102,6 @@ export const adjustFlexiAccount = (companyId: string, contactId: string, body: {
   post<FlexiAccount>(`${base(companyId)}/accounts/${encodeURIComponent(contactId)}/adjust`, body);
 export const setFlexiAccountState = (companyId: string, contactId: string, action: 'freeze' | 'unfreeze' | 'close', reason: string) =>
   post<FlexiAccount>(`${base(companyId)}/accounts/${encodeURIComponent(contactId)}/${action}`, { reason });
-export const listFlexiRequests = (companyId: string) => apiFetch<FlexiRequest[]>(`${base(companyId)}/requests`);
 export const listFlexiLeads = (companyId: string) => apiFetch<FlexiLead[]>(`${base(companyId)}/leads`);
 export const inviteFlexiLead = (companyId: string, contactId: string) =>
   post<{ userId: string; emailSent: boolean; inviteLink: string }>(`${base(companyId)}/leads/${encodeURIComponent(contactId)}/invite`, {});

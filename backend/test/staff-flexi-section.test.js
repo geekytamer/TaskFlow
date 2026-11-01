@@ -189,3 +189,19 @@ test("another company's contact ids give 404 on every account and lead route; an
     assert.equal((await request(ctx.server).get(`${ctx.base}/${url}`).set(ctx.as(ctx.employee))).status, 403, url);
   }
 });
+
+test('client requests carry the pay choice and the Flexi balance check', async () => {
+  const ctx = build();
+  const a = ctx.client('Al Noor Dates');
+  const b = ctx.client('Plain Client');
+  ctx.enable(a.id, 1000);
+  request_(ctx, a.id, 5000, 'flexi', 'Too big');
+  request_(ctx, b.id, 300, 'flexi', 'No account');
+  request_(ctx, b.id, 300, 'full', 'Cash');
+  const res = await request(ctx.server).get(`/companies/${ctx.company.id}/portal-requests`).set(ctx.as(ctx.manager));
+  assert.equal(res.status, 200);
+  const byTitle = Object.fromEntries(res.body.map((r) => [r.title, r]));
+  assert.deepEqual([byTitle['Too big'].payWith, byTitle['Too big'].flexi], ['flexi', { state: 'active', available: 1000, flag: 'over_budget' }]);
+  assert.deepEqual(byTitle['No account'].flexi, { state: null, available: 0, flag: 'no_account' });
+  assert.deepEqual([byTitle.Cash.payWith, byTitle.Cash.flexi], ['full', { state: null, available: 0, flag: null }]);
+});
