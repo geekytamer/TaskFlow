@@ -335,6 +335,7 @@ const seedRecordPerResource = (store, company, userId) => {
   const customField = store.createCustomFieldDefinition({ companyId: company, entityType: 'contact', label: 'Seed field', fieldType: 'text' });
   const [discoverProfile] = store.discover.addHandles(company, ['seed.handle']);
   const wsContact = store.workspace.addContact({ companyId: company, ownerContactId: contact.id }, { name: 'Seed brand', kind: 'brand' });
+  const projectTemplate = store.projectPlan.saveTemplate(company, 'Seed template', { description: '', color: '#888888', visibility: 'Public', memberIds: [], budget: null, lengthDays: null, milestones: [], tasks: [] }, userId);
 
   return {
     'sales-orders': order.id, quotations: quotation.id, invoices: invoice.id, 'sub:payments': payment.id,
@@ -352,6 +353,7 @@ const seedRecordPerResource = (store, company, userId) => {
     'campaign-deliverables': deliverable.id, 'campaign-assignments': campaignAssignment.id, 'campaign-expenses': campaignExpense.id,
     'discover-profiles': discoverProfile.id, 'custom-fields': customField.id, 'sub:members': userId,
     approvals: 'purchase_order', 'sub:approvals': 'po-1',
+    'project-templates': projectTemplate.id,
   };
 };
 

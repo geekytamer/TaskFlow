@@ -36,6 +36,13 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/crm/campaigns': 'campaigns.view',
   '/crm/followups': 'crm.view',
   '/crm/client-requests': 'portal.view',
+  // Peak Flexi: reviewing applications and balances; client requests are the portal's.
+  '/flexi': 'invoices.flexi_review',
+  '/flexi/applications': 'invoices.flexi_review',
+  '/flexi/accounts': 'invoices.flexi_review',
+  '/flexi/requests': 'portal.handle_requests',
+  '/flexi/leads': 'invoices.flexi_review',
+  '/flexi/settings': 'invoices.flexi_review',
   '/crm/vendor-requests': 'crm.view',
   '/crm/performance': 'crm.view_performance',
   '/crm/pipeline': 'crm.view',

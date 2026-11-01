@@ -48,11 +48,13 @@ const ALL: readonly UserRole[] = ['Admin', 'Manager', 'Accountant', 'Employee'];
 const MGMT: readonly UserRole[] = ['Admin', 'Manager', 'Accountant']; // companyManagementRoles
 const AM: readonly UserRole[] = ['Admin', 'Manager'];
 const A: readonly UserRole[] = ['Admin'];
+const AC: readonly UserRole[] = ['Admin', 'Accountant'];
 
 export const ROUTES: readonly RouteDecl[] = [
   // ─── dashboard ─────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/search', permission: 'dashboard.view', legacyRoles: ALL },
   { method: 'GET', path: '/companies/:companyId/dashboard', permission: 'dashboard.view', legacyRoles: ALL },
+  { method: 'GET', path: '/companies/:companyId/dashboard/insights', permission: 'dashboard.view', note: 'any role in the company; which figures follow DASHBOARD_OPERATIONS_READ / DASHBOARD_FINANCE_READ like the dashboard' },
 
   // ─── sales ─────────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/sales-orders', permission: 'sales.view', legacyRoles: MGMT },
@@ -175,6 +177,18 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'DELETE', path: '/projects/:id', permission: 'projects.delete', legacyRoles: AM },
   { method: 'POST', path: '/projects/:id/members', permission: 'projects.edit', legacyRoles: AM },
   { method: 'DELETE', path: '/projects/:id/members/:userId', permission: 'projects.edit', legacyRoles: AM },
+  // Project plan (routes/project-plan.ts): stages, summary, postpone, complete, templates.
+  { method: 'GET', path: '/projects/:id/milestones', permission: 'per_record', note: 'a project I can see (canViewProject)' },
+  { method: 'POST', path: '/projects/:id/milestones', permission: 'projects.edit', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'PATCH', path: '/projects/:id/milestones/:milestoneId', permission: 'projects.edit', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'DELETE', path: '/projects/:id/milestones/:milestoneId', permission: 'projects.edit', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'GET', path: '/projects/:id/summary', permission: 'per_record', note: 'a project I can see; budget against spend only with finance.view' },
+  { method: 'POST', path: '/projects/:id/postpone', permission: 'projects.edit', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'POST', path: '/projects/:id/complete', permission: 'projects.edit', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'GET', path: '/companies/:companyId/project-templates', permission: 'projects.create', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'POST', path: '/projects/:id/template', permission: 'projects.create', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'POST', path: '/project-templates/:id/projects', permission: 'projects.create', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
+  { method: 'DELETE', path: '/project-templates/:id', permission: 'projects.create', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
 
   // ─── tasks ─────────────────────────────────────────────────────────────────
   { method: 'GET', path: '/tasks', permission: 'per_record', note: 'tasks.view (scoped): assignee, visible project, or TASKS_ALL_READ (requireTaskViewAccess)' },
@@ -188,6 +202,12 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/tasks/:taskId/time-entries', permission: 'per_record', note: 'tasks.view (scoped): assignee, visible project, or TASKS_ALL_READ (requireTaskViewAccess)' },
   { method: 'DELETE', path: '/time-entries/:id', permission: 'per_record', note: 'own entries, or tasks.delete_time (TIME_ENTRIES_DELETE_OTHERS) for other people\'s' },
   { method: 'DELETE', path: '/tasks/:id', permission: 'tasks.delete', legacyRoles: ALL },
+  // Parts and checklists (routes/task-parts.ts, routes/task-checklist.ts).
+  { method: 'PATCH', path: '/tasks/:id/parts/:userId', permission: 'per_record', note: 'a task I can see; my own part, or any part for its owner, an Admin or a Manager' },
+  { method: 'GET', path: '/tasks/:id/checklist', permission: 'per_record', note: 'a task I can see (canViewTask)' },
+  { method: 'POST', path: '/tasks/:id/checklist', permission: 'per_record', note: 'a task I can see (canViewTask)' },
+  { method: 'PATCH', path: '/tasks/:id/checklist/:itemId', permission: 'per_record', note: 'a task I can see (canViewTask)' },
+  { method: 'DELETE', path: '/tasks/:id/checklist/:itemId', permission: 'per_record', note: 'a task I can see (canViewTask)' },
 
   // ─── documents ─────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/document-templates', permission: 'documents.view', legacyRoles: MGMT },
@@ -452,6 +472,9 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/portal-api/client/catalogue/:contactId', permission: 'portal' },
   { method: 'GET', path: '/portal-api/client/catalogue/:contactId/photo', permission: 'portal' },
   { method: 'GET', path: '/portal-api/client/requests', permission: 'portal' },
+  { method: 'GET', path: '/portal-api/client/flexi', permission: 'portal' },
+  { method: 'POST', path: '/portal-api/client/flexi/applications', permission: 'portal' },
+  { method: 'POST', path: '/portal-api/client/flexi/applications/:id/withdraw', permission: 'portal' },
   { method: 'GET', path: '/portal-api/client/requests/:id', permission: 'portal' },
   { method: 'POST', path: '/portal-api/client/requests', permission: 'portal' },
   { method: 'GET', path: '/portal-api/client/proposals', permission: 'portal' },
@@ -566,6 +589,26 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/companies/:companyId/portal-requests/:id', permission: 'portal.view', legacyRoles: AM, note: 'PORTAL_ACCESS_MANAGE' },
   { method: 'POST', path: '/companies/:companyId/portal-requests/:id/close', permission: 'portal.handle_requests', legacyRoles: AM, note: 'PORTAL_ACCESS_MANAGE' },
   { method: 'POST', path: '/companies/:companyId/portal-requests/:id/reopen', permission: 'portal.handle_requests', legacyRoles: AM, note: 'PORTAL_ACCESS_MANAGE' },
+
+  // ─── Peak Flexi (portal/staff-flexi-routes.ts, staff-flexi-section-routes.ts) ─
+  { method: 'GET', path: '/companies/:companyId/flexi-applications', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/flexi-applications/:id', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/flexi-applications/:id/files/:fileId/content', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'POST', path: '/companies/:companyId/flexi-applications/:id/approve', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'POST', path: '/companies/:companyId/flexi-applications/:id/reject', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/contacts/:contactId/flexi', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/flexi/overview', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/flexi/accounts', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/flexi/accounts/:contactId', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'POST', path: '/companies/:companyId/flexi/accounts/:contactId/adjust', permission: 'invoices.flexi_manage', legacyRoles: AC, legacyOverride: true, note: 'FLEXI_MANAGE (Peak Flexi account changes)' },
+  { method: 'POST', path: '/companies/:companyId/flexi/accounts/:contactId/freeze', permission: 'invoices.flexi_manage', legacyRoles: AC, legacyOverride: true, note: 'FLEXI_MANAGE (Peak Flexi account changes)' },
+  { method: 'POST', path: '/companies/:companyId/flexi/accounts/:contactId/unfreeze', permission: 'invoices.flexi_manage', legacyRoles: AC, legacyOverride: true, note: 'FLEXI_MANAGE (Peak Flexi account changes)' },
+  { method: 'POST', path: '/companies/:companyId/flexi/accounts/:contactId/close', permission: 'invoices.flexi_manage', legacyRoles: AC, legacyOverride: true, note: 'FLEXI_MANAGE (Peak Flexi account changes)' },
+  { method: 'GET', path: '/companies/:companyId/flexi/requests', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'GET', path: '/companies/:companyId/flexi/leads', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'POST', path: '/companies/:companyId/flexi/leads/:contactId/invite', permission: 'invoices.flexi_manage', legacyRoles: AC, legacyOverride: true, note: 'FLEXI_MANAGE (Peak Flexi account changes)' },
+  { method: 'GET', path: '/companies/:companyId/flexi/settings', permission: 'invoices.flexi_review', legacyRoles: MGMT, legacyOverride: true, note: 'FLEXI_REVIEW (Peak Flexi staff router gate)' },
+  { method: 'PUT', path: '/companies/:companyId/flexi/settings', permission: 'invoices.flexi_manage', legacyRoles: AC, legacyOverride: true, note: 'FLEXI_MANAGE (Peak Flexi account changes)' },
 
   // ─── discover ──────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/discover', permission: 'discover.view', legacyRoles: AM, note: 'DISCOVER_MANAGE, portal company only' },
@@ -738,6 +781,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/social/meta/data-deletion', permission: 'public', note: 'Meta: OAuth state / signed request / verify token' },
   { method: 'GET', path: '/social/meta/webhook', permission: 'public', note: 'Meta: OAuth state / signed request / verify token' },
   { method: 'POST', path: '/social/meta/webhook', permission: 'public', note: 'Meta: OAuth state / signed request / verify token' },
+  { method: 'POST', path: '/public-api/join', permission: 'public', note: 'the Peak Flexi application form on the website' },
   { method: 'GET', path: '/public-api/games', permission: 'public' },
   { method: 'GET', path: '/public-api/games/:slug', permission: 'public' },
   { method: 'GET', path: '/public-api/kit/:slug', permission: 'public' },
@@ -817,9 +861,11 @@ export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },
   PORTAL_ACCESS_MANAGE: { becomes: 'portal.* / influencers.review (portal staff router gate)', sites: { 'src/server.ts': 1 } },
   INVOICES_CREDIT_OVERRIDE: { becomes: 'invoices.override_credit', sites: { 'src/server.ts': 1 } },
+  FLEXI_REVIEW: { becomes: 'invoices.flexi_review (Peak Flexi staff router gate)', sites: { 'src/server.ts': 1 } },
+  FLEXI_MANAGE: { becomes: 'invoices.flexi_manage (Peak Flexi account changes)', sites: { 'src/server.ts': 1 } },
   TIME_ENTRIES_DELETE_OTHERS: { becomes: 'tasks.delete_time', sites: { 'src/server.ts': 1 } },
-  DASHBOARD_OPERATIONS_READ: { becomes: 'dashboard.view_operations', sites: { 'src/server.ts': 1 } },
-  DASHBOARD_FINANCE_READ: { becomes: 'dashboard.view_finance', sites: { 'src/server.ts': 1 } },
+  DASHBOARD_OPERATIONS_READ: { becomes: 'dashboard.view_operations', sites: { 'src/server.ts': 2 } },
+  DASHBOARD_FINANCE_READ: { becomes: 'dashboard.view_finance', sites: { 'src/server.ts': 2 } },
   // Scope rules (own vs company). The read-scope rules (PROJECTS_ALL_READ,
   // TASKS_ALL_READ, CONTACTS_PRIVATE_READ, CAMPAIGNS_ALL_READ,
   // COMMISSIONS_ALL_READ, WHATSAPP_PRIVATE_READ, and CRM_ALL_READ for lists)

@@ -35,7 +35,7 @@ import { SCOPE_LABELS, fieldsOut, grantsOut, levelPresets, permissionLabel, summ
 import { validateRole, type RoleView } from './authz-store';
 import { roleGuards } from './guards';
 import { MODULES } from '../permissions/catalogue';
-import { ALWAYS_ON_MODULES } from '../permissions/company-modules';
+import { ALWAYS_ON_MODULES, FEATURE_MODULES, MODULE_AREAS, MODULE_PRESETS } from '../permissions/company-modules';
 
 export interface AuthzRouteExtras {
   /** Academy-locked modules for this person in this company ([] when not enforced). */
@@ -197,6 +197,11 @@ export function registerAuthzRoutes(app: Express, ctx: RouteContext, extras: Aut
       // (removed with them, Tasks 11/12).
       modules: MODULES,
       alwaysOnModules: [...ALWAYS_ON_MODULES],
+      // For choosing a company's modules: features beside the permission
+      // modules, the areas the owner sees them in, and the starting presets.
+      featureModules: FEATURE_MODULES.map((f) => f.key),
+      moduleAreas: MODULE_AREAS,
+      modulePresets: MODULE_PRESETS,
     });
   }));
 

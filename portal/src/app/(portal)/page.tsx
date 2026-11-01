@@ -10,6 +10,8 @@ import { getMessages } from '@/lib/messages';
 import { getCalendar } from '@/lib/workspace';
 import { requireMe } from '@/lib/portal';
 import { getProposals } from '@/lib/requests';
+import { flexiCardState, getFlexi } from '@/lib/flexi';
+import { FlexiCard } from '@/components/flexi-card';
 import { currentLang } from '@/lib/session';
 
 export default async function Home() {
@@ -43,7 +45,7 @@ export default async function Home() {
     return <Dashboard me={me} lang={lang} audience={audience} assignments={assignments} attention={attention} payouts={payouts.slice(0, 3)} />;
   }
 
-  const [proposals, campaigns, invoices, messages] = await Promise.all([getProposals(), getCampaigns(), getInvoices(), getMessages()]);
+  const [proposals, campaigns, invoices, messages, flexi] = await Promise.all([getProposals(), getCampaigns(), getInvoices(), getMessages(), getFlexi().catch(() => null)]);
   const now = Date.now();
   const unpaid = invoices.filter((i) => i.status !== 'paid' && i.outstanding > 0);
   const overdue = unpaid.filter((i) => i.status === 'overdue');
@@ -57,6 +59,6 @@ export default async function Home() {
   const balances = owed.map((b) => ({ currency: b.currency, outstanding: b.amount, overdue: late.find((l) => l.currency === b.currency)?.amount ?? 0 }));
   const lastTeamMessage = [...messages].reverse().find((m) => m.author.kind === 'team') ?? null;
   return (
-    <ClientHome lang={lang} firstName={me.user.name.split(/\s+/)[0]} items={items} campaigns={campaigns} balances={balances} lastTeamMessage={lastTeamMessage} markSrc={process.env.PORTAL_MARK_URL || null} />
+    <ClientHome lang={lang} firstName={me.user.name.split(/\s+/)[0]} items={items} campaigns={campaigns} balances={balances} lastTeamMessage={lastTeamMessage} markSrc={process.env.PORTAL_MARK_URL || null} flexi={flexi ? <FlexiCard lang={lang} data={flexi} state={flexiCardState(flexi)} /> : null} />
   );
 }

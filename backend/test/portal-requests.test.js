@@ -301,3 +301,15 @@ test('staff can close a request with a reason the client reads, and reopen it', 
   assert.equal(reopened.body.status, 'in_review');
   assert.equal((await request(ctx.server).get(`/portal-api/client/requests/${sent.body.id}`).set(omar)).body.closedReason, null);
 });
+
+test('the pay choice is stored as data, defaults to full, and rejects anything else', async () => {
+  const ctx = build();
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test', 'Omar Al Noor');
+  const flexi = await submit(ctx, omar, { ...BRIEF, payWith: 'flexi' });
+  assert.equal(flexi.status, 201, JSON.stringify(flexi.body));
+  assert.equal(flexi.body.payWith, 'flexi');
+  assert.equal(ctx.store.requests.get(flexi.body.id).payWith, 'flexi');
+  const plain = await submit(ctx, omar, { ...BRIEF, title: 'Second' });
+  assert.equal(plain.body.payWith, 'full');
+  assert.equal((await submit(ctx, omar, { ...BRIEF, title: 'Third', payWith: 'credit' })).status, 400);
+});

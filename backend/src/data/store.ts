@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
+import { FLEXI_REVIEW_TRIGGER, FLEXI_SCHEMA, FLEXI_SECTION_SCHEMA, FlexiStore } from '../finance/flexi';
 import { SEED_MATRIX } from '../permissions/seed-matrix';
 import { RECORD_RULES } from '../permissions/record-rules';
 import { normalizeDisabledModules, RECORD_ENTITY_MODULES } from '../permissions/company-modules';
@@ -32,6 +33,10 @@ import { AcademyStore } from '../academy/academy-store';
 import { readStoredBranding } from '../branding';
 import { TeamChatStore, TEAM_CHAT_SCHEMA } from '../teamchat/team-chat-store';
 import { PasswordTokenStore, PASSWORD_TOKEN_SCHEMA } from '../auth/password-tokens';
+import { nextDueDate } from '../tasks/task-recurrence';
+import { ProjectPlanStore, PROJECT_PLAN_SCHEMA, dayOffset, shiftDays, type ProjectTemplate, type TemplateBody } from '../projects/project-plan';
+import { TaskChecklistStore, TASK_CHECKLIST_SCHEMA } from '../tasks/task-checklist';
+import { TaskPartStore, TASK_PARTS_SCHEMA, partStatusFor, taskStatusFromParts, type PartStatus, type TaskPart } from '../tasks/task-parts';
 import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
@@ -392,6 +397,8 @@ type CreatePurchaseRequisitionInput = {
   notes?: string;
   preferredSupplierId?: string;
 };
+/** Tasks of an archived project are put away: no reminders or alerts for them. */
+const NOT_ARCHIVED = "(projectId IS NULL OR projectId = '' OR projectId NOT IN (SELECT id FROM projects WHERE status = 'Archived'))";
 type CreateExpenseInput = {
   companyId: string;
   expenseDate?: Date | string;
@@ -722,6 +729,7 @@ export class DataStore {
   readonly recurring: RecurringStore;
   readonly bank: BankReconciliationStore;
   readonly assets: FixedAssetStore;
+  readonly flexi: FlexiStore;
   readonly quality: QualityStore;
   readonly coldChain: ColdChainStore;
   readonly shipments: ShipmentStore;
@@ -732,6 +740,9 @@ export class DataStore {
   readonly push: PushStore;
   readonly teamChats: TeamChatStore;
   readonly passwordTokens: PasswordTokenStore;
+  readonly taskParts: TaskPartStore;
+  readonly taskChecklist: TaskChecklistStore;
+  readonly projectPlan: ProjectPlanStore;
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
@@ -777,6 +788,20 @@ export class DataStore {
     this.recurring = new RecurringStore(this.db);
     this.bank = new BankReconciliationStore(this.db);
     this.assets = new FixedAssetStore(this.db);
+    this.flexi = new FlexiStore(this.db, {
+      ensureClientFor: (contactId) => this.ensureClientRowForContact(contactId),
+      exposure: (clientId) => this.clientCreditExposure(clientId),
+      attach: (fileIds, parent, owner) => this.thread.attach(fileIds, parent, owner),
+      recordActivity: ({ companyId, contactId, actorUserId, action, summary }) => {
+        this.createActivityEvent({ companyId, actorUserId, actorName: this.getUserById(actorUserId)?.name, entityType: 'contact', entityId: contactId, action, summary });
+      },
+      closeReview: (app, userId) => {
+        this.listFollowupEntities(app.companyId, { status: 'active', entityType: 'contact', entityId: app.contactId })
+          .filter((f) => f.sourceTrigger === FLEXI_REVIEW_TRIGGER && f.sourceId === app.id)
+          .forEach((f) => this.completeFollowup(f.id, { outcome: 'done', completedByUserId: userId }));
+      },
+      userName: (userId) => this.getUserById(userId)?.name,
+    });
     this.quality = new QualityStore(this.db);
     this.coldChain = new ColdChainStore(this.db);
     this.shipments = new ShipmentStore(this.db);
@@ -787,6 +812,9 @@ export class DataStore {
     this.push = new PushStore(this.db);
     this.teamChats = new TeamChatStore(this.db);
     this.passwordTokens = new PasswordTokenStore(this.db);
+    this.taskParts = new TaskPartStore(this.db);
+    this.taskChecklist = new TaskChecklistStore(this.db);
+    this.projectPlan = new ProjectPlanStore(this.db);
     this.social = new SocialStore(this.db);
     this.discover = new DiscoverStore(this.db);
     this.alerts = new PortalAlertsStore(this.db);
@@ -5267,12 +5295,144 @@ export class DataStore {
         },
       },
       {
+        // A task shared by several people gets a part each, in the state the task is in.
+        id: '139_task_parts',
+        run: () => {
+          this.db.exec(TASK_PARTS_SCHEMA);
+          // Migrations run before the store's helpers exist, so this one makes its own.
+          const parts = new TaskPartStore(this.db);
+          const tasks = this.db.prepare('SELECT id, status, assignedUserIds FROM tasks').all() as Array<{ id: string; status: string; assignedUserIds: string | null }>;
+          for (const task of tasks) {
+            const people = this.parseJson<string[]>(task.assignedUserIds) || [];
+            if (people.length >= 2) parts.sync(task.id, people, partStatusFor(task.status));
+          }
+        },
+      },
+      {
+        // Checklists inside tasks (tasks/task-checklist.ts).
+        id: '140_task_checklists',
+        run: () => {
+          this.db.exec(TASK_CHECKLIST_SCHEMA);
+        },
+      },
+      {
+        // Repeating tasks (tasks/task-recurrence.ts): the period, and the next round once made.
+        id: '141_task_recurrence',
+        run: () => {
+          this.db.exec('ALTER TABLE tasks ADD COLUMN recurrence TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN recurrenceNextId TEXT');
+        },
+      },
+      {
+        // Tasks that take several days: a start date, and when its two alerts went out.
+        id: '142_task_start_date',
+        run: () => {
+          this.db.exec('ALTER TABLE tasks ADD COLUMN startDate TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN startNotifiedAt TEXT');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN behindNotifiedAt TEXT');
+        },
+      },
+      {
+        // Project status, dates and budget; stages (milestones) and templates (projects/project-plan.ts).
+        id: '143_project_plan',
+        run: () => {
+          this.db.exec("ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'Active'");
+          this.db.exec('ALTER TABLE projects ADD COLUMN startDate TEXT');
+          this.db.exec('ALTER TABLE projects ADD COLUMN endDate TEXT');
+          this.db.exec('ALTER TABLE projects ADD COLUMN budget REAL');
+          this.db.exec('ALTER TABLE projects ADD COLUMN budgetAlertLevel INTEGER NOT NULL DEFAULT 0');
+          this.db.exec('ALTER TABLE tasks ADD COLUMN milestoneId TEXT');
+          this.db.exec(PROJECT_PLAN_SCHEMA);
+        },
+      },
+      {
+        // Project priority, and the first planned start of a project moved to a later date.
+        id: '144_project_priority_postpone',
+        run: () => {
+          this.db.exec("ALTER TABLE projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'Medium'");
+          this.db.exec('ALTER TABLE projects ADD COLUMN postponedFrom TEXT');
+        },
+      },
+      {
+        // Peak Flexi: the balance is clients.creditLimit; applications and their papers.
+        id: '145_peak_flexi_credit',
+        run: () => {
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiEnabled INTEGER NOT NULL DEFAULT 0');
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiUpfrontPct REAL');
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiMaxMonths INTEGER');
+          this.db.exec(FLEXI_SCHEMA);
+          this.db.exec(`
+            CREATE TABLE portal_files_new (
+              id           TEXT PRIMARY KEY,
+              companyId    TEXT NOT NULL,
+              contactId    TEXT NOT NULL,
+              uploaderKind TEXT NOT NULL,
+              portalUserId TEXT,
+              userId       TEXT,
+              fileName     TEXT NOT NULL,
+              mimeType     TEXT NOT NULL,
+              sizeBytes    INTEGER NOT NULL,
+              content      BLOB NOT NULL,
+              parentType   TEXT,
+              parentId     TEXT,
+              createdAt    TEXT NOT NULL,
+              CHECK (uploaderKind IN ('portal', 'staff')),
+              CHECK (mimeType IN ('application/pdf', 'image/png', 'image/jpeg', 'image/webp')),
+              CHECK (parentType IS NULL OR parentType IN ('message', 'request', 'flexi_application'))
+            );
+            INSERT INTO portal_files_new SELECT id, companyId, contactId, uploaderKind, portalUserId, userId, fileName, mimeType, sizeBytes, content, parentType, parentId, createdAt FROM portal_files;
+            DROP TABLE portal_files;
+            ALTER TABLE portal_files_new RENAME TO portal_files;
+            CREATE INDEX IF NOT EXISTS idx_portal_files_contact ON portal_files (companyId, contactId);
+            CREATE INDEX IF NOT EXISTS idx_portal_files_parent ON portal_files (parentType, parentId);
+          `);
+        },
+      },
+      {
+        // Existing companies' built-in groups get FLEXI_REVIEW, as 126 did for DISCOVER_MANAGE.
+        id: '146_flexi_review_grants',
+        run: () => this.grantRuleToSystemGroups(RECORD_RULES.FLEXI_REVIEW),
+      },
+      {
+        // The Peak Flexi section: settings, the account timeline, account state, terms acceptance, the pay choice on requests.
+        id: '147_peak_flexi_section',
+        run: () => {
+          this.db.exec(FLEXI_SECTION_SCHEMA);
+          this.db.exec('ALTER TABLE clients ADD COLUMN flexiState TEXT');
+          this.db.exec("UPDATE clients SET flexiState = 'active' WHERE flexiEnabled = 1");
+          this.db.exec('ALTER TABLE flexi_applications ADD COLUMN termsVersion INTEGER');
+          this.db.exec('ALTER TABLE flexi_applications ADD COLUMN termsAcceptedAt TEXT');
+          this.db.exec("ALTER TABLE portal_campaign_requests ADD COLUMN payWith TEXT NOT NULL DEFAULT 'full'");
+          // The timeline starts with what phase 1 already recorded.
+          const insert = this.db.prepare(
+            `INSERT INTO flexi_events (id, companyId, contactId, kind, amountBefore, amountAfter, upfrontPct, maxMonths, note, actorUserId, actorPortalUserId, applicationId, createdAt)
+             VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          );
+          (this.db.prepare('SELECT * FROM flexi_applications ORDER BY createdAt').all() as any[]).forEach((a) => {
+            insert.run(uuid(), a.companyId, a.contactId, 'applied', a.requestedAmount, null, null, null, null, a.createdBy, a.id, a.createdAt);
+            if (a.status !== 'new' && a.reviewedAt) {
+              const staff = a.status === 'withdrawn' ? null : a.reviewedBy;
+              insert.run(uuid(), a.companyId, a.contactId, a.status, a.status === 'approved' ? a.approvedAmount : null, a.upfrontPct, a.maxMonths, a.reviewNote, staff, a.status === 'withdrawn' ? a.createdBy : null, a.id, a.reviewedAt);
+            }
+          });
+        },
+      },
+      {
+        id: '148_flexi_manage_grants',
+        run: () => this.grantRuleToSystemGroups(RECORD_RULES.FLEXI_MANAGE),
+      },
+      {
+        // The dashboard reads a company's task trail on every refresh.
+        id: '149_activity_entity_index',
+        run: () => this.db.exec('CREATE INDEX IF NOT EXISTS idx_activity_events_company_entity ON activity_events (companyId, entityType, entityId);'),
+      },
+      {
         // Permissions v2 (spec 2026-10-16 §4 "Data"): roles with catalogue
         // grants, scopes and sensitive fields; main + add-on assignments;
         // holding groups; record shares; the permission audit. Legacy
         // group_permissions rows stay untouched for today's readers. The data
         // migration itself is store.authz.migrateAll() (idempotent).
-        id: '139_authz_v2',
+        id: '150_authz_v2',
         run: () => {
           const columns = (table: string) =>
             new Set((this.db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name));
@@ -5394,7 +5554,7 @@ export class DataStore {
         // they are, who manages them, their status or their company (a
         // WHEN guard skips no-op rewrites such as a name edit), so every
         // writer is covered (raw SQL included) and every process sees it.
-        id: '140_team_version',
+        id: '151_team_version',
         run: () => {
           this.db.exec(`
             CREATE TABLE IF NOT EXISTS team_versions (
@@ -5422,14 +5582,14 @@ export class DataStore {
       },
       {
         // Shadow-mode disagreements are pruned by age (store.pruneAuthzDivergences).
-        id: '141_authz_divergence_observed',
+        id: '152_authz_divergence_observed',
         run: () => {
           this.db.exec('CREATE INDEX IF NOT EXISTS idx_authz_divergence_observed ON authz_divergence (observedAt)');
         },
       },
       {
         // I-5: shadow also logs read-scope differences (kind 'scope', with both scopes).
-        id: '142_authz_divergence_kind',
+        id: '153_authz_divergence_kind',
         run: () => {
           const cols = (this.db.prepare('PRAGMA table_info(authz_divergence)').all() as Array<{ name: string }>).map((c) => c.name);
           if (!cols.includes('kind')) this.db.exec(`ALTER TABLE authz_divergence ADD COLUMN kind TEXT NOT NULL DEFAULT 'access'`);
@@ -7220,17 +7380,28 @@ export class DataStore {
 
   listProjects(): Project[] {
     const rows = this.db.prepare('SELECT * FROM projects').all() as any[];
-    return rows.map((r) => ({
-      ...r,
-      memberIds: this.parseJson<string[]>(r.memberIds) || [],
-      clientId: r.clientId || undefined,
-    }));
+    return rows.map((r) => this.decodeProject(r));
   }
 
   getProjectById(id: string): Project | undefined {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as any;
     if (!row) return undefined;
-    return { ...row, memberIds: this.parseJson<string[]>(row.memberIds) || [], clientId: row.clientId || undefined };
+    return this.decodeProject(row);
+  }
+
+  private decodeProject(row: any): Project {
+    const { budgetAlertLevel: _alert, ...rest } = row;
+    return {
+      ...rest,
+      memberIds: this.parseJson<string[]>(row.memberIds) || [],
+      clientId: row.clientId || undefined,
+      status: row.status || 'Active',
+      priority: row.priority || 'Medium',
+      postponedFrom: row.postponedFrom || undefined,
+      startDate: row.startDate || undefined,
+      endDate: row.endDate || undefined,
+      budget: row.budget ?? undefined,
+    };
   }
 
   createProject(project: Omit<Project, 'id'>): Project {
@@ -7244,9 +7415,14 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId)',
+        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId, status, priority, startDate, endDate, budget) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId, @status, @priority, @startDate, @endDate, @budget)',
       )
       .run({
+        status: newProject.status ?? 'Active',
+        priority: newProject.priority ?? 'Medium',
+        startDate: newProject.startDate ?? null,
+        endDate: newProject.endDate ?? null,
+        budget: newProject.budget ?? null,
         id: newProject.id,
         name: newProject.name,
         description: newProject.description,
@@ -7278,7 +7454,7 @@ export class DataStore {
       summary: `Project ${newProject.name} created${newProject.clientId ? ' with linked client' : ''}.`,
       metadata: { visibility: newProject.visibility, clientId: newProject.clientId },
     });
-    return newProject;
+    return this.getProjectById(newProject.id)!;
   }
 
   updateProject(id: string, changes: Partial<Omit<Project, 'id'>>) {
@@ -7295,12 +7471,20 @@ export class DataStore {
       clientId: updates.clientId ?? existing.clientId ?? undefined,
       description: updates.description ?? existing.description ?? null,
       color: updates.color ?? existing.color ?? null,
+      // null clears a date or the budget; undefined (not sent) keeps it.
+      status: changes.status ?? existing.status ?? 'Active',
+      priority: changes.priority ?? existing.priority ?? 'Medium',
+      startDate: changes.startDate !== undefined ? changes.startDate ?? null : existing.startDate ?? null,
+      endDate: changes.endDate !== undefined ? changes.endDate ?? null : existing.endDate ?? null,
+      budget: changes.budget !== undefined ? changes.budget ?? null : existing.budget ?? null,
     };
     this.db
       .prepare(
-        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId WHERE id=@id',
+        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId, status=@status, priority=@priority, startDate=@startDate, endDate=@endDate, budget=@budget WHERE id=@id',
       )
       .run(updated);
+    // A changed budget is judged afresh by the next budget sweep.
+    if (changes.budget !== undefined) this.db.prepare('UPDATE projects SET budgetAlertLevel = 0 WHERE id = ?').run(id);
     const result = {
       ...existing,
       ...updates,
@@ -7339,6 +7523,7 @@ export class DataStore {
       this.db.prepare('UPDATE crm_campaigns SET projectId = NULL WHERE projectId = ?').run(id);
       this.db.prepare('UPDATE inventory_issues SET projectId = NULL WHERE projectId = ?').run(id);
       this.deleteRecordAttachmentsFor('project', id);
+      this.projectPlan.removeProject(id);
       this.db.prepare('DELETE FROM tasks WHERE projectId = ?').run(id);
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
     });
@@ -7350,6 +7535,8 @@ export class DataStore {
     this.db.prepare('DELETE FROM time_entries WHERE taskId = ?').run(taskId);
     this.db.prepare('DELETE FROM comments WHERE taskId = ?').run(taskId);
     this.db.prepare("DELETE FROM contributions WHERE sourceType = 'task' AND sourceId = ?").run(taskId);
+    this.taskParts.removeTask(taskId);
+    this.taskChecklist.removeTask(taskId);
     this.db.prepare('UPDATE inventory_issues SET taskId = NULL WHERE taskId = ?').run(taskId);
     this.db.prepare('UPDATE tasks SET parentTaskId = NULL WHERE parentTaskId = ?').run(taskId);
     this.scrubIdFromJsonArray('tasks', 'dependencies', taskId);
@@ -7373,7 +7560,17 @@ export class DataStore {
 
   listTasks(): Task[] {
     const rows = this.db.prepare('SELECT * FROM tasks').all() as any[];
-    return rows.map((r) => this.decodeTask(r));
+    const parts = this.taskParts.byTask();
+    const checklists = this.taskChecklist.counts();
+    return rows.map((r) => this.decodeTask(r, parts, checklists));
+  }
+
+  /** One company's tasks, without reading every company's. */
+  listCompanyTasks(companyId: string): Task[] {
+    const rows = this.db.prepare('SELECT * FROM tasks WHERE companyId = ?').all(companyId) as any[];
+    const parts = this.taskParts.byTask();
+    const checklists = this.taskChecklist.counts();
+    return rows.map((r) => this.decodeTask(r, parts, checklists));
   }
 
   /**
@@ -7390,7 +7587,7 @@ export class DataStore {
     const rows = this.db
       .prepare(`SELECT p.* FROM projects p WHERE (${clauses.map((c) => c.sql).join(' OR ')})${where ? ` AND (${where.sql})` : ''}`)
       .all(...clauses.flatMap((c) => c.params), ...(where?.params ?? [])) as any[];
-    return rows.map((r) => ({ ...r, memberIds: this.parseJson<string[]>(r.memberIds) || [], clientId: r.clientId || undefined }));
+    return rows.map((r) => this.decodeProject(r));
   }
 
   /** Tasks visible to a person across several companies (see listVisibleProjects). */
@@ -7427,17 +7624,23 @@ export class DataStore {
     return rows.map((r) => this.decodeTask(r));
   }
 
-  private decodeTask(row: any): Task {
+  private decodeTask(row: any, parts?: Map<string, TaskPart[]>, checklists?: Map<string, { done: number; total: number }>): Task {
     return {
       ...row,
+      parts: parts ? parts.get(row.id) ?? [] : this.taskParts.forTask(row.id),
+      checklist: checklists ? checklists.get(row.id) ?? { done: 0, total: 0 } : this.taskChecklist.countFor(row.id),
       createdAt: new Date(row.createdAt),
       dueDate: row.dueDate ? new Date(row.dueDate) : undefined,
+      startDate: row.startDate ? new Date(row.startDate) : undefined,
+      milestoneId: row.milestoneId || undefined,
       assignedUserIds: this.parseJson<string[]>(row.assignedUserIds) || [],
       tags: this.parseJson<string[]>(row.tags) || [],
       dependencies: this.parseJson<string[]>(row.dependencies) || [],
       parentTaskId: row.parentTaskId || undefined,
       ownerId: row.ownerId || undefined,
       isPrivate: Boolean(row.isPrivate),
+      recurrence: row.recurrence || undefined,
+      recurrenceNextId: row.recurrenceNextId || undefined,
       invoiceDate: row.invoiceDate ? new Date(row.invoiceDate) : undefined,
     };
   }
@@ -7451,7 +7654,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId)',
+        'INSERT INTO tasks (id, title, description, status, priority, createdAt, dueDate, assignedUserIds, tags, companyId, projectId, color, dependencies, parentTaskId, ownerId, isPrivate, invoiceImage, invoiceVendor, invoiceNumber, invoiceAmount, invoiceDate, generatedInvoiceId, recurrence, startDate, startNotifiedAt, milestoneId) VALUES (@id, @title, @description, @status, @priority, @createdAt, @dueDate, @assignedUserIds, @tags, @companyId, @projectId, @color, @dependencies, @parentTaskId, @ownerId, @isPrivate, @invoiceImage, @invoiceVendor, @invoiceNumber, @invoiceAmount, @invoiceDate, @generatedInvoiceId, @recurrence, @startDate, @startNotifiedAt, @milestoneId)',
       )
       .run({
         id: newTask.id,
@@ -7476,6 +7679,11 @@ export class DataStore {
         invoiceAmount: newTask.invoiceAmount ?? null,
         invoiceDate: newTask.invoiceDate ? new Date(newTask.invoiceDate).toISOString() : null,
         generatedInvoiceId: newTask.generatedInvoiceId ?? null,
+        recurrence: newTask.recurrence ?? null,
+        startDate: newTask.startDate ? new Date(newTask.startDate).toISOString() : null,
+        // Already started when made: the assignment notice says it all.
+        startNotifiedAt: newTask.startDate && new Date(newTask.startDate).getTime() <= Date.now() ? new Date().toISOString() : null,
+        milestoneId: newTask.milestoneId ?? null,
       });
     // Auto-seed Contributor rows for each assignee (split evenly).
     if (newTask.assignedUserIds && newTask.assignedUserIds.length > 0) {
@@ -7510,7 +7718,8 @@ export class DataStore {
       entityType: 'task',
       entityId: newTask.id,
     });
-    return newTask;
+    this.taskParts.sync(newTask.id, newTask.assignedUserIds ?? [], partStatusFor(newTask.status));
+    return { ...newTask, parts: this.taskParts.forTask(newTask.id) };
   }
 
   updateTask(id: string, updates: UpdateTaskInput) {
@@ -7551,14 +7760,45 @@ export class DataStore {
       invoiceDate: updates.invoiceDate
         ? new Date(updates.invoiceDate).toISOString()
         : existing.invoiceDate,
+      // null stops the repeat; undefined keeps it.
+      recurrence: updates.recurrence !== undefined ? updates.recurrence ?? null : existing.recurrence ?? null,
+      // A stage belongs to one project: moving the task to another project lets go of it.
+      milestoneId:
+        updates.milestoneId !== undefined
+          ? updates.milestoneId ?? null
+          : (updates.projectId !== undefined && updates.projectId !== existing.projectId) ? null : existing.milestoneId ?? null,
+      // null clears the start; undefined keeps it.
+      startDate:
+        updates.startDate !== undefined
+          ? updates.startDate ? new Date(updates.startDate).toISOString() : null
+          : existing.startDate ?? null,
     };
+    // A moved start date earns fresh start and behind-schedule alerts.
+    const startMoved = (updated.startDate ?? null) !== (existing.startDate ?? null);
+    updated.startNotifiedAt = startMoved
+      ? updated.startDate && Date.parse(updated.startDate) <= Date.now() ? new Date().toISOString() : null
+      : existing.startNotifiedAt ?? null;
+    updated.behindNotifiedAt = startMoved ? null : existing.behindNotifiedAt ?? null;
 
     this.db
       .prepare(
-        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId WHERE id=@id',
+        'UPDATE tasks SET title=@title, description=@description, status=@status, priority=@priority, createdAt=@createdAt, dueDate=@dueDate, assignedUserIds=@assignedUserIds, tags=@tags, companyId=@companyId, projectId=@projectId, color=@color, dependencies=@dependencies, isPrivate=@isPrivate, invoiceImage=@invoiceImage, invoiceVendor=@invoiceVendor, invoiceNumber=@invoiceNumber, invoiceAmount=@invoiceAmount, invoiceDate=@invoiceDate, generatedInvoiceId=@generatedInvoiceId, recurrence=@recurrence, milestoneId=@milestoneId, startDate=@startDate, startNotifiedAt=@startNotifiedAt, behindNotifiedAt=@behindNotifiedAt WHERE id=@id',
       )
       .run(updated);
-    const result = this.decodeTask({ ...existing, ...updates, ...updated });
+    // Parts follow the people on the task; a whole-task close or reopen moves every part.
+    this.taskParts.sync(id, updatedAssigned, 'To Do');
+    if (updates.status && updates.status !== prevStatus) {
+      if (updates.status === 'Done') this.taskParts.setAll(id, 'Done');
+      else if (prevStatus === 'Done') this.taskParts.setAll(id, 'To Do');
+    } else if (updates.assignedUserIds) {
+      const derived = taskStatusFromParts(this.taskParts.forTask(id), updated.status);
+      if (derived !== updated.status) {
+        this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, id);
+        updated.status = derived;
+      }
+    }
+    if (updated.status === 'Done' && prevStatus !== 'Done') this.spawnNextRound(id);
+    const result = this.decodeTask({ ...existing, ...updates, ...updated, recurrenceNextId: this.taskNextRoundId(id) });
     this.createActivityEvent({
       companyId: result.companyId,
       entityType: 'task',
@@ -7596,6 +7836,324 @@ export class DataStore {
       });
     }
     return result;
+  }
+
+  /**
+   * One person's part of a shared task: its status and/or label. The task's
+   * status follows the parts; finishing a part tells the others who still have
+   * work (and the owner); finishing the last one tells the owner it is complete.
+   */
+  setTaskPart(taskId: string, userId: string, changes: { status?: PartStatus; label?: string | null }): Task | undefined {
+    const task = this.getTaskById(taskId);
+    if (!task) return undefined;
+    const before = task.parts?.find((p) => p.userId === userId);
+    if (!before) return undefined;
+    if (changes.label !== undefined) this.taskParts.setLabel(taskId, userId, changes.label);
+    if (changes.status && changes.status !== before.status) {
+      this.taskParts.setStatus(taskId, userId, changes.status);
+      const parts = this.taskParts.forTask(taskId);
+      const derived = taskStatusFromParts(parts, task.status);
+      if (derived !== task.status) this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(derived, taskId);
+      if (derived === 'Done' && task.status !== 'Done') this.spawnNextRound(taskId);
+      const link = taskLink(task.projectId);
+      const who = this.getUserById(userId)?.name ?? '';
+      this.createActivityEvent({
+        companyId: task.companyId,
+        entityType: 'task',
+        entityId: taskId,
+        action: 'updated',
+        summary: `${who}: part ${changes.status}.`,
+        metadata: { projectId: task.projectId, part: userId, status: changes.status, taskStatus: derived },
+      });
+      if (changes.status === 'Done') {
+        const stillWorking = parts.filter((p) => p.status !== 'Done').map((p) => p.userId);
+        const audience = [...stillWorking, ...(task.ownerId ? [task.ownerId] : [])];
+        if (derived === 'Done') {
+          this.notify({
+            companyId: task.companyId,
+            userIds: task.ownerId ? [task.ownerId] : [],
+            type: 'task_completed',
+            title: `Task complete: ${task.title}`,
+            body: 'Everyone finished their part.',
+            data: { tKey: 'notif.taskCompleted.t', bKey: 'notif.taskCompleted.b', title: task.title },
+            link,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        } else {
+          this.notify({
+            companyId: task.companyId,
+            userIds: audience.filter((uid) => uid !== userId),
+            type: 'task_part_done',
+            title: `${who} finished their part of ${task.title}`,
+            body: `${stillWorking.length} part(s) still open.`,
+            data: { tKey: 'notif.taskPartDone.t', bKey: 'notif.taskPartDone.b', title: task.title, name: who, open: stillWorking.length },
+            link,
+            entityType: 'task',
+            entityId: taskId,
+          });
+        }
+      }
+    }
+    return this.getTaskById(taskId);
+  }
+
+  private taskNextRoundId(id: string): string | undefined {
+    const row = this.db.prepare('SELECT recurrenceNextId FROM tasks WHERE id = ?').get(id) as { recurrenceNextId: string | null } | undefined;
+    return row?.recurrenceNextId ?? undefined;
+  }
+
+  /** A finished repeating task makes its next round once: same people, part labels and steps, unticked. */
+  private spawnNextRound(id: string): Task | undefined {
+    const task = this.getTaskById(id);
+    if (!task?.recurrence || task.recurrenceNextId) return undefined;
+    const dueDate = nextDueDate(task.recurrence, task.dueDate);
+    // A task that spans days keeps its length in the next round.
+    const span = task.startDate && task.dueDate ? task.dueDate.getTime() - task.startDate.getTime() : undefined;
+    const next = this.createTask({
+      title: task.title,
+      description: task.description,
+      status: 'To Do',
+      priority: task.priority,
+      dueDate,
+      startDate: span !== undefined && span >= 0 ? new Date(dueDate.getTime() - span) : undefined,
+      milestoneId: task.milestoneId,
+      assignedUserIds: task.assignedUserIds ?? [],
+      tags: task.tags,
+      companyId: task.companyId,
+      projectId: task.projectId,
+      color: task.color,
+      dependencies: [],
+      parentTaskId: task.parentTaskId,
+      ownerId: task.ownerId,
+      isPrivate: task.isPrivate,
+      recurrence: task.recurrence,
+    });
+    for (const part of task.parts ?? []) if (part.label) this.taskParts.setLabel(next.id, part.userId, part.label);
+    this.taskChecklist.copy(id, next.id, task.ownerId ?? '');
+    this.db.prepare('UPDATE tasks SET recurrenceNextId = ? WHERE id = ?').run(next.id, id);
+    return next;
+  }
+
+  /**
+   * A project as a reusable recipe: its stages and tasks (people, part labels,
+   * checklist steps, repeat) with every date kept as days after its first day:
+   * the earliest of the project start and its dated items, else today. So a
+   * task due before the project officially started never lands in the past.
+   */
+  templateFromProject(projectId: string): TemplateBody | undefined {
+    const project = this.getProjectById(projectId);
+    if (!project) return undefined;
+    const tasks = this.listTasks().filter((t) => t.projectId === projectId);
+    const milestones = this.projectPlan.milestones(projectId);
+    const dated = [
+      ...tasks.flatMap((t) => [t.startDate, t.dueDate]),
+      ...milestones.map((m) => m.dueDate),
+    ].filter(Boolean).map((d) => new Date(d as Date | string).getTime());
+    if (project.startDate) dated.push(new Date(project.startDate).getTime());
+    const anchor = dated.length ? new Date(Math.min(...dated)) : new Date();
+    const milestoneIndex = new Map(milestones.map((m, i) => [m.id, i]));
+    return {
+      description: project.description ?? '',
+      color: project.color ?? '',
+      visibility: project.visibility,
+      memberIds: project.memberIds ?? [],
+      budget: project.budget ?? null,
+      lengthDays: project.startDate && project.endDate ? dayOffset(project.startDate, project.endDate) : null,
+      startOffset: project.startDate ? dayOffset(anchor, project.startDate) : null,
+      milestones: milestones.map((m) => ({ name: m.name, dueOffset: dayOffset(anchor, m.dueDate) })),
+      tasks: tasks.map((t) => ({
+        title: t.title,
+        description: t.description ?? '',
+        priority: t.priority,
+        assignedUserIds: t.assignedUserIds ?? [],
+        tags: t.tags ?? [],
+        startOffset: dayOffset(anchor, t.startDate),
+        dueOffset: dayOffset(anchor, t.dueDate),
+        milestoneIndex: t.milestoneId ? milestoneIndex.get(t.milestoneId) ?? null : null,
+        recurrence: t.recurrence ?? null,
+        checklist: this.taskChecklist.forTask(t.id).map((i) => i.text),
+        partLabels: Object.fromEntries((t.parts ?? []).filter((p) => p.label).map((p) => [p.userId, p.label as string])),
+      })),
+    };
+  }
+
+  /** A new project from a template, every date laid out from the chosen start. People who left the company are dropped. */
+  createProjectFromTemplate(template: ProjectTemplate, input: { name: string; startDate: Date; clientId?: string; ownerId: string }): Project {
+    const body = template.body;
+    const staff = new Set(this.listUserIdsByCompanyRoles(template.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']));
+    const keep = (ids: string[]) => ids.filter((id) => staff.has(id));
+    const start = input.startDate;
+    const projectStart = shiftDays(start, body.startOffset ?? 0)!;
+    const project = this.createProject({
+      name: input.name,
+      description: body.description,
+      color: body.color,
+      companyId: template.companyId,
+      visibility: body.visibility,
+      memberIds: keep(body.memberIds),
+      clientId: input.clientId,
+      status: 'Planning',
+      startDate: projectStart.toISOString(),
+      endDate: body.lengthDays !== null ? shiftDays(projectStart, body.lengthDays)!.toISOString() : undefined,
+      budget: body.budget ?? undefined,
+    });
+    const stageIds = body.milestones.map((m) => this.projectPlan.addMilestone(project, m.name, shiftDays(start, m.dueOffset)?.toISOString() ?? null).id);
+    for (const t of body.tasks) {
+      const task = this.createTask({
+        title: t.title,
+        description: t.description,
+        status: 'To Do',
+        priority: t.priority as Task['priority'],
+        startDate: shiftDays(start, t.startOffset),
+        dueDate: shiftDays(start, t.dueOffset),
+        assignedUserIds: keep(t.assignedUserIds),
+        tags: t.tags,
+        companyId: template.companyId,
+        projectId: project.id,
+        dependencies: [],
+        ownerId: input.ownerId,
+        isPrivate: false,
+        recurrence: (t.recurrence as Task['recurrence']) ?? undefined,
+        milestoneId: t.milestoneIndex !== null ? stageIds[t.milestoneIndex] : undefined,
+      });
+      for (const text of t.checklist) this.taskChecklist.add(task.id, text, input.ownerId);
+      for (const [userId, label] of Object.entries(t.partLabels)) this.taskParts.setLabel(task.id, userId, label);
+    }
+    return this.getProjectById(project.id)!;
+  }
+
+  /**
+   * Move a project to a later (or earlier) start: its end, its stages and the
+   * dates of every unfinished task move by the same number of days. Work that
+   * would still sit before the new start (it was already late) is brought up to
+   * the new start, keeping its length, so nothing is overdue straight after a
+   * move. The first planned start is kept, so the project shows it was moved.
+   * People with open tasks in it are told.
+   */
+  postponeProject(id: string, newStart: Date): { project: Project; days: number; moved: number } | undefined {
+    const project = this.getProjectById(id);
+    if (!project) return undefined;
+    const open = this.listTasks().filter((t) => t.projectId === id && t.status !== 'Done');
+    const stages = this.projectPlan.milestones(id);
+    const dated = [
+      ...(project.startDate ? [new Date(project.startDate).getTime()] : []),
+      ...open.flatMap((t) => [t.startDate, t.dueDate]).filter(Boolean).map((d) => new Date(d as Date).getTime()),
+      ...stages.map((m) => m.dueDate).filter(Boolean).map((d) => new Date(d as string).getTime()),
+    ];
+    const oldStart = project.startDate ? new Date(project.startDate) : dated.length ? new Date(Math.min(...dated)) : newStart;
+    const days = dayOffset(oldStart, newStart) ?? 0;
+    const move = (d: Date | string | null | undefined) => (d ? shiftDays(new Date(d), days) : undefined);
+    /** Extra days to bring a moved item up to the new start, when it would land before it. */
+    const catchUp = (earliest: Date | undefined) => {
+      const behind = earliest ? dayOffset(earliest, newStart) ?? 0 : 0;
+      return behind > 0 ? behind : 0;
+    };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE projects SET startDate = ?, endDate = ?, postponedFrom = COALESCE(postponedFrom, ?), status = ? WHERE id = ?').run(
+        newStart.toISOString(),
+        project.endDate ? move(project.endDate)!.toISOString() : null,
+        oldStart.toISOString(),
+        newStart.getTime() > today.getTime() + 86_400_000 - 1 && project.status === 'Active' ? 'Planning' : project.status ?? 'Active',
+        id,
+      );
+      for (const m of stages) {
+        if (!m.dueDate) continue;
+        const due = move(m.dueDate)!;
+        this.projectPlan.updateMilestone(m.id, { dueDate: shiftDays(due, catchUp(due))!.toISOString() });
+      }
+      for (const t of open) {
+        if (!t.startDate && !t.dueDate) continue;
+        const start = move(t.startDate);
+        const due = move(t.dueDate);
+        const extra = catchUp(start ?? due);
+        this.updateTask(t.id, {
+          ...(start ? { startDate: shiftDays(start, extra) } : {}),
+          ...(due ? { dueDate: shiftDays(due, extra) } : {}),
+        });
+      }
+    })();
+    const people = [...new Set([...open.flatMap((t) => t.assignedUserIds ?? []), ...(project.memberIds ?? [])])];
+    const when = newStart.toISOString().slice(0, 10);
+    this.notify({
+      companyId: project.companyId,
+      userIds: people,
+      type: 'project_postponed',
+      title: `Moved: ${project.name}`,
+      body: `Now starts ${when}; its task dates moved ${days} day(s).`,
+      data: { tKey: 'notif.projectPostponed.t', bKey: 'notif.projectPostponed.b', title: project.name, date: when, days },
+      link: `/projects/${id}`,
+      entityType: 'project',
+      entityId: id,
+    });
+    this.createActivityEvent({
+      companyId: project.companyId,
+      entityType: 'project',
+      entityId: id,
+      action: 'updated',
+      summary: `Project ${project.name} moved ${days} day(s) to start ${when}.`,
+      metadata: { days, from: oldStart.toISOString(), to: newStart.toISOString() },
+    });
+    return { project: this.getProjectById(id)!, days, moved: open.length };
+  }
+
+  /**
+   * Mark a project done; with closeOpenTasks its unfinished tasks are closed
+   * too (every part done). A repeating task closed this way makes no next round.
+   */
+  completeProject(id: string, closeOpenTasks: boolean): { project: Project; closed: number } | undefined {
+    const project = this.getProjectById(id);
+    if (!project) return undefined;
+    const open = this.listTasks().filter((t) => t.projectId === id && t.status !== 'Done');
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE projects SET status = 'Done' WHERE id = ?").run(id);
+      if (closeOpenTasks) {
+        for (const t of open) {
+          this.db.prepare("UPDATE tasks SET status = 'Done' WHERE id = ?").run(t.id);
+          this.taskParts.setAll(t.id, 'Done');
+        }
+      }
+    })();
+    this.createActivityEvent({
+      companyId: project.companyId,
+      entityType: 'project',
+      entityId: id,
+      action: 'updated',
+      summary: `Project ${project.name} marked done${closeOpenTasks && open.length ? `, ${open.length} open task(s) closed` : ''}.`,
+      metadata: { status: 'Done', closed: closeOpenTasks ? open.length : 0 },
+    });
+    return { project: this.getProjectById(id)!, closed: closeOpenTasks ? open.length : 0 };
+  }
+
+  /**
+   * Budget watch: company admins and managers hear once when a project's spend
+   * (logged time + expenses) reaches 80% of its budget, and once when it goes over.
+   */
+  sweepProjectBudgetAlerts(): number {
+    const rows = this.db.prepare("SELECT * FROM projects WHERE budget IS NOT NULL AND budget > 0 AND status != 'Archived'").all() as any[];
+    let count = 0;
+    for (const row of rows) {
+      const spent = this.projectPlan.spent(row.id).total;
+      const level = spent >= row.budget ? 100 : spent >= row.budget * 0.8 ? 80 : 0;
+      if (level === row.budgetAlertLevel) continue;
+      this.db.prepare('UPDATE projects SET budgetAlertLevel = ? WHERE id = ?').run(level, row.id);
+      if (level < row.budgetAlertLevel || level === 0) continue;
+      const pct = Math.round((spent / row.budget) * 100);
+      count += this.notify({
+        companyId: row.companyId,
+        userIds: this.listUserIdsByCompanyRoles(row.companyId, ['Admin', 'Manager']),
+        type: 'project_budget',
+        title: level === 100 ? `Over budget: ${row.name}` : `Budget at ${pct}%: ${row.name}`,
+        body: `Spent ${spent} of ${row.budget}.`,
+        data: { tKey: level === 100 ? 'notif.projectOverBudget.t' : 'notif.projectBudget80.t', bKey: 'notif.projectBudget.b', title: row.name, pct, spent, budget: row.budget },
+        link: `/projects/${row.id}`,
+        entityType: 'project',
+        entityId: row.id,
+      }).length;
+    }
+    return count;
   }
 
   markTasksAsInvoiced(taskIds: string[], invoiceId: string) {
@@ -13224,6 +13782,35 @@ export class DataStore {
       )
       .run(setting.nextNumber + 1, new Date().toISOString(), companyId, entityType);
     return value;
+  }
+
+  /**
+   * The finance client row behind a contact, created if missing. Invoices for
+   * a contact without one are keyed by the contact id, so the new row takes
+   * that id and everything already owed still counts against the balance.
+   */
+  /** Grants a record rule to every company's built-in groups whose role the rule names (for rules added after companies exist). */
+  private grantRuleToSystemGroups(rule: { module: string; action: string; roles: readonly string[] }): void {
+    const roleByKey: Record<string, UserRole> = { admin: 'Admin', manager: 'Manager', employee: 'Employee', accountant: 'Accountant' };
+    const insert = this.db.prepare('INSERT OR IGNORE INTO group_permissions (groupId, module, action) VALUES (?, ?, ?)');
+    (this.db.prepare('SELECT id, key FROM permission_groups WHERE isSystem = 1').all() as Array<{ id: string; key: string }>)
+      .forEach((group) => {
+        const role = roleByKey[group.key];
+        if (role && rule.roles.includes(role)) insert.run(group.id, rule.module, rule.action);
+      });
+  }
+
+  ensureClientRowForContact(contactId: string): string {
+    const contact = this.getContactById(contactId);
+    if (!contact) throw new Error('Contact not found.');
+    const id = contact.clientId || contact.id;
+    if (!this.db.prepare('SELECT 1 FROM clients WHERE id = ?').get(id)) {
+      this.db.prepare(
+        "INSERT INTO clients (id, reference, name, email, address, companyId, contactName, phone, vatNumber, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')",
+      ).run(id, this.nextClientReference(contact.companyId), contact.name, contact.email ?? '', contact.address ?? '', contact.companyId, contact.contactPerson ?? null, contact.phone ?? null, contact.taxNumber ?? null);
+    }
+    if (!contact.clientId) this.db.prepare('UPDATE contacts SET clientId = ? WHERE id = ?').run(id, contact.id);
+    return id;
   }
 
   private nextClientReference(companyId: string) {
@@ -19421,6 +20008,45 @@ export class DataStore {
    * The dashboard, without anything from a module the company switched off:
    * its metrics, charts, alerts, shortcuts and activity are left out.
    */
+  /** Every invoice payment of a company, for the dashboard's period figures. */
+  listCompanyPayments(companyId: string): Array<{ invoiceId: string; amount: number; paidAt: Date }> {
+    return (this.db.prepare('SELECT p.invoiceId, p.amount, p.paidAt FROM payments p JOIN invoices i ON i.id = p.invoiceId WHERE i.companyId = ?').all(companyId) as any[])
+      .map((r) => ({ invoiceId: r.invoiceId, amount: Number(r.amount) || 0, paidAt: new Date(r.paidAt) }));
+  }
+
+  /** Every vendor bill payment of a company. */
+  listCompanyVendorPayments(companyId: string): Array<{ billId: string; amount: number; paidAt: Date }> {
+    return (this.db.prepare('SELECT p.billId, p.amount, p.paidAt FROM vendor_bill_payments p JOIN vendor_bills b ON b.id = p.billId WHERE b.companyId = ?').all(companyId) as any[])
+      .map((r) => ({ billId: r.billId, amount: Number(r.amount) || 0, paidAt: new Date(r.paidAt) }));
+  }
+
+  /**
+   * When each task was finished, read from its activity trail: the first Done
+   * after the last time it was open, so a later rename or reassignment (which
+   * records the status again) does not move it, and a reopened task counts
+   * from its new finish. A part event speaks for the task through taskStatus.
+   * Insert order (rowid) decides, since events can share a millisecond.
+   */
+  taskCompletionTimes(companyId: string): Map<string, Date> {
+    const rows = this.db.prepare(
+      `WITH ev AS (
+         SELECT rowid AS rid, entityId, createdAt,
+                CASE WHEN json_extract(metadata, '$.part') IS NULL THEN json_extract(metadata, '$.status')
+                     ELSE json_extract(metadata, '$.taskStatus') END AS s
+           FROM activity_events
+          WHERE companyId = ? AND entityType = 'task' AND json_valid(metadata)
+       ),
+       lastOpen AS (SELECT entityId, MAX(rid) AS r FROM ev WHERE s IS NOT NULL AND s != 'Done' GROUP BY entityId),
+       firstDone AS (
+         SELECT ev.entityId, MIN(ev.rid) AS r FROM ev LEFT JOIN lastOpen lo ON lo.entityId = ev.entityId
+          WHERE ev.s = 'Done' AND (lo.r IS NULL OR ev.rid > lo.r)
+          GROUP BY ev.entityId
+       )
+       SELECT ev.entityId, ev.createdAt AS doneAt FROM firstDone fd JOIN ev ON ev.rid = fd.r`,
+    ).all(companyId) as Array<{ entityId: string; doneAt: string }>;
+    return new Map(rows.map((r) => [r.entityId, new Date(r.doneAt)]));
+  }
+
   getDashboardPayload(
     companyId: string,
     viewer: { userId: string; role: UserRole; companyRole?: string; visibleTo?: Effective },
@@ -20727,7 +21353,7 @@ export class DataStore {
     const now = Date.now();
     const horizon = new Date(now + 24 * 60 * 60 * 1000).toISOString();
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE status != 'Done' AND dueDate IS NOT NULL AND dueDate <= ?")
+      .prepare(`SELECT * FROM tasks WHERE status != 'Done' AND dueDate IS NOT NULL AND dueDate <= ? AND ${NOT_ARCHIVED}`)
       .all(horizon) as any[];
     let count = 0;
     for (const row of rows) {
@@ -20750,6 +21376,62 @@ export class DataStore {
         entityType: 'task',
         entityId: task.id,
         dedupeWithinMs: 20 * 60 * 60 * 1000,
+      }).length;
+    }
+    return count;
+  }
+
+  /**
+   * Tasks that span days: tell the people on it the day it starts, and tell the
+   * owner once half the time has gone while someone has not started. Each alert
+   * goes out once per start date.
+   */
+  sweepTaskStartAlerts(now = new Date()): number {
+    const nowIso = now.toISOString();
+    let count = 0;
+    const starting = this.db
+      .prepare(`SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND startDate <= ? AND startNotifiedAt IS NULL AND ${NOT_ARCHIVED}`)
+      .all(nowIso) as any[];
+    for (const row of starting) {
+      const task = this.decodeTask(row);
+      this.db.prepare('UPDATE tasks SET startNotifiedAt = ? WHERE id = ?').run(nowIso, task.id);
+      const people = task.parts?.length ? task.parts.filter((p) => p.status !== 'Done').map((p) => p.userId) : task.assignedUserIds ?? [];
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: people,
+        type: 'task_start',
+        title: `Starts today: ${task.title}`,
+        body: task.dueDate ? `Due ${task.dueDate.toISOString().slice(0, 10)}.` : undefined,
+        data: { tKey: 'notif.taskStart.t', title: task.title, ...(task.dueDate ? { bKey: 'notif.taskDue.b', due: task.dueDate.toISOString().slice(0, 10) } : {}) },
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
+      }).length;
+    }
+    const running = this.db
+      .prepare(`SELECT * FROM tasks WHERE status != 'Done' AND startDate IS NOT NULL AND dueDate IS NOT NULL AND behindNotifiedAt IS NULL AND ownerId IS NOT NULL AND ${NOT_ARCHIVED}`)
+      .all() as any[];
+    for (const row of running) {
+      const task = this.decodeTask(row);
+      const start = task.startDate!.getTime();
+      const halfway = start + (task.dueDate!.getTime() - start) / 2;
+      if (task.dueDate!.getTime() <= start || now.getTime() < halfway) continue;
+      const notStarted = task.parts?.length
+        ? task.parts.filter((p) => p.status === 'To Do').map((p) => p.userId)
+        : task.status === 'To Do' ? task.assignedUserIds ?? [] : [];
+      if (notStarted.length === 0) continue;
+      this.db.prepare('UPDATE tasks SET behindNotifiedAt = ? WHERE id = ?').run(nowIso, task.id);
+      const names = notStarted.map((id) => this.getUserById(id)?.name).filter(Boolean).join(', ');
+      count += this.notify({
+        companyId: task.companyId,
+        userIds: [task.ownerId!],
+        type: 'task_behind',
+        title: `Behind schedule: ${task.title}`,
+        body: `Half the time has gone and ${names || 'nobody'} has not started.`,
+        data: { tKey: 'notif.taskBehind.t', bKey: 'notif.taskBehind.b', title: task.title, names },
+        link: taskLink(task.projectId),
+        entityType: 'task',
+        entityId: task.id,
       }).length;
     }
     return count;
@@ -21722,6 +22404,10 @@ export class DataStore {
       paymentMethod: row.paymentMethod ?? undefined,
       status: row.status ?? 'Active',
       notes: row.notes ?? undefined,
+      flexiEnabled: !!row.flexiEnabled,
+      flexiUpfrontPct: row.flexiUpfrontPct ?? null,
+      flexiMaxMonths: row.flexiMaxMonths ?? null,
+      flexiState: row.flexiState ?? null,
     };
   }
 

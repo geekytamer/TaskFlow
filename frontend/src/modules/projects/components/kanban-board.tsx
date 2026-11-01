@@ -8,6 +8,7 @@ import { taskStatuses } from '@/modules/projects/types';
 import { KanbanTaskCard } from './kanban-task-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
+import { statusName } from '@/modules/projects/lib/task-meta';
 
 interface KanbanBoardProps {
     projectId: string;
@@ -16,14 +17,7 @@ interface KanbanBoardProps {
 export function KanbanBoard({ projectId }: KanbanBoardProps) {
     const { language } = useI18n();
     const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-    const statusLabel = (status: TaskStatus) =>
-        status === 'To Do'
-            ? tr('To Do', 'قيد الانتظار')
-            : status === 'In Progress'
-                ? tr('In Progress', 'قيد التنفيذ')
-                : status === 'Done'
-                    ? tr('Done', 'مكتمل')
-                    : status;
+    const statusLabel = (status: TaskStatus) => statusName(status, language);
     const [tasks, setTasks] = React.useState<Task[]>([]);
     const [loading, setLoading] = React.useState(true);
 
@@ -42,10 +36,12 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         const cols: Record<TaskStatus, Task[]> = {
             'To Do': [],
             'In Progress': [],
+            'Waiting': [],
+            'In Review': [],
             'Done': [],
         };
         tasks.forEach(task => {
-            cols[task.status].push(task);
+            (cols[task.status] ?? cols['To Do']).push(task);
         });
         
         // Sort tasks within each column by creation date
@@ -78,9 +74,10 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         );
         setTasks(updatedTasks);
         
-        // Update the backend
+        // Update the backend; its answer carries the parts moved along with the task.
         try {
-            await updateTask(draggableId, { status: newStatus });
+            const saved = await updateTask(draggableId, { status: newStatus });
+            setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
         } catch (error) {
             console.error("Failed to update task status:", error);
             // Revert the UI change on failure

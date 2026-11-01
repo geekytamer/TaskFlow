@@ -101,6 +101,9 @@
     "POST /followups/:id/reschedule",
     "POST /followups/:id/snooze"
   ],
+  "dashboard:read": [
+    "GET /companies/:companyId/dashboard/insights"
+  ],
   "finance:create": [
     "PATCH /vendor-bills/:id/status",
     "PATCH /vendor-bills/:id/template",
@@ -184,16 +187,35 @@
     "POST /companies/:companyId/invoices/bulk-status"
   ],
   "projects:create": [
+    "DELETE /project-templates/:id",
     "DELETE /projects/:id/members/:userId",
+    "DELETE /projects/:id/milestones/:milestoneId",
+    "GET /companies/:companyId/project-templates",
+    "PATCH /projects/:id/milestones/:milestoneId",
+    "POST /project-templates/:id/projects",
+    "POST /projects/:id/complete",
+    "POST /projects/:id/milestones",
+    "POST /projects/:id/postpone",
+    "POST /projects/:id/template",
     "PUT /projects/:id"
   ],
   "projects:delete": [
+    "DELETE /projects/:id/milestones/:milestoneId",
+    "PATCH /projects/:id/milestones/:milestoneId",
+    "POST /projects/:id/complete",
     "POST /projects/:id/members",
+    "POST /projects/:id/milestones",
+    "POST /projects/:id/postpone",
     "PUT /projects/:id"
   ],
   "projects:write": [
     "DELETE /projects/:id/members/:userId",
-    "POST /projects/:id/members"
+    "DELETE /projects/:id/milestones/:milestoneId",
+    "PATCH /projects/:id/milestones/:milestoneId",
+    "POST /projects/:id/complete",
+    "POST /projects/:id/members",
+    "POST /projects/:id/milestones",
+    "POST /projects/:id/postpone"
   ],
   "purchasing:approve": [
     "POST /purchase-orders/:id/reject",

@@ -83,3 +83,21 @@ export async function publicFetch<T>(path: string): Promise<BackendResult<T>> {
     return { status: 503, data: { message: 'The lobby is temporarily unavailable.' } as T };
   }
 }
+
+/** A write to the unauthenticated public API (the join form). The visitor's address is passed on. */
+export async function publicPost<T = Record<string, unknown>>(path: string, body: unknown): Promise<BackendResult<T>> {
+  const forwardedFor = (await headers()).get('x-forwarded-for');
+  try {
+    const response = await fetch(`${apiBase()}/public-api${path}`, {
+      method: 'POST',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { 'Content-Type': 'application/json', ...(forwardedFor ? { 'X-Forwarded-For': forwardedFor } : {}) },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    return { status: response.status, data: data as T };
+  } catch {
+    return { status: 503, data: { message: 'The portal is temporarily unavailable.' } as T };
+  }
+}

@@ -106,6 +106,8 @@ export const LEGACY_HOLDERS: Readonly<Record<string, Row>> = {
   'invoices.pay': MGMT,
   'invoices.print': ALL, // GET /invoices/:id/pdf: company access
   'invoices.override_credit': AC, // INVOICES_CREDIT_OVERRIDE
+  'invoices.flexi_review': MGMT, // FLEXI_REVIEW
+  'invoices.flexi_manage': AC, // FLEXI_MANAGE
 
   'vendor-bills.view': MGMT,
   'vendor-bills.create': MGMT,

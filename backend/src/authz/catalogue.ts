@@ -177,6 +177,8 @@ export const CATALOGUE: readonly AreaDef[] = [
       { key: 'pay', label: l('See and record invoice payments', 'عرض مدفوعات الفواتير وتسجيلها') },
       { key: 'print', label: l('Download invoice PDFs', 'تنزيل الفواتير بصيغة PDF') },
       { key: 'override_credit', label: l("Invoice past a client's credit limit", 'إصدار فاتورة تتجاوز حد ائتمان العميل'), limit: 'amount' },
+      { key: 'flexi_review', label: l('Review Peak Flexi applications and see client balances', 'مراجعة طلبات بيك فليكسي وعرض أرصدة العملاء') },
+      { key: 'flexi_manage', label: l('Adjust, freeze and close Peak Flexi accounts and edit its settings', 'تعديل حسابات بيك فليكسي وتجميدها وإغلاقها وتعديل إعداداتها') },
     ],
   },
   {

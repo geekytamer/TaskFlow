@@ -16,7 +16,7 @@ import { useI18n } from '@/context/i18n-context';
 import { searchCompany, type SearchGroup, type SearchType } from '@/services/searchService';
 import { usePermissions } from '@/context/permissions-context';
 import { navAllowed } from '@/modules/layout/lib/nav-permissions';
-import { moduleForPath } from '@/modules/companies/lib/company-modules';
+import { modulesForPath } from '@/modules/companies/lib/company-modules';
 import {
   BarChart3,
   BadgeDollarSign,
@@ -41,6 +41,7 @@ import {
   Truck,
   UserRoundSearch,
   Inbox,
+  Wallet,
   MessagesSquare,
   Users,
 } from 'lucide-react';
@@ -67,7 +68,12 @@ const navTargets: PaletteNavItem[] = [
   { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined },
   { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone },
   { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock },
-  { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox },
+  { href: '/flexi', labelKey: 'nav.flexiOverview', icon: Wallet },
+  { href: '/flexi/applications', labelKey: 'nav.flexiApplications', icon: Wallet },
+  { href: '/flexi/accounts', labelKey: 'nav.flexiAccounts', icon: Wallet },
+  { href: '/flexi/requests', labelKey: 'nav.clientRequests', icon: Inbox },
+  { href: '/flexi/leads', labelKey: 'nav.flexiLeads', icon: Wallet },
+  { href: '/flexi/settings', labelKey: 'nav.flexiSettings', icon: Wallet },
   { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch },
   { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3 },
   { href: '/clients', labelKey: 'nav.clients', icon: Handshake },
@@ -99,8 +105,7 @@ export function CommandPalette() {
 
   /** Quick actions are shortcuts to pages, so they answer to the same rule as the menu. */
   const allowsHref = React.useCallback((href: string) => {
-    const hrefModule = moduleForPath(href);
-    if (hrefModule && !moduleOn(hrefModule)) return false;
+    if (!modulesForPath(href).every(moduleOn)) return false;
     return navAllowed(href, canAdmin);
   }, [canAdmin, moduleOn]);
 

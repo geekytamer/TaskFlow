@@ -24,7 +24,7 @@ export interface PortalFileMeta {
   fileName: string;
   mimeType: PortalFileType;
   sizeBytes: number;
-  parentType: 'message' | 'request' | null;
+  parentType: 'message' | 'request' | 'flexi_application' | null;
   parentId: string | null;
   createdAt: string;
 }
@@ -62,7 +62,7 @@ export class PortalThreadStore {
     return (this.db.prepare('SELECT content FROM portal_files WHERE id = ?').get(id) as { content: Buffer } | undefined)?.content;
   }
 
-  filesOf(parentType: 'message' | 'request', parentId: string): PortalFileMeta[] {
+  filesOf(parentType: 'message' | 'request' | 'flexi_application', parentId: string): PortalFileMeta[] {
     return this.db
       .prepare(`SELECT ${META_COLUMNS} FROM portal_files WHERE parentType = ? AND parentId = ? ORDER BY createdAt ASC, rowid ASC`)
       .all(parentType, parentId) as PortalFileMeta[];
@@ -78,7 +78,7 @@ export class PortalThreadStore {
    * Attaches uploaded files to a message or request. Each must belong to this
    * contact, be unattached, and have been uploaded by the same person.
    */
-  attach(fileIds: string[], parent: { type: 'message' | 'request'; id: string }, owner: { companyId: string; contactId: string; uploader: Uploader }): void {
+  attach(fileIds: string[], parent: { type: 'message' | 'request' | 'flexi_application'; id: string }, owner: { companyId: string; contactId: string; uploader: Uploader }): void {
     for (const fileId of fileIds) {
       const file = this.getFile(fileId);
       const sameUploader = file && (owner.uploader.kind === 'portal'

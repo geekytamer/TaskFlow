@@ -158,6 +158,8 @@ const RULE_MAP = [
   ['GAMES_MANAGE', ['games.view', 'games.manage']],
   ['DISCOVER_MANAGE', ['discover.view', 'discover.manage']],
   ['INVOICES_CREDIT_OVERRIDE', ['invoices.override_credit']],
+  ['FLEXI_REVIEW', ['invoices.flexi_review']],
+  ['FLEXI_MANAGE', ['invoices.flexi_manage']],
   ['CRM_ALL_READ', ['crm.view'], 'company'],
   ['CRM_ALL_WRITE', ['crm.edit', 'crm.delete'], 'company'],
   ['CAMPAIGNS_ALL_READ', ['campaigns.view'], 'company'],

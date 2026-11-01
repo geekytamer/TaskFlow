@@ -23,6 +23,8 @@ import { hiddenText } from '@/components/hidden-value';
 import { getContactSummary, type ContactSummary } from '@/services/contactService';
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
+import { FlexiSection } from './flexi-section';
+import { useCanReviewFlexi } from '@/modules/flexi/lib/use-can-review-flexi';
 import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/components/influencer-avatar';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
@@ -73,10 +75,11 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const { money, amount, amountIn } = useCompanyCurrency();
   const { selectedCompany } = useCompany();
   const photos = useInfluencerPhotos(selectedCompany?.id);
-  const { can, field } = usePermissions();
+  const { can, field, moduleOn } = usePermissions();
   // The API leaves rateCardAmount out without the rate_cards field: say "Hidden", not empty.
   const canSeePricing = field('rate_cards').view;
-  const canSeeWorkspace = can('influencers.use_workspace');
+  const canSeeWorkspace = can('influencers.use_workspace') && moduleOn('influencers');
+  const canReviewFlexi = useCanReviewFlexi();
   const canManagePortal = useCanManagePortal();
   const [summary, setSummary] = React.useState<ContactSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -295,7 +298,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         </Card>
       )}
 
-      {selectedCompany?.id && <ContactConversation companyId={selectedCompany.id} contactId={c.id} />}
+      {selectedCompany?.id && moduleOn('inbox') && <ContactConversation companyId={selectedCompany.id} contactId={c.id} />}
 
       {/* Portal access: invite this contact to the influencer or client portal, where staff look for it first. */}
       {canManagePortal && (['Influencer', 'Client'] as const).filter((r) => (c.roles || []).includes(r)).map((r) => (
@@ -314,6 +317,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
       {(c.roles || []).includes('Influencer') && canSeeWorkspace && (
         <WorkspaceSection contactId={c.id} />
       )}
+
+      {/* Peak Flexi balance and applications: reviewers only (the API enforces it too). */}
+      {(c.roles || []).includes('Client') && canReviewFlexi && <FlexiSection contactId={c.id} />}
 
       {/* Detailed sections */}
       <RecordTable

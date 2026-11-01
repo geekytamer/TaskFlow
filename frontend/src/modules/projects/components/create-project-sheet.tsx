@@ -31,6 +31,7 @@ import { useCompany } from '@/context/company-context';
 import { createProject } from '@/services/projectService';
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/i18n-context';
+import { ProjectPlanFields, emptyProjectPlan, projectPlanPayload } from './project-plan-fields';
 
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
@@ -43,6 +44,7 @@ export function CreateProjectSheet() {
   const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = React.useState<string | undefined>();
+  const [plan, setPlan] = React.useState(emptyProjectPlan);
   const { toast } = useToast();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -94,6 +96,7 @@ export function CreateProjectSheet() {
         visibility,
         memberIds: visibility === 'Private' ? selectedMembers : [],
         clientId: selectedClient,
+        ...projectPlanPayload(plan),
       });
       toast({
         title: tr('Project Created', 'تم إنشاء المشروع'),
@@ -107,6 +110,7 @@ export function CreateProjectSheet() {
       setVisibility('Public');
       setSelectedMembers([]);
       setSelectedClient(undefined);
+      setPlan(emptyProjectPlan());
       setOpen(false);
     } catch {
        toast({
@@ -146,6 +150,13 @@ export function CreateProjectSheet() {
                     <Input id="description" placeholder={tr('A brief description of the project.', 'وصف موجز للمشروع.')} className="col-span-3" value={description} onChange={e => setDescription(e.target.value)} />
                 </div>
                 
+                <div className="grid grid-cols-4 items-start gap-4">
+                    <Label className="text-end pt-2">{tr('Plan', 'الخطة')}</Label>
+                    <div className="col-span-3 grid gap-3">
+                        <ProjectPlanFields value={plan} onChange={setPlan} />
+                    </div>
+                </div>
+
                  <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-end">
                         {tr('Client', 'العميل')}

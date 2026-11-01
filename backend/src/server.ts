@@ -1,3 +1,4 @@
+import { dashboardInsights, INSIGHT_PERIODS } from './dashboard/insights';
 import { redactUrl } from './log-redact';
 import path from 'node:path';
 import express, { NextFunction, Request, RequestHandler, Response } from 'express';
@@ -7,17 +8,22 @@ import { verifyPassword, isHashed } from './password';
 import { randomUUID } from 'node:crypto';
 import { CreditLimitError, DataStore, OpportunityInUseError, type DataStoreOptions } from './data/store';
 import { runDueRecurring } from './finance/recurring-runner';
+import { taskRecurrences } from './tasks/task-recurrence';
+import { projectPriorities, projectStatuses } from './projects/project-plan';
+import { registerProjectPlanRoutes } from './routes/project-plan';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
 import { sweepShipments } from './logistics/shipments';
 import { sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
 import { makePasswordLinkSender, registerPasswordRoutes } from './routes/password';
+import { registerTaskPartRoutes } from './routes/task-parts';
+import { registerTaskChecklistRoutes } from './routes/task-checklist';
 import { unusablePassword } from './auth/password-tokens';
 import type { GratuityLine, Notification, SanitizedUser, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
 import { routeToPermission } from './authz/legacy-routes';
-import { RECORD_ENTITY_MODULES } from './permissions/company-modules';
+import { featureForRoute, moduleName, RECORD_ENTITY_MODULES } from './permissions/company-modules';
 import { registerPermissionRoutes } from './permissions/routes';
 import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
 import {
@@ -40,6 +46,7 @@ import { sweepPortalDeliverableReminders } from './portal/reminders';
 import { createGamesStaffRouter } from './games/staff-routes';
 import { createPublicGamesRouter } from './games/public-routes';
 import { createPublicKitRouter } from './workspace/public-routes';
+import { createPublicJoinRouter } from './portal/join';
 import { ensureFrozen } from './games/games';
 import { companyCurrency } from './portal/common';
 import type { PortalPdfRenderer } from './portal/client-billing-routes';
@@ -104,6 +111,8 @@ import {
 		  campaignAssignmentStatuses,
 		  campaignExpenseStatuses,
 		  campaignFulfillments,
+		  taskStatuses,
+		  taskPriorities,
 		} from './types';
 import {
   HttpError,
@@ -810,7 +819,8 @@ export function createServer(options: CreateServerOptions = {}) {
     const runReminders = () => {
       try {
         store.sweepSnoozedFollowups(); // wake snoozed follow-ups before reminding
-        const tasks = store.sweepTaskDueReminders();
+        const tasks = store.sweepTaskDueReminders() + store.sweepTaskStartAlerts();
+        store.sweepProjectBudgetAlerts();
         const followups = store.sweepFollowupDueReminders();
         const overdue = store.sweepOverdueInvoiceNotifications();
         const lowStock = store.sweepLowStockNotifications();
@@ -960,9 +970,14 @@ export function createServer(options: CreateServerOptions = {}) {
    * for everyone in it, admins included, whatever their groups grant.
    */
   const moduleOff = (module: string) =>
-    new HttpError(403, `The ${module} module is turned off for this company.`);
+    new HttpError(403, `${moduleName(module)} is turned off for this company.`, { code: 'MODULE_OFF', module });
   const requireModuleOn = (companyId: string, module: string) => {
     if (!store.isModuleEnabled(companyId, module)) throw moduleOff(module);
+  };
+  /** A feature with no permissions of its own (the inbox, follow-ups...) is found from the route's path. */
+  const requireFeatureOn = (req: AuthedRequest, companyId: string) => {
+    const feature = featureForRoute(req.route?.path ?? req.path);
+    if (feature) requireModuleOn(companyId, feature);
   };
 
   const engine: PermissionsEngine = options.permissionsEngine ?? configuredEngine();
@@ -1320,6 +1335,8 @@ export function createServer(options: CreateServerOptions = {}) {
     if (routePath && companyParam) {
       const mapping = routeToPermission(req.method, routePath);
       if (mapping && !store.isModuleEnabled(companyParam, mapping.module)) return next(moduleOff(mapping.module));
+      const feature = featureForRoute(routePath);
+      if (feature && !store.isModuleEnabled(companyParam, feature)) return next(moduleOff(feature));
     }
 
     // Every route the API answers is declared in authz/route-registry.ts (a
@@ -1396,6 +1413,8 @@ export function createServer(options: CreateServerOptions = {}) {
     if (!allowed) {
       throw new HttpError(403, 'You do not have access to this company.', { code: 'NO_COMPANY_ACCESS' });
     }
+    // Every route block passes here (test: ungated routes), record routes included.
+    requireFeatureOn(req, companyId);
     requireAcademyUnlocked(req, companyId);
     requireDeclaredKey(req, companyId);
   };
@@ -1415,6 +1434,8 @@ export function createServer(options: CreateServerOptions = {}) {
     if (req.method === 'GET' || req.method === 'HEAD') return;
     const user = req.user;
     if (!user || user.isSuperAdmin || store.isTrainingCompany(companyId)) return;
+    // A company that switched the Academy off has no training locks.
+    if (!store.isModuleEnabled(companyId, 'academy')) return;
     const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
     if (!mapping) return;
     const cached = req as AuthedRequest & { academyLocked?: Set<string> };
@@ -1962,11 +1983,27 @@ export function createServer(options: CreateServerOptions = {}) {
           : undefined,
       memberIds: record.memberIds !== undefined ? stringArray(record.memberIds, 'memberIds') : undefined,
       clientId: record.clientId !== undefined ? optionalString(record.clientId) : undefined,
+      status: record.status !== undefined ? enumValue(record.status, 'status', projectStatuses) : undefined,
+      priority: record.priority !== undefined ? enumValue(record.priority, 'priority', projectPriorities) : undefined,
+      // null or '' clears; undefined keeps.
+      startDate: record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate) ?? null,
+      endDate: record.endDate === undefined ? undefined : record.endDate === null || record.endDate === '' ? null : optionalDateInput(record.endDate) ?? null,
+      budget: record.budget === undefined ? undefined : record.budget === null || record.budget === '' ? null : optionalNumber(record.budget) ?? null,
     };
     if (!partial && (!payload.name || !payload.companyId || !payload.visibility)) {
       throw new HttpError(400, 'name, companyId, and visibility are required.');
     }
+    if (payload.budget !== undefined && payload.budget !== null && payload.budget < 0) {
+      throw new HttpError(400, 'The budget can not be negative.');
+    }
     return payload;
+  };
+
+  /** A task's stage must be one of its own project's stages. */
+  const ensureMilestoneInProject = (milestoneId: string | null | undefined, projectId: string | null | undefined) => {
+    if (!milestoneId) return;
+    const stage = store.projectPlan.milestone(milestoneId);
+    if (!stage || stage.projectId !== projectId) throw new HttpError(400, 'That stage is not in this project.');
   };
 
   const parseTaskPayload = (body: unknown, options: { partial?: boolean } = {}) => {
@@ -1977,14 +2014,18 @@ export function createServer(options: CreateServerOptions = {}) {
       description: record.description !== undefined ? optionalString(record.description) : undefined,
       status:
         record.status !== undefined
-          ? enumValue(record.status, 'status', ['To Do', 'In Progress', 'Done'])
+          ? enumValue(record.status, 'status', taskStatuses)
           : undefined,
       priority:
         record.priority !== undefined
-          ? enumValue(record.priority, 'priority', ['Low', 'Medium', 'High'])
+          ? enumValue(record.priority, 'priority', taskPriorities)
           : undefined,
       createdAt: record.createdAt !== undefined ? requiredDateInput(record.createdAt, 'createdAt') : undefined,
       dueDate: record.dueDate !== undefined ? optionalDateInput(record.dueDate) : undefined,
+      startDate:
+        record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate),
+      milestoneId:
+        record.milestoneId === undefined ? undefined : record.milestoneId === null || record.milestoneId === '' ? null : optionalString(record.milestoneId),
       assignedUserIds:
         record.assignedUserIds !== undefined
           ? stringArray(record.assignedUserIds, 'assignedUserIds')
@@ -2000,6 +2041,12 @@ export function createServer(options: CreateServerOptions = {}) {
         record.dependencies !== undefined ? stringArray(record.dependencies, 'dependencies') : undefined,
       parentTaskId: record.parentTaskId !== undefined ? optionalString(record.parentTaskId) : undefined,
       isPrivate: record.isPrivate !== undefined ? optionalBoolean(record.isPrivate) : undefined,
+      recurrence:
+        record.recurrence === undefined
+          ? undefined
+          : record.recurrence === null || record.recurrence === ''
+            ? null
+            : enumValue(record.recurrence, 'recurrence', taskRecurrences),
       invoiceImage: record.invoiceImage !== undefined ? optionalString(record.invoiceImage) : undefined,
       invoiceVendor: record.invoiceVendor !== undefined ? optionalString(record.invoiceVendor) : undefined,
       invoiceNumber: record.invoiceNumber !== undefined ? optionalString(record.invoiceNumber) : undefined,
@@ -2011,6 +2058,9 @@ export function createServer(options: CreateServerOptions = {}) {
     };
     if (!partial && (!payload.title || !payload.priority || !payload.companyId)) {
       throw new HttpError(400, 'title, priority, and companyId are required.');
+    }
+    if (payload.startDate && payload.dueDate && Date.parse(payload.startDate) > Date.parse(payload.dueDate)) {
+      throw new HttpError(400, 'The start date must be on or before the due date.');
     }
     return payload;
   };
@@ -2555,6 +2605,9 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  registerTaskPartRoutes(app, routeContext);
+  registerTaskChecklistRoutes(app, routeContext);
+  registerProjectPlanRoutes(app, routeContext);
   registerPasswordRoutes(app, routeContext, { sendLink: sendPasswordLink, limiter: loginRateLimiter });
   registerNotificationRoutes(app, routeContext);
   registerLiveRoutes(app, routeContext, liveHub);
@@ -3335,6 +3388,11 @@ export function createServer(options: CreateServerOptions = {}) {
           visibility: payload.visibility!,
           memberIds: payload.memberIds || [],
           clientId: payload.clientId,
+          status: payload.status,
+          priority: payload.priority,
+          startDate: payload.startDate ?? undefined,
+          endDate: payload.endDate ?? undefined,
+          budget: payload.budget ?? undefined,
         }),
       );
       res.status(201).json(project);
@@ -3357,6 +3415,11 @@ export function createServer(options: CreateServerOptions = {}) {
       const targetClientId = payload.clientId !== undefined ? payload.clientId : existing.clientId;
       ensureUsersBelongToCompany(targetMemberIds, targetCompanyId, 'memberIds');
       ensureClientBelongsToCompany(targetClientId, targetCompanyId);
+      const effStart = payload.startDate === null ? null : payload.startDate ?? existing.startDate;
+      const effEnd = payload.endDate === null ? null : payload.endDate ?? existing.endDate;
+      if (effStart && effEnd && Date.parse(effStart) > Date.parse(effEnd)) {
+        throw new HttpError(400, 'The project must start on or before its end date.');
+      }
       const project = withActor(req, () => store.updateProject(req.params.id, payload));
       if (!project) throw new HttpError(404, 'Project not found.');
       res.json(project);
@@ -3462,6 +3525,7 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       ensureUsersBelongToCompany(payload.assignedUserIds || [], payload.companyId!, 'assignedUserIds');
       ensureTaskIdsBelongToCompany(payload.dependencies || [], payload.companyId!);
+      ensureMilestoneInProject(payload.milestoneId, payload.projectId);
       const task = withActor(req, () =>
         store.createTask({
           title: payload.title!,
@@ -3470,6 +3534,8 @@ export function createServer(options: CreateServerOptions = {}) {
           priority: payload.priority!,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : new Date(),
           dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+          startDate: payload.startDate ? new Date(payload.startDate) : undefined,
+          milestoneId: payload.milestoneId ?? undefined,
           assignedUserIds: payload.assignedUserIds || [],
           tags: payload.tags || [],
           companyId: payload.companyId!,
@@ -3480,6 +3546,7 @@ export function createServer(options: CreateServerOptions = {}) {
           // The creator owns the task; used to scope private tasks.
           ownerId: req.user!.id,
           isPrivate: payload.isPrivate ?? false,
+          recurrence: payload.recurrence ?? undefined,
           invoiceImage: payload.invoiceImage,
           invoiceVendor: payload.invoiceVendor,
           invoiceNumber: payload.invoiceNumber,
@@ -3502,6 +3569,12 @@ export function createServer(options: CreateServerOptions = {}) {
       // Manager/Admin/Accountant) may mutate it — mirrors GET isolation.
       requireTaskViewAccess(req, existing);
       const payload = parseTaskPayload(req.body, { partial: true });
+      // A partial edit of one date is checked against the other one already on the task.
+      const effStart = payload.startDate === null ? undefined : payload.startDate ?? existing.startDate;
+      const effDue = payload.dueDate ?? existing.dueDate;
+      if (effStart && effDue && new Date(effStart).getTime() > new Date(effDue).getTime()) {
+        throw new HttpError(400, 'The start date must be on or before the due date.');
+      }
       const targetCompanyId = payload.companyId || existing.companyId;
       const targetProjectId = payload.projectId || existing.projectId;
       if (targetCompanyId !== existing.companyId) {
@@ -3518,11 +3591,13 @@ export function createServer(options: CreateServerOptions = {}) {
         'assignedUserIds',
       );
       ensureTaskIdsBelongToCompany(targetDependencies, targetCompanyId);
+      ensureMilestoneInProject(payload.milestoneId, targetProjectId);
       const task = withActor(req, () =>
         store.updateTask(req.params.id, {
           ...payload,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
           dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
+          startDate: payload.startDate === null ? null : payload.startDate ? new Date(payload.startDate) : undefined,
           invoiceDate: payload.invoiceDate ? new Date(payload.invoiceDate) : undefined,
         }),
       );
@@ -3577,11 +3652,33 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!task) throw new HttpError(404, 'Task not found.');
       requireTaskViewAccess(req, task);
       const body = asRecord(req.body, 'body');
-      const comment = store.createComment({
+      const comment = withActor(req, () => store.createComment({
         taskId: req.params.taskId,
         userId: req.user!.id,
         content: requiredString(body.content, 'content', { min: 1 }),
-      });
+      }));
+      // @mentions: tell each person named, but only colleagues who can see the
+      // task (a private task's title must not reach anyone else). Assignees
+      // already hear about every comment.
+      const named = Array.isArray(body.mentionIds) ? body.mentionIds.filter((id): id is string => typeof id === 'string') : [];
+      const mentioned = [...new Set(named)]
+        .map((id) => store.getUserById(id))
+        .filter((u): u is NonNullable<typeof u> => !!u && u.id !== req.user!.id && canAccessCompany(u, task.companyId))
+        .filter((u) => !(task.assignedUserIds ?? []).includes(u.id))
+        .filter((u) => canViewTask({ user: u } as AuthedRequest, task));
+      if (mentioned.length > 0) {
+        withActor(req, () => store.notify({
+          companyId: task.companyId,
+          userIds: mentioned.map((u) => u.id),
+          type: 'task_mention',
+          title: `${req.user!.name} mentioned you on ${task.title}`,
+          body: comment.content.slice(0, 140),
+          data: { tKey: 'notif.taskMention.t', bKey: 'notif.taskMention.b', title: task.title, name: req.user!.name },
+          link: task.projectId ? `/projects/${task.projectId}` : '/tasks',
+          entityType: 'task',
+          entityId: task.id,
+        }));
+      }
       res.status(201).json(comment);
     }),
   );
@@ -7931,6 +8028,26 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   app.get(
+    '/companies/:companyId/dashboard/insights',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyAccess(req, req.params.companyId);
+      if (!getEffectiveRole(req.user!, req.params.companyId)) {
+        throw new HttpError(403, 'You do not have a role in this company.');
+      }
+      const days = req.query.days === undefined ? 30 : Number(req.query.days);
+      if (!(INSIGHT_PERIODS as readonly number[]).includes(days)) throw new HttpError(400, 'days must be 30, 90 or 365.');
+      // The same variant as the dashboard itself.
+      const operations = allowsRule(req, req.params.companyId, 'DASHBOARD_OPERATIONS_READ');
+      const finance = allowsRule(req, req.params.companyId, 'DASHBOARD_FINANCE_READ');
+      const variant: UserRole = operations && finance
+        ? 'Admin'
+        : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
+      res.json(dashboardInsights(store, req.params.companyId, { userId: req.user!.id, variant }, days));
+    }),
+  );
+
+  app.get(
     '/companies/:companyId/reports/management-summary',
     authMiddleware,
     handler((req, res) => {
@@ -8211,6 +8328,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerPushActionRoutes(app, {
     store,
     contactsLocked: (user, companyId) => academyEnforce && !user.isSuperAdmin && !store.isTrainingCompany(companyId)
+      && store.isModuleEnabled(companyId, 'academy')
       && academyLockedModules(store, user).includes('contacts'),
   });
 
@@ -8480,6 +8598,7 @@ export function createServer(options: CreateServerOptions = {}) {
     // Engagement games exist only for the portal company (see the G1 plan).
     app.use('/public-api', createPublicGamesRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
     app.use('/public-api', createPublicKitRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
+    app.use('/public-api', createPublicJoinRouter(store, portalCompanyId, { enforceRateLimits: process.env.NODE_ENV === 'production' }));
     app.use(createGamesStaffRouter({
       store,
       companyId: portalCompanyId,
@@ -8513,6 +8632,8 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
       seesContact: (req, contact) => canSee(req as AuthedRequest, 'inbox', contact.companyId, contact.id),
+      canReviewFlexi: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'FLEXI_REVIEW'),
+      canManageFlexi: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'FLEXI_MANAGE'),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
       maskFor: (req, companyId, entity, row) => maskFor(req as AuthedRequest, companyId, entity, row),

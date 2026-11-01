@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
 import { navAllowed } from '@/modules/layout/lib/nav-permissions';
-import { moduleForPath } from '@/modules/companies/lib/company-modules';
+import { modulesForPath } from '@/modules/companies/lib/company-modules';
 import { cn } from '@/lib/utils';
 
 const sectionItems: Array<{
@@ -55,8 +55,7 @@ export function SectionLinks() {
 
   // Same rule as the sidebar: the destination's permission, from the server.
   const visibleItems = sectionItems.filter((item) => {
-    const itemModule = moduleForPath(item.href);
-    if (itemModule && !moduleOn(itemModule)) return false;
+    if (!modulesForPath(item.href).every(moduleOn)) return false;
     return navAllowed(item.href, can);
   });
 

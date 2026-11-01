@@ -6,6 +6,7 @@ import type { DataStore } from '../data/store';
 import { registerClientCatalogueRoutes, type ClientCatalogueDeps } from './client-catalogue-routes';
 import { registerClientCampaignRoutes } from './client-campaigns-routes';
 import { registerClientRequestRoutes } from './client-requests-routes';
+import { registerClientFlexiRoutes } from './client-flexi-routes';
 import { registerClientDiscoverRoutes } from '../discover/client-routes';
 import { registerClientDirectoryRoutes } from './directory';
 import { companyCurrency } from './common';
@@ -157,6 +158,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
   }
   if (options.requestsStore) {
     registerClientRequestRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
+    registerClientFlexiRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     registerClientDiscoverRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     const directoryStore = options.requestsStore;
     registerClientDirectoryRoutes(router, { store: directoryStore, companyId, currency: () => companyCurrency(directoryStore, companyId) }, requireSessionFor('client'));
@@ -180,7 +182,8 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) {
-      res.status(error.status).json({ message: error.message });
+      // A machine-readable code may ride along (e.g. TERMS_CHANGED), as on the staff API.
+      res.status(error.status).json({ message: error.message, ...(typeof error.details?.code === 'string' ? { code: error.details.code } : {}) });
       return;
     }
     options.logger?.error('[portal] unexpected error', error);

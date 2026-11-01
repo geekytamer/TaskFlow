@@ -170,6 +170,8 @@ export const OLD_TO_NEW: Readonly<Record<string, readonly string[]>> = {
   'campaigns:games.manage': ['games.view', 'games.manage'], // GAMES_MANAGE
   'campaigns:discover.manage': ['discover.view', 'discover.manage'], // DISCOVER_MANAGE
   'invoices:credit.override': ['invoices.override_credit'], // INVOICES_CREDIT_OVERRIDE
+  'invoices:flexi.review': ['invoices.flexi_review'], // FLEXI_REVIEW
+  'invoices:flexi.manage': ['invoices.flexi_manage'], // FLEXI_MANAGE
   'dashboard:operations.read': ['dashboard.view_operations'], // DASHBOARD_OPERATIONS_READ
   'dashboard:finance.read': ['dashboard.view_finance'], // DASHBOARD_FINANCE_READ
   'settings:users.write': ['people.manage'], // USERS_WRITE

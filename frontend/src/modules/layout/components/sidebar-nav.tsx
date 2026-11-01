@@ -14,39 +14,7 @@ import {
   SidebarGroupContent,
   useSidebar,
 } from '@/components/ui/sidebar';
-import {
-  LayoutDashboard,
-  Users,
-  Network,
-  FolderKanban,
-  Settings,
-  Banknote,
-  ReceiptText,
-  Package,
-  ShoppingCart,
-  Handshake,
-  Truck,
-  BookUser,
-  CalendarClock,
-  ChartNoAxesCombined,
-  BarChart3,
-  Megaphone,
-  UserRoundSearch,
-  BadgeDollarSign,
-  CheckSquare,
-  MessageSquare,
-  Sparkles,
-  Contact2,
-  CalendarOff,
-  CalendarCheck,
-  Wallet,
-  ClipboardCheck,
-  FileQuestion,
-  Scale,
-  Factory,
-  Building2,
-  FileText,
-  ShieldCheck, Layers, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare } from 'lucide-react';
+import { LayoutDashboard, Users, Network, FolderKanban, Settings, Banknote, ReceiptText, Package, ShoppingCart, Handshake, Truck, BookUser, CalendarClock, ChartNoAxesCombined, BarChart3, Megaphone, UserRoundSearch, BadgeDollarSign, CheckSquare, MessageSquare, Sparkles, Contact2, CalendarOff, CalendarCheck, Wallet, ClipboardCheck, FileQuestion, Scale, Factory, Building2, FileText, ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare, Gauge, FileCheck, UserPlus, Settings2, Layers } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
@@ -61,7 +29,7 @@ import { usePermissions } from '@/context/permissions-context';
 import { navAllowed } from '@/modules/layout/lib/nav-permissions';
 import { PermissionsErrorNotice } from '@/components/permissions-error';
 import { useAcademy } from '@/modules/academy/academy-context';
-import { moduleForPath } from '@/modules/companies/lib/company-modules';
+import { moduleForPath, modulesForPath } from '@/modules/companies/lib/company-modules';
 
 type NavItem = {
   href: string;
@@ -120,9 +88,19 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/crm/opportunities', labelKey: 'nav.opportunities', icon: ChartNoAxesCombined, tutorial: 'nav-opportunities' },
       { href: '/crm/campaigns', labelKey: 'nav.campaigns', icon: Megaphone, tutorial: 'nav-campaigns' },
       { href: '/crm/followups', labelKey: 'nav.followups', icon: CalendarClock, tutorial: 'nav-followups' },
-      { href: '/crm/client-requests', labelKey: 'nav.clientRequests', icon: Inbox },
       { href: '/crm/vendor-requests', labelKey: 'nav.vendorRequests', icon: UserRoundSearch, tutorial: 'nav-vendor-requests' },
       { href: '/crm/performance', labelKey: 'nav.performance', icon: BarChart3, tutorial: 'nav-performance' },
+    ],
+  },
+  {
+    labelKey: 'nav.section.flexi',
+    items: [
+      { href: '/flexi', labelKey: 'nav.flexiOverview', icon: Gauge },
+      { href: '/flexi/applications', labelKey: 'nav.flexiApplications', icon: FileCheck },
+      { href: '/flexi/accounts', labelKey: 'nav.flexiAccounts', icon: Wallet },
+      { href: '/flexi/requests', labelKey: 'nav.clientRequests', icon: Inbox },
+      { href: '/flexi/leads', labelKey: 'nav.flexiLeads', icon: UserPlus },
+      { href: '/flexi/settings', labelKey: 'nav.flexiSettings', icon: Settings2 },
     ],
   },
   {
@@ -208,8 +186,7 @@ export function useNavAccess() {
     // would put one company's data under a group heading.
     if (group && !GROUP_PAGES.has(item.href)) return false;
     // A module the company switched off is hidden whatever the role.
-    const itemModule = moduleForPath(item.href);
-    if (itemModule && !moduleOn(itemModule)) return false;
+    if (!modulesForPath(item.href).every(moduleOn)) return false;
     if (item.href === '/settings/group') return adminOfGroups.length > 0;
     // canAdmin: equals can(), plus the super admin's own surfaces (Ruling R).
     return navAllowed(item.href, canAdmin);
@@ -219,8 +196,10 @@ export function useNavAccess() {
 }
 
 /** Conversations waiting on us, polled; also mirrored on the installed app's icon. */
-export function useInboxWaiting(enabled = true) {
+export function useInboxWaiting(wanted = true) {
   const { selectedCompany } = useCompany();
+  const { moduleOn } = usePermissions();
+  const enabled = wanted && moduleOn('inbox');
   const [inboxWaiting, setInboxWaiting] = React.useState(0);
   // The client conversations' permission: no badge fetch for someone the server would refuse.
   const canUseInbox = usePermissions().can(INBOX_PERMISSION);
@@ -330,7 +309,12 @@ export function SidebarNav() {
               <SidebarMenu>
                 {visible.map((item) => {
                   const Icon = item.icon;
-                  const isActive = item.href === activeHref(pathname);
+                  // A section's own landing page (/, /flexi) is active only on itself, not on its sub-pages.
+                  const hasChildren = visible.some((o) => o.href !== item.href && o.href.startsWith(`${item.href}/`));
+                  const isActive =
+                    item.href === '/' || hasChildren
+                      ? pathname === item.href
+                      : pathname.startsWith(item.href);
                   const badge = badges[item.href] || 0;
                   return (
                     <SidebarMenuItem key={item.href}>

@@ -43,7 +43,7 @@ export function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
   const { selectedCompany } = useCompany();
-  const { can, canAdmin } = usePermissions();
+  const { can, canAdmin, moduleOn } = usePermissions();
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
   const [adminPassword, setAdminPassword] = React.useState('');
@@ -168,7 +168,7 @@ export function SettingsPage() {
 
       <WhatsappSettingsPanel />
 
-      {selectedCompany && <ConversationSettingsPanel canEdit={can('inbox.edit_settings')} />}
+      {selectedCompany && moduleOn('inbox') && <ConversationSettingsPanel canEdit={can('inbox.edit_settings')} />}
 
       <Card>
         <CardHeader>

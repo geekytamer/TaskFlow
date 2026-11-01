@@ -80,6 +80,16 @@ export const RECORD_RULES = {
     description: 'Run the influencer directory clients see in the portal: approve, edit and remove profiles, add handles, refresh and discover.',
     v2: { keys: ['discover.manage', 'discover.view'], min: 'own' },
   },
+  FLEXI_REVIEW: {
+    module: 'invoices', action: 'flexi.review', roles: ['Admin', 'Manager', 'Accountant'],
+    description: 'Review Peak Flexi applications, set client balances and see them.',
+    v2: { keys: ['invoices.flexi_review'], min: 'own' },
+  },
+  FLEXI_MANAGE: {
+    module: 'invoices', action: 'flexi.manage', roles: ['Admin', 'Accountant'],
+    description: 'Adjust, freeze, unfreeze and close Peak Flexi accounts, edit Peak Flexi settings and invite website leads.',
+    v2: { keys: ['invoices.flexi_manage'], min: 'own' },
+  },
   INVOICES_CREDIT_OVERRIDE: {
     module: 'invoices', action: 'credit.override', roles: ['Admin', 'Accountant'],
     description: "Issue an invoice or confirm an order that takes a client past their credit limit.",

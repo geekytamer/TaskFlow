@@ -148,6 +148,7 @@ export function registerClientRequestRoutes(
         title: brief.title,
         objective: brief.objective,
         budget: brief.budget,
+        payWith: brief.payWith,
         startDate: brief.startDate,
         endDate: brief.endDate,
         platforms: brief.platforms,
@@ -164,7 +165,7 @@ export function registerClientRequestRoutes(
       });
       notifyManager(store, {
         companyId, managerId: manager?.userId, title: `New campaign request from ${contact.name}`,
-        name: `${contact.name}: ${brief.title}`, body: brief.title, link: `/crm/client-requests?open=${created.id}`, entityType: 'follow_up', entityId: followup.id,
+        name: `${contact.name}: ${brief.title}`, body: brief.title, link: `/flexi/requests?open=${created.id}`, entityType: 'follow_up', entityId: followup.id,
       });
       return created;
     }));

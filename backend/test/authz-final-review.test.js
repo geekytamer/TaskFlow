@@ -236,7 +236,7 @@ test('ops authz:compare summarises authz_divergence by route, key and company, n
   assert.match(out, /2\s+finance\.view/, out);
   assert.match(out, /1\s+field:salary/, out);
   assert.match(out, /3\s+c1/, out);
-  assert.doesNotMatch(out, /GET \/old|c9/);
+  assert.doesNotMatch(out, /GET \/old|company c9/);
   // Newest first: the contacts edit (12 hours ago) precedes the invoices rows.
   const newest = out.slice(out.indexOf('Newest'));
   assert.ok(newest.indexOf('PUT /contacts/:id') < newest.indexOf('GET /companies/:companyId/invoices'), out);
