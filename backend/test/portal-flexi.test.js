@@ -140,3 +140,26 @@ test('the client never sees who decided or internal fields', async () => {
     assert.equal(text.includes(leak), false, leak);
   }
 });
+
+test('GET shows the terms to accept and the account state; a stale terms version is refused with a clear message', async () => {
+  const ctx = build();
+  const omar = await ctx.session('client', ctx.client, 'omar@alnoor.test');
+  const first = await request(ctx.server).get('/portal-api/client/flexi').set(omar);
+  assert.equal(first.body.terms.version, 1);
+  assert.match(first.body.terms.ar, /بيك فلكسي/);
+  assert.match(first.body.terms.en, /Peak Flexi/);
+  assert.equal(first.body.balance.state, null);
+
+  ctx.store.flexi.saveSettings(ctx.company.id, { termsEn: 'Updated terms.' }, ctx.admin.id);
+  const stale = await ctx.activate(omar);
+  assert.equal(stale.status, 400);
+  assert.match(stale.body.message, /terms changed/i);
+  const fresh = await request(ctx.server).post('/portal-api/client/flexi/applications').set(omar)
+    .send({ kind: 'activation', crNumber: '1234567', fileIds: [await ctx.upload(omar)], termsVersion: 2 });
+  assert.equal(fresh.status, 201, JSON.stringify(fresh.body));
+
+  ctx.store.flexi.approve(fresh.body.id, { amount: 850, reviewerId: ctx.manager.id });
+  ctx.store.flexi.freeze(ctx.client.id, { reason: 'Late', userId: ctx.admin.id });
+  const frozen = await request(ctx.server).get('/portal-api/client/flexi').set(omar);
+  assert.deepEqual([frozen.body.balance.state, frozen.body.balance.available], ['frozen', 0]);
+});

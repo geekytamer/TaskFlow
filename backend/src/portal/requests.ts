@@ -9,6 +9,8 @@ export interface CampaignBrief {
   title: string;
   objective: string;
   budget: number | null;
+  /** In full, or from the client's Peak Flexi balance. */
+  payWith: 'full' | 'flexi';
   startDate: string | null;
   endDate: string | null;
   platforms: string[];
@@ -45,6 +47,10 @@ export function parseBrief(body: Record<string, unknown>): CampaignBrief {
     budget = value;
   }
 
+  const payRaw = body.payWith ?? 'full';
+  if (payRaw !== 'full' && payRaw !== 'flexi') throw new HttpError(400, 'payWith must be full or flexi.');
+  const payWith: 'full' | 'flexi' = payRaw;
+
   const startDate = optionalDate(body.startDate, 'startDate');
   const endDate = optionalDate(body.endDate, 'endDate');
   if (startDate && endDate && endDate < startDate) throw new HttpError(400, 'endDate must not be before startDate.');
@@ -65,7 +71,7 @@ export function parseBrief(body: Record<string, unknown>): CampaignBrief {
   const influencerIds = [...new Set(idsRaw as string[])];
   if (influencerIds.length > MAX_SHORTLIST) throw new HttpError(400, `Shortlist at most ${MAX_SHORTLIST} influencers.`);
 
-  return { title, objective, budget, startDate, endDate, platforms, influencerIds };
+  return { title, objective, budget, payWith, startDate, endDate, platforms, influencerIds };
 }
 
 /** What staff read on the opportunity. Carries handles, never rates. */
@@ -86,6 +92,7 @@ export function briefForStaff(input: {
   ];
   if (brief.startDate || brief.endDate) lines.push(`Dates: ${brief.startDate ?? 'open'} to ${brief.endDate ?? 'open'}`);
   if (brief.budget !== null) lines.push(`Budget: ${brief.budget} ${input.currency}`);
+  if (brief.payWith === 'flexi') lines.push('Payment: from the Peak Flexi balance');
   if (brief.platforms.length) lines.push(`Platforms: ${brief.platforms.join(', ')}`);
   if (input.shortlist.length) {
     lines.push(`Shortlist: ${input.shortlist.map((i) => (i.handle ? `${i.name} (${i.handle})` : i.name)).join(', ')}`);
@@ -157,6 +164,7 @@ export function toRequestDto(
     title: record.title,
     objective: record.objective,
     budget: record.budget,
+    payWith: record.payWith,
     currency: input.currency,
     startDate: record.startDate,
     endDate: record.endDate,

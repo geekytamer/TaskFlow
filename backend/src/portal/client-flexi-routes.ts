@@ -43,7 +43,12 @@ export function registerClientFlexiRoutes(
     const { clientId: _clientId, ...balance } = store.flexi.balanceOf(session.contactId);
     const open = store.flexi.openFor(session.contactId);
     const last = store.flexi.latestFor(session.contactId);
-    res.json({ balance, currency: companyCurrency(store, companyId), open: open ? dto(open) : null, last: last ? dto(last) : null });
+    const settings = store.flexi.settings(companyId);
+    res.json({
+      balance, currency: companyCurrency(store, companyId), open: open ? dto(open) : null, last: last ? dto(last) : null,
+      terms: { version: settings.termsVersion, ar: settings.termsAr, en: settings.termsEn },
+      standardAmount: settings.standardAmount,
+    });
   });
 
   router.post('/client/flexi/applications', requireClientSession, (req: SessionRequest, res: Response) => {

@@ -148,6 +148,7 @@ export function registerClientRequestRoutes(
         title: brief.title,
         objective: brief.objective,
         budget: brief.budget,
+        payWith: brief.payWith,
         startDate: brief.startDate,
         endDate: brief.endDate,
         platforms: brief.platforms,
