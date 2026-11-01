@@ -145,6 +145,9 @@ export function lockedModules(store: DataStore, user: SanitizedUser, now = new D
   if (exemptions.has('*')) return [];
   const state = store.academy.state(user.id);
   if (state.graceUntil && now < new Date(state.graceUntil)) return [];
+  // Companies that switched the Academy off never lock anything.
+  const companies = realRoles(store, user);
+  if (companies.length && companies.every((r) => !store.isModuleEnabled(r.companyId, 'academy'))) return [];
   const completed = store.academy.completed(user.id);
   const locked = new Set<string>();
   for (const m of pathFor(store, user)) {

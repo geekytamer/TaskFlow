@@ -4,10 +4,14 @@ import * as React from 'react';
 import { useCompany } from '@/context/company-context';
 import { useLiveRefresh } from '@/lib/live';
 import { getTeamUnread } from '@/services/teamChatService';
+import { usePermissions } from '@/context/permissions-context';
 
 /** Unread staff-chat messages in the selected company; follows new messages live. */
-export function useTeamUnread(enabled = true) {
+export function useTeamUnread(wanted = true) {
   const { selectedCompany } = useCompany();
+  // Staff chats live in the Inbox, so a company without the Inbox has none.
+  const { moduleOn } = usePermissions();
+  const enabled = wanted && moduleOn('inbox');
   const companyId = selectedCompany?.id;
   const [count, setCount] = React.useState(0);
 

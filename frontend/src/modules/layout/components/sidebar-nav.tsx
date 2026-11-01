@@ -26,7 +26,7 @@ import { getWhatsappChats } from '@/services/whatsappService';
 import { usePermissions, usePermissionOr } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
 import { useAcademy } from '@/modules/academy/academy-context';
-import { moduleForPath } from '@/modules/companies/lib/company-modules';
+import { moduleForPath, modulesForPath } from '@/modules/companies/lib/company-modules';
 
 type NavItem = {
   href: string;
@@ -156,8 +156,7 @@ export function useNavAccess() {
     const item = NAV_ITEMS.get(href);
     if (!item) return false;
     // A module the company switched off is hidden under every engine.
-    const itemModule = moduleForPath(item.href);
-    if (itemModule && !moduleOn(itemModule)) return false;
+    if (!modulesForPath(item.href).every(moduleOn)) return false;
     // Once the server has reported a permission set, it is the only authority.
     // The frontend holds no rules of its own; it renders what the server says.
     if (permissionsLoaded) {
@@ -179,8 +178,10 @@ export function useNavAccess() {
 }
 
 /** Conversations waiting on us, polled; also mirrored on the installed app's icon. */
-export function useInboxWaiting(effectiveRole: string | null | undefined, enabled = true) {
+export function useInboxWaiting(effectiveRole: string | null | undefined, wanted = true) {
   const { selectedCompany } = useCompany();
+  const { moduleOn } = usePermissions();
+  const enabled = wanted && moduleOn('inbox');
   const [inboxWaiting, setInboxWaiting] = React.useState(0);
   // Same permission as the Inbox nav item: no badge fetch for someone the server would refuse.
   const canUseInbox = usePermissionOr(

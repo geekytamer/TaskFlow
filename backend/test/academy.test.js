@@ -254,3 +254,17 @@ test('with enforcement switched off, no page shows as locked either', async () =
   const me2 = await off.as(u2)(request(off.app).get('/academy/me'));
   assert.deepEqual(me2.body.lockedModules, [], 'ACADEMY_ENFORCE=false opens pages as well as changes');
 });
+
+test('a company that switched the Academy off has no training locks', async () => {
+  const ctx = setup({ enforce: true });
+  const sami = ctx.newUser('Manager', 'sami@x.example');
+  const client = ctx.store.createContact({ companyId: '1', kind: 'Organization', name: 'Al Noor', roles: ['Client'] });
+  const newOpp = () => ctx.as(sami)(request(ctx.app).post('/companies/1/opportunities')).send({ contactId: client.id, title: 'Iftar dates', serviceType: 'General', stage: 'New', expectedRevenue: 1200, probability: 50 });
+  const me = async () => (await ctx.as(sami)(request(ctx.app).get('/academy/me'))).body;
+  assert.equal((await newOpp()).status, 403);
+  assert.ok((await me()).lockedModules.includes('crm'));
+
+  ctx.store.updateCompany('1', { disabledModules: ['academy'] });
+  assert.equal((await newOpp()).status, 201, 'nothing to finish first');
+  assert.deepEqual((await me()).lockedModules, [], 'and nothing shows as locked');
+});

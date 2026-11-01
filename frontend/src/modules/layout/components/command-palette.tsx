@@ -17,7 +17,7 @@ import { useI18n } from '@/context/i18n-context';
 import { searchCompany, type SearchGroup, type SearchType } from '@/services/searchService';
 import { usePermissions } from '@/context/permissions-context';
 import { navPermission } from '@/modules/layout/lib/nav-permissions';
-import { moduleForPath } from '@/modules/companies/lib/company-modules';
+import { modulesForPath } from '@/modules/companies/lib/company-modules';
 import {
   BarChart3,
   BadgeDollarSign,
@@ -106,8 +106,7 @@ export function CommandPalette() {
 
   /** Quick actions are shortcuts to pages, so they answer to the same rule. */
   const allowsHref = React.useCallback((href: string) => {
-    const hrefModule = moduleForPath(href);
-    if (hrefModule && !moduleOn(hrefModule)) return false;
+    if (!modulesForPath(href).every(moduleOn)) return false;
     const permission = navPermission(href);
     if (!permissionsLoaded) return true; // legacy mode: the page guard decides
     if (!permission) return true;
@@ -155,8 +154,7 @@ export function CommandPalette() {
   const visibleNav = React.useMemo(
     () =>
       navTargets.filter((item) => {
-        const itemModule = moduleForPath(item.href);
-        if (itemModule && !moduleOn(itemModule)) return false;
+        if (!modulesForPath(item.href).every(moduleOn)) return false;
         // Once the server reports a permission set it is the only authority;
         // the role list below is the fallback while AUTHZ_ENGINE is legacy.
         const permission = navPermission(item.href);

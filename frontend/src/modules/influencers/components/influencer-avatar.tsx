@@ -1,18 +1,21 @@
 'use client';
 
 import * as React from 'react';
+import { usePermissions } from '@/context/permissions-context';
 import { getInfluencerPhotos, influencerPhotoUrl } from '@/services/discoverService';
 import { cn } from '@/lib/utils';
 
 /** Which influencers have a photo (from the weekly Instagram check or their connection). Null while loading. */
 export function useInfluencerPhotos(companyId: string | undefined): Record<string, string> | null {
   const [photos, setPhotos] = React.useState<Record<string, string> | null>(null);
+  const { moduleOn } = usePermissions();
+  const on = moduleOn('influencers');
   React.useEffect(() => {
-    if (!companyId) { setPhotos({}); return; }
+    if (!companyId || !on) { setPhotos({}); return; }
     let cancelled = false;
     void getInfluencerPhotos(companyId).then((p) => { if (!cancelled) setPhotos(p); });
     return () => { cancelled = true; };
-  }, [companyId]);
+  }, [companyId, on]);
   return photos;
 }
 

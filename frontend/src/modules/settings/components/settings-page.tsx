@@ -28,7 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { runSeedDatabase } from '@/actions/seedActions';
 import { useI18n } from '@/context/i18n-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissionOr, usePermissions } from '@/context/permissions-context';
 import { NumberingSettingsPanel } from './numbering-settings-panel';
 import { CustomFieldsPanel } from './custom-fields-panel';
 import { ApprovalRulesPanel } from './approval-rules-panel';
@@ -43,6 +43,7 @@ export function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
   const { selectedCompany, currentRole, currentUser } = useCompany();
+  const { moduleOn } = usePermissions();
   const canAdminister = usePermissionOr('settings', 'administration.write', currentRole === 'Admin');
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
@@ -168,7 +169,7 @@ export function SettingsPage() {
 
       <WhatsappSettingsPanel />
 
-      {selectedCompany && <ConversationSettingsPanel canEdit={canAdminister || currentRole === 'Manager'} />}
+      {selectedCompany && moduleOn('inbox') && <ConversationSettingsPanel canEdit={canAdminister || currentRole === 'Manager'} />}
 
       <Card>
         <CardHeader>

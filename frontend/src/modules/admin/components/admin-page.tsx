@@ -249,7 +249,7 @@ export function AdminPage() {
                   {t('admin.newCompany')}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+              <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t('admin.newCompany')}</DialogTitle>
                 </DialogHeader>

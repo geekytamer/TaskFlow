@@ -1,5 +1,5 @@
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissionOr, usePermissions } from '@/context/permissions-context';
 
 /**
  * Whether the signed-in user may invite and manage portal users. The role rule
@@ -7,5 +7,7 @@ import { usePermissionOr } from '@/context/permissions-context';
  */
 export function useCanManagePortal(): boolean {
   const { currentRole } = useCompany();
-  return usePermissionOr('contacts', 'portal.manage', currentRole === 'Admin' || currentRole === 'Manager');
+  const { moduleOn } = usePermissions();
+  const permitted = usePermissionOr('contacts', 'portal.manage', currentRole === 'Admin' || currentRole === 'Manager');
+  return moduleOn('influencers') && permitted;
 }

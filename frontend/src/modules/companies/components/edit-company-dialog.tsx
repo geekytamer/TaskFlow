@@ -95,7 +95,7 @@ export function EditCompanyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+      <DialogContent className={`${isSuperAdmin ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[85vh] overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle>{t('companyEdit.title')}</DialogTitle>
           <DialogDescription>{t('companyEdit.description')}</DialogDescription>

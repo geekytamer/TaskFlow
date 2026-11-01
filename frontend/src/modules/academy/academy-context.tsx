@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCompany } from '@/context/company-context';
+import { usePermissions } from '@/context/permissions-context';
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import {
   getAcademy, getImpact, reportObjective, resetAcademy, startAcademy,
@@ -44,6 +45,9 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
   const { selectedCompany, companies, setSelectedCompany, currentUser } = useCompany();
   const pathname = usePathname();
   const router = useRouter();
+  // A company that switched the Academy off has no training locks (the server agrees).
+  const { moduleOn } = usePermissions();
+  const academyOn = moduleOn('academy');
   const [progress, setProgress] = React.useState<AcademyProgress | null>(null);
   const [impact, setImpact] = React.useState<AcademyImpact | null>(null);
   const [impactBefore, setImpactBefore] = React.useState<AcademyImpact | null>(null);
@@ -145,14 +149,14 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
 
   // Mandatory: someone with locked modules and an unfinished path starts in the Academy (once a session).
   React.useEffect(() => {
-    if (!progress || progress.lockedModules.length === 0 || pathname?.startsWith('/academy')) return;
+    if (!academyOn || !progress || progress.lockedModules.length === 0 || pathname?.startsWith('/academy')) return;
     if (progress.missions.every((m) => m.status === 'done')) return;
     try {
       if (sessionStorage.getItem(REDIRECTED_KEY)) return;
       sessionStorage.setItem(REDIRECTED_KEY, '1');
     } catch { /* storage blocked: redirect anyway */ }
     router.replace('/academy');
-  }, [progress, pathname, router]);
+  }, [academyOn, progress, pathname, router]);
 
   const switchTo = React.useCallback((companyId: string) => {
     try { localStorage.setItem('selectedCompanyId', companyId); } catch { /* falls back to the first company */ }
@@ -188,11 +192,11 @@ export function AcademyProvider({ children }: { children: React.ReactNode }) {
 
   const value = React.useMemo<AcademyContextValue>(() => ({
     progress, inPractice, currentMission,
-    locked: new Set(progress?.lockedModules ?? []),
+    locked: new Set(academyOn ? progress?.lockedModules ?? [] : []),
     refresh, enterPractice, leavePractice, reset,
     impact, impactBefore, justCompleted,
     dismissCompleted: () => setJustCompleted(null),
-  }), [progress, inPractice, currentMission, refresh, enterPractice, leavePractice, reset, impact, impactBefore, justCompleted]);
+  }), [academyOn, progress, inPractice, currentMission, refresh, enterPractice, leavePractice, reset, impact, impactBefore, justCompleted]);
 
   return <AcademyContext.Provider value={value}>{children}</AcademyContext.Provider>;
 }
