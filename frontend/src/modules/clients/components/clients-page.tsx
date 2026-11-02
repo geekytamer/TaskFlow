@@ -2,6 +2,7 @@
 
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { useModuleSkip } from '@/modules/groups/hooks/use-module-skip';
 import { sumByCurrency } from '@/lib/money-by-currency';
 import { CompanyLabel } from '@/modules/groups/components/company-cell';
 import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
@@ -9,7 +10,6 @@ import { MissingCompanies } from '@/modules/groups/components/missing-companies'
 import { CreateTargetSelect, useCreateTarget } from '@/modules/groups/components/company-picker';
 import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import * as React from 'react';
-import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +71,7 @@ export function ClientsPage() {
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const createTarget = useCreateTarget('contacts.create');
   const currencyOf = useCurrencyOf();
+  const skipOff = useModuleSkip();
 
   React.useEffect(() => {
     if (!createTarget.target) { setCustomFieldDefs([]); return; }
@@ -97,14 +98,15 @@ export function ClientsPage() {
         // Each company answers for itself; a company that refuses invoices just has no figures.
         const [contactData, invoiceData, projectData] = await Promise.all([
           fanOut(ids, (id) => getContacts(id, 'Client')),
-          fanOut(ids, (id) => getInvoices(id)),
-          isModuleOn(selectedCompany, 'projects') ? getProjects() : Promise.resolve([] as Awaited<ReturnType<typeof getProjects>>),
+          fanOut(ids, (id) => getInvoices(id), { skip: skipOff('invoices') }),
+          getProjects(),
         ]);
         if (!cancelled) {
           setContacts(contactData.rows);
           setMissing(contactData.missing);
           setInvoices(invoiceData.rows);
-          setProjects(projectData.filter((p: Project) => ids.includes(p.companyId)));
+          // Each company's projects, where that company has projects switched on.
+          setProjects(projectData.filter((p: Project) => ids.includes(p.companyId) && !skipOff('projects')(p.companyId)));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -112,7 +114,7 @@ export function ClientsPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [selectedCompany, scopeKey]);
+  }, [selectedCompany, scopeKey, skipOff]);
 
   const contactMetrics = React.useMemo(() => {
     const map = new Map<string, { invoiceCount: number; outstanding: number; total: number }>();

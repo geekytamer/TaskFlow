@@ -36,3 +36,13 @@ test('latest() lets only the newest request land', () => {
   assert.equal(ticket.isCurrent(first), false);
   assert.equal(ticket.isCurrent(second), true);
 });
+
+test('a company skipped up front is named without a request', async () => {
+  const asked: string[] = [];
+  const { rows, missing } = await fanOut(['a', 'b'], async (id) => { asked.push(id); return [{ id: 'x' }]; },
+    { skip: (id) => (id === 'b' ? 'off' : null) });
+  assert.deepEqual(asked, ['a']);
+  assert.deepEqual(rows, [{ id: 'x', companyId: 'a' }]);
+  assert.deepEqual(missing, [{ companyId: 'b', reason: 'off' }]);
+});
+

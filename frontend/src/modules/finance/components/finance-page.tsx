@@ -1,5 +1,8 @@
 'use client';
 
+import { IfModule } from '@/modules/groups/components/if-module';
+import { useCompanyScope } from '@/context/company-scope-context';
+import { useCompany } from '@/context/company-context';
 import { PerCompany } from '@/modules/groups/components/per-company';
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -48,8 +51,14 @@ export function FinancePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  // A tab whose module the company switched off is not offered.
-  const tabOn = (tab: string) => !TAB_MODULES[tab] || moduleOn(TAB_MODULES[tab]);
+  // A tab whose module is switched off is not offered: in a whole group, offered
+  // when any company in view has it on (each section says where it is off).
+  const { inTree, companyIds } = useCompanyScope();
+  const { companies } = useCompany();
+  const onSomewhere = (m: string) => inTree
+    ? companyIds.some((id) => !companies.find((c) => c.id === id)?.disabledModules?.includes(m))
+    : moduleOn(m);
+  const tabOn = (tab: string) => !TAB_MODULES[tab] || onSomewhere(TAB_MODULES[tab]);
   const initialTab =
     tabFromUrl && VALID_TABS.has(tabFromUrl) && tabOn(tabFromUrl) ? tabFromUrl : 'overview';
 
@@ -106,17 +115,21 @@ export function FinancePage() {
         {tabOn('invoices') && (
           <TabsContent value="invoices" className="space-y-4">
             <PerCompany>
-              <InvoiceTable />
-              <CreditNotesPanel />
+              <IfModule module="invoices">
+                <InvoiceTable />
+                <CreditNotesPanel />
+              </IfModule>
             </PerCompany>
           </TabsContent>
         )}
         {tabOn('payables') && (
           <TabsContent value="payables" className="space-y-4">
             <PerCompany>
-              <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
-              {/* Remount so a freshly raised draft shows up without a manual reload. */}
-              <VendorBillTable key={billsVersion} />
+              <IfModule module="vendor-bills">
+                <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
+                {/* Remount so a freshly raised draft shows up without a manual reload. */}
+                <VendorBillTable key={billsVersion} />
+              </IfModule>
             </PerCompany>
           </TabsContent>
         )}
@@ -144,7 +157,7 @@ export function FinancePage() {
           <PerCompany>
             <StandaloneExpenseTable />
             {/* Task expenses come from the tasks module. */}
-            {moduleOn('tasks') && <ExpenseTable />}
+            <IfModule module="tasks"><ExpenseTable /></IfModule>
           </PerCompany>
         </TabsContent>
         <TabsContent value="bank">

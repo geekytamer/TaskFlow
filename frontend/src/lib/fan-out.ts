@@ -23,12 +23,22 @@ const reasonOf = (error: unknown): MissingReason => {
 export async function fanOut<T extends object>(
   companyIds: readonly string[],
   load: (companyId: string) => Promise<T[]>,
+  options: {
+    /** A reason to leave a company out without asking (its module is switched off), or null to ask. */
+    skip?: (companyId: string) => MissingReason | null;
+  } = {},
 ): Promise<{ rows: Array<T & { companyId: string }>; missing: MissingCompany[] }> {
-  const answers = await Promise.allSettled(companyIds.map((id) => load(id)));
   const rows: Array<T & { companyId: string }> = [];
   const missing: MissingCompany[] = [];
+  const asked: string[] = [];
+  for (const id of companyIds) {
+    const reason = options.skip?.(id) ?? null;
+    if (reason) missing.push({ companyId: id, reason });
+    else asked.push(id);
+  }
+  const answers = await Promise.allSettled(asked.map((id) => load(id)));
   answers.forEach((answer, i) => {
-    const companyId = companyIds[i];
+    const companyId = asked[i];
     if (answer.status === 'rejected') {
       missing.push({ companyId, reason: reasonOf(answer.reason) });
       return;
@@ -49,3 +59,4 @@ export function latest() {
     isCurrent: (ticket: number) => ticket === current,
   };
 }
+

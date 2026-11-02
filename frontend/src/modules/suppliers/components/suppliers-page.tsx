@@ -2,6 +2,7 @@
 
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { useModuleSkip } from '@/modules/groups/hooks/use-module-skip';
 import { sumByCurrency } from '@/lib/money-by-currency';
 import { CompanyLabel } from '@/modules/groups/components/company-cell';
 import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
@@ -65,6 +66,7 @@ export function SuppliersPage() {
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const createTarget = useCreateTarget('contacts.create');
   const currencyOf = useCurrencyOf();
+  const skipOff = useModuleSkip();
 
   React.useEffect(() => {
     if (!createTarget.target) { setCustomFieldDefs([]); return; }
@@ -91,7 +93,7 @@ export function SuppliersPage() {
         // Each company answers for itself; one that refuses purchasing just has no figures.
         const [contactData, orderData, payableData] = await Promise.all([
           fanOut(ids, (id) => getContacts(id, 'Vendor')),
-          fanOut(ids, (id) => getPurchaseOrders(id)),
+          fanOut(ids, (id) => getPurchaseOrders(id), { skip: skipOff('purchasing') }),
           fanOut(ids, (id) => getSupplierPayables(id)),
         ]);
         if (!cancelled) {
@@ -106,7 +108,7 @@ export function SuppliersPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [selectedCompany, scopeKey]);
+  }, [selectedCompany, scopeKey, skipOff]);
 
   const contactMetrics = React.useMemo(() => {
     const map = new Map<string, { orderCount: number; spend: number }>();

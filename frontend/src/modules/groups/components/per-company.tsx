@@ -23,7 +23,8 @@ export function PerCompany({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-8">
       {companyIds.map((id, index) => (
-        <section key={id} aria-label={companyName(id)} className="space-y-3">
+        // After the first section, a page's own title is not repeated.
+        <section key={id} aria-label={companyName(id)} className={index > 0 ? 'space-y-3 [&_h1]:hidden' : 'space-y-3'}>
           <h2 className="border-b pb-1 text-sm font-semibold text-muted-foreground">{companyName(id)}</h2>
           <SectionContext.Provider value={index}>
             <InCompany companyId={id}>{children}</InCompany>
