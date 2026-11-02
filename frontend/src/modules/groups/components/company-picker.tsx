@@ -17,6 +17,8 @@ import { InCompany } from './in-company';
 /** Companies in view where `permission` is granted (checked per company), group company first. */
 export function useCreateChoices(permission: string): string[] {
   const { companyIds } = useCompanyScope();
+  const { companies } = useCompany();
+  const offIn = React.useCallback((id: string) => companies.find((c) => c.id === id)?.disabledModules ?? [], [companies]);
   const [allowed, setAllowed] = React.useState<string[]>([]);
   const key = companyIds.join(',');
   React.useEffect(() => {
@@ -26,13 +28,13 @@ export function useCreateChoices(permission: string): string[] {
       try {
         const feed = await fetchMyPermissions(id);
         // Read the way the permissions context reads it, so the answer matches the dialog's own gate.
-        return buildAccess(feed).can(permission) ? id : null;
+        return buildAccess(feed, offIn(id)).can(permission) ? id : null;
       } catch {
         return null;
       }
     })).then((ids) => { if (active) setAllowed(ids.filter((x): x is string => Boolean(x))); });
     return () => { active = false; };
-  }, [key, permission]);
+  }, [key, permission, offIn]);
   return allowed;
 }
 
@@ -56,7 +58,11 @@ export function useCreateTarget(permission: string) {
 export function CreateTargetSelect({ choices, target, setTarget }: { choices: string[]; target: string; setTarget: (id: string) => void }) {
   const { inTree, companyName } = useCompanyScope();
   const { language } = useI18n();
-  if (!inTree || choices.length < 2) return null;
+  if (!inTree || choices.length === 0) return null;
+  // One company allowed: say where the record goes rather than offer a choice.
+  if (choices.length === 1) {
+    return <span className="text-sm text-muted-foreground">{(language === 'ar' ? 'إلى: ' : 'To: ') + companyName(choices[0])}</span>;
+  }
   return (
     <Select value={target} onValueChange={setTarget}>
       <SelectTrigger className="h-9 w-[12rem]" aria-label={language === 'ar' ? 'الإضافة إلى' : 'Add to'}>

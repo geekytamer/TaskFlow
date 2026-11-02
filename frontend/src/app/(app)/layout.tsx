@@ -158,7 +158,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <CompanySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><EnableNotificationsPrompt /><ModuleGate><AcademyGate><GroupPageFrame>{children}</GroupPageFrame></AcademyGate></ModuleGate></main>
+        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><EnableNotificationsPrompt /><GroupPageFrame><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></GroupPageFrame></main>
       </SidebarInset>
       <MobileTabBar />
       <TourOverlay />

@@ -9,10 +9,10 @@ import * as React from 'react';
 import { usePathname } from 'next/navigation';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { framePerCompany, GROUP_AWARE_PAGES } from '@/modules/groups/lib/group-aware';
-
-const OWN_SCOPE_BAR = new Set(['/', '/tasks', '/projects']);
 import { PerCompany } from './per-company';
 import { ScopeBar } from './scope-bar';
+
+const OWN_SCOPE_BAR = new Set(['/', '/tasks', '/projects']);
 
 export function GroupPageFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '/';
@@ -26,7 +26,16 @@ export function GroupPageFrame({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!inTree || !framePerCompany(pathname)) return <>{children}</>;
+  if (!isGroup || !framePerCompany(pathname)) return <>{children}</>;
+  // "This company only": the group company's own page, with the way back to the whole group.
+  if (!inTree) {
+    return (
+      <div className="space-y-4">
+        <ScopeBar className="justify-end" />
+        {children}
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
       <ScopeBar className="justify-end" />

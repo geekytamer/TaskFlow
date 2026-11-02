@@ -128,6 +128,7 @@ export function PurchasesPage() {
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const createTarget = useCreateTarget('purchasing.create');
   const currencyOf = useCurrencyOf();
+  const loadTicket = React.useRef(0);
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
@@ -168,6 +169,8 @@ export function PurchasesPage() {
     if (!quiet) setLoading(true);
     try {
       const ids = scopeKey.split(',');
+      // Only the newest load lands: an answer for an earlier scope is dropped.
+      const ticket = ++loadTicket.current;
       // Each company answers for itself; one with inventory or contacts off just has none.
       const [orderData, itemData, supplierData, receiptData, payableData] = await Promise.all([
         fanOut(ids, (id) => getPurchaseOrders(id)),
@@ -176,6 +179,7 @@ export function PurchasesPage() {
         fanOut(ids, (id) => getPurchaseReceipts(id)),
         fanOut(ids, (id) => getPurchaseOrderPayables(id)),
       ]);
+      if (ticket !== loadTicket.current) return;
       setOrders(orderData.rows);
       setMissing(orderData.missing);
       setItems(itemData.rows);

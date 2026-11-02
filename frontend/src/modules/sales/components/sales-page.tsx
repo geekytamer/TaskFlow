@@ -113,6 +113,7 @@ export function SalesPage() {
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const createTarget = useCreateTarget('sales.create');
   const currencyOf = useCurrencyOf();
+  const loadTicket = React.useRef(0);
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
@@ -173,6 +174,8 @@ export function SalesPage() {
     if (!quiet) setLoading(true);
     try {
       const ids = scopeKey.split(',');
+      // Only the newest load lands: an answer for an earlier scope is dropped.
+      const ticket = ++loadTicket.current;
       const [orderData, clientData, itemData, invoiceData, templateData] = await Promise.all([
         fanOut(ids, (id) => getSalesOrders(id)),
         fanOut(ids, (id) => getContacts(id, 'Client')),
@@ -180,6 +183,7 @@ export function SalesPage() {
         fanOut(ids, (id) => getInvoices(id)),
         fanOut(ids, (id) => getInvoiceTemplates(id, 'invoice')),
       ]);
+      if (ticket !== loadTicket.current) return;
       setOrders(orderData.rows);
       setMissing(orderData.missing);
       setClients(clientData.rows);
@@ -475,7 +479,7 @@ export function SalesPage() {
               </div>
 
               <div className="min-w-0 overflow-x-auto">
-                <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={formItems} />
+                <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={formItems} currencyCode={currencyOf(formCompanyId)} />
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>

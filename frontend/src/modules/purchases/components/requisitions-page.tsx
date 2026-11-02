@@ -156,6 +156,7 @@ export function RequisitionsPage() {
   const scopeKey = companyIds.join(',');
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const currencyOf = useCurrencyOf();
+  const loadTicket = React.useRef(0);
   const [rows, setRows] = React.useState<PurchaseRequisition[] | null>(null);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [rejecting, setRejecting] = React.useState<PurchaseRequisition | null>(null);
@@ -168,7 +169,10 @@ export function RequisitionsPage() {
     if (!selectedCompany || !scopeKey) return;
     try {
       const ids = scopeKey.split(',');
+      // Only the newest load lands: an answer for an earlier scope is dropped.
+      const ticket = ++loadTicket.current;
       const [rData, sData] = await Promise.all([fanOut(ids, (id) => getPurchaseRequisitions(id)), fanOut(ids, (id) => getSuppliers(id))]);
+      if (ticket !== loadTicket.current) return;
       const r = rData.rows;
       const s = sData.rows;
       setMissing(rData.missing);

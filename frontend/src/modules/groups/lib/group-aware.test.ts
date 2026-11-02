@@ -6,7 +6,8 @@ test('pages that merge a whole group, settings and single records are not framed
   for (const path of ['/', '/tasks', '/projects', '/contacts', '/clients', '/suppliers', '/sales', '/purchases', '/purchases/requisitions', '/finance']) {
     assert.equal(framePerCompany(path), false, path);
   }
-  for (const path of ['/settings/people', '/admin', '/academy', '/projects/abc', '/contacts/abc', '/inventory/warehouses/w1']) {
+  for (const path of ['/settings/people', '/admin', '/academy', '/projects/abc', '/contacts/abc', '/inventory/warehouses/w1',
+    '/flexi/accounts/c1', '/inbox', '/whatsapp']) {
     assert.equal(framePerCompany(path), false, path);
   }
 });

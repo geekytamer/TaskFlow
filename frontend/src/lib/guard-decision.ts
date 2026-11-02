@@ -14,6 +14,11 @@ export interface GuardInput {
   hasCompany: boolean;
   /** undefined: outside the provider (the login screen). */
   permissions?: { ready: boolean; error: boolean; canAdmin: (key: string) => boolean };
+  /**
+   * The page is one company's section of a group page: a refusal closes that
+   * section only, so the person stays and sees the other companies.
+   */
+  inSection?: boolean;
 }
 
 export interface GuardDecision {
@@ -35,7 +40,7 @@ export function guardDecision(input: GuardInput): GuardDecision {
   return {
     loading: userLoading || companyLoading || waiting,
     allowed: !permission || (settled && allows),
-    denied: Boolean(permission) && settled && !allows,
+    denied: Boolean(permission) && settled && !allows && !input.inSection,
     error: Boolean(permissions?.error),
   };
 }
