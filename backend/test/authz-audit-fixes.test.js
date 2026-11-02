@@ -127,7 +127,7 @@ for (const engine of ['legacy', 'v2']) {
     const give = await as(aisha).put(`/holding-groups/${group.id}/assignments/${emp.id}`, { roleKey: 'owner' });
     assert.equal(give.status, 403, JSON.stringify(give.body));
     assert.equal(give.body.code, 'HIGHER_THAN_YOU');
-    assert.match(give.body.message, /in (Acme|Beta)/);
+    assert.match(give.body.message, /in (Acme|Beta|Bounded)/); // any company of the group she falls short in
     // Her own group-wide roles: never.
     const self = await as(aisha).put(`/holding-groups/${group.id}/assignments/${aisha.id}`, { roleKey: 'employee' });
     assert.equal(self.status, 403);
