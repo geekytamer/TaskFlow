@@ -11,7 +11,7 @@
  */
 import * as React from 'react';
 import { useCompany } from '@/context/company-context';
-import { isGroupCompany, scopeCompanyIds, subtree, type CompanyScope } from '@/lib/company-tree';
+import { isGroupCompany, requestCompanyIds, scopeCompanyIds, subtree, type CompanyScope } from '@/lib/company-tree';
 
 const SCOPE_KEY = 'taskflow_scope_';
 const FILTER_KEY = 'taskflow_scope_filter_';
@@ -25,6 +25,8 @@ interface CompanyScopeContextType {
   setScope: (scope: CompanyScope) => void;
   /** The companies a page should show. */
   companyIds: string[];
+  /** What to send the server for a group request: empty = the whole tree. */
+  requestIds: string[];
   /** The selected company and everything under it that this person can see. */
   treeCompanyIds: string[];
   /** The company filter; empty = the whole tree. */
@@ -79,6 +81,7 @@ export function CompanyScopeProvider({ children }: { children: React.ReactNode }
         if (selectedId) write(SCOPE_KEY + selectedId, next === 'self' ? 'self' : null);
       },
       companyIds: selectedId ? scopeCompanyIds(companies, selectedId, scope, liveFilter) : [],
+      requestIds: selectedId ? requestCompanyIds(companies, selectedId, scope, liveFilter) : [],
       treeCompanyIds,
       filter: liveFilter,
       setFilter: (ids) => {
@@ -98,7 +101,7 @@ export function useCompanyScope(): CompanyScopeContextType {
     // Above the provider (the login screen): one company, no scope.
     return {
       isGroup: false, inTree: false, scope: 'self', setScope: () => {},
-      companyIds: [], treeCompanyIds: [], filter: [], setFilter: () => {}, companyName: (id) => id,
+      companyIds: [], requestIds: [], treeCompanyIds: [], filter: [], setFilter: () => {}, companyName: (id) => id,
     };
   }
   return context;

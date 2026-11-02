@@ -220,3 +220,59 @@ test('routes: the super admin creates a group (its company too), attaches and mo
   assert.equal(refused.status, 403);
   server.close();
 });
+
+// ── Final review fixes ───────────────────────────────────────────────
+
+test('a group company moved under another group leaves its old holding group behind for good', () => {
+  const store = freshStore();
+  const t = store.createCompany({ name: 'T' });
+  const t1 = store.createCompany({ name: 'T1' });
+  const c = store.createCompany({ name: 'C' });
+  const c1 = store.createCompany({ name: 'C1' });
+  store.setCompanyParent(t1.id, t.id, null);
+  store.setCompanyParent(c1.id, c.id, null);
+  const gC = groupOf(store, c.id);
+  const old = makeUser(store, [], 'Employee');
+  store.authz.setHoldingAssignment(gC, old.id, { mainRoleKey: 'owner', addOnRoleKeys: [] }, null);
+
+  store.setCompanyParent(c.id, t.id, null);
+  assert.equal(store.authz.holdingGroup(gC).companyId, null, 'the old group no longer stands for C');
+  assert.deepEqual(store.authz.holdingCompanyIds(old.id), []);
+
+  store.setCompanyParent(c.id, null, null);
+  assert.notEqual(groupOf(store, c.id), gC, 'back at the top, C gets a fresh group');
+  assert.deepEqual(store.authz.holdingCompanyIds(old.id), [], 'old group-wide people do not come back');
+});
+
+test('a company with companies under it cannot be deleted; deleting a child keeps the tree in step', () => {
+  const store = freshStore();
+  const g = store.createCompany({ name: 'G' });
+  const a = store.createCompany({ name: 'A' });
+  store.setCompanyParent(a.id, g.id, null);
+  const group = groupOf(store, g.id);
+  assert.throws(() => store.deleteCompany(g.id), (e) => e.status === 409);
+  store.deleteCompany(a.id);
+  assert.equal(groupOf(store, g.id), null, 'G has no children left, so it is no longer a group');
+  assert.ok(store.authz.holdingGroup(group));
+  const solo = store.createGroupCompany('Solo Group', null);
+  store.deleteCompany(solo.company.id);
+  assert.equal(store.authz.holdingGroup(solo.holdingGroupId).companyId, null, 'no group points at a deleted company');
+});
+
+test('removing a group admin takes back the Admin they got in the group company', async () => {
+  const store = freshStore();
+  const quiet = { info() {}, warn() {}, error() {} };
+  const server = createServer({ store, dbPath: ':memory:', seedOnEmpty: false, allowSeedReset: false, permissionsEngine: 'legacy', logger: quiet }).listen(0);
+  server.unref();
+  const root = makeUser(store, [], 'Employee');
+  store.db.prepare('UPDATE users SET isSuperAdmin = 1 WHERE id = ?').run(root.id);
+  const put = (url, body) => request(server).put(url).set('Authorization', `Bearer ${store.issueToken(root.id)}`).send(body);
+  const created = await request(server).post('/holding-groups').set('Authorization', `Bearer ${store.issueToken(root.id)}`).send({ name: 'Admins Group' });
+  const aide = makeUser(store, [], 'Employee');
+  assert.equal((await put(`/holding-groups/${created.body.id}/admins`, { userIds: [aide.id] })).status, 200);
+  assert.equal(roleIn(store.getUserById(aide.id), created.body.companyId), 'Admin');
+  assert.equal((await put(`/holding-groups/${created.body.id}/admins`, { userIds: [] })).status, 200);
+  assert.equal(roleIn(store.getUserById(aide.id), created.body.companyId), undefined);
+  assert.equal((store.getUserById(aide.id).companyIds ?? []).includes(created.body.companyId), false);
+  server.close();
+});

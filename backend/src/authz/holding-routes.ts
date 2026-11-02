@@ -242,11 +242,9 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const userIds = stringList(body(req).userIds, 'userIds');
     const missing = userIds.find((id) => !store.getUserById(id));
     if (missing) throw new HttpError(400, `User ${missing} not found.`);
-    run(() => store.authz.setHoldingAdmins(req.params.id, userIds, req.user!.id));
     // Group admins run the group's own company, and are bounded there like in
     // every other company of the group (C-2), so they hold Admin in it.
-    const groupCompanyId = store.authz.holdingGroup(req.params.id)?.companyId;
-    if (groupCompanyId) userIds.forEach((id) => store.addCompanyMembership(id, groupCompanyId, 'Admin'));
+    run(() => store.setGroupAdmins(req.params.id, userIds, req.user!.id));
     res.json(detail(req.params.id, req));
   }));
 

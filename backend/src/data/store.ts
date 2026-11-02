@@ -5663,6 +5663,40 @@ export class DataStore {
       : (user.companyIds ?? []).map((companyId) => ({ companyId, role: user.role }));
   }
 
+  /** Ends a person's membership in one company; their other memberships stay. */
+  removeCompanyMembership(userId: string, companyId: string) {
+    const user = this.getUserById(userId);
+    if (!user) return;
+    const roles = this.companyRolesOf(user);
+    if (!roles.some((r) => r.companyId === companyId) && !(user.companyIds ?? []).includes(companyId)) return;
+    // Written directly: updateUser reads an empty role list as "unchanged",
+    // so it can't take away someone's last membership.
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE users SET companyIds = ?, companyRoles = ? WHERE id = ?').run(
+        JSON.stringify((user.companyIds ?? []).filter((id) => id !== companyId)),
+        JSON.stringify(roles.filter((r) => r.companyId !== companyId)),
+        userId,
+      );
+      this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ? AND companyId = ?').run(userId, companyId);
+      this.bumpAuthzVersionInTrx();
+    })();
+  }
+
+  /**
+   * A group's administrators, in one step: they run the group's own company,
+   * so appointing gives Admin there and removing takes it back.
+   */
+  setGroupAdmins(holdingGroupId: string, userIds: string[], actorId: string | null) {
+    this.db.transaction(() => {
+      const before = this.authz.holdingGroup(holdingGroupId)?.adminUserIds ?? [];
+      this.authz.setHoldingAdmins(holdingGroupId, userIds, actorId);
+      const companyId = this.authz.holdingGroup(holdingGroupId)?.companyId;
+      if (!companyId) return;
+      userIds.forEach((id) => this.addCompanyMembership(id, companyId, 'Admin'));
+      before.filter((id) => !userIds.includes(id)).forEach((id) => this.removeCompanyMembership(id, companyId));
+    })();
+  }
+
   /** Adds a company to a person's memberships with a role; an existing membership stays as it is. */
   addCompanyMembership(userId: string, companyId: string, role: string) {
     const user = this.getUserById(userId);
@@ -6545,6 +6579,9 @@ export class DataStore {
     }
     this.db.transaction(() => {
       const oldTop = topOf(this.listCompanies(), childId);
+      // A group company moved under another group stops standing for its old
+      // holding group: that group's people must not come back with a later move.
+      const ownGroup = parentId !== null ? this.authz.holdingGroupForCompany(childId) : null;
       this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?').run(parentId, childId);
       const companies = this.listCompanies();
       const newTop = topOf(companies, childId);
@@ -6554,7 +6591,9 @@ export class DataStore {
         const now = this.groupOfCompany(id);
         if (now && now !== keep) this.authz.detachCompany(id, actorId);
       }
-      const tops = new Set([oldTop, newTop]);
+      if (ownGroup) this.db.prepare('UPDATE holding_groups SET companyId = NULL WHERE id = ?').run(ownGroup);
+      // Only companies that are still at the top keep a holding group.
+      const tops = new Set([oldTop, newTop].filter((id) => !companies.find((c) => c.id === id)?.parentCompanyId));
       tops.forEach((top) => this.syncHoldingGroup(top, actorId));
     })();
     return this.getCompanyById(childId)!;
@@ -6631,6 +6670,18 @@ export class DataStore {
   }
 
   deleteCompany(id: string, options: { cascade?: boolean } = {}) {
+    // The tree first: a group keeps its companies, so it can't go before they do.
+    const companies = this.listCompanies();
+    if (childIds(companies, id).length) {
+      throw new HttpError(409, 'Move the companies under this group out first, then delete it.');
+    }
+    const parentId = companies.find((c) => c.id === id)?.parentCompanyId ?? null;
+    this.deleteCompanyRows(id, options);
+    this.db.prepare('UPDATE holding_groups SET companyId = NULL WHERE companyId = ?').run(id);
+    if (parentId && this.getCompanyById(parentId)) this.syncHoldingGroup(topOf(this.listCompanies(), parentId), null);
+  }
+
+  private deleteCompanyRows(id: string, options: { cascade?: boolean }) {
     if (!options.cascade) {
       // Non-cascade: remove only the company record. Related rows are left in
       // place (they simply stop appearing once the company is gone). Still

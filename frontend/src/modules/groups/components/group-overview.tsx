@@ -33,7 +33,7 @@ const COLUMNS: Array<{ metricId: string; en: string; ar: string; money?: boolean
 ];
 
 export function GroupOverview() {
-  const { inTree, companyIds, companyName } = useCompanyScope();
+  const { inTree, companyIds, requestIds, companyName } = useCompanyScope();
   const { companies, selectedCompany, setSelectedCompany } = useCompany();
   const group = inTree ? selectedCompany : null;
   const { language } = useI18n();
@@ -44,13 +44,13 @@ export function GroupOverview() {
   const [sortBy, setSortBy] = React.useState<string | null>(null);
 
   const groupId = group?.id ?? null;
-  const filterKey = companyIds.join(',');
+  const filterKey = requestIds.join(',');
 
   React.useEffect(() => {
     if (!groupId) return;
     let active = true;
     setLoading(true);
-    getGroupDashboardPayload(groupId, companyIds)
+    getGroupDashboardPayload(groupId, requestIds)
       .then((rolled) => {
         if (active) setData(rolled);
       })

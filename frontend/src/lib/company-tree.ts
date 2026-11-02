@@ -66,3 +66,19 @@ export function treeOrder<T extends TreeCompany & { name: string }>(companies: r
   companies.filter((c) => !c.parentCompanyId || !ids.has(c.parentCompanyId)).sort(byName).forEach((c) => visit(c, 0));
   return out;
 }
+
+/**
+ * The company list to send with a group request. The whole group is sent as
+ * no list at all: the server then walks the full tree and names every company
+ * this person can't see, instead of quietly being asked only about the rest.
+ */
+export function requestCompanyIds(
+  companies: readonly TreeCompany[],
+  selectedId: string,
+  scope: CompanyScope,
+  savedFilter: readonly string[],
+): string[] {
+  if (scope === 'self' || !isGroupCompany(companies, selectedId)) return [selectedId];
+  const tree = new Set(subtree(companies, selectedId));
+  return savedFilter.filter((id) => tree.has(id)).length ? scopeCompanyIds(companies, selectedId, scope, savedFilter) : [];
+}

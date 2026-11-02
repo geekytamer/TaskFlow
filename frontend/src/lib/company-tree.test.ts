@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isGroupCompany, scopeCompanyIds, subtree, treeOrder } from './company-tree';
+import { isGroupCompany, requestCompanyIds, scopeCompanyIds, subtree, treeOrder } from './company-tree';
 
 const companies = [
   { id: 'g' },
@@ -48,4 +48,11 @@ test('treeOrder puts each group above its companies, indented; a parent I cannot
     treeOrder(list).map(({ company, depth }) => `${depth}:${company.id}`),
     ['0:g', '1:a', '1:b', '0:o', '0:z'],
   );
+});
+
+test('the whole group is asked for without a list, so the server can name what I cannot see', () => {
+  assert.deepEqual(requestCompanyIds(companies, 'g', 'tree', []), []);
+  assert.deepEqual(requestCompanyIds(companies, 'g', 'tree', ['gone']), [], 'a stale filter is the whole group');
+  assert.deepEqual(requestCompanyIds(companies, 'g', 'tree', ['b']), ['b']);
+  assert.deepEqual(requestCompanyIds(companies, 'g', 'self', ['b']), ['g']);
 });
