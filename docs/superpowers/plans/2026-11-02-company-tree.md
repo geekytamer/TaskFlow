@@ -1,6 +1,6 @@
 # Company tree (stage 1) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A group is a company: companies get a parent, the group company is a full company with its own records, and opening it shows the whole group (dashboard, tasks, projects) with a scope toggle and company filter.
 
@@ -40,11 +40,11 @@
 - Produces: `subtreeIds(companies: Array<{id: string; parentCompanyId?: string | null}>, rootId: string): string[]` (root first, then descendants breadth-first); `topOf(companies, id): string`; `wouldCycle(companies, childId, parentId): boolean`; `childIds(companies, id): string[]`.
 - Migration `154_company_tree`: adds `companies.parentCompanyId TEXT` and `holding_groups.companyId TEXT`. For each holding group without `companyId`, it creates a company named after the group, sets that company's `holdingGroupId` to the group, sets each member company's `parentCompanyId` to it, and gives Admin membership in the new company to the group's admins plus everyone who is Admin in every member company. The group company's currency is copied when all members share one.
 
-- [ ] Step 1: Tests: `subtreeIds` on a 3-level tree; `wouldCycle(A, parent = grandchild of A)` is true; the migration on a store with one holding group of 2 companies creates exactly one company, sets both parents, makes the holding group's `companyId` that company, and running the migration code twice leaves exactly one.
-- [ ] Step 2: Run `cd backend && npm run build && node --test test/company-tree.test.js`. Expected: FAIL.
-- [ ] Step 3: Implement `tree.ts` and the migration.
-- [ ] Step 4: Run again. Expected: PASS.
-- [ ] Step 5: Commit `feat(companies): a company can have a parent`.
+- [x] Step 1: Tests: `subtreeIds` on a 3-level tree; `wouldCycle(A, parent = grandchild of A)` is true; the migration on a store with one holding group of 2 companies creates exactly one company, sets both parents, makes the holding group's `companyId` that company, and running the migration code twice leaves exactly one.
+- [x] Step 2: Run `cd backend && npm run build && node --test test/company-tree.test.js`. Expected: FAIL.
+- [x] Step 3: Implement `tree.ts` and the migration.
+- [x] Step 4: Run again. Expected: PASS.
+- [x] Step 5: Commit `feat(companies): a company can have a parent`.
 
 ### Task 2: Moving companies in the tree
 
@@ -58,11 +58,11 @@
 - `POST /holding-groups` now calls `createGroupCompany` and returns the group with `companyId`. Attaching a company to a group calls `setCompanyParent(company, group.companyId)`; detaching calls `setCompanyParent(company, null)`.
 - `PUT /companies/:companyId/parent` takes `{ parentCompanyId: string | null }`, is super admin only, and returns the company.
 
-- [ ] Step 1: Tests: a cycle gives 400 and no change; a training company gives 400; under v2, a group-wide person reaches the group company and both children; moving a child to another tree moves that access (Review Focus 3); removing the last child leaves no children and an empty but surviving holding group; **access parity**: snapshot `effectiveCompanies` for every seeded user under `legacy` and `v2` before and after creating a group of two existing companies — identical for every existing company.
-- [ ] Step 2: Build and run. Expected: FAIL.
-- [ ] Step 3: Implement.
-- [ ] Step 4: Run it, plus `node --test test/authz-holding*.test.js`. Expected: PASS.
-- [ ] Step 5: Commit `feat(companies): move companies in the tree; holding groups follow it`.
+- [x] Step 1: Tests: a cycle gives 400 and no change; a training company gives 400; under v2, a group-wide person reaches the group company and both children; moving a child to another tree moves that access (Review Focus 3); removing the last child leaves no children and an empty but surviving holding group; **access parity**: snapshot `effectiveCompanies` for every seeded user under `legacy` and `v2` before and after creating a group of two existing companies — identical for every existing company.
+- [x] Step 2: Build and run. Expected: FAIL.
+- [x] Step 3: Implement.
+- [x] Step 4: Run it, plus `node --test test/authz-holding*.test.js`. Expected: PASS.
+- [x] Step 5: Commit `feat(companies): move companies in the tree; holding groups follow it`.
 
 ### Task 3: The group dashboard from the company
 
@@ -74,11 +74,11 @@
 - Consumes: `subtreeIds` (Task 1).
 - Produces: `GET /companies/:companyId/dashboard?scope=tree` returns the `GroupDashboard` shape already used by `/holding-groups/:id/dashboard`. Its parts are the subtree ∩ the viewer's accessible companies (group company first), and inaccessible or not-permitted companies go in `missing`. `?companyIds=` only narrows. Without `scope=tree`, the response is unchanged.
 
-- [ ] Step 1: Tests: under `legacy` and `v2`, an Admin of the group company and both children gets open tasks equal to the sum of the three; a viewer missing one child sees that child in `missing` (Review Focus 2); `companyIds` naming a company outside the subtree is ignored.
-- [ ] Step 2: Run. Expected: FAIL.
-- [ ] Step 3: Implement. `/holding-groups/:id/dashboard` delegates to `groupDashboard` for the group's company.
-- [ ] Step 4: Run. Expected: PASS.
-- [ ] Step 5: Commit `feat(groups): the group company's dashboard covers its tree`.
+- [x] Step 1: Tests: under `legacy` and `v2`, an Admin of the group company and both children gets open tasks equal to the sum of the three; a viewer missing one child sees that child in `missing` (Review Focus 2); `companyIds` naming a company outside the subtree is ignored.
+- [x] Step 2: Run. Expected: FAIL.
+- [x] Step 3: Implement. `/holding-groups/:id/dashboard` delegates to `groupDashboard` for the group's company.
+- [x] Step 4: Run. Expected: PASS.
+- [x] Step 5: Commit `feat(groups): the group company's dashboard covers its tree`.
 
 ### Task 4: Scope in the app
 
@@ -91,20 +91,20 @@
 - Produces: `useCompanyScope(): { isGroup: boolean; scope: 'tree' | 'self'; setScope(s): void; companyIds: string[]; treeCompanyIds: string[]; filter: string[]; setFilter(ids): void; companyName(id): string }`. `isGroup` is true when the selected company has children among the person's companies. `companyIds` is `[selected]` in `self` mode and filter-or-tree in `tree` mode. Scope and filter are remembered per company in localStorage (`taskflow_scope_<companyId>`, `taskflow_scope_filter_<companyId>`).
 - Pure: `scopeCompanyIds(companies, selectedId, scope, savedFilter): string[]` drops saved ids outside the tree (Review Focus 4).
 
-- [ ] Step 1: Tests for `subtree` and `scopeCompanyIds`, including stale saved ids and a company with no children (= `[selected]`).
-- [ ] Step 2: Run `cd frontend && node --import tsx --test src/lib/company-tree.test.ts`. Expected: FAIL.
-- [ ] Step 3: Implement; replace every `useGroupScope` call (dashboard, tasks, projects, task-list, project-list, sidebar, switcher, group-overview, group-company-filter).
-- [ ] Step 4: Run the tests plus `npx tsc --noEmit`. Expected: PASS.
-- [ ] Step 5: Commit `feat(app): the selected company carries its scope`.
+- [x] Step 1: Tests for `subtree` and `scopeCompanyIds`, including stale saved ids and a company with no children (= `[selected]`).
+- [x] Step 2: Run `cd frontend && node --import tsx --test src/lib/company-tree.test.ts`. Expected: FAIL.
+- [x] Step 3: Implement; replace every `useGroupScope` call (dashboard, tasks, projects, task-list, project-list, sidebar, switcher, group-overview, group-company-filter).
+- [x] Step 4: Run the tests plus `npx tsc --noEmit`. Expected: PASS.
+- [x] Step 5: Commit `feat(app): the selected company carries its scope`.
 
 ### Task 5: The tree in the UI
 
 **Files:**
 - Modify: `frontend/src/modules/companies/components/company-switcher.tsx` (tree: groups with children indented; no separate Groups section), `frontend/src/modules/groups/components/group-company-filter.tsx` → `scope-bar.tsx` (toggle "Whole group / This company only" plus the filter, hidden unless `isGroup`), `dashboard.tsx` (tree → `GroupOverview`), `tasks-page.tsx`, `projects-page.tsx` (create hidden only in tree mode), `sidebar-nav.tsx` (drop `GROUP_PAGES` hiding), app layout (a notice on pages that aren't yet group-aware while in tree mode: "Showing {group}'s own records. Whole-group view for this page comes next."), `admin-groups.tsx` (show and open the group's company)
 
-- [ ] Step 1: Browser, on a scratch copy of production data: create a group of two companies in /admin. Then check that the switcher shows the tree; the dashboard rolls up 3 companies; the toggle switches to the group's own dashboard; tasks and projects in tree mode show the Company column; Finance shows the notice and the group's own records; Arabic labels display correctly.
-- [ ] Step 2: `npm run lint`, `npx tsc --noEmit`, `npm test`. Expected: 0 errors, all pass.
-- [ ] Step 3: Commit `feat(app): open a group like a company`.
+- [x] Step 1: Browser, on a scratch copy of production data: create a group of two companies in /admin. Then check that the switcher shows the tree; the dashboard rolls up 3 companies; the toggle switches to the group's own dashboard; tasks and projects in tree mode show the Company column; Finance shows the notice and the group's own records; Arabic labels display correctly.
+- [x] Step 2: `npm run lint`, `npx tsc --noEmit`, `npm test`. Expected: 0 errors, all pass.
+- [x] Step 3: Commit `feat(app): open a group like a company`.
 
 ### Task 6: Ship to production
 

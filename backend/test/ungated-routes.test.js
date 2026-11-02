@@ -49,6 +49,7 @@ const KNOWN_UNGATED = new Set([
     'GET /users',
     'GET /users/:id',
     'POST /companies',
+    'PUT /companies/:id/parent', // super admin only (requireSuperAdmin), like POST /companies
     'POST /users',
     'PUT /users/:id',
     'POST /users/:id/password-reset', // like PUT /users/:id: USERS_WRITE in every company the person works in
