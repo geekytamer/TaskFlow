@@ -107,3 +107,7 @@ export async function influencerPhotoUrl(contactId: string): Promise<string | nu
   if (!res.ok) return null;
   return URL.createObjectURL(await res.blob());
 }
+
+/** Makes a directory profile one of the company's influencers, linked as its roster entry. */
+export const addDiscoverToRoster = (id: string) =>
+  apiFetch<{ contact: { id: string; name: string }; profile: DiscoverProfile }>(`/discover-profiles/${encodeURIComponent(id)}/add-to-roster`, { method: 'POST' });
