@@ -1,5 +1,13 @@
 'use client';
 
+import { useCompanyScope } from '@/context/company-scope-context';
+import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { sumByCurrency } from '@/lib/money-by-currency';
+import { CompanyLabel } from '@/modules/groups/components/company-cell';
+import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
+import { MissingCompanies } from '@/modules/groups/components/missing-companies';
+import { CreateTargetSelect, useCreateTarget } from '@/modules/groups/components/company-picker';
+import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import * as React from 'react';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
@@ -42,7 +50,7 @@ import { Building2, User, Plus, Search } from 'lucide-react';
 
 export function ClientsPage() {
   const { selectedCompany } = useCompany();
-  const { amount } = useCompanyCurrency();
+  const { amountIn } = useCompanyCurrency();
   const { t, language } = useI18n();
   const { toast } = useToast();
   const canManagePortal = useCanManagePortal();
@@ -57,20 +65,26 @@ export function ClientsPage() {
   const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
   const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [saving, setSaving] = React.useState(false);
+  // A group shown whole: every company's clients; money in each company's currency.
+  const { companyIds } = useCompanyScope();
+  const scopeKey = companyIds.join(',');
+  const [missing, setMissing] = React.useState<MissingCompany[]>([]);
+  const createTarget = useCreateTarget('contacts.create');
+  const currencyOf = useCurrencyOf();
 
   React.useEffect(() => {
-    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    if (!createTarget.target) { setCustomFieldDefs([]); return; }
     let cancelled = false;
-    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+    getCustomFieldDefinitions(createTarget.target, 'contact')
       .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
       .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
     return () => { cancelled = true; };
-  }, [selectedCompany]);
+  }, [createTarget.target]);
 
   React.useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (!selectedCompany) {
+      if (!selectedCompany || !scopeKey) {
         setContacts([]);
         setInvoices([]);
         setProjects([]);
@@ -79,15 +93,18 @@ export function ClientsPage() {
       }
       setLoading(true);
       try {
+        const ids = scopeKey.split(',');
+        // Each company answers for itself; a company that refuses invoices just has no figures.
         const [contactData, invoiceData, projectData] = await Promise.all([
-          getContacts(selectedCompany.id, 'Client'),
-          isModuleOn(selectedCompany, 'invoices') ? getInvoices(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getInvoices>>),
+          fanOut(ids, (id) => getContacts(id, 'Client')),
+          fanOut(ids, (id) => getInvoices(id)),
           isModuleOn(selectedCompany, 'projects') ? getProjects() : Promise.resolve([] as Awaited<ReturnType<typeof getProjects>>),
         ]);
         if (!cancelled) {
-          setContacts(contactData);
-          setInvoices(invoiceData);
-          setProjects(projectData.filter((p: Project) => p.companyId === selectedCompany.id));
+          setContacts(contactData.rows);
+          setMissing(contactData.missing);
+          setInvoices(invoiceData.rows);
+          setProjects(projectData.filter((p: Project) => ids.includes(p.companyId)));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -95,7 +112,7 @@ export function ClientsPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [selectedCompany]);
+  }, [selectedCompany, scopeKey]);
 
   const contactMetrics = React.useMemo(() => {
     const map = new Map<string, { invoiceCount: number; outstanding: number; total: number }>();
@@ -109,12 +126,15 @@ export function ClientsPage() {
     return map;
   }, [contacts, invoices]);
 
+  // What is still owed (after payments and credit notes), per company currency: never added across currencies.
   const outstanding = React.useMemo(
-    () => invoices
-      .filter((inv: Invoice) => inv.status === 'Sent' || inv.status === 'Overdue')
-      // What is still owed (after payments and credit notes), in the company currency.
-      .reduce((sum: number, inv: Invoice) => sum + inCompanyCurrency(inv.outstandingAmount ?? inv.total, inv.exchangeRate), 0),
-    [invoices],
+    () => sumByCurrency(
+      invoices.filter((inv: Invoice) => inv.status === 'Sent' || inv.status === 'Overdue'),
+      (inv) => currencyOf(inv.companyId),
+      (inv) => inCompanyCurrency(inv.outstandingAmount ?? inv.total, inv.exchangeRate),
+      currencyOf(selectedCompany?.id ?? ''),
+    ),
+    [invoices, currencyOf, selectedCompany],
   );
 
   const linkedProjects = React.useMemo(
@@ -133,11 +153,11 @@ export function ClientsPage() {
   }, [contacts, search]);
 
   const handleCreate = async () => {
-    if (!selectedCompany || !form.name.trim()) return;
+    if (!createTarget.target || !form.name.trim()) return;
     setSaving(true);
     try {
       const contact = await createContact({
-        companyId: selectedCompany.id,
+        companyId: createTarget.target,
         ...buildContactPayload(form, { customFields: createCustomValues, lockedRole: 'Client' }),
       });
       setContacts((prev: Contact[]) => [...prev, contact]);
@@ -157,7 +177,9 @@ export function ClientsPage() {
       title={t('sections.clients.title')}
       description={t('sections.clients.description')}
       actions={
-        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+        <div className="flex flex-wrap items-center gap-2">
+        <CreateTargetSelect {...createTarget} />
+        {createTarget.target && <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 me-1" />{t('clients.addClient')}</Button>
           </DialogTrigger>
@@ -180,9 +202,11 @@ export function ClientsPage() {
               <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
+        </div>
       }
     >
+      <MissingCompanies missing={missing} />
       <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -211,7 +235,7 @@ export function ClientsPage() {
             <CardTitle className="text-sm font-medium">{t('clients.statOutstanding')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{amount(outstanding)}</div>}
+            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold"><CurrencyTotals totals={outstanding} /></div>}
           </CardContent>
         </Card>
         <Card>
@@ -268,7 +292,7 @@ export function ClientsPage() {
                       ) : (
                         <User className="h-4 w-4 text-muted-foreground shrink-0" />
                       )}
-                      {c.name}
+                      <span>{c.name}<CompanyLabel companyId={c.companyId} /></span>
                     </div>
                   </TableCell>
                   <TableCell>{c.contactPerson ?? '—'}</TableCell>
@@ -277,7 +301,7 @@ export function ClientsPage() {
                   <TableCell className="text-end">{metrics?.invoiceCount ?? 0}</TableCell>
                   <TableCell className="text-end">
                     {metrics?.outstanding ? (
-                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amount(metrics.outstanding)}</Badge>
+                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amountIn(metrics.outstanding, currencyOf(c.companyId))}</Badge>
                     ) : '—'}
                   </TableCell>
                   {canManagePortal && (

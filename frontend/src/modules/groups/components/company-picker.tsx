@@ -37,35 +37,53 @@ export function useCreateChoices(permission: string): string[] {
 }
 
 /**
- * The create control for a list: on a single company it renders `children`
- * as before; on a whole group it adds a company choice and renders `children`
- * inside that company, so the existing dialog creates there.
+ * The company a page's own create form writes to. On a single company it is
+ * that company; on a whole group it is chosen with `<CreateTargetSelect>`
+ * among the companies where the person may create.
+ */
+export function useCreateTarget(permission: string) {
+  const { selectedCompany } = useCompany();
+  const { inTree, filter } = useCompanyScope();
+  const choices = useCreateChoices(inTree ? permission : '');
+  const [picked, setPicked] = React.useState('');
+  const preferred = filter.length === 1 ? filter[0] : selectedCompany?.id ?? '';
+  const target = !inTree
+    ? selectedCompany?.id ?? ''
+    : choices.includes(picked) ? picked : choices.includes(preferred) ? preferred : choices[0] ?? '';
+  return { inTree, choices, target, setTarget: setPicked };
+}
+
+export function CreateTargetSelect({ choices, target, setTarget }: { choices: string[]; target: string; setTarget: (id: string) => void }) {
+  const { inTree, companyName } = useCompanyScope();
+  const { language } = useI18n();
+  if (!inTree || choices.length < 2) return null;
+  return (
+    <Select value={target} onValueChange={setTarget}>
+      <SelectTrigger className="h-9 w-[12rem]" aria-label={language === 'ar' ? 'الإضافة إلى' : 'Add to'}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {choices.map((id) => (
+          <SelectItem key={id} value={id}>{(language === 'ar' ? 'إلى: ' : 'To: ') + companyName(id)}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * The create control for a list whose dialog finds its company by itself: on
+ * a single company it renders `children` as before; on a whole group it adds
+ * the company choice and renders `children` inside that company.
  */
 export function CreateInCompany({ permission, children }: { permission: string; children: React.ReactNode }) {
-  const { selectedCompany } = useCompany();
-  const { inTree, filter, companyName } = useCompanyScope();
-  const choices = useCreateChoices(inTree ? permission : '');
-  const { language } = useI18n();
-  const preferred = filter.length === 1 ? filter[0] : selectedCompany?.id ?? '';
-  const [target, setTarget] = React.useState<string>('');
-  const chosen = choices.includes(target) ? target : choices.includes(preferred) ? preferred : choices[0] ?? '';
+  const { inTree, choices, target, setTarget } = useCreateTarget(permission);
   if (!inTree) return <>{children}</>;
-  if (!chosen) return null;
+  if (!target) return null;
   return (
     <div className="flex items-center gap-2">
-      {choices.length > 1 && (
-        <Select value={chosen} onValueChange={setTarget}>
-          <SelectTrigger className="h-9 w-[12rem]" aria-label={language === 'ar' ? 'الإضافة إلى' : 'Add to'}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {choices.map((id) => (
-              <SelectItem key={id} value={id}>{(language === 'ar' ? 'إلى: ' : 'To: ') + companyName(id)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-      <InCompany companyId={chosen}>{children}</InCompany>
+      <CreateTargetSelect choices={choices} target={target} setTarget={setTarget} />
+      <InCompany companyId={target}>{children}</InCompany>
     </div>
   );
 }
