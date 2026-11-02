@@ -238,3 +238,21 @@ Each stage ships on its own and leaves the app consistent.
 Which companies sit under Al-Yarubi Group. Staging shows 3 inside, 4 outside
 that share staff with it, and 6 with no shared staff. Stage 1 can be built and
 tested on staging without this answer.
+
+## Stage 3 as built (2026-11-02)
+
+- **Group people**: Settings → People has a *Whole group* tab when a group is
+  open (needs `people.manage`). Everyone in the tree once, with their company
+  roles; give access, change a role, end access, remove from the group.
+- **Same guards**: `GET /companies/:id/group-people` reads (USERS_WRITE in the
+  group company). Changes go through `PUT .../group-people/:userId/access` and
+  `POST .../remove`, which call the very function behind `PUT /users/:id`
+  (`updateUserFromRequest`), so the no-higher-than-me, last-admin and
+  company-scoping rules apply unchanged. A person keeps at least one company.
+- **Employer = the HR record their login is linked to.** No separate field:
+  payroll, WPS and gratuity already follow the HR record. Setting it links the
+  company's HR record with the same email, or creates one. At most one active
+  employer per group: linking a second is refused (409) until the first ends.
+- **Not built, by decision:** "includes companies below" for a single role
+  stays as the v2 group-wide role (holding assignments); under the legacy
+  engine access is per company. Revisit when v2 is switched on.
