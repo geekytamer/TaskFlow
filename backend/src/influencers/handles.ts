@@ -80,15 +80,22 @@ export function parseQuickAddText(text: string): Array<{ line: string; name: str
     });
 }
 
+/** A handle typed for a known platform: a bare handle, or that platform's profile link (another site's link is not). */
+export function handleForPlatform(platform: InfluencerPlatform, raw: string): string | null {
+  const parsed = parseAccountLink(raw);
+  if (!parsed) return null;
+  return parsed.platform === platform || !siteOf(raw.trim()) ? parsed.handle : null;
+}
+
 /** `platform:handle`, the identity of an account across records. */
 export const keyOf = (platform: string, handle: string) => `${platform.toLowerCase()}:${handle}`;
 
 /** The handle of an account as typed on a record: its handle, else read from its link. */
-function handleFrom(platform: string | undefined, handle: string | undefined, url: string | undefined): string | null {
+function handleFrom(platform: string, handle: string | undefined, url: string | undefined): string | null {
   for (const raw of [handle, url]) {
     if (!raw?.trim()) continue;
-    const parsed = parseAccountLink(raw);
-    if (parsed && (!platform || platform === 'Other' || parsed.platform === platform || !/[./]/.test(raw))) return parsed.handle;
+    const found = platform === 'Other' ? parseAccountLink(raw)?.handle ?? null : handleForPlatform(platform as InfluencerPlatform, raw);
+    if (found) return found;
   }
   return null;
 }

@@ -66,6 +66,7 @@ import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
 import { discoverTick, refreshDue, syncRoster } from './discover/jobs';
 import { assertNoHandleClash, quickAddInfluencers } from './influencers/service';
+import { INFLUENCER_CSV_COLUMNS, importInfluencerRows, influencerCsvRow } from './influencers/csv';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -3833,12 +3834,6 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
-  // Influencer CSV columns — shared by export, import, and the download template.
-  const INFLUENCER_CSV_COLUMNS = [
-    'name', 'email', 'phone', 'platform', 'handle', 'niche',
-    'followers', 'engagementRate', 'rateCard', 'location', 'languages', 'availability',
-  ];
-
   app.get(
     '/companies/:companyId/influencers/export',
     authMiddleware,
@@ -3847,76 +3842,31 @@ export function createServer(options: CreateServerOptions = {}) {
       const showPricing = seesField(req, req.params.companyId, 'rate_cards', { moduleLock: true });
       // Exactly the influencers the contact list shows this person.
       const influencers = store.listContacts(req.params.companyId, 'Influencer' as any, viewerOf(req));
-      const csv = toCsv(
-        showPricing
-          ? INFLUENCER_CSV_COLUMNS
-          : INFLUENCER_CSV_COLUMNS.filter((col) => col !== 'rateCard'),
-        influencers.map((c) => [
-          c.name,
-          c.email ?? '',
-          c.phone ?? '',
-          c.influencerPlatform ?? '',
-          c.influencerHandle ?? '',
-          c.influencerNiche ?? '',
-          c.followerCount ?? '',
-          c.engagementRate ?? '',
-          ...(showPricing ? [c.rateCardAmount ?? ''] : []),
-          c.location ?? '',
-          (c.languages ?? []).join('; '),
-          c.availabilityStatus ?? '',
-        ]),
-      );
+      const columns = showPricing ? INFLUENCER_CSV_COLUMNS : INFLUENCER_CSV_COLUMNS.filter((col) => col !== 'rateCard');
+      const csv = toCsv(columns, influencers.map((c) => influencerCsvRow(c, columns)));
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="influencers.csv"');
       res.send(csv);
     }),
   );
 
+  // A row updates the influencer it matches (by handle, else email) and otherwise creates one (influencers/csv.ts).
   app.post(
     '/companies/:companyId/influencers/import',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const { companyId } = req.params;
+      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
       // A rate card in any row is a write of the rate_cards field.
       for (const r of rows) {
         if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: (r as Record<string, unknown>).rateCard }, 'create');
       }
-      let created = 0;
-      const errors: Array<{ row: number; error: string }> = [];
-      rows.forEach((raw, index) => {
-        try {
-          const row = asRecord(raw, `rows[${index}]`);
-          const languages = optionalString(row.languages)
-            ?.split(/[;,]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-          withActor(req, () =>
-            store.createContact({
-              companyId: req.params.companyId,
-              kind: 'Person',
-              name: requiredString(row.name, 'name', { min: 1 }),
-              email: optionalString(row.email),
-              phone: optionalString(row.phone),
-              roles: ['Influencer'],
-              influencerPlatform: optionalString(row.platform),
-              influencerHandle: optionalString(row.handle),
-              influencerNiche: normalizeNiches(optionalString(row.niche)) ?? undefined,
-              followerCount: optionalNumber(row.followers),
-              engagementRate: optionalNumber(row.engagementRate),
-              rateCardAmount: optionalNumber(row.rateCard),
-              location: optionalString(row.location),
-              languages: languages && languages.length ? languages : undefined,
-              availabilityStatus: optionalString(row.availability),
-            }),
-          );
-          created += 1;
-        } catch (error) {
-          errors.push({ row: index + 1, error: error instanceof Error ? error.message : 'Invalid row' });
-        }
-      });
-      res.json({ created, failed: errors.length, errors: errors.slice(0, 50) });
+      res.json(importInfluencerRows(store, companyId, rows, {
+        create: (input) => withActor(req, () => store.createContact(input)),
+        update: (id, input) => withActor(req, () => store.updateContact(id, input)),
+      }));
     }),
   );
 

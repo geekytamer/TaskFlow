@@ -58,9 +58,11 @@ test('a record keys its accounts and its single-platform fields, however the han
       { id: '1', platform: 'TikTok', url: 'https://www.tiktok.com/@jane.tt' },
       { id: '2', platform: 'Snapchat', handle: 'JaneSnap' },
       { id: '3', platform: 'YouTube' },
+      { id: '4', platform: 'X', handle: 'jane.x' },
+      { id: '5', platform: 'Facebook', url: 'https://www.instagram.com/wrong.site/' },
     ],
   });
-  assert.deepEqual([...keys].sort(), ['instagram:jane.doe', 'snapchat:janesnap', 'tiktok:jane.tt']);
+  assert.deepEqual([...keys].sort(), ['instagram:jane.doe', 'snapchat:janesnap', 'tiktok:jane.tt', 'x:jane.x'], "a dotted handle counts on any platform; another site's link does not");
 });
 
 test('a clash is another influencer with the same key; the record itself and non-influencers do not count', () => {
