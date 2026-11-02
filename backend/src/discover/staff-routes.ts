@@ -1,13 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { normalizeNiches } from '../niches';
-import type { SanitizedUser } from '../types';
+import { assertNoHandleClash } from '../influencers/service';
+import type { Contact, InfluencerAccount, SanitizedUser } from '../types';
 import { asRecord } from '../validation';
 import type { DiscoverScraper } from './apify';
 import { growthOver3Months, parseHandleList, tierOf } from './discover';
 import { PROFILE_STATUSES, type DiscoverProfile, type ProfilePatch } from './discover-store';
-import { DIRECTORY_LIMIT, discoverNew, refreshDue } from './jobs';
+import { DIRECTORY_LIMIT, discoverNew, refreshDue, syncRoster } from './jobs';
 
 type StaffRequest = Request & { user?: SanitizedUser };
 
@@ -18,6 +20,8 @@ export interface DiscoverStaffDeps {
   companyId: string;
   requireCompanyAccess(req: StaffRequest, companyId: string): void;
   canManage(req: StaffRequest, companyId: string): boolean;
+  /** Creates a contact as the signed-in person (their name on the activity log). */
+  createContact(req: StaffRequest, input: Parameters<DataStore['createContact']>[0]): Contact;
   /** Absent when no Apify token is set: profiles can still be added and edited, not fetched. */
   scraper?: DiscoverScraper;
   monthlyCap: number;
@@ -164,6 +168,38 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
       }
     }
     res.json(view(store.discover.update(profile.id, patch)!));
+  }));
+
+  /** Makes a directory profile one of Peak's influencers: a record from its figures, then linked as their roster entry. */
+  router.post('/discover-profiles/:id/add-to-roster', authMiddleware, wrap((req, res) => {
+    const profile = loadProfile(req);
+    if (profile.isRoster || profile.contactId) throw new HttpError(409, "This profile is already linked to one of Peak's influencers.");
+    const account: InfluencerAccount = {
+      id: randomUUID(),
+      platform: 'Instagram',
+      handle: profile.username,
+      url: `https://www.instagram.com/${profile.username}/`,
+      ...(profile.followers !== null ? { followers: profile.followers } : {}),
+      ...(profile.engagementRate !== null ? { engagementRate: profile.engagementRate } : {}),
+      ...(profile.lastFetchedAt ? { syncedAt: profile.lastFetchedAt } : {}),
+    };
+    assertNoHandleClash(store, companyId, { influencerAccounts: [account] });
+    const contact = deps.createContact(req, {
+      companyId,
+      kind: 'Person',
+      name: profile.fullName?.trim() || `@${profile.username}`,
+      roles: ['Influencer'],
+      email: profile.emails[0],
+      phone: profile.phones[0],
+      influencerPlatform: 'Instagram',
+      influencerHandle: profile.username,
+      influencerNiche: profile.niche ?? undefined,
+      location: profile.location ?? undefined,
+      followerCount: profile.followers ?? undefined,
+      influencerAccounts: [account],
+    });
+    syncRoster(store, companyId);
+    res.status(201).json({ contact: { id: contact.id, name: contact.name }, profile: view(store.discover.get(profile.id)!) });
   }));
 
   /** A past follower count from a screenshot or an earlier report, so growth shows before three months of fetching. */

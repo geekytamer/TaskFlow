@@ -8737,6 +8737,7 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManage: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'DISCOVER_MANAGE'),
+      createContact: (req, input) => withActor(req as AuthedRequest, () => store.createContact(input)),
       scraper: discoverScraper,
       monthlyCap: discoverCap,
     }));

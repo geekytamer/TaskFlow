@@ -131,3 +131,53 @@ test('quick add on the portal company: Instagram figures and the full name arriv
   assert.equal(travels.influencerAccounts[0].followers, 96500);
   assert.equal(ctx.store.discover.byUsername(ctx.company.id, 'muscat.eats').isRoster, true);
 });
+
+const seedDirectory = async (ctx, handles) => {
+  const res = await request(ctx.server).post(`/companies/${ctx.company.id}/discover/handles`).set(ctx.admin).send({ text: handles.join('\n') });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  await waitForRuns(ctx);
+};
+
+test('a Discover profile joins the roster in one step, with its figures, and leaves the 200', async () => {
+  const ctx = build({ portal: true });
+  await seedDirectory(ctx, ['muscat.eats']);
+  const profile = ctx.store.discover.byUsername(ctx.company.id, 'muscat.eats');
+  ctx.store.discover.update(profile.id, { niche: 'Food', location: 'Muscat' });
+  const before = ctx.store.discover.countActive(ctx.company.id);
+
+  const res = await request(ctx.server).post(`/discover-profiles/${profile.id}/add-to-roster`).set(ctx.admin);
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  const contact = ctx.store.getContactById(res.body.contact.id);
+  assert.equal(contact.name, 'Muscat Eats');
+  assert.deepEqual(contact.roles, ['Influencer']);
+  assert.equal(contact.kind, 'Person');
+  assert.equal(contact.influencerNiche, 'Food');
+  assert.equal(contact.location, 'Muscat');
+  assert.equal(contact.email, 'hello@muscateats.om', 'bio contacts are staff-only, like the record');
+  const [ig] = contact.influencerAccounts;
+  assert.equal(ig.platform, 'Instagram');
+  assert.equal(ig.handle, 'muscat.eats');
+  assert.equal(ig.followers, 248000);
+  assert.ok(ig.syncedAt);
+
+  const linked = ctx.store.discover.get(profile.id);
+  assert.equal(linked.isRoster, true);
+  assert.equal(linked.contactId, contact.id);
+  assert.equal(ctx.store.discover.countActive(ctx.company.id), before - 1, 'roster entries do not use the 200');
+
+  const again = await request(ctx.server).post(`/discover-profiles/${profile.id}/add-to-roster`).set(ctx.admin);
+  assert.equal(again.status, 409, 'already on the roster');
+});
+
+test('add to roster is refused when an influencer already has the handle, and needs the directory rule', async () => {
+  const ctx = build({ portal: true });
+  await seedDirectory(ctx, ['salalah.travels']);
+  const profile = ctx.store.discover.byUsername(ctx.company.id, 'salalah.travels');
+  assert.equal((await request(ctx.server).post(`/discover-profiles/${profile.id}/add-to-roster`).set(ctx.employee)).status, 403);
+  ctx.store.discover.update(profile.id, { status: 'removed' });
+  const owner = influencer(ctx, 'Travel Guy', [['Instagram', 'Salalah.Travels']]);
+  const res = await request(ctx.server).post(`/discover-profiles/${profile.id}/add-to-roster`).set(ctx.admin);
+  assert.equal(res.status, 409);
+  assert.deepEqual(res.body.duplicateOf, { id: owner.id, name: 'Travel Guy' });
+  assert.equal(ctx.store.listContacts(ctx.company.id, 'Influencer').length, 1);
+});
