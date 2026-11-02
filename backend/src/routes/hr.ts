@@ -1,4 +1,5 @@
 import { WpsDataError } from '../hr/wps';
+import { subtreeIds, topOf } from '../companies/tree';
 import type { Employee, PayrollRun } from '../types';
 import { HttpError, canAccessCompany } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber, requiredString } from '../validation';
@@ -56,6 +57,18 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
     if (next === null || next === (existing?.userId ?? null)) return;
     const user = store.getUserById(next);
     if (!user || !canAccessCompany(user, companyId)) throw new HttpError(400, 'The linked user is not a member of this company.');
+    // One employer within a group: an active record in another company of the
+    // same tree must end first (stage 3 of the group-as-company spec).
+    const nodes = store.companyTreeNodes();
+    const tree = new Set(subtreeIds(nodes, topOf(nodes, companyId)));
+    for (const otherId of tree) {
+      if (otherId === companyId) continue;
+      const active = store.listEmployees(otherId).find((e) => e.userId === next && e.status !== 'Terminated');
+      if (active) {
+        const name = store.getCompanyById(otherId)?.name ?? otherId;
+        throw new HttpError(409, `${user.name} already works for ${name} in this group. End that employment first.`, { code: 'ALREADY_EMPLOYED' });
+      }
+    }
     for (const field of ['salary', 'personal_ids', 'bank_details'] as const) requireFieldEdit(req, companyId, field);
   };
 
