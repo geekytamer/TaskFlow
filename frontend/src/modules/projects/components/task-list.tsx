@@ -16,7 +16,7 @@ import {
   Repeat,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
-import { useGroupScope } from '@/context/group-scope-context';
+import { useCompanyScope } from '@/context/company-scope-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
@@ -375,7 +375,7 @@ type Scope = 'today' | 'mine' | 'all' | 'unassigned';
 
 export function TaskList({ projectId }: { projectId?: string }) {
   const { selectedCompany, projects, currentUser } = useCompany();
-  const { group, companyIds: groupCompanyIds, companyName } = useGroupScope();
+  const { inTree, companyIds: groupCompanyIds, companyName } = useCompanyScope();
   const { language } = useI18n();
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
@@ -481,10 +481,10 @@ export function TaskList({ projectId }: { projectId?: string }) {
         if (projectId) return t.projectId === projectId;
         if (archivedProjectIds.has(t.projectId)) return false;
         // In a group: every company of it that the filter leaves in.
-        if (group) return groupCompanyIds.includes(t.companyId);
+        if (inTree) return groupCompanyIds.includes(t.companyId);
         return t.companyId === selectedCompanyId;
       }),
-    [tasks, projectId, selectedCompanyId, group, groupCompanyIds, archivedProjectIds],
+    [tasks, projectId, selectedCompanyId, inTree, groupCompanyIds, archivedProjectIds],
   );
 
   /** In a group spanning several companies, each task says which one it is in. */
@@ -492,8 +492,8 @@ export function TaskList({ projectId }: { projectId?: string }) {
 
   /** Say which company a task is in only when the view holds more than one. */
   const showCompany = React.useMemo(
-    () => group !== null && new Set(scopedTasks.map((t) => t.companyId)).size > 1,
-    [group, scopedTasks],
+    () => inTree && new Set(scopedTasks.map((t) => t.companyId)).size > 1,
+    [inTree, scopedTasks],
   );
 
   const todayStart = React.useMemo(() => startOfDay(new Date()), []);

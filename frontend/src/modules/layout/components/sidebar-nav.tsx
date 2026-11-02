@@ -4,7 +4,6 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMyHoldingGroups } from '@/modules/authz/components/shared';
-import { useGroupScope } from '@/context/group-scope-context';
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -139,9 +138,6 @@ function showAppBadge(count: number) {
   done?.catch(() => undefined);
 }
 
-/** What a group can show today; everything else stays company work (plan: 2026-10-29-group-scope). */
-const GROUP_PAGES: ReadonlySet<string> = new Set(['/', '/tasks', '/projects', '/settings/group']);
-
 /** Pages that belong to another menu entry (Roles sits under People and roles). */
 const ACTIVE_ALIAS: Readonly<Record<string, string>> = { '/settings/roles': '/settings/people' };
 
@@ -168,7 +164,6 @@ export function useNavAccess() {
   const academy = useAcademy();
   // Group settings belong to group administrators, not to a company role.
   const { groups: adminOfGroups } = useMyHoldingGroups();
-  const { group } = useGroupScope();
 
   /** Locked by an unfinished Academy mission (never inside the practice company). */
   const isLocked = (href: string) => {
@@ -182,9 +177,6 @@ export function useNavAccess() {
   const canSee = (href: string) => {
     const item = NAV_ITEMS.get(href);
     if (!item) return false;
-    // In a group the menu offers only what a group can actually show; the rest
-    // would put one company's data under a group heading.
-    if (group && !GROUP_PAGES.has(item.href)) return false;
     // A module the company switched off is hidden whatever the role.
     if (!modulesForPath(item.href).every(moduleOn)) return false;
     if (item.href === '/settings/group') return adminOfGroups.length > 0;

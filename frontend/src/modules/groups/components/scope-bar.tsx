@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * Which companies of the group a page is showing. One control, used by every
- * page that can show a whole group, so the choice means the same everywhere
- * and is remembered per group.
+ * How much of a group a page shows: the whole group (narrowed by the company
+ * filter) or the group company's own records. One control, used by every
+ * group-aware page, so the choice means the same everywhere and is
+ * remembered per group. A company without children shows nothing.
  */
 import * as React from 'react';
 import { Building2, Check, ChevronsUpDown } from 'lucide-react';
@@ -11,17 +12,41 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
-import { useGroupScope } from '@/context/group-scope-context';
+import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
 
-export function GroupCompanyFilter({ className }: { className?: string }) {
-  const [open, setOpen] = React.useState(false);
-  const { group, filter, setFilter, companyName } = useGroupScope();
+export function ScopeBar({ className }: { className?: string }) {
+  const { isGroup, scope, setScope } = useCompanyScope();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  if (!isGroup) return null;
+  return (
+    <div className={cn('flex items-center gap-2', className)}>
+      <div role="radiogroup" aria-label={tr('Show', 'العرض')} className="inline-flex rounded-md border border-border bg-muted/40 p-0.5 text-sm">
+        {([['tree', tr('Whole group', 'المجموعة كاملة')], ['self', tr('This company only', 'هذه الشركة فقط')]] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={scope === value}
+            onClick={() => setScope(value)}
+            className={cn('rounded px-2.5 py-1 transition-colors', scope === value ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {scope === 'tree' && <CompanyFilter />}
+    </div>
+  );
+}
 
-  // A group of one company has nothing to filter.
-  if (!group || group.companyIds.length < 2) return null;
+function CompanyFilter() {
+  const [open, setOpen] = React.useState(false);
+  const { treeCompanyIds, filter, setFilter, companyName } = useCompanyScope();
+  const { language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+  const group = { companyIds: treeCompanyIds };
 
   const name = companyName;
   const chosen = filter.length ? filter : group.companyIds;
@@ -46,7 +71,7 @@ export function GroupCompanyFilter({ className }: { className?: string }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" role="combobox" aria-expanded={open} className={cn('gap-2', className)}>
+        <Button variant="outline" size="sm" role="combobox" aria-expanded={open} className="gap-2">
           <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="max-w-[12rem] truncate">{label}</span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" aria-hidden="true" />

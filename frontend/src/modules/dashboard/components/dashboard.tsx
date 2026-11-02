@@ -26,7 +26,8 @@ const METRIC_ROUTES: Record<string, string> = {
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { getDashboardInsights, getDashboardPayload, type DashboardInsights, type InsightPeriod } from '@/services/dashboardService';
-import { useGroupScope } from '@/context/group-scope-context';
+import { useCompanyScope } from '@/context/company-scope-context';
+import { ScopeBar } from '@/modules/groups/components/scope-bar';
 import { GroupOverview } from '@/modules/groups/components/group-overview';
 import type { DashboardPayload, DashboardChart } from '@/modules/dashboard/types';
 import { CurrencyAmount, useCompanyCurrency, type SupportedCurrencyCode } from '@/lib/currency';
@@ -300,19 +301,19 @@ export function Dashboard() {
   // Only the latest request for the current company and period may land.
   const insightsRequest = React.useRef(0);
   const { currencyCode } = useCompanyCurrency();
-  const { group } = useGroupScope();
+  const { inTree } = useCompanyScope();
   const [payload, setPayload] = React.useState<DashboardPayload | null>(null);
   const [loading, setLoading] = React.useState(true);
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
 
   // A group is not a big company: it gets its own screen.
-  const inGroup = Boolean(group);
+  const inGroup = inTree;
 
   React.useEffect(() => {
     let active = true;
     async function load() {
       // A group has its own screen (GroupOverview); this is the company one.
-      if (group || !selectedCompany) {
+      if (inTree || !selectedCompany) {
         setPayload(null);
         setLoading(false);
         return;
@@ -331,7 +332,7 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, [selectedCompany, group]);
+  }, [selectedCompany, inTree]);
 
   // The period figures load on their own, so switching the period does not reload the page.
   React.useEffect(() => {
@@ -345,7 +346,7 @@ export function Dashboard() {
 
   // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
   useLiveRefresh('*', async () => {
-    if (group || !selectedCompany) return;
+    if (inTree || !selectedCompany) return;
     const ticket = ++insightsRequest.current;
     const [data, fresh] = await Promise.all([
       getDashboardPayload(selectedCompany.id).catch(() => null),
@@ -458,6 +459,8 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {/* A group company's own dashboard: the way back to the whole group. */}
+          <ScopeBar />
           <Tabs value={String(days)} onValueChange={(v) => setDays(Number(v) as InsightPeriod)}>
             <TabsList>
               <TabsTrigger value="30">{tr('30 days', '30 يوم')}</TabsTrigger>

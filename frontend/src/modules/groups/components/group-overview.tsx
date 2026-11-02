@@ -16,12 +16,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
-import { useGroupScope } from '@/context/group-scope-context';
+import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
 import { CurrencyAmount } from '@/lib/currency';
 import { cn } from '@/lib/utils';
 import { getGroupDashboardPayload, type GroupDashboard } from '@/services/dashboardService';
-import { GroupCompanyFilter } from './group-company-filter';
+import { ScopeBar } from './scope-bar';
 
 /** The columns a group is read by, in the order an owner asks about them. */
 const COLUMNS: Array<{ metricId: string; en: string; ar: string; money?: boolean; bad?: boolean }> = [
@@ -33,8 +33,9 @@ const COLUMNS: Array<{ metricId: string; en: string; ar: string; money?: boolean
 ];
 
 export function GroupOverview() {
-  const { group, companyIds, companyName, leaveGroup } = useGroupScope();
-  const { companies, setSelectedCompany } = useCompany();
+  const { inTree, companyIds, companyName } = useCompanyScope();
+  const { companies, selectedCompany, setSelectedCompany } = useCompany();
+  const group = inTree ? selectedCompany : null;
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const router = useRouter();
@@ -109,15 +110,14 @@ export function GroupOverview() {
     );
 
   /**
-   * Going into one company to act on what the group view showed. The group is
-   * left behind: you are working in that company now, and the switcher says
-   * so. Coming back is picking the group again.
+   * Going into one company to act on what the group view showed: you are
+   * working in that company now, and the switcher says so. Coming back is
+   * picking the group again.
    */
   const enterCompany = (companyId: string, href = '/') => {
     const company = companies.find((c) => c.id === companyId);
     if (!company) return;
     setSelectedCompany(company);
-    leaveGroup();
     router.push(href);
   };
   const canEnter = (companyId: string) => companies.some((c) => c.id === companyId);
@@ -137,7 +137,7 @@ export function GroupOverview() {
             )}
           </p>
         </div>
-        <GroupCompanyFilter />
+        <ScopeBar />
       </div>
 
       {loading && !data && (

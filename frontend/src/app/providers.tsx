@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { CompanyProvider } from '@/context/company-context';
-import { GroupScopeProvider } from '@/context/group-scope-context';
+import { CompanyScopeProvider } from '@/context/company-scope-context';
 import { PermissionsProvider } from '@/context/permissions-context';
 import { I18nProvider } from '@/context/i18n-context';
 import { ThemeProvider } from '@/context/theme-context';
@@ -16,7 +16,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
     <I18nProvider>
       <CompanyProvider>
-        <GroupScopeProvider>
+        <CompanyScopeProvider>
         <BrandProvider>
         <PermissionsProvider>
           <ConfirmProvider>
@@ -26,7 +26,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           </ConfirmProvider>
         </PermissionsProvider>
         </BrandProvider>
-        </GroupScopeProvider>
+        </CompanyScopeProvider>
       </CompanyProvider>
     </I18nProvider>
     </ThemeProvider>

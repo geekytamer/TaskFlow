@@ -9,13 +9,13 @@ import { ProjectList } from '@/modules/projects/components/project-list';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
-import { GroupCompanyFilter } from '@/modules/groups/components/group-company-filter';
-import { useGroupScope } from '@/context/group-scope-context';
+import { ScopeBar } from '@/modules/groups/components/scope-bar';
+import { useCompanyScope } from '@/context/company-scope-context';
 
 export function ProjectsPage() {
   const { user } = useAuthGuard();
   const { t } = useI18n();
-  const { group } = useGroupScope();
+  const { inTree } = useCompanyScope();
   const canCreateProjects = usePermissions().can('projects.create');
 
   return (
@@ -28,8 +28,8 @@ export function ProjectsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <GroupCompanyFilter />
-          {user && canCreateProjects && !group && (
+          <ScopeBar />
+          {user && canCreateProjects && !inTree && (
             <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
               <ProjectFromTemplateSheet />
               <CreateProjectSheet />

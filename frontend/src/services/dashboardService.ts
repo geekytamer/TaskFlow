@@ -103,12 +103,12 @@ export interface GroupDashboard {
 
 /** A whole group's companies in one dashboard; `companyIds` narrows it. */
 export async function getGroupDashboardPayload(
-  groupId: string,
+  groupCompanyId: string,
   companyIds: string[] = [],
 ): Promise<GroupDashboard | null> {
-  if (!groupId) return null;
-  const query = companyIds.length ? `?companyIds=${encodeURIComponent(companyIds.join(','))}` : '';
-  const raw = await apiFetch<any>(`/holding-groups/${encodeURIComponent(groupId)}/dashboard${query}`);
+  if (!groupCompanyId) return null;
+  const filter = companyIds.length ? `&companyIds=${encodeURIComponent(companyIds.join(','))}` : '';
+  const raw = await apiFetch<any>(`/companies/${encodeURIComponent(groupCompanyId)}/dashboard?scope=tree${filter}`);
   return {
     // A group has no single role or company: it reads as a company-wide view.
     payload: mapDashboardPayload({ ...raw, companyId: '', role: 'Admin', scope: 'company' }),

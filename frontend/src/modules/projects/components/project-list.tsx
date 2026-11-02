@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useCompany } from '@/context/company-context';
-import { useGroupScope } from '@/context/group-scope-context';
+import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, loading } = useCompany();
-  const { group, companyIds: groupCompanyIds, companyName } = useGroupScope();
+  const { inTree, companyIds: groupCompanyIds, companyName } = useCompanyScope();
   const seesAllProjects = useSeesAllProjects();
   const canLoadClients = usePermissions().can('contacts.view_details');
   const { language } = useI18n();
@@ -72,15 +72,15 @@ export function ProjectList() {
   }, [selectedCompany, canLoadClients]);
 
   const companyProjects = React.useMemo(() => {
-    if (!currentUser || (!selectedCompany && !group)) return [];
+    if (!currentUser || !selectedCompany) return [];
     // In a group: every company of it that the filter leaves in.
     const inScope = (companyId: string) =>
-      group ? groupCompanyIds.includes(companyId) : companyId === selectedCompany?.id;
+      inTree ? groupCompanyIds.includes(companyId) : companyId === selectedCompany?.id;
     return projects.filter((p) => inScope(p.companyId) && canViewProject(p, currentUser.id, seesAllProjects));
-  }, [projects, currentUser, selectedCompany, seesAllProjects, group, groupCompanyIds]);
+  }, [projects, currentUser, selectedCompany, seesAllProjects, inTree, groupCompanyIds]);
 
   /** Which company a project belongs to — shown only when several are in view. */
-  const showCompany = group !== null && new Set(companyProjects.map((p) => p.companyId)).size > 1;
+  const showCompany = inTree && new Set(companyProjects.map((p) => p.companyId)).size > 1;
 
   const tabCounts = React.useMemo(() => {
     const counts: Record<ProjectTab, number> = { current: 0, done: 0, archived: 0, all: companyProjects.length };
