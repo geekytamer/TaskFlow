@@ -76,14 +76,20 @@ export function CreateTargetSelect({ choices, target, setTarget }: { choices: st
  * a single company it renders `children` as before; on a whole group it adds
  * the company choice and renders `children` inside that company.
  */
-export function CreateInCompany({ permission, children }: { permission: string; children: React.ReactNode }) {
+export function CreateInCompany({ permission, children }: {
+  permission: string;
+  /** The create control, or a function of the company it creates in (to pass that company's own lists). */
+  children: React.ReactNode | ((companyId: string) => React.ReactNode);
+}) {
+  const { selectedCompany } = useCompany();
   const { inTree, choices, target, setTarget } = useCreateTarget(permission);
-  if (!inTree) return <>{children}</>;
+  const render = (id: string) => (typeof children === 'function' ? children(id) : children);
+  if (!inTree) return <>{render(selectedCompany?.id ?? '')}</>;
   if (!target) return null;
   return (
     <div className="flex items-center gap-2">
       <CreateTargetSelect choices={choices} target={target} setTarget={setTarget} />
-      <InCompany companyId={target}>{children}</InCompany>
+      <InCompany companyId={target}>{render(target)}</InCompany>
     </div>
   );
 }

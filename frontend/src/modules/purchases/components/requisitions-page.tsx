@@ -1,5 +1,11 @@
 'use client';
 
+import { useCompanyScope } from '@/context/company-scope-context';
+import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { CompanyLabel } from '@/modules/groups/components/company-cell';
+import { MissingCompanies } from '@/modules/groups/components/missing-companies';
+import { CreateInCompany } from '@/modules/groups/components/company-picker';
+import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import * as React from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -143,8 +149,13 @@ export function RequisitionsPage() {
   const tr: Tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
   const { toast } = useToast();
   const confirm = useConfirm();
-  const { amount } = useCompanyCurrency();
+  const { amountIn } = useCompanyCurrency();
   const canApprove = usePermissions().can('purchasing.approve');
+  // A group shown whole: every company's requisitions, each in its own currency.
+  const { companyIds } = useCompanyScope();
+  const scopeKey = companyIds.join(',');
+  const [missing, setMissing] = React.useState<MissingCompany[]>([]);
+  const currencyOf = useCurrencyOf();
   const [rows, setRows] = React.useState<PurchaseRequisition[] | null>(null);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [rejecting, setRejecting] = React.useState<PurchaseRequisition | null>(null);
@@ -154,16 +165,20 @@ export function RequisitionsPage() {
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    if (!selectedCompany) return;
+    if (!selectedCompany || !scopeKey) return;
     try {
-      const [r, s] = await Promise.all([getPurchaseRequisitions(selectedCompany.id), getSuppliers(selectedCompany.id)]);
+      const ids = scopeKey.split(',');
+      const [rData, sData] = await Promise.all([fanOut(ids, (id) => getPurchaseRequisitions(id)), fanOut(ids, (id) => getSuppliers(id))]);
+      const r = rData.rows;
+      const s = sData.rows;
+      setMissing(rData.missing);
       setRows([...r].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       setSuppliers(s);
     } catch (e: any) {
       setRows([]);
       toast({ variant: 'destructive', title: tr('Requisitions unavailable', 'طلبات الشراء غير متاحة'), description: e?.message });
     }
-  }, [selectedCompany, toast, tr]);
+  }, [selectedCompany, scopeKey, toast, tr]);
   React.useEffect(() => { void load(); }, [load]);
 
   const act = async (fn: () => Promise<unknown>, done: string) => {
@@ -178,8 +193,13 @@ export function RequisitionsPage() {
     <SectionPageShell
       title={tr('Purchase requisitions', 'طلبات الشراء الداخلية')}
       description={tr('Internal requests to buy, approved before they become purchase orders.', 'طلبات شراء داخلية تُعتمد قبل أن تصبح أوامر شراء.')}
-      actions={<NewRequisitionSheet suppliers={suppliers} onCreated={load} tr={tr} />}
+      actions={(
+        <CreateInCompany permission="purchasing.create">
+          {(companyId) => <NewRequisitionSheet suppliers={suppliers.filter((x) => (x as { companyId?: string }).companyId === companyId)} onCreated={load} tr={tr} />}
+        </CreateInCompany>
+      )}
     >
+      <MissingCompanies missing={missing} />
       {rows === null ? (
         <Skeleton className="h-64 w-full rounded-lg" />
       ) : rows.length === 0 ? (
@@ -204,14 +224,14 @@ export function RequisitionsPage() {
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-medium" dir="ltr">{r.requisitionNumber}</TableCell>
+                  <TableCell className="font-medium"><span dir="ltr">{r.requisitionNumber}</span><CompanyLabel companyId={r.companyId} /></TableCell>
                   <TableCell className="max-w-[280px]">
                     <span className="line-clamp-2 text-sm" dir="auto">{r.items.map((i) => `${i.quantity} × ${i.description}`).join(' · ')}</span>
                     {r.status === 'Rejected' && r.rejectionReason && <span className="mt-0.5 block text-xs text-destructive" dir="auto">{r.rejectionReason}</span>}
                   </TableCell>
                   <TableCell dir="auto">{r.department || '—'}</TableCell>
                   <TableCell>{r.neededBy ? format(new Date(r.neededBy), 'MMM d, yyyy') : '—'}</TableCell>
-                  <TableCell className="text-end tabular-nums">{amount(estimate(r))}</TableCell>
+                  <TableCell className="text-end tabular-nums">{amountIn(estimate(r), currencyOf(r.companyId))}</TableCell>
                   <TableCell><Badge variant={statusVariant[r.status]}>{statusLabel(tr, r.status)}</Badge></TableCell>
                   <TableCell className="whitespace-nowrap text-end">
                     {r.status === 'Draft' && (
@@ -280,7 +300,7 @@ export function RequisitionsPage() {
             <Label>{tr('Supplier', 'المورّد')}</Label>
             <Select value={convertSupplier} onValueChange={setConvertSupplier}>
               <SelectTrigger><SelectValue placeholder={tr('Choose a supplier', 'اختر مورّداً')} /></SelectTrigger>
-              <SelectContent>{suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{suppliers.filter((x) => (x as { companyId?: string }).companyId === converting?.companyId).map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
             </Select>
             {converting?.preferredSupplierId && supplierName(converting.preferredSupplierId) && (
               <p className="text-xs text-muted-foreground">{tr('Requested supplier: ', 'المورّد المطلوب: ')}{supplierName(converting.preferredSupplierId)}</p>

@@ -1,7 +1,14 @@
 'use client';
 
+import { useCompanyScope } from '@/context/company-scope-context';
+import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { sumByCurrency } from '@/lib/money-by-currency';
+import { CompanyLabel } from '@/modules/groups/components/company-cell';
+import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
+import { MissingCompanies } from '@/modules/groups/components/missing-companies';
+import { CreateTargetSelect, useCreateTarget } from '@/modules/groups/components/company-picker';
+import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import * as React from 'react';
-import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { format, startOfMonth } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -114,7 +121,13 @@ export function PurchasesPage() {
   const canDeleteOrders = can('purchasing.delete');
   const { toast } = useToast();
   const confirm = useConfirm();
-  const { amount } = useCompanyCurrency();
+  const { amountIn } = useCompanyCurrency();
+  // A group shown whole: every company's orders; the form works on one company.
+  const { companyIds } = useCompanyScope();
+  const scopeKey = companyIds.join(',');
+  const [missing, setMissing] = React.useState<MissingCompany[]>([]);
+  const createTarget = useCreateTarget('purchasing.create');
+  const currencyOf = useCurrencyOf();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
@@ -143,7 +156,7 @@ export function PurchasesPage() {
 
   const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
     const quiet = opts?.quiet === true;
-    if (!selectedCompany) {
+    if (!selectedCompany || !scopeKey) {
       setOrders([]);
       setItems([]);
       setSuppliers([]);
@@ -154,18 +167,21 @@ export function PurchasesPage() {
     }
     if (!quiet) setLoading(true);
     try {
+      const ids = scopeKey.split(',');
+      // Each company answers for itself; one with inventory or contacts off just has none.
       const [orderData, itemData, supplierData, receiptData, payableData] = await Promise.all([
-        getPurchaseOrders(selectedCompany.id),
-        isModuleOn(selectedCompany, 'inventory') ? getInventoryItems(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getInventoryItems>>),
-        isModuleOn(selectedCompany, 'contacts') ? getContacts(selectedCompany.id, 'Vendor') : Promise.resolve([] as Awaited<ReturnType<typeof getContacts>>),
-        getPurchaseReceipts(selectedCompany.id),
-        getPurchaseOrderPayables(selectedCompany.id),
+        fanOut(ids, (id) => getPurchaseOrders(id)),
+        fanOut(ids, (id) => getInventoryItems(id)),
+        fanOut(ids, (id) => getContacts(id, 'Vendor')),
+        fanOut(ids, (id) => getPurchaseReceipts(id)),
+        fanOut(ids, (id) => getPurchaseOrderPayables(id)),
       ]);
-      setOrders(orderData);
-      setItems(itemData);
-      setSuppliers(supplierData);
-      setReceipts(receiptData);
-      setPayables(payableData);
+      setOrders(orderData.rows);
+      setMissing(orderData.missing);
+      setItems(itemData.rows);
+      setSuppliers(supplierData.rows);
+      setReceipts(receiptData.rows);
+      setPayables(payableData.rows);
     } catch (error: any) {
       if (quiet) return;
       toast({
@@ -176,7 +192,7 @@ export function PurchasesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, scopeKey, toast]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['purchase-orders', 'purchase-receipts', 'purchase-requisitions', 'rfqs', 'vendor-bills', 'bill-matches', 'payables', 'inventory-items', 'contacts'], () => load({ quiet: true }));
@@ -228,7 +244,9 @@ export function PurchasesPage() {
         || order.status === 'Ordered'
         || order.status === 'Partially Received',
     );
-    const orderedSpend = openOrders.reduce((sum, order) => sum + order.totalAmount, 0);
+    // Per company currency: never added across currencies.
+    const home = currencyOf(selectedCompany?.id ?? '');
+    const orderedSpend = sumByCurrency(openOrders, (order) => currencyOf(order.companyId), (order) => order.totalAmount, home);
     const awaitingReceiptUnits = orders.reduce((sum, order) => {
       if (order.status === 'Received' || order.status === 'Cancelled') {
         return sum;
@@ -243,7 +261,8 @@ export function PurchasesPage() {
     }, 0);
     const monthStart = startOfMonth(new Date());
     const receivedThisMonth = receipts.filter((receipt) => receipt.receivedAt >= monthStart).length;
-    const unbilledValue = payables.reduce((sum, summary) => sum + summary.remainingToBill, 0);
+    const unbilledValue = sumByCurrency(payables as Array<PurchaseOrderPayableSummary & { companyId: string }>,
+      (summary) => currencyOf(summary.companyId), (summary) => summary.remainingToBill, home);
 
     return {
       openOrders: openOrders.length,
@@ -252,7 +271,12 @@ export function PurchasesPage() {
       receivedThisMonth,
       unbilledValue,
     };
-  }, [orders, payables, receiptTotalsByOrder, receipts]);
+  }, [orders, payables, receiptTotalsByOrder, receipts, currencyOf, selectedCompany]);
+
+  // The company the order form works on: the order's own when editing, else the chosen one.
+  const formCompanyId = editingOrder?.companyId ?? createTarget.target;
+  const formItems = React.useMemo(() => items.filter((i) => (i as { companyId?: string }).companyId === formCompanyId), [items, formCompanyId]);
+  const formSuppliers = React.useMemo(() => suppliers.filter((c) => c.companyId === formCompanyId), [suppliers, formCompanyId]);
 
   const orderReceiptProgress = React.useMemo(() => {
     const map = new Map<string, { receivedUnits: number; totalUnits: number; remainingUnits: number }>();
@@ -349,7 +373,7 @@ export function PurchasesPage() {
   }, [orders, search, statusFilter]);
 
   const handleCreate = async () => {
-    if (!selectedCompany) return;
+    if (!formCompanyId) return;
     if (!form.contactId || !form.orderDate) {
       toast({
         variant: 'destructive',
@@ -409,7 +433,7 @@ export function PurchasesPage() {
           toast({ title: tr('Sent for approval again', 'أُرسل للموافقة مجددًا'), description: tr('The new total needs approval before it can be ordered.', 'يحتاج الإجمالي الجديد إلى موافقة قبل الطلب.') });
         }
       } else {
-        await createPurchaseOrder(selectedCompany.id, {
+        await createPurchaseOrder(formCompanyId, {
           supplierId,
           contactId: form.contactId,
           orderDate: new Date(form.orderDate),
@@ -585,7 +609,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">{tr('Ordered Spend', 'قيمة الطلبات')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{amount(stats.orderedSpend)}</div>
+            <div className="text-2xl font-bold"><CurrencyTotals totals={stats.orderedSpend} /></div>
           </CardContent>
         </Card>
         <Card>
@@ -609,7 +633,7 @@ export function PurchasesPage() {
             <CardTitle className="text-sm font-medium">{tr('Unbilled PO Value', 'قيمة أوامر الشراء غير المفوترة')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{amount(stats.unbilledValue)}</div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400"><CurrencyTotals totals={stats.unbilledValue} /></div>
           </CardContent>
         </Card>
       </div>
@@ -644,6 +668,8 @@ export function PurchasesPage() {
         )}
         summary={tr(`Showing ${filteredOrders.length} of ${orders.length} orders`, `عرض ${filteredOrders.length} من ${orders.length} أمرًا`)}
         actions={(
+          <div className="flex flex-wrap items-center gap-2">
+          <CreateTargetSelect {...createTarget} />
           <Dialog
           open={openCreate}
           onOpenChange={(open) => {
@@ -652,7 +678,7 @@ export function PurchasesPage() {
           }}
         >
           <DialogTrigger asChild>
-            <Button disabled={!items.length} data-tutorial="purchases-create-btn">
+            <Button disabled={!formItems.length} data-tutorial="purchases-create-btn">
               <ShoppingCart className="me-2 h-4 w-4" />
               {tr('New Purchase Order', 'أمر شراء جديد')}
             </Button>
@@ -678,7 +704,7 @@ export function PurchasesPage() {
                 <div className="space-y-1">
                   <Label data-tutorial="purchases-form-supplier">{tr('Supplier', 'المورّد')}</Label>
                   <Combobox
-                    options={suppliers.map((c: Contact) => ({ value: c.id, label: c.name }))}
+                    options={formSuppliers.map((c: Contact) => ({ value: c.id, label: c.name }))}
                     value={form.contactId}
                     onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
                     placeholder={tr('Select supplier', 'اختر المورّد')}
@@ -727,7 +753,7 @@ export function PurchasesPage() {
               <div className="space-y-1">
                 <Label>{tr('Estimated Total', 'الإجمالي التقديري')}</Label>
                 <div className="flex h-10 items-center rounded-md border px-3 text-sm">
-                  {amount(estimatedTotal)}
+                  {amountIn(estimatedTotal, currencyOf(formCompanyId))}
                 </div>
               </div>
               <div className="space-y-1 sm:col-span-2">
@@ -777,7 +803,7 @@ export function PurchasesPage() {
                         <SelectValue placeholder={tr('Select item', 'اختر صنفًا')} />
                       </SelectTrigger>
                       <SelectContent>
-                        {items.map((inventoryItem) => (
+                        {formItems.map((inventoryItem) => (
                           <SelectItem key={inventoryItem.id} value={inventoryItem.id}>
                             {inventoryItem.sku}-{inventoryItem.name}-{inventoryItem.barcode || tr('No Barcode', 'بدون باركود')}
                           </SelectItem>
@@ -806,7 +832,7 @@ export function PurchasesPage() {
                   </div>
                   <div className="flex items-end gap-2">
                     <div className="min-w-20 text-sm text-muted-foreground">
-                      {amount(Number(item.quantity || 0) * Number(item.unitCost || 0))}
+                      {amountIn(Number(item.quantity || 0) * Number(item.unitCost || 0), currencyOf(formCompanyId))}
                     </div>
                     <Button
                       type="button"
@@ -830,8 +856,10 @@ export function PurchasesPage() {
           </DialogFooter>
         </DialogContent>
           </Dialog>
+          </div>
         )}
       />
+      <MissingCompanies missing={missing} />
 
       <Dialog
         open={receiptState.open}
@@ -884,7 +912,7 @@ export function PurchasesPage() {
                   <div className="space-y-1">
                     <Label>{tr('Unit Cost', 'تكلفة الوحدة')}</Label>
                     <div className="flex h-10 items-center rounded-md border px-3 text-sm">
-                      {amount(item.unitCost)}
+                      {amountIn(item.unitCost, currencyOf(receiptState.order?.companyId ?? ''))}
                     </div>
                   </div>
                   <div className="space-y-1 sm:col-span-2">
@@ -992,7 +1020,7 @@ export function PurchasesPage() {
             {!loading &&
               filteredOrders.map((order) => (
                 <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                  <TableCell className="font-medium">{order.orderNumber}<CompanyLabel companyId={order.companyId} /></TableCell>
                   <TableCell>
                     <div className="space-y-1">
                       <div>{order.supplierName}</div>
@@ -1024,12 +1052,12 @@ export function PurchasesPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-end">{amount(order.totalAmount)}</TableCell>
+                  <TableCell className="text-end">{amountIn(order.totalAmount, currencyOf(order.companyId))}</TableCell>
                   <TableCell>
                     <div className="space-y-1 text-sm">
-                      <div>{tr('Billed', 'مفوتر')} {amount(payableMap.get(order.id)?.billedAmount || 0)}</div>
+                      <div>{tr('Billed', 'مفوتر')} {amountIn(payableMap.get(order.id)?.billedAmount || 0, currencyOf(order.companyId))}</div>
                       <div className="text-muted-foreground">
-                        {tr('Remaining', 'متبقٍ')} {amount(payableMap.get(order.id)?.remainingToBill || order.totalAmount)}
+                        {tr('Remaining', 'متبقٍ')} {amountIn(payableMap.get(order.id)?.remainingToBill || order.totalAmount, currencyOf(order.companyId))}
                       </div>
                     </div>
                   </TableCell>
@@ -1217,9 +1245,9 @@ export function PurchasesPage() {
             <DialogTitle>{selectedOrderForDocs?.orderNumber}</DialogTitle>
             <DialogDescription>{tr('Purchase order documents and audit timeline.', 'مستندات أمر الشراء والمخطط الزمني للتدقيق.')}</DialogDescription>
           </DialogHeader>
-          {selectedOrderForDocs && selectedCompany && (
+          {selectedOrderForDocs && (
             <RecordSupportPanel
-              companyId={selectedCompany.id}
+              companyId={selectedOrderForDocs.companyId}
               entityType="purchase_order"
               entityId={selectedOrderForDocs.id}
               title={tr('Purchase Order Attachments & Timeline', 'مرفقات أمر الشراء والمخطط الزمني')}
