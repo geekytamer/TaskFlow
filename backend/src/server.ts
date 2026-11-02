@@ -290,6 +290,8 @@ const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced'
 
 import { greenApi, toChatId } from './services/greenApi';
 import { normalizeNiches } from './niches';
+import { subtreeIds } from './companies/tree';
+import { askedCompanyIds, groupDashboard } from './authz/group-dashboard';
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -8004,6 +8006,14 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
+      // A group company's dashboard can cover its whole tree; the filter only narrows it.
+      if (req.query.scope === 'tree') {
+        const asked = askedCompanyIds(req.query.companyIds);
+        const tree = subtreeIds(store.listCompanies(), req.params.companyId).filter((id) => !asked || asked.has(id));
+        return res.json(groupDashboard(
+          { store, allowsRule, viewerOf, accessibleCompanyIds }, req, req.params.companyId, tree,
+        ));
+      }
       // v2: company access and the declared dashboard.view decide, so a
       // person reached through a group gets in. Legacy/shadow: a role here.
       const companyRole = engine === 'v2'

@@ -76,7 +76,8 @@ test('the merge sums figures, adds charts per month, and names the company on ea
 
 test('the group dashboard rolls up its companies, and the filter narrows it', async () => {
   const { store, as, byEmail, root } = build();
-  const g = (await as(root).post('/holding-groups', { name: 'Rollup Group' })).body.id;
+  const created = (await as(root).post('/holding-groups', { name: 'Rollup Group' })).body;
+  const g = created.id;
   for (const companyId of ['1', '2']) {
     assert.equal((await as(root).post(`/holding-groups/${g}/companies`, { companyId })).status, 200);
   }
@@ -87,7 +88,8 @@ test('the group dashboard rolls up its companies, and the filter narrows it', as
   const two = (await as(admin).get('/companies/2/dashboard')).body;
   const rolled = await as(admin).get(`/holding-groups/${g}/dashboard`);
   assert.equal(rolled.status, 200);
-  assert.deepEqual(rolled.body.companies.map((c) => c.id), ['1', '2']);
+  // The group's own company comes first; it has nothing yet.
+  assert.deepEqual(rolled.body.companies.map((c) => c.id), [created.companyId, '1', '2']);
   assert.deepEqual(rolled.body.missing, []);
 
   const sum = (payload, id) => payload.metrics.find((m) => m.id === id)?.value ?? 0;
@@ -106,7 +108,8 @@ test('the group dashboard rolls up its companies, and the filter narrows it', as
 
 test('a company the viewer cannot see a dashboard in is named, not silently counted', async () => {
   const { store, as, byEmail, root } = build();
-  const g = (await as(root).post('/holding-groups', { name: 'Partial Group' })).body.id;
+  const created = (await as(root).post('/holding-groups', { name: 'Partial Group' })).body;
+  const g = created.id;
   for (const companyId of ['1', '2']) await as(root).post(`/holding-groups/${g}/companies`, { companyId });
   // An employee of company 1 only, made a group admin by the platform admin.
   const charlie = byEmail('charlie.d@innovatecorp.com');
@@ -116,7 +119,7 @@ test('a company the viewer cannot see a dashboard in is named, not silently coun
   assert.equal(rolled.status, 200);
   const seen = rolled.body.companies.map((c) => c.id);
   const missing = rolled.body.missing.map((c) => c.id);
-  assert.deepEqual([...seen, ...missing].sort(), ['1', '2'], 'every company is accounted for');
+  assert.deepEqual([...seen, ...missing].sort(), ['1', '2', created.companyId].sort(), 'every company is accounted for');
   assert.ok(missing.length > 0, 'an employee does not get a company-wide dashboard through the group');
   assert.ok(rolled.body.missing.every((c) => c.name), 'a missing company is named');
   assert.ok(store.getUserById(charlie.id));
@@ -231,3 +234,47 @@ test('observations name the company carrying the group, and stay quiet when they
   const alone = rollUpDashboard('g', [build('1', 'Only Co', 'USD', 900, 9)], []);
   assert.deepEqual(alone.observations, [], 'one company is not compared with itself');
 });
+
+// ── The group company's own dashboard covers its tree ────────────────
+
+for (const engine of ['legacy', 'v2']) {
+  test(`the group company's dashboard rolls up its tree (${engine})`, async () => {
+    const { store, as, byEmail } = build(engine);
+    const admin = byEmail('admin@taskflow.com'); // Admin in every seeded company
+    const group = store.createGroupCompany(`Tree ${engine}`, admin.id).company;
+    store.setCompanyParent('1', group.id, null);
+    store.setCompanyParent('2', group.id, null);
+
+    const one = (await as(admin).get('/companies/1/dashboard')).body;
+    const two = (await as(admin).get('/companies/2/dashboard')).body;
+    const own = (await as(admin).get(`/companies/${group.id}/dashboard`)).body;
+    assert.equal(own.metrics.find((m) => m.id === 'open-tasks')?.value ?? 0, 0, 'without scope=tree: the group company alone');
+
+    const tree = await as(admin).get(`/companies/${group.id}/dashboard?scope=tree`);
+    assert.equal(tree.status, 200);
+    assert.deepEqual(tree.body.companies.map((c) => c.id), [group.id, '1', '2']);
+    const sum = (payload, id) => payload.metrics.find((m) => m.id === id)?.value ?? 0;
+    assert.equal(sum(tree.body, 'open-tasks'), sum(one, 'open-tasks') + sum(two, 'open-tasks'));
+
+    const narrowed = await as(admin).get(`/companies/${group.id}/dashboard?scope=tree&companyIds=2,3`);
+    assert.deepEqual(narrowed.body.companies.map((c) => c.id), ['2'], 'the filter only narrows the tree');
+  });
+
+  test(`a child the viewer cannot open is named in missing (${engine})`, async () => {
+    const { store, as, byEmail } = build(engine);
+    const admin = byEmail('admin@taskflow.com');
+    const group = store.createGroupCompany(`Gap ${engine}`, admin.id).company;
+    store.setCompanyParent('1', group.id, null);
+    store.setCompanyParent('2', group.id, null);
+    // Someone who runs the group company and company 1, but has no place in company 2.
+    const viewer = store.createUser({
+      name: 'Viewer', email: `viewer-${engine}@rollup.test`, password: 'x', role: 'Admin',
+      companyIds: [group.id, '1'], companyRoles: [{ companyId: group.id, role: 'Admin' }, { companyId: '1', role: 'Admin' }],
+    });
+    const tree = await as(viewer).get(`/companies/${group.id}/dashboard?scope=tree`);
+    assert.equal(tree.status, 200);
+    assert.deepEqual(tree.body.companies.map((c) => c.id), [group.id, '1']);
+    assert.deepEqual(tree.body.missing.map((c) => c.id), ['2']);
+    assert.ok(tree.body.missing[0].name, 'named, not an id');
+  });
+}

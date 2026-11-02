@@ -33,7 +33,7 @@ import { boundaryOf } from './dates';
 import { roleGuards } from './guards';
 import { beyondDetail, fieldsOut, grantsOut } from './describe';
 import { validateRole } from './authz-store';
-import { rollUpDashboard, type GroupCompany } from './holding-rollup';
+import { askedCompanyIds, groupDashboard } from './group-dashboard';
 
 /** Store validation errors (plain Error) become 400; HttpErrors keep their status. */
 function run<T>(fn: () => T): T {
@@ -260,38 +260,10 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
    */
   app.get('/holding-groups/:id/dashboard', authMiddleware, handler((req, res) => {
     const group = requireGroupAdmin(req, req.params.id);
-    const asked = typeof req.query.companyIds === 'string' && req.query.companyIds.trim()
-      ? new Set(req.query.companyIds.split(',').map((id) => id.trim()).filter(Boolean))
-      : null;
-    const wanted = group.companyIds.filter((id) => !asked || asked.has(id));
-
-    const parts: Array<{ company: GroupCompany; payload: ReturnType<typeof store.getDashboardPayload> }> = [];
-    const missing: GroupCompany[] = [];
-    for (const companyId of wanted) {
-      const company: GroupCompany = {
-        id: companyId,
-        name: store.getCompanyById(companyId)?.name ?? companyId,
-        currencyCode: store.getCompanyFinanceSettings(companyId).currencyCode,
-      };
-      const operations = allowsRule(req, companyId, 'DASHBOARD_OPERATIONS_READ');
-      const finance = allowsRule(req, companyId, 'DASHBOARD_FINANCE_READ');
-      // The personal variant is one person's own tasks; it says nothing about
-      // a company, so a group roll-up leaves that company out.
-      if (!operations && !finance) {
-        missing.push(company);
-        continue;
-      }
-      parts.push({
-        company,
-        payload: store.getDashboardPayload(companyId, {
-          userId: req.user!.id,
-          role: operations && finance ? 'Admin' : operations ? 'Manager' : 'Accountant',
-          companyRole: store.authz.mainLegacyRole(req.user!.id, companyId),
-          visibleTo: viewerOf(req),
-        }),
-      });
-    }
-    res.json(rollUpDashboard(group.id, parts, missing));
+    const asked = askedCompanyIds(req.query.companyIds);
+    // The group's own company first, as on the group company's dashboard.
+    const ordered = [...group.companyIds].sort((a, b) => Number(b === group.companyId) - Number(a === group.companyId));
+    res.json(groupDashboard(ctx, req, group.id, ordered.filter((id) => !asked || asked.has(id))));
   }));
 
   /**
