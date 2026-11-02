@@ -64,7 +64,8 @@ import { sweepPortalPush } from './portal/push-alerts';
 import { releaseHeldPush } from './push/quiet-hours';
 import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
-import { discoverTick } from './discover/jobs';
+import { discoverTick, refreshDue, syncRoster } from './discover/jobs';
+import { assertNoHandleClash, quickAddInfluencers } from './influencers/service';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -3928,6 +3929,14 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const body = asRecord(req.body, 'body');
 	      requireFieldEdits(req, companyId, 'contact', body, 'create');
 	      const managesAll = allowsRule(req, companyId, 'CONTACTS_ALL_WRITE');
+	      const influencerAccounts = parseInfluencerAccounts(body.influencerAccounts);
+	      if (Array.isArray(body.roles) && body.roles.includes('Influencer')) {
+	        assertNoHandleClash(store, companyId, {
+	          influencerPlatform: optionalString(body.influencerPlatform),
+	          influencerHandle: optionalString(body.influencerHandle),
+	          influencerAccounts,
+	        });
+	      }
 	      let contact;
 	      try {
 	      contact = store.createContact({
@@ -3960,7 +3969,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        location: optionalString(body.location),
 	        languages: Array.isArray(body.languages) ? body.languages.map((item, index) => requiredString(item, `languages[${index}]`)) : undefined,
 	        availabilityStatus: optionalString(body.availabilityStatus),
-	        influencerAccounts: parseInfluencerAccounts(body.influencerAccounts),
+	        influencerAccounts,
 	        customFields: optionalCustomFields(body.customFields),
 	      });
 	      } catch (error: any) {
@@ -3992,6 +4001,14 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       requireFieldEdits(req, existing.companyId, 'contact', body, existing);
+      const influencerAccounts = body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined;
+      if (existing.roles?.includes('Influencer')) {
+        assertNoHandleClash(store, existing.companyId, {
+          influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : existing.influencerPlatform,
+          influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : existing.influencerHandle,
+          influencerAccounts: influencerAccounts ?? existing.influencerAccounts,
+        }, existing);
+      }
       let contact;
       try {
       contact = store.updateContact(req.params.id, {
@@ -4016,7 +4033,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          ? requiredArray(body.languages, 'languages').map((item, index) => requiredString(item, `languages[${index}]`))
 	          : undefined,
 	        availabilityStatus: body.availabilityStatus !== undefined ? optionalString(body.availabilityStatus) : undefined,
-	        influencerAccounts: body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined,
+	        influencerAccounts: influencerAccounts,
 	        customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
 	      });
 	      } catch (error: any) {
@@ -8661,6 +8678,30 @@ export function createServer(options: CreateServerOptions = {}) {
     setInterval(tick, 60 * 60 * 1000).unref?.();
     setTimeout(tick, 2 * 60 * 1000).unref?.();
   }
+
+  // Add influencers by pasting profile links; on the portal company their Instagram figures are fetched straight away.
+  app.post(
+    '/companies/:companyId/influencers/quick-add',
+    authMiddleware,
+    handler((req, res) => {
+      const { companyId } = req.params;
+      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant']);
+      const body = asRecord(req.body, 'body');
+      if (typeof body.text !== 'string') throw new HttpError(400, 'Paste at least one profile link or @handle.');
+      const results = quickAddInfluencers(store, companyId, body.text.slice(0, 20_000), (input) => withActor(req, () => store.createContact(input)));
+      let fetching = false;
+      if (companyId === portalCompanyId && results.some((r) => r.status === 'created')) {
+        if (discoverScraper && !store.discover.running(companyId)) {
+          fetching = true;
+          void refreshDue(store, discoverScraper, companyId, { monthlyCap: discoverCap }).catch((error) => logger.error('[discover] quick-add fetch failed', error));
+        } else {
+          // Accounts the directory already fetched write back now.
+          syncRoster(store, companyId);
+        }
+      }
+      res.json({ results, fetching });
+    }),
+  );
   if (portalCompanyId && process.env.NODE_ENV !== 'test') {
     const portalBase = (audience: 'client' | 'influencer') =>
       (audience === 'client' ? process.env.PORTAL_CLIENT_URL || 'http://localhost:9003' : process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/+$/, '');
