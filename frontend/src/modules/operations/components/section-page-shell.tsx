@@ -22,7 +22,8 @@ export function SectionPageShell({
   className,
   contentClassName,
 }: SectionPageShellProps) {
-  const inSection = useInCompanySection();
+  const section = useInCompanySection();
+  const inSection = section !== null && section > 0;
   const localizedTitle = localizeUiText(title);
   const localizedDescription = localizeUiText(description);
   // One company's section of a group page: the page title is already above.

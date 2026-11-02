@@ -8,13 +8,24 @@
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
 import { useCompanyScope } from '@/context/company-scope-context';
-import { framePerCompany } from '@/modules/groups/lib/group-aware';
+import { framePerCompany, GROUP_AWARE_PAGES } from '@/modules/groups/lib/group-aware';
+
+const OWN_SCOPE_BAR = new Set(['/', '/tasks', '/projects']);
 import { PerCompany } from './per-company';
 import { ScopeBar } from './scope-bar';
 
 export function GroupPageFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '/';
-  const { inTree } = useCompanyScope();
+  const { isGroup, inTree } = useCompanyScope();
+  // Merged pages get the scope control here, except those with their own (dashboard, tasks, projects).
+  if (isGroup && GROUP_AWARE_PAGES.has(pathname) && !OWN_SCOPE_BAR.has(pathname)) {
+    return (
+      <div className="space-y-4">
+        <ScopeBar className="justify-end" />
+        {children}
+      </div>
+    );
+  }
   if (!inTree || !framePerCompany(pathname)) return <>{children}</>;
   return (
     <div className="space-y-4">
