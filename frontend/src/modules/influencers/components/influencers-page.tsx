@@ -433,7 +433,7 @@ export function InfluencersPage() {
       description={t('influencers.subtitle')}
       actions={
         selectedCompany ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <DiscoverLink />
           <Button size="sm" onClick={() => setOpenCreate(true)}>
             <Plus className="h-4 w-4 me-1" />{t('influencers.addInfluencer', 'Add Influencer')}
@@ -443,6 +443,7 @@ export function InfluencersPage() {
             exportFilename="influencers.csv"
             importPath={can('influencers.create') ? `/companies/${selectedCompany.id}/influencers/import` : undefined}
             onImported={loadInfluencers}
+            labels={{ template: tr('Template', 'القالب'), export: tr('Export', 'تصدير'), import: tr('Import', 'استيراد') }}
             template={{
               filename: 'influencers-template.csv',
               // The same columns the export writes; a row updates the influencer with the same handle or email.
@@ -594,7 +595,8 @@ export function InfluencersPage() {
           <DialogHeader>
             <DialogTitle>{t('influencers.addInfluencer', 'Add Influencer')}</DialogTitle>
           </DialogHeader>
-          <Tabs defaultValue="paste">
+          {/* min-w-0: the dialog is a grid, and its track would otherwise widen to the longest pasted line on a phone. */}
+          <Tabs defaultValue="paste" className="min-w-0">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="paste">{tr('Paste links', 'الصق الروابط')}</TabsTrigger>
               <TabsTrigger value="details">{tr('Enter details', 'أدخل البيانات')}</TabsTrigger>

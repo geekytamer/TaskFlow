@@ -105,7 +105,7 @@ export function CsvImportExport({
       {importPath && (
         <Button variant="outline" size="sm" className="gap-1" onClick={() => inputRef.current?.click()} disabled={busy}>
           <Upload className="h-4 w-4" />
-          {busy ? 'Importing…' : labels?.import ?? 'Import'}
+          {busy ? tr('Importing…', 'جارٍ الاستيراد…') : labels?.import ?? 'Import'}
         </Button>
       )}
 
