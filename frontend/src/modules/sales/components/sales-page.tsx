@@ -56,7 +56,7 @@ import { QuotationsPanel } from './quotations-panel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReturnsPanel } from './returns-panel';
 import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
 
 const formatDisplayDate = (value: Date, locale: string) =>
@@ -89,10 +89,12 @@ const emptyForm = () => ({
 });
 
 export function SalesPage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const confirm = useConfirm();
-  const canManage = usePermissionOr('sales', 'write', currentRole !== 'Employee');
+  const { can } = usePermissions();
+  const canManage = can('sales.edit');
+  const canDelete = can('sales.delete');
   const { t, language } = useI18n();
   const { amount, money } = useCompanyCurrency();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
@@ -558,7 +560,7 @@ export function SalesPage() {
                       <FileText className="me-2 h-4 w-4" />
                       {t('sales.createInvoice')}
                     </Button>
-                    {canManage && (
+                    {canDelete && (
                       <Button
                         variant="outline"
                         size="sm"

@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { useToast } from '@/hooks/use-toast';
 import type { Contact } from '@/services/contactService';
 import { getPricingProfile, savePricingProfile, type PricingMode } from '@/services/portalAccessService';
@@ -22,6 +24,8 @@ export function PortalPricingSection({ contact }: { contact: Contact }) {
   const { toast } = useToast();
   const [mode, setMode] = React.useState<ModeChoice>('none');
   const [markup, setMarkup] = React.useState('');
+  // A client's pricing profile is a client term (sensitive field).
+  const terms = usePermissions().field('client_terms');
   const [loaded, setLoaded] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
@@ -55,6 +59,15 @@ export function PortalPricingSection({ contact }: { contact: Contact }) {
       setBusy(false);
     }
   };
+
+  if (!terms.view) {
+    return (
+      <section className="space-y-1 border-t pt-4">
+        <h3 className="text-sm font-semibold">{tr('Portal pricing', 'تسعير البوابة')}</h3>
+        <HiddenValue className="text-sm" />
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-3 border-t pt-4">
@@ -99,7 +112,7 @@ export function PortalPricingSection({ contact }: { contact: Contact }) {
         )}
       </div>
       <div className="flex justify-end">
-        <Button type="button" size="sm" onClick={save} disabled={!canSave || busy}>{tr('Save pricing', 'حفظ التسعير')}</Button>
+        <Button type="button" size="sm" onClick={save} disabled={!canSave || busy || !terms.edit}>{tr('Save pricing', 'حفظ التسعير')}</Button>
       </div>
     </section>
   );

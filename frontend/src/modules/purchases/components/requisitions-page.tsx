@@ -4,6 +4,7 @@ import * as React from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { useCompany } from '@/context/company-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -133,17 +134,17 @@ function NewRequisitionSheet({ suppliers, onCreated, tr }: { suppliers: Supplier
 
 /**
  * Purchase requisitions: Draft → Submitted → Approved (or Rejected) → Ordered.
- * Approving and rejecting are for Admins and Managers; anyone in finance or
+ * Approving and rejecting need purchasing.approve; anyone in finance or
  * purchasing can raise, submit and turn an approved request into a PO.
  */
 export function RequisitionsPage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr: Tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
   const { toast } = useToast();
   const confirm = useConfirm();
   const { amount } = useCompanyCurrency();
-  const canApprove = currentRole === 'Admin' || currentRole === 'Manager';
+  const canApprove = usePermissions().can('purchasing.approve');
   const [rows, setRows] = React.useState<PurchaseRequisition[] | null>(null);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [rejecting, setRejecting] = React.useState<PurchaseRequisition | null>(null);

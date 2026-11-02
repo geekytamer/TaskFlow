@@ -1,6 +1,6 @@
 import type { Express, Response } from 'express';
 import type { DataStore } from '../data/store';
-import { canAccessCompany, HttpError } from '../http';
+import { HttpError } from '../http';
 import { verifyActionToken } from '../push/action-token';
 import { canSeeThreadContact } from '../conversations/alerts';
 import type { SanitizedUser } from '../types';
@@ -31,7 +31,7 @@ export function registerPushActionRoutes(app: Express, deps: PushActionDeps): vo
     if (!claims || claims.action !== 'done') return notFound();
     const thread = store.conversations.getThread(claims.threadId);
     const user = store.getUserById(claims.userId) as SanitizedUser | undefined;
-    if (!thread || !user || !canAccessCompany(user, thread.companyId)) return notFound();
+    if (!thread || !user || !store.reachesCompany(user, thread.companyId)) return notFound();
     if (!store.listUserIdsWithPermission(thread.companyId, 'contacts:write', CONTACTS_WRITE_ROLES).includes(user.id)) return notFound();
     if (deps.contactsLocked(user, thread.companyId)) return notFound();
     if (!canSeeThreadContact(store, thread, user.id)) return notFound();

@@ -5,7 +5,7 @@ import { asRecord, enumValue } from '../validation';
 import { applyChanges } from './influencer';
 import { CHANGE_REVIEW_TRIGGER, SUBMISSION_REVIEW_TRIGGER } from './influencer-routes';
 import { clientApprovalRequired } from './review-flow';
-import type { StaffRequest } from './staff-routes';
+import type { PortalStaffDeps, StaffRequest } from './staff-routes';
 
 const MAX_BRIEF = 5000;
 
@@ -22,7 +22,12 @@ export function registerStaffInfluencerRoutes(
   authMiddleware: RequestHandler,
   authorize: (req: StaffRequest) => string,
   wrap: (fn: (req: StaffRequest, res: Response) => unknown) => RequestHandler,
+  fields: Pick<PortalStaffDeps, 'maskFor' | 'requireFieldEdits'>,
 ): void {
+  /** A change request with a requested rate card hidden from those without rate_cards. */
+  const requestFor = <T extends { changes: object }>(req: StaffRequest, companyId: string, r: T): T =>
+    ({ ...r, changes: fields.maskFor(req, companyId, 'influencer_change', r.changes) });
+
   const campaignOf = (companyId: string, id: string) => {
     const campaign = store.getCrmCampaignById(id);
     if (!campaign || campaign.companyId !== companyId) throw new HttpError(404, 'Campaign not found.');
@@ -118,7 +123,7 @@ export function registerStaffInfluencerRoutes(
     const companyId = authorize(req);
     const contact = contactOf(companyId, req.params.contactId);
     res.json(store.influencer.changeRequests(companyId, contact.id).map((r) => ({
-      ...r,
+      ...requestFor(req, companyId, r),
       requestedBy: store.portal.getUser(r.portalUserId)?.name ?? null,
       reviewedBy: r.reviewedByUserId ? store.getUserById(r.reviewedByUserId)?.name ?? null : null,
     })));
@@ -132,6 +137,8 @@ export function registerStaffInfluencerRoutes(
     const body = asRecord(req.body ?? {}, 'body');
     const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 1000) : null;
     const userId = req.user!.id;
+    // Approving a new rate card writes the rate_cards field.
+    if (status === 'approved') fields.requireFieldEdits(req, companyId, 'influencer_change', request.changes as Record<string, unknown>, contact);
     const ok = store.transaction(() => {
       if (!store.influencer.decideChangeRequest(request.id, { status, note, userId })) return false;
       if (status === 'approved') applyChanges(store, contact, request.changes);
@@ -141,7 +148,8 @@ export function registerStaffInfluencerRoutes(
       return true;
     });
     if (!ok) throw new HttpError(409, 'This change request has already been decided.');
-    res.json(store.influencer.getChangeRequest(request.id));
+    const decided = store.influencer.getChangeRequest(request.id);
+    res.json(decided ? requestFor(req, companyId, decided) : decided);
   });
 
   router.post('/companies/:companyId/contacts/:contactId/change-requests/:id/approve', authMiddleware, decide('approved'));

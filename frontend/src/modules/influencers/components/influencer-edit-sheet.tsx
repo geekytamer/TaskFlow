@@ -19,6 +19,8 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { useToast } from '@/hooks/use-toast';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { PortalListingSwitch } from '@/modules/portal-access/components/portal-listing-switch';
@@ -73,6 +75,8 @@ export function InfluencerEditSheet({
   onSaved: (updated: Contact) => void;
 }) {
   const { t, language } = useI18n();
+  // Rate cards are a sensitive field: no input without edit, "Hidden" without view.
+  const rateCards = usePermissions().field('rate_cards');
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const availabilityLabel = (a: string) =>
     a === 'Available'
@@ -222,13 +226,19 @@ export function InfluencerEditSheet({
             </div>
             <div>
               <Label className="text-xs">{t('crm.rateCard')}</Label>
-              <Input
-                type="number"
-                className="h-8 text-sm"
-                value={form.rateCardAmount}
-                placeholder="0"
-                onChange={(e) => set('rateCardAmount', e.target.value)}
-              />
+              {rateCards.edit ? (
+                <Input
+                  type="number"
+                  className="h-8 text-sm"
+                  value={form.rateCardAmount}
+                  placeholder="0"
+                  onChange={(e) => set('rateCardAmount', e.target.value)}
+                />
+              ) : (
+                <div className="flex h-8 items-center text-sm">
+                  {rateCards.view ? (form.rateCardAmount || '—') : <HiddenValue />}
+                </div>
+              )}
             </div>
             <div>
               <Label className="text-xs">{t('crm.location')}</Label>

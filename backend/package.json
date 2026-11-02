@@ -9,13 +9,9 @@
     "test": "npm run build && NODE_ENV=test node --require ./test/helpers/loopback.js --test test/**/*.test.js",
     "ops": "tsx src/ops.ts",
     "ops:status": "npm run ops -- status",
-    "ops:migrate": "npm run ops -- migrate",
-    "authz:routemap": "tsx src/scripts/generate-route-map.ts",
-    "authz:extract": "tsx src/scripts/extract-gates.ts > ../docs/superpowers/plans/gate-matrix.csv && npm run authz:routemap && npm run authz:catalogue",
-    "authz:catalogue": "tsx src/scripts/generate-catalogue.ts"
+    "ops:migrate": "npm run ops -- migrate"
   },
   "dependencies": {
-    "@openfga/sdk": "^0.9.7",
     "@types/web-push": "^3.6.4",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.8.1",

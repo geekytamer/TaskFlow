@@ -1,60 +1,74 @@
 /**
- * The permission each navigation destination requires.
+ * The permission each navigation destination requires: a catalogue key
+ * (backend authz/catalogue.ts), held in the selected company.
  *
- * Single source of truth for the sidebar, the command palette and anything
- * else that lists places a user can go. These rules previously lived in two
- * separate hardcoded role arrays that were free to drift apart.
- *
- * A route absent from this map is governed per record rather than by group
- * membership — /projects and /tasks decide visibility per project and per
- * task — so it stays visible and the server enforces the detail.
+ * Single source of truth for the sidebar, the phone tab bar, the command
+ * palette, the section links and the page guards. A destination absent from
+ * this map is open to every member: /tasks decides visibility per record (a
+ * person always sees their own tasks), /inbox lists what each person may see (staff chats are for everyone),
+ * /academy and /diagram are for everyone.
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
-  '/': 'dashboard:read',
-  // /inbox is open to everyone: its Team side (staff chats) is for every member.
-  // Client conversations inside it stay gated on contacts:read (INBOX_PERMISSION).
-  '/documents': 'documents:read',
-  '/sales': 'sales:read',
-  '/purchases': 'purchasing:read',
-  '/purchases/requisitions': 'purchasing:read',
-  '/purchases/rfq': 'purchasing:read',
-  '/purchases/matching': 'purchasing:read',
-  '/inventory': 'inventory:read',
-  '/inventory/counts': 'inventory:read',
-  '/shipments': 'inventory:read',
-  '/warehouse': 'inventory:read',
-  '/approvals': 'finance:read',
-  '/manufacturing': 'manufacturing:read',
-  '/finance': 'finance:read',
-  '/crm/commissions': 'commissions:read',
-  '/contacts': 'contacts:contacts.read',
-  '/influencers': 'contacts:read',
-  // The inbox lists chats. whatsapp:read covers only the Admin's connection screens.
-  '/whatsapp': 'whatsapp:whatsapp.chats.read',
-  '/crm/opportunities': 'crm:read',
-  '/crm/campaigns': 'campaigns:read',
-  '/crm/followups': 'crm:read',
-  '/flexi': 'invoices:flexi.review',
-  '/flexi/applications': 'invoices:flexi.review',
-  '/flexi/accounts': 'invoices:flexi.review',
-  '/flexi/requests': 'contacts:portal.manage',
-  '/flexi/leads': 'invoices:flexi.review',
-  '/flexi/settings': 'invoices:flexi.review',
-  '/crm/vendor-requests': 'crm:read',
-  '/crm/performance': 'crm:crm-performance.read',
-  '/crm/pipeline': 'crm:read',
-  '/clients': 'contacts:clients.read',
-  '/suppliers': 'contacts:suppliers.read',
-  '/hr/employees': 'hr:read',
-  '/hr/attendance': 'hr:attendance.read',
-  '/hr/leave': 'hr:read',
-  '/hr/payroll': 'payroll:read',
-  '/company-profile': 'settings:companies.read',
-  '/users': 'settings:users.read',
-  '/settings': 'settings:administration.write',
-  '/settings/permissions': 'settings:administration.write',
+  '/': 'dashboard.view',
+  // Every standard role holds projects.view (own or wider), so this changes
+  // nothing for them; a role with Projects = None sees no project at all, so
+  // the menu entry goes too (M-11).
+  '/projects': 'projects.view',
+  '/documents': 'documents.view',
+  '/sales': 'sales.view',
+  '/purchases': 'purchasing.view',
+  '/purchases/requisitions': 'purchasing.view',
+  '/purchases/rfq': 'purchasing.view',
+  '/purchases/matching': 'purchasing.view',
+  '/inventory': 'inventory.view',
+  '/inventory/counts': 'inventory.view',
+  '/shipments': 'logistics.view',
+  '/warehouse': 'inventory.view',
+  '/approvals': 'settings.view_approvals',
+  '/manufacturing': 'manufacturing.view',
+  '/finance': 'finance.view',
+  '/crm/commissions': 'commissions.view',
+  '/contacts': 'contacts.view',
+  '/influencers': 'influencers.view',
+  '/influencers/discover': 'discover.view',
+  '/whatsapp': 'whatsapp.view',
+  '/crm/opportunities': 'crm.view',
+  '/crm/campaigns': 'campaigns.view',
+  '/crm/followups': 'crm.view',
+  '/crm/client-requests': 'portal.view',
+  // Peak Flexi: reviewing applications and balances; client requests are the portal's.
+  '/flexi': 'invoices.flexi_review',
+  '/flexi/applications': 'invoices.flexi_review',
+  '/flexi/accounts': 'invoices.flexi_review',
+  '/flexi/requests': 'portal.handle_requests',
+  '/flexi/leads': 'invoices.flexi_review',
+  '/flexi/settings': 'invoices.flexi_review',
+  '/crm/vendor-requests': 'crm.view',
+  '/crm/performance': 'crm.view_performance',
+  '/crm/pipeline': 'crm.view',
+  '/clients': 'contacts.view_details',
+  '/suppliers': 'contacts.view_details',
+  '/hr/employees': 'hr.view',
+  '/hr/attendance': 'hr.view_attendance',
+  '/hr/leave': 'hr.view',
+  '/hr/payroll': 'payroll.view',
+  '/company-profile': 'settings.edit',
+  '/users': 'people.manage',
+  // Company settings: the panels there are the administrator's (approval rules).
+  '/settings': 'settings.manage_approvals',
+  // People and roles: reading them is the server's people.view_roles gate;
+  // changing them (people.manage_roles) is decided on each control.
+  '/settings/people': 'people.view_roles',
+  '/settings/roles': 'people.view_roles',
+  // /settings/group is for group administrators (GET /holding-groups), not a company key.
 };
 
 export function navPermission(href: string): string | undefined {
   return NAV_PERMISSIONS[href];
+}
+
+/** Whether a destination is open, given `can` from the permissions context. */
+export function navAllowed(href: string, can: (key: string) => boolean): boolean {
+  const permission = NAV_PERMISSIONS[href];
+  return permission ? can(permission) : true;
 }

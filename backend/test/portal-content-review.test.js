@@ -24,7 +24,7 @@ const build = () => {
   store.influencer.setCampaignBrief(company.id, { campaignId: campaign.id, influencerBrief: 'Brief', requireClientApproval: true });
   store.createCampaignAssignment({ companyId: company.id, campaignId: campaign.id, contactId: lina.id, role: 'Influencer', agreedRate: 1500, status: 'Confirmed' });
   const reel = store.createCampaignDeliverable({ companyId: company.id, campaignId: campaign.id, title: 'Reel 1', platform: 'Instagram', status: 'Planned', fulfillment: 'External', vendorContactId: lina.id });
-  const server = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, authzEngine: 'legacy', portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }) }).listen(0);
+  const server = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }) }).listen(0);
   server.unref();
   const session = async (audience, contact, email) => {
     const { token } = store.portal.inviteUser({ companyId: company.id, audience, contactId: contact.id, email, name: email, role: audience === 'client' ? 'client_admin' : 'influencer' });

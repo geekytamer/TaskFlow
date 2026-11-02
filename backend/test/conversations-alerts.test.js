@@ -26,7 +26,7 @@ const build = async () => {
   const client = store.createContact({ companyId: company.id, kind: 'Organization', name: 'Al Mouj Café', roles: ['Client'], ownerUserId: carla.id });
   const sent = [];
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
     push: { publicKey: 'BKeyForTests', send: async (s, payload) => { sent.push({ endpoint: s.endpoint, ...JSON.parse(payload) }); return { statusCode: 201 }; } },
   }).listen(0);

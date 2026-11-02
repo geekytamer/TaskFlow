@@ -63,7 +63,7 @@ const build = (w) => {
   store.games.setMetrics(game.id, [{ metricKey: 'first_likers', weight: 1, params: { n: 100, pointsFirst: 10, pointsLast: 1 } }]);
   store.games.setTrackedAccounts(game.id, [account.id]);
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy', portalCompanyId: company.id,
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, portalCompanyId: company.id,
     sendPortalInvite: async () => ({ sent: true }), likersFetcher: w?.fetcher,
     social: { client: w?.meta ?? new FixtureMetaClient(FIXTURES), appSecret: 's', redirectUri: 'https://x/cb', portalReturnUrl: 'https://x/profile' },
   }).listen(0);

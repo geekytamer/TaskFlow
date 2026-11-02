@@ -9,25 +9,6 @@ const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
 const { makeTmpDir } = require('./helpers/tmp');
 
-/**
- * Serves permissions straight from the SQL group tables, standing in for
- * OpenFGA. Sound because the equivalence test and a live per-user comparison
- * both establish that the two agree; this isolates the *enforcement* path so it
- * can be tested without a running OpenFGA.
- */
-const sqlReader = (store) => ({
-  async listGrantedObjects(userId) {
-    const objects = [];
-    for (const company of store.listCompanies()) {
-      for (const perm of store.getEffectivePermissions(userId, company.id)) {
-        const [module, action] = perm.split(':');
-        objects.push(`permission:${company.id}/${module}/${action}`);
-      }
-    }
-    return objects;
-  },
-});
-
 const build = (engine) => {
   const dir = makeTmpDir('taskflow-enforce-');
   const dbPath = path.join(dir, 'taskflow.db');
@@ -39,8 +20,7 @@ const build = (engine) => {
     dbPath,
     seedOnEmpty: false,
     allowSeedReset: false,
-    authzEngine: engine,
-    permissionReader: sqlReader(store),
+    permissionsEngine: engine,
     logger: { info() {}, warn() {}, error() {} },
   });
   // supertest binds a new ephemeral port per request unless handed a server
@@ -100,32 +80,30 @@ const probeAll = async (agent, store) => {
   return results;
 };
 
-test('AUTHZ_ENGINE=openfga produces byte-identical authorization outcomes to legacy', async () => {
+test('PERMISSIONS_ENGINE shadow and v2 produce byte-identical authorization outcomes to legacy', async () => {
   const legacy = build('legacy');
-  const openfga = build('openfga');
-
   const legacyResults = await probeAll(legacy.agent, legacy.store);
-  const openfgaResults = await probeAll(openfga.agent, openfga.store);
-
   const keys = Object.keys(legacyResults);
   assert.ok(keys.length > 50, `expected a broad probe, got ${keys.length} results`);
 
-  const diffs = [];
-  for (const k of keys) {
-    if (legacyResults[k] !== openfgaResults[k]) {
-      diffs.push(`${k}: legacy=${legacyResults[k]} openfga=${openfgaResults[k]}`);
-    }
+  for (const engine of ['shadow', 'v2']) {
+    const other = build(engine);
+    const results = await probeAll(other.agent, other.store);
+    const diffs = keys
+      .filter((k) => legacyResults[k] !== results[k])
+      .map((k) => `${k}: legacy=${legacyResults[k]} ${engine}=${results[k]}`);
+    assert.deepEqual(diffs, [],
+      `${diffs.length} outcome differences between legacy and ${engine}:\n${diffs.slice(0, 20).join('\n')}`);
+    if (engine === 'shadow') assert.deepEqual(other.store.listAuthzDivergences(), [], 'seeded roles never diverge');
   }
-  assert.deepEqual(diffs, [],
-    `${diffs.length} outcome differences between engines:\n${diffs.slice(0, 20).join('\n')}`);
 
   // A probe set that never denies anything would pass trivially.
   const denied = keys.filter((k) => legacyResults[k] === 'denied');
   assert.ok(denied.length > 0, 'the probe set must include denials to be meaningful');
 });
 
-test('openfga mode still denies a user outside the company', async () => {
-  const { agent, store } = build('openfga');
+test('v2 still denies a user outside the company', async () => {
+  const { agent, store } = build('v2');
   const companies = store.listCompanies();
   const outsider = store.listUsers().find((u) => {
     const ids = u.companyRoles?.length ? u.companyRoles.map((r) => r.companyId) : (u.companyIds || []);

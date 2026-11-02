@@ -16,7 +16,7 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import {
   createLeaveRequest,
   createLeaveType,
@@ -43,12 +43,15 @@ const STATUS_STYLES: Record<LeaveRequestStatus, string> = {
 };
 
 export function LeavePage() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
   const confirm = useConfirm();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
-  const canManage = usePermissionOr('hr', 'write', currentRole !== 'Employee');
+  const { can } = usePermissions();
+  const canCreate = can('hr.create');
+  const canApprove = can('hr.approve');
+  const canManage = can('hr.edit');
 
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [types, setTypes] = React.useState<LeaveType[]>([]);
@@ -166,7 +169,7 @@ export function LeavePage() {
           <h1 className="text-3xl font-bold font-headline">{tr('Leave & Time Off', 'الإجازات')}</h1>
           <p className="text-muted-foreground">{tr('Track requests, approvals, and balances.', 'تتبّع الطلبات والموافقات والأرصدة.')}</p>
         </div>
-        {canManage && (
+        {canCreate && (
           <Button onClick={() => setDialogOpen(true)} disabled={employees.length === 0}>
             <Plus className="me-2 h-4 w-4" />{tr('New Request', 'طلب جديد')}
           </Button>
@@ -208,7 +211,7 @@ export function LeavePage() {
                       )}
                     </TableCell>
                     <TableCell className="text-end">
-                      {canManage && (
+                      {canApprove && (
                         <div className="flex justify-end gap-1">
                           {r.status === 'Pending' && (
                             <>

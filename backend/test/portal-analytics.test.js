@@ -75,7 +75,7 @@ const build = () => {
   invoice(rival, honey, 3000);
 
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();
@@ -191,7 +191,7 @@ const buildInfluencer = () => {
   store.social.addSnapshot({ accountId: theirs.id, takenOn: day(1), followers: 424242, views: 1, reach: 1, engagedAccounts: 1, demographics: null });
 
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();

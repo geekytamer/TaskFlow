@@ -7,6 +7,7 @@ import { CheckCircle2, Circle, X } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useBrand } from '@/modules/branding/brand-context';
+import { usePermissions } from '@/context/permissions-context';
 import { getContacts } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
 import { getInvoices, getSalesOrders } from '@/services/financeService';
@@ -21,10 +22,19 @@ interface ChecklistItem {
 
 const DISMISS_KEY_PREFIX = 'taskflow_onboarding_dismissed_';
 
+/** Each step's module and what the person must hold to see and take it. */
+const STEPS: Record<string, { module: string; view: string; create: string }> = {
+  contact: { module: 'contacts', view: 'contacts.view', create: 'contacts.create' },
+  inventory: { module: 'inventory', view: 'inventory.view', create: 'inventory.create' },
+  salesOrder: { module: 'sales', view: 'sales.view', create: 'sales.create' },
+  invoice: { module: 'invoices', view: 'invoices.view', create: 'invoices.create' },
+};
+
 export function OnboardingChecklist() {
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
   const { brandText } = useBrand();
+  const { can, loading } = usePermissions();
   const [counts, setCounts] = React.useState<{
     contacts: number;
     inventory: number;
@@ -48,12 +58,14 @@ export function OnboardingChecklist() {
       setCounts(null);
       return;
     }
-    const on = (module: string) => isModuleOn(selectedCompany, module);
+    if (loading) return;
+    // Only steps the person may take are asked for, so only their lists are read.
+    const on = (step: string) => isModuleOn(selectedCompany, STEPS[step].module) && can(STEPS[step].view) && can(STEPS[step].create);
     Promise.allSettled([
-      on('contacts') ? getContacts(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getContacts>>),
+      on('contact') ? getContacts(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getContacts>>),
       on('inventory') ? getInventoryItems(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getInventoryItems>>),
-      on('invoices') ? getInvoices(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getInvoices>>),
-      on('sales') ? getSalesOrders(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getSalesOrders>>),
+      on('invoice') ? getInvoices(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getInvoices>>),
+      on('salesOrder') ? getSalesOrders(companyId) : Promise.resolve([] as Awaited<ReturnType<typeof getSalesOrders>>),
     ]).then((res) => {
       const len = (idx: number) =>
         res[idx].status === 'fulfilled' ? (res[idx] as PromiseFulfilledResult<any[]>).value.length : 0;
@@ -64,7 +76,7 @@ export function OnboardingChecklist() {
         salesOrders: len(3),
       });
     });
-  }, [companyId, selectedCompany]);
+  }, [companyId, selectedCompany, can, loading]);
 
   const handleDismiss = () => {
     if (!companyId) return;
@@ -109,9 +121,12 @@ export function OnboardingChecklist() {
     },
   ];
 
-  // Steps for a module the company switched off are not asked for.
-  const stepModules: Record<string, string> = { contact: 'contacts', inventory: 'inventory', salesOrder: 'sales', invoice: 'invoices' };
-  const offered = items.filter((item) => isModuleOn(selectedCompany, stepModules[item.id]));
+  // Steps for a module the company switched off, or that the person may not
+  // take (their role lacks the list or the create), are not asked for.
+  const offered = items.filter((item) => {
+    const step = STEPS[item.id];
+    return isModuleOn(selectedCompany, step.module) && can(step.view) && can(step.create);
+  });
   if (offered.length === 0) return null;
   const doneCount = offered.filter((i) => i.done).length;
   const allDone = doneCount === offered.length;

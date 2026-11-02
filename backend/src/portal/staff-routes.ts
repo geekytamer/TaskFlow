@@ -1,7 +1,8 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import type { MaskEntity } from '../authz/mask';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
-import type { SanitizedUser } from '../types';
+import type { Contact, SanitizedUser } from '../types';
 import { asRecord, enumValue, requiredString } from '../validation';
 import { pricingModes } from './catalogue-store';
 import { downloadHeaders, readUpload } from './files';
@@ -28,9 +29,14 @@ export interface PortalStaffDeps {
   /** Whether the request user may change Peak Flexi accounts and settings (FLEXI_MANAGE). */
   canManageFlexi(req: StaffRequest, companyId: string): boolean;
   /** Whether the request user may read private contacts of others (CONTACTS_PRIVATE_READ). */
-  seesPrivate(req: StaffRequest, companyId: string): boolean;
+  /** Whether this staff member may see a contact (authz/visible.ts, inbox rule). */
+  seesContact(req: StaffRequest, contact: Pick<Contact, 'id' | 'companyId'>): boolean;
   inviteLink(audience: PortalAudience, token: string): string;
   sendInvite: PortalInviteSender;
+  /** A row without the sensitive properties the person may not see (authz/mask.ts). */
+  maskFor<T>(req: StaffRequest, companyId: string, entity: MaskEntity, row: T): T;
+  /** 403 { permission: 'field:<key>' } when a write changes a sensitive field the person may not edit. */
+  requireFieldEdits(req: StaffRequest, companyId: string, entity: MaskEntity, body: Record<string, unknown>, existing?: object | 'create' | null): void;
 }
 
 const REQUIRED_CONTACT_ROLE: Record<PortalAudience, 'Client' | 'Influencer'> = {
@@ -51,7 +57,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const { companyId } = req.params;
     deps.requireCompanyAccess(req, companyId);
     if (!deps.canManagePortal(req, companyId)) {
-      throw new HttpError(403, 'You do not have permission to manage portal access.');
+      throw new HttpError(403, 'You do not have permission to manage portal access.', { code: 'FORBIDDEN', permission: 'portal.manage_access' });
     }
     return companyId;
   };
@@ -163,36 +169,40 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
   router.get('/companies/:companyId/portal-price-range/:contactId', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const contact = loadContact(companyId, req.params.contactId, 'Influencer');
-    res.json(store.catalogue.priceRange(contact.id));
+    // The range around an influencer's rate is the rate_cards field.
+    res.json(deps.maskFor(req, companyId, 'price_range', store.catalogue.priceRange(contact.id)));
   }));
 
   router.put('/companies/:companyId/portal-price-range/:contactId', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const contact = loadContact(companyId, req.params.contactId, 'Influencer');
     const body = asRecord(req.body, 'body');
+    deps.requireFieldEdits(req, companyId, 'price_range', body, store.catalogue.priceRange(contact.id));
     const percent = (value: unknown, field: string, max: number) => {
       const n = Number(value);
       if (value === null || value === '' || !Number.isFinite(n) || n < 0 || n > max) throw new HttpError(400, `${field} must be between 0 and ${max}.`);
       return n;
     };
-    res.json(store.catalogue.setPriceRange({
+    res.json(deps.maskFor(req, companyId, 'price_range', store.catalogue.setPriceRange({
       companyId, contactId: contact.id,
       belowPercent: percent(body.belowPercent, 'belowPercent', 90),
       abovePercent: percent(body.abovePercent, 'abovePercent', 300),
       updatedByUserId: req.user?.id,
-    }));
+    })));
   }));
 
   router.get('/companies/:companyId/pricing-profiles/:contactId', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const contact = loadContact(companyId, req.params.contactId, 'Client');
-    res.json(store.catalogue.getPricingProfile(contact.id) ?? null);
+    // A client's pricing terms are the client_terms field.
+    res.json(deps.maskFor(req, companyId, 'pricing_profile', store.catalogue.getPricingProfile(contact.id) ?? null));
   }));
 
   router.put('/companies/:companyId/pricing-profiles/:contactId', authMiddleware, wrap((req, res) => {
     const companyId = authorize(req);
     const contact = loadContact(companyId, req.params.contactId, 'Client');
     const body = asRecord(req.body, 'body');
+    deps.requireFieldEdits(req, companyId, 'pricing_profile', body, store.catalogue.getPricingProfile(contact.id) ?? {});
     const mode = enumValue(body.mode, 'mode', pricingModes);
     let markupPercent: number | null = null;
     if (mode === 'markup') {
@@ -202,9 +212,9 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
       }
       markupPercent = value;
     }
-    res.json(store.catalogue.setPricingProfile({
+    res.json(deps.maskFor(req, companyId, 'pricing_profile', store.catalogue.setPricingProfile({
       contactId: contact.id, companyId, mode, markupPercent, updatedByUserId: req.user?.id,
-    }));
+    })));
   }));
 
   /** A contact of this company that can have a portal thread. */
@@ -234,7 +244,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
     const thread = store.conversations.getThread(message.threadId);
     const contact = thread ? store.getContactById(thread.contactId) : undefined;
     if (!thread || !contact || thread.companyId !== file.companyId) return false;
-    const viewer: StaffViewer = { kind: 'staff', userId: req.user!.id, seesPrivate: deps.seesPrivate(req, file.companyId) };
+    const viewer: StaffViewer = { kind: 'staff', userId: req.user!.id, sees: (c) => deps.seesContact(req, c) };
     return canSeeContact(contact, viewer) && canSeeMessage(message, viewer);
   };
 
@@ -261,7 +271,7 @@ export function createPortalStaffRouter(deps: PortalStaffDeps): Router {
   };
   registerStaffFlexiRoutes(router, store, authMiddleware, authorizeFlexi, wrap);
   registerStaffFlexiSectionRoutes(router, store, { authMiddleware, authorize: authorizeFlexi, authorizeManage: authorizeFlexiManage, wrap, deliver });
-  registerStaffInfluencerRoutes(router, store, authMiddleware, authorize, wrap);
+  registerStaffInfluencerRoutes(router, store, authMiddleware, authorize, wrap, deps);
 
   return router;
 }

@@ -11,7 +11,7 @@ const { makeTmpDir } = require('./helpers/tmp');
 const ROLES = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
 const matrixRows = () => {
-  const csvPath = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv');
+  const csvPath = path.join(__dirname, 'fixtures', 'legacy-gate-matrix.csv');
   return fs.readFileSync(csvPath, 'utf8').trim().split('\n').slice(1)
     .map((line) => {
       const [method, route, module, action, roles, lineNo, gate] = line.split(',');

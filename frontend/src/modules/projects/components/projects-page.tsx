@@ -8,15 +8,15 @@ import { TaskList } from '@/modules/projects/components/task-list';
 import { ProjectList } from '@/modules/projects/components/project-list';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
-import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
-import { canManageProjects } from '@/modules/projects/lib/access';
+import { usePermissions } from '@/context/permissions-context';
+import { ScopeBar } from '@/modules/groups/components/scope-bar';
+import { useCompanyScope } from '@/context/company-scope-context';
 
 export function ProjectsPage() {
   const { user } = useAuthGuard();
   const { t } = useI18n();
-  const { currentRole } = useCompany();
-  const canCreateProjects = usePermissionOr('projects', 'create', canManageProjects(currentRole));
+  const { inTree } = useCompanyScope();
+  const canCreateProjects = usePermissions().can('projects.create');
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -27,12 +27,15 @@ export function ProjectsPage() {
             {t('projects.subtitle')}
           </p>
         </div>
-        {user && canCreateProjects && (
-           <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
+        <div className="flex items-center gap-2">
+          <ScopeBar />
+          {user && canCreateProjects && !inTree && (
+            <div className="flex items-center gap-2" data-tutorial="projects-create-btn">
               <ProjectFromTemplateSheet />
               <CreateProjectSheet />
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div data-tutorial="projects-list"><ProjectList /></div>

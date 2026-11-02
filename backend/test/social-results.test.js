@@ -31,7 +31,7 @@ const build = () => {
   const reel = store.createCampaignDeliverable({ companyId: company.id, campaignId: campaign.id, title: 'Reel', status: 'Published', fulfillment: 'External', vendorContactId: lina.id, contentUrl: 'https://www.instagram.com/reel/AbC123/', publishedAt });
   const unconnected = store.createCampaignDeliverable({ companyId: company.id, campaignId: campaign.id, title: 'Noel story', status: 'Published', fulfillment: 'External', vendorContactId: noel.id, contentUrl: 'https://www.instagram.com/p/XyZ789/', publishedAt });
   store.social.upsertAccount({ companyId: company.id, contactId: lina.id, externalId: '17841400000000001', username: 'lina.eats', accountType: 'MEDIA_CREATOR', tokenSealed: sealToken('fixture-token'), expiresAt: new Date(Date.now() + 50 * 24 * HOUR).toISOString() });
-  const server = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy', portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }) }).listen(0);
+  const server = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }) }).listen(0);
   server.unref();
   const session = async (audience, contact, email) => {
     const { token } = store.portal.inviteUser({ companyId: company.id, audience, contactId: contact.id, email, name: email, role: audience === 'client' ? 'client_admin' : 'influencer' });

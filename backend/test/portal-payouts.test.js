@@ -39,7 +39,7 @@ const build = () => {
   store.createVendorBill({ companyId: company.id, vendorName: 'Lina Haddad Trading', supplierId: supplier.id, issueDate: new Date(), dueDate: new Date(), amount: 99999.17, status: 'Approved', notes: 'UNRELATED-BILL' });
 
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();

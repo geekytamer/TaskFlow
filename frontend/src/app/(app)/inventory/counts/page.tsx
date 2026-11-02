@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { StockCountPage } from '@/modules/inventory/components/stock-count-page';
 
 export default function StockCountRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
+  const { user, loading } = useAuthGuard('inventory.view');
   const { t } = useI18n();
 
   if (loading || !user) {

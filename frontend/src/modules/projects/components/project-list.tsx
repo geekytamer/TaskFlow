@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useCompany } from '@/context/company-context';
+import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -14,7 +15,7 @@ import { getTasks } from '@/services/projectService';
 import type { Client } from '@/modules/finance/types';
 import type { Task } from '@/modules/projects/types';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { getCurrentLocale } from '@/lib/locale';
 import {
   PROJECT_PRIORITY_STYLE,
@@ -29,9 +30,10 @@ import {
 import { cn } from '@/lib/utils';
 
 export function ProjectList() {
-  const { selectedCompany, projects, currentUser, currentRole, loading } = useCompany();
-  const seesAllProjects = useSeesAllProjects(currentRole);
-  const canLoadClients = usePermissionOr('contacts', 'clients.read', currentRole !== 'Employee');
+  const { selectedCompany, projects, currentUser, loading } = useCompany();
+  const { inTree, companyIds: groupCompanyIds, companyName } = useCompanyScope();
+  const seesAllProjects = useSeesAllProjects();
+  const canLoadClients = usePermissions().can('contacts.view_details');
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [clients, setClients] = React.useState<Client[]>([]);
@@ -67,16 +69,18 @@ export function ProjectList() {
     return () => {
       cancelled = true;
     };
-  }, [currentRole, selectedCompany, canLoadClients]);
+  }, [selectedCompany, canLoadClients]);
 
   const companyProjects = React.useMemo(() => {
     if (!currentUser || !selectedCompany) return [];
-    return projects.filter(
-      (p) =>
-        p.companyId === selectedCompany.id &&
-        canViewProject(p, currentUser.id, currentRole, seesAllProjects),
-    );
-  }, [projects, currentUser, currentRole, selectedCompany, seesAllProjects]);
+    // In a group: every company of it that the filter leaves in.
+    const inScope = (companyId: string) =>
+      inTree ? groupCompanyIds.includes(companyId) : companyId === selectedCompany?.id;
+    return projects.filter((p) => inScope(p.companyId) && canViewProject(p, currentUser.id, seesAllProjects));
+  }, [projects, currentUser, selectedCompany, seesAllProjects, inTree, groupCompanyIds]);
+
+  /** Which company a project belongs to — shown only when several are in view. */
+  const showCompany = inTree && new Set(companyProjects.map((p) => p.companyId)).size > 1;
 
   const tabCounts = React.useMemo(() => {
     const counts: Record<ProjectTab, number> = { current: 0, done: 0, archived: 0, all: companyProjects.length };
@@ -192,6 +196,9 @@ export function ProjectList() {
                       />
                       <CardTitle className="truncate text-lg">{project.name}</CardTitle>
                     </div>
+                    {showCompany && (
+                      <p className="text-xs text-muted-foreground">{companyName(project.companyId)}</p>
+                    )}
                     <CardDescription className="line-clamp-2 h-10 whitespace-normal">
                       {project.description}
                     </CardDescription>

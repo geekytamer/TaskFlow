@@ -24,11 +24,13 @@ import { showPasswordLink } from './password-link-dialog';
 import { MoreHorizontal } from 'lucide-react';
 import { getUsers, getUsersByCompany, deleteUser, sendPasswordReset } from '@/services/userService';
 import { getPositions } from '@/services/companyService';
-import type { User, UserRole } from '@/modules/users/types';
+import type { User } from '@/modules/users/types';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
-import { UserGroupsSheet } from './user-groups-sheet';
+import { usePermissions } from '@/context/permissions-context';
+import { useRouter } from 'next/navigation';
+import { listPeople, listRoles, type Person, type Role } from '@/services/authzService';
+import { beyondMe, holderFromAccess } from '@/modules/authz/lib/beyond';
 import { useI18n } from '@/context/i18n-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AddUserSheet } from './add-user-sheet';
@@ -46,21 +48,12 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { isApiError } from '@/lib/api-client';
 
-const roleColors: Record<UserRole, string> = {
-    Admin: 'bg-primary text-primary-foreground',
-    Manager: 'bg-accent text-accent-foreground',
-    Employee: 'bg-secondary text-secondary-foreground',
-    Accountant: 'bg-emerald-500 text-white',
-}
-
 interface UserTableProps {
   onUserUpdated: () => void;
-  currentUserRole?: UserRole;
   refreshToken?: number;
 }
 
-export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: UserTableProps) {
-
+export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
   const { selectedCompany, companies, currentUser } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -69,8 +62,8 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
   const [loading, setLoading] = React.useState(true);
   const [editingUser, setEditingUser] = React.useState<User | null>(null);
   const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
-  const [groupsUser, setGroupsUser] = React.useState<User | null>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
   const resetPassword = async (person: User) => {
     try {
@@ -87,29 +80,56 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
       toast({ variant: 'destructive', title: tr('Could not send the link', 'تعذّر إرسال الرابط'), description: error?.message });
     }
   };
-  const managedCompanyIds = React.useMemo(() => {
-    if (!currentUser) return [];
-    if (currentUser.role === 'Admin') {
-      return companies.map((company) => company.id);
-    }
-    return (currentUser.companyRoles || [])
-      .filter((assignment) => ['Admin', 'Manager'].includes(assignment.role))
-      .map((assignment) => assignment.companyId);
-  }, [companies, currentUser]);
 
-  // Per company, managing users follows settings:users.write and assigning roles
-  // above Employee follows settings:administration.write; the role rules are the legacy
-  // fallback. The global-Admin shortcut below is platform-level and unchanged.
-  const canManageUsersHere = usePermissionOr(
-    'settings',
-    'users.write',
-    Boolean(selectedCompany && managedCompanyIds.includes(selectedCompany.id))
-      && (currentUserRole === 'Admin' || currentUserRole === 'Manager'),
-  );
-  const canAssignElevatedRolesHere = usePermissionOr('settings', 'administration.write', currentUserRole === 'Admin');
+  // In the selected company: managing users (profile, position, sign-in) is
+  // people.manage. Roles are not changed here any more: they live in
+  // Settings → People and roles (people.view_roles to open, manage_roles to change).
+  const access = usePermissions();
+  const { canAdmin, engine } = access;
+  const canManageUsersHere = canAdmin('people.manage');
+  const canSeeRolesHere = canAdmin('people.view_roles');
+  const me = React.useMemo(() => holderFromAccess(access), [access]);
+  // Main roles as the People API reports them (custom roles included), and the
+  // company's roles, to tell who holds more than me.
+  const [people, setPeople] = React.useState<Map<string, Person>>(new Map());
+  const [roles, setRoles] = React.useState<Role[] | null>(null);
+  React.useEffect(() => {
+    if (!selectedCompany || !canSeeRolesHere) { setPeople(new Map()); setRoles(null); return; }
+    let active = true;
+    Promise.all([listPeople(selectedCompany.id), listRoles(selectedCompany.id)])
+      .then(([list, r]) => { if (active) { setPeople(new Map(list.map((p) => [p.userId, p]))); setRoles(r); } })
+      .catch(() => { if (active) { setPeople(new Map()); setRoles(null); } });
+    return () => { active = false; };
+  }, [selectedCompany, canSeeRolesHere, refreshToken]);
+
+  /**
+   * The roles that decide the person here: under legacy/shadow their company
+   * role (as its standard role), under v2 their main role and add-ons.
+   * Null when unknown (no roles read): the server decides then.
+   */
+  const decidingRoles = (targetUser: User): Role[] | null => {
+    if (!roles) return null;
+    if (engine && engine !== 'v2') {
+      const key = String(getRoleForCompany(targetUser)).toLowerCase();
+      const standard = roles.find((r) => r.kind === 'system' && r.key === key);
+      return standard ? [standard] : null;
+    }
+    const person = people.get(targetUser.id);
+    if (!person) return null;
+    const ids = new Set([person.mainRole?.id, ...person.addOns.filter((a) => a.isActive).map((a) => a.id)]);
+    return roles.filter((r) => ids.has(r.id));
+  };
+
+  /** Holds access I don't: the server refuses to let me edit or delete them. */
+  const aboveMe = (targetUser: User) => {
+    const deciding = decidingRoles(targetUser);
+    if (!deciding) return false;
+    return beyondMe(me, deciding.flatMap((r) => r.grants), deciding.flatMap((r) => r.fields)).length > 0;
+  };
 
   const fetchData = React.useCallback(async () => {
-      if (!selectedCompany && currentUser?.role !== 'Admin') {
+      // Without a company only the platform administrator lists everyone.
+      if (!selectedCompany && !currentUser?.isSuperAdmin) {
         setUsers([]);
         setPositions([]);
         setLoading(false);
@@ -120,18 +140,16 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
         const usersPromise =
           selectedCompany
             ? getUsersByCompany(selectedCompany.id)
-            : currentUser?.role === 'Admin'
+            : currentUser?.isSuperAdmin
             ? getUsers()
             : Promise.resolve([]);
-        const positionsPromise =
-          currentUser?.role === 'Admin'
-            ? getPositions().catch((error) => {
-                if (isApiError(error) && (error.status === 401 || error.status === 403)) {
-                  return [];
-                }
-                throw error;
-              })
-            : Promise.resolve([]);
+        // Positions are platform-wide; the server decides who reads them.
+        const positionsPromise = getPositions().catch((error) => {
+          if (isApiError(error) && (error.status === 401 || error.status === 403)) {
+            return [];
+          }
+          throw error;
+        });
 
         const [scopedUsers, allPositions] = await Promise.all([
             usersPromise,
@@ -152,7 +170,7 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
       } finally {
         setLoading(false);
       }
-  }, [currentUser?.role, selectedCompany, toast]);
+  }, [currentUser?.isSuperAdmin, selectedCompany, toast]);
 
   React.useEffect(() => {
     fetchData();
@@ -191,19 +209,27 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
     return user.role;
   };
 
+  /**
+   * A member of the selected company who holds no more than me, for someone
+   * who manages users here. The server has the last word; its refusals are
+   * coded and shown as one translated sentence.
+   */
   const canManageUser = (targetUser: User) => {
-    if (!currentUserRole) return false;
-    if (currentUser?.role === 'Admin') return true;
     if (!selectedCompany) return false;
     const assignmentCompanyIds =
       targetUser.companyRoles && targetUser.companyRoles.length > 0
         ? targetUser.companyRoles.map((assignment) => assignment.companyId)
         : targetUser.companyIds || [];
     if (!assignmentCompanyIds.includes(selectedCompany.id)) return false;
-    if (!canManageUsersHere) return false;
-    if (canAssignElevatedRolesHere) return true;
-    return getRoleForCompany(targetUser) === 'Employee';
+    return canManageUsersHere && !aboveMe(targetUser);
   }
+
+  /** The main role's name from People (custom roles included), else the company role. */
+  const roleNameFor = (targetUser: User) => {
+    const main = people.get(targetUser.id)?.mainRole;
+    if (main) return language === 'ar' && main.nameAr ? main.nameAr : main.name;
+    return getRoleForCompany(targetUser);
+  };
 
   const getUserCompanies = (companyIds: string[]) => {
       if (!companyIds) return '';
@@ -297,9 +323,9 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                       )}
                     </div>
                   </TableCell>
-                  <TableCell><Badge variant="outline" className={roleColors[getRoleForCompany(user)]}>{getRoleForCompany(user)}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{roleNameFor(user)}</Badge></TableCell>
                   <TableCell className="text-end">
-                    {isManageable && (
+                    {(isManageable || (canSeeRolesHere && selectedCompany)) && (
                         <AlertDialog>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -310,20 +336,26 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                             <DropdownMenuLabel>{tr('Actions', 'الإجراءات')}</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => setEditingUser(user)}>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
-                            {selectedCompany && (
-                              <DropdownMenuItem onClick={() => setGroupsUser(user)}>
-                                {tr('Permission Groups', 'مجموعات الصلاحيات')}
+                            {isManageable && (
+                              <DropdownMenuItem onClick={() => setEditingUser(user)}>{tr('Edit User', 'تعديل المستخدم')}</DropdownMenuItem>
+                            )}
+                            {canSeeRolesHere && selectedCompany && (
+                              <DropdownMenuItem onClick={() => router.push(`/settings/people/${encodeURIComponent(user.id)}`)}>
+                                {tr('Roles and access', 'الأدوار والوصول')}
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem onClick={() => void resetPassword(user)}>
-                              {tr('Send password reset link', 'إرسال رابط إعادة تعيين كلمة المرور')}
-                            </DropdownMenuItem>
+                            {isManageable && (
+                              <DropdownMenuItem onClick={() => void resetPassword(user)}>
+                                {tr('Send password reset link', 'إرسال رابط إعادة تعيين كلمة المرور')}
+                              </DropdownMenuItem>
+                            )}
+                            {isManageable && (
                             <AlertDialogTrigger asChild>
                                 <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onSelect={(e) => { e.preventDefault(); setUserToDelete(user); }}>
                                 {tr('Delete User', 'حذف المستخدم')}
                                 </DropdownMenuItem>
                             </AlertDialogTrigger>
+                            )}
                             </DropdownMenuContent>
                         </DropdownMenu>
                         {userToDelete?.id === user.id && (
@@ -358,19 +390,6 @@ export function UserTable({ onUserUpdated, currentUserRole, refreshToken = 0 }: 
           onOpenChange={(isOpen) => !isOpen && setEditingUser(null)}
           onUserAdded={handleUserUpdated}
           userToEdit={editingUser}
-          currentUserRole={currentUserRole}
-        />
-      )}
-      {groupsUser && selectedCompany && (
-        <UserGroupsSheet
-          open={!!groupsUser}
-          onOpenChange={(isOpen) => !isOpen && setGroupsUser(null)}
-          userId={groupsUser.id}
-          userName={groupsUser.name}
-          companyId={selectedCompany.id}
-          companyName={selectedCompany.name}
-          canEdit={canAssignElevatedRolesHere}
-          onSaved={handleUserUpdated}
         />
       )}
     </>

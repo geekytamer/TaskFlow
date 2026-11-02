@@ -1,5 +1,7 @@
 import type { Express, RequestHandler } from 'express';
 import { MIN_PASSWORD_LENGTH, RESEND_GAP_MS, type PasswordTokenPurpose } from '../auth/password-tokens';
+import { beyondPerson, permissionLabel } from '../authz/describe';
+import { effective } from '../authz/evaluate';
 import { appLink, type PasswordEmailSender } from '../email';
 import { HttpError } from '../http';
 import { verifyPassword } from '../password';
@@ -33,10 +35,10 @@ export function makePasswordLinkSender(
  */
 export function registerPasswordRoutes(
   app: Express,
-  ctx: Pick<RouteContext, 'store' | 'authMiddleware' | 'allowsRule' | 'logger'>,
+  ctx: Pick<RouteContext, 'store' | 'authMiddleware' | 'allowsRule' | 'logger' | 'permissionsEngine' | 'viewerOf'>,
   deps: { sendLink: PasswordLinkSender; limiter: RequestHandler },
 ) {
-  const { store, authMiddleware, allowsRule } = ctx;
+  const { store, authMiddleware, allowsRule, permissionsEngine: engine, viewerOf } = ctx;
   const sendLink = deps.sendLink;
 
   const newPassword = (value: unknown) => {
@@ -65,6 +67,24 @@ export function registerPasswordRoutes(
       // manager could receive an admin's link (when email fails) and take the account.
       if (assignments.some((a) => a.role !== 'Employee' && !allowsRule(req, a.companyId, 'ADMINISTRATION'))) {
         throw new HttpError(403, 'Only a company admin can reset the password of an Admin, Manager or Accountant.');
+      }
+      // v2 also: no higher than me. In every company of theirs, the person may
+      // hold nothing I don't (as the People API checks before changing roles),
+      // so a custom role with more access is not reset by someone below it.
+      // Legacy and shadow: the role rule above is today's whole answer.
+      if (engine === 'v2') {
+        const mine = viewerOf(req);
+        const theirs = effective(store, target.id);
+        for (const a of assignments) {
+          const missing = beyondPerson(mine.byCompany.get(a.companyId), theirs.byCompany.get(a.companyId));
+          if (missing.length) {
+            throw new HttpError(
+              403,
+              `This person holds access you don't: ${missing.map((k) => permissionLabel(k).en).join('; ')}. Only someone with at least their access can reset their password.`,
+              { code: 'HIGHER_THAN_YOU', permission: missing[0], missing },
+            );
+          }
+        }
       }
     }
     res.json(await sendLink(target.id, 'reset'));

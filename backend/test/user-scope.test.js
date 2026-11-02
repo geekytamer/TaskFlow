@@ -11,7 +11,7 @@ function setup() {
   const dbPath = path.join(makeTmpDir('taskflow-userscope-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: true, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: true,
     logger: { info() {}, warn() {}, error() {} },
   }).listen(0);
   app.unref();
@@ -79,17 +79,17 @@ test('platform-wide actions belong to the super admin', async () => {
 
 test("the super admin sees a company's custom roles without being a member", async () => {
   const { app, store, superAdmin, as } = setup();
-  const group = store.createPermissionGroup({ companyId: '2', key: 'field-sales', name: 'Field sales' });
-  const res = await as(superAdmin)(request(app).get('/companies/2/permission-groups'));
+  const role = store.authz.saveRole('2', { name: 'Field sales', grants: [{ key: 'sales.view' }], fields: [] }, null);
+  const res = await as(superAdmin)(request(app).get('/companies/2/roles'));
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.ok(res.body.some((g) => g.id === group.id));
+  assert.ok(res.body.some((g) => g.id === role.id));
 });
 
-test('group assignment is only for members of that company', async () => {
+test('role assignment is only for members of that company', async () => {
   const { app, store, companyAdmin, outsider, as } = setup();
-  const group = store.createPermissionGroup({ companyId: '1', key: 'helpers', name: 'Helpers' });
-  const res = await as(companyAdmin)(request(app).put(`/companies/1/users/${outsider.id}/groups`)).send({ groupIds: [group.id] });
-  assert.equal(res.status, 400);
+  const role = store.authz.saveRole('1', { name: 'Helpers', grants: [{ key: 'sales.view' }], fields: [] }, null);
+  const res = await as(companyAdmin)(request(app).put(`/companies/1/people/${outsider.id}/roles`)).send({ mainRoleId: role.id, addOnRoleIds: [] });
+  assert.equal(res.status, 404);
 });
 
 test("a company admin cannot edit or take over someone outside their companies", async () => {
@@ -121,4 +121,28 @@ test('a user with no company assignments can only be deleted by the super admin'
   assert.equal((await as(employee)(request(app).delete(`/users/${orphan.id}`))).status, 403);
   assert.ok(store.getUserById(orphan.id));
   assert.equal((await as(superAdmin)(request(app).delete(`/users/${orphan.id}`))).status, 200);
+});
+
+test('user-management refusals carry a code the app can translate', async () => {
+  const { app, store, companyAdmin, shared, outsider, superAdmin, as } = setup();
+  const manager = store.createUser({
+    name: 'mona', email: 'mona@one.example', password: 'Password1!', companyIds: ['1'],
+    companyRoles: [{ companyId: '1', role: 'Manager' }], role: 'Manager',
+  });
+  // A Manager editing an Admin's assignment (unchanged role is still authorised).
+  const elevated = await as(manager)(request(app).put(`/users/${companyAdmin.id}`)).send({ name: 'Ali B' });
+  assert.equal(elevated.status, 403);
+  assert.equal(elevated.body.code, 'ROLE_ASSIGN_FORBIDDEN');
+  // Someone in no company they manage.
+  const outside = await as(companyAdmin)(request(app).put(`/users/${outsider.id}`)).send({ name: 'Omar B' });
+  assert.equal(outside.status, 403);
+  assert.equal(outside.body.code, 'USER_OUTSIDE_COMPANY');
+  // A shared person's name.
+  const identity = await as(companyAdmin)(request(app).put(`/users/${shared.id}`)).send({ name: 'Sara B' });
+  assert.equal(identity.status, 403);
+  assert.equal(identity.body.code, 'IDENTITY_SHARED');
+  // The platform's super admin.
+  const root = await as(companyAdmin)(request(app).delete(`/users/${superAdmin.id}`));
+  assert.equal(root.status, 403);
+  assert.equal(root.body.code, 'SUPER_ADMIN_ONLY');
 });

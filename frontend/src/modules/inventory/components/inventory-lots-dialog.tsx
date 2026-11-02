@@ -23,6 +23,8 @@ import { InspectDialog, LotStatusBadge, TraceDialog } from './lot-quality';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { getCurrentLocale } from '@/lib/locale';
 import { getInventoryLots, receiveInventoryLot } from '@/services/operationsService';
 import type { InventoryItem, InventoryLot, Supplier } from '@/modules/operations/types';
@@ -142,6 +144,8 @@ export function InventoryLotsDialog({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  // Cost prices are a sensitive field: "Hidden" without view, no input without edit.
+  const costs = usePermissions().field('cost_prices');
   const [lots, setLots] = React.useState<InventoryLot[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -150,7 +154,7 @@ export function InventoryLotsDialog({
       lotNumber: '',
       quantity: '',
       location: item?.location || defaultWarehouseName || '',
-      unitCost: item ? String(item.unitCost) : '',
+      unitCost: item?.unitCost != null ? String(item.unitCost) : '',
       expiryDate: '',
       manufactureDate: '',
       supplierId: item?.preferredSupplierId || '',
@@ -208,7 +212,7 @@ export function InventoryLotsDialog({
         lotNumber: form.lotNumber.trim(),
         quantity: Number(form.quantity),
         location: form.location || undefined,
-        unitCost: form.unitCost ? Number(form.unitCost) : undefined,
+        unitCost: costs.edit && form.unitCost ? Number(form.unitCost) : undefined,
         expiryDate: form.expiryDate || undefined,
         manufactureDate: form.manufactureDate || undefined,
         supplierId: form.supplierId || undefined,
@@ -290,11 +294,15 @@ export function InventoryLotsDialog({
               </div>
               <div className="space-y-1">
                 <Label>{tr('Unit Cost', 'تكلفة الوحدة')}</Label>
-                <Input
-                  type="number"
-                  value={form.unitCost}
-                  onChange={(e) => setForm((p) => ({ ...p, unitCost: e.target.value }))}
-                />
+                {costs.edit ? (
+                  <Input
+                    type="number"
+                    value={form.unitCost}
+                    onChange={(e) => setForm((p) => ({ ...p, unitCost: e.target.value }))}
+                  />
+                ) : (
+                  <div className="flex h-10 items-center text-sm"><HiddenValue /></div>
+                )}
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <Label>{tr('Supplier (optional)', 'المورد (اختياري)')}</Label>
@@ -373,7 +381,7 @@ export function InventoryLotsDialog({
                     <TableCell>
                       <ExpiryBadge expiryDate={lot.expiryDate} tr={tr} />
                     </TableCell>
-                    <TableCell className="text-end">{amount(lot.unitCost)}</TableCell>
+                    <TableCell className="text-end">{lot.unitCost == null ? <HiddenValue /> : amount(lot.unitCost)}</TableCell>
                     <TableCell><LotStatusBadge status={lot.status} tr={tr} /></TableCell>
                     <TableCell className="text-end">
                       <div className="flex justify-end gap-1">

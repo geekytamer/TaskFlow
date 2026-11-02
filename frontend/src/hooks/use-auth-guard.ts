@@ -1,29 +1,30 @@
-
 'use client';
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import type { UserRole } from '@/lib/types';
 import { useToast } from './use-toast';
 import { useCurrentUser } from './use-current-user';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissionsOptional } from '@/context/permissions-context';
+import { guardDecision } from '@/lib/guard-decision';
+import { apiFetch } from '@/lib/api-client';
+import { forbiddenSentence, labelsFromCatalogue } from '@/lib/forbidden-message';
+import { fetchCatalogue } from '@/services/permissionService';
 
-export interface AuthGuardOptions {
-  /**
-   * "module:action" required to open this page. Once the server reports a
-   * permission set it is the only authority, so a custom group grants access
-   * even though the holder's legacy role would not. Until then — and while
-   * AUTHZ_ENGINE is 'legacy' — allowedRoles still decides.
-   */
-  permission?: string;
-}
-
-export function useAuthGuard(allowedRoles?: UserRole[], options?: AuthGuardOptions) {
+/**
+ * Signs the person in, and with `permission` (a catalogue key such as
+ * 'sales.view') turns them away from a page they may not open. The server's
+ * permissions are the only authority: until they have arrived for the selected
+ * company the page reports `loading`, never "allowed".
+ *
+ * `effectiveRole` is the person's role name in the selected company, for
+ * display only; no access decision may read it.
+ */
+export function useAuthGuard(permission?: string) {
   const router = useRouter();
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { user, loading } = useCurrentUser();
   const { selectedCompany, loading: companyLoading } = useCompany();
   const effectiveRole =
@@ -31,79 +32,57 @@ export function useAuthGuard(allowedRoles?: UserRole[], options?: AuthGuardOptio
       user?.companyRoles?.find((c) => c.companyId === selectedCompany.id)?.role) ||
     user?.role;
 
-  // allowedRoles is typically passed as a new array literal each render, so
-  // depend on a stable key instead — otherwise the effect (which toasts, and a
-  // toast triggers a re-render) would re-run every render in an infinite loop.
-  const allowedKey = allowedRoles ? [...allowedRoles].sort().join(',') : '';
-
   const permissions = usePermissionsOptional();
-  const requiredPermission = options?.permission;
-  const permissionsDecide = Boolean(requiredPermission) && Boolean(permissions?.loaded);
-  const permissionAllows = React.useMemo(() => {
-    if (!permissionsDecide || !requiredPermission || !permissions) return false;
-    const [module, action] = [
-      requiredPermission.slice(0, requiredPermission.indexOf(':')),
-      requiredPermission.slice(requiredPermission.indexOf(':') + 1),
-    ];
-    return permissions.can(module, action);
-  }, [permissionsDecide, requiredPermission, permissions]);
+  const decision = guardDecision({
+    permission,
+    userLoading: loading,
+    companyLoading,
+    hasCompany: Boolean(selectedCompany),
+    permissions,
+  });
+  const { denied } = decision;
+
   // The deny action (warn + toast + redirect) must fire once, not on every
   // re-render before navigation completes.
   const actedRef = React.useRef(false);
 
-  /**
-   * The single access decision for this page. Pages render their own denial
-   * message, and previously each repeated the role test inline — which meant
-   * the guard could allow a custom-group holder in while the page still turned
-   * them away. Both now read this.
-   */
-  const denied = React.useMemo(() => (permissionsDecide
-    ? !permissionAllows
-    : Boolean(allowedRoles) && (!effectiveRole || !allowedRoles!.includes(effectiveRole))),
-  [permissionsDecide, permissionAllows, allowedKey, effectiveRole]);
-
   React.useEffect(() => {
-    if (loading || companyLoading) {
-      return; // Wait for the user state to be determined
-    }
+    if (loading || companyLoading) return;
     if (!user) {
       if (actedRef.current) return;
       actedRef.current = true;
       router.push('/login');
       return;
     }
-    // A page still waiting on its permission feed must not be judged yet, or a
-    // custom-group holder is bounced before the answer arrives.
-    if (requiredPermission && permissions && !permissions.loaded && permissions.loading) {
+    if (!denied || actedRef.current) return;
+    actedRef.current = true;
+    console.warn(`User lacks ${permission} and was refused this page`);
+    router.push('/'); // Redirect to a safe default page
+    // M-10: say what is missing and who to ask (the page's key → refusal sentence).
+    const lang = language === 'ar' ? 'ar' : 'en';
+    const companyId = selectedCompany?.id;
+    const tell = (description: string) => toast({ variant: 'destructive', title: t('common.accessDenied'), description });
+    if (!permission || !companyId) {
+      tell(t('auth.guardDenied'));
       return;
     }
-
-    if (denied) {
-      if (actedRef.current) return;
-      actedRef.current = true;
-      console.warn(
-        permissionsDecide
-          ? `User lacks ${requiredPermission} and was refused this page`
-          : `User with role ${effectiveRole} tried to access a page restricted to ${allowedKey}`,
-      );
-      toast({
-        variant: 'destructive',
-        title: t('common.accessDenied'),
-        description: t('auth.guardDenied'),
-      });
-      router.push('/'); // Redirect to a safe default page
-    }
+    Promise.all([
+      apiFetch<{ roles: string[] }>(`/me/permissions/ask?companyId=${encodeURIComponent(companyId)}&key=${encodeURIComponent(permission)}`),
+      fetchCatalogue().then(labelsFromCatalogue).catch(() => null),
+    ])
+      .then(([ask, labels]) => tell(forbiddenSentence({ code: 'FORBIDDEN', permission, roles: ask.roles }, labels, lang)))
+      .catch(() => tell(t('auth.guardDenied')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    user, loading, companyLoading, effectiveRole, allowedKey,
-    permissionsDecide, permissionAllows, permissions?.loading,
-  ]);
+  }, [user, loading, companyLoading, denied, permission]);
 
   return {
     user,
-    loading: loading || companyLoading,
+    loading: decision.loading,
     effectiveRole,
-    /** False when this user may not open the page. */
-    allowed: !denied,
+    /** False when this user may not open the page (or the answer is not in yet). */
+    allowed: decision.allowed,
+    /** The permissions could not be loaded: PermissionsErrorNotice offers Retry; not a denial. */
+    permissionsError: decision.error,
+    retryPermissions: permissions?.refresh,
   };
 }

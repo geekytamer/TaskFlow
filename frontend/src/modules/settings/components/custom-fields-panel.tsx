@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/i18n-context';
 import {
@@ -36,11 +36,11 @@ const ENTITY_LABELS: Record<CustomFieldEntityType, { en: string; ar: string }> =
 const FIELD_TYPES: CustomFieldType[] = ['text', 'number', 'date', 'boolean', 'select'];
 
 export function CustomFieldsPanel() {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const { language } = useI18n();
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
-  const canEdit = usePermissionOr('settings', 'custom-fields.create', currentRole === 'Admin' || currentRole === 'Manager');
+  const canEdit = usePermissions().can('settings.edit');
 
   const [definitions, setDefinitions] = React.useState<CustomFieldDefinition[]>([]);
   const [loading, setLoading] = React.useState(true);

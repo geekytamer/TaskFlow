@@ -15,6 +15,7 @@ interface CompanyContextType {
   companies: Company[];
   projects: Project[];
   currentUser: User | null;
+  /** The person's role name in the selected company, for display only: gates ask usePermissions().can(). */
   currentRole: User['role'] | null;
   refreshCompanies: () => void;
   refreshProjects: () => void;
@@ -42,19 +43,12 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const fetchCompanies = React.useCallback(async () => {
     if (!currentUser) return [];
     try {
-      const allCompanies = await getCompanies();
-      if (currentUser.isSuperAdmin) {
-        setCompanies(allCompanies);
-        return allCompanies;
-      } else {
-        const accessibleCompanyIds = new Set([
-          ...(currentUser.companyIds || []),
-          ...(currentUser.companyRoles || []).map((assignment) => assignment.companyId),
-        ]);
-        const accessibleCompanies = allCompanies.filter(c => accessibleCompanyIds.has(c.id));
-        setCompanies(accessibleCompanies);
-        return accessibleCompanies;
-      }
+      // The server lists the companies this person reaches: their memberships
+      // and, under the v2 engine, the companies a group role covers. Filtering
+      // here by companyRoles would drop the group-only ones.
+      const accessibleCompanies = await getCompanies();
+      setCompanies(accessibleCompanies);
+      return accessibleCompanies;
     } catch (error) {
       console.error("Failed to fetch companies:", error);
       setCompanies([]);

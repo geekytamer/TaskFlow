@@ -16,7 +16,8 @@ import {
   Repeat,
 } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { useCompanyScope } from '@/context/company-scope-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask, updateTaskPart } from '@/services/projectService';
@@ -186,6 +187,7 @@ function TaskRow({
   assignees,
   overdue,
   showProject,
+  companyName,
   onOpen,
   onStatusChange,
   viewStatus,
@@ -202,6 +204,8 @@ function TaskRow({
   assignees: PersonSummary[];
   overdue: boolean;
   showProject: boolean;
+  /** Which company the task belongs to; only passed when several are in view. */
+  companyName?: string;
   onOpen: () => void;
   onStatusChange: (next: TaskStatus) => void;
 }) {
@@ -252,6 +256,9 @@ function TaskRow({
             </span>
           )}
         </div>
+        {companyName && (
+          <div className="mt-0.5 text-xs font-medium text-muted-foreground">{companyName}</div>
+        )}
         {showProject && (
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             {projectName ? (
@@ -367,12 +374,12 @@ function TaskGroup({
 type Scope = 'today' | 'mine' | 'all' | 'unassigned';
 
 export function TaskList({ projectId }: { projectId?: string }) {
-  const { selectedCompany, projects, currentRole, currentUser } = useCompany();
+  const { selectedCompany, projects, currentUser } = useCompany();
+  const { inTree, companyIds: groupCompanyIds, companyName } = useCompanyScope();
   const { language } = useI18n();
   const { toast } = useToast();
   const selectedCompanyId = selectedCompany?.id;
-  const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
-  const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
+  const canLoadClients = usePermissions().can('contacts.view_details');
   const currentUserId = currentUser?.id;
 
   const tr = React.useCallback(
@@ -452,7 +459,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
     } finally {
       setLoading(false);
     }
-  }, [currentRole, selectedCompanyId, canLoadClients]);
+  }, [selectedCompanyId, canLoadClients]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['tasks', 'projects', 'time-entries', 'comments'], () => loadData({ quiet: true }));
@@ -470,12 +477,23 @@ export function TaskList({ projectId }: { projectId?: string }) {
   // Company / project scoped.
   const scopedTasks = React.useMemo(
     () =>
-      tasks.filter((t) =>
-        projectId
-          ? t.projectId === projectId
-          : t.companyId === selectedCompanyId && !archivedProjectIds.has(t.projectId),
-      ),
-    [tasks, projectId, selectedCompanyId, archivedProjectIds],
+      tasks.filter((t) => {
+        if (projectId) return t.projectId === projectId;
+        if (archivedProjectIds.has(t.projectId)) return false;
+        // In a group: every company of it that the filter leaves in.
+        if (inTree) return groupCompanyIds.includes(t.companyId);
+        return t.companyId === selectedCompanyId;
+      }),
+    [tasks, projectId, selectedCompanyId, inTree, groupCompanyIds, archivedProjectIds],
+  );
+
+  /** In a group spanning several companies, each task says which one it is in. */
+  const companyNameOf = companyName;
+
+  /** Say which company a task is in only when the view holds more than one. */
+  const showCompany = React.useMemo(
+    () => inTree && new Set(scopedTasks.map((t) => t.companyId)).size > 1,
+    [inTree, scopedTasks],
   );
 
   const todayStart = React.useMemo(() => startOfDay(new Date()), []);
@@ -612,6 +630,7 @@ export function TaskList({ projectId }: { projectId?: string }) {
         assignees={assignees}
         overdue={overdue}
         showProject={!projectId}
+        companyName={showCompany ? companyNameOf(task.companyId) : undefined}
         onOpen={() => setSelectedTask(task)}
         onStatusChange={(next) => handleStatusChange(task, next, ownPart)}
         viewStatus={status}

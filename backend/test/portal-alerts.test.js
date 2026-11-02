@@ -31,7 +31,7 @@ const build = () => {
     sent.push({ companyId, phone, text, contactId });
   };
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }), portalWhatsApp: sender,
   }).listen(0);
   server.unref();

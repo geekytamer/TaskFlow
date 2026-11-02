@@ -8,47 +8,17 @@ const request = require('supertest');
 const { createServer } = require('../dist/server');
 const { DataStore } = require('../dist/data/store');
 const { makeTmpDir } = require('./helpers/tmp');
-const { allPermissions } = require('../dist/permissions/catalogue');
 
 /**
- * Runs this suite under another authorization engine when TEST_AUTHZ_ENGINE is
- * set, e.g. `TEST_AUTHZ_ENGINE=openfga node --test test/api.test.js`.
- *
- * OpenFGA is emulated from the database's own group grants, which is exactly
- * what the tuple projection publishes: members get their groups' permissions,
- * and a super-admin gets everything in the companies they belong to. Tuple
- * publishing is a no-op, since nothing reads real tuples here. A pass means
- * the built-in groups answer every request these tests make the way the roles
- * did.
+ * The engine comes from PERMISSIONS_ENGINE, so `PERMISSIONS_ENGINE=v2 npm test`
+ * runs this whole suite under v2 (and shadow likewise). withEngine only adds the
+ * record-rule coverage tally (TEST_RULE_COVERAGE).
  */
-const TEST_ENGINE = process.env.TEST_AUTHZ_ENGINE;
-const sqlReader = (store) => ({
-  async listGrantedObjects(userId) {
-    const user = store.getUserById(userId);
-    const objects = [];
-    for (const company of store.listCompanies()) {
-      const superAdminHere = Boolean(user?.isSuperAdmin) && (user.companyIds || []).includes(company.id);
-      const perms = superAdminHere ? allPermissions() : store.getEffectivePermissions(userId, company.id);
-      for (const perm of perms) {
-        const cut = perm.indexOf(':');
-        objects.push(`permission:${company.id}/${perm.slice(0, cut)}/${perm.slice(cut + 1)}`);
-      }
-    }
-    return objects;
-  },
-});
 const withEngine = (options) => {
-  if (!TEST_ENGINE) return options;
+  if (!process.env.TEST_RULE_COVERAGE) return options;
   const store = options.store
     ?? new DataStore({ dbPath: options.dbPath, seedOnEmpty: options.seedOnEmpty ?? true });
-  return {
-    ...options,
-    store,
-    authzEngine: TEST_ENGINE,
-    permissionReader: sqlReader(store),
-    tupleWriter: { async write() {} },
-    onRuleDecision: (decision) => recordRuleDecision(store, decision),
-  };
+  return { ...options, store, onRuleDecision: (decision) => recordRuleDecision(store, decision) };
 };
 
 // With TEST_RULE_COVERAGE=<file>, tally every rule decision by the viewer's
@@ -1328,7 +1298,7 @@ test('health endpoint reports status and applied migrations', async () => {
     '124_portal_push_log',
     '125_item_home_location',
     '126_influencer_discover',
-    '127_discover_roster', '128_discover_photo_at', '129_catalogue_hidden_and_ranges', '130_request_close_reason', '131_conversations', '132_conversation_settings', '133_push_held', '134_portal_alert_groups', '135_company_branding', '136_team_chats', '137_password_links_and_session_age', '138_hash_plain_passwords', '139_task_parts', '140_task_checklists', '141_task_recurrence', '142_task_start_date', '143_project_plan', '144_project_priority_postpone', '145_peak_flexi_credit', '146_flexi_review_grants', '147_peak_flexi_section', '148_flexi_manage_grants', '149_activity_entity_index',
+    '127_discover_roster', '128_discover_photo_at', '129_catalogue_hidden_and_ranges', '130_request_close_reason', '131_conversations', '132_conversation_settings', '133_push_held', '134_portal_alert_groups', '135_company_branding', '136_team_chats', '137_password_links_and_session_age', '138_hash_plain_passwords', '139_task_parts', '140_task_checklists', '141_task_recurrence', '142_task_start_date', '143_project_plan', '144_project_priority_postpone', '145_peak_flexi_credit', '146_flexi_review_grants', '147_peak_flexi_section', '148_flexi_manage_grants', '149_activity_entity_index', '150_authz_v2', '151_team_version', '152_authz_divergence_observed', '153_authz_divergence_kind', '154_company_tree',
   ]);
 });
 
@@ -2068,6 +2038,7 @@ test('company admins see and edit only their assigned companies', async () => {
     .send({ name: 'Unauthorized Rename' });
   assert.equal(editOther.status, 403);
   assert.equal(editOther.body.message, 'You do not have access to this company.');
+  assert.equal(editOther.body.code, 'NO_COMPANY_ACCESS');
 });
 
 test('company scoping blocks access outside a manager company', async () => {

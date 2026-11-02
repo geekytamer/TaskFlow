@@ -23,7 +23,7 @@ test('every record rule is grantable and seeded for exactly the roles that held 
 });
 
 test('no record rule reuses a permission a gate already enforces', () => {
-  const csv = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv');
+  const csv = path.join(__dirname, 'fixtures', 'legacy-gate-matrix.csv');
   const gated = new Set(fs.readFileSync(csv, 'utf8').trim().split('\n').slice(1)
     .map((line) => line.split(',')).filter((cols) => cols[6] !== 'none').map((cols) => `${cols[2]}:${cols[3]}`));
   for (const [name, rule] of Object.entries(RECORD_RULES)) {
@@ -75,7 +75,21 @@ test('every rule declared is enforced somewhere', () => {
   const fs = require('node:fs');
   const routeModules = fs.readdirSync(path.join(__dirname, '..', 'src', 'routes')).map((file) => read('routes', file)).join('\n');
   const enforcing = read('server.ts') + read('permissions', 'routes.ts') + routeModules;
-  for (const name of Object.keys(RECORD_RULES)) {
-    assert.ok(enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
+  // Read-scope rules are realised by authz/visible.ts: its area table carries
+  // the rule's key, and company scope there sees every record.
+  const { AREAS } = require('../dist/authz/visible');
+  const visibleKeys = new Set(Object.values(AREAS).map((a) => a.key));
+  // Field rules are realised by authz/mask.ts: FIELD_MAP hides each of their
+  // fields, and the server masks through it (maskFor / seesField).
+  const { FIELD_MAP } = require('../dist/authz/mask');
+  const maskedFields = new Set(Object.values(FIELD_MAP).flatMap((props) => Object.values(props)));
+  assert.ok(enforcing.includes('maskFor(') && enforcing.includes('seesField('), 'the server masks');
+  for (const [name, rule] of Object.entries(RECORD_RULES)) {
+    const byVisible = 'keys' in rule.v2 && rule.v2.min === 'company' && rule.action.endsWith('.read') && visibleKeys.has(rule.v2.keys[0]);
+    const byMask = 'fields' in rule.v2 && rule.v2.fields.every((f) => maskedFields.has(f));
+    // GROUPS_READ's routes (the old permission-group reads) are gone; its key
+    // gates the roles and people reads in authz/routes.ts.
+    const byPeopleGate = name === 'GROUPS_READ' && read('authz', 'routes.ts').includes("'people.view_roles'");
+    assert.ok(byVisible || byMask || byPeopleGate || enforcing.includes(`'${name}'`), `${name} is declared but nothing checks it`);
   }
 });

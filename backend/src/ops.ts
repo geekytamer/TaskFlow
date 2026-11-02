@@ -22,14 +22,15 @@ Commands:
   prune-orphans                Delete every row whose company no longer exists (requires --force)
   delete-company <id>          Delete a company and all its data (requires --force)
   authz:repair                 Re-seed missing permission groups and user assignments
-  fga:sync [--dry-run]         Reconcile OpenFGA tuples with the database
-  fga:status                   Show OpenFGA connectivity, outbox depth and authz version
-  authz:compare                Compare role-only rules with what each member's groups grant (read-only)
-  fga:bootstrap [--force]      Create the OpenFGA store and model; prints FGA_STORE_ID and FGA_MODEL_ID
+  authz:status                 Show the permissions engine, authz version and logged shadow divergences
+  authz:compare [--days N]     Summarise shadow divergences (authz_divergence) of the last N days
+                               (default 7): by route, key and company, newest first (read-only)
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
-  AUTHZ_ENGINE, FGA_API_URL, FGA_API_TOKEN, FGA_STORE_ID, FGA_MODEL_ID
+  PERMISSIONS_ENGINE=legacy|shadow|v2 (default legacy): who decides access. legacy: company
+    roles; shadow: roles decide and every disagreement with v2 goes to authz_divergence;
+    v2: declared permissions and roles/add-ons (rollback = set it back to legacy)
 `);
 }
 
@@ -140,103 +141,80 @@ function deleteCompany() {
   console.log(`Deleted company "${company.name}" (${id}) and all its related data.`);
 }
 
-async function fgaSync() {
-  const { syncTuples } = await import('./permissions/sync');
+async function authzStatus() {
   const store = new DataStore({ dbPath, seedOnEmpty: false });
-  const dryRun = args.includes('--dry-run');
-  const result = await syncTuples(store, { dryRun });
   console.log(`Database: ${dbPath}`);
-  console.log(`To write: ${result.toWrite.length}`);
-  console.log(`To delete: ${result.toDelete.length}`);
-  if (dryRun) {
-    console.log('Dry run — nothing was changed.');
-  } else {
-    console.log(`Written: ${result.written}, deleted: ${result.deleted}`);
-    if (result.written || result.deleted) {
-      // A running API caches decisions per authz version. Without a bump it
-      // keeps serving what OpenFGA answered before this sync until it restarts,
-      // which defeats running fga:sync to repair drift in the first place.
-      store.bumpAuthzVersion();
-      console.log('Authz version bumped; running servers will refetch permissions.');
-    }
-  }
-}
-
-async function fgaStatus() {
-  const { fgaHealthy, getFgaConfig } = await import('./permissions/fga-client');
-  const store = new DataStore({ dbPath, seedOnEmpty: false });
-  const config = getFgaConfig();
-  console.log(`Database: ${dbPath}`);
-  console.log(`Engine: ${config.engine}`);
-  console.log(`API: ${config.apiUrl}`);
-  console.log(`Store: ${config.storeId || '(unset)'}`);
-  console.log(`Reachable: ${(await fgaHealthy()) ? 'yes' : 'no'}`);
-  console.log(`Outbox depth: ${store.countFgaOutbox()}`);
+  console.log(`Engine: ${process.env.PERMISSIONS_ENGINE || 'legacy'} (PERMISSIONS_ENGINE)`);
   console.log(`Authz version: ${store.getAuthzVersion()}`);
   const divergences = store.listAuthzDivergences(1000);
   console.log(`Logged divergences: ${divergences.length}`);
 }
 
 /**
- * Creates the OpenFGA store and writes the authorization model, printing the
- * ids as .env lines for a deploy script to capture. Refuses when a store is
- * already configured: a second store silently orphans every tuple in the first.
- */
-async function fgaBootstrap() {
-  if (process.env.FGA_STORE_ID && !force) {
-    throw new Error(
-      `FGA_STORE_ID is already set (${process.env.FGA_STORE_ID}). Pass --force to create another store anyway.`,
-    );
-  }
-  const { bootstrapFgaStore } = await import('./permissions/fga-model');
-  const { storeId, modelId } = await bootstrapFgaStore();
-  console.log(`FGA_STORE_ID=${storeId}`);
-  console.log(`FGA_MODEL_ID=${modelId}`);
-}
-
-/**
- * For every member of every company, compares what the role-only rules allowed
- * with what the member's groups grant now (permissions/record-rules.ts).
- *
- * Differences are expected only where someone changed a person's groups by
- * hand, or for super-admins, whom the authorization model grants everything in
- * their companies. Anything else is a bug. Read-only; prints user and company
- * ids, never names or contact details.
+ * The shadow-week tool: summarises authz_divergence (every request where the
+ * v2 answer differed from the legacy one) since N days ago (--days, default
+ * 7): counts by route, by permission key and by company, then the newest
+ * disagreements. Read-only; prints user and company ids, never names or
+ * contact details.
  */
 async function authzCompare() {
-  const { RECORD_RULES } = await import('./permissions/record-rules');
-  const { getEffectiveRole } = await import('./http');
-  const store = new DataStore({ dbPath, seedOnEmpty: false });
-  const companies = store.listCompanies();
-  const users = store.listUsers();
-  let memberships = 0;
-  let decisions = 0;
-  const byMember = new Map<string, string[]>();
-  for (const company of companies) {
-    for (const user of users) {
-      const role = getEffectiveRole(user, company.id);
-      if (!role) continue;
-      memberships += 1;
-      const held = new Set(store.getEffectivePermissions(user.id, company.id));
-      const superAdmin = Boolean(user.isSuperAdmin);
-      for (const [name, rule] of Object.entries(RECORD_RULES)) {
-        decisions += 1;
-        const roleAllows = (rule.roles as readonly string[]).includes(role);
-        const groupsAllow = superAdmin || held.has(`${rule.module}:${rule.action}`);
-        if (roleAllows === groupsAllow) continue;
-        const groups = store.listUserGroupAssignments(user.id, company.id).map((g) => g.key).sort().join('+') || '(none)';
-        const key = `company ${company.id}  user ${user.id}  role ${role}${superAdmin ? '  super-admin' : ''}  groups ${groups}`;
-        byMember.set(key, [...(byMember.get(key) ?? []), `${name} (${roleAllows ? 'role allowed, groups deny' : 'role denied, groups allow'})`]);
-      }
-    }
+  const daysAt = args.indexOf('--days');
+  const days = daysAt >= 0 ? Number(args[daysAt + 1]) : 7;
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('Usage: npm run ops -- authz:compare [--days N]   (N > 0, default 7)');
+    process.exitCode = 1;
+    return;
   }
-  const differences = [...byMember.values()].reduce((sum, list) => sum + list.length, 0);
   console.log(`Database: ${dbPath}`);
-  console.log(`Companies: ${companies.length}  memberships: ${memberships}  rule decisions compared: ${decisions}`);
-  console.log(`Differences: ${differences} across ${byMember.size} membership(s)`);
-  for (const [member, rules] of byMember) {
-    console.log(`  ${member}`);
-    rules.forEach((line) => console.log(`      ${line}`));
+  if (!fs.existsSync(dbPath)) {
+    console.log('Exists: no');
+    return;
+  }
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const table = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'authz_divergence'`).get();
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    console.log(`Since: ${since} (last ${days} days)`);
+    if (!table) {
+      console.log('Divergences: 0 (no authz_divergence table yet)');
+      return;
+    }
+    // I-5: read-scope differences (kind 'scope') count too; older tables have no kind column.
+    const hasKind = (db.prepare('PRAGMA table_info(authz_divergence)').all() as Array<{ name: string }>).some((c) => c.name === 'kind');
+    const rows = db
+      .prepare(`SELECT userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt,
+                       ${hasKind ? 'kind, legacyScope, newScope' : `'access' AS kind, NULL AS legacyScope, NULL AS newScope`}
+                  FROM authz_divergence WHERE observedAt >= ? ORDER BY observedAt DESC, id DESC`)
+      .all(since) as Array<{
+        userId: string; companyId: string; module: string; action: string; route: string;
+        legacyAllowed: number; openfgaAllowed: number; observedAt: string;
+        kind: string; legacyScope: string | null; newScope: string | null;
+      }>;
+    console.log(`Divergences: ${rows.length}`);
+    if (!rows.length) return;
+    const keyOf = (r: { module: string; action: string }) => (r.module === 'field' ? `field:${r.action}` : `${r.module}.${r.action}`);
+    const answer = (r: (typeof rows)[number]) => (r.kind === 'scope'
+      ? `scope: legacy ${r.legacyScope ?? 'none'}, v2 ${r.newScope ?? 'none'}`
+      : `legacy ${r.legacyAllowed ? 'allow' : 'deny'}, v2 ${r.openfgaAllowed ? 'allow' : 'deny'}`);
+    const section = (title: string, label: (r: (typeof rows)[number]) => string) => {
+      const counts = new Map<string, number>();
+      rows.forEach((r) => counts.set(label(r), (counts.get(label(r)) ?? 0) + 1));
+      console.log(`\nBy ${title}:`);
+      [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .forEach(([name, n]) => console.log(`  ${String(n).padStart(6)}  ${name}`));
+    };
+    section('kind', (r) => r.kind);
+    section('route', (r) => r.route);
+    section('permission key', keyOf);
+    section('company', (r) => r.companyId);
+    section('answer', answer);
+    const limit = 20;
+    console.log(`\nNewest ${Math.min(limit, rows.length)}:`);
+    rows.slice(0, limit).forEach((r) => console.log(
+      `  ${r.observedAt}  company ${r.companyId}  user ${r.userId}  ${r.route}  ${keyOf(r)}  (${answer(r)})`,
+    ));
+  } finally {
+    db.close();
   }
 }
 
@@ -268,7 +246,7 @@ function authzRepair() {
   console.log(`Users without a group after:  ${orphansAfter}`);
   console.log(
     orphansAfter === 0
-      ? 'All users have a group. Run "fga:sync" next to publish the tuples.'
+      ? 'All users have a group.'
       : 'Some users still have no group — they belong to no company.',
   );
 }
@@ -277,17 +255,11 @@ switch (command) {
   case 'authz:repair':
     authzRepair();
     break;
-  case 'fga:sync':
-    fgaSync().catch(fail);
-    break;
-  case 'fga:status':
-    fgaStatus().catch(fail);
+  case 'authz:status':
+    authzStatus().catch(fail);
     break;
   case 'authz:compare':
     authzCompare().catch(fail);
-    break;
-  case 'fga:bootstrap':
-    fgaBootstrap().catch(fail);
     break;
   case 'status':
     showStatus();

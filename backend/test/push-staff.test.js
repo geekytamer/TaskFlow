@@ -19,7 +19,7 @@ const build = async () => {
   const carla = store.createUser({ name: 'Carla', email: 'carla@peak.test', password: 'x', role: 'Manager', companyIds: [company.id], companyRoles: [{ companyId: company.id, role: 'Manager' }] });
   const sent = [];
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} },
     push: { publicKey: 'BKeyForTests', send: async (s, payload) => { sent.push(JSON.parse(payload)); return { statusCode: 201 }; } },
   }).listen(0);
   server.unref();

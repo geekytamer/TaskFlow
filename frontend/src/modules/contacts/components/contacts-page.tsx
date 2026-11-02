@@ -36,6 +36,8 @@ import {
 } from '@/components/ui/sheet';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { useToast } from '@/hooks/use-toast';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
@@ -106,6 +108,9 @@ const PRIORITY_COLORS: Record<ContactPriority, string> = {
 export function ContactsPage() {
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
+  // Rate cards are a sensitive field: no input without edit, "Hidden" without view.
+  const { can, field } = usePermissions();
+  const rateCards = field('rate_cards');
   const { toast } = useToast();
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -357,7 +362,7 @@ export function ContactsPage() {
           <CsvImportExport
             exportPath={`/companies/${selectedCompany.id}/contacts/export`}
             exportFilename="contacts.csv"
-            importPath={`/companies/${selectedCompany.id}/contacts/import`}
+            importPath={can('contacts.manage') ? `/companies/${selectedCompany.id}/contacts/import` : undefined}
             onImported={reloadContacts}
           />
         ) : null}
@@ -482,10 +487,14 @@ export function ContactsPage() {
                       <DropdownMenuItem onClick={() => { setEditingContact(c); setEditForm(contactToForm(c)); }}>
                         <Pencil className="h-4 w-4 me-2" />{t('common.edit')}
                       </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeletingContact(c)}>
-                        <Trash2 className="h-4 w-4 me-2" />{t('common.delete')}
-                      </DropdownMenuItem>
+                      {can('contacts.delete') && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeletingContact(c)}>
+                            <Trash2 className="h-4 w-4 me-2" />{t('common.delete')}
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -675,9 +684,15 @@ export function ContactsPage() {
                     </div>
                     <div>
                       <Label className="text-xs">{t('crm.rateCard')}</Label>
-                      <Input type="number" className="h-8 text-sm" value={crmForm.rateCardAmount}
-                        onChange={e => setCrmForm(f => ({ ...f, rateCardAmount: e.target.value }))}
-                        placeholder="0" />
+                      {rateCards.edit ? (
+                        <Input type="number" className="h-8 text-sm" value={crmForm.rateCardAmount}
+                          onChange={e => setCrmForm(f => ({ ...f, rateCardAmount: e.target.value }))}
+                          placeholder="0" />
+                      ) : (
+                        <div className="flex h-8 items-center text-sm">
+                          {rateCards.view ? (crmForm.rateCardAmount || '—') : <HiddenValue />}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <Label className="text-xs">{t('crm.location')}</Label>

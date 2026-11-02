@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { FollowupsPage } from '@/modules/crm/components/followups-page';
 
 export default function FollowupsRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Employee', 'Accountant'], { permission: 'crm:read' });
+  const { user, loading } = useAuthGuard('crm.view');
   const { t } = useI18n();
 
   if (loading || !user) {

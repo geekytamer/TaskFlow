@@ -22,7 +22,7 @@ const build = (portal = true) => {
   const secret = store.createContact({ companyId: company.id, kind: 'Organization', name: 'Secret Deal', roles: ['Client'], ownerUserId: carla.id });
   store.updateContact(secret.id, { visibility: 'Private' });
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: portal ? company.id : undefined, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();
@@ -275,22 +275,8 @@ test('with the contacts module switched off every conversation route is 403', as
   }
 });
 
-/** Serves permissions from the SQL group tables, standing in for OpenFGA (as permission-enforcement.test.js does). */
-const sqlReader = (store) => ({
-  async listGrantedObjects(userId) {
-    const objects = [];
-    for (const company of store.listCompanies()) {
-      for (const perm of store.getEffectivePermissions(userId, company.id)) {
-        const [module, action] = perm.split(':');
-        objects.push(`permission:${company.id}/${module}/${action}`);
-      }
-    }
-    return objects;
-  },
-});
-
-test('openfga: no contacts:read is 403 everywhere; contacts:read without contacts:write cannot write', async () => {
-  const dbPath = path.join(makeTmpDir('taskflow-conv-fga-'), 'taskflow.db');
+test('v2: no inbox.view is 403 everywhere; inbox.view without inbox.send cannot write', async () => {
+  const dbPath = path.join(makeTmpDir('taskflow-conv-v2-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: false });
   const company = store.createCompany({ name: 'Peak Media', website: '', address: '' });
   const user = (role, name, email) => store.createUser({ name, email, password: 'x', role, companyIds: [company.id], companyRoles: [{ companyId: company.id, role }] });
@@ -298,25 +284,25 @@ test('openfga: no contacts:read is 403 everywhere; contacts:read without contact
   const nora = user('Employee', 'Nora', 'nora@peak.test');
   const rita = user('Employee', 'Rita', 'rita@peak.test');
   const client = store.createContact({ companyId: company.id, kind: 'Organization', name: 'Al Noor Dates', roles: ['Client'], ownerUserId: carla.id });
-  const group = (key, perms) => {
-    const g = store.createPermissionGroup({ companyId: company.id, key, name: key });
-    store.setGroupPermissions(g.id, perms.map((p) => { const [module, action] = p.split(':'); return { module, action }; }));
-    return g.id;
+  // A custom main role in place of the Employee template.
+  const mainRole = (userId, name, grants) => {
+    const role = store.authz.saveRole(company.id, { name, grants, fields: [] }, null);
+    store.authz.setAssignments(userId, company.id, { mainRoleId: role.id, addOnRoleIds: [] }, null);
   };
-  store.setUserGroups(nora.id, company.id, [group('no-contacts', ['tasks:read'])]);
-  store.setUserGroups(rita.id, company.id, [group('contacts-read', ['contacts:read'])]);
+  mainRole(nora.id, 'No contacts', [{ key: 'tasks.view', scope: 'own' }]);
+  mainRole(rita.id, 'Inbox reader', [{ key: 'contacts.view', scope: 'own' }, { key: 'inbox.view', scope: 'own' }]);
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'openfga',
-    permissionReader: sqlReader(store), portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, permissionsEngine: 'v2',
+    portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
   }).listen(0);
   server.unref();
   const ctx = { server, store, company, client, carlaAuth: { Authorization: `Bearer ${store.issueToken(carla.id)}` } };
   const { t, fileId, messageId } = await seedForGate(ctx);
-  assert.equal((await request(server).get(`/conversation-threads/${t.id}`).set(ctx.carlaAuth)).status, 200, 'the Manager group has contacts');
+  assert.equal((await request(server).get(`/conversation-threads/${t.id}`).set(ctx.carlaAuth)).status, 200, 'the Manager template has the inbox');
 
   const noraAuth = { Authorization: `Bearer ${store.issueToken(nora.id)}` };
   for (const [name, req] of routesFor(ctx, t, fileId, messageId)) {
-    assert.equal((await req.set(noraAuth)).status, 403, `no contacts:read → ${name}`);
+    assert.equal((await req.set(noraAuth)).status, 403, `no inbox.view → ${name}`);
   }
   const ritaAuth = { Authorization: `Bearer ${store.issueToken(rita.id)}` };
   const statuses = {};

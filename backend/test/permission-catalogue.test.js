@@ -42,7 +42,7 @@ test('allPermissions returns one entry per module-action pair', () => {
 });
 
 test('catalogue covers every enforced permission in the gate matrix', () => {
-  const csvPath = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv');
+  const csvPath = path.join(__dirname, 'fixtures', 'legacy-gate-matrix.csv');
   const rows = fs.readFileSync(csvPath, 'utf8').trim().split('\n').slice(1);
   const missing = new Set();
   for (const row of rows) {
@@ -54,7 +54,7 @@ test('catalogue covers every enforced permission in the gate matrix', () => {
 });
 
 test('the catalogue grants nothing the gate matrix does not enforce', () => {
-  const csvPath = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plans', 'gate-matrix.csv');
+  const csvPath = path.join(__dirname, 'fixtures', 'legacy-gate-matrix.csv');
   const rows = fs.readFileSync(csvPath, 'utf8').trim().split('\n').slice(1);
   const enforced = new Set();
   for (const row of rows) {

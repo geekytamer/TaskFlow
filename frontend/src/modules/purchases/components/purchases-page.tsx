@@ -59,7 +59,7 @@ import type {
 import { PackageCheck, Pencil, ShoppingCart, Trash2 } from 'lucide-react';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { useI18n } from '@/context/i18n-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
@@ -107,9 +107,11 @@ const emptyPurchaseForm = (): PurchaseForm => ({
 });
 
 export function PurchasesPage() {
-  const { selectedCompany, currentRole } = useCompany();
-  const canApprove = usePermissionOr('purchasing', 'approve', currentRole === 'Admin' || currentRole === 'Manager');
-  const canEditOrders = usePermissionOr('purchasing', 'write', currentRole !== 'Employee');
+  const { selectedCompany } = useCompany();
+  const { can } = usePermissions();
+  const canApprove = can('purchasing.approve');
+  const canEditOrders = can('purchasing.edit');
+  const canDeleteOrders = can('purchasing.delete');
   const { toast } = useToast();
   const confirm = useConfirm();
   const { amount } = useCompanyCurrency();
@@ -1121,7 +1123,7 @@ export function PurchasesPage() {
                           : tr('No action', 'لا يوجد إجراء')}
                       </span>
                     )}
-                    {canApprove && (
+                    {canDeleteOrders && (
                       <Button
                         variant="outline"
                         size="sm"

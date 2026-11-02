@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express';
-import { HttpError, canAccessCompany } from '../http';
+import { HttpError } from '../http';
 import type { LiveHub } from '../live/hub';
 import { sendToPrincipal, type PushConfig, type PushPayload } from '../push/push';
 import { companyInQuietHours, holdPush } from '../push/quiet-hours';
@@ -19,17 +19,25 @@ const PREVIEW_CHARS = 140;
  * in the permission catalogue.
  */
 export function createTeamChatRouter(
-  ctx: Pick<RouteContext, 'store' | 'authMiddleware' | 'requireCompanyAccess' | 'logger'>,
+  ctx: Pick<RouteContext, 'store' | 'authMiddleware' | 'requireCompanyAccess' | 'accessibleCompanyIds' | 'logger'>,
   deps: { live: LiveHub; push?: PushConfig },
 ): Router {
   const app = Router();
-  const { store, authMiddleware, requireCompanyAccess, logger } = ctx;
+  const { store, authMiddleware, requireCompanyAccess, accessibleCompanyIds, logger } = ctx;
   const chats = store.teamChats;
+
+  /**
+   * Someone who reaches the company: a member or, under v2, a person a
+   * holding-group role covers it for (Ruling P), so group people can chat with
+   * the companies they work in.
+   */
+  const reaches = (user: Parameters<typeof accessibleCompanyIds>[0], companyId: string) =>
+    accessibleCompanyIds(user).includes(companyId);
 
   const colleague = (companyId: string, userId: unknown) => {
     if (typeof userId !== 'string') return undefined;
     const user = store.getUserById(userId);
-    return user && canAccessCompany(user, companyId) ? user : undefined;
+    return user && reaches(user, companyId) ? user : undefined;
   };
 
   const memberChat = (req: AuthedRequest, companyId: string, chatId: string): TeamChatRow => {
@@ -95,7 +103,7 @@ export function createTeamChatRouter(
     requireCompanyAccess(req, companyId);
     res.json(
       store.listUsers()
-        .filter((u) => canAccessCompany(u, companyId))
+        .filter((u) => reaches(u, companyId))
         .map((u) => ({ id: u.id, name: u.name, avatar: u.avatar ?? null }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     );

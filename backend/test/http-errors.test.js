@@ -13,7 +13,7 @@ function setup() {
   const dbPath = path.join(makeTmpDir('taskflow-http-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   }).listen(0);
   app.unref();

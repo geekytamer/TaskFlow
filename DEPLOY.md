@@ -101,58 +101,45 @@ After the first successful login, **change the admin password** in
 the UI and remove `ADMIN_PASSWORD` from `.env` (the bootstrap won't
 recreate the admin since one now exists).
 
-## 2b. Authorization service (OpenFGA)
+## 2b. Permissions engine
 
-Permissions are decided by an OpenFGA service running alongside the app, with
-its own PostgreSQL datastore. Both run under Docker Compose.
-
-### Secrets
-
-Add to `backend/.env`:
+Access is decided in-process by the TaskFlow API itself; there is no separate
+authorization service to run. One setting in `backend/.env` chooses who decides:
 
 ```env
-AUTHZ_ENGINE=legacy          # legacy | shadow | openfga — see below
-FGA_API_URL=http://127.0.0.1:8080
-FGA_API_TOKEN=<long random string>
-FGA_DB_PASSWORD=<long random string>
-FGA_STORE_ID=                # filled in after bootstrap
-FGA_MODEL_ID=                # filled in after bootstrap
+PERMISSIONS_ENGINE=legacy    # legacy | shadow | v2
 ```
-
-Generate the two secrets with `openssl rand -hex 32`. They are unrelated to each
-other and to anything else in the file.
-
-### Start it
-
-```bash
-cd /path/to/TaskFlow/backend
-set -a && . ./.env && set +a
-docker compose -f docker-compose.fga.yml up -d
-```
-
-Confirm it answers, and that the token is enforced:
-
-```bash
-curl -s -H "Authorization: Bearer $FGA_API_TOKEN" http://127.0.0.1:8080/stores
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/stores   # expect 401
-```
-
-### Do not proxy it
-
-OpenFGA binds to `127.0.0.1` only. **Never add it to the nginx config.** It has
-no user-facing surface, and exposing it would let anyone holding the preshared
-key rewrite every permission in the system.
-
-### AUTHZ_ENGINE
 
 | Value | Meaning |
 | --- | --- |
-| `legacy` | The original role checks decide. This is the rollback target and the safe default. |
-| `shadow` | Role checks still decide; OpenFGA is queried in parallel and disagreements are logged to `authz_divergence`. |
-| `openfga` | OpenFGA decides. |
+| `legacy` | The original company-role checks decide. This is the rollback target and the safe default. |
+| `shadow` | Role checks still decide; the v2 answer is computed in-process beside them and every disagreement is written to `authz_divergence` (kept 14 days). |
+| `v2` | Each route's declared permission, asked of the person's roles and reviewed add-ons, decides. |
 
-Changing this value and restarting is the entire rollback procedure. There is no
-data migration to reverse.
+### Rollout
+
+0. After deploying, run `npm run ops -- authz:repair` once, then review the
+   converted custom roles (Settings → Roles: each needs review before it counts).
+   Check `/root/deploy-pr8.sh` and the crons for removed ops commands
+   (`fga:*`, `authz:extract`, `authz:routemap`, `authz:catalogue`).
+1. Run `shadow` for a week. Daily: `npm run ops -- authz:compare` (the
+   disagreements of the last 7 days from `authz_divergence`, counted by route,
+   permission key and company, newest first; `--days N` for another window)
+   and `npm run ops -- authz:status`, or `GET /admin/authz/divergences` (super
+   admin). Every disagreement is either a v2 bug to fix or an intended
+   difference to accept. Rows of kind `scope` are read filters (lists,
+   searches, exports) where v2 would show a different set: they carry the
+   legacy and the v2 scope (for example a "Team manager" sees the company
+   today and only their line under v2).
+2. When the week is quiet, set `PERMISSIONS_ENGINE=v2` and restart.
+3. **Rollback is the setting.** Set it back to `legacy` (or `shadow`) and
+   restart. There is no data migration to reverse: groups, grants and
+   assignments live in SQLite under every engine.
+
+An unset or empty value is `legacy`. Any other value than `legacy`, `shadow`
+or `v2` (a typo included) stops the server at startup with an error naming the
+allowed values; it never falls back to an engine. `AUTHZ_ENGINE` and the old `FGA_*` variables are ignored (a warning is
+logged if `AUTHZ_ENGINE` is still set) and can be deleted from `.env`.
 
 ## 3. Fresh database
 
@@ -258,12 +245,8 @@ Then:
 
 ## 7. Backup
 
-There are now **two** datastores, and they must be backed up together:
-
-1. `backend/taskflow.db` — the application's SQLite file, and the source of
-   truth for groups, grants and assignments.
-2. The `fga-pgdata` Docker volume — OpenFGA's PostgreSQL datastore, holding the
-   tuple projection.
+`backend/taskflow.db` is the application's SQLite file and the only datastore:
+users, groups, grants and assignments all live in it.
 
 Back up the SQLite file nightly.
 
@@ -282,23 +265,6 @@ If you must copy files instead, copy `taskflow.db`, `taskflow.db-wal` and
 `taskflow.db-shm` together, with the app stopped.
 
 Keep at least 7 daily and 4 weekly copies. SQLite is small; storage is cheap.
-
-Dump OpenFGA's datastore alongside it:
-
-```bash
-# Daily 02:05 OpenFGA backup
-5 2 * * * cd /path/to/TaskFlow/backend && docker compose -f docker-compose.fga.yml exec -T fga-postgres pg_dump -U openfga openfga | gzip > /var/backups/openfga-$(date +\%Y\%m\%d).sql.gz
-```
-
-**If you restore one without the other, they will disagree.** That is a
-recoverable state, not a corrupt one: SQLite is authoritative, so rebuild the
-tuples with
-
-```bash
-cd /path/to/TaskFlow/backend && npm run ops -- fga:sync
-```
-
-Run `npm run ops -- fga:sync --dry-run` first to see what it would change.
 
 ## 8. Updating later
 

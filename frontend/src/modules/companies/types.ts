@@ -23,6 +23,8 @@ export interface Company {
   trainingOwnerUserId?: string;
   /** The company's own look in the app; absent = TaskFlow's. */
   branding?: CompanyBranding;
+  /** The group company this one sits under; absent = a top company. */
+  parentCompanyId?: string;
 }
 
 export interface Position {

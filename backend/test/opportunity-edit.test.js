@@ -10,7 +10,7 @@ const { makeTmpDir } = require('./helpers/tmp');
 test('editing an opportunity can clear its notes and close date, and winning it converts the contact', async () => {
   const dbPath = path.join(makeTmpDir('taskflow-opp-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
-  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy', logger: { info() {}, warn() {}, error() {} } }).listen(0);
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } }).listen(0);
   app.unref();
   const admin = store.listUsers().find((u) => u.email === 'admin@taskflow.com');
   const as = (req) => req.set('Authorization', `Bearer ${store.issueToken(admin.id)}`);
@@ -31,7 +31,7 @@ test('editing an opportunity can clear its notes and close date, and winning it 
 test('winning an opportunity by editing it closes it like the stage move does', async () => {
   const dbPath = path.join(makeTmpDir('taskflow-opp2-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
-  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy', logger: { info() {}, warn() {}, error() {} } }).listen(0);
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} } }).listen(0);
   app.unref();
   const admin = store.listUsers().find((u) => u.email === 'admin@taskflow.com');
   const as = (req) => req.set('Authorization', `Bearer ${store.issueToken(admin.id)}`);

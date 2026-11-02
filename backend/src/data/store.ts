@@ -1,3 +1,5 @@
+import { canAccessCompany, HttpError } from '../http';
+import { childIds, subtreeIds, topOf, wouldCycle } from '../companies/tree';
 import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
@@ -40,6 +42,10 @@ import { PortalAlertsStore } from '../portal/alerts';
 import { SocialStore } from '../social/social-store';
 import { DiscoverStore, DISCOVER_SCHEMA } from '../discover/discover-store';
 import { PortalStore } from '../portal/portal-store';
+import { AuthzStore } from '../authz/authz-store';
+import { effective as effectiveV2, effectiveLegacy, type Effective } from '../authz/evaluate';
+import { scopeOf } from '../authz/can';
+import { AREAS, visible, visibleRecord, type VisibleArea, type VisibleOptions } from '../authz/visible';
 
 /** Which module each dashboard figure comes from, for companies that switched modules off. */
 const DASHBOARD_METRIC_MODULES: Readonly<Record<string, string>> = {
@@ -691,6 +697,18 @@ export class CreditLimitError extends Error {
   }
 }
 
+/** Activity entity types that are records of a scoped area (authz/visible.ts). */
+const ACTIVITY_AREAS: Partial<Record<ActivityEvent['entityType'], VisibleArea>> = {
+  contact: 'contacts',
+  opportunity: 'opportunities',
+  proposal: 'proposals',
+  campaign: 'campaigns',
+  vendor_request: 'vendor_requests',
+  commission: 'commissions',
+  project: 'projects',
+  task: 'tasks',
+};
+
 export class DataStore {
   private db: Database.Database;
   /** Identity for the external portals: their own users, invitations and sessions. */
@@ -729,6 +747,7 @@ export class DataStore {
   readonly alerts: PortalAlertsStore;
   readonly social: SocialStore;
   readonly discover: DiscoverStore;
+  readonly authz: AuthzStore;
   private currentActor?: { userId?: string; name?: string };
   private onNotificationsCreated?: (notifications: Notification[]) => void;
 
@@ -736,7 +755,7 @@ export class DataStore {
     this.db = new Database(options.dbPath ?? defaultDbPath);
 
     // More than one connection is opened against the same file in normal use:
-    // the ops commands (fga:sync, authz:repair, status) run while the server
+    // the ops commands (authz:repair, status) run while the server
     // holds its own, and several tests seed through a direct store while the
     // server reads through another. SQLite's default rollback journal serialises
     // those badly and its default busy timeout is zero, so a reader hits a lock
@@ -751,7 +770,12 @@ export class DataStore {
     this.db.pragma('synchronous = NORMAL');
 
     this.onNotificationsCreated = options.onNotificationsCreated;
+    // Built before the migrations: 137 and the legacy group seeding call into
+    // it (it does nothing until 137 has created its tables).
+    this.authz = new AuthzStore(this.db, () => this.currentActor?.userId ?? null);
     this.applyMigrations();
+    // Ruling Q: standard roles follow the system templates on every start.
+    this.authz.syncSystemRoles();
     this.portal = new PortalStore(this.db);
     this.catalogue = new PortalCatalogueStore(this.db);
     this.requests = new PortalRequestsStore(this.db);
@@ -5403,6 +5427,189 @@ export class DataStore {
         id: '149_activity_entity_index',
         run: () => this.db.exec('CREATE INDEX IF NOT EXISTS idx_activity_events_company_entity ON activity_events (companyId, entityType, entityId);'),
       },
+      {
+        // Permissions v2 (spec 2026-10-16 §4 "Data"): roles with catalogue
+        // grants, scopes and sensitive fields; main + add-on assignments;
+        // holding groups; record shares; the permission audit. Legacy
+        // group_permissions rows stay untouched for today's readers. The data
+        // migration itself is store.authz.migrateAll() (idempotent).
+        id: '150_authz_v2',
+        run: () => {
+          const columns = (table: string) =>
+            new Set((this.db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name));
+          const addColumn = (table: string, column: string, type: string) => {
+            if (!columns(table).has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+          };
+          // Group-level roles have no company: relax permission_groups.companyId.
+          const companyCol = (this.db.prepare(`PRAGMA table_info('permission_groups')`).all() as Array<{ name: string; notnull: number }>)
+            .find((c) => c.name === 'companyId');
+          if (companyCol?.notnull) {
+            this.db.exec(`
+              CREATE TABLE permission_groups_v2 (
+                id             TEXT PRIMARY KEY,
+                companyId      TEXT,
+                key            TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                nameAr         TEXT,
+                description    TEXT,
+                isSystem       INTEGER NOT NULL DEFAULT 0,
+                isActive       INTEGER NOT NULL DEFAULT 1,
+                createdAt      TEXT NOT NULL,
+                templateKey    TEXT,
+                holdingGroupId TEXT,
+                needsReview    INTEGER NOT NULL DEFAULT 0,
+                convertedAt    TEXT,
+                UNIQUE (companyId, key)
+              );
+              INSERT INTO permission_groups_v2
+                (id, companyId, key, name, nameAr, description, isSystem, isActive, createdAt)
+                SELECT id, companyId, key, name, nameAr, description, isSystem, isActive, createdAt FROM permission_groups;
+              DROP TABLE permission_groups;
+              ALTER TABLE permission_groups_v2 RENAME TO permission_groups;
+              CREATE INDEX IF NOT EXISTS idx_permission_groups_company ON permission_groups (companyId);
+            `);
+          }
+          addColumn('permission_groups', 'templateKey', 'TEXT');
+          addColumn('permission_groups', 'holdingGroupId', 'TEXT');
+          addColumn('permission_groups', 'needsReview', 'INTEGER NOT NULL DEFAULT 0');
+          addColumn('permission_groups', 'convertedAt', 'TEXT');
+          addColumn('user_group_assignments', 'isMain', 'INTEGER NOT NULL DEFAULT 0');
+          addColumn('user_group_assignments', 'isActive', 'INTEGER NOT NULL DEFAULT 1');
+          addColumn('user_group_assignments', 'startsAt', 'TEXT');
+          addColumn('user_group_assignments', 'endsAt', 'TEXT');
+          addColumn('user_group_assignments', 'delegatedBy', 'TEXT');
+          addColumn('user_group_assignments', 'reason', 'TEXT');
+          addColumn('user_group_assignments', 'viaHoldingGroupId', 'TEXT');
+          addColumn('companies', 'holdingGroupId', 'TEXT');
+          this.db.exec(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_permission_groups_holding_key
+              ON permission_groups (holdingGroupId, key) WHERE companyId IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_user_group_assignments_main
+              ON user_group_assignments (userId, companyId) WHERE isMain = 1;
+            CREATE TABLE IF NOT EXISTS role_permissions (
+              groupId     TEXT NOT NULL,
+              key         TEXT NOT NULL,
+              scope       TEXT,
+              limitAmount REAL,
+              PRIMARY KEY (groupId, key)
+            );
+            CREATE TABLE IF NOT EXISTS role_fields (
+              groupId TEXT NOT NULL,
+              field   TEXT NOT NULL,
+              canView INTEGER NOT NULL DEFAULT 0,
+              canEdit INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY (groupId, field)
+            );
+            CREATE TABLE IF NOT EXISTS holding_groups (
+              id        TEXT PRIMARY KEY,
+              name      TEXT NOT NULL,
+              nameAr    TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS holding_group_admins (
+              holdingGroupId TEXT NOT NULL,
+              userId         TEXT NOT NULL,
+              PRIMARY KEY (holdingGroupId, userId)
+            );
+            CREATE TABLE IF NOT EXISTS holding_group_assignments (
+              holdingGroupId TEXT NOT NULL,
+              userId         TEXT NOT NULL,
+              roleKey        TEXT NOT NULL,
+              isMain         INTEGER NOT NULL DEFAULT 0,
+              startsAt       TEXT,
+              endsAt         TEXT,
+              PRIMARY KEY (holdingGroupId, userId, roleKey)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_group_assignments_main
+              ON holding_group_assignments (holdingGroupId, userId) WHERE isMain = 1;
+            CREATE TABLE IF NOT EXISTS record_shares (
+              companyId TEXT NOT NULL,
+              area      TEXT NOT NULL,
+              recordId  TEXT NOT NULL,
+              userId    TEXT NOT NULL,
+              sharedBy  TEXT,
+              createdAt TEXT NOT NULL,
+              PRIMARY KEY (companyId, area, recordId, userId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_record_shares_user ON record_shares (userId, companyId, area);
+            CREATE TABLE IF NOT EXISTS permission_audit (
+              id             INTEGER PRIMARY KEY AUTOINCREMENT,
+              companyId      TEXT,
+              holdingGroupId TEXT,
+              actorUserId    TEXT,
+              entity         TEXT NOT NULL,
+              entityId       TEXT NOT NULL,
+              before         TEXT,
+              after          TEXT,
+              at             TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_company ON permission_audit (companyId, id);
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_entity ON permission_audit (entity, entityId);
+          `);
+          this.authz.migrateAll();
+        },
+      },
+      {
+        // The manager line (authz/team.ts) is cached per company. Triggers keep
+        // a per-company counter that moves whenever an employee row changes who
+        // they are, who manages them, their status or their company (a
+        // WHEN guard skips no-op rewrites such as a name edit), so every
+        // writer is covered (raw SQL included) and every process sees it.
+        id: '151_team_version',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS team_versions (
+              companyId TEXT PRIMARY KEY,
+              version   INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_insert AFTER INSERT ON employees BEGIN
+              INSERT INTO team_versions (companyId, version) VALUES (NEW.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_update AFTER UPDATE OF managerId, userId, companyId, status ON employees
+              WHEN OLD.managerId IS NOT NEW.managerId OR OLD.userId IS NOT NEW.userId
+                OR OLD.companyId IS NOT NEW.companyId OR OLD.status IS NOT NEW.status BEGIN
+              INSERT INTO team_versions (companyId, version) VALUES (NEW.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+              INSERT INTO team_versions (companyId, version) VALUES (OLD.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS trg_team_version_delete AFTER DELETE ON employees BEGIN
+              INSERT INTO team_versions (companyId, version) VALUES (OLD.companyId, 1)
+                ON CONFLICT (companyId) DO UPDATE SET version = version + 1;
+            END;
+          `);
+        },
+      },
+      {
+        // Shadow-mode disagreements are pruned by age (store.pruneAuthzDivergences).
+        id: '152_authz_divergence_observed',
+        run: () => {
+          this.db.exec('CREATE INDEX IF NOT EXISTS idx_authz_divergence_observed ON authz_divergence (observedAt)');
+        },
+      },
+      {
+        // I-5: shadow also logs read-scope differences (kind 'scope', with both scopes).
+        id: '153_authz_divergence_kind',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(authz_divergence)').all() as Array<{ name: string }>).map((c) => c.name);
+          if (!cols.includes('kind')) this.db.exec(`ALTER TABLE authz_divergence ADD COLUMN kind TEXT NOT NULL DEFAULT 'access'`);
+          if (!cols.includes('legacyScope')) this.db.exec('ALTER TABLE authz_divergence ADD COLUMN legacyScope TEXT');
+          if (!cols.includes('newScope')) this.db.exec('ALTER TABLE authz_divergence ADD COLUMN newScope TEXT');
+        },
+      },
+      {
+        // A group is a company: companies get a parent, and each holding group
+        // gets the company that stands for it (spec 2026-11-02-group-as-company).
+        id: '154_company_tree',
+        run: () => {
+          const has = (table: string, column: string) =>
+            (this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some((c) => c.name === column);
+          if (!has('companies', 'parentCompanyId')) this.db.exec('ALTER TABLE companies ADD COLUMN parentCompanyId TEXT');
+          if (!has('holding_groups', 'companyId')) this.db.exec('ALTER TABLE holding_groups ADD COLUMN companyId TEXT');
+          this.holdingGroupsToTree();
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5412,6 +5619,93 @@ export class DataStore {
         markApplied.run(migration.id, new Date().toISOString());
       });
       trx();
+    });
+  }
+
+  /**
+   * Each holding group without its company gets one, named after the group,
+   * with the group's companies beneath it. Admins there: the group's admins
+   * and whoever is Admin in every company of the group. Nobody's access in an
+   * existing company changes.
+   */
+  private holdingGroupsToTree() {
+    const groups = this.db
+      .prepare('SELECT id, name FROM holding_groups WHERE companyId IS NULL ORDER BY createdAt')
+      .all() as Array<{ id: string; name: string }>;
+    for (const group of groups) {
+      const memberIds = (this.db.prepare('SELECT id FROM companies WHERE holdingGroupId = ?').all(group.id) as Array<{ id: string }>)
+        .map((r) => r.id);
+      const parent = this.createCompany({ name: group.name });
+      this.db.prepare('UPDATE companies SET holdingGroupId = ? WHERE id = ?').run(group.id, parent.id);
+      this.db.prepare('UPDATE holding_groups SET companyId = ? WHERE id = ?').run(parent.id, group.id);
+      const setParent = this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?');
+      memberIds.forEach((id) => setParent.run(parent.id, id));
+
+      const currencies = new Set(memberIds.map((id) => this.getCompanyFinanceSettings(id).currencyCode));
+      if (currencies.size === 1) {
+        this.db.prepare('UPDATE company_finance_settings SET currencyCode = ? WHERE companyId = ?').run([...currencies][0], parent.id);
+      }
+
+      const groupAdmins = new Set((this.db.prepare('SELECT userId FROM holding_group_admins WHERE holdingGroupId = ?').all(group.id) as Array<{ userId: string }>)
+        .map((r) => r.userId));
+      for (const user of this.listUsers()) {
+        const adminEverywhere = memberIds.length > 0
+          && memberIds.every((id) => this.companyRolesOf(user).find((r) => r.companyId === id)?.role === 'Admin');
+        if (groupAdmins.has(user.id) || adminEverywhere) this.addCompanyMembership(user.id, parent.id, 'Admin');
+      }
+    }
+  }
+
+  /** A person's role per company, read the way every other check reads it. */
+  private companyRolesOf(user: { role: string; companyIds?: string[]; companyRoles?: Array<{ companyId: string; role: string }> }) {
+    return user.companyRoles?.length
+      ? user.companyRoles
+      : (user.companyIds ?? []).map((companyId) => ({ companyId, role: user.role }));
+  }
+
+  /** Ends a person's membership in one company; their other memberships stay. */
+  removeCompanyMembership(userId: string, companyId: string) {
+    const user = this.getUserById(userId);
+    if (!user) return;
+    const roles = this.companyRolesOf(user);
+    if (!roles.some((r) => r.companyId === companyId) && !(user.companyIds ?? []).includes(companyId)) return;
+    // Written directly: updateUser reads an empty role list as "unchanged",
+    // so it can't take away someone's last membership.
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE users SET companyIds = ?, companyRoles = ? WHERE id = ?').run(
+        JSON.stringify((user.companyIds ?? []).filter((id) => id !== companyId)),
+        JSON.stringify(roles.filter((r) => r.companyId !== companyId)),
+        userId,
+      );
+      this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ? AND companyId = ?').run(userId, companyId);
+      this.bumpAuthzVersionInTrx();
+    })();
+  }
+
+  /**
+   * A group's administrators, in one step: they run the group's own company,
+   * so appointing gives Admin there and removing takes it back.
+   */
+  setGroupAdmins(holdingGroupId: string, userIds: string[], actorId: string | null) {
+    this.db.transaction(() => {
+      const before = this.authz.holdingGroup(holdingGroupId)?.adminUserIds ?? [];
+      this.authz.setHoldingAdmins(holdingGroupId, userIds, actorId);
+      const companyId = this.authz.holdingGroup(holdingGroupId)?.companyId;
+      if (!companyId) return;
+      userIds.forEach((id) => this.addCompanyMembership(id, companyId, 'Admin'));
+      before.filter((id) => !userIds.includes(id)).forEach((id) => this.removeCompanyMembership(id, companyId));
+    })();
+  }
+
+  /** Adds a company to a person's memberships with a role; an existing membership stays as it is. */
+  addCompanyMembership(userId: string, companyId: string, role: string) {
+    const user = this.getUserById(userId);
+    if (!user) return;
+    const roles = this.companyRolesOf(user);
+    if (roles.some((r) => r.companyId === companyId)) return;
+    this.updateUser(userId, {
+      companyIds: [...new Set([...(user.companyIds ?? []), companyId])],
+      companyRoles: [...roles, { companyId, role }] as any,
     });
   }
 
@@ -5827,6 +6121,7 @@ export class DataStore {
       companies.forEach(({ id }) => this.seedPermissionGroupsForCompanyInTrx(id));
       const users = this.db.prepare('SELECT id FROM users').all() as Array<{ id: string }>;
       users.forEach(({ id }) => this.syncUserGroupAssignmentsInTrx(id));
+      this.authz.migrateAll();
     });
     trx();
   }
@@ -6154,6 +6449,7 @@ export class DataStore {
       branding: readStoredBranding(row.branding),
       isTraining: row.isTraining === 1,
       trainingOwnerUserId: row.trainingOwnerUserId ?? undefined,
+      parentCompanyId: row.parentCompanyId ?? undefined,
     };
   }
 
@@ -6264,6 +6560,82 @@ export class DataStore {
     return this.getCompanyById(id);
   }
 
+  /**
+   * Puts a company under another (or at the top with null). The tree is the
+   * source of truth; each top company with children keeps one holding group
+   * covering its whole subtree, so group-wide roles follow every move.
+   */
+  setCompanyParent(childId: string, parentId: string | null, actorId: string | null): Company {
+    const child = this.getCompanyById(childId);
+    if (!child) throw new HttpError(404, 'Company not found.');
+    if (child.isTraining) throw new HttpError(400, 'A practice company cannot be part of a group.');
+    if (parentId !== null) {
+      const parent = this.getCompanyById(parentId);
+      if (!parent) throw new HttpError(400, 'The parent company does not exist.');
+      if (parent.isTraining) throw new HttpError(400, 'A practice company cannot be part of a group.');
+      if (wouldCycle(this.listCompanies(), childId, parentId)) {
+        throw new HttpError(400, 'A company cannot sit under itself or under a company below it.');
+      }
+    }
+    this.db.transaction(() => {
+      const oldTop = topOf(this.listCompanies(), childId);
+      // A group company moved under another group stops standing for its old
+      // holding group: that group's people must not come back with a later move.
+      const ownGroup = parentId !== null ? this.authz.holdingGroupForCompany(childId) : null;
+      this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?').run(parentId, childId);
+      const companies = this.listCompanies();
+      const newTop = topOf(companies, childId);
+      // The moved companies leave any group that isn't their new top's.
+      const keep = this.authz.holdingGroupForCompany(newTop);
+      for (const id of subtreeIds(companies, childId)) {
+        const now = this.groupOfCompany(id);
+        if (now && now !== keep) this.authz.detachCompany(id, actorId);
+      }
+      if (ownGroup) this.db.prepare('UPDATE holding_groups SET companyId = NULL WHERE id = ?').run(ownGroup);
+      // Only companies that are still at the top keep a holding group.
+      const tops = new Set([oldTop, newTop].filter((id) => !companies.find((c) => c.id === id)?.parentCompanyId));
+      tops.forEach((top) => this.syncHoldingGroup(top, actorId));
+    })();
+    return this.getCompanyById(childId)!;
+  }
+
+  /** Brings a top company's holding group in line with its subtree. */
+  private syncHoldingGroup(topId: string, actorId: string | null) {
+    const companies = this.listCompanies();
+    const members = subtreeIds(companies, topId);
+    const hasChildren = childIds(companies, topId).length > 0;
+    const current = this.authz.holdingGroupForCompany(topId);
+    if (!hasChildren) {
+      if (current && this.groupOfCompany(topId) === current) this.authz.detachCompany(topId, actorId);
+      return;
+    }
+    const top = companies.find((c) => c.id === topId)!;
+    const groupId = this.authz.ensureHoldingGroupFor(topId, top.name, actorId);
+    for (const id of members) {
+      const now = this.groupOfCompany(id);
+      if (now === groupId) continue;
+      if (now) this.authz.detachCompany(id, actorId);
+      this.authz.attachCompany(groupId, id, actorId);
+    }
+  }
+
+  private groupOfCompany(companyId: string): string | null {
+    const row = this.db.prepare('SELECT holdingGroupId FROM companies WHERE id = ?').get(companyId) as { holdingGroupId: string | null } | undefined;
+    return row?.holdingGroupId ?? null;
+  }
+
+  /** A new group: its holding group and the company that stands for it, run by its creator. */
+  createGroupCompany(name: string, actorId: string | null, nameAr: string | null = null): { company: Company; holdingGroupId: string } {
+    return this.db.transaction(() => {
+      const group = this.authz.createHoldingGroup({ name, nameAr }, actorId);
+      const company = this.createCompany({ name: group.name });
+      this.db.prepare('UPDATE holding_groups SET companyId = ? WHERE id = ?').run(company.id, group.id);
+      this.authz.attachCompany(group.id, company.id, actorId);
+      if (actorId) this.addCompanyMembership(actorId, company.id, 'Admin');
+      return { company: this.getCompanyById(company.id)!, holdingGroupId: group.id };
+    })();
+  }
+
   /** Saves a company's brand; null puts TaskFlow's look back. */
   updateCompanyBranding(id: string, branding: CompanyBranding | null): Company | undefined {
     const result = this.db
@@ -6287,12 +6659,29 @@ export class DataStore {
            (SELECT id FROM permission_groups WHERE companyId = ?)`,
       )
       .run(companyId);
+    for (const table of ['role_permissions', 'role_fields']) {
+      this.db
+        .prepare(`DELETE FROM ${table} WHERE groupId IN (SELECT id FROM permission_groups WHERE companyId = ?)`)
+        .run(companyId);
+    }
     this.db.prepare('DELETE FROM user_group_assignments WHERE companyId = ?').run(companyId);
     this.db.prepare('DELETE FROM permission_groups WHERE companyId = ?').run(companyId);
     this.bumpAuthzVersionInTrx();
   }
 
   deleteCompany(id: string, options: { cascade?: boolean } = {}) {
+    // The tree first: a group keeps its companies, so it can't go before they do.
+    const companies = this.listCompanies();
+    if (childIds(companies, id).length) {
+      throw new HttpError(409, 'Move the companies under this group out first, then delete it.');
+    }
+    const parentId = companies.find((c) => c.id === id)?.parentCompanyId ?? null;
+    this.deleteCompanyRows(id, options);
+    this.db.prepare('UPDATE holding_groups SET companyId = NULL WHERE companyId = ?').run(id);
+    if (parentId && this.getCompanyById(parentId)) this.syncHoldingGroup(topOf(this.listCompanies(), parentId), null);
+  }
+
+  private deleteCompanyRows(id: string, options: { cascade?: boolean }) {
     if (!options.cascade) {
       // Non-cascade: remove only the company record. Related rows are left in
       // place (they simply stop appearing once the company is gone). Still
@@ -6423,8 +6812,7 @@ export class DataStore {
   }
 
   // ── Permission groups ──────────────────────────────────────────────
-  // SQL is the source of truth for groups, grants and assignments; OpenFGA
-  // holds a projection of them. Every mutation here bumps authz_version, which
+  // SQL is the source of truth for groups, grants and assignments. Every mutation here bumps authz_version, which
   // is what invalidates the in-process permission cache across pm2 workers.
 
   /**
@@ -6458,6 +6846,7 @@ export class DataStore {
           insertPerm.run(group.id, module, action);
         });
       });
+      this.authz.migrateCompanyRoles(companyId, { custom: false });
       this.bumpAuthzVersionInTrx();
     });
     trx();
@@ -6470,13 +6859,23 @@ export class DataStore {
    * authoritative. Assignments to non-system groups are left alone — those are
    * deliberate admin choices, not derived from the role.
    */
-  syncUserGroupAssignments(userId: string): void {
-    const trx = this.db.transaction(() => this.syncUserGroupAssignmentsInTrx(userId));
+  syncUserGroupAssignments(userId: string, roleChanged: ReadonlySet<string> = new Set()): void {
+    const trx = this.db.transaction(() => this.syncUserGroupAssignmentsInTrx(userId, roleChanged));
     trx();
   }
 
-  /** Transaction-free variant, for callers that already hold one (migrations). */
-  private syncUserGroupAssignmentsInTrx(userId: string): void {
+  /**
+   * Transaction-free variant, for callers that already hold one (migrations).
+   *
+   * A custom main role (set in the People screen) is a deliberate choice the
+   * legacy role list does not express: in a company where the person has one,
+   * the sync leaves their assignments alone, unless the legacy role there is
+   * what just changed (roleChanged), when the standard role follows it as
+   * before. Otherwise any later write to companyRoles (a position change, a
+   * role change in another company, authz:repair) would put the standard role
+   * back as main and widen the person under v2.
+   */
+  private syncUserGroupAssignmentsInTrx(userId: string, roleChanged: ReadonlySet<string> = new Set()): void {
     const row = this.db
       .prepare('SELECT id, role, companyIds, companyRoles FROM users WHERE id = ?')
       .get(userId) as
@@ -6497,25 +6896,30 @@ export class DataStore {
     {
       assignments.forEach(({ companyId, role }) => {
         this.seedPermissionGroupsForCompanyInTrx(companyId);
+        const replaceCustom = roleChanged.has(companyId);
+        if (!replaceCustom && this.authz.hasCustomMain(userId, companyId)) return;
         const key = String(role || '').toLowerCase();
         const target = this.getPermissionGroupByKey(companyId, key);
         if (!target) return;
         // Drop any other *system* group in this company, so a promoted user
-        // does not keep their previous role's grants.
+        // does not keep their previous role's grants. An Owner assignment
+        // (given in the People screen) stands for legacy Admin and stays
+        // while the legacy role is Admin.
         this.db
           .prepare(
             `DELETE FROM user_group_assignments
               WHERE userId = ? AND companyId = ? AND groupId IN (
                 SELECT id FROM permission_groups
-                 WHERE companyId = ? AND isSystem = 1 AND id != ?
+                 WHERE companyId = ? AND isSystem = 1 AND id != ? AND NOT (key = 'owner' AND ? = 'admin')
               )`,
           )
-          .run(userId, companyId, companyId, target.id);
+          .run(userId, companyId, companyId, target.id, key);
         this.db
           .prepare(
             'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
           )
           .run(userId, companyId, target.id);
+        this.authz.syncMainAssignment(userId, companyId, null, { replaceCustom });
       });
       this.bumpAuthzVersionInTrx();
     }
@@ -6553,6 +6957,7 @@ export class DataStore {
         insertPerm.run(group.id, module, action);
       });
     });
+    this.authz.migrateCompanyRoles(companyId, { custom: false });
   }
 
   createPermissionGroup(input: {
@@ -6588,9 +6993,16 @@ export class DataStore {
     return row;
   }
 
+  /**
+   * Legacy listing. Leaves out the v2-only Owner role (migration 137): it has
+   * no legacy grants and no legacy role maps to it, so the old screens never
+   * offer it. Nor the read-only copies of holding-group roles (Task 8): the
+   * group manages them. store.authz.listRoles is the v2 listing.
+   */
   listPermissionGroups(companyId: string) {
     return this.db
-      .prepare('SELECT * FROM permission_groups WHERE companyId = ? ORDER BY name ASC')
+      .prepare(`SELECT * FROM permission_groups WHERE companyId = ?
+                  AND NOT (isSystem = 1 AND key = 'owner') AND holdingGroupId IS NULL ORDER BY name ASC`)
       .all(companyId) as Array<{
       id: string;
       companyId: string;
@@ -6643,6 +7055,7 @@ export class DataStore {
           'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
         )
         .run(userId, companyId, groupId);
+      this.authz.syncMainAssignment(userId, companyId);
       this.bumpAuthzVersionInTrx();
     });
     trx();
@@ -6664,8 +7077,8 @@ export class DataStore {
    * Effective permissions for one user in one company, with implications
    * resolved. UNION rather than UNION ALL is what makes an A->B->A cycle
    * terminate: a group id already seen is discarded instead of re-expanded.
-   * The admin UI reads this for display; authorization decisions come from
-   * OpenFGA, never from here.
+   * The admin UI reads this for display; authorization decisions under
+   * the v2 engine come from authz/evaluate.ts.
    */
   getEffectivePermissions(userId: string, companyId: string): string[] {
     const rows = this.db
@@ -6696,99 +7109,6 @@ export class DataStore {
       .all(userId, companyId) as Array<{ id: string; key: string; name: string }>;
   }
 
-  // ── Tuple projection sources ───────────────────────────────────────
-  // Read models for building the OpenFGA tuple set. Exposed as methods so the
-  // projection code never has to reach into the private database handle.
-
-  listAllGroupAssignments(companyId?: string) {
-    const sql = 'SELECT userId, companyId, groupId FROM user_group_assignments'
-      + (companyId ? ' WHERE companyId = ?' : '');
-    return (companyId
-      ? this.db.prepare(sql).all(companyId)
-      : this.db.prepare(sql).all()) as Array<{
-      userId: string; companyId: string; groupId: string;
-    }>;
-  }
-
-  listAllGroupImplications(companyId?: string) {
-    if (!companyId) {
-      return this.db
-        .prepare('SELECT parentGroupId, childGroupId FROM group_implications')
-        .all() as Array<{ parentGroupId: string; childGroupId: string }>;
-    }
-    return this.db
-      .prepare(
-        `SELECT gi.parentGroupId, gi.childGroupId FROM group_implications gi
-           JOIN permission_groups pg ON pg.id = gi.parentGroupId
-          WHERE pg.companyId = ?`,
-      )
-      .all(companyId) as Array<{ parentGroupId: string; childGroupId: string }>;
-  }
-
-  listAllGroupGrants(companyId?: string) {
-    const sql = `SELECT gp.groupId, gp.module, gp.action, pg.companyId
-                   FROM group_permissions gp
-                   JOIN permission_groups pg ON pg.id = gp.groupId`
-      + (companyId ? ' WHERE pg.companyId = ?' : '');
-    return (companyId
-      ? this.db.prepare(sql).all(companyId)
-      : this.db.prepare(sql).all()) as Array<{
-      groupId: string; module: string; action: string; companyId: string;
-    }>;
-  }
-
-  listSuperAdminCompanyPairs(companyId?: string) {
-    const rows = this.db
-      .prepare('SELECT id, companyIds FROM users WHERE isSuperAdmin = 1')
-      .all() as Array<{ id: string; companyIds: string }>;
-    return rows.flatMap((row) =>
-      (this.parseJson<string[]>(row.companyIds) || [])
-        .filter((id) => !companyId || id === companyId)
-        .map((id) => ({ userId: row.id, companyId: id })),
-    );
-  }
-
-  // ── FGA outbox ─────────────────────────────────────────────────────
-
-  /** Appends tuple deltas. Call inside the same transaction as the SQL change. */
-  enqueueFgaTuples(op: 'write' | 'delete', tuples: Array<Record<string, string>>): void {
-    if (!tuples.length) return;
-    const insert = this.db.prepare(
-      'INSERT INTO fga_outbox (op, tuple, createdAt) VALUES (?, ?, ?)',
-    );
-    const now = new Date().toISOString();
-    const trx = this.db.transaction(() => {
-      tuples.forEach((t) => insert.run(op, JSON.stringify(t), now));
-    });
-    trx();
-  }
-
-  takeFgaOutboxBatch(limit = 100) {
-    return this.db
-      .prepare('SELECT id, op, tuple FROM fga_outbox ORDER BY id ASC LIMIT ?')
-      .all(limit) as Array<{ id: number; op: string; tuple: string }>;
-  }
-
-  deleteFgaOutboxRows(ids: number[]): void {
-    if (!ids.length) return;
-    const remove = this.db.prepare('DELETE FROM fga_outbox WHERE id = ?');
-    const trx = this.db.transaction(() => ids.forEach((id) => remove.run(id)));
-    trx();
-  }
-
-  markFgaOutboxFailure(ids: number[], message: string): void {
-    if (!ids.length) return;
-    const bump = this.db.prepare(
-      'UPDATE fga_outbox SET attempts = attempts + 1, lastError = ? WHERE id = ?',
-    );
-    const trx = this.db.transaction(() => ids.forEach((id) => bump.run(message, id)));
-    trx();
-  }
-
-  countFgaOutbox(): number {
-    return (this.db.prepare('SELECT COUNT(*) c FROM fga_outbox').get() as { c: number }).c;
-  }
-
   /**
    * Runs fn inside a database transaction, rolling back if it throws.
    *
@@ -6817,26 +7137,6 @@ export class DataStore {
       | undefined;
   }
 
-  updatePermissionGroup(
-    id: string,
-    updates: { name?: string; nameAr?: string; description?: string },
-  ): void {
-    const existing = this.getPermissionGroupById(id);
-    if (!existing) return;
-    const trx = this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE permission_groups SET name = ?, nameAr = ?, description = ? WHERE id = ?')
-        .run(
-          updates.name ?? existing.name,
-          updates.nameAr ?? existing.nameAr,
-          updates.description ?? existing.description,
-          id,
-        );
-      this.bumpAuthzVersionInTrx();
-    });
-    trx();
-  }
-
   /**
    * Keys of built-in groups an administrator deleted in this company.
    *
@@ -6859,18 +7159,6 @@ export class DataStore {
     return !this.deletedBuiltInGroupKeys(companyId).has(String(role).toLowerCase());
   }
 
-  /** Names of the groups that inherit from this one, whose members would lose access if it went. */
-  listGroupsInheriting(groupId: string): string[] {
-    return (this.db
-      .prepare(
-        `SELECT pg.name FROM group_implications gi
-           JOIN permission_groups pg ON pg.id = gi.parentGroupId
-          WHERE gi.childGroupId = ?
-          ORDER BY pg.name`,
-      )
-      .all(groupId) as Array<{ name: string }>).map((row) => row.name);
-  }
-
   deletePermissionGroup(id: string): void {
     const group = this.getPermissionGroupById(id);
     const trx = this.db.transaction(() => {
@@ -6878,6 +7166,8 @@ export class DataStore {
         .prepare('DELETE FROM group_implications WHERE parentGroupId = ? OR childGroupId = ?')
         .run(id, id);
       this.db.prepare('DELETE FROM group_permissions WHERE groupId = ?').run(id);
+      this.db.prepare('DELETE FROM role_permissions WHERE groupId = ?').run(id);
+      this.db.prepare('DELETE FROM role_fields WHERE groupId = ?').run(id);
       this.db.prepare('DELETE FROM user_group_assignments WHERE groupId = ?').run(id);
       this.db.prepare('DELETE FROM permission_groups WHERE id = ?').run(id);
       if (group && Number(group.isSystem) === 1) {
@@ -6900,31 +7190,6 @@ export class DataStore {
     ).map((r) => `${r.module}:${r.action}`);
   }
 
-  /** Alias used where the caller is reasoning about a hypothetical assignment. */
-  listGroupPermissionKeys(groupId: string): string[] {
-    return this.listGroupPermissions(groupId);
-  }
-
-  listGroupImplications(parentGroupId: string): string[] {
-    return (
-      this.db
-        .prepare('SELECT childGroupId FROM group_implications WHERE parentGroupId = ?')
-        .all(parentGroupId) as Array<{ childGroupId: string }>
-    ).map((r) => r.childGroupId);
-  }
-
-  setGroupImplications(parentGroupId: string, childGroupIds: string[]): void {
-    const trx = this.db.transaction(() => {
-      this.db.prepare('DELETE FROM group_implications WHERE parentGroupId = ?').run(parentGroupId);
-      const insert = this.db.prepare(
-        'INSERT OR IGNORE INTO group_implications (parentGroupId, childGroupId) VALUES (?, ?)',
-      );
-      childGroupIds.forEach((childId) => insert.run(parentGroupId, childId));
-      this.bumpAuthzVersionInTrx();
-    });
-    trx();
-  }
-
   countGroupMembers(groupId: string): number {
     return (
       this.db
@@ -6943,6 +7208,7 @@ export class DataStore {
         'INSERT OR IGNORE INTO user_group_assignments (userId, companyId, groupId) VALUES (?, ?, ?)',
       );
       groupIds.forEach((groupId) => insert.run(userId, companyId, groupId));
+      this.authz.syncMainAssignment(userId, companyId);
       this.bumpAuthzVersionInTrx();
     });
     trx();
@@ -6969,6 +7235,7 @@ export class DataStore {
     return trx();
   }
 
+  /** One shadow-mode disagreement; the v2 answer lives in the openfgaAllowed column. */
   recordAuthzDivergence(entry: {
     userId: string;
     companyId: string;
@@ -6976,13 +7243,16 @@ export class DataStore {
     action: string;
     route: string;
     legacyAllowed: boolean;
-    openfgaAllowed: boolean;
+    newAllowed: boolean;
+    kind?: 'access' | 'scope';
+    legacyScope?: string | null;
+    newScope?: string | null;
   }): void {
     this.db
       .prepare(
         `INSERT INTO authz_divergence
-           (userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (userId, companyId, module, action, route, legacyAllowed, openfgaAllowed, observedAt, kind, legacyScope, newScope)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.userId,
@@ -6991,9 +7261,18 @@ export class DataStore {
         entry.action,
         entry.route,
         entry.legacyAllowed ? 1 : 0,
-        entry.openfgaAllowed ? 1 : 0,
+        entry.newAllowed ? 1 : 0,
         new Date().toISOString(),
+        entry.kind ?? 'access',
+        entry.legacyScope ?? null,
+        entry.newScope ?? null,
       );
+  }
+
+  /** Drops shadow disagreements older than `days` (kept for the shadow week and a little after). */
+  pruneAuthzDivergences(days = 14): number {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    return this.db.prepare('DELETE FROM authz_divergence WHERE observedAt < ?').run(cutoff).changes;
   }
 
   listAuthzDivergences(limit = 200) {
@@ -7219,7 +7498,18 @@ export class DataStore {
       ? `${after.role}|${after.companyRoles ?? after.companyIds}`
       : roleSignatureBefore;
     if (roleSignatureAfter !== roleSignatureBefore) {
-      this.syncUserGroupAssignments(userId);
+      // The companies whose legacy role itself changed (not just a position).
+      // Read as the sync reads them: companyRoles, else companyIds with role.
+      const roleOf = (row: { role: string; companyRoles: string | null; companyIds: string }) => {
+        const list = this.parseJson<Array<{ companyId: string; role: string }>>(row.companyRoles) || [];
+        return new Map(list.length
+          ? list.map((r) => [r.companyId, String(r.role)] as const)
+          : (this.parseJson<string[]>(row.companyIds) || []).map((id) => [id, String(row.role)] as const));
+      };
+      const beforeRoles = roleOf(existing);
+      const afterRoles = roleOf(after!);
+      const roleChanged = new Set([...afterRoles].filter(([id, role]) => beforeRoles.get(id) !== role).map(([id]) => id));
+      this.syncUserGroupAssignments(userId, roleChanged);
     }
     return this.getUserById(userId);
   }
@@ -7256,7 +7546,11 @@ export class DataStore {
       throw new Error(`This user owns ${privateTasks} private task(s). Reassign them or make them visible before deleting the user.`);
     }
     const trx = this.db.transaction(() => {
+      this.authz.recordUserRemoval(userId, this.currentActor?.userId ?? null);
       this.db.prepare('DELETE FROM user_group_assignments WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM holding_group_admins WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM holding_group_assignments WHERE userId = ?').run(userId);
+      this.db.prepare('DELETE FROM record_shares WHERE userId = ?').run(userId);
       this.scrubIdFromJsonArray('tasks', 'assignedUserIds', userId);
       this.scrubIdFromJsonArray('projects', 'memberIds', userId);
       this.db.prepare('DELETE FROM tokens WHERE userId = ?').run(userId);
@@ -7466,6 +7760,39 @@ export class DataStore {
     const parts = this.taskParts.byTask();
     const checklists = this.taskChecklist.counts();
     return rows.map((r) => this.decodeTask(r, parts, checklists));
+  }
+
+  /**
+   * Projects visible to a person across several companies, in table order:
+   * each entry is a company and the Effective that decides there
+   * (authz/visible.ts, in SQL). `where` narrows further (bound, never pasted).
+   */
+  listVisibleProjects(parts: Array<{ companyId: string; viewer: Effective }>, where?: { sql: string; params: unknown[] }): Project[] {
+    if (parts.length === 0) return [];
+    const clauses = parts.map(({ companyId, viewer }) => {
+      const f = visible(viewer, 'projects', companyId, { alias: 'p' });
+      return { sql: `(p.companyId = ? AND ${f.sql})`, params: [companyId, ...f.params] };
+    });
+    const rows = this.db
+      .prepare(`SELECT p.* FROM projects p WHERE (${clauses.map((c) => c.sql).join(' OR ')})${where ? ` AND (${where.sql})` : ''}`)
+      .all(...clauses.flatMap((c) => c.params), ...(where?.params ?? [])) as any[];
+    return rows.map((r) => this.decodeProject(r));
+  }
+
+  /** Tasks visible to a person across several companies (see listVisibleProjects). */
+  listVisibleTasks(
+    parts: Array<{ companyId: string; viewer: Effective; platformSupport?: boolean }>,
+    where?: { sql: string; params: unknown[] },
+  ): Task[] {
+    if (parts.length === 0) return [];
+    const clauses = parts.map(({ companyId, viewer, platformSupport }) => {
+      const f = visible(viewer, 'tasks', companyId, { alias: 't', platformSupport });
+      return { sql: `(t.companyId = ? AND ${f.sql})`, params: [companyId, ...f.params] };
+    });
+    const rows = this.db
+      .prepare(`SELECT t.* FROM tasks t WHERE (${clauses.map((c) => c.sql).join(' OR ')})${where ? ` AND (${where.sql})` : ''}`)
+      .all(...clauses.flatMap((c) => c.params), ...(where?.params ?? [])) as any[];
+    return rows.map((r) => this.decodeTask(r));
   }
 
   getTaskById(id: string): Task | undefined {
@@ -8185,18 +8512,18 @@ export class DataStore {
 
   // ─── Contacts ────────────────────────────────────────────────────────────
 
+  /**
+   * A company's contacts. With `viewer`, only those that person may see
+   * (authz/visible.ts, applied in SQL); without, every one (internal use).
+   */
   listContacts(
     companyId: string,
     roleFilter?: ContactRoleType,
-    viewer?: { userId: string; seesPrivate: boolean },
+    viewer?: Effective,
   ): Contact[] {
-    // Private contacts are visible to their owner, or to holders of contacts:private.read
-    const visibilityClause =
-      viewer && !viewer.seesPrivate
-        ? `AND (c.visibility = 'Public' OR c.ownerUserId = ?)`
-        : '';
-    // Bound, never pasted into the SQL: user ids can come from API callers.
-    const visibilityParams = viewer && !viewer.seesPrivate ? [viewer.userId] : [];
+    const filter = viewer ? visible(viewer, 'contacts', companyId, { alias: 'c' }) : undefined;
+    const visibilityClause = filter ? `AND ${filter.sql}` : '';
+    const visibilityParams = filter ? filter.params : [];
 
     let rows: any[];
     if (roleFilter) {
@@ -8506,13 +8833,17 @@ export class DataStore {
     }
   }
 
-  addContactRole(contactId: string, companyId: string, role: ContactRoleType, source: ContactRoleSource = 'Manual'): void {
+  /**
+   * `keepVisibility`: the role is a side effect of linking the contact to a
+   * campaign, which is no reason to show a private contact to everyone (I-4).
+   */
+  addContactRole(contactId: string, companyId: string, role: ContactRoleType, source: ContactRoleSource = 'Manual', options: { keepVisibility?: boolean } = {}): void {
     this.db.prepare(
       `INSERT OR IGNORE INTO contact_roles (id, contactId, companyId, role, source, createdAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(uuid(), contactId, companyId, role, source, new Date().toISOString());
     // When a real business relationship is established, auto-promote to Public
-    if (['Client', 'Vendor', 'Partner'].includes(role)) {
+    if (!options.keepVisibility && ['Client', 'Vendor', 'Partner'].includes(role)) {
       this.db.prepare(`UPDATE contacts SET visibility = 'Public', updatedAt = ? WHERE id = ?`)
         .run(new Date().toISOString(), contactId);
     }
@@ -10652,24 +10983,31 @@ export class DataStore {
 
 	  // ─── CRM Pipeline / Vendor Requests / Commissions ───────────────────────
 
-		  listOpportunities(companyId: string): Opportunity[] {
+		  /** With `viewer`, only the opportunities that person may see (authz/visible.ts). */
+		  listOpportunities(companyId: string, viewer?: Effective): Opportunity[] {
+		    const f = this.visibleWhere(viewer, 'opportunities', companyId, 'o');
 		    const rows = this.db
-		      .prepare('SELECT * FROM opportunities WHERE companyId = ? ORDER BY updatedAt DESC')
-		      .all(companyId) as any[];
+		      .prepare(`SELECT o.* FROM opportunities o WHERE o.companyId = ?${f.sql} ORDER BY o.updatedAt DESC`)
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeOpportunity(row));
 		  }
 
-		  getCrmDashboardSummary(companyId: string, ownerUserId?: string): CrmDashboardSummary {
-		    const contacts = this.listContacts(companyId).filter((contact) => !ownerUserId || contact.ownerUserId === ownerUserId);
-		    const opportunities = this.listOpportunities(companyId).filter((opportunity) => !ownerUserId || opportunity.ownerUserId === ownerUserId);
-		    const tasks = this.listTasks().filter((task) => {
+		  /**
+		   * CRM figures for a company, or one owner's. With `viewer`, every figure
+		   * counts only what that person may see (authz/visible.ts), so a total
+		   * never includes a record they could not open.
+		   */
+		  getCrmDashboardSummary(companyId: string, ownerUserId?: string, viewer?: Effective): CrmDashboardSummary {
+		    const contacts = this.listContacts(companyId, undefined, viewer).filter((contact) => !ownerUserId || contact.ownerUserId === ownerUserId);
+		    const opportunities = this.listOpportunities(companyId, viewer).filter((opportunity) => !ownerUserId || opportunity.ownerUserId === ownerUserId);
+		    const tasks = (viewer ? this.listVisibleTasks([{ companyId, viewer }]) : this.listTasks()).filter((task) => {
 		      if (task.companyId !== companyId) return false;
 		      if (!ownerUserId) return true;
 		      return (task.assignedUserIds || []).includes(ownerUserId);
 		    });
-		    const followups = this.listFollowups(companyId, { ownerUserId, limit: 500 });
-		    const vendorRequests = this.listVendorRequests(companyId).filter((request) => !ownerUserId || request.requestedByUserId === ownerUserId);
-		    const commissions = this.listCommissions(companyId).filter((commission) => !ownerUserId || commission.userId === ownerUserId);
+		    const followups = this.listFollowups(companyId, { ownerUserId, limit: 500, viewer });
+		    const vendorRequests = this.listVendorRequests(companyId, viewer).filter((request) => !ownerUserId || request.requestedByUserId === ownerUserId);
+		    const commissions = this.listCommissions(companyId, viewer).filter((commission) => !ownerUserId || commission.userId === ownerUserId);
 		    const now = new Date();
 
 		    const openStages: OpportunityStage[] = ['New', 'Qualified', 'Proposal', 'Negotiation'];
@@ -11080,10 +11418,12 @@ export class DataStore {
 		    return `PROP-${String(Number(countRow?.count || 0) + 1).padStart(5, '0')}`;
 		  }
 
-		  listCrmProposals(companyId: string): CrmProposal[] {
+		  /** With `viewer`, only the proposals that person may see (authz/visible.ts). */
+		  listCrmProposals(companyId: string, viewer?: Effective): CrmProposal[] {
+		    const f = this.visibleWhere(viewer, 'proposals', companyId, 'p');
 		    const rows = this.db
-		      .prepare('SELECT * FROM crm_proposals WHERE companyId = ? ORDER BY updatedAt DESC')
-		      .all(companyId) as any[];
+		      .prepare(`SELECT p.* FROM crm_proposals p WHERE p.companyId = ?${f.sql} ORDER BY p.updatedAt DESC`)
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeCrmProposal(row));
 		  }
 
@@ -11333,14 +11673,14 @@ export class DataStore {
 		    return true;
 		  }
 
-		  listCrmCampaigns(companyId: string, includeArchived = false): CrmCampaign[] {
+		  /** With `viewer`, only the campaigns that person may see (authz/visible.ts). */
+		  listCrmCampaigns(companyId: string, includeArchived = false, viewer?: Effective): CrmCampaign[] {
+		    const f = this.visibleWhere(viewer, 'campaigns', companyId, 'k');
 		    const rows = this.db
 		      .prepare(
-		        includeArchived
-		          ? 'SELECT * FROM crm_campaigns WHERE companyId = ? ORDER BY updatedAt DESC'
-		          : 'SELECT * FROM crm_campaigns WHERE companyId = ? AND archivedAt IS NULL ORDER BY updatedAt DESC',
+		        `SELECT k.* FROM crm_campaigns k WHERE k.companyId = ?${includeArchived ? '' : ' AND k.archivedAt IS NULL'}${f.sql} ORDER BY k.updatedAt DESC`,
 		      )
-		      .all(companyId) as any[];
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeCrmCampaign(row));
 		  }
 
@@ -11659,7 +11999,7 @@ export class DataStore {
 		          (@id, @companyId, @campaignId, @contactId, @role, @agreedRate, @status, @notes, @createdAt, @updatedAt)`,
 		      )
 		      .run(this.serializeCampaignAssignment(assignment));
-		    this.addContactRole(input.contactId, input.companyId, input.role, 'Manual');
+		    this.addContactRole(input.contactId, input.companyId, input.role, 'Manual', { keepVisibility: true });
 		    return assignment;
 		  }
 
@@ -11770,10 +12110,12 @@ export class DataStore {
 		    return this.db.prepare('DELETE FROM campaign_expenses WHERE id = ?').run(id).changes > 0;
 		  }
 
-			  listVendorRequests(companyId: string): VendorRequest[] {
+			  /** With `viewer`, only the vendor requests that person may see (authz/visible.ts). */
+			  listVendorRequests(companyId: string, viewer?: Effective): VendorRequest[] {
+	    const f = this.visibleWhere(viewer, 'vendor_requests', companyId, 'v');
 	    const rows = this.db
-	      .prepare('SELECT * FROM vendor_requests WHERE companyId = ? ORDER BY createdAt DESC')
-	      .all(companyId) as any[];
+	      .prepare(`SELECT v.* FROM vendor_requests v WHERE v.companyId = ?${f.sql} ORDER BY v.createdAt DESC`)
+	      .all(companyId, ...f.params) as any[];
 	    return rows.map((row) => this.decodeVendorRequest(row));
 	  }
 
@@ -12574,10 +12916,12 @@ export class DataStore {
 	    return decoded[0];
 	  }
 
-		  listCommissions(companyId: string): Commission[] {
+		  /** With `viewer`, only the commissions that person may see (authz/visible.ts). */
+		  listCommissions(companyId: string, viewer?: Effective): Commission[] {
+		    const f = this.visibleWhere(viewer, 'commissions', companyId, 'm');
 		    const rows = this.db
-		      .prepare('SELECT * FROM commissions WHERE companyId = ? ORDER BY calculatedAt DESC')
-		      .all(companyId) as any[];
+		      .prepare(`SELECT m.* FROM commissions m WHERE m.companyId = ?${f.sql} ORDER BY m.calculatedAt DESC`)
+		      .all(companyId, ...f.params) as any[];
 		    return rows.map((row) => this.decodeCommission(row));
 		  }
 
@@ -15554,11 +15898,17 @@ export class DataStore {
 
   listWhatsappMessages(
     companyId: string,
-    options: { chatId?: string; contactId?: string; phone?: string; limit?: number } = {},
+    options: { chatId?: string; contactId?: string; phone?: string; limit?: number; viewer?: Effective } = {},
   ): WhatsAppMessage[] {
     const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
     const conditions: string[] = ['companyId = ?'];
     const params: any[] = [companyId];
+    // Only messages of chats the viewer may see (a private chat is its owner's).
+    if (options.viewer) {
+      const f = visible(options.viewer, 'whatsapp_chats', companyId, { alias: 'whatsapp_messages' });
+      conditions.push(f.sql);
+      params.push(...f.params);
+    }
     if (options.chatId) {
       conditions.push('chatId = ?');
       params.push(options.chatId);
@@ -15647,21 +15997,6 @@ export class DataStore {
       });
     });
     return map;
-  }
-
-  /**
-   * True if the viewer is allowed to see this chat under its current
-   * privacy setting. Admin and Manager always see all; Employee sees only
-   * shared chats and private chats they own.
-   */
-  canViewWhatsappChat(
-    settings: WhatsAppChatSettings,
-    viewer: { userId: string; seesPrivate: boolean } | undefined,
-  ): boolean {
-    if (!viewer) return false;
-    if (settings.visibility !== 'private') return true;
-    if (viewer.seesPrivate) return true;
-    return settings.ownerUserId === viewer.userId;
   }
 
   /** Best-effort lookup of a contact id for a given phone number. */
@@ -15768,7 +16103,7 @@ export class DataStore {
 
   listWhatsappChats(
     companyId: string,
-    viewer?: { userId: string; seesPrivate: boolean },
+    viewer?: Effective,
   ): Array<{
     chatId: string;
     phone: string;
@@ -15782,6 +16117,11 @@ export class DataStore {
     visibility: WhatsAppChatVisibility;
     ownerUserId?: string;
   }> {
+    // With a viewer, only the chats that person may see (authz/visible.ts).
+    const chatFilter = viewer ? (() => {
+      const f = visible(viewer, 'whatsapp_chats', companyId, { alias: 'm' });
+      return { sql: ` AND ${f.sql}`, params: f.params };
+    })() : { sql: '', params: [] as unknown[] };
     const rows = this.db
       .prepare(
         `SELECT
@@ -15791,11 +16131,11 @@ export class DataStore {
            COUNT(*) as messageCount,
            SUM(CASE WHEN m.direction = 'inbound' AND m.readAt IS NULL THEN 1 ELSE 0 END) as unreadCount
          FROM whatsapp_messages m
-         WHERE m.companyId = ?
+         WHERE m.companyId = ?${chatFilter.sql}
          GROUP BY m.chatId
          ORDER BY lastAt DESC`,
       )
-      .all(companyId) as any[];
+      .all(companyId, ...chatFilter.params) as any[];
 
     const lastMessageStmt = this.db.prepare(
       `SELECT body, direction, contactId
@@ -15828,7 +16168,6 @@ export class DataStore {
         ownerUserId: undefined,
         updatedAt: new Date(0),
       };
-      if (viewer && !this.canViewWhatsappChat(settings, viewer)) return;
       const last = lastMessageStmt.get(companyId, row.chatId) as any;
       const contactId = last?.contactId || undefined;
       const contactName = contactId
@@ -19836,8 +20175,14 @@ export class DataStore {
     );
   }
 
-  private mapActivityItems(events: ActivityEvent[]): DashboardActivityItem[] {
-    return events.slice(0, 8).map((event) => ({
+  /**
+   * Dashboard activity: with `visibleTo`, an event about a record of a scoped
+   * area the person may not see (a colleague's private task or contact) is
+   * left out — its summary names the record.
+   */
+  private mapActivityItems(visibleTo: Effective | undefined, companyId: string, events: ActivityEvent[]): DashboardActivityItem[] {
+    const seen = visibleTo ? events.filter((event) => this.activityVisibleTo(visibleTo, companyId, event)) : events;
+    return seen.slice(0, 8).map((event) => ({
       id: event.id,
       title: event.summary,
       detail: event.actorName || event.entityType,
@@ -19893,7 +20238,7 @@ export class DataStore {
 
   getDashboardPayload(
     companyId: string,
-    viewer: { userId: string; role: UserRole; companyRole?: string },
+    viewer: { userId: string; role: UserRole; companyRole?: string; visibleTo?: Effective },
   ): DashboardPayload {
     const built = this.buildDashboardPayload(companyId, viewer);
     // What needs attention today comes first.
@@ -19915,11 +20260,17 @@ export class DataStore {
 
   private buildDashboardPayload(
     companyId: string,
-    viewer: { userId: string; role: UserRole },
+    viewer: { userId: string; role: UserRole; visibleTo?: Effective },
   ): DashboardPayload {
     const now = new Date();
-    const tasks = this.listTasks().filter((task) => task.companyId === companyId);
-    const projects = this.listProjects().filter((project) => project.companyId === companyId);
+    // Task and project figures count only what the person may see
+    // (authz/visible.ts): a colleague's private task is never in a total.
+    const tasks = viewer.visibleTo
+      ? this.listVisibleTasks([{ companyId, viewer: viewer.visibleTo }])
+      : this.listTasks().filter((task) => task.companyId === companyId);
+    const projects = viewer.visibleTo
+      ? this.listVisibleProjects([{ companyId, viewer: viewer.visibleTo }])
+      : this.listProjects().filter((project) => project.companyId === companyId);
     const invoices = this.listInvoices(companyId);
     const vendorBills = this.listVendorBills(companyId);
     const purchaseOrders = this.listPurchaseOrders(companyId);
@@ -20092,7 +20443,7 @@ export class DataStore {
           })),
       ];
 
-      const activity = this.mapActivityItems(
+      const activity = this.mapActivityItems(viewer.visibleTo, companyId, 
         companyActivity.filter(
           (event) => event.entityType === 'task' && assignedTaskIds.has(event.entityId),
         ),
@@ -20212,7 +20563,7 @@ export class DataStore {
           ? [
               {
                 id: 'manager-overdue-tasks',
-                title: `${overdueTasks.length} overdue tasks`,
+                title: `${overdueTasks.length} overdue task${overdueTasks.length === 1 ? '' : 's'}`,
                 detail: 'Delivery recovery is needed across active projects.',
                 severity: 'critical' as const,
                 route: '/projects',
@@ -20255,7 +20606,7 @@ export class DataStore {
         metrics,
         charts,
         alerts,
-        activity: this.mapActivityItems(summary.recentActivity),
+        activity: this.mapActivityItems(viewer.visibleTo, companyId, summary.recentActivity),
         quickActions,
       };
     }
@@ -20368,7 +20719,7 @@ export class DataStore {
         metrics,
         charts,
         alerts,
-        activity: this.mapActivityItems(
+        activity: this.mapActivityItems(viewer.visibleTo, companyId, 
           companyActivity.filter((event) =>
             ['invoice', 'vendor_bill', 'client'].includes(event.entityType),
           ),
@@ -20467,7 +20818,7 @@ export class DataStore {
         ? [
             {
               id: 'admin-overdue-tasks',
-              title: `${overdueTasks.length} overdue tasks`,
+              title: `${overdueTasks.length} overdue task${overdueTasks.length === 1 ? '' : 's'}`,
               detail: 'Delivery work has slipped past due dates.',
               severity: 'critical' as const,
               route: '/projects',
@@ -20516,7 +20867,7 @@ export class DataStore {
       metrics,
       charts,
       alerts,
-      activity: this.mapActivityItems(summary.recentActivity),
+      activity: this.mapActivityItems(viewer.visibleTo, companyId, summary.recentActivity),
       quickActions,
     };
   }
@@ -20682,6 +21033,11 @@ export class DataStore {
       .slice(0, safeLimit);
   }
 
+  /**
+   * A company's activity, newest first. With `viewer`, events about a record
+   * of a scoped area that person may not see are left out in SQL (before the
+   * limit), by the same ACTIVITY_AREAS rule the dashboard feed uses.
+   */
   listActivityEvents(
     companyId: string,
     options?: {
@@ -20689,56 +21045,62 @@ export class DataStore {
       entityId?: string;
       actorUserId?: string;
       limit?: number;
+      viewer?: Effective;
     },
   ): ActivityEvent[] {
     const limit = options?.limit ?? 50;
-    const rows =
-      options?.entityType && options?.entityId && options?.actorUserId
-        ? (this.db
-            .prepare(
-              'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? AND entityId = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-            )
-            .all(companyId, options.entityType, options.entityId, options.actorUserId, limit) as any[])
-      : options?.entityType && options?.entityId
-      ? (this.db
-          .prepare(
-            'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? AND entityId = ? ORDER BY createdAt DESC LIMIT ?',
-          )
-          .all(companyId, options.entityType, options.entityId, limit) as any[])
-      : options?.entityType && options?.actorUserId
-        ? (this.db
-            .prepare(
-              'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-            )
-            .all(companyId, options.entityType, options.actorUserId, limit) as any[])
-      : options?.entityType
-        ? (this.db
-            .prepare(
-              'SELECT * FROM activity_events WHERE companyId = ? AND entityType = ? ORDER BY createdAt DESC LIMIT ?',
-            )
-            .all(companyId, options.entityType, limit) as any[])
-        : options?.actorUserId && options?.entityId
-          ? (this.db
-              .prepare(
-                'SELECT * FROM activity_events WHERE companyId = ? AND entityId = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-              )
-              .all(companyId, options.entityId, options.actorUserId, limit) as any[])
-          : options?.actorUserId
-            ? (this.db
-                .prepare(
-                  'SELECT * FROM activity_events WHERE companyId = ? AND actorUserId = ? ORDER BY createdAt DESC LIMIT ?',
-                )
-                .all(companyId, options.actorUserId, limit) as any[])
-        : options?.entityId
-          ? (this.db
-              .prepare(
-                'SELECT * FROM activity_events WHERE companyId = ? AND entityId = ? ORDER BY createdAt DESC LIMIT ?',
-              )
-              .all(companyId, options.entityId, limit) as any[])
-          : (this.db
-              .prepare('SELECT * FROM activity_events WHERE companyId = ? ORDER BY createdAt DESC LIMIT ?')
-              .all(companyId, limit) as any[]);
+    const where: string[] = ['e.companyId = ?'];
+    const params: unknown[] = [companyId];
+    if (options?.entityType) { where.push('e.entityType = ?'); params.push(options.entityType); }
+    if (options?.entityId) { where.push('e.entityId = ?'); params.push(options.entityId); }
+    if (options?.actorUserId) { where.push('e.actorUserId = ?'); params.push(options.actorUserId); }
+    if (options?.viewer) {
+      const f = this.activityVisibleSql(options.viewer, companyId, 'e');
+      where.push(f.sql);
+      params.push(...f.params);
+    }
+    const rows = this.db
+      .prepare(`SELECT e.* FROM activity_events e WHERE ${where.join(' AND ')} ORDER BY e.createdAt DESC LIMIT ?`)
+      .all(...params, limit) as any[];
     return rows.map((row) => this.decodeActivityEvent(row));
+  }
+
+  /**
+   * Activity events `viewer` may see: an event about an existing record of a
+   * scoped area (ACTIVITY_AREAS) only when that record is visible; a record
+   * since deleted cannot be judged, so its event stays.
+   */
+  private activityVisibleSql(viewer: Effective, companyId: string, alias: string): { sql: string; params: unknown[] } {
+    const parts: string[] = [];
+    const params: unknown[] = [];
+    for (const [entityType, area] of Object.entries(ACTIVITY_AREAS) as Array<[string, VisibleArea]>) {
+      const { table, idColumn } = AREAS[area];
+      const f = visible(viewer, area, companyId, { alias: 'va' });
+      parts.push(`NOT (${alias}.entityType = ? AND ${alias}.entityId IN (SELECT ${idColumn} FROM ${table})`
+        + ` AND ${alias}.entityId NOT IN (SELECT va.${idColumn} FROM ${table} va WHERE va.companyId = ? AND ${f.sql}))`);
+      params.push(entityType, companyId, ...f.params);
+    }
+    return { sql: parts.join(' AND '), params };
+  }
+
+  /** Whether `viewer` may see one activity event (same rule as activityVisibleSql). */
+  activityVisibleTo(viewer: Effective, companyId: string, event: Pick<ActivityEvent, 'entityType' | 'entityId'>): boolean {
+    const area = ACTIVITY_AREAS[event.entityType];
+    if (!area || this.isVisibleTo(viewer, area, companyId, event.entityId)) return true;
+    const { table, idColumn } = AREAS[area];
+    return !this.stmt(`SELECT 1 FROM ${table} WHERE ${idColumn} = ?`).get(event.entityId);
+  }
+
+  /** Prepared statements for the per-record visibility checks, by SQL text. */
+  private readonly statements = new Map<string, Database.Statement>();
+  private stmt(sql: string): Database.Statement {
+    let st = this.statements.get(sql);
+    if (!st) {
+      st = this.db.prepare(sql);
+      if (this.statements.size > 500) this.statements.clear();
+      this.statements.set(sql, st);
+    }
+    return st;
   }
 
   createActivityEvent(input: CreateActivityEventInput): ActivityEvent {
@@ -20785,32 +21147,81 @@ export class DataStore {
     };
   }
 
-  /** Which authorization engine decides; set by the server. Legacy unless told otherwise. */
-  private authzEngine: 'legacy' | 'shadow' | 'openfga' = 'legacy';
+  /**
+   * Who holds a permission under PERMISSIONS_ENGINE=v2 (or, under shadow, the
+   * v2 answer to compare). Set by the server; unset means legacy roles decide.
+   */
+  private permissionHolders?: {
+    engine: 'legacy' | 'shadow' | 'v2';
+    holds: (userId: string, companyId: string, permission: string) => boolean;
+    diverged: (userId: string, companyId: string, permission: string, legacyAllowed: boolean, newAllowed: boolean) => void;
+  };
 
-  setAuthzEngine(engine: 'legacy' | 'shadow' | 'openfga'): void {
-    this.authzEngine = engine;
+  setPermissionHolders(holders: NonNullable<DataStore['permissionHolders']>): void {
+    this.permissionHolders = holders;
+  }
+
+  /**
+   * Company access as the configured engine sees it (Ruling M): membership
+   * (users.companyRoles / companyIds); under v2 also an active group
+   * assignment covering the company. For store-side checks (alerts, push
+   * actions, conversation recipients); routes use the server's own gate.
+   */
+  reachesCompany(user: SanitizedUser, companyId: string): boolean {
+    if (canAccessCompany(user, companyId)) return true;
+    return this.permissionHolders?.engine === 'v2' && this.authz.holdingCompanyIds(user.id).includes(companyId);
+  }
+
+  /**
+   * The Effective that decides what a person may SEE (authz/visible.ts) when
+   * the store itself picks recipients or figures for someone (alerts, badges):
+   * under legacy and shadow the role's template (Ruling D), under v2 the real
+   * one. Routes pass the request's own Effective instead.
+   */
+  visibilityEffective(userId: string): Effective {
+    return this.permissionHolders?.engine === 'v2' ? effectiveV2(this, userId) : effectiveLegacy(this, userId);
+  }
+
+  /** ` AND <visible fragment>` for a list query, or nothing without a viewer. */
+  private visibleWhere(viewer: Effective | undefined, area: VisibleArea, companyId: string, alias: string, options: VisibleOptions = {}): { sql: string; params: unknown[] } {
+    if (!viewer) return { sql: '', params: [] };
+    const f = visible(viewer, area, companyId, { ...options, alias });
+    return { sql: ` AND ${f.sql}`, params: f.params };
+  }
+
+  /** Whether the record `id` of a scoped area is visible to `viewer` (same rule as the lists). */
+  isVisibleTo(viewer: Effective, area: VisibleArea, companyId: string, id: string, options: VisibleOptions = {}): boolean {
+    const q = visibleRecord(viewer, area, companyId, id, options);
+    return this.stmt(q.sql).get(...q.params) !== undefined;
   }
 
   /**
    * User ids in a company who should receive a notification gated by a
-   * permission. Under the openfga engine that is whoever holds the permission
-   * through their groups; otherwise the role list it replaced decides, so the
-   * legacy engine behaves exactly as before.
+   * permission (an old `module:action` string, mapped in authz/engine.ts
+   * NOTIFY_KEYS). Legacy and shadow: the role list it replaced decides (shadow
+   * also records where v2 would differ). v2: the members' effective permissions.
    */
   listUserIdsWithPermission(companyId: string, permission: string, legacyRoles: string[]): string[] {
     // Nobody is notified about a module the company has switched off.
     if (!this.isModuleEnabled(companyId, permission.slice(0, permission.indexOf(':')))) return [];
-    if (this.authzEngine !== 'openfga') return this.listUserIdsByCompanyRoles(companyId, legacyRoles);
-    const rows = this.db.prepare('SELECT * FROM users').all() as any[];
-    const ids: string[] = [];
-    for (const row of rows) {
-      const user = this.sanitizeUser(row);
-      const member = Boolean(user.companyRoles?.some((a) => a.companyId === companyId))
-        || Boolean(user.companyIds?.includes(companyId));
-      if (member && this.getEffectivePermissions(user.id, companyId).includes(permission)) ids.push(user.id);
+    const holders = this.permissionHolders;
+    const legacy = this.listUserIdsByCompanyRoles(companyId, legacyRoles);
+    if (!holders || holders.engine === 'legacy') return legacy;
+    // v2 company access = membership or an active group assignment (Ruling M).
+    const v2Holders = () => [...new Set([...this.listUsersByCompany(companyId).map((u) => u.id), ...this.authz.holdingUserIds(companyId)])]
+      .filter((id) => holders.holds(id, companyId, permission));
+    if (holders.engine === 'v2') return v2Holders();
+    // Shadow observes only: a failure computing v2 never changes who is notified.
+    try {
+      const legacySet = new Set(legacy);
+      const v2Set = new Set(v2Holders());
+      for (const id of new Set([...legacy, ...v2Set])) {
+        if (legacySet.has(id) !== v2Set.has(id)) holders.diverged(id, companyId, permission, legacySet.has(id), v2Set.has(id));
+      }
+    } catch (error) {
+      console.warn(`[authz] shadow recipients comparison failed for ${permission}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    return ids;
+    return legacy;
   }
 
   /** User ids in a company holding any of the given company roles. */
@@ -21522,6 +21933,8 @@ export class DataStore {
       entityId?: string;
       overdue?: boolean;
       limit?: number;
+      /** Only the follow-ups this person may see (authz/visible.ts). */
+      viewer?: Effective;
     },
   ): FollowUp[] {
     const status = options?.status ?? 'active';
@@ -21538,6 +21951,11 @@ export class DataStore {
       // "Mine" = I own it OR I was invited to collaborate on it.
       sql += ' AND (ownerUserId = ? OR id IN (SELECT followUpId FROM follow_up_assignees WHERE userId = ?))';
       params.push(options.ownerUserId, options.ownerUserId);
+    }
+    if (options?.viewer) {
+      const f = visible(options.viewer, 'followups', companyId, { alias: 'follow_ups' });
+      sql += ` AND ${f.sql}`;
+      params.push(...f.params);
     }
     if (options?.entityType) { sql += ' AND entityType = ?'; params.push(options.entityType); }
     if (options?.entityId) { sql += ' AND entityId = ?'; params.push(options.entityId); }
@@ -21739,6 +22157,7 @@ export class DataStore {
     ownerUserId?: string;
     overdue?: boolean;
     limit?: number;
+    viewer?: Effective;
   }): Array<FollowUp & {
     summary: string;
     category: import('../types').ActivityCategory;
@@ -21764,6 +22183,7 @@ export class DataStore {
       entityId: options?.contactId,
       overdue: options?.overdue,
       limit: options?.limit ?? 100,
+      viewer: options?.viewer,
     });
     return rows.map((f) => ({
       ...f,
@@ -21786,7 +22206,7 @@ export class DataStore {
    * Includes an "Unassigned" bucket (ownerUserId NULL) and every active member
    * even at zero, so the heatmap shows idle reps too.
    */
-  followupWorkload(companyId: string): {
+  followupWorkload(companyId: string, viewer?: Effective): {
     byUser: Array<{
       userId: string | null;
       name: string;
@@ -21804,12 +22224,13 @@ export class DataStore {
     const startIso = todayStart.toISOString();
     const endIso = todayEnd.toISOString();
 
+    const workFilter = this.visibleWhere(viewer, 'followups', companyId, 'follow_ups');
     const rows = this.db
       .prepare(
         `SELECT ownerUserId, ownerName, status, dueAt FROM follow_ups
-          WHERE companyId = ? AND status IN ('open','snoozed')`,
+          WHERE companyId = ? AND status IN ('open','snoozed')${workFilter.sql}`,
       )
-      .all(companyId) as any[];
+      .all(companyId, ...workFilter.params) as any[];
 
     type Bucket = { userId: string | null; name: string; open: number; overdue: number; dueToday: number; snoozed: number; oldestOverdueAt?: Date };
     const buckets = new Map<string, Bucket>();
@@ -21821,9 +22242,12 @@ export class DataStore {
       return b;
     };
 
-    // Seed every active member at zero.
-    for (const u of this.getUsersByCompany(companyId)) ensure(u.id, u.name);
-    ensure(null, 'Unassigned');
+    // Seed every active member at zero — within the viewer's reach below company scope.
+    const scope = viewer ? scopeOf(viewer, 'crm.view', companyId) : 'company';
+    const reach = scope === 'company' || scope === 'group' ? undefined
+      : scope === 'team' ? viewer!.team(companyId) : new Set([viewer!.userId]);
+    for (const u of this.getUsersByCompany(companyId)) if (!reach || reach.has(u.id)) ensure(u.id, u.name);
+    if (!reach) ensure(null, 'Unassigned');
 
     const totals = { active: 0, overdue: 0, dueToday: 0, snoozed: 0, unassigned: 0 };
     for (const r of rows) {
@@ -21854,7 +22278,8 @@ export class DataStore {
    * Open opportunities (stage not Won/Lost/Cancelled) with NO active follow-up
    * attached — deals with no scheduled next step, sorted most-stale first.
    */
-  followupCoverageGaps(companyId: string, limit = 50): Array<{
+  /** With `viewer`, only opportunities (and contact names) that person may see (authz/visible.ts). */
+  followupCoverageGaps(companyId: string, limit = 50, viewer?: Effective): Array<{
     opportunityId: string;
     title: string;
     stage: string;
@@ -21865,6 +22290,7 @@ export class DataStore {
     expectedRevenue: number;
     updatedAt: Date;
   }> {
+    const gapFilter = this.visibleWhere(viewer, 'opportunities', companyId, 'o');
     const rows = this.db
       .prepare(
         `SELECT o.* FROM opportunities o
@@ -21876,14 +22302,15 @@ export class DataStore {
                  AND f.entityType = 'opportunity'
                  AND f.entityId = o.id
                  AND f.status IN ('open','snoozed')
-            )
+            )${gapFilter.sql}
           ORDER BY o.updatedAt ASC
           LIMIT ?`,
       )
-      .all(companyId, limit) as any[];
+      .all(companyId, ...gapFilter.params, limit) as any[];
     return rows.map((row) => {
       const o = this.decodeOpportunity(row);
-      const contact = o.contactId ? this.getContactById(o.contactId) : undefined;
+      let contact = o.contactId ? this.getContactById(o.contactId) : undefined;
+      if (contact && viewer && !this.isVisibleTo(viewer, 'contacts', companyId, contact.id)) contact = undefined;
       return {
         opportunityId: o.id,
         title: o.title,

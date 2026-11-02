@@ -11,10 +11,6 @@ export interface AcademyDeps {
   store: DataStore;
   authMiddleware: RequestHandler;
   requireCompanyAccess(req: AuthedRequest, companyId: string): void;
-  /** Publishes membership changes for these companies (OpenFGA); a no-op under legacy roles. */
-  publishMembership(companyIds: string[], change: () => void): Promise<void>;
-  /** Publishes everything a just-created company has (it had nothing before). */
-  publishNewCompany(companyId: string): Promise<void>;
   recordActivity(input: { companyId: string; actor: SanitizedUser; summary: string; metadata?: Record<string, unknown> }): void;
   /** False when ACADEMY_ENFORCE=false: nothing is locked, pages included. */
   enforce: boolean;
@@ -40,23 +36,17 @@ export function registerAcademyRoutes(app: Express, deps: AcademyDeps): void {
     const before = store.academy.state(user.id).practiceCompanyId;
     const existed = Boolean(before && store.getCompanyById(before));
     let id = '';
-    // A reset deletes the old company: publish its removal from the old snapshot.
-    await deps.publishMembership(existed && reset ? [before!] : [], () => {
-      id = reset ? resetPractice(store, user) : startPractice(store, user);
-    });
+    id = reset ? resetPractice(store, user) : startPractice(store, user);
     if (!existed || reset) {
-      await deps.publishNewCompany(id);
       return id;
     }
     // Someone may have edited the trainee's companies; put them back in their own.
     const fresh = store.getUserById(user.id)!;
     const member = (fresh.companyRoles ?? []).some((r) => r.companyId === id);
     if (!member) {
-      await deps.publishMembership([id], () => {
-        store.updateUser(user.id, {
-          companyRoles: [...(fresh.companyRoles ?? []), { companyId: id, role: 'Admin' }],
-          companyIds: [...new Set([...(fresh.companyIds ?? []), id])],
-        });
+      store.updateUser(user.id, {
+        companyRoles: [...(fresh.companyRoles ?? []), { companyId: id, role: 'Admin' }],
+        companyIds: [...new Set([...(fresh.companyIds ?? []), id])],
       });
     }
     return id;

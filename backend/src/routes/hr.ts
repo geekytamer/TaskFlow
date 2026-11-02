@@ -1,6 +1,6 @@
 import { WpsDataError } from '../hr/wps';
-import type { Employee } from '../types';
-import { HttpError } from '../http';
+import type { Employee, PayrollRun } from '../types';
+import { HttpError, canAccessCompany } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber, requiredString } from '../validation';
 import type { RouteContext } from './context';
 import { type AuthedRequest, companyManagementRoles, handler } from './shared';
@@ -8,7 +8,7 @@ import type { Express } from 'express';
 
 /** HR: departments, employees, leave, attendance and payroll. */
 export function registerHrRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, withActor } = ctx;
+  const { store, authMiddleware, requireCompanyAccess, requireCompanyRoles, withActor, maskFor, seesField, requireFieldEdit, requireFieldEdits, forbidden } = ctx;
 
   app.get('/companies/:companyId/departments', authMiddleware, handler((req, res) => {
     requireCompanyAccess(req, req.params.companyId);
@@ -27,34 +27,65 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
     res.json(store.updateDepartment(req.params.id, { name: typeof req.body?.name === 'string' ? req.body.name.trim() : undefined }));
   }));
 
-  /** Pay, bank and ID details are for those who run payroll, and for the employee themself. */
-  const employeeFor = (req: AuthedRequest, employee: Employee): Partial<Employee> => {
-    if (employee.userId === req.user?.id || allowsRule(req, employee.companyId, 'PAYROLL_PAY_READ')) return employee;
-    const { basicSalary: _b, allowances: _a, deductions: _d, bankName: _n, iban: _i, bankCode: _c, idType: _t, idNumber: _x, ...rest } = employee;
-    return rest;
+  /**
+   * Pay, bank and ID details: the salary / bank_details / personal_ids fields
+   * (authz/mask.ts), and always the employee themself.
+   */
+  const employeeFor = (req: AuthedRequest, employee: Employee, moduleLock = false): Partial<Employee> =>
+    maskFor(req, employee.companyId, 'employee', employee, { self: !!employee.userId && employee.userId === req.user?.id, moduleLock });
+
+  /** Payroll runs with each payslip's figures masked (own payslip shown); employees read once. */
+  const runsFor = (req: AuthedRequest, companyId: string, runs: PayrollRun[]): PayrollRun[] => {
+    const userOf = new Map(store.listEmployees(companyId).map((e) => [e.id, e.userId]));
+    return runs.map((run) => ({
+      ...run,
+      payslips: run.payslips.map((slip) => maskFor(req, run.companyId, 'payslip', slip, { self: !!req.user && userOf.get(slip.employeeId) === req.user.id })),
+    }));
+  };
+  const runFor = (req: AuthedRequest, run: PayrollRun): PayrollRun => runsFor(req, run.companyId, [run])[0];
+
+  /**
+   * Linking an employee record to a login makes its pay, IDs and bank details
+   * that person's own (the self exception). So setting or changing the link is
+   * a write of all three fields, and the person linked must belong to the
+   * company. Unlinking takes access away and needs neither.
+   */
+  const requireUserLink = (req: AuthedRequest, companyId: string, body: Record<string, unknown> | undefined, existing?: Employee) => {
+    if (!body || body.userId === undefined) return;
+    const next = typeof body.userId === 'string' && body.userId.trim() ? body.userId.trim() : null;
+    if (next === null || next === (existing?.userId ?? null)) return;
+    const user = store.getUserById(next);
+    if (!user || !canAccessCompany(user, companyId)) throw new HttpError(400, 'The linked user is not a member of this company.');
+    for (const field of ['salary', 'personal_ids', 'bank_details'] as const) requireFieldEdit(req, companyId, field);
   };
 
   app.get('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
     requireCompanyAccess(req, req.params.companyId);
-    res.json(store.listEmployees(req.params.companyId).map((e) => employeeFor(req, e)));
+    // The old PAYROLL_PAY_READ was asked here: payroll off hides pay (moduleLock).
+    res.json(store.listEmployees(req.params.companyId).map((e) => employeeFor(req, e, true)));
   }));
   app.post('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     if (!name) throw new HttpError(400, 'Employee name is required.');
-    res.status(201).json(store.createEmployee({ ...req.body, companyId: req.params.companyId, name }));
+    requireFieldEdits(req, req.params.companyId, 'employee', req.body, 'create');
+    requireUserLink(req, req.params.companyId, req.body);
+    res.status(201).json(employeeFor(req, store.createEmployee({ ...req.body, companyId: req.params.companyId, name })));
   }));
   app.get('/employees/:id', authMiddleware, handler((req, res) => {
     const employee = store.getEmployeeById(req.params.id);
     if (!employee) throw new HttpError(404, 'Employee not found.');
     requireCompanyAccess(req, employee.companyId);
-    res.json(employeeFor(req, employee));
+    res.json(employeeFor(req, employee, true));
   }));
   app.put('/employees/:id', authMiddleware, handler((req, res) => {
     const employee = store.getEmployeeById(req.params.id);
     if (!employee) throw new HttpError(404, 'Employee not found.');
     requireCompanyRoles(req, employee.companyId, companyManagementRoles);
-    res.json(store.updateEmployee(req.params.id, req.body || {}));
+    requireFieldEdits(req, employee.companyId, 'employee', req.body, employee);
+    requireUserLink(req, employee.companyId, req.body, employee);
+    const updated = store.updateEmployee(req.params.id, req.body || {});
+    res.json(updated ? employeeFor(req, updated) : updated);
   }));
   app.get('/employees/:id/leave-balance', authMiddleware, handler((req, res) => {
     const employee = store.getEmployeeById(req.params.id);
@@ -103,7 +134,7 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
   // ─── Payroll ──────────────────────────────────────────────────────────────
   app.get('/companies/:companyId/payroll-runs', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-    res.json(store.listPayrollRuns(req.params.companyId));
+    res.json(runsFor(req, req.params.companyId, store.listPayrollRuns(req.params.companyId)));
   }));
   app.post('/companies/:companyId/payroll-runs', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
@@ -112,7 +143,7 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
       const run = withActor(req, () =>
         store.createPayrollRun(req.params.companyId, requiredString(body.period, 'period'), optionalString(body.notes)),
       );
-      res.status(201).json(run);
+      res.status(201).json(runFor(req, run));
     } catch (error) {
       if (error instanceof HttpError) throw error;
       throw new HttpError(400, error instanceof Error ? error.message : 'Could not create payroll run.');
@@ -125,13 +156,14 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
     return run;
   };
   app.get('/payroll-runs/:id', authMiddleware, handler((req, res) => {
-    res.json(loadPayrollRun(req));
+    res.json(runFor(req, loadPayrollRun(req)));
   }));
   app.put('/payroll-runs/:id/status', authMiddleware, handler((req, res) => {
     loadPayrollRun(req);
     const body = asRecord(req.body, 'body');
     const status = enumValue(body.status, 'status', ['draft', 'approved', 'paid']) as any;
-    res.json(store.updatePayrollRunStatus(req.params.id, status));
+    const updated = store.updatePayrollRunStatus(req.params.id, status);
+    res.json(updated ? runFor(req, updated) : updated);
   }));
   app.delete('/payroll-runs/:id', authMiddleware, handler((req, res) => {
     loadPayrollRun(req);
@@ -140,6 +172,10 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
   }));
   app.get('/payroll-runs/:id/wps', authMiddleware, handler((req, res) => {
     const run = loadPayrollRun(req);
+    // The file carries every employee's pay, IBAN and ID number.
+    for (const field of ['salary', 'bank_details', 'personal_ids'] as const) {
+      if (!seesField(req, run.companyId, field)) throw forbidden(run.companyId, `field:${field}`);
+    }
     let csv: string;
     try { csv = store.buildWpsCsv(req.params.id); }
     catch (error) {

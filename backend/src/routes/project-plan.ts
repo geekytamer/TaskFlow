@@ -30,7 +30,7 @@ export function registerProjectPlanRoutes(
   };
   const seesMoney = (req: AuthedRequest, companyId: string) => {
     try {
-      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant']);
+      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant'], 'finance.view');
       return true;
     } catch {
       return false;

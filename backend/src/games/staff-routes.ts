@@ -86,7 +86,7 @@ export function createGamesStaffRouter(deps: GamesStaffDeps): Router {
     const { companyId } = req.params;
     if (companyId !== deps.companyId) throw new HttpError(404, 'Not found.');
     deps.requireCompanyAccess(req, companyId);
-    if (!deps.canManageGames(req, companyId)) throw new HttpError(403, 'Only administrators can manage games.');
+    if (!deps.canManageGames(req, companyId)) throw new HttpError(403, 'Only administrators can manage games.', { code: 'FORBIDDEN', permission: 'games.manage' });
     return companyId;
   };
 

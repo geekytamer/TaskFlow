@@ -28,7 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { runSeedDatabase } from '@/actions/seedActions';
 import { useI18n } from '@/context/i18n-context';
-import { usePermissionOr, usePermissions } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { NumberingSettingsPanel } from './numbering-settings-panel';
 import { CustomFieldsPanel } from './custom-fields-panel';
 import { ApprovalRulesPanel } from './approval-rules-panel';
@@ -42,9 +42,8 @@ import { BrandSettingsPanel } from '@/modules/branding/brand-settings-panel';
 export function SettingsPage() {
   const { toast } = useToast();
   const { t } = useI18n();
-  const { selectedCompany, currentRole, currentUser } = useCompany();
-  const { moduleOn } = usePermissions();
-  const canAdminister = usePermissionOr('settings', 'administration.write', currentRole === 'Admin');
+  const { selectedCompany } = useCompany();
+  const { can, canAdmin, moduleOn } = usePermissions();
   const [isSeeding, setIsSeeding] = React.useState(false);
   const [isCreatingAdmin, setIsCreatingAdmin] = React.useState(false);
   const [adminPassword, setAdminPassword] = React.useState('');
@@ -143,13 +142,13 @@ export function SettingsPage() {
         </p>
       </div>
 
-      {selectedCompany && !selectedCompany.isTraining && (currentRole === 'Admin' || currentUser?.isSuperAdmin) && <BrandSettingsPanel />}
+      {selectedCompany && !selectedCompany.isTraining && canAdmin('settings.edit_branding') && <BrandSettingsPanel />}
 
       <NumberingSettingsPanel />
 
-      {selectedCompany && <ApprovalRulesPanel canEdit={canAdminister} />}
+      {selectedCompany && <ApprovalRulesPanel canEdit={can('settings.manage_approvals')} />}
 
-      {selectedCompany && <ClientRemindersPanel canEdit={canAdminister || currentRole === 'Manager' || currentRole === 'Accountant'} />}
+      {selectedCompany && <ClientRemindersPanel canEdit={can('invoices.edit')} />}
 
       {selectedCompany && <CustomFieldsPanel />}
 
@@ -169,7 +168,7 @@ export function SettingsPage() {
 
       <WhatsappSettingsPanel />
 
-      {selectedCompany && moduleOn('inbox') && <ConversationSettingsPanel canEdit={canAdminister || currentRole === 'Manager'} />}
+      {selectedCompany && moduleOn('inbox') && <ConversationSettingsPanel canEdit={can('inbox.edit_settings')} />}
 
       <Card>
         <CardHeader>

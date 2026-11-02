@@ -26,6 +26,9 @@ const METRIC_ROUTES: Record<string, string> = {
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { getDashboardInsights, getDashboardPayload, type DashboardInsights, type InsightPeriod } from '@/services/dashboardService';
+import { useCompanyScope } from '@/context/company-scope-context';
+import { ScopeBar } from '@/modules/groups/components/scope-bar';
+import { GroupOverview } from '@/modules/groups/components/group-overview';
 import type { DashboardPayload, DashboardChart } from '@/modules/dashboard/types';
 import { CurrencyAmount, useCompanyCurrency, type SupportedCurrencyCode } from '@/lib/currency';
 import {
@@ -298,14 +301,19 @@ export function Dashboard() {
   // Only the latest request for the current company and period may land.
   const insightsRequest = React.useRef(0);
   const { currencyCode } = useCompanyCurrency();
+  const { inTree } = useCompanyScope();
   const [payload, setPayload] = React.useState<DashboardPayload | null>(null);
   const [loading, setLoading] = React.useState(true);
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
 
+  // A group is not a big company: it gets its own screen.
+  const inGroup = inTree;
+
   React.useEffect(() => {
     let active = true;
     async function load() {
-      if (!selectedCompany) {
+      // A group has its own screen (GroupOverview); this is the company one.
+      if (inTree || !selectedCompany) {
         setPayload(null);
         setLoading(false);
         return;
@@ -324,7 +332,7 @@ export function Dashboard() {
     return () => {
       active = false;
     };
-  }, [selectedCompany]);
+  }, [selectedCompany, inTree]);
 
   // The period figures load on their own, so switching the period does not reload the page.
   React.useEffect(() => {
@@ -338,7 +346,7 @@ export function Dashboard() {
 
   // The figures follow the company's changes, quietly (no spinner, last figures kept on a failed refresh).
   useLiveRefresh('*', async () => {
-    if (!selectedCompany) return;
+    if (inTree || !selectedCompany) return;
     const ticket = ++insightsRequest.current;
     const [data, fresh] = await Promise.all([
       getDashboardPayload(selectedCompany.id).catch(() => null),
@@ -398,6 +406,8 @@ export function Dashboard() {
     );
   }
 
+  if (inGroup) return <GroupOverview />;
+
   if (loading) {
     return (
       <div className="p-0 sm:p-4 lg:p-8">
@@ -430,6 +440,8 @@ export function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background p-0 sm:p-4 lg:p-8 font-sans text-foreground space-y-6">
+      {/* A group company's own dashboard: the way back to the whole group. */}
+      <ScopeBar className="justify-end" />
       <div className="tf-rise flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">

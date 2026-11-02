@@ -1,8 +1,7 @@
-import { useCompany } from '@/context/company-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 
-/** Whether the signed-in user may change Peak Flexi accounts and settings (Admin and Accountant by default). */
+/** Whether the signed-in user may change Peak Flexi accounts and settings (invoices.flexi_manage). */
 export function useCanManageFlexi(): boolean {
-  const { currentRole } = useCompany();
-  return usePermissionOr('invoices', 'flexi.manage', currentRole === 'Admin' || currentRole === 'Accountant');
+  const { can, moduleOn } = usePermissions();
+  return moduleOn('flexi') && can('invoices.flexi_manage');
 }

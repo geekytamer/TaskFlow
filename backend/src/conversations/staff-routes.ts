@@ -1,6 +1,6 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import type { DataStore } from '../data/store';
-import { canAccessCompany, HttpError } from '../http';
+import { HttpError } from '../http';
 import type { Contact, SanitizedUser } from '../types';
 import { downloadHeaders, readUpload } from '../portal/files';
 import { afterStaffMessage, fileDto, parseFileIds, parseMessage } from '../portal/thread';
@@ -21,8 +21,8 @@ export interface ConversationStaffDeps {
   viewerFor(req: StaffRequest, companyId: string): StaffViewer;
   /** The portal channel exists only for this company. */
   portalCompanyId: string | undefined;
-  /** Whether this user may read private contacts of others (CONTACTS_PRIVATE_READ). */
-  seesPrivateFor(userId: string, companyId: string): boolean | Promise<boolean>;
+  /** Whether another user may see this contact (authz/visible.ts inbox rule, evaluated for them). */
+  contactVisibleTo(userId: string, contact: Contact): boolean | Promise<boolean>;
   /** Contacts module on for the company and the request user holds contacts:read (or contacts:write for 'write'). */
   /** Admin or Manager of the company (throws otherwise). */
   requireManager(req: StaffRequest, companyId: string): void;
@@ -50,13 +50,15 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
 
   const isMember = (userId: string, companyId: string): boolean => {
     const user = store.getUserById(userId);
-    return !!user && canAccessCompany(user as SanitizedUser, companyId);
+    return !!user && store.reachesCompany(user as SanitizedUser, companyId);
   };
 
   /** Company member, then the contacts permission: conversations belong to contacts. */
   const requireContacts = async (req: StaffRequest, companyId: string, access: 'read' | 'write' = 'read') => {
     deps.requireCompanyAccess(req, companyId);
-    if (!(await deps.canUseContacts(req, companyId, access))) throw new HttpError(403, 'You do not have permission to perform this action.');
+    if (!(await deps.canUseContacts(req, companyId, access))) {
+      throw new HttpError(403, 'You do not have permission to perform this action.', { code: 'FORBIDDEN', permission: access === 'read' ? 'inbox.view' : 'inbox.send' });
+    }
   };
 
   /** A visible contact of this company, else 404 (never reveals that a private one exists). */
@@ -76,10 +78,9 @@ export function createConversationStaffRouter(deps: ConversationStaffDeps): Rout
     return { thread, ...(await visibleContact(req, thread.companyId, thread.contactId, access)) };
   };
 
-  /** Throws 400 unless this user may see the contact: public, theirs, or private-read. */
+  /** Throws 400 unless this user may see the contact (the same rule as their inbox). */
   const requireCanSee = async (userId: string, contact: Contact) => {
-    if (contact.visibility !== 'Private' || contact.ownerUserId === userId) return;
-    if (!(await deps.seesPrivateFor(userId, contact.companyId))) {
+    if (!(await deps.contactVisibleTo(userId, contact))) {
       throw new HttpError(400, `${store.getUserById(userId)?.name ?? 'This person'} cannot see this contact`);
     }
   };

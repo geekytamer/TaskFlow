@@ -43,19 +43,20 @@ test('portal viewers never see internal or owner-private messages', () => {
 test("staff see internal notes but not someone else's owner-private mail", () => {
   const { owner, thread, store } = setup();
   const ms = store.conversations.messages(thread.id);
-  const other = { kind: 'staff', userId: 'someone-else', seesPrivate: true };
-  const me = { kind: 'staff', userId: owner, seesPrivate: false };
+  const other = { kind: 'staff', userId: 'someone-else', sees: () => true };
+  const me = { kind: 'staff', userId: owner, sees: () => false };
   assert.deepEqual(ms.filter((m) => canSeeMessage(m, other)).map((m) => m.body).includes(POISON_INTERNAL), true);
   assert.equal(ms.filter((m) => canSeeMessage(m, other)).some((m) => m.body === POISON_PRIVATE), false);
   assert.equal(ms.filter((m) => canSeeMessage(m, me)).some((m) => m.body === POISON_PRIVATE), true);
 });
 
-test('a private contact is hidden from staff who are neither owner nor allowed', () => {
-  const contact = { visibility: 'Private', ownerUserId: 'u1' };
-  assert.equal(canSeeContact(contact, { kind: 'staff', userId: 'u2', seesPrivate: false }), false);
-  assert.equal(canSeeContact(contact, { kind: 'staff', userId: 'u1', seesPrivate: false }), true);
-  assert.equal(canSeeContact(contact, { kind: 'staff', userId: 'u2', seesPrivate: true }), true);
-  assert.equal(canSeeContact({ ownerUserId: 'u1' }, { kind: 'staff', userId: 'u2', seesPrivate: false }), true);
+test('canSeeContact asks the viewer (the inbox rule of authz/visible.ts, decided by the server)', () => {
+  const contact = { id: 'c1', companyId: '1', visibility: 'Private', ownerUserId: 'u1' };
+  const asked = [];
+  const viewer = (answer) => ({ kind: 'staff', userId: 'u2', sees: (c) => { asked.push(c.id); return answer; } });
+  assert.equal(canSeeContact(contact, viewer(false)), false);
+  assert.equal(canSeeContact(contact, viewer(true)), true);
+  assert.deepEqual(asked, ['c1', 'c1']);
 });
 
 test('seenAt is set once a portal user of that contact read after the staff message', () => {
@@ -120,7 +121,7 @@ test("another viewer's preview and unread skip an owner_private message; ownerOf
   store.conversations.markRead(thread.id, { type: 'staff', id: 'someone-else' }, note.createdAt);
   assert.equal(staffThreadView(store, t, 'someone-else', priv.createdAt).unread, false);
   assert.equal(staffThreadView(store, t, owner, priv.createdAt).lastMessage.body, POISON_PRIVATE);
-  const viewer = { kind: 'staff', userId: 'x', seesPrivate: false };
+  const viewer = { kind: 'staff', userId: 'x', sees: () => false };
   assert.equal(canSeeMessage(priv, viewer, () => 'x'), true);
   assert.equal(canSeeMessage(priv, viewer, () => 'y'), false);
 });

@@ -36,7 +36,7 @@ const withEnv = async (vars, fn) => {
 
 const build = () => {
   const dbPath = path.join(makeTmpDir('taskflow-ratelimit-'), 'taskflow.db');
-  const app = createServer({ dbPath, seedOnEmpty: true, allowSeedReset: false, authzEngine: 'legacy', logger: quiet });
+  const app = createServer({ dbPath, seedOnEmpty: true, allowSeedReset: false, logger: quiet });
   const server = app.listen(0);
   server.unref();
   return server;

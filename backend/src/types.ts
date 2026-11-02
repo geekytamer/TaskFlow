@@ -25,6 +25,8 @@ export interface Company {
   trainingOwnerUserId?: string;
   /** The company's own look in the app (see branding.ts). Absent = TaskFlow's. */
   branding?: CompanyBranding;
+  /** The group this company sits under (companies/tree.ts). Absent = a top company. */
+  parentCompanyId?: string;
 }
 
 export interface CompanyBranding {

@@ -21,7 +21,7 @@ const build = () => {
   const sent = [];
   const send = async (s, payload) => { sent.push({ endpoint: s.endpoint, ...JSON.parse(payload) }); return { statusCode: 201 }; };
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} },
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }), push: { publicKey: 'BKeyForTests', send },
   }).listen(0);
   server.unref();

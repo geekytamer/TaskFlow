@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { deleteCreditNote, getCreditNotes, getInvoices } from '@/services/financeService';
@@ -23,13 +23,13 @@ import { FileMinus, Trash2 } from 'lucide-react';
  * again and, when issued by mistake, deleted (which removes their ledger entries).
  */
 export function CreditNotesPanel({ version = 0 }: { version?: number }) {
-  const { selectedCompany, currentRole } = useCompany();
+  const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
   const { amount } = useCompanyCurrency();
   const { toast } = useToast();
   const confirm = useConfirm();
-  const canManage = usePermissionOr('invoices', 'delete', currentRole === 'Admin' || currentRole === 'Manager' || currentRole === 'Accountant');
+  const canManage = usePermissions().can('invoices.delete');
   const [notes, setNotes] = React.useState<CreditNote[] | null>(null);
   const [invoiceNumbers, setInvoiceNumbers] = React.useState<Map<string, string>>(new Map());
 

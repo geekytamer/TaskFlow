@@ -1,7 +1,7 @@
 import { parseBranding } from '../branding';
 import { isSwitchableModule } from '../permissions/company-modules';
 import { type NumberingEntityType } from '../types';
-import { HttpError, getAccessibleCompanyIds } from '../http';
+import { HttpError } from '../http';
 import { asRecord, enumValue, optionalNumber, optionalString, requiredDateInput, requiredNumber, requiredString } from '../validation';
 import type { RouteContext } from './context';
 import { handler } from './shared';
@@ -20,7 +20,7 @@ const numberingEntityTypes = [
 
 /** Admin panel, companies and company-wide settings. */
 export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyAccess, requireCompanyRoles, requireSuperAdmin, uploadedImage, snapshotAuthz, publishAuthzChange } = ctx;
+  const { store, authMiddleware, requireCompanyAccess, requireCompanyRoles, requireSuperAdmin, uploadedImage } = ctx;
 
   app.get('/admin/overview', authMiddleware, handler((req, res) => {
     requireSuperAdmin(req);
@@ -129,7 +129,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
       if (req.user!.isSuperAdmin) {
         return res.json(companies);
       }
-      const accessible = new Set(getAccessibleCompanyIds(req.user!));
+      const accessible = new Set(ctx.accessibleCompanyIds(req.user!));
       res.json(companies.filter((company) => accessible.has(company.id)));
     }),
   );
@@ -159,9 +159,22 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
         logoUrl: optionalString(body.logoUrl),
         disabledModules: parseDisabledModules(body.disabledModules),
       });
-      // A new company had no tuples, so everything it has now is the delta.
-      await publishAuthzChange(new Map([[company.id, []]]));
       res.status(201).json(company);
+    }),
+  );
+
+  /** Moves a company in the tree: under a group company, or to the top with null. */
+  app.put(
+    '/companies/:id/parent',
+    authMiddleware,
+    handler((req, res) => {
+      requireSuperAdmin(req);
+      const body = asRecord(req.body, 'body');
+      const parent = body.parentCompanyId;
+      if (parent !== null && (typeof parent !== 'string' || !parent)) {
+        throw new HttpError(400, 'parentCompanyId must be a company id or null.');
+      }
+      res.json(store.setCompanyParent(req.params.id, parent as string | null, req.user!.id));
     }),
   );
 
@@ -179,7 +192,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
       }
       // The brand is what every member sees, so only the company's Admins set it.
       if (body.branding !== undefined && !req.user?.isSuperAdmin) {
-        requireCompanyRoles(req, req.params.id, ['Admin']);
+        requireCompanyRoles(req, req.params.id, ['Admin'], 'settings.edit_branding');
       }
       const branding = body.branding !== undefined ? parseBranding(body.branding) : undefined;
       const optionalText = (value: unknown) => (value !== undefined ? String(value || '') : undefined);
@@ -211,9 +224,7 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
     handler(async (req, res) => {
       requireSuperAdmin(req);
       const cascade = req.query.cascade === 'true' || req.query.cascade === '1';
-      const authzBefore = snapshotAuthz([req.params.id]);
       store.deleteCompany(req.params.id, { cascade });
-      await publishAuthzChange(authzBefore);
       res.json({ success: true });
     }),
   );

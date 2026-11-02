@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { RequisitionsPage } from '@/modules/purchases/components/requisitions-page';
 
 export default function RequisitionsRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'purchasing:read' });
+  const { user, loading } = useAuthGuard('purchasing.view');
   const { t } = useI18n();
 
   if (loading || !user) {

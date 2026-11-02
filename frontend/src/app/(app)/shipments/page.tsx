@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { ShipmentsPage } from '@/modules/logistics/components/shipments-page';
 
 export default function ShipmentsRoute() {
-  const { user, loading } = useAuthGuard(['Admin', 'Manager', 'Accountant'], { permission: 'inventory:read' });
+  const { user, loading } = useAuthGuard('logistics.view');
   const { t } = useI18n();
 
   if (loading || !user) {

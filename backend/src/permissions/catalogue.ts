@@ -1,8 +1,8 @@
 /**
  * The canonical list of grantable permissions.
  *
- * GENERATED from docs/superpowers/plans/gate-matrix.csv, which is extracted
- * from the gates in server.ts. Regenerate rather than editing by hand.
+ * Generated once from the old gate matrix (test/fixtures/legacy-gate-matrix.csv);
+ * the generator is retired, so edit by hand when a gated route is added.
  *
  * It lives in code, not the database, on purpose: if administrators could
  * invent permissions they would create ones no route enforces, and the UI
@@ -13,7 +13,7 @@
  * beside `settings:read`. That happens where the underlying routes disagree
  * about which roles may use them: granting the union would widen access and
  * the intersection would revoke it, so the permission is split instead. See
- * splitConflictingPermissions in scripts/extract-gates.ts.
+ * splitConflictingPermissions in the retired extract-gates script.
  *
  * projects and tasks have no plain read action. Their reads are decided per
  * record by requireProjectViewAccess / canViewTask; `all.read` (a record rule)

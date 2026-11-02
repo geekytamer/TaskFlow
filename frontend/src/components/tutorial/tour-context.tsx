@@ -2,8 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { TOURS, tourAllowsRole, type Tour, type TourStep } from './tour-steps';
-import { useCompany } from '@/context/company-context';
+import { TOURS, tourAllowed, type Tour, type TourStep } from './tour-steps';
+import { usePermissions } from '@/context/permissions-context';
 
 interface TourContextValue {
   activeTour: Tour | null;
@@ -24,23 +24,23 @@ export const TOURS_CHANGED_EVENT = 'taskflow-tours-changed';
 
 export function TourProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { currentRole } = useCompany();
+  const { can } = usePermissions();
   const [activeTour, setActiveTour] = React.useState<Tour | null>(null);
   const [stepIndex, setStepIndex] = React.useState(0);
 
-  // Tours the current role can actually follow — the same set the guide page
+  // Tours whose page this person may open — the same set the guide page
   // lists, computed once here so every entry point agrees.
   const availableTours = React.useMemo(
-    () => TOURS.filter((tour) => tourAllowsRole(tour, currentRole)),
-    [currentRole],
+    () => TOURS.filter((tour) => tourAllowed(tour, can)),
+    [can],
   );
 
   const startTour = React.useCallback((tourId: string) => {
     const tour = TOURS.find(t => t.id === tourId);
     if (!tour) return;
-    // Refuse a tour whose page this role would be bounced out of, whatever
+    // Refuse a tour whose page this person would be bounced out of, whatever
     // route into startTour was used.
-    if (!tourAllowsRole(tour, currentRole)) return;
+    if (!tourAllowed(tour, can)) return;
     setActiveTour(tour);
     setStepIndex(0);
     // Take the user straight to the page this tour explains.
@@ -56,7 +56,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
         window.dispatchEvent(new Event(TOURS_CHANGED_EVENT));
       }
     } catch {}
-  }, [router, currentRole]);
+  }, [router, can]);
 
   const endTour = React.useCallback(() => {
     setActiveTour(null);

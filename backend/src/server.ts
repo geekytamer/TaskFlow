@@ -20,20 +20,24 @@ import { makePasswordLinkSender, registerPasswordRoutes } from './routes/passwor
 import { registerTaskPartRoutes } from './routes/task-parts';
 import { registerTaskChecklistRoutes } from './routes/task-checklist';
 import { unusablePassword } from './auth/password-tokens';
-import type { Notification, VatTreatment, VendorBill } from './types';
+import type { GratuityLine, Notification, SanitizedUser, VatTreatment, VendorBill } from './types';
 import { renderHtmlPdf, renderInvoicePdf } from './pdf/invoice-pdf';
-import {
-  PermissionService,
-  AuthzUnavailableError,
-  type FgaReader,
-} from './permissions/permission-service';
-import { recordShadowCheck, routeToPermission, recordDivergence } from './permissions/shadow';
+import { routeToPermission } from './authz/legacy-routes';
 import { featureForRoute, moduleName, RECORD_ENTITY_MODULES } from './permissions/company-modules';
-import { getFgaConfig, type AuthzEngine } from './permissions/fga-client';
 import { registerPermissionRoutes } from './permissions/routes';
-import { projectCompanyDelta, type TupleStore } from './permissions/sync';
 import { RECORD_RULES, type RecordRuleName } from './permissions/record-rules';
-import { tuplesForStore } from './permissions/tuples';
+import {
+  NOTIFY_KEYS, catalogueKey, configuredEngine, forbiddenBody, recordShadowDivergence, ruleAllowsV2, scopeAtLeast,
+  type PermissionsEngine,
+} from './authz/engine';
+import { effective, effectiveLegacy, type Effective } from './authz/evaluate';
+import { visible, type VisibleArea, type VisibleOptions } from './authz/visible';
+import { can, scopeOf } from './authz/can';
+import { beyondDetail, fieldsOut, grantsOut } from './authz/describe';
+import { higherThanYou, roleGuards } from './authz/guards';
+import { canEditField, canViewField, fieldsWritten, mask, maskActivity, type MaskEntity, type MaskOptions, type SensitiveField } from './authz/mask';
+import type { FieldOpts } from './routes/context';
+import { routeDecl, type RouteDecl } from './authz/route-registry';
 import { sendPortalInviteEmail, type PortalInviteSender } from './portal/portal-email';
 import { createPortalRouter } from './portal/routes';
 import { createPortalStaffRouter } from './portal/staff-routes';
@@ -139,6 +143,8 @@ import { registerLiveRoutes } from './routes/live';
 import { createTeamChatRouter } from './teamchat/routes';
 import { LiveHub, topicsFromPath } from './live/hub';
 import { registerAdminRoutes } from './routes/admin';
+import { registerHoldingRoutes } from './authz/holding-routes';
+import { registerAuthzRoutes } from './authz/routes';
 import { registerCustomFieldRoutes } from './routes/custom-fields';
 import { registerWarehouseRoutes } from './routes/warehouses';
 import { registerManufacturingRoutes } from './routes/manufacturing';
@@ -183,27 +189,6 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
     }));
 }
 
-/**
- * Commercial terms on a contact that rank-and-file staff should not see. An
- * influencer's rate card is negotiated pricing — hiding it in the UI alone is
- * not enough, because the value still ships in the API response and in CSV
- * exports. Strip it from the payload instead.
- */
-const COMMERCIAL_CONTACT_FIELDS = ['rateCardAmount'] as const;
-
-/** Strips commercial fields unless the viewer may see pricing (contacts:pricing.read). */
-function redactContact<T>(contact: T, showPricing: boolean): T {
-  if (!contact || showPricing) return contact;
-  const copy: any = { ...(contact as any) };
-  for (const field of COMMERCIAL_CONTACT_FIELDS) delete copy[field];
-  return copy as T;
-}
-
-function redactContacts<T>(contacts: T[], showPricing: boolean): T[] {
-  if (showPricing) return contacts;
-  return contacts.map((c) => redactContact(c, false));
-}
-
 /** Largest file (in raw bytes) accepted as a record attachment. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const invoiceColumnKeys: InvoiceColumn['key'][] = ['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom'];
@@ -246,6 +231,9 @@ function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
     }));
 }
 
+/** A request whose declared permission was decided by can() under v2 (see guardUndecided). */
+type DecidedRequest = AuthedRequest & { authzDecided?: boolean };
+
 export interface CreateServerOptions extends DataStoreOptions {
   allowSeedReset?: boolean;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
@@ -256,10 +244,10 @@ export interface CreateServerOptions extends DataStoreOptions {
    * on one database contend over locks and complicate write visibility.
    */
   store?: DataStore;
-  /** Overrides the authorization engine, bypassing AUTHZ_ENGINE. For tests. */
-  authzEngine?: AuthzEngine;
-  /** Supplies permissions instead of querying OpenFGA. For tests. */
-  permissionReader?: FgaReader;
+  /** Overrides the permissions engine, bypassing PERMISSIONS_ENGINE. For tests. */
+  permissionsEngine?: PermissionsEngine;
+  /** Overrides the route registry lookup (authz/route-registry.ts routeDecl). For tests. */
+  routeLookup?: (method: string, path: string) => RouteDecl | undefined;
   /** The company the public portals serve. Unset leaves the portal API off. */
   portalCompanyId?: string;
   /** Sends password links (invitation, reset). Overridden in tests. */
@@ -282,8 +270,6 @@ export interface CreateServerOptions extends DataStoreOptions {
    * switches it off in an emergency.
    */
   academyEnforce?: boolean;
-  /** Where tuple deltas are written. Defaults to OpenFGA; tests inject a recorder. */
-  tupleWriter?: Pick<TupleStore, 'write'>;
   /** Phone notifications (Web Push). Defaults to PUSH_VAPID_* env; tests pass a fake sender. */
   push?: PushConfig;
   /** Observes every record-rule decision. For tests. */
@@ -304,6 +290,8 @@ const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced'
 
 import { greenApi, toChatId } from './services/greenApi';
 import { normalizeNiches } from './niches';
+import { subtreeIds } from './companies/tree';
+import { askedCompanyIds, groupDashboard } from './authz/group-dashboard';
 const ledgerAccountTypes: LedgerAccountType[] = [
   'Asset',
   'Liability',
@@ -704,14 +692,6 @@ export function createServer(options: CreateServerOptions = {}) {
     seedOnEmpty: options.seedOnEmpty ?? process.env.SEED_ON_EMPTY !== 'false',
   });
 
-  // Shadow mode only: queried in parallel with the legacy role check so
-  // disagreements can be logged. It does not decide anything yet.
-  const permissionService = new PermissionService({
-    store,
-    fga: options.permissionReader,
-    onWarning: (message) => logger.warn(message),
-  });
-
   // Critical notifications email immediately; normal ones wait for the digest.
   const dispatchCriticalEmails = async (notifications: Notification[]) => {
     for (const n of notifications) {
@@ -978,7 +958,8 @@ export function createServer(options: CreateServerOptions = {}) {
     res.on('finish', () => {
       const user = (req as AuthedRequest).user;
       if (!user || res.statusCode >= 400) return;
-      const accessible = getAccessibleCompanyIds(user);
+      // Under v2 a person reached through a group publishes for that company too.
+      const accessible = accessibleCompanyIds(user);
       const companyId = pathCompany ?? companyIn(req.body) ?? companyIn(answered) ?? before
         ?? (accessible.length === 1 ? accessible[0] : undefined);
       if (companyId && accessible.includes(companyId)) liveHub.publish({ companyId, topics });
@@ -999,6 +980,344 @@ export function createServer(options: CreateServerOptions = {}) {
   const requireFeatureOn = (req: AuthedRequest, companyId: string) => {
     const feature = featureForRoute(req.route?.path ?? req.path);
     if (feature) requireModuleOn(companyId, feature);
+  };
+
+  const engine: PermissionsEngine = options.permissionsEngine ?? configuredEngine();
+  const lookupRoute = options.routeLookup ?? routeDecl;
+  /** The matched route's full Express path (sub-routers are mounted at fixed paths or none). */
+  const routePathOf = (req: Request): string | undefined =>
+    req.route ? `${req.baseUrl ?? ''}${req.route.path as string}` : undefined;
+  /** The matched route's declaration in authz/route-registry.ts, if any. */
+  const declOf = (req: Request): RouteDecl | undefined => {
+    const fullPath = routePathOf(req);
+    // Express answers HEAD with the GET handler; it is decided as that GET.
+    const method = req.method === 'HEAD' ? 'GET' : req.method;
+    return fullPath ? lookupRoute(method, fullPath) : undefined;
+  };
+  /** Configuration errors (undeclared routes, gates without a key) are logged once per route per process. */
+  const loggedOnce = new Set<string>();
+  const errorOnce = (id: string, message: string) => {
+    if (loggedOnce.has(id)) return;
+    loggedOnce.add(id);
+    logger.error(message);
+  };
+  if (process.env.AUTHZ_ENGINE) {
+    logger.warn('AUTHZ_ENGINE is ignored; PERMISSIONS_ENGINE (legacy | shadow | v2) decides.');
+  }
+  if (engine !== 'legacy') {
+    logger.info(`PERMISSIONS_ENGINE=${engine}: ${engine === 'shadow'
+      ? 'roles decide; disagreements with v2 are written to authz_divergence'
+      : 'declared permissions decide'}.`);
+  }
+
+  store.setPermissionHolders({
+    engine,
+    holds: (userId, companyId, permission) => {
+      const need = NOTIFY_KEYS[permission];
+      if (!need) {
+        logger.error(`[authz] notification permission ${permission} has no v2 key (authz/engine.ts NOTIFY_KEYS); nobody is notified under v2.`);
+        return false;
+      }
+      return scopeAtLeast(scopeOf(effective(store, userId), need.key, companyId), need.min);
+    },
+    diverged: (userId, companyId, permission, legacyAllowed, newAllowed) => recordShadowDivergence(store, {
+      userId, companyId, key: NOTIFY_KEYS[permission]?.key ?? permission, route: `notify ${permission}`, legacyAllowed, newAllowed,
+    }),
+  });
+
+  // Shadow disagreements are kept 14 days (the shadow week and a little after).
+  if (process.env.NODE_ENV !== 'test') {
+    const prune = () => {
+      try {
+        const removed = store.pruneAuthzDivergences(14);
+        if (removed > 0) logger.info(`[authz] pruned ${removed} shadow disagreement(s) older than 14 days`);
+      } catch (error) {
+        logger.warn(`[authz] pruning shadow disagreements failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    prune();
+    setInterval(prune, 24 * 60 * 60 * 1000).unref?.();
+  }
+
+  /**
+   * The person's effective permissions, read once per request: a list that
+   * checks every row (canViewTask) must not re-read authz_version per row.
+   */
+  const effectiveFor = (req: AuthedRequest): Effective => {
+    const r = req as AuthedRequest & { authzEffective?: Effective };
+    r.authzEffective ??= effective(store, req.user!.id);
+    return r.authzEffective;
+  };
+
+  /**
+   * The Effective that decides what this person SEES (authz/visible.ts), read
+   * once per request. Ruling D: legacy and shadow use the role's template
+   * (effectiveLegacy), so lists answer exactly as the roles did; v2 the real one.
+   */
+  const viewerOf = (req: AuthedRequest): Effective => {
+    if (engine === 'v2') return effectiveFor(req);
+    const r = req as AuthedRequest & { authzLegacyEffective?: Effective };
+    if (!r.authzLegacyEffective) {
+      const legacy = effectiveLegacy(store, req.user!.id);
+      // I-5: under shadow every read filter compares its scope with v2's and
+      // logs a difference (kind 'scope'); a scope comparison, deduped hourly.
+      r.authzLegacyEffective = engine === 'shadow'
+        ? {
+          ...legacy,
+          onScope: (key, companyId, legacyScope) => {
+            try {
+              const newScope = scopeOf(effectiveFor(req), key, companyId);
+              if (newScope === legacyScope) return;
+              recordShadowDivergence(store, {
+                userId: req.user!.id, companyId, key, route: `scope ${req.method} ${routePathOf(req) ?? req.path}`,
+                legacyAllowed: legacyScope !== null, newAllowed: newScope !== null, kind: 'scope', legacyScope, newScope,
+              });
+            } catch (error) {
+              logger.warn(`[authz] shadow scope comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          },
+        }
+        : legacy;
+    }
+    return r.authzLegacyEffective;
+  };
+
+  /** No higher than me and the lock-out guard, as the People API applies them (authz/guards.ts). */
+  const userGuards = roleGuards(store, engine);
+  /**
+   * C-1: changing or removing someone's role in a company. v2: the actor must
+   * hold everything the person holds there now (the new role is checked by
+   * assertRolesWithin). Every engine: the change is lock-out guarded.
+   */
+  const requireTargetWithin = (req: AuthedRequest, targetId: string, companyIds: readonly string[]) => {
+    if (engine !== 'v2' || req.user!.isSuperAdmin) return;
+    const target = userGuards.effectiveOf(targetId);
+    for (const companyId of companyIds) {
+      const current = target.byCompany.get(companyId);
+      const excess = beyondDetail(viewerOf(req).byCompany.get(companyId), grantsOut(current), fieldsOut(current));
+      if (excess.length) {
+        throw new HttpError(403, 'They have access you don\'t, so you can\'t change their roles. Ask an Admin.', {
+          code: 'HIGHER_THAN_YOU', target: true, permission: excess[0].key, missing: excess.map((e) => e.key), excess,
+        });
+      }
+    }
+  };
+
+  /** One record of a scoped area, by the same rule as its list. */
+  const canSee = (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, options: VisibleOptions = {}): boolean =>
+    store.isVisibleTo(viewerOf(req), area, companyId, id, options);
+
+  /** A record the person may not see is a 404: never reveal that it exists. */
+  const requireVisible = (req: AuthedRequest, area: VisibleArea, companyId: string, id: string, what = 'Not found.') => {
+    if (!canSee(req, area, companyId, id)) throw new HttpError(404, what);
+  };
+
+  /** Under v2, asking the route's own declared key counts as deciding the request. */
+  const markDecided = (req: AuthedRequest, key: string | undefined) => {
+    if (engine === 'v2' && key && key === catalogueKey(declOf(req)?.permission)) (req as DecidedRequest).authzDecided = true;
+  };
+
+  /**
+   * v2 decides every route declared with a catalogue key: `can(declaredKey)` in
+   * the request's company. Called from the auth middleware (company in the
+   * path) and from requireCompanyAccess (company found from a record or the
+   * body), so a handler that gates only on company access is still decided by
+   * its declared permission. Under shadow it only compares (the declared
+   * legacyRoles are today's answer). A platform super admin outside the company
+   * keeps the legacy super-admin handling (Ruling I).
+   */
+  /**
+   * Company access without logging (Ruling M): membership, plus under v2 an
+   * active group assignment covering the company.
+   */
+  const companyReach = (user: SanitizedUser, companyId: string): boolean =>
+    canAccessCompany(user, companyId)
+    || (engine === 'v2' && store.authz.holdingCompanyIds(user.id).includes(companyId));
+
+  /** The companies a person reaches under the configured engine (see companyReach). */
+  const accessibleCompanyIds = (user: SanitizedUser): string[] =>
+    engine === 'v2'
+      ? [...new Set([...getAccessibleCompanyIds(user), ...store.authz.holdingCompanyIds(user.id)])]
+      : getAccessibleCompanyIds(user);
+
+  const requireDeclaredKey = (req: AuthedRequest, companyId: string) => {
+    if (engine === 'legacy' || !req.user) return;
+    const decl = declOf(req);
+    const key = catalogueKey(decl?.permission);
+    if (!decl || !key) return;
+    const user = req.user;
+    if (!companyReach(user, companyId)) return; // the access check answers non-members
+    // Today's answer: the declared role list, with the route's module on (the
+    // evaluator's module lock is part of the v2 answer).
+    const mapping = routeToPermission(req.method === 'HEAD' ? 'GET' : req.method, req.route?.path ?? req.path);
+    const allowed = decideAccess(
+      req, companyId,
+      () => (decl.legacyRoles ? requireCompanyRole(user, companyId, [...decl.legacyRoles]) : true)
+        && (!mapping || store.isModuleEnabled(companyId, mapping.module)),
+      (eff) => can(eff, key, { companyId }).allowed,
+      () => key,
+    );
+    if (engine !== 'v2') return;
+    if (!allowed) throw forbidden(companyId, key);
+    (req as DecidedRequest).authzDecided = true;
+  };
+
+  /**
+   * One decision under the configured engine.
+   *
+   * legacy: `legacy()` decides. v2: `v2(effective)` decides. shadow: legacy
+   * decides; v2 is computed beside it (in-process, synchronous) and a
+   * disagreement is written to authz_divergence. A failure computing the shadow
+   * answer never affects the response.
+   */
+  const decideAccess = (
+    req: AuthedRequest,
+    companyId: string,
+    legacy: () => boolean,
+    v2: (eff: Effective) => boolean,
+    keyOf: () => string | undefined,
+    routePrefix = '',
+  ): boolean => {
+    const user = req.user;
+    if (!user) return false;
+    if (engine === 'legacy') return legacy();
+    if (engine === 'v2') return v2(effectiveFor(req));
+    const legacyAllowed = legacy();
+    try {
+      const newAllowed = v2(effectiveFor(req));
+      const key = keyOf();
+      if (newAllowed !== legacyAllowed) {
+        recordShadowDivergence(store, {
+          userId: user.id, companyId, key: key ?? 'undeclared',
+          route: `${routePrefix}${req.method} ${routePathOf(req) ?? req.path}`, legacyAllowed, newAllowed,
+        });
+        if (process.env.AUTHZ_DEBUG_SHADOW) {
+          // eslint-disable-next-line no-console
+          console.error(`[shadow] ${routePrefix}${req.method} ${routePathOf(req) ?? req.path} ${key} user=${user.email} legacy=${legacyAllowed} v2=${newAllowed}`);
+        }
+      }
+    } catch (error) {
+      logger.warn(`[authz] shadow comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return legacyAllowed;
+  };
+
+  /** A refused permission: 403 { code: 'FORBIDDEN', permission, message }. */
+  const forbidden = (companyId: string, key: string | undefined) => {
+    const body = forbiddenBody(store, engine, companyId, key);
+    return new HttpError(403, body.message, body.details);
+  };
+
+  /**
+   * Whether the person holds a catalogue key in a company (HANDLER_CHECKED
+   * keys and other in-handler checks). Under legacy the role list decides; no
+   * role list means the route gate already gave today's answer (true).
+   */
+  const allowsKey = (
+    req: AuthedRequest,
+    companyId: string,
+    key: string,
+    legacyRoles?: readonly UserRole[],
+    ctx: { ownerUserId?: string | null; amount?: number } = {},
+  ): boolean => {
+    markDecided(req, key);
+    return decideAccess(
+      req, companyId,
+      () => (legacyRoles ? requireCompanyRole(req.user!, companyId, [...legacyRoles]) : true),
+      (eff) => can(eff, key, { companyId, ...ctx }).allowed,
+      () => key,
+      `${key} @ `,
+    );
+  };
+
+  const requirePermission = (
+    req: AuthedRequest,
+    companyId: string,
+    key: string,
+    legacyRoles?: readonly UserRole[],
+    ctx: { ownerUserId?: string | null; amount?: number } = {},
+  ): void => {
+    if (!allowsKey(req, companyId, key, legacyRoles, ctx)) throw forbidden(companyId, key);
+  };
+
+  /**
+   * Mask options for one call. `moduleLock`: the path is one the old field
+   * rules (PAYROLL_PAY_READ, CONTACTS_PRICING_READ) were asked on, so a field
+   * whose module is off stays hidden there as before; elsewhere modules never
+   * hide a field. The company's switched-off modules are read once.
+   */
+  const maskOptions = (companyId: string, opts: FieldOpts): MaskOptions => {
+    if (!opts.moduleLock) return { self: opts.self };
+    const off = new Set(store.getDisabledModules(companyId));
+    return { self: opts.self, moduleOn: (m) => !off.has(m) };
+  };
+
+  /**
+   * A row without the sensitive properties the person may not see
+   * (authz/mask.ts), read with the same Effective as the read filter (Ruling
+   * D). `self`: the row is the person's own (their employee record, payslip).
+   */
+  const maskFor = <T>(req: AuthedRequest, companyId: string, entity: MaskEntity, row: T, opts: FieldOpts = {}): T =>
+    mask(viewerOf(req), companyId, entity, row, maskOptions(companyId, opts));
+
+  /** An activity event without metadata the person may not see (unit cost on item events...). */
+  const maskEvent = <T extends { companyId: string; entityType: string; metadata?: Record<string, unknown> | null }>(req: AuthedRequest, event: T): T =>
+    maskActivity(viewerOf(req), event.companyId, event, {});
+
+  /** May the person see a sensitive field (CSV columns, files)? */
+  const seesField = (req: AuthedRequest, companyId: string, field: SensitiveField, opts: FieldOpts = {}): boolean =>
+    canViewField(viewerOf(req), companyId, field, maskOptions(companyId, opts));
+
+  /**
+   * Refuses a write of a sensitive field the person may not edit: 403
+   * { code: 'FORBIDDEN', permission: 'field:<key>' }. Under legacy the route
+   * gate already gave today's answer (no field check existed); shadow records
+   * where v2 would refuse.
+   */
+  const requireFieldEdit = (req: AuthedRequest, companyId: string, field: SensitiveField): void => {
+    const key = `field:${field}`;
+    const allowed = decideAccess(req, companyId, () => true, (eff) => canEditField(eff, companyId, field), () => key, `${key} @ `);
+    if (!allowed) throw forbidden(companyId, key);
+  };
+
+  /** requireFieldEdit for every sensitive field a body changes (`existing`: the record, or 'create'). */
+  const requireFieldEdits = (
+    req: AuthedRequest,
+    companyId: string,
+    entity: MaskEntity,
+    body: Record<string, unknown> | null | undefined,
+    existing?: object | 'create' | null,
+  ): void => {
+    for (const field of fieldsWritten(entity, body, existing as Record<string, unknown> | 'create' | null | undefined)) {
+      requireFieldEdit(req, companyId, field);
+    }
+  };
+
+  /**
+   * Wraps the response so that, under v2, a success answer from a route whose
+   * declared permission was never decided by can() becomes a 403 (logged once
+   * per route). Error answers pass untouched.
+   */
+  const guardUndecided = (req: DecidedRequest, res: Response, key: string) => {
+    const write = res.write.bind(res) as (...args: unknown[]) => boolean;
+    const end = res.end.bind(res) as (...args: unknown[]) => Response;
+    let checked = false;
+    let refused = false;
+    const check = (): boolean => {
+      if (checked) return refused;
+      checked = true;
+      if (req.authzDecided || res.statusCode >= 400 || res.headersSent) return false;
+      refused = true;
+      errorOnce(`undecided ${req.method} ${routePathOf(req)}`, `[authz] ${req.method} ${routePathOf(req)} answered without deciding ${key}; refused under PERMISSIONS_ENGINE=v2. Gate it with requireCompanyAccess or requireCompanyRoles.`);
+      res.statusCode = 403;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.removeHeader('Content-Length');
+      res.removeHeader('Content-Disposition');
+      end(JSON.stringify({ message: 'You do not have permission to perform this action.', code: 'FORBIDDEN', permission: key }));
+      return true;
+    };
+    (res as unknown as { write: unknown }).write = (...args: unknown[]) => (check() ? false : write(...args));
+    (res as unknown as { end: unknown }).end = (...args: unknown[]) => (check() ? res : end(...args));
   };
 
   const authMiddleware = (req: AuthedRequest, _res: Response, next: NextFunction) => {
@@ -1022,17 +1341,31 @@ export function createServer(options: CreateServerOptions = {}) {
       if (feature && !store.isModuleEnabled(companyParam, feature)) return next(moduleOff(feature));
     }
 
-    if (authzEngine === 'legacy') return next();
-
-    // One ListObjects covers every company this user belongs to, so the 233
-    // synchronous gates downstream can read the result without awaiting.
-    return permissionService
-      .getAllPermissions(user.id)
-      .then((permissions) => {
-        req.permissions = permissions;
-        next();
-      })
-      .catch((error) => next(error));
+    // Every route the API answers is declared in authz/route-registry.ts (a
+    // test enforces it). One that is not never falls through to "allowed"
+    // under v2; shadow only says so.
+    if (engine !== 'legacy' && req.route) {
+      const fullPath = routePathOf(req);
+      const decl = declOf(req);
+      if (!decl) {
+        errorOnce(`undeclared ${req.method} ${fullPath}`, `[authz] undeclared route ${req.method} ${fullPath}: refused under PERMISSIONS_ENGINE=${engine}. Declare it in authz/route-registry.ts.`);
+        if (engine === 'v2') return next(new HttpError(403, 'You do not have permission to perform this action.', { code: 'FORBIDDEN', permission: null }));
+      } else if (catalogueKey(decl.permission)) {
+        // The company is in the path: decide before the handler runs.
+        if (companyParam) {
+          try {
+            requireDeclaredKey(req, companyParam);
+          } catch (error) {
+            return next(error);
+          }
+        }
+        // Fail closed: under v2 a declared route that answers without its
+        // permission having been decided (company found too late, or a gate
+        // nobody wrote) is refused instead of served.
+        if (engine === 'v2' && !user.isSuperAdmin) guardUndecided(req as DecidedRequest, _res, decl.permission);
+      }
+    }
+    return next();
   };
 
   const withActor = <T>(req: AuthedRequest, fn: () => T): T =>
@@ -1070,12 +1403,22 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   const requireCompanyAccess = (req: AuthedRequest, companyId: string) => {
-    if (!req.user || !canAccessCompany(req.user, companyId)) {
-      throw new HttpError(403, 'You do not have access to this company.');
+    const user = req.user;
+    // Ruling M: legacy = membership; v2 = membership or an active group
+    // assignment covering the company (shadow logs where the two differ).
+    const allowed = Boolean(user) && decideAccess(
+      req, companyId,
+      () => canAccessCompany(user!, companyId),
+      () => canAccessCompany(user!, companyId) || store.authz.holdingCompanyIds(user!.id).includes(companyId),
+      () => 'company.access',
+    );
+    if (!allowed) {
+      throw new HttpError(403, 'You do not have access to this company.', { code: 'NO_COMPANY_ACCESS' });
     }
     // Every route block passes here (test: ungated routes), record routes included.
     requireFeatureOn(req, companyId);
     requireAcademyUnlocked(req, companyId);
+    requireDeclaredKey(req, companyId);
   };
 
   /**
@@ -1118,18 +1461,14 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  const authzEngine = options.authzEngine ?? getFgaConfig().engine;
-  const shadowMode = authzEngine === 'shadow';
-  store.setAuthzEngine(authzEngine);
-
   /**
    * Decides a record-level rule (permissions/record-rules.ts).
    *
-   * openfga: the request's group permissions decide. legacy and shadow: the
-   * role list the rule replaced decides, and shadow also logs where groups
-   * would have answered differently.
+   * legacy and shadow: the role list the rule replaced decides (shadow also
+   * records where v2 would answer differently). v2: the key the rule became, at
+   * its minimum scope, or its sensitive-field switch (authz/engine.ts).
    */
-  const allowsRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): boolean => {
+  const allowsRule = (req: AuthedRequest, companyId: string, name: RecordRuleName, ctx: { amount?: number } = {}): boolean => {
     const user = req.user;
     if (!user) return false;
     const rule = RECORD_RULES[name];
@@ -1137,39 +1476,53 @@ export function createServer(options: CreateServerOptions = {}) {
       options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: false });
       return false;
     }
-    if (authzEngine === 'openfga') {
-      const allowed = PermissionService.allows(req.permissions, companyId, rule.module, rule.action);
-      options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
-      return allowed;
-    }
-    const legacyAllowed = requireCompanyRole(user, companyId, [...rule.roles]);
-    if (shadowMode) {
-      permissionService
-        .has(user.id, companyId, rule.module, rule.action)
-        .then((openfgaAllowed) => recordDivergence(store, {
-          userId: user.id, companyId, module: rule.module, action: rule.action,
-          route: `rule ${name}`, legacyAllowed, openfgaAllowed,
-        }))
-        .catch(() => undefined);
-    }
-    options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed: legacyAllowed });
-    return legacyAllowed;
+    const routeKey = catalogueKey(declOf(req)?.permission);
+    let ruleKey: string = name;
+    const allowed = decideAccess(
+      req, companyId,
+      () => requireCompanyRole(user, companyId, [...rule.roles]),
+      (eff) => {
+        const answer = ruleAllowsV2(eff, name, companyId, routeKey, ctx);
+        ruleKey = answer.key;
+        return answer.allowed;
+      },
+      () => ruleKey,
+      `rule ${name} @ `,
+    );
+    if (engine === 'v2') markDecided(req, ruleKey);
+    options.onRuleDecision?.({ rule: name, companyId, userId: user.id, allowed });
+    return allowed;
   };
 
   /**
    * Runs a change that may raise what a client owes, refusing it (409
    * CREDIT_LIMIT_EXCEEDED) if it takes them past their credit limit. Someone
    * allowed to override sends `overrideCreditLimit: true` to go ahead.
+   * `change` must stay database-only (no emails, pushes, live signals or other
+   * side effects): it may run twice, and the first, refused run is rolled back.
    */
   const creditGuard = <T>(req: AuthedRequest, companyId: string, clientId: string | undefined | null, change: () => T): T => {
-    const canOverride = () => allowsRule(req, companyId, 'INVOICES_CREDIT_OVERRIDE');
+    // invoices.override_credit may carry a limit: the most it lets a client go
+    // past their credit limit (v2). The change runs in a transaction that
+    // rolls back when refused, so it is retried with the override only once
+    // the overage is known and allowed.
+    const canOverride = (overage: number) => allowsRule(req, companyId, 'INVOICES_CREDIT_OVERRIDE', { amount: overage });
     const asked = Boolean(req.body && typeof req.body === 'object' && (req.body as Record<string, unknown>).overrideCreditLimit === true);
     try {
-      return store.withinCreditLimit(clientId, change, { override: asked && canOverride() });
+      return store.withinCreditLimit(clientId, change);
     } catch (error) {
       if (!(error instanceof CreditLimitError)) throw error;
+      const overage = Math.max(0, error.owed + error.adding - error.limit);
+      const allowed = canOverride(overage);
+      if (asked && allowed) return store.withinCreditLimit(clientId, change, { override: true });
+      // The limit itself is the client_terms field.
+      if (!seesField(req, companyId, 'client_terms')) {
+        throw new HttpError(409, `${error.clientName} would go over their credit limit.`, {
+          code: 'CREDIT_LIMIT_EXCEEDED', owed: error.owed, adding: error.adding, canOverride: allowed,
+        });
+      }
       throw new HttpError(409, error.message, {
-        code: 'CREDIT_LIMIT_EXCEEDED', limit: error.limit, owed: error.owed, adding: error.adding, canOverride: canOverride(),
+        code: 'CREDIT_LIMIT_EXCEEDED', limit: error.limit, owed: error.owed, adding: error.adding, canOverride: allowed,
       });
     }
   };
@@ -1179,118 +1532,51 @@ export function createServer(options: CreateServerOptions = {}) {
   const requireCompanyRule = (req: AuthedRequest, companyId: string, name: RecordRuleName): void => {
     requireCompanyAccess(req, companyId);
     if (!allowsRule(req, companyId, name)) {
-      throw new HttpError(403, 'You do not have permission to perform this action.');
+      const v2 = RECORD_RULES[name].v2;
+      const routeKey = catalogueKey(declOf(req)?.permission);
+      const key = 'keys' in v2 ? (routeKey && (v2.keys as readonly string[]).includes(routeKey) ? routeKey : v2.keys[0]) : undefined;
+      throw forbidden(companyId, key);
     }
   };
 
   /**
-   * Captures, per company, the tuples a change may alter. Take it before the
-   * change and hand it to publishAuthzChange afterwards.
+   * The route gate. legacy: the role list decides (unchanged). v2: the route's
+   * declared permission (authz/route-registry.ts), or `key` where a handler
+   * decides between several (approval decisions), asked with can(). A route
+   * with no catalogue key is refused under v2 and logged. shadow: legacy
+   * decides, v2 is compared.
    */
-  const snapshotAuthz = (companyIds: Iterable<string>) =>
-    new Map<string, ReturnType<typeof tuplesForStore>>(
-      [...new Set(companyIds)].map((id) => [id, tuplesForStore(store, id)]),
-    );
-
-  /**
-   * Publishes to OpenFGA whatever a change did to the snapshotted companies,
-   * then invalidates cached decisions.
-   *
-   * Every route that changes membership, roles, super-admin status or
-   * companies must come through here. Before it existed only the
-   * permission-group screens did, so under the openfga engine a newly added
-   * user was denied everything and a demoted one kept their old access until
-   * someone ran fga:sync by hand.
-   *
-   * The version bump comes after publishing on purpose. The store already
-   * bumps inside the change, and a request landing between that bump and
-   * publication re-caches OpenFGA's old answer under the new version, where
-   * nothing would ever evict it.
-   */
-  const publishAuthzChange = async (before: Map<string, ReturnType<typeof tuplesForStore>>) => {
-    if (authzEngine === 'legacy' || before.size === 0) return;
-    let changed = 0;
-    try {
-      for (const [companyId, tuples] of before) {
-        const result = await projectCompanyDelta(store, companyId, tuples, options.tupleWriter);
-        changed += result.written + result.deleted;
-      }
-    } catch (error) {
-      store.bumpAuthzVersion(); // the state is unknown; drop anything cached meanwhile
-      logger.error(
-        `Failed to project permission changes to OpenFGA: ${
-          error instanceof Error ? error.message : String(error)
-        }. Run: npm run ops -- fga:sync`,
-      );
-      throw new HttpError(
-        503,
-        'The change was saved but could not be published to the authorization service. Retry, or run fga:sync.',
-      );
-    }
-    if (changed > 0) store.bumpAuthzVersion();
-  };
-  if (authzEngine !== 'legacy') {
-    logger.info(`AUTHZ_ENGINE=${authzEngine}: OpenFGA is ${
-      shadowMode ? 'being compared against role checks' : 'deciding permissions'
-    }.`);
-  }
-
   const requireCompanyRoles = (
     req: AuthedRequest,
     companyId: string,
     roles: UserRole[],
+    key?: string,
   ) => {
     requireCompanyAccess(req, companyId);
-    const legacyAllowed = requireCompanyRole(req.user!, companyId, roles);
     const mapping = routeToPermission(req.method, req.route?.path ?? req.path);
     if (mapping) requireModuleOn(companyId, mapping.module);
-
-    // Shadow mode observes; the legacy answer still decides. Living inside the
-    // gate rather than at the call sites means all 233 of them are compared
-    // against real traffic without any of them being touched.
-    if (shadowMode && req.user) {
-      recordShadowCheck({
-        store,
-        service: permissionService,
-        userId: req.user.id,
-        companyId,
-        method: req.method,
-        routePath: req.route?.path ?? req.path,
-        legacyAllowed,
-      });
-    }
-
-    let allowed = legacyAllowed;
-    if (authzEngine === 'openfga' && req.user) {
-      if (mapping) {
-        allowed = PermissionService.allows(
-          req.permissions,
-          companyId,
-          mapping.module,
-          mapping.action,
-        );
-      } else {
-        // A gated route missing from the generated map would otherwise be
-        // silently denied. Fall back to the role check and say so loudly —
-        // it means the map needs regenerating.
-        logger.warn(
-          `No permission mapping for ${req.method} ${req.route?.path ?? req.path}; `
-            + 'falling back to the legacy role check. Run: npm run authz:extract',
-        );
-      }
-    }
-
-    if (!allowed) {
-      throw new HttpError(403, 'You do not have permission to perform this action.');
-    }
+    const declared = key ?? catalogueKey(declOf(req)?.permission);
+    const allowed = decideAccess(
+      req, companyId,
+      () => requireCompanyRole(req.user!, companyId, roles),
+      (eff) => {
+        if (declared) return can(eff, declared, { companyId }).allowed;
+        errorOnce(`nokey ${req.method} ${routePathOf(req) ?? req.path}`, `[authz] ${req.method} ${routePathOf(req) ?? req.path} has no declared permission for its role gate; refused under PERMISSIONS_ENGINE=${engine}.`);
+        return false;
+      },
+      () => declared,
+    );
+    if (!allowed) throw forbidden(companyId, declared);
+    if (engine === 'v2' && declared) (req as DecidedRequest).authzDecided = true;
   };
 
-  const canViewProject = (req: AuthedRequest, project: Project): boolean => {
-    const user = req.user!;
+  /**
+   * One project, by the projects rule of authz/visible.ts (Public or a member
+   * of my reach, every one at company scope; nothing without projects.view).
+   */
+  const canViewProject = (req: AuthedRequest, project: Pick<Project, 'id' | 'companyId'>): boolean => {
     if (!store.isModuleEnabled(project.companyId, 'projects')) return false;
-    if (!getEffectiveRole(user, project.companyId)) return false;
-    if (allowsRule(req, project.companyId, 'PROJECTS_ALL_READ')) return true;
-    return project.visibility === 'Public' || Boolean(project.memberIds?.includes(user.id));
+    return canSee(req, 'projects', project.companyId, project.id);
   };
 
   const requireProjectViewAccess = (req: AuthedRequest, project: Project) => {
@@ -1301,44 +1587,20 @@ export function createServer(options: CreateServerOptions = {}) {
     }
   };
 
-  // Task visibility: holders of tasks:all.read (Admins, Managers and Accountants
-  // by default) see every task in the company.
-  // For Employees, project access cascades to its tasks — anyone who can see a
-  // project (Public, or one they're a member of) sees every task under it. A
-  // project-less task, or one in a project they cannot see, is visible only if
-  // it is directly assigned to them. Company scoping is enforced by the callers.
-  const canViewTask = (
-    req: AuthedRequest,
-    task: {
-      companyId: string;
-      projectId?: string | null;
-      assignedUserIds?: string[];
-      ownerId?: string | null;
-      isPrivate?: boolean;
-    },
-  ): boolean => {
-    const user = req.user!;
+  /**
+   * One task, by the tasks rule of authz/visible.ts: company scope every task;
+   * below it, assigned within my reach or in a project I can see. A private
+   * task is only its owner's and assignees' (the platform super admin keeps
+   * access for support). Company scoping is enforced by the callers.
+   */
+  const canViewTask = (req: AuthedRequest, task: { id: string; companyId: string }): boolean => {
     if (!store.isModuleEnabled(task.companyId, 'tasks')) return false;
-    const isAssignee = (task.assignedUserIds ?? []).includes(user.id);
-    // A private task is visible ONLY to its owner and assignees — it overrides
-    // the role-based default and the project cascade. The platform super-admin
-    // retains access for support/audit; company Admins/Managers do not.
-    if (task.isPrivate) {
-      if (user.isSuperAdmin) return true;
-      return task.ownerId === user.id || isAssignee;
-    }
-    if (getEffectiveRole(user, task.companyId) && allowsRule(req, task.companyId, 'TASKS_ALL_READ')) return true;
-    if (isAssignee) return true;
-    if (task.projectId) {
-      const project = store.getProjectById(task.projectId);
-      if (project && canViewProject(req, project)) return true;
-    }
-    return false;
+    return canSee(req, 'tasks', task.companyId, task.id, { platformSupport: Boolean(req.user!.isSuperAdmin) });
   };
 
   const requireTaskViewAccess = (
     req: AuthedRequest,
-    task: { companyId: string; projectId?: string | null; assignedUserIds?: string[] },
+    task: { id: string; companyId: string },
   ) => {
     requireCompanyAccess(req, task.companyId);
     requireModuleOn(task.companyId, 'tasks');
@@ -1562,7 +1824,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   /** Companies whose people the caller may see: where they administer or manage. */
   const userAdminCompanyIds = (req: AuthedRequest): Set<string> =>
-    new Set(getAccessibleCompanyIds(req.user!).filter((companyId) => allowsRule(req, companyId, 'USERS_WRITE')));
+    new Set(accessibleCompanyIds(req.user!).filter((companyId) => allowsRule(req, companyId, 'USERS_WRITE')));
 
   /**
    * A user as seen from some companies only: their assignments elsewhere are
@@ -1590,12 +1852,12 @@ export function createServer(options: CreateServerOptions = {}) {
     // they administer or manage.
     if (actor.isSuperAdmin) return;
     // Someone in no company at all belongs to the platform, not to a company admin.
-    if (!assignments.length) throw new HttpError(403, 'Only the super admin can manage this user.');
+    if (!assignments.length) throw new HttpError(403, 'Only the super admin can manage this user.', { code: 'SUPER_ADMIN_ONLY' });
     const invalidCompany = assignments.find(
       (assignment) => !allowsRule(req, assignment.companyId, 'USERS_WRITE'),
     );
     if (invalidCompany) {
-      throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
+      throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
     }
     const elevatedAssignment = assignments.find(
       (assignment) =>
@@ -1606,7 +1868,24 @@ export function createServer(options: CreateServerOptions = {}) {
       throw new HttpError(
         403,
         'Only company admins can assign Admin, Manager, or Accountant roles in that company.',
+        { code: 'ROLE_ASSIGN_FORBIDDEN' },
       );
+    }
+  };
+
+  /**
+   * v2: giving someone a standard role through the user form follows the
+   * People screen's rule, no higher than me, against that role's grants
+   * (authz/routes.ts requireWithin). Legacy and shadow: unchanged.
+   */
+  const assertRolesWithin = (req: AuthedRequest, assignments: CompanyRoleAssignment[]) => {
+    if (engine !== 'v2' || req.user!.isSuperAdmin) return;
+    for (const assignment of assignments) {
+      const role = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
+      if (!role) continue;
+      const content = store.authz.roleContent(role.id);
+      const excess = beyondDetail(viewerOf(req).byCompany.get(assignment.companyId), content.grants, content.fields);
+      if (excess.length) throw higherThanYou(excess);
     }
   };
 
@@ -1897,8 +2176,8 @@ export function createServer(options: CreateServerOptions = {}) {
 
   // What route modules (src/routes) get from here: the store and the guards above.
   const routeContext: RouteContext = {
-    store, authzEngine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, withActor, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
-    requireSuperAdmin, ensureSalesItemsBelongToCompany, publishAuthzChange, snapshotAuthz, logger, uploadedImage, parseSalesOrderItems,
+    store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, maskEvent, seesField, requireFieldEdit, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
+    requireSuperAdmin, ensureSalesItemsBelongToCompany, accessibleCompanyIds, logger, uploadedImage, parseSalesOrderItems,
   };
   const sendPasswordLink = makePasswordLinkSender(store, options.sendPasswordEmail ?? sendPasswordEmail, logger);
 
@@ -2337,6 +2616,14 @@ export function createServer(options: CreateServerOptions = {}) {
   app.use(createTeamChatRouter(routeContext, { live: liveHub, push }));
 
   registerAdminRoutes(app, routeContext);
+
+  registerHoldingRoutes(app, routeContext);
+  registerAuthzRoutes(app, routeContext, {
+    // The same locks requireAcademyUnlocked applies, so the UI need not guess.
+    academyLocked: (user, companyId) => (!academyEnforce || user.isSuperAdmin || store.isTrainingCompany(companyId)
+      ? []
+      : academyLockedModules(store, user)),
+  });
 
   registerCustomFieldRoutes(app, routeContext);
 
@@ -2830,17 +3117,14 @@ export function createServer(options: CreateServerOptions = {}) {
       const suppliedPassword = asRecord(req.body, 'body').password !== undefined;
       assertNoForeignPractice(null, [...(payload.companyIds ?? []), ...payload.companyRoles!.map((a) => a.companyId)]);
       assertUserManagementPermission(req, payload.companyRoles!);
+      assertRolesWithin(req, payload.companyRoles!);
       assertRolesAvailable(payload.companyRoles!);
-      const authzBefore = snapshotAuthz([
-        ...(payload.companyIds ?? []),
-        ...payload.companyRoles!.map((assignment) => assignment.companyId),
-      ]);
       // Only an existing super-admin may grant the super-admin flag.
       const isSuperAdmin =
         payload.isSuperAdmin === true && req.user?.isSuperAdmin === true
           ? true
           : false;
-      const user = store.createUser({
+      const user = withActor(req, () => store.createUser({
         id: userIdFromBody(asRecord(req.body, 'body').id),
         name: payload.name!,
         email: payload.email!,
@@ -2855,7 +3139,7 @@ export function createServer(options: CreateServerOptions = {}) {
         defaultCommissionRate: payload.defaultCommissionRate,
         defaultCommissionBasis: payload.defaultCommissionBasis,
         costRatePerHour: payload.costRatePerHour,
-      });
+      }));
       // The new person sets their own password from an emailed link; when the
       // email cannot go out, the link comes back for the admin to pass on.
       const invite = suppliedPassword
@@ -2864,7 +3148,6 @@ export function createServer(options: CreateServerOptions = {}) {
           logger.error('Failed to send the invitation', error);
           return { sent: false };
         });
-      await publishAuthzChange(authzBefore);
       res.status(201).json({ user, invite });
     }),
   );
@@ -2890,16 +3173,16 @@ export function createServer(options: CreateServerOptions = {}) {
         // change only when the admin manages all of them.
         const manages = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
         const isSelf = req.user!.id === existing.id;
-        if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.');
+        if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.', { code: 'SUPER_ADMIN_ONLY' });
         if (!isSelf && !existingAssignments.some((a) => manages(a.companyId))) {
-          throw new HttpError(403, 'You can only edit people in companies you administer or manage.');
+          throw new HttpError(403, 'You can only edit people in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         const identityChange =
           (payload.name !== undefined && payload.name !== existing.name)
           || (payload.email !== undefined && payload.email.toLowerCase() !== existing.email.toLowerCase())
           || payload.password !== undefined;
         if (identityChange && !isSelf && !existingAssignments.every((a) => manages(a.companyId))) {
-          throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.');
+          throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.', { code: 'IDENTITY_SHARED' });
         }
       }
       let targetAssignments =
@@ -2916,7 +3199,7 @@ export function createServer(options: CreateServerOptions = {}) {
           return !before || before.role !== a.role || (before.positionId ?? undefined) !== (a.positionId ?? undefined);
         });
         if (foreignChange) {
-          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.');
+          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         targetAssignments = [
           ...payload.companyRoles.filter((a) => manageable(a.companyId)),
@@ -2964,14 +3247,14 @@ export function createServer(options: CreateServerOptions = {}) {
             !targetByCompany.has(assignment.companyId),
         );
         if (unmanagedTargetChange || unmanagedRemoval) {
-          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.');
+          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         const assignmentsToAuthorize =
           changedAssignments.length > 0
             ? changedAssignments
             : targetAssignments.filter((assignment) => canManageAssignment(assignment.companyId));
         if (!assignmentsToAuthorize.length) {
-          throw new HttpError(403, 'You can only manage users in companies you administer or manage.');
+          throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
         }
         assertUserManagementPermission(req, assignmentsToAuthorize);
       }
@@ -2990,13 +3273,23 @@ export function createServer(options: CreateServerOptions = {}) {
           (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
         ),
       );
-      const authzBefore = snapshotAuthz([
-        ...existing.companyIds,
-        ...existingAssignments.map((assignment) => assignment.companyId),
-        ...targetAssignments.map((assignment) => assignment.companyId),
-        ...(payload.companyIds ?? []),
-      ]);
-      const updated = store.updateUser(req.params.id, {
+      const roleChanges = targetAssignments.filter(
+        (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
+      );
+      assertRolesWithin(req, roleChanges);
+      // C-1: companies whose role for this person changes or goes.
+      // The membership kept is what write() stores in companyIds (the super
+      // admin may send companyIds alone): a company dropped there counts too (N-7).
+      const keptCompanyIds = new Set(req.user!.isSuperAdmin && payload.companyIds
+        ? payload.companyIds
+        : targetAssignments.map((a) => a.companyId));
+      const touched = [...new Set([
+        ...roleChanges.map((a) => a.companyId).filter((id) => existingRoleByCompany.has(id)),
+        ...existingAssignments.filter((a) => !targetAssignments.some((t) => t.companyId === a.companyId)).map((a) => a.companyId),
+        ...[...new Set([...existing.companyIds, ...existingAssignments.map((a) => a.companyId)])].filter((id) => !keptCompanyIds.has(id)),
+      ])];
+      requireTargetWithin(req, existing.id, touched);
+      const write = () => store.updateUser(req.params.id, {
         ...safePayload,
         companyIds: req.user!.isSuperAdmin && payload.companyIds
           ? payload.companyIds
@@ -3004,13 +3297,31 @@ export function createServer(options: CreateServerOptions = {}) {
         companyRoles: targetAssignments,
         role: payload.role || targetAssignments[0]?.role || existing.role,
       });
+      // v2: a role given here is the person's main role in that company (a
+      // custom main role is replaced; add-ons stay), and companyRoles, written
+      // above, matches it. Legacy and shadow keep the legacy sync's answer.
+      const updated = withActor(req, () => userGuards.guarded(touched, () => (engine === 'v2'
+        ? store.transaction(() => {
+          const prior = new Map(roleChanges.map((a) => [a.companyId, store.authz.assignments(existing.id, a.companyId)]));
+          const out = write();
+          if (!out) return out;
+          for (const assignment of roleChanges) {
+            const main = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
+            if (!main) continue;
+            const addOnRoleIds = (prior.get(assignment.companyId) ?? [])
+              .filter((r) => !r.isMain && !r.viaHoldingGroupId && !r.endsAt && r.roleId !== main.id && !store.authz.getRole(r.roleId)?.isSystem)
+              .map((r) => r.roleId);
+            store.authz.setAssignments(existing.id, assignment.companyId, { mainRoleId: main.id, addOnRoleIds }, req.user!.id);
+          }
+          return store.getUserById(existing.id) ?? out;
+        })
+        : write())));
       if (!updated) throw new HttpError(404, 'User not found.');
       // A new password ends the person's other sign-ins (an admin's change ends all of them).
       if (payload.password !== undefined) {
         const here = req.user!.id === updated.id ? (req.headers.authorization ?? '').replace('Bearer ', '').trim() : undefined;
         store.revokeUserTokens(updated.id, here);
       }
-      await publishAuthzChange(authzBefore);
       res.json(updated);
     }),
   );
@@ -3028,14 +3339,12 @@ export function createServer(options: CreateServerOptions = {}) {
           role: existing.role,
           positionId: existing.positionId,
         }));
-      if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.');
+      if (existing.isSuperAdmin && !req.user!.isSuperAdmin) throw new HttpError(403, 'Only the super admin can delete this user.', { code: 'SUPER_ADMIN_ONLY' });
       assertUserManagementPermission(req, targetAssignments);
-      const authzBefore = snapshotAuthz([
-        ...existing.companyIds,
-        ...targetAssignments.map((assignment) => assignment.companyId),
-      ]);
-      store.deleteUser(req.params.id);
-      await publishAuthzChange(authzBefore);
+      const companyIds = targetAssignments.map((a) => a.companyId);
+      requireTargetWithin(req, existing.id, companyIds);
+      // Errors go to the global handler: a data rule is a 400 there, a fault a 500 (N-4).
+      withActor(req, () => userGuards.guarded(companyIds, () => store.deleteUser(req.params.id)));
       res.json({ success: true });
     }),
   );
@@ -3044,15 +3353,12 @@ export function createServer(options: CreateServerOptions = {}) {
     '/projects',
     authMiddleware,
     handler((req, res) => {
-      const accessible = new Set(getAccessibleCompanyIds(req.user!));
-      res.json(
-        store
-          .listProjects()
-          .filter(
-            (project) =>
-              accessible.has(project.companyId) && canViewProject(req, project),
-          ),
-      );
+      // Every company the person belongs to, each by its own visibility (in SQL).
+      const viewer = viewerOf(req);
+      const parts = accessibleCompanyIds(req.user!)
+        .filter((companyId) => store.isModuleEnabled(companyId, 'projects'))
+        .map((companyId) => ({ companyId, viewer }));
+      res.json(store.listVisibleProjects(parts));
     }),
   );
 
@@ -3168,13 +3474,12 @@ export function createServer(options: CreateServerOptions = {}) {
     '/tasks',
     authMiddleware,
     handler((req, res) => {
-      const accessible = new Set(getAccessibleCompanyIds(req.user!));
-      res.json(
-        store
-          .listTasks()
-          .filter((task) => accessible.has(task.companyId))
-          .filter((task) => canViewTask(req, task)),
-      );
+      const viewer = viewerOf(req);
+      const platformSupport = Boolean(req.user!.isSuperAdmin);
+      const parts = accessibleCompanyIds(req.user!)
+        .filter((companyId) => store.isModuleEnabled(companyId, 'tasks'))
+        .map((companyId) => ({ companyId, viewer, platformSupport }));
+      res.json(store.listVisibleTasks(parts));
     }),
   );
 
@@ -3194,14 +3499,19 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
-      res.json(
-        store
-          .getTasksByClient(req.params.companyId, req.params.clientId)
-          .filter((task) => {
-            const project = store.getProjectById(task.projectId);
-            return Boolean(project && canViewProject(req, project));
-          }),
-      );
+      // Tasks the person can see (private ones stay their owner's), in the
+      // client's projects that the person can see.
+      const companyId = req.params.companyId;
+      if (!store.isModuleEnabled(companyId, 'projects')) { res.json([]); return; }
+      const viewer = viewerOf(req);
+      const projects = visible(viewer, 'projects', companyId, { alias: 'cp' });
+      res.json(store.listVisibleTasks(
+        [{ companyId, viewer, platformSupport: Boolean(req.user!.isSuperAdmin) }],
+        {
+          sql: `t.projectId IN (SELECT cp.id FROM projects cp WHERE cp.companyId = ? AND cp.clientId = ? AND ${projects.sql})`,
+          params: [companyId, req.params.clientId, ...projects.params],
+        },
+      ));
     }),
   );
 
@@ -3438,9 +3748,9 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const role = req.query.role as string | undefined;
-	      const viewer = { userId: req.user!.id, seesPrivate: allowsRule(req, req.params.companyId, 'CONTACTS_PRIVATE_READ') };
-	      const contacts = store.listContacts(req.params.companyId, role as any, viewer);
-	      res.json(redactContacts(contacts, allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ')));
+	      const contacts = store.listContacts(req.params.companyId, role as any, viewerOf(req));
+	      // Rate cards: the rate_cards field (authz/mask.ts).
+	      res.json(contacts.map((contact) => maskFor(req, req.params.companyId, 'contact', contact, { moduleLock: true })));
 	    }),
 	  );
 
@@ -3450,8 +3760,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
       // The export shows exactly what the list shows: others' private contacts only to those allowed.
-      const viewer = { userId: req.user!.id, seesPrivate: allowsRule(req, req.params.companyId, 'CONTACTS_PRIVATE_READ') };
-      const contacts = store.listContacts(req.params.companyId, undefined, viewer);
+      const contacts = store.listContacts(req.params.companyId, undefined, viewerOf(req));
       const csv = toCsv(
         ['name', 'kind', 'email', 'phone', 'address', 'taxNumber', 'roles', 'leadStatus', 'ownerName', 'tags'],
         contacts.map((c) => [
@@ -3508,8 +3817,9 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-      const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
-      const influencers = store.listContacts(req.params.companyId, 'Influencer' as any);
+      const showPricing = seesField(req, req.params.companyId, 'rate_cards', { moduleLock: true });
+      // Exactly the influencers the contact list shows this person.
+      const influencers = store.listContacts(req.params.companyId, 'Influencer' as any, viewerOf(req));
       const csv = toCsv(
         showPricing
           ? INFLUENCER_CSV_COLUMNS
@@ -3542,6 +3852,10 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
+      // A rate card in any row is a write of the rate_cards field.
+      for (const r of rows) {
+        if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: (r as Record<string, unknown>).rateCard }, 'create');
+      }
       let created = 0;
       const errors: Array<{ row: number; error: string }> = [];
       rows.forEach((raw, index) => {
@@ -3586,6 +3900,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const { companyId } = req.params;
 	      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const body = asRecord(req.body, 'body');
+	      requireFieldEdits(req, companyId, 'contact', body, 'create');
 	      const managesAll = allowsRule(req, companyId, 'CONTACTS_ALL_WRITE');
 	      let contact;
 	      try {
@@ -3626,7 +3941,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        if (error instanceof HttpError) throw error;
 	        throw new HttpError(400, error?.message || 'Could not create contact.');
 	      }
-      res.status(201).json(contact);
+      res.status(201).json(maskFor(req, companyId, 'contact', contact));
     }),
   );
 
@@ -3637,7 +3952,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
-      res.json(contact);
+      requireVisible(req, 'contacts', contact.companyId, contact.id);
+      res.json(maskFor(req, contact.companyId, 'contact', contact));
     }),
   );
 
@@ -3649,6 +3965,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
+      requireFieldEdits(req, existing.companyId, 'contact', body, existing);
       let contact;
       try {
       contact = store.updateContact(req.params.id, {
@@ -3680,7 +3997,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        if (error instanceof HttpError) throw error;
 	        throw new HttpError(400, error?.message || 'Could not update contact.');
 	      }
-      res.json(contact);
+      res.json(maskFor(req, existing.companyId, 'contact', contact));
     }),
   );
 
@@ -3694,7 +4011,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const body = asRecord(req.body, 'body');
       const role = requiredString(body.role, 'role') as any;
       store.addContactRole(req.params.id, contact.companyId, role, 'Manual');
-      res.json(store.getContactById(req.params.id));
+      res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
   );
 
@@ -3715,6 +4032,8 @@ export function createServer(options: CreateServerOptions = {}) {
         'Employee',
       ]);
       const companyId = contact.companyId;
+      // A private contact the person may not see does not exist for them.
+      requireVisible(req, 'contacts', companyId, contact.id, 'Contact not found.');
       // Sections from a module the company switched off stay empty.
       const on = (module: string) => store.isModuleEnabled(companyId, module);
 
@@ -3747,14 +4066,11 @@ export function createServer(options: CreateServerOptions = {}) {
         ? (on('vendor-bills') ? store.listVendorBills(companyId) : ([] as ReturnType<typeof store.listVendorBills>))
             .filter((bill) => bill.supplierId === linkedSupplierId)
         : [];
-      const opportunities = (on('crm') ? store.listOpportunities(companyId) : ([] as ReturnType<typeof store.listOpportunities>))
+      // Opportunities and projects: only those the person may see (authz/visible.ts).
+      const opportunities = (on('crm') ? store.listOpportunities(companyId, viewerOf(req)) : ([] as ReturnType<typeof store.listOpportunities>))
         .filter((opp) => opp.contactId === contact.id);
-      const projects = linkedClientId
-        ? (on('projects') ? store.listProjects() : ([] as ReturnType<typeof store.listProjects>))
-            .filter(
-              (project) =>
-                project.companyId === companyId && project.clientId === linkedClientId,
-            )
+      const projects = linkedClientId && on('projects')
+        ? store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }], { sql: 'p.clientId = ?', params: [linkedClientId] })
         : [];
 
       const totals = {
@@ -3781,7 +4097,7 @@ export function createServer(options: CreateServerOptions = {}) {
       };
 
       res.json({
-        contact: redactContact(contact, allowsRule(req, contact.companyId, 'CONTACTS_PRICING_READ')),
+        contact: maskFor(req, companyId, 'contact', contact, { moduleLock: true }),
         totals,
         invoices: invoices.slice(0, 50),
         salesOrders: salesOrders.slice(0, 50),
@@ -3801,7 +4117,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
       store.removeContactRole(req.params.id, req.params.role as any);
-      res.json(store.getContactById(req.params.id));
+      res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
   );
 
@@ -3852,8 +4168,9 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', contact.companyId, contact.id);
       const limit = req.query.limit ? Number(req.query.limit) : 50;
-      res.json(store.listActivityEvents(contact.companyId, { entityType: 'contact', entityId: req.params.id, limit }));
+      res.json(store.listActivityEvents(contact.companyId, { entityType: 'contact', entityId: req.params.id, limit }).map((event) => maskEvent(req, event)));
     }),
   );
 
@@ -3865,6 +4182,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      // A contact the person may not see does not exist for them (the response echoes it).
+      requireVisible(req, 'contacts', contact.companyId, contact.id);
       const managesAll = allowsRule(req, contact.companyId, 'CONTACTS_ALL_WRITE');
       // Employees can only patch contacts they own
       if (!managesAll && contact.ownerUserId && contact.ownerUserId !== req.user!.id) {
@@ -3886,7 +4205,7 @@ export function createServer(options: CreateServerOptions = {}) {
         nextFollowupNote: body.nextFollowupNote !== undefined ? optionalString(body.nextFollowupNote) : undefined,
         visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as const) : undefined,
       });
-      res.json(updated);
+      res.json(maskFor(req, contact.companyId, 'contact', updated));
     }),
   );
 
@@ -3908,7 +4227,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          nextFollowupDate: null,
 	          nextFollowupNote: '',
 	        });
-	        res.json(updated);
+	        res.json(maskFor(req, contact.companyId, 'contact', updated));
 	        return;
 	      }
 		      const followup = store.getFollowupById(rawId);
@@ -3947,7 +4266,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          nextFollowupDate: dueDate,
 	          nextFollowupNote: optionalString(body.nextAction) ?? contact.nextFollowupNote,
 	        });
-	        res.json(updated);
+	        res.json(maskFor(req, contact.companyId, 'contact', updated));
 	        return;
 	      }
 		      const followup = store.getFollowupById(rawId);
@@ -4134,18 +4453,19 @@ export function createServer(options: CreateServerOptions = {}) {
 	    handler((req, res) => {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const contactId = optionalString(req.query.contactId);
-	      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-	      const requestedOwnerUserId = optionalString(req.query.ownerUserId);
-	      const ownerUserId = !seesAll ? req.user!.id : requestedOwnerUserId;
+	      // What the person may see is decided by authz/visible.ts (own = theirs,
+	      // invited or shared with them; team = their line's; company = all). An
+	      // owner asked for only narrows that set.
+	      const viewer = viewerOf(req);
+	      const ownerUserId = optionalString(req.query.ownerUserId);
 	      const overdueParam = req.query.overdue;
       const overdue = overdueParam === 'true' ? true : overdueParam === 'false' ? false : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
-      const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit });
+      const followups = store.listFollowups(req.params.companyId, { contactId, ownerUserId, overdue, limit, viewer });
       // Enrich with the contact behind the follow-up, and a label for what it is
       // actually about. A collections queue that cannot name the invoice, or that
       // reports every row as a deleted contact because invoices have none, is not
       // a worklist anyone can act on.
-      const showPricing = allowsRule(req, req.params.companyId, 'CONTACTS_PRICING_READ');
       const enriched = followups.map((f) => {
         let contact = store.getContactById(f.entityId);
         let entityLabel: string | undefined;
@@ -4153,7 +4473,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
         if (f.entityType === 'opportunity') {
           const opp = store.getOpportunityById(f.entityId);
-          if (opp) {
+          if (opp && canSee(req, 'opportunities', opp.companyId, opp.id)) {
             entityLabel = opp.title;
             if (!contact && opp.contactId) contact = store.getContactById(opp.contactId);
           }
@@ -4166,13 +4486,13 @@ export function createServer(options: CreateServerOptions = {}) {
           }
         }
 
+        // A contact the person may not see is not named (a private one stays private).
+        if (contact && !canSee(req, 'contacts', contact.companyId, contact.id)) contact = undefined;
         return {
           ...f,
+          // Picked fields only: no sensitive field rides along.
           contact: contact
-            ? redactContact(
-                { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles },
-                showPricing,
-              )
+            ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone, roles: contact.roles }
             : null,
           entityLabel,
           entityAmount,
@@ -4188,7 +4508,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
-      res.json(store.followupWorkload(req.params.companyId));
+      res.json(store.followupWorkload(req.params.companyId, viewerOf(req)));
     }),
   );
 
@@ -4198,7 +4518,7 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager']);
       const limit = req.query.limit ? Number(req.query.limit) : 50;
-      res.json(store.followupCoverageGaps(req.params.companyId, limit));
+      res.json(store.followupCoverageGaps(req.params.companyId, limit, viewerOf(req)));
     }),
   );
 
@@ -4232,10 +4552,16 @@ export function createServer(options: CreateServerOptions = {}) {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const ownerParam = optionalString(req.query.ownerUserId);
 		      const ownerUserId = ownerParam === 'me' ? req.user!.id : ownerParam;
+		      // Someone else's figures: CRM_ALL_READ (crm.view at company scope;
+		      // management today), or a team scope that reaches them.
+		      const viewer = viewerOf(req);
 		      if (ownerUserId && ownerUserId !== req.user!.id) {
-		        requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+		        const inTeam = scopeOf(viewer, 'crm.view', req.params.companyId) === 'team'
+		          && viewer.team(req.params.companyId).has(ownerUserId);
+		        if (!inTeam) requireCompanyRule(req, req.params.companyId, 'CRM_ALL_READ');
 		      }
-		      res.json(store.getCrmDashboardSummary(req.params.companyId, ownerUserId));
+		      // Every figure counts only what the person may see (authz/visible.ts).
+		      res.json(store.getCrmDashboardSummary(req.params.companyId, ownerUserId, viewer));
 		    }),
 		  );
 
@@ -4260,9 +4586,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const opportunities = store.listOpportunities(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-		      res.json(!seesAll ? opportunities.filter((item) => item.ownerUserId === req.user!.id) : opportunities);
+		      res.json(store.listOpportunities(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -4401,18 +4725,8 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const proposals = store.listCrmProposals(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-		      if (seesAll) {
-		        res.json(proposals);
-		        return;
-		      }
-		      const ownedOpportunityIds = new Set(
-		        store.listOpportunities(req.params.companyId)
-		          .filter((opportunity) => opportunity.ownerUserId === req.user!.id)
-		          .map((opportunity) => opportunity.id),
-		      );
-		      res.json(proposals.filter((proposal) => ownedOpportunityIds.has(proposal.opportunityId)));
+		      // A proposal is seen with its opportunity (authz/visible.ts).
+		      res.json(store.listCrmProposals(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -4535,9 +4849,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const includeArchived = req.query.includeArchived === 'true';
-		      const campaigns = store.listCrmCampaigns(req.params.companyId, includeArchived);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CAMPAIGNS_ALL_READ');
-		      res.json(!seesAll ? campaigns.filter((campaign) => campaign.ownerUserId === req.user!.id) : campaigns);
+		      res.json(store.listCrmCampaigns(req.params.companyId, includeArchived, viewerOf(req)));
 		    }),
 		  );
 
@@ -4573,7 +4885,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		      );
 		      // Auto-assign 'Client' role to the contact when linked to a campaign
 		      if (contactId) {
-		        store.addContactRole(contactId, req.params.companyId, 'Client', 'Manual');
+		        store.addContactRole(contactId, req.params.companyId, 'Client', 'Manual', { keepVisibility: true });
 		      }
 		      res.status(201).json(campaign);
 		    }),
@@ -4690,8 +5002,12 @@ export function createServer(options: CreateServerOptions = {}) {
 		    const campaign = store.getCrmCampaignById(campaignId);
 		    if (!campaign) throw new HttpError(404, 'Campaign not found.');
 		    requireCompanyRoles(req, campaign.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		    const managesAll = allowsRule(req, campaign.companyId, 'CAMPAIGNS_ALL_WRITE');
-		    if (!managesAll && campaign.ownerUserId !== req.user!.id) {
+		    // Reading a campaign's parts follows the list (authz/visible.ts);
+		    // changing them needs CAMPAIGNS_ALL_WRITE for someone else's.
+		    const allowed = action === 'view'
+		      ? canSee(req, 'campaigns', campaign.companyId, campaign.id)
+		      : allowsRule(req, campaign.companyId, 'CAMPAIGNS_ALL_WRITE') || campaign.ownerUserId === req.user!.id;
+		    if (!allowed) {
 		      throw new HttpError(403, `You can only ${action} your own campaigns.`);
 		    }
 		    return campaign;
@@ -4822,7 +5138,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        }),
 		      );
 		      // Auto-assign the assignment role to the contact's roles
-		      store.addContactRole(assignment.contactId, campaign.companyId, assignment.role, 'Manual');
+		      store.addContactRole(assignment.contactId, campaign.companyId, assignment.role, 'Manual', { keepVisibility: true });
 		      res.status(201).json(assignment);
 		    }),
 		  );
@@ -4937,9 +5253,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const requests = store.listVendorRequests(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'CRM_ALL_READ');
-		      res.json(!seesAll ? requests.filter((request) => request.requestedByUserId === req.user!.id) : requests);
+		      res.json(store.listVendorRequests(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -5235,9 +5549,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		    authMiddleware,
 		    handler((req, res) => {
 		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
-		      const commissions = store.listCommissions(req.params.companyId);
-		      const seesAll = allowsRule(req, req.params.companyId, 'COMMISSIONS_ALL_READ');
-		      res.json(!seesAll ? commissions.filter((commission) => commission.userId === req.user!.id) : commissions);
+		      res.json(store.listCommissions(req.params.companyId, viewerOf(req)));
 		    }),
 		  );
 
@@ -5340,7 +5652,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       // What each client could owe now, for the credit limit beside it.
-      res.json(store.listClients(req.params.companyId).map((c) => ({ ...c, creditExposure: store.clientCreditExposure(c.id) })));
+      // The credit limit is the client_terms field (authz/mask.ts).
+      res.json(store.listClients(req.params.companyId).map((c) => maskFor(req, c.companyId, 'client', { ...c, creditExposure: store.clientCreditExposure(c.id) })));
     }),
   );
 
@@ -5351,6 +5664,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const body = asRecord(req.body, 'body');
 	      const companyId = requiredString(body.companyId, 'companyId');
 	      requireCompanyRoles(req, companyId, companyManagementRoles);
+	      requireFieldEdits(req, companyId, 'client', body, 'create');
 	      const client = withActor(req, () =>
 	        store.createClient({
 	          companyId,
@@ -5367,7 +5681,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          notes: optionalString(body.notes),
 	        }),
 	      );
-	      res.status(201).json(client);
+	      res.status(201).json(maskFor(req, companyId, 'client', client));
 	    }),
 	  );
 
@@ -5379,6 +5693,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      if (!existing) throw new HttpError(404, 'Client not found.');
 	      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
 	      const body = asRecord(req.body, 'body');
+	      requireFieldEdits(req, existing.companyId, 'client', body, existing);
 	      const updated = withActor(req, () =>
 	        store.updateClient(req.params.id, {
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
@@ -5409,7 +5724,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          notes: updated.notes,
 	        });
 	      }
-	      res.json(updated);
+	      res.json(maskFor(req, existing.companyId, 'client', updated));
 	    }),
 	  );
 
@@ -5428,12 +5743,14 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'limit must be a positive number.');
       }
       res.json(
+        // Events about records of scoped areas the person may not see are left out (in SQL, before the limit).
         store.listActivityEvents(req.params.companyId, {
           entityType,
           entityId,
           actorUserId,
           limit,
-        }),
+          viewer: viewerOf(req),
+        }).map((event) => maskEvent(req, event)),
       );
     }),
   );
@@ -5653,7 +5970,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const archived = req.query.archived === 'include' || req.query.archived === 'only' ? req.query.archived : 'exclude';
-      res.json(store.listInventoryItems(req.params.companyId, archived));
+      // Cost is the cost_prices field (authz/mask.ts).
+      res.json(store.listInventoryItems(req.params.companyId, archived).map((item) => maskFor(req, item.companyId, 'item', item)));
     }),
   );
 
@@ -5663,10 +5981,11 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const items = store.listInventoryItems(req.params.companyId);
+      const showCost = seesField(req, req.params.companyId, 'cost_prices');
       const csv = toCsv(
-        ['sku', 'name', 'category', 'unit', 'onHand', 'reorderPoint', 'unitCost', 'salePrice', 'barcode', 'location'],
+        ['sku', 'name', 'category', 'unit', 'onHand', 'reorderPoint', ...(showCost ? ['unitCost'] : []), 'salePrice', 'barcode', 'location'],
         items.map((i) => [
-          i.sku, i.name, i.category, i.unit, i.onHand, i.reorderPoint, i.unitCost,
+          i.sku, i.name, i.category, i.unit, i.onHand, i.reorderPoint, ...(showCost ? [i.unitCost] : []),
           i.salePrice ?? '', i.barcode ?? '', i.location ?? '',
         ]),
       );
@@ -5683,6 +6002,10 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
+      // A cost in any row is a write of the cost_prices field.
+      for (const r of rows) {
+        if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'item', { unitCost: (r as Record<string, unknown>).unitCost }, 'create');
+      }
       let created = 0;
       const errors: Array<{ row: number; error: string }> = [];
       rows.forEach((raw, index) => {
@@ -5729,6 +6052,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const unit = requiredString(body.unit, 'unit', { min: 1 });
       const preferredSupplierId = optionalString(body.preferredSupplierId);
       ensureSupplierBelongsToCompany(preferredSupplierId, req.params.companyId);
+      requireFieldEdits(req, req.params.companyId, 'item', body, 'create');
       const itemLocation = optionalString(body.location);
       const openingQty = requiredNumber(body.onHand ?? 0, 'onHand');
       const tracks = optionalBoolean(body.tracksInventory) ?? true;
@@ -5764,7 +6088,7 @@ export function createServer(options: CreateServerOptions = {}) {
         if (error instanceof HttpError) throw error;
         throw new HttpError(400, error?.message || 'Could not create inventory item.');
       }
-      res.status(201).json(item);
+      res.status(201).json(maskFor(req, req.params.companyId, 'item', item));
     }),
   );
 
@@ -5783,7 +6107,7 @@ export function createServer(options: CreateServerOptions = {}) {
           throw new HttpError(404, 'Inventory item not found.');
         }
       }
-      res.json(store.listStockMovements(req.params.companyId, inventoryItemId));
+      res.json(store.listStockMovements(req.params.companyId, inventoryItemId).map((m) => maskFor(req, req.params.companyId, 'stock_movement', m)));
     }),
   );
 
@@ -5821,7 +6145,7 @@ export function createServer(options: CreateServerOptions = {}) {
           throw new HttpError(404, 'Inventory item not found.');
         }
       }
-      res.json(store.listInventoryLots(req.params.companyId, inventoryItemId));
+      res.json(store.listInventoryLots(req.params.companyId, inventoryItemId).map((lot) => maskFor(req, req.params.companyId, 'lot', lot)));
     }),
   );
 
@@ -5832,7 +6156,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const days =
         req.query.days !== undefined ? requiredNumber(req.query.days, 'days') : 30;
-      res.json(store.listExpiringLots(req.params.companyId, days));
+      res.json(store.listExpiringLots(req.params.companyId, days).map((lot) => maskFor(req, req.params.companyId, 'lot', lot)));
     }),
   );
 
@@ -5856,6 +6180,7 @@ export function createServer(options: CreateServerOptions = {}) {
       ensureActiveWarehouse(req.params.companyId, lotLocation, 'location');
       const supplierId = optionalString(body.supplierId);
       ensureSupplierBelongsToCompany(supplierId, req.params.companyId);
+      requireFieldEdits(req, req.params.companyId, 'lot', body, 'create');
       try {
         const lot = withActor(req, () =>
           store.createInventoryLot({
@@ -5872,7 +6197,7 @@ export function createServer(options: CreateServerOptions = {}) {
             note: optionalString(body.note),
           }),
         );
-        res.status(201).json({ lot, item: store.getInventoryItemById(req.params.itemId) });
+        res.status(201).json({ lot: maskFor(req, req.params.companyId, 'lot', lot), item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)) });
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not receive lot.');
       }
@@ -5908,7 +6233,7 @@ export function createServer(options: CreateServerOptions = {}) {
             { location: consumeLocation, note: optionalString(body.note) },
           ),
         );
-        res.status(201).json({ allocation, item: store.getInventoryItemById(req.params.itemId) });
+        res.status(201).json({ allocation, item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)) });
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not consume lots.');
       }
@@ -5952,8 +6277,8 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not adjust inventory.');
       }
       res.status(201).json({
-        movement,
-        item: store.getInventoryItemById(req.params.itemId),
+        movement: maskFor(req, req.params.companyId, 'stock_movement', movement),
+        item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)),
       });
     }),
   );
@@ -5992,7 +6317,7 @@ export function createServer(options: CreateServerOptions = {}) {
         );
         res.status(201).json({
           issue,
-          item: store.getInventoryItemById(req.params.itemId),
+          item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)),
           balances: store.listInventoryLocationBalances(req.params.companyId, req.params.itemId),
         });
       } catch (error) {
@@ -6036,7 +6361,7 @@ export function createServer(options: CreateServerOptions = {}) {
         );
         res.status(201).json({
           transfer,
-          item: store.getInventoryItemById(req.params.itemId),
+          item: maskFor(req, req.params.companyId, 'item', store.getInventoryItemById(req.params.itemId)),
           balances: store.listInventoryLocationBalances(req.params.companyId, req.params.itemId),
         });
       } catch (error) {
@@ -6174,6 +6499,30 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /**
+   * I-2: an approval limit on purchasing.approve holds on the server. v2: an
+   * amount above the person's limit is refused, naming the limit; shadow
+   * logs the difference; legacy has no limits (templates carry none).
+   */
+  const requireApprovalLimit = (req: AuthedRequest, companyId: string, amount: number, what: { en: string }) => {
+    if (engine === 'legacy' || req.user!.isSuperAdmin) return;
+    const key = 'purchasing.approve';
+    // Only a limit the person holds is checked here; holding the key at all is the route's (or chain step's) question.
+    const allowed = decideAccess(req, companyId, () => true, (eff) => {
+      const grant = eff.byCompany.get(companyId)?.grants.get(key);
+      return !grant || grant.limit === undefined || can(eff, key, { companyId, amount }).allowed;
+    }, () => key, 'limit @ ');
+    if (allowed || engine !== 'v2') return;
+    const limit = effectiveFor(req).byCompany.get(companyId)?.grants.get(key)?.limit ?? 0;
+    const currency = store.getCompanyFinanceSettings(companyId)?.currencyCode || 'USD';
+    const fmt = (n: number) => `${n.toLocaleString('en-US', { maximumFractionDigits: 3 })} ${currency}`;
+    throw new HttpError(
+      403,
+      `You can approve ${what.en} up to ${fmt(limit)}; this one is ${fmt(amount)}. Ask someone with a higher approval limit.`,
+      { code: 'OVER_LIMIT', permission: key, limit, amount, currency },
+    );
+  };
+
   app.post(
     '/purchase-orders/:id/approve',
     authMiddleware,
@@ -6181,6 +6530,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getPurchaseOrderById(req.params.id);
       if (!existing) throw new HttpError(404, 'Purchase order not found.');
       requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
+      requireApprovalLimit(req, existing.companyId, Number(existing.totalAmount) || 0, { en: 'purchase orders' });
       const approverName = req.user?.name || req.user?.email || 'Approver';
       if (store.approvals.steps('purchase_order', existing.id).length) {
         return res.json(decideDocument(req, 'purchase_order', existing.id, existing.companyId, 'approve'));
@@ -6534,7 +6884,12 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   requisitionAction('submit', companyManagementRoles, (id) => store.submitPurchaseRequisition(id));
-  requisitionAction('approve', ['Admin', 'Manager'], (id) => store.approvePurchaseRequisition(id));
+  requisitionAction('approve', ['Admin', 'Manager'], (id, req) => {
+    const requisition = store.getPurchaseRequisitionById(id)!;
+    const total = requisition.items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.estimatedUnitCost) || 0), 0);
+    requireApprovalLimit(req, requisition.companyId, total, { en: 'requisitions' });
+    return store.approvePurchaseRequisition(id);
+  });
   requisitionAction('reject', ['Admin', 'Manager'], (id, req) =>
     store.rejectPurchaseRequisition(id, optionalString(asRecord(req.body, 'body').reason)),
   );
@@ -6629,6 +6984,12 @@ export function createServer(options: CreateServerOptions = {}) {
   /** One person's decision on a document's chain; when the chain finishes, the document follows. */
   const decideDocument = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => {
     const user = req.user!;
+    // N-5: an approval-chain step on a purchase order also respects the
+    // purchasing.approve limit (POs are in the company currency).
+    if (docType === 'purchase_order' && decision === 'approve') {
+      const order = store.getPurchaseOrderById(docId);
+      if (order) requireApprovalLimit(req, companyId, Number(order.totalAmount) || 0, { en: 'purchase orders' });
+    }
     let outcome;
     try {
       outcome = decide(store.approvals, docType, docId, { id: user.id, name: user.name || user.email, companyRole: getEffectiveRole(user, companyId) ?? undefined }, decision, note);
@@ -6665,13 +7026,12 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!existing) throw new HttpError(404, 'Sales order not found.');
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
+      const status = enumValue(body.status, 'status', salesOrderStatuses);
+      if (status === 'Cancelled') requirePermission(req, existing.companyId, 'sales.cancel');
       let order;
       try {
         order = creditGuard(req, existing.companyId, existing.clientId, () => withActor(req, () =>
-          store.updateSalesOrderStatus(
-            req.params.id,
-            enumValue(body.status, 'status', salesOrderStatuses),
-          ),
+          store.updateSalesOrderStatus(req.params.id, status),
         ));
       } catch (error) {
         if (error instanceof HttpError) throw error;
@@ -7575,6 +7935,15 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /** Each employee's wage and entitlement are salary (own line shown); the totals stay. */
+  const gratuityFor = <R extends { companyId: string; lines: GratuityLine[] }>(req: AuthedRequest, report: R): R => {
+    const userOf = new Map(store.listEmployees(report.companyId).map((e) => [e.id, e.userId]));
+    return {
+      ...report,
+      lines: report.lines.map((line) => maskFor(req, report.companyId, 'gratuity_line', line, { self: userOf.get(line.employeeId) === req.user!.id })),
+    };
+  };
+
   app.get(
     '/companies/:companyId/hr/gratuity',
     authMiddleware,
@@ -7582,7 +7951,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
       const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : new Date();
       if (Number.isNaN(asOf.getTime())) throw new HttpError(400, 'asOf must be a valid date.');
-      res.json(store.getGratuityLiability(req.params.companyId, asOf));
+      res.json(gratuityFor(req, store.getGratuityLiability(req.params.companyId, asOf)));
     }),
   );
 
@@ -7595,7 +7964,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const asOf = body.asOf ? new Date(requiredDateInput(body.asOf, 'asOf')) : new Date();
       if (Number.isNaN(asOf.getTime())) throw new HttpError(400, 'asOf must be a valid date.');
       try {
-        res.json(withActor(req, () => store.accrueGratuity(req.params.companyId, asOf)));
+        res.json(gratuityFor(req, withActor(req, () => store.accrueGratuity(req.params.companyId, asOf))));
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not accrue gratuity.');
       }
@@ -7637,7 +8006,20 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyAccess(req, req.params.companyId);
-      if (!getEffectiveRole(req.user!, req.params.companyId)) {
+      // A group company's dashboard can cover its whole tree; the filter only narrows it.
+      if (req.query.scope === 'tree') {
+        const asked = askedCompanyIds(req.query.companyIds);
+        const tree = subtreeIds(store.listCompanies(), req.params.companyId).filter((id) => !asked || asked.has(id));
+        return res.json(groupDashboard(
+          { store, allowsRule, viewerOf, accessibleCompanyIds }, req, req.params.companyId, tree,
+        ));
+      }
+      // v2: company access and the declared dashboard.view decide, so a
+      // person reached through a group gets in. Legacy/shadow: a role here.
+      const companyRole = engine === 'v2'
+        ? store.authz.mainLegacyRole(req.user!.id, req.params.companyId)
+        : getEffectiveRole(req.user!, req.params.companyId) ?? undefined;
+      if (engine !== 'v2' && !companyRole) {
         throw new HttpError(403, 'You do not have a role in this company.');
       }
       // The variant follows permissions: operations and finance together is
@@ -7648,7 +8030,10 @@ export function createServer(options: CreateServerOptions = {}) {
       const variant: UserRole = operations && finance
         ? 'Admin'
         : operations ? 'Manager' : finance ? 'Accountant' : 'Employee';
-      res.json(store.getDashboardPayload(req.params.companyId, { userId: req.user!.id, role: variant, companyRole: getEffectiveRole(req.user!, req.params.companyId) ?? undefined }));
+      res.json(store.getDashboardPayload(req.params.companyId, {
+        userId: req.user!.id, role: variant, companyRole,
+        visibleTo: viewerOf(req),
+      }));
     }),
   );
 
@@ -7677,7 +8062,13 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
-      res.json(store.getManagementReportSummary(req.params.companyId));
+      const summary = store.getManagementReportSummary(req.params.companyId);
+      // Item cost (cost_prices) and event metadata go through the mask.
+      res.json({
+        ...summary,
+        lowStockItems: summary.lowStockItems.map((item) => maskFor(req, req.params.companyId, 'item', item)),
+        recentActivity: summary.recentActivity.map((event) => maskEvent(req, event)),
+      });
     }),
   );
 
@@ -7742,20 +8133,21 @@ export function createServer(options: CreateServerOptions = {}) {
           ]),
         );
       } else if (dataset === 'inventory-alerts') {
+        const showCost = seesField(req, companyId, 'cost_prices');
         csv = toCsv(
-          ['sku', 'name', 'category', 'onHand', 'reorderPoint', 'unitCost', 'location'],
+          ['sku', 'name', 'category', 'onHand', 'reorderPoint', ...(showCost ? ['unitCost'] : []), 'location'],
           summary.lowStockItems.map((item) => [
             item.sku,
             item.name,
             item.category,
             item.onHand,
             item.reorderPoint,
-            item.unitCost,
+            ...(showCost ? [item.unitCost] : []),
             item.location || '',
           ]),
         );
       } else if (dataset === 'activity-log') {
-        const events = store.listActivityEvents(companyId, { limit: 500 });
+        const events = store.listActivityEvents(companyId, { limit: 500, viewer: viewerOf(req) });
         csv = toCsv(
           ['createdAt', 'actorName', 'entityType', 'entityId', 'action', 'summary'],
           events.map((event) => [
@@ -8027,7 +8419,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (location) ensureActiveWarehouse(existing.companyId, location, 'location');
       const nullable = (value: unknown) => (value === undefined ? undefined : optionalString(value) ?? null);
       try {
-        res.json(withActor(req, () => store.updateInventoryItem(existing.id, {
+        res.json(maskFor(req, existing.companyId, 'item', withActor(req, () => store.updateInventoryItem(existing.id, {
           sku: body.sku !== undefined ? requiredString(body.sku, 'sku', { min: 1 }) : undefined,
           barcode: nullable(body.barcode),
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
@@ -8042,7 +8434,7 @@ export function createServer(options: CreateServerOptions = {}) {
           preferredSupplierId,
           location,
           customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
-        })));
+        }))));
       } catch (error) {
         if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not update inventory item.');
@@ -8057,7 +8449,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getInventoryItemById(req.params.id);
       if (!existing) throw new HttpError(404, 'Inventory item not found.');
       requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
-      res.json(withActor(req, () => store.restoreInventoryItem(existing.id)));
+      res.json(maskFor(req, existing.companyId, 'item', withActor(req, () => store.restoreInventoryItem(existing.id))));
     }),
   );
   // Task deletion is scoped like task viewing: assignees (or a company
@@ -8090,15 +8482,9 @@ export function createServer(options: CreateServerOptions = {}) {
     handler,
     requireCompanyRoles,
     requireCompanyRule,
-    authzEngine,
+    permissionsEngine: engine,
     managementRoles: companyManagementRoles,
     logger,
-    // After an admin edits groups, OpenFGA must reflect it before the next
-    // request is served. Only the affected company's delta is published, so
-    // the cost does not grow with the number of other companies. `ops fga:sync`
-    // remains the full reconcile for drift. In legacy mode there is nothing
-    // to project.
-    projectTuples: (companyId, before) => publishAuthzChange(new Map([[companyId, before]])),
   });
 
   const portalCompanyId = options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID;
@@ -8255,11 +8641,13 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManagePortal: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'PORTAL_ACCESS_MANAGE'),
+      seesContact: (req, contact) => canSee(req as AuthedRequest, 'inbox', contact.companyId, contact.id),
       canReviewFlexi: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'FLEXI_REVIEW'),
       canManageFlexi: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'FLEXI_MANAGE'),
-      seesPrivate: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
       inviteLink: (audience, token) => `${portalHost(audience)}/accept/${token}`,
       sendInvite: options.sendPortalInvite ?? sendPortalInviteEmail,
+      maskFor: (req, companyId, entity, row) => maskFor(req as AuthedRequest, companyId, entity, row),
+      requireFieldEdits: (req, companyId, entity, body, existing) => requireFieldEdits(req as AuthedRequest, companyId, entity, body, existing),
     }),
   );
 
@@ -8269,27 +8657,23 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       requireManager: (req, companyId) => requireCompanyRoles(req as AuthedRequest, companyId, ['Admin', 'Manager']),
-      viewerFor: (req, companyId) => ({
+      // A contact is visible by the inbox rule of authz/visible.ts (inbox.view's
+      // scope; public contacts to anyone with the inbox).
+      viewerFor: (req) => ({
         kind: 'staff',
         userId: (req as AuthedRequest).user!.id,
-        seesPrivate: allowsRule(req as AuthedRequest, companyId, 'CONTACTS_PRIVATE_READ'),
+        sees: (contact) => canSee(req as AuthedRequest, 'inbox', contact.companyId, contact.id),
       }),
       portalCompanyId: options.portalCompanyId ?? process.env.PORTAL_COMPANY_ID,
-      // Same rule as allowsRule(..., 'CONTACTS_PRIVATE_READ'), evaluated for another user.
-      seesPrivateFor: (userId, companyId) => {
-        const rule = RECORD_RULES.CONTACTS_PRIVATE_READ;
-        const user = store.getUserById(userId);
-        if (!user || !store.isModuleEnabled(companyId, rule.module)) return false;
-        if (authzEngine === 'openfga') return permissionService.has(userId, companyId, rule.module, rule.action);
-        return requireCompanyRole(user as unknown as Parameters<typeof requireCompanyRole>[0], companyId, [...rule.roles]);
-      },
+      // The same rule evaluated for another user (assignees, mentions).
+      contactVisibleTo: (userId, contact) => store.isVisibleTo(store.visibilityEffective(userId), 'inbox', contact.companyId, contact.id),
       // Conversations are part of contacts: the same gate as GET /companies/:companyId/contacts
       // (contacts:read) and PATCH /contacts/:id (contacts:write; every company role under legacy).
+      // v2: inbox.view to read, inbox.send to write.
       canUseContacts: (req, companyId, access) => {
         const authed = req as AuthedRequest;
         if (!authed.user || !store.isModuleEnabled(companyId, 'contacts')) return false;
-        if (authzEngine === 'openfga') return PermissionService.allows(authed.permissions, companyId, 'contacts', access);
-        return requireCompanyRole(authed.user, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+        return allowsKey(authed, companyId, access === 'read' ? 'inbox.view' : 'inbox.send', ['Admin', 'Manager', 'Employee', 'Accountant']);
       },
     }),
   );
@@ -8299,12 +8683,6 @@ export function createServer(options: CreateServerOptions = {}) {
     enforce: academyEnforce,
     authMiddleware: authMiddleware as unknown as RequestHandler,
     requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
-    publishMembership: async (companyIds, change) => {
-      const before = snapshotAuthz(companyIds);
-      change();
-      await publishAuthzChange(before);
-    },
-    publishNewCompany: (companyId) => publishAuthzChange(new Map([[companyId, []]])),
     recordActivity: ({ companyId, actor, summary, metadata }) => store.createActivityEvent({
       companyId, entityType: 'contact', entityId: actor.id, action: 'academy_exemption',
       actorUserId: actor.id, actorName: actor.name, summary, metadata,
@@ -8322,11 +8700,6 @@ export function createServer(options: CreateServerOptions = {}) {
     }
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message, ...(error.details ?? {}) });
-    }
-    if (error instanceof AuthzUnavailableError) {
-      // Never a 403: the user may well hold the permission, we just cannot
-      // confirm it while the authorization service is unreachable.
-      return res.status(error.status).json({ message: error.message });
     }
     if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.parse.failed') {
       return res.status(400).json({ message: 'The request body is not valid JSON.' });

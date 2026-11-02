@@ -3,7 +3,7 @@ import type { DashboardPayload } from '@/modules/dashboard/types';
 
 const toDate = (value: unknown) => (value ? new Date(String(value)) : undefined);
 
-const mapDashboardPayload = (payload: any): DashboardPayload => ({
+export const mapDashboardPayload = (payload: any): DashboardPayload => ({
   companyId: String(payload.companyId || ''),
   role: payload.role,
   scope: payload.scope === 'personal' ? 'personal' : 'company',
@@ -76,6 +76,49 @@ const mapDashboardPayload = (payload: any): DashboardPayload => ({
       }))
     : [],
 });
+
+export interface GroupCompanyFigures {
+  id: string;
+  name: string;
+  currencyCode?: string;
+  metrics: DashboardPayload['metrics'];
+}
+
+export interface GroupMoney {
+  metricId: string;
+  label: string;
+  byCurrency: Array<{ currencyCode: string; value: number; companyIds: string[] }>;
+}
+
+export interface GroupDashboard {
+  payload: DashboardPayload;
+  companies: Array<{ id: string; name: string; currencyCode?: string }>;
+  missing: Array<{ id: string; name: string }>;
+  /** Each company on its own, for comparing them. */
+  perCompany: GroupCompanyFigures[];
+  /** Money per currency; a group may run companies in several. */
+  money: GroupMoney[];
+  observations: Array<{ id: string; text: string; companyId?: string }>;
+}
+
+/** A whole group's companies in one dashboard; `companyIds` narrows it. */
+export async function getGroupDashboardPayload(
+  groupCompanyId: string,
+  companyIds: string[] = [],
+): Promise<GroupDashboard | null> {
+  if (!groupCompanyId) return null;
+  const filter = companyIds.length ? `&companyIds=${encodeURIComponent(companyIds.join(','))}` : '';
+  const raw = await apiFetch<any>(`/companies/${encodeURIComponent(groupCompanyId)}/dashboard?scope=tree${filter}`);
+  return {
+    // A group has no single role or company: it reads as a company-wide view.
+    payload: mapDashboardPayload({ ...raw, companyId: '', role: 'Admin', scope: 'company' }),
+    companies: Array.isArray(raw.companies) ? raw.companies : [],
+    missing: Array.isArray(raw.missing) ? raw.missing : [],
+    perCompany: Array.isArray(raw.perCompany) ? raw.perCompany : [],
+    money: Array.isArray(raw.money) ? raw.money : [],
+    observations: Array.isArray(raw.observations) ? raw.observations : [],
+  };
+}
 
 export async function getDashboardPayload(
   companyId: string,

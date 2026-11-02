@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useI18n } from '@/context/i18n-context';
+import { usePermissions } from '@/context/permissions-context';
+import { HiddenValue } from '@/components/hidden-value';
 import { useToast } from '@/hooks/use-toast';
 import type { Contact } from '@/services/contactService';
 import { getPortalPriceRange, listPortalCatalogue, setPortalListing, setPortalPriceRange } from '@/services/portalAccessService';
@@ -16,6 +18,8 @@ import { getPortalPriceRange, listPortalCatalogue, setPortalListing, setPortalPr
  */
 export function PortalListingSwitch({ contact }: { contact: Contact }) {
   const { language } = useI18n();
+  // The price range sits around the influencer's rate card (sensitive field).
+  const rateCards = usePermissions().field('rate_cards');
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const [listed, setListed] = React.useState<boolean | null>(null);
@@ -57,13 +61,20 @@ export function PortalListingSwitch({ contact }: { contact: Contact }) {
       </div>
       <Switch id={id} checked={Boolean(listed)} disabled={listed === null || busy} onCheckedChange={toggle} />
     </div>
-    <PriceRangeFields contact={contact} />
+    {rateCards.view ? (
+      <PriceRangeFields contact={contact} canEdit={rateCards.edit} />
+    ) : (
+      <div className="space-y-1 border-t pt-3">
+        <p className="text-sm font-semibold">{tr('Price range shown to clients', 'نطاق السعر المعروض للعملاء')}</p>
+        <HiddenValue className="text-sm" />
+      </div>
+    )}
     </div>
   );
 }
 
 /** Clients see "price − below% to price + above%", never the price itself. */
-function PriceRangeFields({ contact }: { contact: Contact }) {
+function PriceRangeFields({ contact, canEdit }: { contact: Contact; canEdit: boolean }) {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
@@ -119,7 +130,7 @@ function PriceRangeFields({ contact }: { contact: Contact }) {
           <Label htmlFor={`range-above-${contact.id}`} className="text-xs">{tr('Above (%)', 'أعلى (٪)')}</Label>
           <Input id={`range-above-${contact.id}`} type="number" inputMode="decimal" min={0} max={300} value={above} onChange={(e) => setAbove(e.target.value)} className="h-9 w-24" />
         </div>
-        <Button type="button" size="sm" variant="secondary" disabled={!dirty || busy} onClick={save}>{tr('Save range', 'حفظ النطاق')}</Button>
+        <Button type="button" size="sm" variant="secondary" disabled={!dirty || busy || !canEdit} onClick={save}>{tr('Save range', 'حفظ النطاق')}</Button>
       </div>
     </div>
   );

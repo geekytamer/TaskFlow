@@ -30,7 +30,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
-import { useAuthGuard } from '@/hooks/use-auth-guard';
 import {
   bulkUpdateVendorBillStatus,
   createVendorBillPayment,
@@ -61,7 +60,7 @@ import { ArrowUpRight, CircleDollarSign, Download, Eye, FilePlus, ListChecks, Pe
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import Link from 'next/link';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { VendorBillDocument } from './vendor-bill-document';
 import type { VendorBillDocumentPayload } from '@/services/financeService';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
@@ -120,8 +119,7 @@ export function VendorBillTable() {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amount } = useCompanyCurrency();
-  const { effectiveRole } = useAuthGuard();
-  const canManageFinance = usePermissionOr('vendor-bills', 'write', effectiveRole !== 'Employee');
+  const canManageFinance = usePermissions().can('vendor-bills.edit');
 
   const openPreview = async (bill: VendorBill) => {
     setPreviewLoading(true);

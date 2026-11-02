@@ -23,7 +23,8 @@ export function isApiError(error: unknown): error is ApiError {
 export interface CreditLimitRefusal {
   code: 'CREDIT_LIMIT_EXCEEDED';
   message: string;
-  limit: number;
+  /** Absent when the person may not see client terms (masked by the server). */
+  limit?: number;
   owed: number;
   adding: number;
   canOverride: boolean;
@@ -38,6 +39,25 @@ let creditLimitPrompt: ((refusal: CreditLimitRefusal) => Promise<boolean>) | nul
 export function setCreditLimitPrompt(prompt: typeof creditLimitPrompt) {
   creditLimitPrompt = prompt;
 }
+
+/**
+ * Turns a refusal body (403 FORBIDDEN and the other coded refusals: see
+ * lib/forbidden-message.ts) into one translated sentence, and shows it.
+ * Registered once by the app (see ForbiddenBridge). `describe` answers null
+ * for a body it does not know; the server's own message is kept then.
+ */
+export interface ForbiddenHandler {
+  describe: (body: { code: string; [key: string]: unknown }) => string | null;
+  /** `serverMessage`: the server's own words, which a screen may echo in its error toast. */
+  notify: (sentence: string, serverMessage?: string) => void;
+}
+let forbiddenHandler: ForbiddenHandler | null = null;
+export function setForbiddenHandler(handler: ForbiddenHandler | null) {
+  forbiddenHandler = handler;
+}
+
+/** What a data change event carries: the request that changed data. */
+export interface DataChangedDetail { method: string; path: string }
 
 /** Fired on window after any request that changed data succeeds. */
 export const DATA_CHANGED_EVENT = 'taskflow:data-changed';
@@ -81,10 +101,20 @@ function buildHeaders(init?: HeadersInit) {
   return headers;
 }
 
+export interface ApiFetchOptions extends RequestInit {
+  /**
+   * 'inline': the screen shows a refusal sentence next to the control that
+   * caused it, so the global refusal toast is skipped (the ApiError message
+   * still carries the translated sentence). Default 'toast'.
+   */
+  refusal?: 'toast' | 'inline';
+}
+
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {},
+  apiOptions: ApiFetchOptions = {},
 ): Promise<T> {
+  const { refusal: refusalMode = 'toast', ...options } = apiOptions;
   const isFormData =
     typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = buildHeaders(options.headers);
@@ -115,7 +145,19 @@ export async function apiFetch<T>(
     if (response.status === 409 && refusal?.code === 'CREDIT_LIMIT_EXCEEDED' && typeof options.body === 'string') {
       const body = JSON.parse(options.body || '{}') as Record<string, unknown>;
       if (refusal.canOverride && !body.overrideCreditLimit && creditLimitPrompt && (await creditLimitPrompt(refusal))) {
-        return apiFetch<T>(path, { ...options, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
+        return apiFetch<T>(path, { ...apiOptions, body: JSON.stringify({ ...body, overrideCreditLimit: true }) });
+      }
+    }
+    const coded = details as { code?: unknown } | undefined;
+    if ((response.status === 403 || response.status === 409) && typeof coded?.code === 'string' && forbiddenHandler) {
+      const sentence = forbiddenHandler.describe({ ...(details as Record<string, unknown>), code: coded.code });
+      if (sentence) {
+        const serverMessage = message;
+        message = sentence;
+        // An action the person tried: say so at once. A refused read stays quiet
+        // (the screen hides what it cannot show) but carries the same sentence.
+        const method = (options.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD' && refusalMode !== 'inline') forbiddenHandler.notify(sentence, serverMessage);
       }
     }
     throw new ApiError(response.status, message, details);
@@ -123,7 +165,7 @@ export async function apiFetch<T>(
 
   const method = (options.method || 'GET').toUpperCase();
   if (method !== 'GET' && method !== 'HEAD' && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
+    window.dispatchEvent(new CustomEvent<DataChangedDetail>(DATA_CHANGED_EVENT, { detail: { method, path } }));
   }
 
   if (response.status === 204) {

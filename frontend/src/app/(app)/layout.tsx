@@ -1,6 +1,7 @@
 
 'use client';
 
+import { OwnRecordsNotice } from '@/modules/groups/components/own-records-notice';
 import * as React from 'react';
 import {
   Sidebar,
@@ -35,6 +36,7 @@ import { NotificationBell } from '@/modules/layout/components/notification-bell'
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { ModuleGate } from '@/modules/companies/components/module-gate';
+import { PermissionsErrorNotice } from '@/components/permissions-error';
 import { isImpersonating } from '@/services/adminService';
 import { Search } from 'lucide-react';
 
@@ -121,6 +123,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <StagingBanner />
         <ImpersonationBanner />
         <PracticeBanner />
+        <PermissionsErrorNotice />
         <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b bg-background/80 px-3 backdrop-blur-sm sm:px-6 md:h-16">
           {/* Phones: the brand here, the menu in the bottom bar's "More". */}
           <BrandMark className="md:hidden" logoClassName="h-7 w-7" nameClassName="font-headline text-base font-bold text-primary" />
@@ -155,7 +158,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <CompanySwitcher />
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><EnableNotificationsPrompt /><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
+        <main className="flex-1 overflow-y-auto p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6"><EnableNotificationsPrompt /><OwnRecordsNotice /><ModuleGate><AcademyGate>{children}</AcademyGate></ModuleGate></main>
       </SidebarInset>
       <MobileTabBar />
       <TourOverlay />

@@ -120,8 +120,8 @@ export function GanttChart({ projectId }: GanttChartProps) {
   const [loading, setLoading] = React.useState(true);
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | 'all'>('all');
   const [selectedAssignee, setSelectedAssignee] = React.useState<string | 'all'>('all');
-  const { selectedCompany, projects, currentUser, currentRole } = useCompany();
-  const seesAllProjects = useSeesAllProjects(currentRole);
+  const { selectedCompany, projects, currentUser } = useCompany();
+  const seesAllProjects = useSeesAllProjects();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const chartRef = React.useRef<HTMLDivElement>(null);
@@ -146,16 +146,16 @@ export function GanttChart({ projectId }: GanttChartProps) {
         }
     }
     loadData();
-  }, [currentRole, selectedCompany]);
+  }, [selectedCompany]);
 
   const visibleProjects = React.useMemo(() => {
     if (!currentUser) return [];
     return projects.filter(p => 
       p.companyId === selectedCompany?.id &&
       (!projectId || p.id === projectId) &&
-      canViewProject(p, currentUser.id, currentRole, seesAllProjects)
+      canViewProject(p, currentUser.id, seesAllProjects)
     );
-  }, [projects, currentUser, currentRole, selectedCompany, projectId, seesAllProjects]);
+  }, [projects, currentUser, selectedCompany, projectId, seesAllProjects]);
 
   const companyUsers = React.useMemo(() => {
       // The member list is already this company's people.

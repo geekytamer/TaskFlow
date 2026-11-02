@@ -27,7 +27,7 @@ import { LIVE_EVENT } from '@/lib/live';
 import type { Client, Invoice, ProjectVisibility, Task } from '@/lib/types';
 import { format } from 'date-fns';
 import { canViewProject, useCanManageProjects, useSeesAllProjects } from '@/modules/projects/lib/access';
-import { usePermissionOr } from '@/context/permissions-context';
+import { usePermissions } from '@/context/permissions-context';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { ProjectPlanFields, emptyProjectPlan, projectPlanFrom, projectPlanPayload } from '@/modules/projects/components/project-plan-fields';
@@ -41,14 +41,13 @@ export default function ProjectDetailsPage() {
   const params = useParams();
   const id = params.id as string;
 
-  const { selectedCompany, currentUser, currentRole, refreshProjects } = useCompany();
-  const seesAllProjects = useSeesAllProjects(currentRole);
-  const isManager = useCanManageProjects(currentRole);
-  // What this page may load follows the permission each request needs; the
-  // role rule it replaced is the fallback under the legacy engine.
-  const managementFallback = Boolean(currentRole && currentRole !== 'Employee');
-  const canLoadClients = usePermissionOr('contacts', 'clients.read', managementFallback);
-  const canLoadInvoices = usePermissionOr('invoices', 'read', managementFallback);
+  const { selectedCompany, currentUser, refreshProjects } = useCompany();
+  const seesAllProjects = useSeesAllProjects();
+  const isManager = useCanManageProjects();
+  // What this page may load follows the permission each request needs.
+  const { can, ready: permissionsReady } = usePermissions();
+  const canLoadClients = can('contacts.view_details');
+  const canLoadInvoices = can('invoices.view');
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [project, setProject] = React.useState<Project | null>(null);
@@ -72,7 +71,9 @@ export default function ProjectDetailsPage() {
 
   React.useEffect(() => {
     async function fetchData() {
-      if (!id || !selectedCompany || !currentUser) return;
+      // Visibility is decided by the permissions (seesAllProjects): deciding
+      // before they arrive would bounce a manager off a private project.
+      if (!id || !selectedCompany || !currentUser || !permissionsReady) return;
       
       setLoading(true);
       const projectData = await getProjectById(id);
@@ -83,7 +84,7 @@ export default function ProjectDetailsPage() {
         return;
       }
 
-      const canView = canViewProject(projectData, currentUser.id, currentRole, seesAllProjects);
+      const canView = canViewProject(projectData, currentUser.id, seesAllProjects);
 
       if (!canView) {
         // User doesn't have permission to view this private project
@@ -113,7 +114,7 @@ export default function ProjectDetailsPage() {
     }
 
     fetchData();
-  }, [id, selectedCompany, router, currentUser, currentRole, seesAllProjects, canLoadClients, canLoadInvoices]);
+  }, [id, selectedCompany, router, currentUser, seesAllProjects, canLoadClients, canLoadInvoices, permissionsReady]);
 
   // A task added, edited or logged anywhere on this page shows up without a reload.
   React.useEffect(() => {

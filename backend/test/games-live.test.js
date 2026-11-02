@@ -60,7 +60,7 @@ const build = () => {
   const samiAccount = account(sami, '1784-sami', 'sami.cooks');
   const meta = fakeMeta();
   const server = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: quiet,
     portalCompanyId: company.id, sendPortalInvite: async () => ({ sent: true }),
     social: { client: meta, appSecret: APP_SECRET, redirectUri: 'https://api.peak.test/cb', portalReturnUrl: 'https://creators.peak.test/profile', webhookVerifyToken: VERIFY },
   }).listen(0);

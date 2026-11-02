@@ -11,7 +11,7 @@ const build = () => {
   const dbPath = path.join(makeTmpDir('taskflow-injection-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const app = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy',
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false,
     logger: { info() {}, warn() {}, error() {} },
   }).listen(0);
   app.unref();
@@ -22,7 +22,7 @@ test('a viewer id cannot widen which private contacts are visible', () => {
   const { store } = build();
   const owner = store.listUsers().find((u) => u.email === 'admin@taskflow.com');
   const names = (userId) =>
-    store.listContacts('1', undefined, { userId, seesPrivate: false }).map((c) => c.name);
+    store.listContacts('1', undefined, store.visibilityEffective(userId)).map((c) => c.name);
   const hidden = store.createContact({ companyId: '1', name: 'Hidden Private', ownerUserId: owner.id });
   store.updateContact(hidden.id, { visibility: 'Private' });
   assert.ok(!names('someone-else').includes('Hidden Private'), 'private to its owner');

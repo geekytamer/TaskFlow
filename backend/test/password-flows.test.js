@@ -19,7 +19,7 @@ function setup(options = {}) {
     ? async () => ({ sent: false, error: 'mail down' })
     : async (input) => { mail.push(input); return { sent: true }; };
   const app = createServer({
-    store, dbPath, seedOnEmpty: false, allowSeedReset: false, authzEngine: 'legacy', sendPasswordEmail,
+    store, dbPath, seedOnEmpty: false, allowSeedReset: false, permissionsEngine: options.engine, sendPasswordEmail,
     logger: { info() {}, warn() {}, error() {} },
   }).listen(0);
   app.unref();
@@ -169,3 +169,28 @@ test('a manager resets only the people they may manage: employees, never an admi
   assert.ok(Array.isArray(mail));
 });
 
+
+for (const engine of ['legacy', 'v2']) {
+  test(`${engine}: a manager resets an employee who holds more than them only under legacy (v2: no higher than me)`, async () => {
+    const { TEMPLATES } = require('../dist/authz/templates');
+    const { app, auth, store } = setup({ mailFails: true, engine });
+    // An employee of company 1 (user-3) with an add-on carrying a permission the Manager role lacks.
+    const managerKeys = new Set(TEMPLATES.manager.grants.map((g) => g.key));
+    const extra = TEMPLATES.admin.grants.find((g) => !managerKeys.has(g.key));
+    assert.ok(extra, 'the Admin template holds something the Manager template does not');
+    const role = store.authz.saveRole('1', { key: 'extra_access', name: 'Extra access', grants: [{ key: extra.key }], fields: [] }, null);
+    const employeeRole = store.authz.systemRole('1', 'employee');
+    store.authz.setAssignments('user-3', '1', { mainRoleId: employeeRole.id, addOnRoleIds: [role.id] }, null);
+
+    const res = await request(app).post('/users/user-3/password-reset').set('Authorization', auth('user-2'));
+    if (engine === 'legacy') {
+      assert.equal(res.status, 200, 'legacy: the role rule alone decides (an Employee is resettable by a Manager)');
+    } else {
+      assert.equal(res.status, 403, JSON.stringify(res.body));
+      assert.equal(res.body.code, 'HIGHER_THAN_YOU');
+      assert.ok(res.body.missing.includes(extra.key));
+      assert.equal(res.body.link, undefined);
+      assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM password_tokens WHERE userId = ?').get('user-3').n, 0, 'no link is made');
+    }
+  });
+}
