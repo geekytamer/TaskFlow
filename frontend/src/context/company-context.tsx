@@ -9,7 +9,7 @@ import { getCompanies } from '@/services/companyService';
 import { getProjects } from '@/services/projectService';
 import { useCurrentUser } from '@/hooks/use-current-user';
 
-interface CompanyContextType {
+export interface CompanyContextType {
   selectedCompany: Company | null;
   setSelectedCompany: (company: Company | null) => void;
   companies: Company[];
@@ -22,7 +22,7 @@ interface CompanyContextType {
   loading: boolean;
 }
 
-const CompanyContext = React.createContext<CompanyContextType | undefined>(undefined);
+export const CompanyContext = React.createContext<CompanyContextType | undefined>(undefined);
 
 export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const { user: currentUser, loading: userLoading } = useCurrentUser();

@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useI18n } from '@/context/i18n-context';
 import { ContactDetailPage } from '@/modules/contacts/components/contact-detail-page';
+import { InRecordCompany } from '@/modules/groups/components/in-record-company';
+import { getContactSummary } from '@/services/contactService';
 
 export default function ContactDetailRoute() {
   const { user, loading } = useAuthGuard('contacts.view');
@@ -24,5 +26,10 @@ export default function ContactDetailRoute() {
     return <div className="p-6 text-sm text-muted-foreground">{t('contact360.missingId')}</div>;
   }
 
-  return <ContactDetailPage contactId={contactId} />;
+  // In a group: the contact's own company (its inbox, photos and rules).
+  return (
+    <InRecordCompany resolve={() => getContactSummary(contactId).then((s) => s.contact.companyId)}>
+      <ContactDetailPage contactId={contactId} />
+    </InRecordCompany>
+  );
 }

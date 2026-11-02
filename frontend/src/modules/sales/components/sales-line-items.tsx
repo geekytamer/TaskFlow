@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useI18n } from '@/context/i18n-context';
-import { useCompanyCurrency } from '@/lib/currency';
+import { formatCurrency, useCompanyCurrency } from '@/lib/currency';
 import type { SalesOrderLineItem } from '@/modules/finance/types';
 import type { InventoryItem } from '@/modules/operations/types';
 
@@ -80,13 +80,17 @@ export function SalesLineItemsEditor({
   rows,
   onChange,
   inventory,
+  currencyCode,
 }: {
   rows: SalesItemForm[];
   onChange: (rows: SalesItemForm[]) => void;
   inventory: InventoryItem[];
+  /** The currency of the company the document is in; default the selected company's. */
+  currencyCode?: string;
 }) {
   const { t } = useI18n();
-  const { money } = useCompanyCurrency();
+  const { money: companyMoney } = useCompanyCurrency();
+  const money = (value: number) => (currencyCode ? formatCurrency(value, currencyCode) : companyMoney(value));
   const inventoryMap = React.useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
   const update = (index: number, updates: Partial<SalesItemForm>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...updates } : row)));

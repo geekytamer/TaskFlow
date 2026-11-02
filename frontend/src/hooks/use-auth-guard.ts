@@ -1,5 +1,6 @@
 'use client';
 
+import { useInCompanySection } from '@/modules/groups/components/per-company';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from './use-toast';
@@ -39,6 +40,7 @@ export function useAuthGuard(permission?: string) {
     companyLoading,
     hasCompany: Boolean(selectedCompany),
     permissions,
+    inSection: useInCompanySection() !== null,
   });
   const { denied } = decision;
 

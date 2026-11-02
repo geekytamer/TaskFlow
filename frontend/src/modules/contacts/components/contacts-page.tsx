@@ -1,5 +1,10 @@
 'use client';
 
+import { useCompanyScope } from '@/context/company-scope-context';
+import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { CompanyLabel } from '@/modules/groups/components/company-cell';
+import { MissingCompanies } from '@/modules/groups/components/missing-companies';
+import { CreateTargetSelect, useCreateTarget } from '@/modules/groups/components/company-picker';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -128,12 +133,21 @@ export function ContactsPage() {
   const [deletingContact, setDeletingContact] = React.useState<Contact | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 
-  const [companyUsers, setCompanyUsers] = React.useState<UserType[]>([]);
+  // A group shown whole lists every company's contacts; a new one goes to the chosen company.
+  const { companyIds } = useCompanyScope();
+  const scopeKey = companyIds.join(',');
+  const [missing, setMissing] = React.useState<MissingCompany[]>([]);
+  const createTarget = useCreateTarget('contacts.create');
 
+  // People to own a contact, per company: an owner comes from the contact's own company.
+  const [usersByCompany, setUsersByCompany] = React.useState<Record<string, UserType[]>>({});
   React.useEffect(() => {
-    if (!selectedCompany) return;
-    getUsersByCompany(selectedCompany.id).then(setCompanyUsers).catch(() => {});
-  }, [selectedCompany]);
+    if (!scopeKey) return;
+    let active = true;
+    Promise.all(scopeKey.split(',').map(async (id) => [id, await getUsersByCompany(id).catch(() => [] as UserType[])] as const))
+      .then((pairs) => { if (active) setUsersByCompany(Object.fromEntries(pairs)); });
+    return () => { active = false; };
+  }, [scopeKey]);
 
   // CRM panel (side sheet)
   const [crmContact, setCrmContact] = React.useState<Contact | null>(null);
@@ -156,35 +170,38 @@ export function ContactsPage() {
   React.useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (!selectedCompany) { setContacts([]); setLoading(false); return; }
+      if (!scopeKey) { setContacts([]); setLoading(false); return; }
       setLoading(true);
       try {
-        const data = await getContacts(selectedCompany.id);
-        if (!cancelled) setContacts(data);
+        const data = await fanOut(scopeKey.split(','), (id) => getContacts(id));
+        if (!cancelled) { setContacts(data.rows); setMissing(data.missing); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
     load();
     return () => { cancelled = true; };
-  }, [selectedCompany]);
+  }, [scopeKey]);
 
   const reloadContacts = React.useCallback(async () => {
-    if (!selectedCompany) return;
-    setContacts(await getContacts(selectedCompany.id));
-  }, [selectedCompany]);
+    if (!scopeKey) return;
+    const data = await fanOut(scopeKey.split(','), (id) => getContacts(id));
+    setContacts(data.rows);
+    setMissing(data.missing);
+  }, [scopeKey]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['contacts', 'clients', 'suppliers', 'influencers', 'opportunities'], () => reloadContacts().catch(() => undefined));
 
   React.useEffect(() => {
-    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    // The fields of the company a new contact goes to.
+    if (!createTarget.target) { setCustomFieldDefs([]); return; }
     let cancelled = false;
-    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+    getCustomFieldDefinitions(createTarget.target, 'contact')
       .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
       .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
     return () => { cancelled = true; };
-  }, [selectedCompany]);
+  }, [createTarget.target]);
 
   const openCrmPanel = async (c: Contact) => {
     setCrmContact(c);
@@ -227,7 +244,7 @@ export function ContactsPage() {
         priority: (crmForm.priority || undefined) as ContactPriority | undefined,
         ownerUserId: crmForm.ownerUserId || undefined,
         ownerName: crmForm.ownerUserId
-          ? (companyUsers.find(u => u.id === crmForm.ownerUserId)?.name ?? undefined)
+          ? ((usersByCompany[crmContact.companyId] ?? []).find(u => u.id === crmForm.ownerUserId)?.name ?? undefined)
           : undefined,
         nextFollowupDate: crmForm.nextFollowupDate ? new Date(crmForm.nextFollowupDate) : undefined,
         nextFollowupNote: crmForm.nextFollowupNote || undefined,
@@ -273,11 +290,11 @@ export function ContactsPage() {
   }, [contacts]);
 
   const handleCreate = async () => {
-    if (!selectedCompany || !createForm.name.trim()) return;
+    if (!createTarget.target || !createForm.name.trim()) return;
     setSaving(true);
     try {
       const contact = await createContact({
-        companyId: selectedCompany.id,
+        companyId: createTarget.target,
         kind: createForm.kind,
         name: createForm.name.trim(),
         legalName: createForm.legalName.trim() || undefined,
@@ -358,7 +375,7 @@ export function ContactsPage() {
       description={t('contacts.subtitle')}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-        {selectedCompany ? (
+        {selectedCompany && !createTarget.inTree ? (
           <CsvImportExport
             exportPath={`/companies/${selectedCompany.id}/contacts/export`}
             exportFilename="contacts.csv"
@@ -366,7 +383,8 @@ export function ContactsPage() {
             onImported={reloadContacts}
           />
         ) : null}
-        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+        <CreateTargetSelect {...createTarget} />
+        {createTarget.target && <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
             <Button size="sm" data-tutorial="contacts-create"><Plus className="h-4 w-4 me-1" />{t('contacts.create')}</Button>
           </DialogTrigger>
@@ -387,10 +405,11 @@ export function ContactsPage() {
               <Button onClick={handleCreate} disabled={saving || !createForm.name.trim()}>{t('common.save')}</Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
         </div>
       }
     >
+      <MissingCompanies missing={missing} />
       {/* Search + role filter */}
       <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-sm" data-tutorial="contacts-search">
@@ -435,7 +454,7 @@ export function ContactsPage() {
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     {c.kind === 'Organization' ? <Building2 className="h-4 w-4 text-muted-foreground shrink-0" /> : <User className="h-4 w-4 text-muted-foreground shrink-0" />}
-                    <span>{c.name}</span>
+                    <span>{c.name}<CompanyLabel companyId={c.companyId} /></span>
                     {c.visibility === 'Private' && <Lock className="h-3 w-3 text-red-400 shrink-0" />}
                     {(c as any).priority && (
                       <span className={`text-xs font-bold ${PRIORITY_COLORS[(c as any).priority as ContactPriority]}`}>
@@ -589,7 +608,7 @@ export function ContactsPage() {
                       <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">—</SelectItem>
-                        {companyUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                        {(usersByCompany[crmContact?.companyId ?? ''] ?? []).map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

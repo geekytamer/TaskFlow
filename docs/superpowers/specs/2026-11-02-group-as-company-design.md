@@ -151,6 +151,11 @@ view lists these across companies but every action happens in one company.
   `res.json(store.listX(id))` to `res.json(scopedRead(req, RULE, id, (c) =>
   store.listX(c)))`. The store's per-company SQL is unchanged, so every
   existing filter, redaction and visibility rule keeps working.
+- **As built in stage 2 (ruling):** the fan-out runs in the app instead: a
+  whole-group page calls the existing per-company API once per company and
+  merges (`lib/fan-out.ts`). It gives the same answer as `scopedRead` with no
+  route changes, and each company keeps exactly its own checks. A server
+  `scopedRead` stays the option if a group grows past roughly 20 companies.
 - Routes are converted family by family (84 families). The route registry
   records each route as `group-aware` or `company-only`. A `company-only` read
   called on a group with `scope=tree` is refused with 409 and a clear message,

@@ -1,7 +1,14 @@
 'use client';
 
+import { useCompanyScope } from '@/context/company-scope-context';
+import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { sumByCurrency } from '@/lib/money-by-currency';
+import { CompanyLabel } from '@/modules/groups/components/company-cell';
+import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
+import { MissingCompanies } from '@/modules/groups/components/missing-companies';
+import { CreateTargetSelect, useCreateTarget } from '@/modules/groups/components/company-picker';
+import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import * as React from 'react';
-import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,7 +46,7 @@ import { Building2, User, Plus, Search } from 'lucide-react';
 
 export function SuppliersPage() {
   const { selectedCompany } = useCompany();
-  const { amount } = useCompanyCurrency();
+  const { amountIn } = useCompanyCurrency();
   const { t } = useI18n();
   const { toast } = useToast();
   const [contacts, setContacts] = React.useState<Contact[]>([]);
@@ -52,20 +59,26 @@ export function SuppliersPage() {
   const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([]);
   const [createCustomValues, setCreateCustomValues] = React.useState<Record<string, unknown>>({});
   const [saving, setSaving] = React.useState(false);
+  // A group shown whole: every company's suppliers; money in each company's currency.
+  const { companyIds } = useCompanyScope();
+  const scopeKey = companyIds.join(',');
+  const [missing, setMissing] = React.useState<MissingCompany[]>([]);
+  const createTarget = useCreateTarget('contacts.create');
+  const currencyOf = useCurrencyOf();
 
   React.useEffect(() => {
-    if (!selectedCompany) { setCustomFieldDefs([]); return; }
+    if (!createTarget.target) { setCustomFieldDefs([]); return; }
     let cancelled = false;
-    getCustomFieldDefinitions(selectedCompany.id, 'contact')
+    getCustomFieldDefinitions(createTarget.target, 'contact')
       .then((defs) => { if (!cancelled) setCustomFieldDefs(defs); })
       .catch(() => { if (!cancelled) setCustomFieldDefs([]); });
     return () => { cancelled = true; };
-  }, [selectedCompany]);
+  }, [createTarget.target]);
 
   React.useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (!selectedCompany) {
+      if (!selectedCompany || !scopeKey) {
         setContacts([]);
         setOrders([]);
         setPayables([]);
@@ -74,15 +87,18 @@ export function SuppliersPage() {
       }
       setLoading(true);
       try {
+        const ids = scopeKey.split(',');
+        // Each company answers for itself; one that refuses purchasing just has no figures.
         const [contactData, orderData, payableData] = await Promise.all([
-          getContacts(selectedCompany.id, 'Vendor'),
-          isModuleOn(selectedCompany, 'purchasing') ? getPurchaseOrders(selectedCompany.id) : Promise.resolve([] as Awaited<ReturnType<typeof getPurchaseOrders>>),
-          getSupplierPayables(selectedCompany.id),
+          fanOut(ids, (id) => getContacts(id, 'Vendor')),
+          fanOut(ids, (id) => getPurchaseOrders(id)),
+          fanOut(ids, (id) => getSupplierPayables(id)),
         ]);
         if (!cancelled) {
-          setContacts(contactData);
-          setOrders(orderData);
-          setPayables(payableData);
+          setContacts(contactData.rows);
+          setMissing(contactData.missing);
+          setOrders(orderData.rows);
+          setPayables(payableData.rows);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -90,7 +106,7 @@ export function SuppliersPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [selectedCompany]);
+  }, [selectedCompany, scopeKey]);
 
   const contactMetrics = React.useMemo(() => {
     const map = new Map<string, { orderCount: number; spend: number }>();
@@ -111,9 +127,15 @@ export function SuppliersPage() {
     return map;
   }, [payables]);
 
+  // Per company currency: never added across currencies.
   const openPayablesTotal = React.useMemo(
-    () => payables.reduce((sum: number, p: SupplierPayablesSummary) => sum + p.openPayables, 0),
-    [payables],
+    () => sumByCurrency(
+      payables as Array<SupplierPayablesSummary & { companyId: string }>,
+      (p) => currencyOf(p.companyId),
+      (p) => p.openPayables,
+      currencyOf(selectedCompany?.id ?? ''),
+    ),
+    [payables, currencyOf, selectedCompany],
   );
 
   const filtered = React.useMemo(() => {
@@ -127,11 +149,11 @@ export function SuppliersPage() {
   }, [contacts, search]);
 
   const handleCreate = async () => {
-    if (!selectedCompany || !form.name.trim()) return;
+    if (!createTarget.target || !form.name.trim()) return;
     setSaving(true);
     try {
       const contact = await createContact({
-        companyId: selectedCompany.id,
+        companyId: createTarget.target,
         ...buildContactPayload(form, { customFields: createCustomValues, lockedRole: 'Vendor' }),
       });
       setContacts((prev: Contact[]) => [...prev, contact]);
@@ -151,7 +173,9 @@ export function SuppliersPage() {
       title={t('sections.suppliers.title')}
       description={t('sections.suppliers.description')}
       actions={
-        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+        <div className="flex flex-wrap items-center gap-2">
+        <CreateTargetSelect {...createTarget} />
+        {createTarget.target && <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogTrigger asChild>
             <Button size="sm"><Plus className="h-4 w-4 me-1" />{t('suppliers.addSupplier')}</Button>
           </DialogTrigger>
@@ -174,9 +198,11 @@ export function SuppliersPage() {
               <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
+        </div>
       }
     >
+      <MissingCompanies missing={missing} />
       <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -199,7 +225,7 @@ export function SuppliersPage() {
             <CardTitle className="text-sm font-medium">{t('suppliers.statOpenPayables')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold">{amount(openPayablesTotal)}</div>}
+            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-bold"><CurrencyTotals totals={openPayablesTotal} /></div>}
           </CardContent>
         </Card>
         <Card>
@@ -261,7 +287,7 @@ export function SuppliersPage() {
                       ) : (
                         <User className="h-4 w-4 text-muted-foreground shrink-0" />
                       )}
-                      {c.name}
+                      <span>{c.name}<CompanyLabel companyId={c.companyId} /></span>
                     </div>
                   </TableCell>
                   <TableCell>{c.contactPerson ?? '—'}</TableCell>
@@ -270,7 +296,7 @@ export function SuppliersPage() {
                   <TableCell className="text-end">{metrics?.orderCount ?? 0}</TableCell>
                   <TableCell className="text-end">
                     {payable?.openPayables ? (
-                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amount(payable.openPayables)}</Badge>
+                      <Badge variant="outline" className="text-orange-600 dark:text-orange-400">{amountIn(payable.openPayables, currencyOf(c.companyId))}</Badge>
                     ) : '—'}
                   </TableCell>
                 </TableRow>

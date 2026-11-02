@@ -1,5 +1,15 @@
 'use client';
 
+import { useCompanyScope } from '@/context/company-scope-context';
+import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { sumByCurrency } from '@/lib/money-by-currency';
+import { formatCurrency } from '@/lib/currency';
+import { CompanyLabel } from '@/modules/groups/components/company-cell';
+import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
+import { MissingCompanies } from '@/modules/groups/components/missing-companies';
+import { PerCompany } from '@/modules/groups/components/per-company';
+import { CreateTargetSelect, useCreateTarget } from '@/modules/groups/components/company-picker';
+import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import * as React from 'react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -96,7 +106,14 @@ export function SalesPage() {
   const canManage = can('sales.edit');
   const canDelete = can('sales.delete');
   const { t, language } = useI18n();
-  const { amount, money } = useCompanyCurrency();
+  const { amountIn } = useCompanyCurrency();
+  // A group shown whole: every company's orders; the form works on one company.
+  const { companyIds } = useCompanyScope();
+  const scopeKey = companyIds.join(',');
+  const [missing, setMissing] = React.useState<MissingCompany[]>([]);
+  const createTarget = useCreateTarget('sales.create');
+  const currencyOf = useCurrencyOf();
+  const loadTicket = React.useRef(0);
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
@@ -145,7 +162,7 @@ export function SalesPage() {
 
   const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
     const quiet = opts?.quiet === true;
-    if (!selectedCompany) {
+    if (!selectedCompany || !scopeKey) {
       setOrders([]);
       setClients([]);
       setItems([]);
@@ -156,18 +173,23 @@ export function SalesPage() {
     }
     if (!quiet) setLoading(true);
     try {
+      const ids = scopeKey.split(',');
+      // Only the newest load lands: an answer for an earlier scope is dropped.
+      const ticket = ++loadTicket.current;
       const [orderData, clientData, itemData, invoiceData, templateData] = await Promise.all([
-        getSalesOrders(selectedCompany.id),
-        getContacts(selectedCompany.id, 'Client'),
-        getInventoryItems(selectedCompany.id),
-        getInvoices(selectedCompany.id),
-        getInvoiceTemplates(selectedCompany.id, 'invoice'),
+        fanOut(ids, (id) => getSalesOrders(id)),
+        fanOut(ids, (id) => getContacts(id, 'Client')),
+        fanOut(ids, (id) => getInventoryItems(id)),
+        fanOut(ids, (id) => getInvoices(id)),
+        fanOut(ids, (id) => getInvoiceTemplates(id, 'invoice')),
       ]);
-      setOrders(orderData);
-      setClients(clientData);
-      setItems(itemData);
-      setInvoiceIds(new Set(invoiceData.map((invoice) => invoice.id)));
-      setInvoiceTemplates(templateData);
+      if (ticket !== loadTicket.current) return;
+      setOrders(orderData.rows);
+      setMissing(orderData.missing);
+      setClients(clientData.rows);
+      setItems(itemData.rows);
+      setInvoiceIds(new Set(invoiceData.rows.map((invoice) => invoice.id)));
+      setInvoiceTemplates(templateData.rows);
     } catch (error: any) {
       if (quiet) return;
       toast({
@@ -178,7 +200,7 @@ export function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, scopeKey, toast]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['sales-orders', 'quotations', 'deliveries', 'customer-returns', 'invoices', 'inventory-items', 'contacts'], () => load({ quiet: true }));
@@ -201,15 +223,19 @@ export function SalesPage() {
     const openOrders = orders.filter((order) => order.status === 'Draft' || order.status === 'Confirmed');
     return {
       openOrders: openOrders.length,
-      confirmedValue: orders
-        .filter((order) => order.status === 'Confirmed')
-        .reduce((sum, order) => sum + order.totalAmount, 0),
-      invoicedValue: orders
-        .filter((order) => order.status === 'Invoiced')
-        .reduce((sum, order) => sum + order.totalAmount, 0),
+      // Per company currency: never added across currencies.
+      confirmedValue: sumByCurrency(orders.filter((order) => order.status === 'Confirmed'),
+        (order) => currencyOf(order.companyId), (order) => order.totalAmount, currencyOf(selectedCompany?.id ?? '')),
+      invoicedValue: sumByCurrency(orders.filter((order) => order.status === 'Invoiced'),
+        (order) => currencyOf(order.companyId), (order) => order.totalAmount, currencyOf(selectedCompany?.id ?? '')),
       cancelled: orders.filter((order) => order.status === 'Cancelled').length,
     };
-  }, [orders]);
+  }, [orders, currencyOf, selectedCompany]);
+
+  // The company the order form works on: the order's own when editing, else the chosen one.
+  const formCompanyId = editingOrder?.companyId ?? createTarget.target;
+  const formClients = React.useMemo(() => clients.filter((c) => c.companyId === formCompanyId), [clients, formCompanyId]);
+  const formItems = React.useMemo(() => items.filter((i) => (i as { companyId?: string }).companyId === formCompanyId), [items, formCompanyId]);
 
   const estimatedTotal = React.useMemo(() => formItemsTotal(form.items), [form.items]);
 
@@ -246,7 +272,7 @@ export function SalesPage() {
   };
 
   const handleCreate = async () => {
-    if (!selectedCompany) return;
+    if (!formCompanyId) return;
     if (!form.contactId || !form.orderDate) {
       toast({ variant: 'destructive', title: t('sales.missingFieldsTitle'), description: t('sales.missingFieldsDescription') });
       return;
@@ -272,7 +298,7 @@ export function SalesPage() {
           items: preparedItems,
         });
       } else {
-        await createSalesOrder(selectedCompany.id, {
+        await createSalesOrder(formCompanyId, {
           clientId,
           contactId: form.contactId,
           orderDate: new Date(form.orderDate),
@@ -306,7 +332,7 @@ export function SalesPage() {
   };
 
   const openInvoiceDialog = (order: SalesOrder) => {
-    setInvoiceTemplateId(chooseTemplateId(invoiceTemplates));
+    setInvoiceTemplateId(chooseTemplateId(invoiceTemplates.filter((tpl) => (tpl as { companyId?: string }).companyId === order.companyId)));
     setInvoiceOrder(order);
   };
 
@@ -353,10 +379,10 @@ export function SalesPage() {
           <TabsTrigger value="returns">{language === 'ar' ? 'المرتجعات' : 'Returns'}</TabsTrigger>
         </TabsList>
         <TabsContent value="quotations" className="mt-4">
-          <QuotationsPanel />
+          <PerCompany><QuotationsPanel /></PerCompany>
         </TabsContent>
         <TabsContent value="returns" className="mt-4">
-          <ReturnsPanel />
+          <PerCompany><ReturnsPanel /></PerCompany>
         </TabsContent>
         <TabsContent value="orders" className="mt-4 space-y-6">
       <div className="grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4" data-tutorial="sales-metrics">
@@ -366,11 +392,11 @@ export function SalesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.confirmedValue')}</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{amount(stats.confirmedValue)}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-blue-600 dark:text-blue-400"><CurrencyTotals totals={stats.confirmedValue} /></div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.invoicedValue')}</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{amount(stats.invoicedValue)}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400"><CurrencyTotals totals={stats.invoicedValue} /></div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{t('sales.cancelled')}</CardTitle></CardHeader>
@@ -394,9 +420,11 @@ export function SalesPage() {
         )}
         summary={interpolate(t('sales.showingSummary'), { shown: filteredOrders.length, total: orders.length })}
         actions={(
+          <div className="flex flex-wrap items-center gap-2">
+          <CreateTargetSelect {...createTarget} />
           <Dialog open={openCreate} onOpenChange={(open) => { setOpenCreate(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button disabled={!clients.length} data-tutorial="sales-create-btn">
+              <Button disabled={!formClients.length} data-tutorial="sales-create-btn">
                 <PlusCircle className="me-2 h-4 w-4" />
                 {t('sales.newOrder')}
               </Button>
@@ -414,7 +442,7 @@ export function SalesPage() {
                 <div className="space-y-1" data-tutorial="sales-form-client">
                   <Label>{t('sales.client')}</Label>
                   <Combobox
-                    options={clients.map((c: Contact) => ({ value: c.id, label: c.name }))}
+                    options={formClients.map((c: Contact) => ({ value: c.id, label: c.name }))}
                     value={form.contactId}
                     onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
                     placeholder={t('sales.selectClient')}
@@ -442,7 +470,7 @@ export function SalesPage() {
                 </div>}
                 <div className="space-y-1">
                   <Label>{t('sales.estimatedTotal')}</Label>
-                  <div className="flex h-10 items-center rounded-md border px-3 text-sm">{amount(estimatedTotal)}</div>
+                  <div className="flex h-10 items-center rounded-md border px-3 text-sm">{amountIn(estimatedTotal, currencyOf(formCompanyId))}</div>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <Label>{t('sales.notes')}</Label>
@@ -451,7 +479,7 @@ export function SalesPage() {
               </div>
 
               <div className="min-w-0 overflow-x-auto">
-                <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={items} />
+                <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={formItems} currencyCode={currencyOf(formCompanyId)} />
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
@@ -459,8 +487,10 @@ export function SalesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         )}
       />
+      <MissingCompanies missing={missing} />
 
       <div className="overflow-x-auto rounded-lg border" data-tutorial="sales-table">
         <Table>
@@ -482,7 +512,7 @@ export function SalesPage() {
             )}
             {!loading && filteredOrders.map((order) => (
               <TableRow key={order.id}>
-                <TableCell className="font-medium">{order.orderNumber}</TableCell>
+                <TableCell className="font-medium">{order.orderNumber}<CompanyLabel companyId={order.companyId} /></TableCell>
                 <TableCell>{clientMap.get(order.clientId)?.name || t('sales.unknownClient')}</TableCell>
                 <TableCell>
                   <div className="text-sm">{formatDisplayDate(order.orderDate, locale)}</div>
@@ -500,7 +530,7 @@ export function SalesPage() {
                     {order.items.length > 3 && <Badge variant="outline">+{order.items.length - 3}</Badge>}
                   </div>
                 </TableCell>
-                <TableCell className="text-end">{amount(order.totalAmount)}</TableCell>
+                <TableCell className="text-end">{amountIn(order.totalAmount, currencyOf(order.companyId))}</TableCell>
                 <TableCell>
                   <Select value={order.status} onValueChange={(value) => handleStatusUpdate(order.id, value as SalesOrderStatus)} disabled={order.status === 'Invoiced'}>
                     <SelectTrigger className="w-[145px]">
@@ -612,7 +642,7 @@ export function SalesPage() {
             <DialogTitle>{t('sales.createInvoice')}</DialogTitle>
             <DialogDescription>
               {invoiceOrder
-                ? `${invoiceOrder.orderNumber} — ${money(invoiceOrder.totalAmount)}`
+                ? `${invoiceOrder.orderNumber} — ${formatCurrency(invoiceOrder.totalAmount, currencyOf(invoiceOrder.companyId))}`
                 : ''}
             </DialogDescription>
           </DialogHeader>
@@ -623,7 +653,7 @@ export function SalesPage() {
                 <SelectValue placeholder={t('createInvoice.selectTemplate')} />
               </SelectTrigger>
               <SelectContent>
-                {invoiceTemplates.map((template) => (
+                {invoiceTemplates.filter((tpl) => (tpl as { companyId?: string }).companyId === invoiceOrder?.companyId).map((template) => (
                   <SelectItem key={template.id} value={template.id}>
                     {template.name}{template.isDefault ? ' (Default)' : ''}
                   </SelectItem>

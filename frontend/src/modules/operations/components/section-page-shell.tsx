@@ -1,5 +1,6 @@
 'use client';
 
+import { useInCompanySection } from '@/modules/groups/components/per-company';
 import * as React from 'react';
 import { localizeUiText } from '@/lib/ui-text';
 import { cn } from '@/lib/utils';
@@ -21,8 +22,19 @@ export function SectionPageShell({
   className,
   contentClassName,
 }: SectionPageShellProps) {
+  const section = useInCompanySection();
+  const inSection = section !== null && section > 0;
   const localizedTitle = localizeUiText(title);
   const localizedDescription = localizeUiText(description);
+  // One company's section of a group page: the page title is already above.
+  if (inSection) {
+    return (
+      <div className={cn('flex flex-col gap-4', className)}>
+        {actions ? <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div> : null}
+        <div className={cn('flex flex-col gap-6', contentClassName)}>{children}</div>
+      </div>
+    );
+  }
   return (
     <div className={cn('flex h-full flex-col gap-6', className)}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">

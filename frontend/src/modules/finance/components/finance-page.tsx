@@ -1,5 +1,6 @@
 'use client';
 
+import { PerCompany } from '@/modules/groups/components/per-company';
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -98,52 +99,78 @@ export function FinancePage() {
           </TabsList>
         </div>
         <TabsContent value="overview">
-          <FinanceOverviewPanel />
+          <PerCompany>
+            <FinanceOverviewPanel />
+          </PerCompany>
         </TabsContent>
         {tabOn('invoices') && (
           <TabsContent value="invoices" className="space-y-4">
-            <InvoiceTable />
-            <CreditNotesPanel />
+            <PerCompany>
+              <InvoiceTable />
+              <CreditNotesPanel />
+            </PerCompany>
           </TabsContent>
         )}
         {tabOn('payables') && (
           <TabsContent value="payables" className="space-y-4">
-            <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
-            {/* Remount so a freshly raised draft shows up without a manual reload. */}
-            <VendorBillTable key={billsVersion} />
+            <PerCompany>
+              <PendingPayablesPanel onBilled={() => setBillsVersion((v) => v + 1)} />
+              {/* Remount so a freshly raised draft shows up without a manual reload. */}
+              <VendorBillTable key={billsVersion} />
+            </PerCompany>
           </TabsContent>
         )}
         <TabsContent value="ledger">
-          <JournalTable />
+          <PerCompany>
+            <JournalTable />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="accounting">
-          <FinancialReportsPanel />
+          <PerCompany>
+            <FinancialReportsPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="reports">
-          <ReportsPanel />
+          <PerCompany>
+            <ReportsPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="activity">
-          <ActivityLogPanel />
+          <PerCompany>
+            <ActivityLogPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="expenses" className="space-y-4">
-          <StandaloneExpenseTable />
-          {/* Task expenses come from the tasks module. */}
-          {moduleOn('tasks') && <ExpenseTable />}
+          <PerCompany>
+            <StandaloneExpenseTable />
+            {/* Task expenses come from the tasks module. */}
+            {moduleOn('tasks') && <ExpenseTable />}
+          </PerCompany>
         </TabsContent>
         <TabsContent value="bank">
-          <BankReconciliationPanel />
+          <PerCompany>
+            <BankReconciliationPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="assets">
-          <FixedAssetsPanel />
+          <PerCompany>
+            <FixedAssetsPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="recurring">
-          <RecurringPanel />
+          <PerCompany>
+            <RecurringPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="budgets">
-          <BudgetPanel />
+          <PerCompany>
+            <BudgetPanel />
+          </PerCompany>
         </TabsContent>
         <TabsContent value="vat">
-          <VatPanel />
+          <PerCompany>
+            <VatPanel />
+          </PerCompany>
         </TabsContent>
       </Tabs>
     </SectionPageShell>
