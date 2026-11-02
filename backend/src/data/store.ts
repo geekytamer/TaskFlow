@@ -1,4 +1,5 @@
-import { canAccessCompany } from '../http';
+import { canAccessCompany, HttpError } from '../http';
+import { childIds, subtreeIds, topOf, wouldCycle } from '../companies/tree';
 import path from 'path';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
@@ -6523,6 +6524,77 @@ export class DataStore {
     // how an open browser learns a module was switched off.
     if (modulesChanged) this.bumpAuthzVersion();
     return this.getCompanyById(id);
+  }
+
+  /**
+   * Puts a company under another (or at the top with null). The tree is the
+   * source of truth; each top company with children keeps one holding group
+   * covering its whole subtree, so group-wide roles follow every move.
+   */
+  setCompanyParent(childId: string, parentId: string | null, actorId: string | null): Company {
+    const child = this.getCompanyById(childId);
+    if (!child) throw new HttpError(404, 'Company not found.');
+    if (child.isTraining) throw new HttpError(400, 'A practice company cannot be part of a group.');
+    if (parentId !== null) {
+      const parent = this.getCompanyById(parentId);
+      if (!parent) throw new HttpError(400, 'The parent company does not exist.');
+      if (parent.isTraining) throw new HttpError(400, 'A practice company cannot be part of a group.');
+      if (wouldCycle(this.listCompanies(), childId, parentId)) {
+        throw new HttpError(400, 'A company cannot sit under itself or under a company below it.');
+      }
+    }
+    this.db.transaction(() => {
+      const oldTop = topOf(this.listCompanies(), childId);
+      this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?').run(parentId, childId);
+      const companies = this.listCompanies();
+      const newTop = topOf(companies, childId);
+      // The moved companies leave any group that isn't their new top's.
+      const keep = this.authz.holdingGroupForCompany(newTop);
+      for (const id of subtreeIds(companies, childId)) {
+        const now = this.groupOfCompany(id);
+        if (now && now !== keep) this.authz.detachCompany(id, actorId);
+      }
+      const tops = new Set([oldTop, newTop]);
+      tops.forEach((top) => this.syncHoldingGroup(top, actorId));
+    })();
+    return this.getCompanyById(childId)!;
+  }
+
+  /** Brings a top company's holding group in line with its subtree. */
+  private syncHoldingGroup(topId: string, actorId: string | null) {
+    const companies = this.listCompanies();
+    const members = subtreeIds(companies, topId);
+    const hasChildren = childIds(companies, topId).length > 0;
+    const current = this.authz.holdingGroupForCompany(topId);
+    if (!hasChildren) {
+      if (current && this.groupOfCompany(topId) === current) this.authz.detachCompany(topId, actorId);
+      return;
+    }
+    const top = companies.find((c) => c.id === topId)!;
+    const groupId = this.authz.ensureHoldingGroupFor(topId, top.name, actorId);
+    for (const id of members) {
+      const now = this.groupOfCompany(id);
+      if (now === groupId) continue;
+      if (now) this.authz.detachCompany(id, actorId);
+      this.authz.attachCompany(groupId, id, actorId);
+    }
+  }
+
+  private groupOfCompany(companyId: string): string | null {
+    const row = this.db.prepare('SELECT holdingGroupId FROM companies WHERE id = ?').get(companyId) as { holdingGroupId: string | null } | undefined;
+    return row?.holdingGroupId ?? null;
+  }
+
+  /** A new group: its holding group and the company that stands for it, run by its creator. */
+  createGroupCompany(name: string, actorId: string | null, nameAr: string | null = null): { company: Company; holdingGroupId: string } {
+    return this.db.transaction(() => {
+      const group = this.authz.createHoldingGroup({ name, nameAr }, actorId);
+      const company = this.createCompany({ name: group.name });
+      this.db.prepare('UPDATE holding_groups SET companyId = ? WHERE id = ?').run(company.id, group.id);
+      this.authz.attachCompany(group.id, company.id, actorId);
+      if (actorId) this.addCompanyMembership(actorId, company.id, 'Admin');
+      return { company: this.getCompanyById(company.id)!, holdingGroupId: group.id };
+    })();
   }
 
   /** Saves a company's brand; null puts TaskFlow's look back. */

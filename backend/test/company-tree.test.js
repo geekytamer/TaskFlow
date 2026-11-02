@@ -96,3 +96,127 @@ test('migration 154 turns each holding group into a parent company, once', () =>
   assert.equal(store.listCompanies().filter((c) => c.name === 'Acme Group').length, 1, 're-running adds nothing');
   store.db.close();
 });
+
+// ── Moving companies (Task 2) ────────────────────────────────────────
+
+const { effective } = require('../dist/authz/evaluate');
+const request = require('supertest');
+const { createServer } = require('../dist/server');
+
+const freshStore = () =>
+  new DataStore({ dbPath: path.join(makeTmpDir('taskflow-tree-'), 'taskflow.db'), seedOnEmpty: false });
+
+const groupOf = (store, companyId) =>
+  store.db.prepare('SELECT holdingGroupId FROM companies WHERE id = ?').get(companyId).holdingGroupId;
+
+test('setCompanyParent refuses a cycle, itself, and a training company, and changes nothing', () => {
+  const store = freshStore();
+  const g = store.createCompany({ name: 'G' });
+  const a = store.createCompany({ name: 'A' });
+  store.setCompanyParent(a.id, g.id, null);
+  assert.throws(() => store.setCompanyParent(g.id, a.id, null), (e) => e.status === 400);
+  assert.throws(() => store.setCompanyParent(a.id, a.id, null), (e) => e.status === 400);
+  const practice = store.createCompany({ name: 'Practice' });
+  store.db.prepare('UPDATE companies SET isTraining = 1 WHERE id = ?').run(practice.id);
+  assert.throws(() => store.setCompanyParent(practice.id, g.id, null), (e) => e.status === 400);
+  assert.throws(() => store.setCompanyParent(a.id, practice.id, null), (e) => e.status === 400);
+  assert.equal(store.getCompanyById(g.id).parentCompanyId, undefined);
+  assert.equal(store.getCompanyById(a.id).parentCompanyId, g.id);
+});
+
+test('a group-wide person reaches the group company and its children; a move takes that access along', () => {
+  const store = freshStore();
+  const g = store.createCompany({ name: 'G' });
+  const a = store.createCompany({ name: 'A' });
+  const b = store.createCompany({ name: 'B' });
+  const h = store.createCompany({ name: 'H' });
+  store.setCompanyParent(a.id, g.id, null);
+  store.setCompanyParent(b.id, g.id, null);
+  const gGroup = groupOf(store, g.id);
+  assert.ok(gGroup, 'the top company has a holding group');
+  assert.equal(groupOf(store, a.id), gGroup);
+  const ceo = makeUser(store, [], 'Employee');
+  store.authz.setHoldingAssignment(gGroup, ceo.id, { mainRoleKey: 'owner', addOnRoleKeys: [] }, null);
+  assert.deepEqual(store.authz.holdingCompanyIds(ceo.id), [g.id, a.id, b.id].sort());
+
+  store.setCompanyParent(a.id, h.id, null);
+  const hGroup = groupOf(store, h.id);
+  assert.ok(hGroup && hGroup !== gGroup);
+  const other = makeUser(store, [], 'Employee');
+  store.authz.setHoldingAssignment(hGroup, other.id, { mainRoleKey: 'owner', addOnRoleKeys: [] }, null);
+  assert.deepEqual(store.authz.holdingCompanyIds(ceo.id), [g.id, b.id].sort(), 'old group loses the moved company');
+  assert.deepEqual(store.authz.holdingCompanyIds(other.id), [h.id, a.id].sort(), 'new group gains it');
+  assert.ok(effective(store, other.id).byCompany.get(a.id).grants.has('finance.view'));
+});
+
+test('removing the last child leaves a plain company; its holding group survives, empty', () => {
+  const store = freshStore();
+  const g = store.createCompany({ name: 'G' });
+  const a = store.createCompany({ name: 'A' });
+  store.setCompanyParent(a.id, g.id, null);
+  const group = groupOf(store, g.id);
+  store.setCompanyParent(a.id, null, null);
+  assert.equal(store.getCompanyById(a.id).parentCompanyId, undefined);
+  assert.equal(groupOf(store, a.id), null);
+  assert.equal(groupOf(store, g.id), null);
+  assert.ok(store.authz.holdingGroup(group), 'the group (and its templates) is kept');
+  assert.deepEqual(store.authz.holdingGroup(group).companyIds, []);
+});
+
+test('putting two companies under a new group changes nobody\'s access in them, under legacy or v2', () => {
+  const store = freshStore();
+  const a = store.createCompany({ name: 'A' });
+  const b = store.createCompany({ name: 'B' });
+  const people = [
+    makeUser(store, [a.id, b.id], 'Admin'), makeUser(store, [a.id], 'Manager'),
+    makeUser(store, [b.id], 'Employee'), makeUser(store, [a.id, b.id], 'Accountant'),
+  ];
+  const snapshot = () => people.map((p) => {
+    const eff = effective(store, p.id);
+    const user = store.getUserById(p.id);
+    return [a.id, b.id].map((c) => ({
+      member: (user.companyIds ?? []).includes(c),
+      role: roleIn(user, c) ?? null,
+      grants: [...(eff.byCompany.get(c)?.grants.keys() ?? [])].sort(),
+    }));
+  });
+  const before = snapshot();
+  const group = store.createGroupCompany('New Group', people[0].id).company;
+  store.setCompanyParent(a.id, group.id, null);
+  store.setCompanyParent(b.id, group.id, null);
+  assert.deepEqual(snapshot(), before);
+  assert.equal(roleIn(store.getUserById(people[0].id), group.id), 'Admin', 'the creator runs the group company');
+});
+
+test('routes: the super admin creates a group (its company too), attaches and moves companies', async () => {
+  const store = freshStore();
+  const quiet = { info() {}, warn() {}, error() {} };
+  const server = createServer({ store, dbPath: ':memory:', seedOnEmpty: false, allowSeedReset: false, permissionsEngine: 'v2', logger: quiet }).listen(0);
+  server.unref();
+  const root = makeUser(store, [], 'Employee');
+  store.db.prepare('UPDATE users SET isSuperAdmin = 1 WHERE id = ?').run(root.id);
+  const auth = (r) => r.set('Authorization', `Bearer ${store.issueToken(root.id)}`);
+  const a = store.createCompany({ name: 'A' });
+
+  const created = await auth(request(server).post('/holding-groups')).send({ name: 'Al Group' });
+  assert.equal(created.status, 201);
+  assert.ok(created.body.companyId, 'the group names its company');
+  assert.equal(store.getCompanyById(created.body.companyId).name, 'Al Group');
+
+  const attached = await auth(request(server).post(`/holding-groups/${created.body.id}/companies`)).send({ companyId: a.id });
+  assert.equal(attached.status, 200);
+  assert.equal(store.getCompanyById(a.id).parentCompanyId, created.body.companyId);
+
+  const own = await auth(request(server).delete(`/holding-groups/${created.body.id}/companies/${created.body.companyId}`));
+  assert.equal(own.status, 400, 'the group\'s own company cannot leave it');
+
+  const moved = await auth(request(server).put(`/companies/${a.id}/parent`)).send({ parentCompanyId: null });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.parentCompanyId, undefined);
+
+  const member = makeUser(store, [a.id], 'Admin');
+  const refused = await request(server).put(`/companies/${a.id}/parent`)
+    .set('Authorization', `Bearer ${store.issueToken(member.id)}`).send({ parentCompanyId: created.body.companyId });
+  assert.equal(refused.status, 403);
+  server.close();
+});

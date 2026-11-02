@@ -190,10 +190,11 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
   app.post('/holding-groups', authMiddleware, handler((req, res) => {
     requireSuperAdmin(req);
     const b = body(req);
-    const group = run(() => store.authz.createHoldingGroup(
-      { name: String(b.name ?? ''), nameAr: optionalText(b.nameAr, 'nameAr') ?? null }, req.user!.id,
+    // A group is a company: creating one creates the company that stands for it.
+    const { holdingGroupId } = run(() => store.createGroupCompany(
+      String(b.name ?? ''), req.user!.id, optionalText(b.nameAr, 'nameAr') ?? null,
     ));
-    res.status(201).json(group);
+    res.status(201).json(store.authz.holdingGroup(holdingGroupId));
   }));
 
   app.put('/holding-groups/:id', authMiddleware, handler((req, res) => {
@@ -208,10 +209,15 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
 
   app.post('/holding-groups/:id/companies', authMiddleware, handler((req, res) => {
     requireSuperAdmin(req);
-    loadGroup(req.params.id);
+    const group = loadGroup(req.params.id);
     const companyId = body(req).companyId;
     if (typeof companyId !== 'string' || !companyId) throw new HttpError(400, 'companyId is required.');
-    run(() => store.authz.attachCompany(req.params.id, companyId, req.user!.id));
+    if (!group.companyId) throw new HttpError(409, 'This group has no company yet.');
+    // Moving a company out of another group is deliberate (PUT /companies/:id/parent), never a side effect.
+    if (store.authz.holdingGroups().some((g) => g.id !== group.id && g.companyIds.includes(companyId))) {
+      throw new HttpError(409, 'That company already belongs to another group.');
+    }
+    run(() => store.setCompanyParent(companyId, group.companyId, req.user!.id));
     res.json(detail(req.params.id, req));
   }));
 
@@ -219,7 +225,8 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     requireSuperAdmin(req);
     const group = loadGroup(req.params.id);
     if (!group.companyIds.includes(req.params.companyId)) throw new HttpError(404, 'That company is not in this group.');
-    run(() => store.authz.detachCompany(req.params.companyId, req.user!.id));
+    if (req.params.companyId === group.companyId) throw new HttpError(400, 'This is the group\'s own company; it stays with the group.');
+    run(() => store.setCompanyParent(req.params.companyId, null, req.user!.id));
     res.json(detail(req.params.id, req));
   }));
 
@@ -236,6 +243,10 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     const missing = userIds.find((id) => !store.getUserById(id));
     if (missing) throw new HttpError(400, `User ${missing} not found.`);
     run(() => store.authz.setHoldingAdmins(req.params.id, userIds, req.user!.id));
+    // Group admins run the group's own company, and are bounded there like in
+    // every other company of the group (C-2), so they hold Admin in it.
+    const groupCompanyId = store.authz.holdingGroup(req.params.id)?.companyId;
+    if (groupCompanyId) userIds.forEach((id) => store.addCompanyMembership(id, groupCompanyId, 'Admin'));
     res.json(detail(req.params.id, req));
   }));
 

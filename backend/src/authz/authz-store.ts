@@ -83,6 +83,8 @@ export interface HoldingGroupView {
   name: string;
   nameAr: string | null;
   createdAt: string;
+  /** The company that stands for the group (companies/tree.ts). */
+  companyId: string | null;
   companyIds: string[];
   adminUserIds: string[];
 }
@@ -846,6 +848,7 @@ export class AuthzStore {
 
   private holdingView(g: { id: string; name: string; nameAr: string | null; createdAt: string }): HoldingGroupView {
     return {
+      companyId: (g as { companyId?: string | null }).companyId ?? null,
       ...g,
       companyIds: (this.db.prepare('SELECT id FROM companies WHERE holdingGroupId = ? ORDER BY id').all(g.id) as Array<{ id: string }>).map((r) => r.id),
       adminUserIds: (this.db.prepare('SELECT userId FROM holding_group_admins WHERE holdingGroupId = ? ORDER BY userId').all(g.id) as Array<{ userId: string }>).map((r) => r.userId),
@@ -877,6 +880,25 @@ export class AuthzStore {
       .prepare('SELECT id FROM holding_groups WHERE lower(trim(name)) = lower(?) AND id IS NOT ?')
       .get(name.trim(), exceptId ?? null);
     if (clash) throw new HttpError(409, `A group named "${name}" already exists. Choose another name.`, { code: 'DUPLICATE_NAME' });
+  }
+
+  /** The holding group that follows a top company, if it has one. */
+  holdingGroupForCompany(companyId: string): string | null {
+    const row = this.db.prepare('SELECT id FROM holding_groups WHERE companyId = ?').get(companyId) as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
+  /** The top company's holding group, created (named after the company) when missing. */
+  ensureHoldingGroupFor(topCompanyId: string, name: string, actorId: string | null): string {
+    const existing = this.holdingGroupForCompany(topCompanyId);
+    if (existing) return existing;
+    let candidate = name.trim() || 'Group';
+    for (let n = 2; this.db.prepare('SELECT 1 FROM holding_groups WHERE lower(trim(name)) = lower(?)').get(candidate); n += 1) {
+      candidate = `${name.trim()} (${n})`;
+    }
+    const group = this.createHoldingGroup({ name: candidate }, actorId);
+    this.db.prepare('UPDATE holding_groups SET companyId = ? WHERE id = ?').run(topCompanyId, group.id);
+    return group.id;
   }
 
   /** The group, or undefined. */

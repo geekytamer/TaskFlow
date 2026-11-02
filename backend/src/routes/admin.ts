@@ -163,6 +163,21 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
     }),
   );
 
+  /** Moves a company in the tree: under a group company, or to the top with null. */
+  app.put(
+    '/companies/:id/parent',
+    authMiddleware,
+    handler((req, res) => {
+      requireSuperAdmin(req);
+      const body = asRecord(req.body, 'body');
+      const parent = body.parentCompanyId;
+      if (parent !== null && (typeof parent !== 'string' || !parent)) {
+        throw new HttpError(400, 'parentCompanyId must be a company id or null.');
+      }
+      res.json(store.setCompanyParent(req.params.id, parent as string | null, req.user!.id));
+    }),
+  );
+
   app.put(
     '/companies/:id',
     authMiddleware,

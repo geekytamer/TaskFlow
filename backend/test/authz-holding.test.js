@@ -255,7 +255,8 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.equal((await as(root).put(`/holding-groups/${g}/admins`, { userIds: [dana.id] })).status, 200);
     const read = await as(dana).get(`/holding-groups/${g}`);
     assert.equal(read.status, 200);
-    assert.deepEqual(read.body.companies.map((c) => c.id), ['1', '2']);
+    // A group is a company: its own company is one of its companies.
+    assert.deepEqual(read.body.companies.map((c) => c.id).sort(), ['1', '2', created.body.companyId].sort());
     assert.deepEqual(read.body.admins.map((a) => a.id), [dana.id]);
     assert.ok(read.body.templates.some((t) => t.key === 'owner'));
     assert.deepEqual((await as(dana).get('/holding-groups')).body.map((x) => x.id), [g]);
@@ -331,7 +332,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.equal(pushed.status, 200);
     assert.ok(pushed.body.updated.some((r) => r.companyId === '1' && r.roleKey === 'group:owner'));
     // Ruling N: the companies' own Owner roles are reported, never changed.
-    assert.deepEqual(pushed.body.standard.map((r) => `${r.companyId}:${r.roleKey}`).sort(), ['1:owner', '2:owner']);
+    assert.deepEqual(pushed.body.standard.map((r) => `${r.companyId}:${r.roleKey}`).sort(), ['1:owner', '2:owner', `${created.body.companyId}:owner`].sort());
     assert.ok(store.authz.listRoles('1').find((r) => r.key === 'owner').grants.some((x) => x.key === 'finance.view'));
     assert.equal(effective(store, charlie.id).byCompany.get('1').grants.has('finance.view'), false);
     assert.equal((await as(dana).get(`/holding-groups/${g}/templates/unknown`)).status, 404);

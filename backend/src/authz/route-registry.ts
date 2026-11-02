@@ -798,6 +798,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/admin/tools/backup', permission: 'super_admin' },
   { method: 'POST', path: '/admin/impersonate/:userId', permission: 'super_admin' },
   { method: 'POST', path: '/companies', permission: 'super_admin' },
+  { method: 'PUT', path: '/companies/:id/parent', permission: 'super_admin' },
   { method: 'DELETE', path: '/companies/:id', permission: 'super_admin' },
   { method: 'POST', path: '/positions', permission: 'super_admin' },
   { method: 'PUT', path: '/positions/:id', permission: 'super_admin' },
