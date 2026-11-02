@@ -68,3 +68,10 @@ Staff app:
 - Add to roster: creates and links the profile (isRoster, outside the 200); 409 on a known handle; 403 without DISCOVER_MANAGE.
 
 Staff app: tsc, and a browser check of the dialog, the CSV round trip and the Discover button, in Arabic at phone width.
+
+## Decided while building
+
+- Giving an existing contact the Influencer role (`POST /contacts/:id/roles`) runs the same duplicate check, so the guard cannot be stepped around.
+- Quick add refuses text over 20,000 characters (400) instead of cutting it, so a link is never cut into a wrong handle.
+- `DELETE /tasks/:id` is listed in the ungated-routes test: it checks per record (`requireTaskViewAccess`); the extractor had read the next route's roles into it.
+- `route-permissions.ts` and `gate-matrix.csv` got only the quick-add line by hand: regenerating on master pulls in unrelated stale task/project lines and fails on `project-templates`.
