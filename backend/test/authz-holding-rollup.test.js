@@ -237,7 +237,7 @@ test('observations name the company carrying the group, and stay quiet when they
 
 // ── The group company's own dashboard covers its tree ────────────────
 
-for (const engine of ['legacy', 'v2']) {
+for (const engine of ['legacy', 'shadow', 'v2']) {
   test(`the group company's dashboard rolls up its tree (${engine})`, async () => {
     const { store, as, byEmail } = build(engine);
     const admin = byEmail('admin@taskflow.com'); // Admin in every seeded company

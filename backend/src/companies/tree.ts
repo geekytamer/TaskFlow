@@ -14,10 +14,18 @@ export const childIds = (companies: readonly TreeNode[], id: string): string[] =
 
 /** The company itself first, then everything below it, breadth-first. */
 export const subtreeIds = (companies: readonly TreeNode[], rootId: string): string[] => {
+  // One pass to index children, so the walk is linear in the number of companies.
+  const children = new Map<string, string[]>();
+  for (const c of companies) {
+    if (!c.parentCompanyId) continue;
+    const list = children.get(c.parentCompanyId);
+    if (list) list.push(c.id);
+    else children.set(c.parentCompanyId, [c.id]);
+  }
   const out = [rootId];
   const seen = new Set(out);
   for (let i = 0; i < out.length; i += 1) {
-    for (const child of childIds(companies, out[i])) {
+    for (const child of children.get(out[i]) ?? []) {
       // A corrupt loop in the data must not hang a request.
       if (seen.has(child)) continue;
       seen.add(child);

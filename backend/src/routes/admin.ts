@@ -130,7 +130,12 @@ export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
         return res.json(companies);
       }
       const accessible = new Set(ctx.accessibleCompanyIds(req.user!));
-      res.json(companies.filter((company) => accessible.has(company.id)));
+      // A parent this person can't open stays unnamed: the company shows as a top.
+      res.json(companies
+        .filter((company) => accessible.has(company.id))
+        .map((company) => (company.parentCompanyId && !accessible.has(company.parentCompanyId)
+          ? { ...company, parentCompanyId: undefined }
+          : company)));
     }),
   );
 

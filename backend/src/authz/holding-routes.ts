@@ -201,7 +201,7 @@ export function registerHoldingRoutes(app: Express, ctx: RouteContext): void {
     requireSuperAdmin(req);
     loadGroup(req.params.id);
     const b = body(req);
-    res.json(run(() => store.authz.updateHoldingGroup(req.params.id, {
+    res.json(run(() => store.renameGroup(req.params.id, {
       name: b.name === undefined ? undefined : String(b.name),
       nameAr: optionalText(b.nameAr, 'nameAr'),
     }, req.user!.id)));

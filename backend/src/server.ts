@@ -8009,7 +8009,7 @@ export function createServer(options: CreateServerOptions = {}) {
       // A group company's dashboard can cover its whole tree; the filter only narrows it.
       if (req.query.scope === 'tree') {
         const asked = askedCompanyIds(req.query.companyIds);
-        const tree = subtreeIds(store.listCompanies(), req.params.companyId).filter((id) => !asked || asked.has(id));
+        const tree = subtreeIds(store.companyTreeNodes(), req.params.companyId).filter((id) => !asked || asked.has(id));
         return res.json(groupDashboard(
           { store, allowsRule, viewerOf, accessibleCompanyIds }, req, req.params.companyId, tree,
         ));
