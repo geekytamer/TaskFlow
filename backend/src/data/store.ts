@@ -5597,6 +5597,18 @@ export class DataStore {
           if (!cols.includes('newScope')) this.db.exec('ALTER TABLE authz_divergence ADD COLUMN newScope TEXT');
         },
       },
+      {
+        // A group is a company: companies get a parent, and each holding group
+        // gets the company that stands for it (spec 2026-11-02-group-as-company).
+        id: '154_company_tree',
+        run: () => {
+          const has = (table: string, column: string) =>
+            (this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some((c) => c.name === column);
+          if (!has('companies', 'parentCompanyId')) this.db.exec('ALTER TABLE companies ADD COLUMN parentCompanyId TEXT');
+          if (!has('holding_groups', 'companyId')) this.db.exec('ALTER TABLE holding_groups ADD COLUMN companyId TEXT');
+          this.holdingGroupsToTree();
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -5606,6 +5618,59 @@ export class DataStore {
         markApplied.run(migration.id, new Date().toISOString());
       });
       trx();
+    });
+  }
+
+  /**
+   * Each holding group without its company gets one, named after the group,
+   * with the group's companies beneath it. Admins there: the group's admins
+   * and whoever is Admin in every company of the group. Nobody's access in an
+   * existing company changes.
+   */
+  private holdingGroupsToTree() {
+    const groups = this.db
+      .prepare('SELECT id, name FROM holding_groups WHERE companyId IS NULL ORDER BY createdAt')
+      .all() as Array<{ id: string; name: string }>;
+    for (const group of groups) {
+      const memberIds = (this.db.prepare('SELECT id FROM companies WHERE holdingGroupId = ?').all(group.id) as Array<{ id: string }>)
+        .map((r) => r.id);
+      const parent = this.createCompany({ name: group.name });
+      this.db.prepare('UPDATE companies SET holdingGroupId = ? WHERE id = ?').run(group.id, parent.id);
+      this.db.prepare('UPDATE holding_groups SET companyId = ? WHERE id = ?').run(parent.id, group.id);
+      const setParent = this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?');
+      memberIds.forEach((id) => setParent.run(parent.id, id));
+
+      const currencies = new Set(memberIds.map((id) => this.getCompanyFinanceSettings(id).currencyCode));
+      if (currencies.size === 1) {
+        this.db.prepare('UPDATE company_finance_settings SET currencyCode = ? WHERE companyId = ?').run([...currencies][0], parent.id);
+      }
+
+      const groupAdmins = new Set((this.db.prepare('SELECT userId FROM holding_group_admins WHERE holdingGroupId = ?').all(group.id) as Array<{ userId: string }>)
+        .map((r) => r.userId));
+      for (const user of this.listUsers()) {
+        const adminEverywhere = memberIds.length > 0
+          && memberIds.every((id) => this.companyRolesOf(user).find((r) => r.companyId === id)?.role === 'Admin');
+        if (groupAdmins.has(user.id) || adminEverywhere) this.addCompanyMembership(user.id, parent.id, 'Admin');
+      }
+    }
+  }
+
+  /** A person's role per company, read the way every other check reads it. */
+  private companyRolesOf(user: { role: string; companyIds?: string[]; companyRoles?: Array<{ companyId: string; role: string }> }) {
+    return user.companyRoles?.length
+      ? user.companyRoles
+      : (user.companyIds ?? []).map((companyId) => ({ companyId, role: user.role }));
+  }
+
+  /** Adds a company to a person's memberships with a role; an existing membership stays as it is. */
+  addCompanyMembership(userId: string, companyId: string, role: string) {
+    const user = this.getUserById(userId);
+    if (!user) return;
+    const roles = this.companyRolesOf(user);
+    if (roles.some((r) => r.companyId === companyId)) return;
+    this.updateUser(userId, {
+      companyIds: [...new Set([...(user.companyIds ?? []), companyId])],
+      companyRoles: [...roles, { companyId, role }] as any,
     });
   }
 
@@ -6349,6 +6414,7 @@ export class DataStore {
       branding: readStoredBranding(row.branding),
       isTraining: row.isTraining === 1,
       trainingOwnerUserId: row.trainingOwnerUserId ?? undefined,
+      parentCompanyId: row.parentCompanyId ?? undefined,
     };
   }
 
