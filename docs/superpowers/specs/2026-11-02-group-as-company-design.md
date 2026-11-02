@@ -174,8 +174,9 @@ view lists these across companies but every action happens in one company.
 - Shared pieces every page uses: `<ScopeBar>` (scope toggle and company
   filter), `<CompanyCell>`, `<MissingCompanies>` and `<CompanyPicker>` on
   create dialogs.
-- Pages convert one by one. The sidebar hides pages not yet converted while
-  a group is selected (as now), so nothing half-works.
+- Pages convert one by one. A page not yet converted still works in a group:
+  it shows the group company's own records under a notice saying so, so
+  nothing shows one company's data under the group's name unlabelled.
 - The portfolio overview built last week becomes the group's dashboard.
 
 ### Proof before it ships
