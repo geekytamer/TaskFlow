@@ -4003,6 +4003,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       const role = requiredString(body.role, 'role') as any;
+      if (role === 'Influencer' && !contact.roles?.includes('Influencer')) assertNoHandleClash(store, contact.companyId, contact);
       store.addContactRole(req.params.id, contact.companyId, role, 'Manual');
       res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
@@ -8638,7 +8639,8 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       if (typeof body.text !== 'string') throw new HttpError(400, 'Paste at least one profile link or @handle.');
-      const results = quickAddInfluencers(store, companyId, body.text.slice(0, 20_000), (input) => withActor(req, () => store.createContact(input)));
+      if (body.text.length > 20_000) throw new HttpError(400, 'That is too much text at once. Paste at most 100 lines.');
+      const results = quickAddInfluencers(store, companyId, body.text, (input) => withActor(req, () => store.createContact(input)));
       let fetching = false;
       if (companyId === portalCompanyId && results.some((r) => r.status === 'created')) {
         if (discoverScraper && !store.discover.running(companyId)) {
@@ -8738,6 +8740,14 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManage: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'DISCOVER_MANAGE'),
       createContact: (req, input) => withActor(req as AuthedRequest, () => store.createContact(input)),
+      // Adding to the roster creates a contact, so it needs that permission as well as the directory rule.
+      canCreateContacts: (req, companyId) => {
+        const authed = req as AuthedRequest;
+        if (!authed.user) return false;
+        return authzEngine === 'openfga'
+          ? PermissionService.allows(authed.permissions, companyId, 'contacts', 'create')
+          : requireCompanyRole(authed.user, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+      },
       scraper: discoverScraper,
       monthlyCap: discoverCap,
     }));

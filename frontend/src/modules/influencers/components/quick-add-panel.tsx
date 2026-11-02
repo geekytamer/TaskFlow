@@ -29,6 +29,8 @@ export function QuickAddPanel({
   const [busy, setBusy] = React.useState(false);
   const [results, setResults] = React.useState<QuickAddResult[] | null>(null);
   const [fetching, setFetching] = React.useState(false);
+  const reloadTimer = React.useRef<number | undefined>(undefined);
+  React.useEffect(() => () => window.clearTimeout(reloadTimer.current), []);
 
   const lines = text.split('\n').filter((l) => l.trim()).length;
 
@@ -43,7 +45,10 @@ export function QuickAddPanel({
       setText(res.results.filter((r) => r.status === 'invalid').map((r) => r.line).join('\n'));
       if (res.results.some((r) => r.status === 'created')) await onAdded();
       // The directory fetch runs in the background; show its figures once it has had time to land.
-      if (res.fetching) window.setTimeout(() => { void onAdded(); }, 8000);
+      if (res.fetching) {
+        window.clearTimeout(reloadTimer.current);
+        reloadTimer.current = window.setTimeout(() => { void onAdded(); }, 8000);
+      }
     } catch (error) {
       toast({ variant: 'destructive', title: tr('Could not add', 'تعذّرت الإضافة'), description: error instanceof Error ? error.message : undefined });
     } finally {

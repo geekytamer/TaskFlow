@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import type { Contact, InfluencerAccount } from '../types';
-import { accountKeys, clashMessage, findHandleClash, parseQuickAddText } from './handles';
+import { accountKeys, clashMessage, findHandleClash, keyOf, parseQuickAddText } from './handles';
 
 type AccountFields = Pick<Contact, 'influencerPlatform' | 'influencerHandle' | 'influencerAccounts'>;
 
@@ -44,7 +44,7 @@ export function quickAddInfluencers(store: DataStore, companyId: string, text: s
   if (lines.length > QUICK_ADD_LIMIT) throw new HttpError(400, `Paste at most ${QUICK_ADD_LIMIT} lines at a time.`);
   return lines.map(({ line, name, accounts }): QuickAddResult => {
     if (accounts.length === 0) return { line, status: 'invalid' };
-    const keys = accounts.map((a) => `${a.platform.toLowerCase()}:${a.handle}`);
+    const keys = accounts.map((a) => keyOf(a.platform, a.handle));
     const clash = findHandleClash(store.listContacts(companyId, 'Influencer'), keys);
     if (clash) return { line, status: 'existing', contact: { id: clash.contact.id, name: clash.contact.name } };
     const instagram = accounts.find((a) => a.platform === 'Instagram');

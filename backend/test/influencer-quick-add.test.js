@@ -181,3 +181,20 @@ test('add to roster is refused when an influencer already has the handle, and ne
   assert.deepEqual(res.body.duplicateOf, { id: owner.id, name: 'Travel Guy' });
   assert.equal(ctx.store.listContacts(ctx.company.id, 'Influencer').length, 1);
 });
+
+test('giving a contact the Influencer role is refused when another influencer has its handle', async () => {
+  const ctx = build();
+  const ahmed = influencer(ctx, 'Ahmed', [['Instagram', 'ahmed.om']]);
+  const shop = ctx.store.createContact({ companyId: ctx.company.id, kind: 'Person', name: 'Shop', roles: ['Client'], influencerAccounts: [{ id: 's', platform: 'Instagram', handle: 'ahmed.om' }] });
+  const res = await request(ctx.server).post(`/contacts/${shop.id}/roles`).set(ctx.admin).send({ role: 'Influencer' });
+  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.deepEqual(res.body.duplicateOf, { id: ahmed.id, name: 'Ahmed' });
+  assert.deepEqual(ctx.store.getContactById(shop.id).roles, ['Client']);
+});
+
+test('quick add refuses text too long to read whole, instead of cutting a link', async () => {
+  const ctx = build();
+  const res = await request(ctx.server).post(`/companies/${ctx.company.id}/influencers/quick-add`).set(ctx.admin).send({ text: `@a.b${' '.repeat(20_000)}` });
+  assert.equal(res.status, 400);
+  assert.equal(ctx.store.listContacts(ctx.company.id, 'Influencer').length, 0);
+});

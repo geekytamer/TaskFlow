@@ -22,6 +22,7 @@ export interface DiscoverStaffDeps {
   canManage(req: StaffRequest, companyId: string): boolean;
   /** Creates a contact as the signed-in person (their name on the activity log). */
   createContact(req: StaffRequest, input: Parameters<DataStore['createContact']>[0]): Contact;
+  canCreateContacts(req: StaffRequest, companyId: string): boolean;
   /** Absent when no Apify token is set: profiles can still be added and edited, not fetched. */
   scraper?: DiscoverScraper;
   monthlyCap: number;
@@ -173,6 +174,7 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
   /** Makes a directory profile one of Peak's influencers: a record from its figures, then linked as their roster entry. */
   router.post('/discover-profiles/:id/add-to-roster', authMiddleware, wrap((req, res) => {
     const profile = loadProfile(req);
+    if (!deps.canCreateContacts(req, companyId)) throw new HttpError(403, 'You do not have permission to add contacts.');
     if (profile.isRoster || profile.contactId) throw new HttpError(409, "This profile is already linked to one of Peak's influencers.");
     const account: InfluencerAccount = {
       id: randomUUID(),
