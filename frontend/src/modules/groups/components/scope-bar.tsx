@@ -30,7 +30,7 @@ export function ScopeBar({ className }: { className?: string }) {
             role="radio"
             aria-checked={scope === value}
             onClick={() => setScope(value)}
-            className={cn('rounded px-2.5 py-1 transition-colors', scope === value ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+            className={cn('whitespace-nowrap rounded px-2.5 py-1 transition-colors', scope === value ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
           >
             {label}
           </button>

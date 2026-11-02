@@ -152,6 +152,8 @@ export interface HoldingGroup {
   name: string;
   nameAr: string | null;
   createdAt: string;
+  /** The company that stands for the group; it is one of `companyIds`. */
+  companyId?: string | null;
   companyIds: string[];
   adminUserIds: string[];
 }

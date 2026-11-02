@@ -407,6 +407,12 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
                 <li key={c.id} className="px-4 py-2.5">
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 break-words text-sm font-medium">{c.name ?? c.id}</span>
+                    {c.id === detail.companyId ? (
+                      // The group is a company: this one is the group itself, and stays.
+                      <span className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+                        {tr("The group's own company", 'شركة المجموعة نفسها')}
+                      </span>
+                    ) : (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -420,6 +426,7 @@ function GroupManage({ group, groups, companies, users, onBack, onRename, onChan
                         : <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
                       <span className="sr-only sm:not-sr-only sm:ms-1">{tr('Remove', 'إزالة')}</span>
                     </Button>
+                    )}
                   </div>
                   {rowError?.id === c.id && <InlineError message={rowError.message} className="mt-1" />}
                 </li>

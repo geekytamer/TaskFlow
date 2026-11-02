@@ -440,6 +440,8 @@ export function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background p-0 sm:p-4 lg:p-8 font-sans text-foreground space-y-6">
+      {/* A group company's own dashboard: the way back to the whole group. */}
+      <ScopeBar className="justify-end" />
       <div className="tf-rise flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
@@ -459,8 +461,6 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {/* A group company's own dashboard: the way back to the whole group. */}
-          <ScopeBar />
           <Tabs value={String(days)} onValueChange={(v) => setDays(Number(v) as InsightPeriod)}>
             <TabsList>
               <TabsTrigger value="30">{tr('30 days', '30 يوم')}</TabsTrigger>
