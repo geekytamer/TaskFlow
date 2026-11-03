@@ -6506,7 +6506,12 @@ export class DataStore {
 
   }
 
+  /** All or nothing: a group company's rename also renames its group, and a clash undoes both. */
   updateCompany(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
+    return this.db.transaction(() => this.updateCompanyRow(id, updates))();
+  }
+
+  private updateCompanyRow(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
     const existing = this.getCompanyById(id);
     if (!existing) return undefined;
     // Absent fields keep their value. The route passes every field, with

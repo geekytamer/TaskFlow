@@ -52,9 +52,10 @@ for (const engine of ENGINES) {
     const admin = user('Admin');
     const manager = user('Manager');
     const demote = await as(manager).put(`/users/${admin.id}`, { companyRoles: [{ companyId: acme.id, role: 'Employee' }] });
-    // v2: the Manager is below the Admin (403 HIGHER_THAN_YOU). Legacy lets a
-    // Manager set an Employee role, but not on the last Admin (409 LOCKOUT).
-    assert.equal(demote.status, engine === 'v2' ? 403 : 409, JSON.stringify(demote.body));
+    // A Manager is below the Admin under every engine: v2 says HIGHER_THAN_YOU,
+    // legacy and shadow ROLE_ASSIGN_FORBIDDEN (the role being taken away counts
+    // too, since 2026-11-03; before, legacy only checked the new role).
+    assert.equal(demote.status, 403, JSON.stringify(demote.body));
     assert.equal(store.getUserById(admin.id).companyRoles[0].role, 'Admin');
     const remove = await as(manager).del(`/users/${admin.id}`);
     assert.ok([403, 409].includes(remove.status), JSON.stringify(remove.body));

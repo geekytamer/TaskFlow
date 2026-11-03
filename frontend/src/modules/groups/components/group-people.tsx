@@ -212,7 +212,9 @@ function GiveAccessDialog({ person, companies, name, roleName, tr, onClose, onGi
 }) {
   const [companyId, setCompanyId] = React.useState('');
   const [role, setRole] = React.useState<string>('Employee');
-  React.useEffect(() => { setCompanyId(companies[0] ?? ''); setRole('Employee'); }, [person, companies]);
+  // Reset when another person opens the dialog, not on every render of the list.
+  const choicesKey = companies.join(',');
+  React.useEffect(() => { setCompanyId(choicesKey.split(',')[0] ?? ''); setRole('Employee'); }, [person, choicesKey]);
   return (
     <Dialog open={Boolean(person)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-sm">

@@ -67,7 +67,10 @@ export function registerGroupPeopleRoutes(
     if (!superAdmin && !allowsRule(req, groupId, 'USERS_WRITE')) {
       throw new HttpError(403, 'Only people who manage users in the group company see its people.', { code: 'FORBIDDEN' });
     }
-    const tree = subtreeIds(store.companyTreeNodes(), groupId);
+    // Only companies this person can open: someone seen only through a company
+    // they can't open stays out, like that company's name.
+    const reachable = new Set(ctx.accessibleCompanyIds(req.user!));
+    const tree = subtreeIds(store.companyTreeNodes(), groupId).filter((id) => superAdmin || reachable.has(id));
     const inTree = new Set(tree);
     const companies = tree.map((id) => ({ id, name: store.getCompanyById(id)?.name ?? id }));
     const manageable = tree.filter((id) => superAdmin || allowsRule(req, id, 'USERS_WRITE'));

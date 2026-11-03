@@ -3233,7 +3233,7 @@ export function createServer(options: CreateServerOptions = {}) {
           (
             !existingAssignment ||
             existingAssignment.role !== assignment.role ||
-            existingAssignment.positionId !== assignment.positionId
+            (existingAssignment.positionId ?? undefined) !== (assignment.positionId ?? undefined)
           )
         );
       });
@@ -3243,7 +3243,7 @@ export function createServer(options: CreateServerOptions = {}) {
         return (
           !existingAssignment ||
           existingAssignment.role !== assignment.role ||
-          existingAssignment.positionId !== assignment.positionId
+          (existingAssignment.positionId ?? undefined) !== (assignment.positionId ?? undefined)
         );
       });
       const unmanagedRemoval = existingAssignments.find(
@@ -3267,7 +3267,13 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!assignmentsToAuthorize.length) {
         throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
       }
-      assertUserManagementPermission(req, assignmentsToAuthorize);
+      // Changing or ending someone's role is also a decision about the role
+      // they hold now: a Manager can't demote or remove an Admin (all engines;
+      // v2 also checks requireTargetWithin). Removals alongside changes count too.
+      const previousRoles = [...changedAssignments, ...managedRemovals]
+        .map((a) => existingByCompany.get(a.companyId))
+        .filter((a): a is CompanyRoleAssignment => Boolean(a));
+      assertUserManagementPermission(req, [...assignmentsToAuthorize, ...managedRemovals, ...previousRoles]);
     }
     // isSuperAdmin can only be toggled by an existing super-admin.
     // For non-super-admin callers, drop the field entirely from the patch.

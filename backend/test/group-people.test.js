@@ -45,11 +45,12 @@ for (const engine of ['legacy', 'v2']) {
     const outsider = user([[b.id, 'Employee']], 'outsider');
     const res = await as(boss).get(`/companies/${g.id}/group-people`);
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.deepEqual(res.body.companies.map((c) => c.id), [g.id, a.id, b.id]);
-    assert.deepEqual(res.body.manageable.sort(), [g.id, a.id].sort(), 'Admin in G and Alpha, nothing in Beta');
+    // Only the companies the viewer can open (G and Alpha): Beta stays out.
+    assert.deepEqual(res.body.companies.map((c) => c.id), [g.id, a.id]);
+    assert.deepEqual(res.body.manageable.sort(), [g.id, a.id].sort(), 'Admin in G and Alpha');
     const w = res.body.people.find((p) => p.id === worker.id);
-    assert.deepEqual(w.memberships.map((m) => `${m.companyId}:${m.role}`).sort(), [`${a.id}:Employee`, `${b.id}:Manager`].sort());
-    assert.ok(res.body.people.some((p) => p.id === outsider.id), 'people of any company in the tree');
+    assert.deepEqual(w.memberships.map((m) => `${m.companyId}:${m.role}`), [`${a.id}:Employee`]);
+    assert.ok(!res.body.people.some((p) => p.id === outsider.id), 'someone only in Beta is not listed');
     assert.equal(new Set(res.body.people.map((p) => p.id)).size, res.body.people.length, 'each person once');
     assert.equal((await as(worker).get(`/companies/${g.id}/group-people`)).status, 403, 'not a member of the group company');
     server.close();
@@ -108,4 +109,57 @@ test('removing someone from the group ends their access in every company I manag
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(store.getUserById(worker.id).companyRoles.map((r) => r.companyId), [outside.id]);
   server.close();
+});
+
+// ── Review fixes ─────────────────────────────────────────────────────
+
+for (const engine of ['legacy', 'shadow', 'v2']) {
+  test(`a Manager cannot demote or remove an Admin (${engine})`, async () => {
+    const { server, store, user, as, g, a } = build(engine);
+    const manager = user([[g.id, 'Manager'], [a.id, 'Manager']], 'mgr');
+    const admin = user([[a.id, 'Admin'], [g.id, 'Admin']], 'adm');
+    user([[a.id, 'Admin']], 'otheradmin');
+    const roleIn = (c) => store.getUserById(admin.id).companyRoles.find((r) => r.companyId === c)?.role;
+    const demote = await as(manager).put(`/companies/${g.id}/group-people/${admin.id}/access`, { companyId: a.id, role: 'Employee' });
+    assert.equal(demote.status, 403, JSON.stringify(demote.body));
+    assert.equal(roleIn(a.id), 'Admin');
+    const end = await as(manager).put(`/companies/${g.id}/group-people/${admin.id}/access`, { companyId: a.id, role: null });
+    assert.equal(end.status, 403);
+    assert.equal(roleIn(a.id), 'Admin');
+    server.close();
+  });
+}
+
+test('the group\'s people show only companies I can open', async () => {
+  const { server, user, as, g, a, b } = build();
+  const viewer = user([[g.id, 'Admin'], [a.id, 'Admin']], 'viewer');
+  const betaOnly = user([[b.id, 'Employee']], 'betaonly');
+  const both = user([[a.id, 'Employee'], [b.id, 'Employee']], 'both');
+  const res = await as(viewer).get(`/companies/${g.id}/group-people`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.companies.map((c) => c.id), [g.id, a.id], 'Beta is not named');
+  assert.ok(!res.body.people.some((p) => p.id === betaOnly.id), 'nobody seen only through Beta');
+  assert.deepEqual(res.body.people.find((p) => p.id === both.id).memberships.map((m) => m.companyId), [a.id]);
+  server.close();
+});
+
+test('bringing back an ended employment still allows one employer per group', async () => {
+  const { server, store, user, as, g, a, b } = build();
+  const boss = user([[g.id, 'Admin'], [a.id, 'Admin'], [b.id, 'Admin']], 'boss');
+  const worker = user([[a.id, 'Employee'], [b.id, 'Employee']], 'worker');
+  const old = await as(boss).post(`/companies/${b.id}/employees`, { name: 'Worker', userId: worker.id });
+  store.updateEmployee(old.body.id, { status: 'Terminated' });
+  assert.equal((await as(boss).post(`/companies/${a.id}/employees`, { name: 'Worker', userId: worker.id })).status, 201);
+  const revive = await as(boss).put(`/employees/${old.body.id}`, { status: 'Active' });
+  assert.equal(revive.status, 409);
+  assert.equal(store.getEmployeeById(old.body.id).status, 'Terminated');
+  server.close();
+});
+
+test('renaming a group company to a taken group name changes nothing', () => {
+  const store = new DataStore({ dbPath: path.join(makeTmpDir('taskflow-gp-rn-'), 'taskflow.db'), seedOnEmpty: false });
+  store.createGroupCompany('Taken', null);
+  const { company } = store.createGroupCompany('Mine', null);
+  assert.throws(() => store.updateCompany(company.id, { name: 'Taken' }), (e) => e.status === 409);
+  assert.equal(store.getCompanyById(company.id).name, 'Mine');
 });
